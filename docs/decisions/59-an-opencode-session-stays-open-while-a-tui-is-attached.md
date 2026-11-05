@@ -23,6 +23,9 @@ while idle, and SPEC 1 ("send a new message") reads as if messaging works for an
   a quiet root is never swept to `done`. It stays `waiting` and keeps reporting, so it can be messaged and sent `/compact`.
 - **Without a TUI, idle still means done.** A headless run, or a session whose TUI has gone for 90 seconds, ends after `idleSeconds`,
   as before. `session.deleted` and `session.archived` still end a root at once.
+- **A session with no TUI is not kept on the board.** A run with no TUI part (`opencode run`, a short headless run) is `done` when its
+  process ends or after `idleSeconds`, and a `done` session leaves the wall like any other, so such a run is not expected to show
+  there. That is the intended behavior, not a missing report: a check that needs a session to stay on the board needs a TUI attached.
 - **A delete does not reopen.** `session.deleted` and `session.archived` on a root that is already `done` change nothing, so the feed
   shows one "ended" entry, not "session reopened" followed by "session ended".
 

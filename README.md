@@ -126,7 +126,7 @@ All the options, and exactly what leaves a session, are in [The reporter mod](do
 | [Spec](docs/spec/README.md) | The build spec: intended behavior and requirements |
 | [Architecture](docs/architecture/README.md) | How it was built, where it departs from the spec and why, what was verified, known issues |
 | [Decisions](docs/decisions/README.md) | Why the significant choices were made |
-| [Live testing](docs/LIVE_TESTING.md) | Check a change with real Claude Code or OpenCode sessions in tmux against a throwaway server |
+| [Live testing](.claude/skills/podium-live-test/SKILL.md) | Check a change with real sessions of each harness (Claude Code, OpenCode) in tmux against a throwaway server: one core of scenarios, and per-harness exclusions |
 | [Performance](docs/PERFORMANCE.md) | What Podium costs to run at four fleet sizes, how to measure it, and what the performance audit found |
 | [Deprecations](docs/DEPRECATIONS.md) | Features marked for removal, the release that announced each, the release that removes it, and what to use instead |
 | [Changelog](CHANGELOG.md) | What changed in each release |

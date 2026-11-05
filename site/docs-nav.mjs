@@ -45,7 +45,6 @@ export const GROUPS = [
       { dir: "gotchas", legacy: "GOTCHAS.md", slug: "gotchas", label: "Gotchas" },
       { file: "PERFORMANCE.md", slug: "performance", label: "Performance" },
       { file: "e2e/COVERAGE.md", slug: "e2e-coverage", label: "End-to-end tests" },
-      { file: "LIVE_TESTING.md", slug: "live-testing", label: "Live testing" },
       { file: "COMMUNITY.md", slug: "community", label: "Community" },
       { file: "THIRD_PARTY_NOTICES.md", slug: "third-party-notices", label: "Third-party notices" },
     ],

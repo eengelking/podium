@@ -36,6 +36,23 @@ describe("podium-peers-e2e.sh", () => {
     }
   });
 
+  it("gives a window's project folder one commit, so a session in it reports a git branch", () => {
+    const src = fs.readFileSync(SCRIPT, "utf8");
+    const fn = /^init_project\(\) \{\n[\s\S]*?\n\}\n/m.exec(src)?.[0];
+    expect(fn, "init_project is defined").toBeTruthy();
+    expect(src.match(/^\s+init_project "\$dir"$/gm)).toHaveLength(2); // the Claude Code window and the OpenCode window
+    const dir = tempDir();
+    // A git identity and signing config that would break a plain commit: the helper must not depend on either.
+    const env = { ...process.env, HOME: dir, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+    const git = (...a: string[]) => spawnSync("git", ["-C", dir, ...a], { encoding: "utf8", env });
+    for (const again of [false, true]) {
+      const r = spawnSync("bash", ["-c", `${fn}\ninit_project "$1"`, "bash", dir], { encoding: "utf8", env });
+      expect(r.status, r.stderr).toBe(0);
+      expect(git("rev-list", "--count", "HEAD").stdout.trim(), again ? "a second call adds none" : "one commit").toBe("1");
+    }
+    expect(git("branch", "--show-current").stdout.trim()).not.toBe("");
+  });
+
   it("refuses a number with a leading zero, rather than reading it as octal", () => {
     for (const [flag, value, words] of [
       ["--sessions", "09", /--sessions must be a number from 1 to 20/],
@@ -237,7 +254,7 @@ describe("podium-peers-e2e.sh", () => {
       fs.writeFileSync(cfg, JSON.stringify({ provider: { lmstudio: { name: "Local" } }, model: "wrong/model", permission: { bash: "allow", read: "allow" } }));
       const r = spawnSync("bash", ["-c", `
         set -e
-        sed -n '/^start_opencode() {/,/^}/p' "${SCRIPT}" > "$WORK/fn.sh"
+        sed -n -e '/^init_project() {/,/^}/p' -e '/^start_opencode() {/,/^}/p' "${SCRIPT}" > "$WORK/fn.sh"
         DRY=0; DIR="$WORK/run"; URL=http://127.0.0.1:1; SEED_FILE="$DIR/seed.out"; TMUX_NAME=t
         OC_DIST="$WORK/dist-oc"; OC_MODEL=lmstudio/m; OC_CONFIG="$OC_CONFIG"
         mkdir -p "$DIR" "$OC_DIST/plugin"; echo x > "$OC_DIST/plugin/index.ts"

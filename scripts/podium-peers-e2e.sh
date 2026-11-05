@@ -11,7 +11,7 @@ Usage: scripts/podium-peers-e2e.sh up [options]
 
 Tries orchestrator messaging end to end with real Claude Code or OpenCode sessions, against
 a throwaway Podium server built from this checkout. docs/MESSAGING.md has the steps and
-docs/LIVE_TESTING.md the live checks. --harness picks the harness of each window.
+.claude/skills/podium-live-test/ the live checks. --harness picks the harness of each window.
 
 up    Makes a work folder and writes a new admin secret to a file in it (mode 0600).
       The folder must be new or empty, or one an earlier up made. Builds the server
@@ -383,6 +383,15 @@ make_claude_home() {
   done < <(find "$real" -mindepth 1 -maxdepth 1 ! -name .podium)
 }
 
+# A window's project folder ($1) as a git repo with one empty commit. A repo with no commit has no branch, so a session in it
+# reports no git branch at all; the commit carries its own identity and turns signing off, so it needs nothing from your git config.
+init_project() {
+  local dir="$1"
+  [[ -d "$dir/.git" ]] || git -C "$dir" init -q
+  git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 ||
+    git -C "$dir" -c user.name=podium-live-test -c user.email=live-test@localhost -c commit.gpgsign=false commit -q --allow-empty -m "start"
+}
+
 # A window of Claude Code ($1 name, $2 folder), loading this checkout's plugin.
 start_claude() {
   local name="$1" dir="$2"
@@ -390,7 +399,7 @@ start_claude() {
   (( DRY )) && return 0
   [[ -d "$CLAUDE_HOME" ]] || make_claude_home
   mkdir -p "$dir"
-  [[ -d "$dir/.git" ]] || git -C "$dir" init -q
+  init_project "$dir"
   tm new-window -t "$TMUX_NAME" -n "$name" -c "$dir"
   # Typed into the window's shell: the name and token are read from the file there, so neither is on this
   # script's command line, nor on tmux's.
@@ -407,7 +416,7 @@ start_opencode() {
   step "start OpenCode ($OC_MODEL) as $name in $dir, home $home with the plugin copied in, env file $envfile, opencode --standalone"
   (( DRY )) && return 0
   mkdir -p "$dir" "$home/.config/opencode/plugins"
-  [[ -d "$dir/.git" ]] || git -C "$dir" init -q
+  init_project "$dir"
   rm -rf "$home/.config/opencode/plugins/podium"
   cp -R "$OC_DIST" "$home/.config/opencode/plugins/podium"
   # The model and `ask` for a shell or edit call (so a tool call produces a permission ask) win over the caller's file.
