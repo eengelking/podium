@@ -521,6 +521,11 @@ describe('reporters (#142)', () => {
     expect((await agent.post('/api/admin/reporters/ignores').send({ kind: 'key', pattern: 'x' })).status).toBe(403);
     expect((await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'who', pattern: 'x' })).status).toBe(400);
     expect((await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'key', pattern: '' })).status).toBe(400);
+    // A NUL byte is refused at the edge, so no database stores it on one adapter and fails on another.
+    const nul = await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'key', pattern: 'ab\u0000cd' });
+    expect(nul.status).toBe(400);
+    expect(nul.body.error).toMatch(/NUL/);
+    expect((await agent.get('/api/admin/reporters/ignores').set(H)).body.rules).toEqual([]);
     const add = await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'key', pattern: '9f3a1c7d2e40' });
     expect(add.status).toBe(200);
     expect((await reporters.list({}, Date.now())).total).toBe(0);

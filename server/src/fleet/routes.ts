@@ -128,7 +128,9 @@ const HISTORY_PAGE_SIZE = 50;
 function intParam(v: unknown): number | null | 'bad' {
   if (v === undefined || v === '') return null;
   if (typeof v !== 'string' || !/^\d+$/.test(v)) return 'bad';
-  return Number(v);
+  // A run of digits past 2^53 is not a whole number JavaScript holds, and a 64-bit column stops near 9.2e18: refuse it here.
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : 'bad';
 }
 
 /** The route a request matched, as `/api/fleet/report`. */
