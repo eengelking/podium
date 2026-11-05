@@ -13,6 +13,7 @@ import { fixtureReport } from '../fleet/testing.js';
 import { PeopleError, nameKey } from './rows.js';
 import { settingsCases } from './contractSettings.js';
 import { reportCases } from './contractReports.js';
+import { txCases } from './contractTx.js';
 import { activityCases } from './contractActivity.js';
 import { peerCases } from './contractPeers.js';
 import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
@@ -119,6 +120,7 @@ export function runStorageContract(adapters: ContractAdapter[]): void {
     peerCases(against);
     activityCases(against);
     reportCases(against);
+    txCases(against);
     for (const a of adapters) describe(a.name, () => ownCases(a));
   });
 }

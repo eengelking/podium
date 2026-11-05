@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { check, orderOf, run } from "./storage-order-parity.mjs";
+import { check, nullableColumns, orderOf, run, subOrderOf } from "./storage-order-parity.mjs";
 
 const made: string[] = [];
 afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -36,7 +36,93 @@ describe("orderOf", () => {
   });
 });
 
+describe("orderOf and the placement of NULLs", () => {
+  const schema = new Map([["notes", new Set(["rank"])]]);
+  const sql = (order: string) => `SELECT * FROM notes WHERE a = ? ORDER BY ${order}`;
+
+  it("keeps where NULLs sort for a column that can be NULL, by the dialect's default when the query does not say", () => {
+    expect(orderOf(sql("rank, id"), "sqlite", schema)).toBe("rank nulls first, id");
+    expect(orderOf(sql("rank, id"), "postgres", schema)).toBe("rank nulls last, id");
+    expect(orderOf(sql("rank DESC, id"), "sqlite", schema)).toBe("rank desc nulls last, id");
+    expect(orderOf(sql("rank DESC, id"), "postgres", schema)).toBe("rank desc nulls first, id");
+  });
+
+  it("reads a stated placement as the same order as the default that gives it", () => {
+    expect(orderOf(sql("rank NULLS FIRST, id"), "postgres", schema)).toBe(orderOf(sql("rank, id"), "sqlite", schema));
+    expect(orderOf(sql("rank DESC NULLS LAST, id"), "postgres", schema)).toBe(orderOf(sql("rank DESC, id"), "sqlite", schema));
+    expect(orderOf(sql("rank NULLS LAST"), "sqlite", schema)).not.toBe(orderOf(sql("rank"), "sqlite", schema));
+  });
+
+  it("has nothing to place for a column that cannot be NULL, one in COALESCE, or a table the schema does not know", () => {
+    expect(orderOf(sql("id DESC"), "postgres", schema)).toBe("id desc");
+    expect(orderOf(sql("COALESCE(rank, 0), id"), "postgres", schema)).toBe("coalesce(rank, 0), id");
+    expect(orderOf("SELECT * FROM other ORDER BY rank", "postgres", schema)).toBe("rank");
+  });
+
+  it("separates the ORDER BY of a subquery that takes the first rows from the query's own", () => {
+    const q = "SELECT (SELECT at FROM e WHERE e.s = n.id ORDER BY seq DESC LIMIT 1) AS a, row_number() OVER (ORDER BY ts) FROM notes n ORDER BY id";
+    expect(orderOf(q)).toBe("id");
+    expect(subOrderOf(q)).toBe("seq desc");
+  });
+
+  it("reads the nullable columns out of CREATE TABLE and ADD COLUMN in the adapter files", () => {
+    const ddl = "const DDL = 'CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, rank INTEGER, name TEXT NOT NULL, n INT GENERATED ALWAYS AS IDENTITY, UNIQUE (name, rank))'; const ALTER = 'ALTER TABLE notes ADD COLUMN extra TEXT; ALTER TABLE notes ADD COLUMN kept TEXT NOT NULL DEFAULT 1';";
+    const found = nullableColumns(repo({ sqlite: { "schema.ts": ddl } }));
+    expect([...(found.get("notes") ?? [])].sort()).toEqual(["extra", "rank"]);
+  });
+});
+
 describe("check", () => {
+  /** A fixture file that declares its table, so the placement of NULLs is compared for `rank`. */
+  const DDL = "const DDL = 'CREATE TABLE notes (id TEXT PRIMARY KEY, rank INTEGER, name TEXT NOT NULL)';\n";
+
+  it("fails when one adapter leaves NULLs where its dialect puts them and the other's dialect puts them elsewhere", () => {
+    const root = repo({
+      sqlite: { "notes.ts": DDL + lite("SELECT * FROM notes ORDER BY rank, id") },
+      postgres: { "notes.ts": DDL + pgq("SELECT * FROM notes ORDER BY rank, id") },
+    });
+    const [p, ...rest] = check(root).problems;
+    expect(rest).toEqual([]);
+    expect(p.message).toContain("rank nulls last, id");
+    expect(p.message).toContain("rank nulls first, id");
+  });
+
+  it("accepts a PostgreSQL query that states the placement SQLite's default gives, and ignores it for a column that cannot be NULL", () => {
+    const root = repo({
+      sqlite: { "notes.ts": DDL + lite("SELECT * FROM notes ORDER BY rank DESC, name, id") },
+      postgres: { "notes.ts": DDL + pgq("SELECT * FROM notes ORDER BY rank DESC NULLS LAST, name NULLS FIRST, id") },
+    });
+    expect(check(root).problems).toEqual([]);
+  });
+
+  it("compares a single-row read that orders and takes the first row", () => {
+    const one = (sql: string) => sqlite(`return this.stmt('${sql}').get(1);`);
+    const onePg = (sql: string) => pg(`return this.db.get('${sql}', [1]);`);
+    const same = repo({ sqlite: { "notes.ts": one("SELECT * FROM notes WHERE a = ? ORDER BY t DESC LIMIT 1") }, postgres: { "notes.ts": onePg("SELECT * FROM notes WHERE a = ? ORDER BY t DESC LIMIT 1") } });
+    const r = check(same);
+    expect(r.queries.map((q) => q.kind)).toEqual(["get", "get"]);
+    expect(r.problems).toEqual([]);
+    const other = repo({ sqlite: { "notes.ts": one("SELECT * FROM notes WHERE a = ? ORDER BY t DESC LIMIT 1") }, postgres: { "notes.ts": onePg("SELECT * FROM notes WHERE a = ? ORDER BY t LIMIT 1") } });
+    expect(check(other).problems.map((p) => p.message)).toEqual([expect.stringContaining("orders by t desc")]);
+  });
+
+  it("fails a single-row read that takes the first row of an unordered set, and passes an existence probe and a lookup by key", () => {
+    const get = (sql: string) => pg(`return this.db.get('${sql}', [1]);`);
+    const bad = repo({ sqlite: { "notes.ts": sqlite("return this.stmt('SELECT * FROM notes WHERE a = ? ORDER BY t LIMIT 1').get(1);") }, postgres: { "notes.ts": get("SELECT * FROM notes WHERE a = ? LIMIT 1") } });
+    expect(check(bad).problems.map((p) => `${p.adapter}: ${p.message}`)).toEqual([expect.stringContaining("postgres: reads one row out of several with no ORDER BY")]);
+    const fine = repo({ sqlite: { "notes.ts": sqlite("return this.stmt('SELECT 1 AS x FROM notes WHERE a = ? LIMIT 1').get(1);") }, postgres: { "notes.ts": get("SELECT 1 AS x FROM notes WHERE a = ? LIMIT 1") } });
+    expect(check(fine)).toMatchObject({ queries: [], problems: [] });
+  });
+
+  it("compares the order a subquery takes its first row in, in a read or a write", () => {
+    const write = (order: string) => `return this.stmt('UPDATE loops SET first_at = (SELECT at FROM entries WHERE s = ? ${order} LIMIT 1)').run(1);`;
+    const writePg = (order: string) => `await this.db.run('UPDATE loops SET first_at = (SELECT at FROM entries WHERE s = ? ${order} LIMIT 1)', [1]);`;
+    const ok = repo({ sqlite: { "notes.ts": sqlite(write("ORDER BY seq")) }, postgres: { "notes.ts": pg(writePg("ORDER BY seq")) } });
+    expect(check(ok)).toMatchObject({ problems: [], queries: [{ kind: "run" }, { kind: "run" }] });
+    const drift = repo({ sqlite: { "notes.ts": sqlite(write("ORDER BY seq")) }, postgres: { "notes.ts": pg(writePg("ORDER BY seq DESC")) } });
+    expect(check(drift).problems.map((p) => p.message)).toEqual([expect.stringContaining("first rows: seq desc")]);
+  });
+
   it("accepts adapters that order a list the same way in their own dialects", () => {
     const root = repo({
       sqlite: { "notes.ts": lite("SELECT * FROM notes WHERE a = ? ORDER BY podium_lower(name), id") },
@@ -175,5 +261,40 @@ describe("this repository", () => {
     const r = check(root);
     expect(r.queries.length).toBeGreaterThan(50);
     expect(r.problems.map((p) => `${p.file}:${p.line} ${p.message}`)).toEqual([]);
+  });
+
+  /** A copy of the real adapters' source with one edit to a PostgreSQL file, so the guard is shown to catch the drift it is for. */
+  function seeded(file: string, from: string, to: string, adapters = ["postgres"]): string {
+    const here = join(dirname(fileURLToPath(import.meta.url)), "..", "server", "src", "storage");
+    const root = mkdtempSync(join(tmpdir(), "orderparity-real-"));
+    made.push(root);
+    const dest = join(root, "server", "src", "storage");
+    cpSync(here, dest, { recursive: true, filter: (src) => !/\.test\.ts$|contract|node_modules/.test(src) });
+    for (const adapter of adapters) {
+      const target = join(dest, adapter, file);
+      const text = readFileSync(target, "utf8");
+      expect(text).toContain(from);
+      writeFileSync(target, text.replace(from, to));
+    }
+    return root;
+  }
+
+  it("catches a single-row read that PostgreSQL orders differently from SQLite", () => {
+    const root = seeded("fleet.ts", "FROM samples WHERE session_id = ? ORDER BY t DESC LIMIT 1", "FROM samples WHERE session_id = ? ORDER BY t LIMIT 1");
+    expect(check(root).problems.map((p) => `${p.adapter} ${p.method}`)).toEqual(["sqlite latestSample"]);
+  });
+
+  it("catches a single-row read that PostgreSQL leaves unordered", () => {
+    const root = seeded("fleet.ts", "FROM samples WHERE session_id = ? ORDER BY t DESC LIMIT 1", "FROM samples WHERE session_id = ? LIMIT 1");
+    expect(check(root).problems.map((p) => `${p.adapter} ${p.method}`).sort()).toEqual(["postgres latestSample"]);
+  });
+
+  it("catches a column that can be NULL given a different NULLS placement in PostgreSQL", () => {
+    // Both adapters order by stored_sessions.oldest_t, a nullable column, and neither says where NULLs go: SQLite puts them last in a
+    // descending order and PostgreSQL first, with the same text in both.
+    const root = seeded("activityHistory.ts", "ORDER BY s.last_t DESC, s.session_id", "ORDER BY s.oldest_t DESC, s.session_id", ["sqlite", "postgres"]);
+    const found = check(root).problems.map((p) => p.message);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("oldest_t desc nulls");
   });
 });

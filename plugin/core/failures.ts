@@ -38,6 +38,15 @@ export function redact(text: string): string {
   return out.replace(KEY_VALUE, (_m, key: string) => `${key}[redacted]`);
 }
 
+/**
+ * A time or a token count the host app supplied, as the whole number the server requires (#1007): the server rejects a fraction with a
+ * 400 for the whole report, so the session would vanish from the wall. Apply it where a host number enters a report, after any check
+ * that it is a number.
+ */
+export function whole(n: number): number {
+  return Math.round(n);
+}
+
 /** Cuts to `max` characters without redacting: for an identifier the engine made (an id, a tool, a skill, a model, a type), which is not free text. */
 export function cap(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) : text;
