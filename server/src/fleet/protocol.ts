@@ -457,8 +457,17 @@ function strOrNull(v: unknown, path: string, max: number): string | null {
   return str(v, path, max);
 }
 
+/**
+ * The largest size a number in a report may have, either way (#1007). Every integer column is 64-bit, but the server reads
+ * a row back as a JavaScript number, which holds an integer exactly only up to 2^53, and several readers add rows together
+ * (rollups, spend). 2^50 is about 1.1e15: far past any epoch millisecond or token count, and sums of eight such values still read back.
+ * A larger one stored on either database makes the row throw on every later read.
+ */
+export const MAX_REPORT_NUMBER = 2 ** 50;
+
 function num(v: unknown, path: string): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new Invalid(path, 'expected a finite number');
+  if (Math.abs(v) > MAX_REPORT_NUMBER) throw new Invalid(path, `expected a number no larger than ${MAX_REPORT_NUMBER} either way`);
   return v;
 }
 
@@ -692,6 +701,10 @@ function event(v: unknown, path: string): ActivityEvent {
   if (o.data !== null && o.data !== undefined) {
     data = obj(o.data, `${path}.data`);
     if (JSON.stringify(data).length > 4096) throw new Invalid(`${path}.data`, 'at most 4096 characters of data allowed');
+    // The two counts a compact event carries are stored in columns of their own (ingest.ts); the rest of `data` is stored as text.
+    for (const k of ['tokensBefore', 'tokensAfter']) {
+      if (typeof data[k] === 'number') num(data[k], `${path}.data.${k}`);
+    }
   }
   return {
     id: str(o.id, `${path}.id`, LIMITS.id),

@@ -877,3 +877,48 @@ describe('protocol', () => {
     });
   });
 });
+
+describe('a number a column cannot store and read back (#1007)', () => {
+  /** Every path to a number in the fixture, as an array of keys. */
+  function numberPaths(v: unknown, trail: (string | number)[] = []): (string | number)[][] {
+    if (typeof v === 'number') return [trail];
+    if (Array.isArray(v)) return v.flatMap((x, i) => numberPaths(x, [...trail, i]));
+    if (v && typeof v === 'object') return Object.entries(v).flatMap(([k, x]) => numberPaths(x, [...trail, k]));
+    return [];
+  }
+  function setAt(root: Record<string, unknown>, trail: (string | number)[], value: number): void {
+    let at: any = root;
+    for (const k of trail.slice(0, -1)) at = at[k];
+    at[trail[trail.length - 1]!] = value;
+  }
+  // `v` picks the format and the reporter's version is checked beside the validator, not stored as a number.
+  const paths = numberPaths(loadFixture()).filter((p) => p[0] !== 'v');
+
+  it('finds the numeric fields of the fixture, so the cases below are not an empty list', () => {
+    expect(paths.length).toBeGreaterThan(40);
+  });
+
+  it.each(paths.map((p) => [p.join('.'), p] as const))('rejects 1e16 in %s', (_name, trail) => {
+    const f = loadFixture();
+    setAt(f, [...trail], 1e16);
+    expect(validateReport(f)).toMatchObject({ ok: false });
+  });
+
+  it.each(paths.map((p) => [p.join('.'), p] as const))('rejects -1e16 in %s', (_name, trail) => {
+    const f = loadFixture();
+    setAt(f, [...trail], -1e16);
+    expect(validateReport(f)).toMatchObject({ ok: false });
+  });
+
+  it('names the field, for the token count that broke a session in the review', () => {
+    const f = bareFixture() as any;
+    f.session.tokens.input = 1e16;
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.tokens.input' });
+  });
+
+  it('still takes a large count that a column holds and reads back', () => {
+    const f = bareFixture() as any;
+    f.session.tokens.input = 1e12;
+    expect(validateReport(f)).toMatchObject({ ok: true });
+  });
+});

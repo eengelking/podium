@@ -4,6 +4,9 @@
 import { it, expect } from 'vitest';
 import { sameOnBoth, type Openers } from './contractSame.js';
 import { session } from './contract.js';
+import { validateReport, MAX_REPORT_NUMBER } from '../fleet/protocol.js';
+import { ingestReport } from '../fleet/ingest.js';
+import { loadFixture } from '../fleet/testing.js';
 import type { AgentRow, CostOf, ReporterSeen, SampleRow } from './rows.js';
 
 const T0 = 1_800_000_000_000;
@@ -346,5 +349,35 @@ export function reporterCases(o: Openers): void {
       await rec('setting (on)', r.forgetSetting());
     });
     expect(t.get('forget (off)')).toBe(0);
+  });
+
+  it('rejects a report whose number no column can read back, and keeps reading the sessions already stored (#1007)', async () => {
+    const s = await o.open();
+    const good = validateReport(loadFixture());
+    expect(good.ok).toBe(true);
+    if (!good.ok) return;
+    await ingestReport(s, good.report, T0);
+    const id = good.report.session.id;
+    const before = await s.fleet.getSession(id);
+    expect(before).toBeDefined();
+
+    const bad = loadFixture() as { session: { id: string; tokens: { input: number } } };
+    bad.session.id = 'too-big';
+    bad.session.tokens.input = 1e16;
+    expect(validateReport(bad)).toMatchObject({ ok: false, path: '$.session.tokens.input' });
+
+    // the biggest the validator takes is stored and read back, on this adapter as on the other
+    const big = loadFixture() as { session: { id: string; tokens: { input: number } } };
+    big.session.id = 'the-biggest';
+    big.session.tokens.input = MAX_REPORT_NUMBER;
+    const ok = validateReport(big);
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    await ingestReport(s, ok.report, T0 + 1);
+
+    expect(await s.fleet.getSession(id)).toEqual(before);
+    expect((await s.fleet.getSession('the-biggest'))?.tok_in).toBe(MAX_REPORT_NUMBER);
+    expect((await s.fleet.liveCandidates(0)).map((r) => r.id).sort()).toEqual([id, 'the-biggest'].sort());
+    await s.close();
   });
 }
