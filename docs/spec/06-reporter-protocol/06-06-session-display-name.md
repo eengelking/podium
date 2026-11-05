@@ -26,6 +26,8 @@ The first of these that applies, in priority order:
 6. The repository directory's name.
 7. `session-<first 6 of id>`.
 
+A `/clear` starts a new session under a new id, and none of the names above that are kept per id carries over to it: a name given with `/podium name` or set in Claude Code is lost, and the new session is named from the next item that applies (#1014).
+
 <!-- nav:start -->
 ---
 

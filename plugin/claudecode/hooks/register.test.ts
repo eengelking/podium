@@ -73,6 +73,9 @@ const GIT: Record<string, string> = {
 }
 
 /** Everything beneath the plugin: the engine's answers, from memory. */
+/** The context tokens the stubbed host answers `session.usage` with; world() resets it. */
+let hostTokens = 120_000
+
 function world(on: On, store: Record<string, unknown> = {}, files: Record<string, string> = {}): World {
   const posts: Report[] = []
   const headers: Record<string, string>[] = []
@@ -97,6 +100,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const gitAt: World['gitAt'] = {}
   const devBuild: World['devBuild'] = { value: null }
   const hosts: World['hosts'] = { hostname: 'Devs-MBP.local\n', local: null }
+  hostTokens = 120_000
   const agents: World['agents'] = { value: null }
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
@@ -115,7 +119,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('session.root', () => ({ value: place.root }))
   on('session.repo', () => ({ value: place.repo }))
   on('session.version', () => ({ value: { version: '2.1.296' } }))
-  on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: 120_000, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: 1.25 } } }))
+  on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: hostTokens, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: 1.25 } } }))
   on('session.surfaces', () => {
     if (surfaces.fail) throw new Error('no roster')
     return { value: surfaces.value }
@@ -815,6 +819,33 @@ describe('podium-reporter end to end', () => {
     expect(next.session.status).not.toBe('done')
     expect(next.events.map((e) => e.kind)).toContain('start')
     expect(next.events.every((e) => e.id.startsWith('sess-after-clear:'))).toBe(true)
+  })
+
+  test('a /clear: the context figure the host still holds from the old session is not reported under the new id (#1014)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.context.tokens).toBe(120_000)
+    await $.session.end({ reason: 'clear', sessionId: SID, resume: { id: SID } })
+    w.sessionId.value = 'sess-after-clear'
+    await w.clock.advance(1000)
+    const next = w.posts.at(-1)!
+    expect(next.session.id).toBe('sess-after-clear')
+    expect(next.session.context.tokens).toBeNull()
+  })
+
+  test('a /clear that arrives as a start under the new id does not report the old figure, and a different figure ends the hold (#1014)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    await $.session.end({ reason: 'clear', sessionId: SID, resume: { id: 'sess-after-clear' } })
+    w.sessionId.value = 'sess-after-clear'
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.context.tokens).toBeNull()
+    hostTokens = 5_000
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.context.tokens).toBe(5_000)
   })
 
   test('a session id change without session.end still closes the old id', async ($, on) => {
