@@ -7,9 +7,7 @@ describe('the PostgreSQL test gate (#891)', () => {
   });
 
   it('passes quietly when the server answers', async () => {
-    const lines: string[] = [];
-    await pgGate({ PODIUM_TEST_PG: 'postgres://u:secret@h:1/postgres' }, async () => undefined);
-    expect(lines).toEqual([]);
+    await expect(pgGate({ PODIUM_TEST_PG: 'postgres://u:secret@h:1/postgres' }, async () => undefined)).resolves.toBeUndefined();
   });
 
   it('fails, and never prints the password, when the server is unreachable', async () => {

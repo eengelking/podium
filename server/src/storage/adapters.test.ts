@@ -23,16 +23,18 @@ const NOT_CALLED = new Set<string>([
 const kinds = testedStorageKinds();
 const adapters: ContractAdapter[] = (await Promise.all(kinds.map((k) => contractAdapterFor(k)))).map(noting);
 /** The adapters whose server is configured. The global setup (`postgres/globalSetup.ts`) fails the run for one that is not, unless the run says it is not wanted. */
-const running = adapters.filter((a) => a.available());
+const limit = onlyKinds(process.env);
+const running = adapters.filter((a) => a.available() && (!limit || limit.includes(a.name)));
 
-describe('the registered adapters', () => {
+// Each comparison case opens a database on every adapter, so under a loaded runner the default 5 s is too tight.
+describe('the registered adapters', { timeout: 30_000 }, () => {
   afterAll(async () => {
     for (const a of adapters) await a.dispose();
   });
 
   it('are the kinds the registry names, each run through the contract below', () => {
     expect(kinds.length).toBeGreaterThan(0);
-    expect(running.map((a) => a.name)).toEqual(adapters.filter((a) => a.available()).map((a) => a.name));
+    expect(running.map((a) => a.name)).toEqual(adapters.filter((a) => a.available() && (!limit || limit.includes(a.name))).map((a) => a.name));
   });
 
   runStorageContract(running);
@@ -83,10 +85,14 @@ describe('the server gate', () => {
 
   it('lets a run limited by PODIUM_TEST_ONLY leave kinds out, and says they were NOT RUN', () => {
     const lines: string[] = [];
-    checkServers({ PODIUM_TEST_ONLY: ' sqlite ,x' }, need, (l) => lines.push(l));
-    expect(lines.join('')).toMatch(/NOT RUN: postgres, other\./);
+    checkServers({ PODIUM_TEST_ONLY: ' sqlite ,other', PODIUM_TEST_OTHER: 'y' }, need, (l) => lines.push(l));
+    expect(lines.join('')).toMatch(/NOT RUN: postgres\./);
     expect(onlyKinds({ PODIUM_TEST_ONLY: ' sqlite ,x' })).toEqual(['sqlite', 'x']);
     expect(onlyKinds({ PODIUM_TEST_ONLY: '' })).toBeNull();
+  });
+
+  it('refuses a name in PODIUM_TEST_ONLY that is not a registered kind', () => {
+    expect(() => checkServers({ PODIUM_TEST_ONLY: 'sqlte' }, need, () => undefined)).toThrow(/sqlte.*not a registered storage kind.*sqlite, postgres, other/);
   });
 
   it('still fails for a kind the limit names when its server is not configured', () => {

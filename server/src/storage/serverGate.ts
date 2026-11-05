@@ -28,6 +28,8 @@ export function onlyKinds(env: Record<string, string | undefined>): string[] | n
 /** Throws when an adapter that needs a server has none configured and the run is not limited to other kinds; otherwise prints what was left out. */
 export function checkServers(env: Record<string, string | undefined>, adapters: ServerNeed[], print: (text: string) => void = (t) => console.warn(t)): void {
   const only = onlyKinds(env);
+  const unknown = (only ?? []).filter((k) => !adapters.some((a) => a.name === k));
+  if (unknown.length) throw new Error(`PODIUM_TEST_ONLY names ${unknown.join(', ')}, which ${unknown.length > 1 ? 'are' : 'is'} not a registered storage kind (registered: ${adapters.map((a) => a.name).join(', ')}).`);
   const skipped: string[] = [];
   for (const a of adapters) {
     if (!a.serverVar || env[a.serverVar]) continue;

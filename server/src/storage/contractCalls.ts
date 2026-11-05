@@ -9,8 +9,8 @@ export const calls = new Map<string, Set<string>>();
 
 function wrap<T extends object>(value: T, prefix: string, seen: Set<string>): T {
   return new Proxy(value, {
-    get(target, prop, receiver) {
-      const v = Reflect.get(target, prop, receiver) as unknown;
+    get(target, prop) {
+      const v = Reflect.get(target, prop) as unknown;
       if (typeof prop !== 'string') return v;
       if (typeof v === 'function') {
         return (...args: unknown[]) => {

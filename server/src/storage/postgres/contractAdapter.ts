@@ -49,8 +49,9 @@ export function postgresContractAdapter(): ContractAdapter {
           if (r.table_name === 'schema_migrations') continue;
           (out.tables[r.table_name] ??= []).push(r.column_name);
         }
-        const idx = await c.query("SELECT indexname FROM pg_indexes WHERE schemaname IN ('podium', 'podium_activity') ORDER BY indexname");
-        out.indexes = (idx.rows as { indexname: string }[]).map((r) => r.indexname).filter((n) => !/_pkey$|_key$/.test(n));
+        // An index a primary key or unique constraint made for itself is the constraint's, as SQLite's autoindexes are left out on the other side.
+        const idx = await c.query("SELECT indexname FROM pg_indexes WHERE schemaname IN ('podium', 'podium_activity') AND indexname NOT IN (SELECT conname FROM pg_constraint) ORDER BY indexname");
+        out.indexes = (idx.rows as { indexname: string }[]).map((r) => r.indexname);
         return out;
       } finally {
         await c.end();
