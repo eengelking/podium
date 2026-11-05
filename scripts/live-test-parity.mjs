@@ -21,7 +21,7 @@ export function harnessFolders(root) {
   return readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.name.startsWith(".") && !NOT_A_HARNESS.has(e.name))
     .map((e) => e.name)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 /** The harness references of the skill (every references/*.md but the guide), sorted. */
@@ -32,7 +32,7 @@ export function harnessReferences(root) {
     .filter((f) => f.endsWith(".md"))
     .map((f) => f.slice(0, -3))
     .filter((n) => n !== GUIDE)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 /** The problems in the repository at `root`, as `file: message` lines. */
