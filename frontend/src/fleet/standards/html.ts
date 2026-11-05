@@ -88,10 +88,10 @@ ${opts.body}
 `;
 }
 
-/** React's useId values depend on how many renders came before. Number them in order of first use so the same screen always gives the same markup. */
+/** React's useId values depend on how many renders came before (`:r1:` in 18, `«r1»` in 19.1, `_r_1_` from 19.2). Number them in order of first use so the same screen always gives the same markup. */
 export function normalizeIds(html: string): string {
   const seen = new Map<string, string>();
-  return html.replaceAll(/[«:]r[0-9a-z]+[»:]/g, (m) => {
+  return html.replaceAll(/[«:]r[0-9a-z]+[»:]|_r_[0-9a-z]+_/g, (m) => {
     if (!seen.has(m)) seen.set(m, `:s${seen.size + 1}:`);
     return seen.get(m)!;
   });

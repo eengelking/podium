@@ -37,7 +37,7 @@ export function parseWaitEvent(text: string): { reason: "permission" | "input"; 
 // ---- Idle on background work (#119, mockup/podium-background-wait.html) ----------------------------------------------
 
 // One definition for the mod, the server and the UI: the same function the reporter and the server use (protocol.ts).
-export { idleOnBackground } from "../../../server/src/fleet/protocol";
+export { idleOnBackground } from "../../../plugin/core/protocol";
 
 /** The reporter writes this prefix plus counts ("1 shell, 1 agent") for the activity row of a background wait. */
 const WAIT_BG_PREFIX = "waiting on background: ";

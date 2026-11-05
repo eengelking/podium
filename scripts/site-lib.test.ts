@@ -92,7 +92,7 @@ describe("rewriteTarget", () => {
   it("sends anything else in the repository to GitHub at the version's tag", () => {
     const old = { ...ctx, ref: "v1.2.2" };
     expect(rewriteTarget("../server/src/db.ts", old)).toBe("https://github.com/eengelking/podium/blob/v1.2.2/server/src/db.ts");
-    expect(rewriteTarget("../mod/", old)).toBe("https://github.com/eengelking/podium/tree/v1.2.2/mod");
+    expect(rewriteTarget("../plugin/", old)).toBe("https://github.com/eengelking/podium/tree/v1.2.2/plugin");
     expect(rewriteTarget("ISSUES.md#a", old)).toBe("https://github.com/eengelking/podium/blob/v1.2.2/docs/ISSUES.md#a");
     expect(rewriteTarget("fixtures", old)).toBe("https://github.com/eengelking/podium/tree/v1.2.2/docs/fixtures");
   });

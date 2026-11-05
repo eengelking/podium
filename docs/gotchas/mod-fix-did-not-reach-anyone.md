@@ -1,6 +1,6 @@
 ---
 title: "A mod fix did not reach anyone"
-description: "Installed copies update only when the plugin.json version changes, and that bump happens in the release-prep PR."
+description: "Installed copies update only when the plugin.json version changes and a release publishes the built plugin; the bump happens in the release-prep PR."
 group: "Project internals"
 area: "Developing"
 date: "2026-10-11"
@@ -12,11 +12,16 @@ order: 51
 
 **You see:** You merged a mod change and installed copies behave as before.
 
-**Why:** Installed copies only update when `version` in `mod/podium-reporter/.claude-plugin/plugin.json` changes.
+**Why:** Installed copies only update when `version` in `plugin/claudecode/.claude-plugin/plugin.json` changes. A merge into `development`
+reaches no installed copy either way: the marketplace serves the built plugin from `dist/claudecode` on `main`, and `main` moves only on a
+release. The release-prep PR rebuilds `dist/` and `npm run plugin:dist:check` fails the PR into `main` if it is stale (DECISIONS 60). A change to the shared code in `plugin/core/` counts as a mod change, because
+it ships inside the built plugin.
 
 **Do:** The version is bumped in the release-prep PR, not in feature PRs. See the `podium-release` skill (`.claude/skills/podium-release/`) for the
-files that change together, including `VERSION` in `mod/podium-reporter/hooks/register.ts` (the number the mod reports;
+files that change together, including `VERSION` in `plugin/claudecode/hooks/register.ts` (the number the mod reports;
 a test checks the two match). CI (`mod-version-check`) checks the release PR into `main`.
+If the release has merged and the fix still did not arrive, check that `dist/claudecode/.claude-plugin/plugin.json` on `main` carries the
+new version and that the marketplace entry in the skills repo points at `dist/claudecode`.
 
 <!-- nav:start -->
 ---

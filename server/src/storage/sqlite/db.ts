@@ -5,6 +5,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { cleanBinds } from './bind.js';
 import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, ADMIN_LOG_KEEP } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
@@ -315,22 +316,72 @@ CREATE INDEX IF NOT EXISTS person_certificates_person ON person_certificates(per
     // while any of its live sessions does, so a `claude -p` run reporting false cannot switch the machine Off.
     sql: 'ALTER TABLE reporter_sessions ADD COLUMN peers INTEGER;',
   },
+  {
+    version: 25,
+    // An explicit insertion order for the two tables that were ordered by SQLite's rowid on a tie (#822): a database with no rowid
+    // has none to give. Existing rows take their rowid; a new row takes the next number (the stores add it on insert).
+    sql: `
+ALTER TABLE peer_messages ADD COLUMN seq INTEGER;
+UPDATE peer_messages SET seq = rowid;
+CREATE INDEX IF NOT EXISTS peer_messages_seq ON peer_messages(sent_at, seq);
+ALTER TABLE person_certificates ADD COLUMN seq INTEGER;
+UPDATE person_certificates SET seq = rowid;
+CREATE INDEX IF NOT EXISTS person_certificates_seq ON person_certificates(person_id, seq);`,
+  },
+  {
+    version: 26,
+    // Open requests are listed oldest first, and two made in the same millisecond used to be told apart by their random id (#890). They
+    // take an insertion number like peer messages do (migration 25). Existing rows are numbered by time and then id, as PostgreSQL step 2 does, because PostgreSQL
+    // cannot recover the insertion order of rows made before the column and both adapters must list the same data the same way (#916). A new row gets the next number.
+    sql: `
+ALTER TABLE peer_requests ADD COLUMN seq INTEGER;
+UPDATE peer_requests SET seq = o.n FROM (SELECT id, row_number() OVER (ORDER BY created_at, id) AS n FROM peer_requests) o WHERE o.id = peer_requests.id;
+CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`,
+  },
+  {
+    version: 27,
+    // A machine can run more than one reporter (#849). A reporter row names the reporter that sent it; the key carries the name for any reporter but the
+    // Claude Code one, so every row and ignore rule made before this keeps its key and becomes a `podium-reporter` row.
+    sql: `ALTER TABLE reporters ADD COLUMN reporter_name TEXT NOT NULL DEFAULT 'podium-reporter';`,
+  },
+  {
+    version: 28,
+    // The harness that runs a session (#851) and who worked out its cost. Every session stored before this ran under Claude Code, and the cost
+    // it has is Podium's own estimate (NULL cost_source), so the default marks existing rows as Claude Code.
+    sql: `ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';
+ALTER TABLE sessions ADD COLUMN cost_source TEXT;`,
+  },
+  {
+    version: 29,
+    // What a harness declares (#940): the capabilities it can report, its model's label and its model's provider. NULL means no report has
+    // declared it, which is what every session stored before this, and every v1 session, is.
+    sql: `ALTER TABLE sessions ADD COLUMN capabilities_json TEXT;
+ALTER TABLE sessions ADD COLUMN model_label TEXT;
+ALTER TABLE sessions ADD COLUMN model_provider TEXT;`,
+  },
+  {
+    version: 30,
+    // An agent's model label and provider (#945), as a session has since #940. NULL means no report gave one, which is every agent stored before this.
+    sql: `ALTER TABLE agents ADD COLUMN model_label TEXT;
+ALTER TABLE agents ADD COLUMN model_provider TEXT;`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
-/** Opens (and migrates) a database. `:memory:` for tests; a file path gets WAL and its folder made. */
-export function openDb(file: string): DatabaseSync {
+/** Opens (and migrates) a database. `:memory:` for tests; a file path gets WAL and its folder made. `upTo` stops after that migration, so a test can build an older database. */
+export function openDb(file: string, upTo = Infinity): DatabaseSync {
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
-  const db = new sqlite.DatabaseSync(file);
+  const db = cleanBinds(new sqlite.DatabaseSync(file));
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA synchronous = NORMAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)');
   const applied = new Set(
+    // order-insensitive: the versions are collected into a set.
     (db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version),
   );
   for (const m of MIGRATIONS) {
-    if (applied.has(m.version)) continue;
+    if (applied.has(m.version) || m.version > upTo) continue;
     db.exec('BEGIN');
     try {
       db.exec(m.sql);
@@ -347,10 +398,32 @@ export function openDb(file: string): DatabaseSync {
 type Params = Record<string, string | number | null>;
 
 /** Typed, prepared queries over one database. */
+/** A list of ids is cut into pieces well under SQLite's limit on bound values. */
+function pieces<T>(list: readonly T[], size = 500): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** `?, ?, ?` for `n` values. */
+const marks = (n: number): string => Array.from({ length: n }, () => '?').join(', ');
+
+/** A key for every id asked, in the order asked, each with its own list. */
+function grouped<T extends { session_id: string }>(ids: readonly string[], rows: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>(ids.map((id) => [id, []]));
+  for (const r of rows) out.get(r.session_id)?.push(r);
+  return out;
+}
+
 export class FleetDb {
   private readonly stmts = new Map<string, StatementSync>();
 
   constructor(readonly db: DatabaseSync) {}
+
+  /** A read whose text changes with the number of ids, so it is prepared for the one call and not kept in the statement cache. */
+  private many(sql: string, values: (string | number)[]): Record<string, unknown>[] {
+    return this.db.prepare(sql).all(...values) as Record<string, unknown>[];
+  }
 
   private stmt(sql: string): StatementSync {
     let s = this.stmts.get(sql);
@@ -392,10 +465,20 @@ export class FleetDb {
     return this.stmt('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
   }
 
+  /** `getSession` for many ids, in the order given (#906), in one statement per 500. */
+  getSessions(ids: string[]): SessionRow[] {
+    const found = new Map<string, SessionRow>();
+    for (const part of pieces([...new Set(ids)])) {
+      // order-insensitive: the rows are put in a map and returned in the order of the ids asked.
+      for (const r of this.many(`SELECT * FROM sessions WHERE id IN (${marks(part.length)})`, part) as unknown as SessionRow[]) found.set(r.id, r);
+    }
+    return ids.flatMap((id) => found.get(id) ?? []);
+  }
+
   /** Sessions that may be in the live set: not dropped, and either not ended or ended after `endedAfter`. */
   liveCandidates(endedAfter: number): SessionRow[] {
     return this.stmt(
-      'SELECT * FROM sessions WHERE dropped_at IS NULL AND (ended_at IS NULL OR ended_at > ?) ORDER BY started_at',
+      'SELECT * FROM sessions WHERE dropped_at IS NULL AND (ended_at IS NULL OR ended_at > ?) ORDER BY started_at, id',
     ).all(endedAfter) as unknown as SessionRow[];
   }
 
@@ -416,7 +499,7 @@ export class FleetDb {
 
   /** The session that continued `id` after a /clear, if any (the newest when there are several). */
   clearedInto(id: string): string | null {
-    const r = this.stmt('SELECT id FROM sessions WHERE cleared_from = ? ORDER BY started_at DESC LIMIT 1').get(id) as { id: string } | undefined;
+    const r = this.stmt('SELECT id FROM sessions WHERE cleared_from = ? ORDER BY started_at DESC, id DESC LIMIT 1').get(id) as { id: string } | undefined;
     return r?.id ?? null;
   }
 
@@ -424,7 +507,7 @@ export class FleetDb {
   endedBetween(from: number, to: number): SessionRow[] {
     return this.stmt(
       `SELECT * FROM sessions WHERE (dropped_at >= :from AND dropped_at < :to)
-         OR (dropped_at IS NULL AND ended_at >= :from AND ended_at < :to) ORDER BY started_at`,
+         OR (dropped_at IS NULL AND ended_at >= :from AND ended_at < :to) ORDER BY started_at, id`,
     ).all({ from, to }) as unknown as SessionRow[];
   }
 
@@ -444,7 +527,8 @@ export class FleetDb {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
        FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
-       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
+       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
+       ORDER BY s.id`,
     ).all({ since, sec: Math.floor(since / 1000) }) as unknown as (CostRow & {
       id: string;
       name: string;
@@ -510,6 +594,7 @@ export class FleetDb {
    * with no figure add nothing, and a session with no agents is not in the map.
    */
   agentCostsSince(since: number, cost: CostOf): Map<string, number> {
+    // order-insensitive: the costs are summed per session into a map.
     const rows = this.stmt(
       `SELECT a.session_id AS id, a.cost_usd_est AS cost_usd, a.usage_json AS usage_json FROM agents a JOIN sessions s ON s.id = a.session_id
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
@@ -553,9 +638,20 @@ export class FleetDb {
     return r?.grp ?? null;
   }
 
+  /** `groupOfOwner` for many owners (#906). */
+  groupsOfOwners(owners: (string | null)[]): Map<string | null, string | null> {
+    const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
+    for (const part of pieces([...new Set(owners.filter((o): o is string => o !== null))])) {
+      // order-insensitive: the rows are put in a map by the owner's name.
+      const rows = this.many(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part) as unknown as { name: string; grp: string }[];
+      for (const r of rows) out.set(r.name, r.grp);
+    }
+    return out;
+  }
+
   distinctReporterVersions(): string[] {
     return (
-      this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL').all() as {
+      this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v').all() as {
         v: string;
       }[]
     ).map((r) => r.v);
@@ -574,12 +670,49 @@ export class FleetDb {
     this.stmt(sql).run(row as unknown as Params);
   }
 
+  /** `upsertAgent` for every row (#906). */
+  upsertAgents(rows: AgentRow[]): void {
+    for (const row of rows) this.upsertAgent(row);
+  }
+
   getAgents(sessionId: string): AgentRow[] {
     return this.stmt(
       'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
         'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
         'WHERE a.session_id = ? ORDER BY a.started_at, a.id',
     ).all(sessionId) as unknown as AgentRow[];
+  }
+
+  /** The agents of one session with these ids (#952). */
+  getAgentsByIds(sessionId: string, agentIds: string[]): AgentRow[] {
+    const rows: AgentRow[] = [];
+    for (const part of pieces([...new Set(agentIds)])) {
+      rows.push(
+        ...(this.many(
+          'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
+            'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
+            `WHERE a.session_id = ? AND a.id IN (${marks(part.length)}) ORDER BY a.started_at, a.id`,
+          [sessionId, ...part],
+        ) as unknown as AgentRow[]),
+      );
+    }
+    return rows;
+  }
+
+  /** `getAgents` for many sessions (#906). */
+  getAgentsOf(sessionIds: string[]): Map<string, AgentRow[]> {
+    const rows: AgentRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)])) {
+      rows.push(
+        ...(this.many(
+          'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
+            'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
+            `WHERE a.session_id IN (${marks(part.length)}) ORDER BY a.started_at, a.id`,
+          part,
+        ) as unknown as AgentRow[]),
+      );
+    }
+    return grouped(sessionIds, rows);
   }
 
   /** Keeps the full texts a report carried; a text the report leaves out is left as it was. */
@@ -589,6 +722,11 @@ export class FleetDb {
         'ON CONFLICT(session_id, agent_id) DO UPDATE SET ' +
         'prompt_text = COALESCE(excluded.prompt_text, prompt_text), answer_text = COALESCE(excluded.answer_text, answer_text)',
     ).run(sessionId, agentId, t.prompt ?? null, t.answer ?? null);
+  }
+
+  /** `upsertAgentTexts` for many agents of one session (#906). */
+  upsertAgentTextsMany(sessionId: string, texts: { agentId: string; prompt?: string; answer?: string }[]): void {
+    for (const t of texts) this.upsertAgentTexts(sessionId, t.agentId, t);
   }
 
   getAgentTexts(sessionId: string, agentId: string): { prompt: string | null; answer: string | null } | null {
@@ -651,7 +789,27 @@ export class FleetDb {
   }
 
   getBlowouts(sessionId: string): BlowoutRow[] {
-    return this.stmt('SELECT * FROM blowouts WHERE session_id = ? ORDER BY t').all(sessionId) as unknown as BlowoutRow[];
+    return this.stmt('SELECT * FROM blowouts WHERE session_id = ? ORDER BY t, id').all(sessionId) as unknown as BlowoutRow[];
+  }
+
+  /** `getBlowouts` for many sessions (#906). */
+  getBlowoutsOf(sessionIds: string[]): Map<string, BlowoutRow[]> {
+    const rows: BlowoutRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)])) {
+      rows.push(...(this.many(`SELECT * FROM blowouts WHERE session_id IN (${marks(part.length)}) ORDER BY t, id`, part) as unknown as BlowoutRow[]));
+    }
+    return grouped(sessionIds, rows);
+  }
+
+  /** `countAutoCompactions` for many sessions (#906). */
+  countAutoCompactionsOf(sessionIds: string[]): Map<string, number> {
+    const out = new Map<string, number>(sessionIds.map((id) => [id, 0]));
+    for (const part of pieces([...new Set(sessionIds)])) {
+      // order-insensitive: the rows are counted.
+      const rows = this.many(`SELECT session_id, data_json FROM events WHERE session_id IN (${marks(part.length)}) AND kind = 'compact'`, part) as unknown as { session_id: string; data_json: string | null }[];
+      for (const r of rows) if (FleetDb.isAutoCompact(r.data_json)) out.set(r.session_id, (out.get(r.session_id) ?? 0) + 1);
+    }
+    return out;
   }
 
   countBlowouts(sessionId?: string): number {
@@ -669,6 +827,7 @@ export class FleetDb {
    * is not JSON or has no string `auto` trigger is not counted.
    */
   countAutoCompactions(sessionId: string): number {
+    // order-insensitive: the rows are counted.
     const rows = this.stmt(`SELECT data_json FROM events WHERE session_id = ? AND kind = 'compact'`).all(sessionId) as { data_json: string | null }[];
     let n = 0;
     for (const r of rows) if (FleetDb.isAutoCompact(r.data_json)) n++;
@@ -729,6 +888,15 @@ export class FleetDb {
     ) as unknown as SampleRow[];
   }
 
+  /** `samplesSince` for many sessions (#906). */
+  samplesSinceOf(sessionIds: string[], fromT: number): Map<string, SampleRow[]> {
+    const rows: SampleRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)])) {
+      rows.push(...(this.many(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t`, [...part, fromT]) as unknown as SampleRow[]));
+    }
+    return grouped(sessionIds, rows);
+  }
+
   /** Σ tokens_delta per second across all sessions, for seconds >= fromT. */
   fleetTokensPerSecond(fromT: number): { t: number; v: number }[] {
     return this.stmt('SELECT t, SUM(tokens_delta) AS v FROM samples WHERE t >= ? GROUP BY t ORDER BY t').all(
@@ -780,6 +948,7 @@ export class FleetDb {
       const samples = Number(this.stmt('DELETE FROM samples WHERE t < ?').run(Math.floor((now - p.samplesMs) / 1000)).changes);
       const events = Number(this.stmt('DELETE FROM events WHERE t < ?').run(now - p.eventsMs).changes);
       const cutoff = now - p.sessionsMs;
+      // order-insensitive: every row listed is deleted, in whatever order.
       const old = this.stmt(
         'SELECT id FROM sessions WHERE (ended_at IS NOT NULL AND ended_at < ?) OR (dropped_at IS NOT NULL AND dropped_at < ?)',
       ).all(cutoff, cutoff) as { id: string }[];

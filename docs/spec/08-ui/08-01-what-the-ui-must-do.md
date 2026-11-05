@@ -1113,8 +1113,25 @@ is lit for `low` up to five for `max`, so the count carries the level and color 
 - Lit bars are colored by level: low orange, medium green, high blue, xhigh purple, and max one rainbow color
   per bar.
 - The level is the meter's tooltip and accessible name ("Effort: medium").
-- When effort was not reported, or is not one of the five levels, the bars are dimmed and the tooltip says
-  "Effort not reported".
+- When effort was not reported (`null`), the bars are dimmed and the tooltip says "Effort not reported".
+- When effort is text that is not one of the five levels (a report v2 can send any, such as `minimal`), the meter is
+  five hollow bars, outlined and unfilled, and the tooltip and accessible name say what was sent ("Effort: minimal")
+  (#936, `mockup/podium-effort-other.html`). The count of lit bars carries a level, so none are lit.
+- The effort column of the agent tree orders no effort first, then `low` to `max`, then any other text after `max`,
+  ordered by that text; descending is the reverse.
+
+## What a harness declares (#940)
+
+A session's `capabilities` (7.4) decide which fields the console draws, one key at a time. A key that is `false` means the
+harness cannot report that field: the field is absent, not zero. Today `context` and `effort` are the keys the console acts on:
+`context: false` leaves out the Context cell on the card, and the orchestrator page says once that the
+harness does not report context size; `effort: false` leaves out the card's effort meter. The agent tree and the orchestrator panel follow the
+same two keys (#944): a field the harness does not report has no column in the tree, in its header, the orchestrator row or any agent row, and no row in
+the panel, and nothing stands in its place. `true`, and a key the session did not declare,
+draw the field unless the console's own table for that harness says it cannot report it (`frontend/src/fleet/harness.ts`), which is
+the only thing a session with nothing declared (Claude Code, v1, stored before #940) is drawn from. No code names a harness
+to decide this. The model chip reads `modelLabel` when there is one and the family name when there is not, with the model id as its
+title, on the card, the rail, the orchestrator page, the agent tree's orchestrator row and the History row. An agent's chip does the same with the agent's own `modelLabel` (#945), on its tree row and in its panel.
 
 ## Orchestrator page (click a card or rail item; #165, `mockup/podium-orchestrator.html`)
 
@@ -1198,6 +1215,12 @@ never moves because another has nothing to say.
 - **Resume** and **Fork** are quiet whole-cell controls with no button chrome. Each has its label (**Resume**,
   **Fork**) over "Command" and a copy icon, and behaves as Copy resume command and Copy fork command below.
   Their accessible names are "Copy resume command" and "Copy fork command".
+  - The command comes from the session's harness (7.4). Claude Code has both. OpenCode has Resume only. A harness
+    with no entry has neither. A cell whose command is `null` keeps its place and is not a button: its label over the
+    words "Not available", with a title that says why ("OpenCode has no fork command Podium can give." or "Podium has no
+    resume command for <harness>."), and no popup. A harness other than Claude Code gets the popup without the lines that
+    are Claude Code's own (`--mcp-config` and the other flags it does not restore, permissions allowed for the session, and
+    the transcript's 30 days).
   - Each has a popup that says what the command does, opened by hover and by keyboard focus, closed by Escape
     or when the pointer or focus leaves. It holds text only, and the cell points to it with
     `aria-describedby`. It opens above the cell, aligned to the cell's right edge, so it must not be clipped

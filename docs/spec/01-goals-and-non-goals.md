@@ -10,7 +10,11 @@ order: 1
 
 ## Goals
 
-1. Show all live Claude Code sessions on this machine, updating within about 2 seconds of a change, with no
+Podium is harness-neutral. A **harness** is the program that runs an agent session, and Claude Code and OpenCode are the
+supported harnesses (DECISIONS 54). Where this spec says "Claude Code" it names the first harness and the first reporter;
+what Podium shows and does is the same for any harness, within what the harness reports.
+
+1. Show all live sessions of every supported harness on this machine, updating within about 2 seconds of a change, with no
    page refresh. A new session appears by itself. An ended session leaves by itself.
 2. Per orchestrator: name, working directory, git branch, whether it is a worktree, ahead/behind/modified
    counts, model, effort, status, context fill, estimated cost, token count, elapsed time, resume command and fork command.
@@ -32,20 +36,33 @@ order: 1
     that was already reported.
 12. A simulator script that feeds the server realistic reports so the UI can be developed and demoed with no
     Claude sessions running.
-13. Answer a session that waits on its person from the browser (#206, `mockup/podium-respond.html`): an
-    AskUserQuestion form, a plan to approve, a tool's permission prompt, or a turn that ended. The terminal
+13. Answer a session that waits on its person from the browser (#206, `mockup/podium-respond.html`): a
+    question form, a plan to approve, a tool's permission prompt, or a turn that ended (named here as Claude Code
+    names them; another harness offers its own equivalent of each). The terminal
     keeps working the whole time, and whichever answers first wins. Off unless the Admin and the session's
     owner both turn it on ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md), [7.7](07-server/07-07-hardening.md)).
 
 ## Non-goals (do NOT build these)
 
 **Control surface.** There is no general control surface (DECISIONS 28 replaced "Podium only observes").
-Podium can answer a session that waits on its person, and only in the ways Claude Code's own dialogs offer:
+Podium can answer a session that waits on its person, and only in the ways the harness's own dialogs offer
+(DECISIONS 54). For Claude Code those are:
 
 - answer an AskUserQuestion (an option, a typed answer, or a message in place of an answer);
 - approve a plan in one of three modes, or send it back with feedback;
 - allow one tool call once, or deny it with a reason;
 - send a new message, and run `/clear` or `/compact`.
+
+For OpenCode those are:
+
+- allow one permission request once, or reject it (never "always");
+- answer a question form, by the key of each field;
+- send a new message, and run `/compact`. An OpenCode session takes them while it is open, which means its terminal UI is attached. One
+  with no terminal UI that is quiet for `idleSeconds` is done, and takes nothing more (DECISIONS 59).
+
+Plan approval and `/clear` are not available for OpenCode, because OpenCode has no plan-approval step and no equivalent of `/clear`. The console
+does not offer them for an OpenCode session. The rest of what OpenCode cannot do is in
+[REPORTER.md](../REPORTER.md#opencode-settings).
 
 All of it goes through podium-reporter inside the session, which fetches it from the server. The server never
 connects to a session. It is off unless the Admin turns on **Respond from Podium** and the session's owner sets
@@ -69,7 +86,7 @@ Podium never:
   (DECISIONS 37);
 - lets a message between orchestrators answer an ask, run a command, or change a mode or a rule.
 
-The dashboard may also copy a resume command or a fork command to the clipboard and remove a heartbeat-lost card from the live
+The dashboard may also copy a resume command or a fork command, for a harness that has one (7.4), to the clipboard and remove a heartbeat-lost card from the live
 view early ([7.5](07-server/07-05-lifecycle-timers.md)). Neither sends anything to a session.
 
 **Hosting.**
@@ -119,7 +136,7 @@ available ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session
 **Other exclusions.**
 
 - No usage dashboard. The earlier one was removed (issue #30); it is not replaced.
-- No terminal UI or pane inside Claude Code in this spec. A minimal `/podium` command and a status-line entry
+- No terminal UI or pane inside a harness in this spec. A minimal `/podium` command and a status-line entry
   are in scope; a full pane is deferred ([section 11](11-out-of-scope-and-deferred.md)).
 - No accounts, passwords, per-person read permissions or roles beyond one: administrator. Authentication is a
   token per person plus an admin secret that opens the Admin section (signed in with the name `Admin`). A

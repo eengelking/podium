@@ -59,7 +59,7 @@ describe('the default text output', () => {
         fetch(`${base}/report`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Podium-Token': token }, body: JSON.stringify(body) });
       const r = fixtureReport();
       expect((await post(r)).status).toBe(200);
-      expect((await post({ ...r, v: 2 })).status).toBe(400);
+      expect((await post({ ...r, v: 3 })).status).toBe(400);
       expect((await post(r, 'wrong-token')).status).toBe(401);
       expect((await post(r, 'wrong-token')).status).toBe(401); // a retry, folded into the line above
       const done = { ...r, session: { ...r.session, id: 'text-output-done', status: 'done' as const, endReason: 'prompt_input_exit' } };

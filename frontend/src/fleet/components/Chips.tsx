@@ -1,6 +1,7 @@
 // Small shared pieces: model chip, effort meter, status chip, blowout badge, git line.
 import type { CSSProperties, ReactElement } from "react";
 import { fmtUsd } from "../format";
+import { harnessOf } from "../harness";
 import { EFFORTS, familyName, ORCHESTRATOR_ROW, waitingOnByRow } from "../logic";
 import type { AgentView, BackgroundWait, GitInfo, ModelFamily, SessionView } from "../types";
 import { backgroundStatus, backgroundTitle, idleOnBackground } from "../waiting";
@@ -18,7 +19,7 @@ export function cssVar(c: string): CSSProperties {
   return { ["--c" as string]: c } as CSSProperties;
 }
 
-export const NO_PRICE_TITLE = "Not a Claude model, so Podium has no price for it and shows no cost estimate";
+export const NO_PRICE_TITLE = "Podium has no price for this model and the harness reported none";
 
 /** A cost figure. A non-Claude model has no price: it reads "n/a" with the reason, not a made-up dollar amount. */
 export function Cost({ usd, family }: { usd: number | null; family: ModelFamily }) {
@@ -26,22 +27,43 @@ export function Cost({ usd, family }: { usd: number | null; family: ModelFamily 
   return <>{fmtUsd(usd)}</>;
 }
 
-export function ModelChip({ family, model }: { family: ModelFamily; model?: string | null }) {
-  const title = family === "other" && model ? `${model} (not a Claude model)` : (model ?? undefined);
+/** The harness of a session as a chip: a shape and the name, never a color alone (#853). Drawn only when the wall holds more than one harness. */
+export function HarnessBadge({ harness }: { harness: string | null | undefined }) {
+  const h = harnessOf(harness);
   return (
-    <span className="chip" style={cssVar(FAMILY_COLOR[family])} title={title}>
-      <i />
-      {familyName(family, model ?? null)}
+    <span className="chip hx" title={`Harness: ${h.name}`}>
+      <svg viewBox="0 0 10 10" data-shape={h.shape} aria-hidden="true" focusable="false">
+        {h.shape === "diamond" ? <path d="M5 .8 9.2 5 5 9.2.8 5z" /> : <rect x="1" y="1" width="8" height="8" rx="1.5" />}
+      </svg>
+      {h.name}
     </span>
   );
 }
 
-/** Five bars filled one to five, colored by level; the level is the tooltip and the accessible name, not text. */
+/** Under a cost the harness worked out itself, where it came from. Nothing for Podium's own estimate. */
+export function CostSourceNote({ s }: { s: Pick<SessionView, "costSource" | "harness"> }) {
+  return s.costSource === "harness" ? <span className="src">from {harnessOf(s.harness).name}</span> : null;
+}
+
+/** The family name, or the label the harness gave the model (#940), with the model id as the title either way. */
+export function ModelChip({ family, model, label }: { family: ModelFamily; model?: string | null; label?: string | null }) {
+  const title = model ?? undefined;
+  return (
+    <span className="chip model" style={cssVar(FAMILY_COLOR[family])} title={title}>
+      <i />
+      <span>{label || familyName(family, model ?? null)}</span>
+    </span>
+  );
+}
+
+/** Five bars filled one to five, colored by level; the level is the tooltip and the accessible name, not text. A level that is not one of the five is five hollow bars named by what was sent (#936). */
 export function EffortMeter({ effort }: { effort: string | null }) {
   const n = effort ? EFFORTS.indexOf(effort as (typeof EFFORTS)[number]) + 1 : 0;
-  const label = n ? `Effort: ${effort}` : "Effort not reported";
+  const other = !!effort && n === 0;
+  const label = effort ? `Effort: ${effort}` : "Effort not reported";
+  const kind = n ? effort : other ? "other" : "none";
   return (
-    <span className={`eff eff-${n ? effort : "none"}`} role="img" aria-label={label} title={label}>
+    <span className={`eff eff-${kind}`} role="img" aria-label={label} title={label}>
       {[1, 2, 3, 4, 5].map((i) => (
         <b key={i} className={i <= n ? "on" : ""} />
       ))}

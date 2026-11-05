@@ -28,7 +28,7 @@ const quietFeed = () => vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, js
 
 // ---- My reporters -----------------------------------------------------------------------------------------------
 const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({
-  key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", state: "reporting", lastSeenAt: T0 - 40_000, compat: "ok", live: [], ...over,
+  key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", reporterName: "podium-reporter", state: "reporting", lastSeenAt: T0 - 40_000, compat: "ok", live: [], ...over,
 });
 const PROPOSAL: PeerRequestView = { id: "prq_p", kind: "proposal", at: T0 - 5 * MIN, from: { machine: "build-pi", name: null }, to: { machine: "ed-mbp", name: null }, fromKey: "k3", toKey: "k1", level: "ask", by: "Admin", reason: null, text: null, messageId: null };
 const ACCESS: PeerRequestView = { id: "prq_a", kind: "access", at: T0 - MIN, from: { machine: "ci-runner-01", name: "Tester" }, to: { machine: "build-pi", name: null }, fromKey: "k2", toKey: "k3", level: "ask", by: "Tester", reason: "I need the arm64 build.", text: null, messageId: null };

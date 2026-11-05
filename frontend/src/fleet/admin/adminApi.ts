@@ -64,6 +64,8 @@ export interface ReporterRow {
   /** Reports with the admin secret instead of a person's token (issue #166). */
   adminSecret: boolean;
   version: string;
+  /** Which reporter it is (`reporter.name`); each has its own supported range on the server (#852). */
+  reporterName: string;
   compat: "ok" | "outdated" | "newer" | "unknown";
   firstSeenAt: number;
   lastSeenAt: number;

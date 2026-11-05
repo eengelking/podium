@@ -220,7 +220,7 @@ describe("deleting people (#243)", () => {
     expect(screen.getByText("person-001")).toBeInTheDocument();
     expect(screen.getByText("person-003")).toBeInTheDocument();
     expect(screen.queryByText(/selected/)).toBeNull();
-    expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument());
   }, 30_000);
 
   it("selects every row on the page with the header box, and Clear drops the selection", async () => {
@@ -530,7 +530,7 @@ describe("Reporters tab (#142)", () => {
 
   it("lists reporters with a count on the tab, the state strip and the versions, and says what Silent means", async () => {
     await openReporters();
-    expect(screen.getByRole("button", { name: /Reporters/ })).toHaveTextContent("2");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Reporters/ })).toHaveTextContent("2"));
     const rows = within(screen.getByRole("table")).getAllByRole("row");
     expect(rows).toHaveLength(3);
     expect(rows[1]).toHaveTextContent("studio-m2");
@@ -596,6 +596,32 @@ describe("Reporters tab (#142)", () => {
     expect(alert).toHaveTextContent("This reporter is using the admin secret");
     expect(alert).toHaveTextContent("In Claude Code, run /plugin configure podium-reporter@eengelking-marketplace");
     expect(alert).toHaveTextContent("In the Claude desktop app, open Settings > Plugins > Podium-Reporter > Settings");
+    // The picker opens on Claude Code when no session says otherwise, and OpenCode's steps replace the whole list (#857).
+    const picker = within(alert).getByRole("group", { name: /^Harness on / });
+    expect(within(picker).getByRole("button", { name: "Claude Code" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(picker).getByRole("button", { name: "OpenCode" }));
+    expect(within(picker).getByRole("button", { name: "OpenCode" })).toHaveAttribute("aria-pressed", "true");
+    expect(alert).toHaveTextContent("~/.podium/config.env and set PODIUM_TOKEN to that token and PODIUM_USER to the person's name.");
+    expect(alert).toHaveTextContent("Run opencode service restart, so OpenCode loads the new settings.");
+    expect(alert).not.toHaveTextContent("/plugin configure");
+    fireEvent.click(within(picker).getByRole("button", { name: "Claude Code" }));
+    expect(alert).toHaveTextContent("/plugin configure podium-reporter@eengelking-marketplace");
+  });
+
+  it("opens the callout's picker on the harness the reporter's machine runs (#857)", async () => {
+    fakeServer();
+    const body = makeState({ sessions: [makeSession({ id: "oc", harness: "opencode", machine: { name: "10.4.0.52", id: "addr:10.4.0.52" } })] }); // NOSONAR S1313: the made-up private address of the fake admin server's admin-secret reporter, never connected to
+    const quiet: FleetSource = new QuietSource() as unknown as FleetSource;
+    render(<AdminView fleetOptions={{ open: () => quiet, fetchState: async () => body }} />);
+    await unlock();
+    fireEvent.click(screen.getByRole("button", { name: /Reporters/ }));
+    await screen.findByRole("table");
+    fireEvent.click(within(screen.getByRole("status", { name: "Reporters using the admin secret" })).getByRole("button", { name: "Show only these" }));
+    await waitFor(() => expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2));
+    fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: /Open details/ }));
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(within(alert).getByRole("button", { name: "OpenCode" })).toHaveAttribute("aria-pressed", "true"));
+    expect(alert).toHaveTextContent("PODIUM_TOKEN");
   });
 
   it("pages a reporter's recent sessions and shows them and the turned-away reports as their own panels (issue #188)", async () => {
@@ -759,7 +785,7 @@ describe("Reporters tab (#142)", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Ignore and remove" }));
     await waitFor(() => expect(state.rules).toEqual([expect.objectContaining({ kind: "key", pattern: "9f3a1c7d2e40" })]));
     expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(screen.queryByText("studio-m2")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("studio-m2")).toBeNull());
   });
 
   it("keeps Ignore… and Remove from list together in one actions group beside the name (issue #247)", async () => {

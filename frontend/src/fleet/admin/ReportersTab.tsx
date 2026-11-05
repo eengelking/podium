@@ -3,13 +3,15 @@
 // reporter that stops moves from "Reporting" to "Silent" without a reload. "Silent" means nothing has arrived for a while; the
 // server cannot tell a reporter that is turned off from one that cannot reach it.
 import { useEffect, useState } from "react";
+import { updateHint } from "../reporterUpdate";
 import { AdminError, query, type AdminApi, type IgnoreRule, type RemoveBody, type ReporterDetail, type ReporterList, type ReporterRow, type ReporterSort, type ReporterState } from "./adminApi";
 import { Tip } from "../components/Tip";
 import { Pager } from "./Pager";
 import { Panel, Section } from "./Page";
 import { failText, useList } from "./useList";
 import { useReporterMessaging, WarnIcon } from "./ReporterMessaging";
-import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
+import { useFleet, type UseFleetOptions } from "../useFleet";
+import { DESKTOP_OPTIONS, harnessesOnMachine, harnessesToShow, OPENCODE_RESTART, OPENCODE_SETTINGS_FILE, OPTION_CMD, SETUP_HARNESSES, type SetupHarness } from "../pluginOptions";
 
 export interface ReporterPaging {
   page: number;
@@ -33,12 +35,13 @@ const STATES: { id: ReporterState; name: string; def: string }[] = [
 ];
 const stateOf = (id: ReporterState) => STATES.find((s) => s.id === id)!;
 
-const COMPAT: Record<ReporterRow["compat"], string> = {
-  ok: "Supported",
-  outdated: "Older than this server supports. Update the mod.",
-  newer: "Newer than this server knows. Update Podium.",
-  unknown: "There is no version to check.",
-};
+/** What a reporter's compatibility means; it names the reporter, because each has its own range on the server (#852). */
+export function compatText(compat: ReporterRow["compat"], reporterName: string): string {
+  if (compat === "ok") return "Supported";
+  if (compat === "outdated") return `Older than this server supports for ${reporterName}. ${updateHint(reporterName)}`;
+  if (compat === "newer") return `Newer than this server knows for ${reporterName}. Update Podium.`;
+  return "There is no version to check.";
+}
 
 /** "3 h ago", counted from the server's clock so a wrong clock in the browser cannot skew it. */
 export function ago(serverTime: number, t: number): string {
@@ -112,10 +115,10 @@ export function StateBadge({ r, serverTime, serverStartedAt }: { r: Pick<Reporte
 }
 
 /** A reporter's version and how it fits this server; My reporters shows it the same way (#415). */
-export function Version({ r }: { r: Pick<ReporterRow, "version" | "compat"> }) {
+export function Version({ r }: { r: Pick<ReporterRow, "version" | "compat" | "reporterName"> }) {
   const flag = r.compat === "outdated" || r.compat === "newer";
   return (
-    <span className={`compat ${r.compat}`} title={COMPAT[r.compat]}>
+    <span className={`compat ${r.compat}`} title={compatText(r.compat, r.reporterName)}>
       {flag && <span aria-hidden="true">⚠ </span>}
       <span className="mono">{r.version}</span>
       {flag ? ` ${r.compat}` : r.compat === "unknown" ? " no mod" : ""}
@@ -129,6 +132,8 @@ export function ReportersTab(props: {
   onPaging: (p: Partial<ReporterPaging>) => void;
   onCount: (n: number) => void;
   onLocked: () => void;
+  /** For the stream that tells a reporter's machine's harness (#857); a test passes a fake one. */
+  fleetOptions?: UseFleetOptions;
 }) {
   const { api, paging, onPaging, onCount } = props;
   const [open, setOpen] = useState<string | null>(null);
@@ -156,7 +161,7 @@ export function ReportersTab(props: {
     return () => clearTimeout(t);
   }, [search, paging.q, onPaging]);
 
-  if (open !== null) return <Detail api={api} id={open} onBack={() => (setOpen(null), list.reload())} onLocked={props.onLocked} />;
+  if (open !== null) return <Detail api={api} id={open} onBack={() => (setOpen(null), list.reload())} onLocked={props.onLocked} fleetOptions={props.fleetOptions} />;
 
   const data = list.data;
   const filterOf = () => ({ ...(paging.q ? { q: paging.q } : {}), ...(paging.state ? { state: paging.state } : {}), ...(paging.admin ? { admin: true } : {}) });
@@ -446,7 +451,54 @@ function IgnoreRules(props: { api: AdminApi; rules: IgnoreRule[] | undefined; er
   );
 }
 
-function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked: () => void }) {
+/**
+ * The steps that move a reporter off the admin secret (#857, mockup/podium-reporter-harness-picker.html). The steps differ by harness: Claude Code
+ * sets options with a command or the desktop app, OpenCode with `PODIUM_*` in a file and a service restart. The picker opens on the harness the
+ * machine's sessions run, and on Claude Code when that is none or both.
+ */
+function FixSteps({ source, known }: { source: string | null; known: readonly SetupHarness[] }) {
+  const [picked, setPicked] = useState<SetupHarness | null>(null);
+  const harness: SetupHarness = picked ?? (known.length === 1 ? known[0]! : "claude-code");
+  const where = source ? `On ${source}, open` : "Open";
+  return (
+    <>
+      <p className="f inline">
+        <b>To fix it:</b>
+        <span className="seg" role="group" aria-label={source ? `Harness on ${source}` : "Harness"}>
+          {SETUP_HARNESSES.map((h) => (
+            <button type="button" key={h.id} aria-pressed={harness === h.id} onClick={() => setPicked(h.id)}>
+              {h.name}
+            </button>
+          ))}
+        </span>
+      </p>
+      <ol>
+        <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
+        {harness === "opencode" ? (
+          <>
+            <li>
+              {where} <span className="mono">{OPENCODE_SETTINGS_FILE}</span> and set <span className="mono">PODIUM_TOKEN</span> to that token and <span className="mono">PODIUM_USER</span> to the person's name.
+            </li>
+            <li>
+              Run <span className="mono">{OPENCODE_RESTART}</span>, so OpenCode loads the new settings.
+            </li>
+          </>
+        ) : (
+          <>
+            <li>
+              {where} the reporter's options. In Claude Code, run <span className="mono">{OPTION_CMD}</span>. In the Claude desktop app, open {DESKTOP_OPTIONS}.
+            </li>
+            <li>
+              Enter that token as <span className="mono">token</span> and the person's name as <span className="mono">userName</span>.
+            </li>
+          </>
+        )}
+      </ol>
+    </>
+  );
+}
+
+function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked: () => void; fleetOptions?: UseFleetOptions }) {
   const { api, id } = props;
   const path = `/reporters/${encodeURIComponent(id)}`;
   const [page, setPage] = useState(1);
@@ -454,7 +506,10 @@ function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked
   const one = useList<ReporterDetail>(api, `${path}${query({ page, pageSize })}`, props.onLocked);
   useRefresh(one.reload);
   // Orchestrator messaging (#416): nothing while the peer-messaging flag is off.
-  const messaging = useReporterMessaging(api, id, props.onLocked, REFRESH_MS);
+  // The sessions the console holds on this reporter's machine say which harness it runs (#857); the stream is the one the Spend tab opens the same way.
+  const fleet = useFleet(props.fleetOptions);
+  const known = harnessesOnMachine(Object.values(fleet.sessions), id);
+  const messaging = useReporterMessaging(api, id, props.onLocked, REFRESH_MS, harnessesToShow(known));
   const [confirm, setConfirm] = useState(false);
   const [ignoring, setIgnoring] = useState(false);
   const [ignoreKind, setIgnoreKind] = useState<IgnoreRule["kind"]>("key");
@@ -602,18 +657,7 @@ function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked
           <p>
             {d.name} reports with the admin secret instead of a token made for one person. Its {d.sessions} {d.sessions === 1 ? "session belongs" : "sessions belong"} to no one, and anyone who holds that secret can report as anyone. On a server only you use this is allowed, but it is not meant to stay that way.
           </p>
-          <p>
-            <b>To fix it:</b>
-          </p>
-          <ol>
-            <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
-            <li>
-              {d.source ? `On ${d.source}, open` : "Open"} the reporter's options. In Claude Code, run <span className="mono">{OPTION_CMD}</span>. In the Claude desktop app, open {DESKTOP_OPTIONS}.
-            </li>
-            <li>
-              Enter that token as <span className="mono">token</span> and the person's name as <span className="mono">userName</span>.
-            </li>
-          </ol>
+          <FixSteps source={d.source} known={known} />
         </div>
       )}
       <div className="dgrid">
@@ -621,7 +665,7 @@ function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked
           <h3 id="rep-h1">Reporter</h3>
           {kv([
             ["Version", <span key="v" className="mono">{d.version}</span>],
-            ["Compatibility", <span key="c" className={`compat ${d.compat}`}>{COMPAT[d.compat]}</span>],
+            ["Compatibility", <span key="c" className={`compat ${d.compat}`}>{compatText(d.compat, d.reporterName)}</span>],
             ...messaging.rows,
             ["Claude Code", <span key="e" className="mono">{d.engineVersion ?? "not reported"}</span>],
             ["First seen", <>{day(d.firstSeenAt)} <span className="hint">({ago(d.serverTime, d.firstSeenAt)})</span></>],

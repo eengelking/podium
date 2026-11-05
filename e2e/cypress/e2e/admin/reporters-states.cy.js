@@ -34,18 +34,31 @@ describe('admin: reporters, versions, the admin secret and restarts', () => {
     cy.contains('To fix it:');
     cy.contains('In Admin > People, make a person for whoever runs this reporter');
     cy.contains('The admin secret cannot take part');
+  });
+
+  it('switches the steps to fix it between Claude Code and OpenCode with the harness picker', () => {
+    cy.get('button[aria-label="Open details for secret-box"]').click();
+    cy.contains('To fix it:');
+    cy.get('[role=group][aria-label^="Harness"]').as('pick');
+    cy.get('@pick').contains('button', 'OpenCode').click().should('have.attr', 'aria-pressed', 'true');
+    cy.contains('li', 'PODIUM_TOKEN').should('contain.text', '~/.podium/config.env');
+    cy.contains('li', 'opencode service restart');
+    cy.get('@pick').contains('button', 'Claude Code').click().should('have.attr', 'aria-pressed', 'true');
+    cy.contains('li', '/plugin configure podium-reporter@eengelking-marketplace');
+    cy.contains('li', 'PODIUM_TOKEN').should('not.exist');
     cy.contains('Compatibility').parent().should('contain.text', 'Supported');
   });
 
   it('explains an outdated reporter in its details, and that it cannot message until it is updated', () => {
     cy.get('button[aria-label="Open details for old-box"]').click();
-    cy.contains('Compatibility').parent().should('contain.text', 'Older than this server supports. Update the mod.');
+    cy.contains('Compatibility').parent().should('contain.text', 'Older than this server supports for podium-reporter-claudecode. Update the Claude Code reporter.');
     cy.contains("old-box's reporter can't message");
     cy.contains('It is too old to message.');
   });
 
   it('ignores every reporter on a version from a reporter\'s details page, which makes a rule that can be removed', () => {
     cy.get('button[aria-label="Open details for future-box"]').click();
+    cy.contains('Compatibility').parent().should('contain.text', 'Newer than this server knows for podium-reporter-claudecode. Update Podium.');
     cy.contains('button', 'Ignore…').click();
     cy.get('[role=group][aria-label="Ignore future-box"]').should('contain.text', 'Its reports are turned away');
     cy.get('[role=group][aria-label="Ignore future-box"]').contains('label.opt', 'Every reporter on version').find('input').check();

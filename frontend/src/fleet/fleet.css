@@ -137,13 +137,18 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .ritem .l2 { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--ink2); font-size: 12px; }
 .podium .ritem .bar { flex: 1; }
 .podium .ritem.enter, .podium .card.enter { animation: podium-enter .9s ease-out; }
-.podium .ritem.leave, .podium .card.leave { animation: podium-leave .6s ease-in forwards; }
+.podium .ritem.leave, .podium .card-slot.leave { animation: podium-leave .6s ease-in forwards; }
 @keyframes podium-enter { 0% { background: color-mix(in srgb, var(--good) 28%, transparent); transform: translateY(-4px); opacity: 0; } 30% { opacity: 1; transform: none; } 100% { } }
 @keyframes podium-leave { to { opacity: 0; transform: translateX(-8px); } }
 
 /* chips + meters */
 .podium .chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 4px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--border); white-space: nowrap; color: var(--ink2); }
 .podium .chip i { width: 7px; height: 7px; border-radius: 2px; background: var(--c); }
+/* A model name can be long (OpenCode sends provider/model, #975). The chip in a row's Model cell fills the cell so every chip is the same width, and the label is clipped with an ellipsis; the full id is the title. */
+.podium .chip.model > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.podium .trow .cell .chip.model { width: 100%; min-width: 0; box-sizing: border-box; }
+.podium .chip.hx { color: var(--ink); background: var(--raised); }
+.podium .chip.hx svg { width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 1.6; flex: none; }
 .podium .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .podium .chip.skill { font-family: var(--font-mono); font-size: 11px; }
 .podium .det .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -158,6 +163,7 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .eff b { width: 4px; height: 10px; border-radius: 1px; background: var(--axis); }
 .podium .eff b.on { background: var(--c); }
 .podium .eff-none { opacity: 0.5; }
+.podium .eff-other b { background: transparent; border: 1px solid var(--muted); box-sizing: border-box; }
 .podium dd .eff { margin-right: 8px; }
 .podium .eff-low { --c: var(--eff-low); }
 .podium .eff-medium { --c: var(--eff-medium); }
@@ -268,6 +274,8 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .card.sc .z1 { padding: 12px; display: flex; flex-direction: column; gap: 5px; }
 .podium .card.sc .z2 { margin-top: auto; padding: 10px 12px 11px; border-top: 1px solid var(--grid); display: flex; flex-direction: column; gap: 9px; }
 .podium .card.sc .z3 { border-top: 1px solid var(--grid); display: grid; grid-template-columns: 1.15fr 1fr .8fr 1fr; }
+.podium .card.sc .z3.three { grid-template-columns: 1.15fr 1fr 1fr; }
+.podium .card.sc .z3 .c .v .src { display: block; font-family: var(--font-ui); font-size: 11px; font-weight: 400; color: var(--muted); }
 .podium .card.sc .h { min-width: 0; }
 .podium .card.sc .sd { flex: none; display: inline-flex; color: var(--muted); }
 .podium .card.sc .sd .si { width: 13px; height: 13px; }
@@ -421,7 +429,11 @@ body.podium-resizing .podium .cols { transition: none; }
 /* agent tree */
 .podium .tw { overflow-x: auto; position: relative; }
 /* --deep (set on .tw) is how many levels the agent tree goes past two: each widens the Task column by one 16px guide, and the table scrolls sideways in .tw, so a deep row keeps as much text as a second-level one (#101). */
-.podium .trow { display: grid; grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 92px 52px 142px 64px 64px 70px 104px; gap: 10px; align-items: center; padding: 0 12px; min-height: 36px; border-bottom: 1px solid var(--grid); width: 100%; min-width: calc(892px + var(--deep, 0) * 16px); }
+.podium .trow { display: grid; grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 148px 52px 142px 64px 64px 70px 104px; gap: 10px; align-items: center; padding: 0 12px; min-height: 36px; border-bottom: 1px solid var(--grid); width: 100%; min-width: calc(948px + var(--deep, 0) * 16px); }
+/* A column the session's harness cannot report is absent from every row, so the row loses its track (#944). The tracks are the ones above. */
+.podium .trow.no-eff { grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 148px 142px 64px 64px 70px 104px; min-width: calc(886px + var(--deep, 0) * 16px); }
+.podium .trow.no-ctx { grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 148px 52px 64px 64px 70px 104px; min-width: calc(796px + var(--deep, 0) * 16px); }
+.podium .trow.no-eff.no-ctx { grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 148px 64px 64px 70px 104px; min-width: calc(734px + var(--deep, 0) * 16px); }
 .podium .trow.hd { min-height: 28px; color: var(--muted); font-size: 11.5px; position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .podium button.trow:hover { background: var(--hover); }
 .podium button.trow[aria-current="true"] { background: var(--sel); }
@@ -706,7 +718,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .trow.hd button[aria-pressed="true"] { color: var(--ink); font-weight: 600; }
 
 @media (max-width: 1280px) {
-  .podium .trow { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 92px 52px 150px 64px 70px 104px; }
+  .podium .trow { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 148px 52px 150px 64px 70px 104px; }
+  .podium .trow.no-eff { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 148px 150px 64px 70px 104px; }
+  .podium .trow.no-ctx { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 148px 52px 64px 70px 104px; }
+  .podium .trow.no-eff.no-ctx { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 148px 64px 70px 104px; }
   .podium .trow .c-tok { display: none; }
   .podium { --rail-base: 224px; }
   .podium .cols { --side-w: 310px; }

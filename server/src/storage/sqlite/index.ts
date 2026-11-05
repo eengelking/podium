@@ -10,7 +10,7 @@ import { RecordingSettingsStore } from './recordingSettings.js';
 import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
 import { TlsSettingsStore } from './tlsSettings.js';
 import { PersonCertStore } from './personCerts.js';
-import { AsyncLock } from './lock.js';
+import { AsyncLock } from '../lock.js';
 import { SqliteReportQueries } from './reportQueries.js';
 import { asyncLookupOver, peerStoreOver } from './peers.js';
 import { ActivityConnection } from './activity.js';

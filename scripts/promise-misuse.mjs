@@ -5,7 +5,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
+import ts from '@typescript/typescript6';
 
 const USAGE = `Usage: node scripts/promise-misuse.mjs <tsconfig> [--tests]
 

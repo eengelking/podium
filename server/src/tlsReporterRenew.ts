@@ -6,7 +6,8 @@
 // A certificate is renewed only while it is valid (#665). The reporter port is mutual TLS with `rejectUnauthorized: true`, so
 // an expired, untrusted or missing certificate never gets as far as this route, and a renewal answer (a new CA included)
 // only travels over a connection Node verified. A certificate that lapsed is not renewed: an Admin generates a new config.
-import express, { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
+import { jsonBody } from './jsonBody.js';
 import { X509Certificate, createPublicKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -135,7 +136,7 @@ export interface ReporterRenewDeps {
 /** The router for `/api/reporter`: only `POST /renew`, and only answered to a client certificate. */
 export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
   const router = Router();
-  const json = express.json({ limit: '4kb', type: ['application/json'] });
+  const json = jsonBody({ limit: '4kb', type: ['application/json'] });
   /** People with a renewal between the check and the stored row; a second request in that window would pass the hourly limit. */
   const inFlight = new Set<number>();
 

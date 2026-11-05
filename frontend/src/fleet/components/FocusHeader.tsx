@@ -1,10 +1,12 @@
 import { currentStep, inferredStep, planComplete } from "../logic";
 import type { SessionView } from "../types";
-import { GitLine, StateIcon, type StateKind } from "./Chips";
+import { harnessOfSession } from "../harness";
+import { GitLine, HarnessBadge, StateIcon, type StateKind } from "./Chips";
 import { MiniCharts } from "./MiniCharts";
 
 /** Layer one of the summary surface: who it is, what it is doing, where. The state shape beside the name is the status band's shape. */
-export function FocusHeader({ s, kind, now }: { s: SessionView; kind: StateKind; now: number }) {
+export function FocusHeader({ s, kind, now, showHarness }: { s: SessionView; kind: StateKind; now: number; showHarness?: boolean }) {
+  const harness = harnessOfSession(s);
   const step = currentStep(s.plan);
   const next = step ? null : inferredStep(s.plan);
   return (
@@ -15,6 +17,7 @@ export function FocusHeader({ s, kind, now }: { s: SessionView; kind: StateKind;
             <StateIcon kind={kind} />
           </span>
           {s.name}
+          {showHarness && <HarnessBadge harness={s.harness} />}
         </h1>
         {s.plan ? (
           <div className="goal">
@@ -44,6 +47,9 @@ export function FocusHeader({ s, kind, now }: { s: SessionView; kind: StateKind;
           )}
         </div>
         <GitLine git={s.git} />
+        {!harness.context && <div className="goal">
+            <span>{harness.name} does not report context size.</span>
+          </div>}
       </div>
       <MiniCharts s={s} now={now} />
     </div>

@@ -15,7 +15,12 @@ import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
 import type { RespondMe } from "./types";
 import { Blank } from "./components/Blank";
-import { DESKTOP_OPTIONS, OPTION_CMD } from "./pluginOptions";
+import { reporterKind } from "./reporterUpdate";
+import { harnessesOnMachine, harnessesToShow, turnOnTexts } from "./pluginOptions";
+import { Tip } from "./components/Tip";
+
+/** The part of a session this page reads: its harness and the machine it runs on. */
+type SessionHarness = { harness?: string | null; machine?: { id: string } | null };
 
 const LEAD = "The machines that report your sessions to this server, and which of them may message each other.";
 
@@ -62,7 +67,8 @@ function ownerLimitState(own: number | undefined, admin: number): string {
 }
 
 /** `notice` is the console's own message, such as a failed Remove in the rail (#446), shown at the top of the page as on the wall. */
-export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; now: number; notice?: string | null }) {
+/** `sessions` are the console's own, so a row can say which harness its machine runs (#857). */
+export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; now: number; notice?: string | null; sessions?: ReadonlyArray<SessionHarness> }) {
   const { me, peers } = props;
   let body: React.ReactNode;
   if (!props.peersOn || me?.enabled === false) {
@@ -90,7 +96,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
   } else if (!peers.data.reporters.length) {
     body = <Blank title="No reporters yet">A machine shows here once it reports with your name and token. Set both in its podium-reporter options.</Blank>;
   } else {
-    body = <Owner data={peers.data} peers={peers} api={props.api} now={props.now + peers.skew} />;
+    body = <Owner data={peers.data} peers={peers} api={props.api} now={props.now + peers.skew} sessions={props.sessions ?? []} />;
   }
   return (
     <main className="adminv" aria-label="My reporters">
@@ -111,7 +117,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api: PeersApi; now: number }) {
+function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: MyPeers; api: PeersApi; now: number; sessions: ReadonlyArray<SessionHarness> }) {
   const [err, setErr] = useState<string | null>(null);
   const [said, setSaid] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -190,7 +196,8 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
     }
   };
 
-  const off = data.reporters.filter((r) => r.peers !== true);
+  const tooOld = data.reporters.filter((r) => r.peers === null && reporterKind(r.reporterName) !== "opencode");
+  const noMessaging = data.reporters.filter((r) => r.peers === null && reporterKind(r.reporterName) === "opencode");
   return (
     <>
       {err && (
@@ -252,7 +259,13 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
                         ) : (
                           <span className="badge off">
                             <span className="dot" aria-hidden="true" />
-                            {r.peers === null ? "Reporter can't message: update it" : "Off on the machine"}
+                            {r.peers === null ? (
+                              "Reporter can't message: update it"
+                            ) : (
+                              <Tip className="tt" text={`${r.machine} has messaging off. Only that machine can turn it on. ${turnOnTexts(harnessesToShow(harnessesOnMachine(sessions, r.key)), "peers")}`}>
+                                Off on the machine
+                              </Tip>
+                            )}
                           </span>
                         )}
                       </td>
@@ -267,19 +280,16 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
               </tbody>
             </table>
           </div>
-          {off.length > 0 && (
+          {tooOld.length + noMessaging.length > 0 && (
             <div className="pm-note">
-              {off.map((r) => (
+              {noMessaging.map((r) => (
                 <p key={r.key} className="hint">
-                  {r.peers === null ? (
-                    <>
-                      {r.machine}'s reporter is too old to message. Update podium-reporter on that machine: in Claude Code there, run <span className="mono">/plugin</span>, pick podium-reporter on the Installed tab and choose Update now.
-                    </>
-                  ) : (
-                    <>
-                      {r.machine} has messaging off. Only that machine can turn it on. In Claude Code there, run <span className="mono">{OPTION_CMD}</span> and set <span className="mono">peers</span> to on. In the Claude desktop app there, open {DESKTOP_OPTIONS} and turn on <span className="mono">peers</span>.
-                    </>
-                  )}
+                  {r.machine}'s OpenCode reporter has not said whether messaging is on. Update it on that machine; messaging is switched on there with PODIUM_PEERS=true.
+                </p>
+              ))}
+              {tooOld.map((r) => (
+                <p key={r.key} className="hint">
+                  {r.machine}'s reporter is too old to message. Update podium-reporter on that machine: in Claude Code there, run <span className="mono">/plugin</span>, pick podium-reporter on the Installed tab and choose Update now.
                 </p>
               ))}
             </div>

@@ -233,3 +233,47 @@ describe("FactsBar Machine cell, with the system joined to it (#427, #353)", () 
   });
 });
 
+
+describe("FactsBar Resume and Fork for each harness (#853)", () => {
+  const open = (s: ReturnType<typeof makeSession>) => render(<FactsBar s={s} now={Date.now()} onAgent={() => {}} />);
+
+  it("keeps both cells as copy buttons for Claude Code, with Claude Code's popup text", () => {
+    open(makeSession({ harness: "claude-code" }));
+    expect(screen.getByRole("button", { name: "Copy resume command" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy fork command" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Fork" })).getByRole("tooltip", { hidden: true }).textContent).toContain("Claude Code keeps for 30 days");
+  });
+
+  it("leaves Fork in its place as a quiet cell with no button when the harness has no fork command, and drops Claude Code's popup lines from Resume", () => {
+    const { container } = open(makeSession({ harness: "opencode", resumeCommand: "opencode /Users/dev/x --session ses_1", forkCommand: null }));
+    const keys = [...container.querySelectorAll(".fact")].map((f) => f.querySelector(".k")?.textContent);
+    expect(keys).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Machine", "Reporter", "Session", "Resume", "Fork", "Recording"]);
+    expect(screen.getByRole("button", { name: "Copy resume command" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy fork command" })).toBeNull();
+    const fork = [...container.querySelectorAll(".fact")].find((f) => f.querySelector(".k")?.textContent === "Fork")!;
+    expect(fork.textContent).toContain("Not available");
+    expect(fork.getAttribute("title")).toBe("OpenCode has no fork command Podium can give.");
+    const resumeTip = within(screen.getByRole("group", { name: "Resume" })).getByRole("tooltip", { hidden: true }).textContent ?? "";
+    expect(resumeTip).toContain("Continues this same session in a new terminal");
+    expect(resumeTip).not.toContain("--mcp-config");
+  });
+
+  it("shows Resume as not available when there is no template for the harness", () => {
+    const { container } = open(makeSession({ harness: "acme-runner", resumeCommand: null, forkCommand: null }));
+    expect(screen.queryByRole("button", { name: "Copy resume command" })).toBeNull();
+    const resume = [...container.querySelectorAll(".fact")].find((f) => f.querySelector(".k")?.textContent === "Resume")!;
+    expect(resume.textContent).toContain("Not available");
+    expect(resume.getAttribute("title")).toBe("Podium has no resume command for acme-runner.");
+  });
+});
+
+describe("FactsBar cost label (#853)", () => {
+  it("calls Podium's figure an estimate and the harness's own figure a cost", () => {
+    const { container } = render(<FactsBar s={makeSession({ costSource: "estimate" })} now={Date.now()} onAgent={() => {}} />);
+    expect(container.querySelector(".fact.cost .k")!.textContent).toBe("Est. cost");
+    cleanup();
+    const r = render(<FactsBar s={makeSession({ harness: "opencode", costSource: "harness" })} now={Date.now()} onAgent={() => {}} />);
+    expect(r.container.querySelector(".fact.cost .k")!.textContent).toBe("Cost");
+    expect(r.container.querySelector(".fact.cost")!.getAttribute("title")).toBe("The whole session, as OpenCode reports it. Podium does not estimate it.");
+  });
+});

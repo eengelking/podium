@@ -84,10 +84,10 @@ describe("the menu", () => {
     render(<AdminView />);
     fireEvent.click(await screen.findByRole("button", { name: "Data" }));
     await screen.findByRole("form", { name: "Activity history retention" });
-    expect(navStored()).toHaveTextContent("Stored activity5");
+    await waitFor(() => expect(navStored()).toHaveTextContent("Stored activity5"));
     fireEvent.click(navStored());
     await screen.findByRole("table", { name: "Stored activity by session" });
-    expect(navStored()).toHaveTextContent("Stored activity3");
+    await waitFor(() => expect(navStored()).toHaveTextContent("Stored activity3"));
   });
 });
 
@@ -317,7 +317,7 @@ describe("Data, the Activity history section", () => {
       fireEvent.change(policy(), { target: { value: "default" } });
       save();
       fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Cancel" }));
-      expect(screen.queryByRole("alert")).toBeNull();
+      await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
       expect(putBodies(s)).toEqual([]);
       expect(policy().value).toBe("default");
     });

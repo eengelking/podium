@@ -35,7 +35,7 @@ const PLAN: Ask = { id: 'toolu_p', kind: 'plan', agentId: null, openedAt: T0, pl
 const TOOL: Ask = { id: 'toolu_t', kind: 'permission', agentId: null, openedAt: T0, tool: { name: 'Bash', input: { command: 'git push -u origin main' }, cut: false } };
 
 /** A store with one session whose report says it takes everything. */
-function store(accepts: RespondKind[] = ALL) {
+function store(accepts: RespondKind[] = ALL, tune: (r: ReturnType<typeof fixtureReport>) => void = () => undefined) {
   let now = T0;
   const changes: string[] = [];
   const feed: string[] = [];
@@ -47,6 +47,7 @@ function store(accepts: RespondKind[] = ALL) {
   const r = fixtureReport();
   r.sentAt = T0;
   r.session.respond = { level: 'everything', accepts, limits: [] };
+  tune(r);
   s.noteReport(r, true);
   return { s, sid: r.session.id, changes, feed, tick: (ms: number) => (now += ms) };
 }
@@ -273,6 +274,21 @@ describe('RespondStore', () => {
     expect(s.summaries(sid)).toEqual([]);
   });
 
+  it('holds an answered-in-the-terminal ask as 410 terminal until a running report, then as unknown (#1011, SPEC 7.1)', async () => {
+    const { s, sid, tick } = store();
+    s.announce(sid, QUESTION);
+    tick(500);
+    s.close(sid, 'toolu_q', { outcome: 'terminal', at: T0 + 500 });
+    expect(await s.hold(sid, 'toolu_q', 10)).toEqual({ kind: 'closed', outcome: 'terminal' });
+    // Claude Code runs again as soon as the terminal answer is taken, so its next report drops the ask: a 404 within a second is #829, not a lost close.
+    const r = fixtureReport();
+    r.session.status = 'running';
+    r.session.asks = [];
+    r.sentAt = T0 + 2000;
+    s.noteReport(r, true);
+    expect(await s.hold(sid, 'toolu_q', 10)).toEqual({ kind: 'unknown' });
+  });
+
   it('keeps a closed ask for an idle report that the session never ran between, or that predates the close (#208)', () => {
     const { s, sid, tick } = store();
     s.announce(sid, QUESTION);
@@ -314,6 +330,21 @@ describe('RespondStore', () => {
     expect(feed.at(-1)).toBe(`update ${m.delivery.id} null`);
     for (let i = 0; i < RESPOND_LIMITS.deliveries; i++) expect(s.message(sid, 'Ed', { text: `m${i}` }).ok).toBe(true);
     expect(s.message(sid, 'Ed', { text: 'one more' })).toMatchObject({ ok: false, err: { status: 429 } });
+  });
+
+  it('refuses a command the session did not declare, and takes any when none is declared (#968)', () => {
+    const { s, sid } = store(ALL, (r) => void (r.capabilities = { commands: ['compact'] }));
+    expect(s.message(sid, 'Ed', { text: '/clear' })).toMatchObject({ ok: false, err: { status: 422, kind: 'command' } });
+    expect(s.message(sid, 'Ed', { command: 'clear' })).toMatchObject({ ok: false, err: { status: 422 } });
+    expect(s.message(sid, 'Ed', { command: 'compact' })).toMatchObject({ ok: true });
+    const open = store();
+    expect(open.s.message(open.sid, 'Ed', { text: '/clear' })).toMatchObject({ ok: true });
+  });
+
+  it('refuses a reply in place of a question under no-reply-in-place, but not a reply to a permission (#968)', () => {
+    const { s, sid } = store(ALL, (r) => void (r.session.respond = { level: 'everything', accepts: ALL, limits: ['no-reply-in-place'] }));
+    s.announce(sid, QUESTION);
+    expect(s.answer(sid, 'toolu_q', 'Ed', { kind: 'reply', text: 'hold on' })).toMatchObject({ ok: false, err: { status: 422, kind: 'reply' } });
   });
 
   it('takes /clear and /compact only, and refuses any other command with the mockup message', () => {

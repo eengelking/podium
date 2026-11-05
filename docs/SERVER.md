@@ -318,8 +318,8 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 |---|---|---|
 | `PORT` | `4317` | Server port (the Vite proxy follows it) |
 | `HOST` | `127.0.0.1` | Bind address. Podium is for one machine; leave it on localhost |
-| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file, the only kind there is (`kind://target` is how a later kind will be chosen; an unknown kind stops the server at start) (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). A second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording |
-| `PODIUM_DATA_DIR` | the folder of `PODIUM_DB` | Folder for what the server keeps beside the database, today the TLS CA (`tls/`). Only needed when `PODIUM_DB` is not a file; a database that is not a file stops the server at start without it |
+| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file. `postgres://user:password@host:5432/dbname` (or `postgresql://`) is a PostgreSQL database: it must exist, the server makes its own schemas (`podium` and `podium_activity`) in it, one server per database (a second one stops at start), and nothing is copied from a SQLite file. An unknown `kind://` stops the server at start, and the log and `/health` show `host:port/dbname`, never the user or the password (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). On SQLite a second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording; on PostgreSQL that history is the schema `podium_activity` in the same database |
+| `PODIUM_DATA_DIR` | the folder of `PODIUM_DB` | Folder for what the server keeps beside the database, today the TLS CA (`tls/`). Only needed when `PODIUM_DB` is not a file; a database that is not a file (PostgreSQL) stops the server at start without it. `podiumctl` sets it for you: `/data` in the container, else `~/.podium/data` for a database on the network |
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
 | `PODIUM_TLS` | `off` | `on` makes the server create a CA and open a second port for reporters (HTTPS, client certificate required) beside the HTTP console. `podiumctl start --tls` sets it. Container mode keeps the CA in `~/.podium/tls` on your machine (standalone: `data/tls` beside the database): back that folder up and keep it private, because it holds the CA key. `podiumctl rm` keeps it unless you add `--purge-tls --yes`. Under rootless Podman on Linux the folder belongs to the container's user, so read or delete it with `podman unshare` |
@@ -349,8 +349,55 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_LOG_SHIP_HEADERS` | empty | Headers for that endpoint, `Name=Value;Name2=Value2` (for example `Authorization=Bearer ...;AccountID=1`). Never printed or logged |
 | `PODIUM_LOG_SHIP_BUFFER` | `2000` | Log lines kept while the endpoint is down; past that the oldest are dropped |
 
-Sessions, agents and events are stored in SQLite (Node's built-in `node:sqlite`), so a server restart loses
+Sessions, agents and events are stored in SQLite (Node's built-in `node:sqlite`) or, when `PODIUM_DB` is a
+`postgres://` URL, in PostgreSQL (see [Using PostgreSQL](#using-postgresql)), so a server restart loses
 nothing that was reported. Sessions come back as stale and recover when their reporters send again.
+
+## Using PostgreSQL
+
+SQLite is the default and needs nothing from you. Set `PODIUM_DB` to a `postgres://` URL to keep the same data in PostgreSQL
+instead. Nothing is copied over from a SQLite file. This is a new option in 1.5 and has had less use than SQLite, so read the
+limits below before you rely on it.
+
+**What the database needs**
+
+- **A database that already exists.** Podium makes its own schemas, `podium` and `podium_activity`, and keeps its tables and
+  its function in them, not in `public`. Give it a database of its own, or at least one where those two names are free.
+- **A role that may create things in it.** The role in the URL needs `CREATE` on the database, because the server runs
+  `CREATE SCHEMA IF NOT EXISTS` for both schemas at every start. A role that creates the schemas owns them, which covers
+  `CREATE TABLE`, `CREATE INDEX` and `CREATE FUNCTION` inside them. The first start creates one function, `podium_lower`, in
+  the `podium` schema, so a role that cannot create functions there cannot start Podium. The server needs no superuser and
+  no extension. If a database administrator makes the schemas first, the role needs `USAGE` and `CREATE` on both; that setup
+  has not been tried.
+- **Room for 15 connections.** The main schema uses a pool of up to 10, the Activity history a pool of up to 4, and one more
+  connection holds the lock described below. Check `max_connections` if the server is shared.
+- **PostgreSQL 17.** Every test of the PostgreSQL adapter, in CI and in `scripts/test-pg.sh`, runs against 17 and no other
+  version. The SQL in the adapter uses nothing newer than identity columns (PostgreSQL 10), so 10 is the floor the code
+  implies, but nothing below 17 has been run. Treat 17 as the supported version.
+
+**One server per database.** At start Podium takes a PostgreSQL session advisory lock on a connection of its own. A second
+server on the same database finds the lock taken and stops with a message. The lock goes with its connection, so it is
+released if Podium dies.
+
+**If the database goes away.** When that lock connection drops while Podium is running, Podium tries to take the lock again on a
+new connection, 5 times with 500 ms before each try (about 2.5 seconds plus the time each connect takes). If every try fails, or
+another server now holds the lock, Podium closes its storage, prints one line naming `host:port/dbname`, and exits with
+a failing code, so `podiumctl`'s restart or your service manager has to bring it back. A short outage that ends inside that
+window does not stop it. At start there is no retry: if the database cannot be reached, Podium stops at once.
+
+**Poolers.** Podium has not been tried through PgBouncer or any other pooler. Two things are suspected to break behind one in
+transaction-pooling mode, and neither has been tested. The advisory lock is per session, and a transaction pooler may hand the
+lock connection's session to someone else or end it. Each connection also sets its schema with the `options=-c search_path=...`
+startup parameter, which a pooler may refuse or ignore. Connect straight to PostgreSQL, or use a pooler in session mode, which
+is also untested.
+
+**Transactions.** A call outside a transaction waits while another task's transaction is open, and calls outside a transaction
+run one at a time, as on SQLite. The cost is the same as there: one slow transaction holds up the rest of the server.
+
+**Backups.** Back up the PostgreSQL database (both schemas) the way you back up any other. That does not cover everything:
+`PODIUM_DATA_DIR` still holds the TLS folder (`tls/`), which has the CA key when built-in TLS is on. Lose it and every reporter
+config has to be reissued. Back it up and keep it private, as described under `PODIUM_TLS` above. With TLS off nothing else
+lives there today.
 
 ## What it costs to run
 

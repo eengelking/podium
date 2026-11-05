@@ -9,16 +9,31 @@ order: 8
 # 6.8 Version compatibility
 
 The mod and the server are released separately, so their versions can drift in either direction. The server
-keeps one range, `REPORTER_SUPPORT` in `server/src/fleet/compat.ts`: the oldest and newest reporter (mod)
-versions it reads correctly. It changes when the report format or the mod's behavior needs it, not on every
-release.
+keeps one range for each reporter, by `reporter.name`, in `REPORTER_SUPPORT` in `server/src/fleet/compat.ts`: the
+oldest and newest versions of that reporter it reads correctly. Podium has one product version, but a reporter
+starts at its own first release, so a reporter is judged only against its own range and never against another
+reporter's. A range changes when the report format or that reporter's behavior needs it, not on every release.
+A reporter with no range on the server is `unknown` and gets no warning; a report that carries a reporter name the server does not know is refused (see Reporter names).
+
+**Reporter names (#967).** `podium-reporter` is the product, the plugin and the MCP tools. A reporter's wire name,
+`reporter.name`, says which harness it is: `podium-reporter-claudecode` for the Claude Code reporter and
+`podium-reporter-opencode` for the OpenCode reporter. The Claude Code reporter keeps sending `podium-reporter` in its v1
+reports, so one updated before its server is not refused; the server reads that and `podium-reporter-claudecode` as the
+Claude Code reporter. They land on one row with one key, and its `reporterName` is `podium-reporter-claudecode`. A v2
+report carries its harness's own name: `podium-reporter-opencode` for the `opencode` harness, and either Claude Code name for
+`claude-code`. Any other name is a 400 on `$.reporter.name`, so is the OpenCode name in a v1 report, and so is the legacy name
+from an OpenCode build, which would otherwise land on the Claude Code row. The OpenCode reporter
+has a range of its own in `REPORTER_SUPPORT`, and `REPORTER_OF_HARNESS` points the `opencode` harness at it, so a session's
+warning and the reporter's row agree. The warning names the reporter to update: the Claude Code reporter
+(`claude plugin update podium-reporter@eengelking-marketplace`) or the OpenCode reporter (`opencode plugin update`, then
+`opencode service restart`).
 
 Only `major.minor` is compared, so a mod-only patch fix never warns. `checkReporter` returns:
 
 | Result | Meaning | What to do |
 |---|---|---|
 | `ok` | Inside the range. | Nothing. |
-| `outdated` | Below `min`. | Update the mod: `claude plugin update podium-reporter@eengelking-marketplace`, then `/reload-plugins`. |
+| `outdated` | Below `min`. | Update the reporter. Claude Code: `claude plugin update podium-reporter@eengelking-marketplace`, then `/reload-plugins`. OpenCode: `opencode plugin update`, then `opencode service restart`. |
 | `newer` | Above `max`. | Upgrade the server. |
 | `unknown` | The version is not `X.Y.Z` (the simulator's `0.1.0-sim`, for one). | Nothing. No warning is shown. |
 
@@ -27,15 +42,18 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
 ## What the mod and the dashboard show
 
 - The reply to a report carries `serverVersion`, `reporterSupport` and `reporterCompat` for that report's
-  version.
+  version, against the range of the reporter that sent it (`reporterSupport` is `null` when the server has none for
+  that name).
   - A mod that reads them shows `· update mod` or `· upgrade server` on its status line, a line in `/podium`,
     and a toast once.
   - A reporter inside the range but a major.minor below `reporterSupport.max` shows `· update available`
     instead (a patch difference is not flagged). This needs no new server field.
   - A mod that predates this ignores the fields. A mod talking to a server that predates this sees no
     `reporterCompat` and shows nothing.
-- `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterBuild`
-  (see Builds below) and `compat` (always `unknown` for hooks). `StateBody.server` carries
+- `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterName` (the
+  reporter that serves the session's harness, which the warning names), `reporterBuild` (see Builds below) and
+  `compat` (always `unknown` for hooks). The reporter rows in Admin and My reporters carry `reporterName` too, and
+  their `compat` is the reporter's own. `StateBody.server` carries
   `{ version, build, reporterSupport }`, and the UI shows the server version, and its build for a dev build, in
   the left rail footer.
 - **Builds (#400).** A release is a clean checkout of exactly a `vMAJOR.MINOR.PATCH` tag. Every other build is a
@@ -43,8 +61,8 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
   when the tree had local edits. A release has no build: the field is `null` and only the version shows. The
   server's build comes from `PODIUM_BUILD`, which `podiumctl build` passes into the image, or from
   `server/build.json`, which a standalone `podiumctl build` writes; with neither (a build made without git) it is
-  `null`. The mod finds its own only when it runs from a checkout of this repository, where `mod/podium-reporter`
-  is tracked by git: an installed copy has no repository, so it is a release. It sends `reporter.build` only for
+  `null`. The mod finds its own only when it runs from a checkout of this repository:
+  an installed copy is a release. It sends `reporter.build` only for
   a dev build; the server keeps only a value that is a commit hash and stores it on the session as
   `reporter_build`. The server's reply to a report carries `serverBuild` (null for a release). An older mod sends
   no build and is a release, and an older server sends no `serverBuild`, so the mod shows the version alone.
@@ -84,7 +102,7 @@ and the `sessionRecording` option ([5.9](../05-mod-api/05-09-mod-configuration-u
   lists a loop to record. The console says "an older podium-reporter" in the picker's note.
 - An older server sends no `recording`, which a newer mod reads as `off`, so it captures nothing.
 - Which release carries it is decided in its `release-prep/<version>` PR, which then moves `plugin.json`, `VERSION`
-  and, on a new minor, `max` in `REPORTER_SUPPORT`. A feature PR for #353 changes none of them.
+  and, on a new minor, `max` in the `podium-reporter` entry of `REPORTER_SUPPORT`. A feature PR for #353 changes none of them.
 
 ## The release check (#499, `mockup/podium-update-notice.html`, `mockup/podium-update-check-admin.html`)
 
@@ -161,7 +179,7 @@ with a valid certificate. The console is on the HTTP port.
 ## Compatibility and the certificate reporter (#577)
 
 The reporter that reads a config file and starts the helper is a new minor version of the mod, so it ships with
-a release like any other mod change, and `REPORTER_SUPPORT.max` moves to that release's `MAJOR.MINOR.0` in the
+a release like any other mod change, and `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` moves to that release's `MAJOR.MINOR.0` in the
 same release-prep PR. A mod without it keeps working against a server with TLS on while the Admin allows
 reporters over HTTP, and a mod with it keeps working against a server with TLS off by using no config file.
 The renewal response carries no new `reporterSupport` field.

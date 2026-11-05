@@ -38,6 +38,8 @@ describe("html helpers", () => {
 
   it("numbers React ids in order of first use", () => {
     expect(normalizeIds('<a id=":r7:" for=":r9:"></a><b id=":r7:">')).toBe('<a id=":s1:" for=":s2:"></a><b id=":s1:">');
+    // React 19.2 and later write the id as _r_7_, and a modal's title id carries a suffix.
+    expect(normalizeIds('<a id="_r_7_" for="_r_hb_"></a><b id="_r_7_-t">')).toBe('<a id=":s1:" for=":s2:"></a><b id=":s1:-t">');
   });
 
   it("lists the classes in some markup once each, sorted", () => {

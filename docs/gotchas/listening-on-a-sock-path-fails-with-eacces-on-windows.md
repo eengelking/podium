@@ -30,5 +30,5 @@ open reports.
 <!-- nav:start -->
 ---
 
-Previous: [On Windows, /podium says offline with HTTP 502 when the config file names localhost](on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md) · Up: [Gotchas](README.md)
+Previous: [On Windows, /podium says offline with HTTP 502 when the config file names localhost](on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md) · Up: [Gotchas](README.md) · Next: [A frontend test fails now and then, with an edit put back or an element not found, and passes on the next run](frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md)
 <!-- nav:end -->

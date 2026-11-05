@@ -1,5 +1,5 @@
 ---
-title: "npm run test:mod and npm run typecheck:mod fail on a clean machine"
+title: "npm run test:mod:claudecode and npm run typecheck:mod:claudecode fail on a clean machine"
 description: "Both commands need Claude Code installed and CI cannot run them; install it and run them locally when you change the mod."
 group: "Project internals"
 area: "Developing"
@@ -8,13 +8,14 @@ status: "open"
 order: 44
 ---
 
-# `npm run test:mod` and `npm run typecheck:mod` fail on a clean machine
+# `npm run test:mod:claudecode` and `npm run typecheck:mod:claudecode` fail on a clean machine
 
 **You see:** Both commands fail where Claude Code is not installed.
 
 **Why:** Both need Claude Code installed, and CI cannot run them.
 
 **Do:** Install Claude Code and run them locally when you change the mod.
+`npm run test:mod:claudecode` builds the plugin with its tests into `.build-test/` and runs `claude plugin test` on that, not on `plugin/claudecode` (see "The reporter will not load from plugin/claudecode").
 
 <!-- nav:start -->
 ---

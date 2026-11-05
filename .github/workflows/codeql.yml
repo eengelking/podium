@@ -27,7 +27,7 @@ jobs:
       # The self-hosted runners have no Node on PATH, and CodeQL's TypeScript extractor needs one.
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       # TypeScript needs no build, so no install either: CodeQL reads the source.
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4

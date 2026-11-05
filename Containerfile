@@ -1,5 +1,5 @@
 # Podium server + UI. Build: podiumctl build   (or: podman build -t localhost/podium:latest -f Containerfile ., or docker build the same)
-FROM docker.io/library/node:24-slim AS build
+FROM docker.io/library/node:26-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
@@ -13,9 +13,12 @@ COPY frontend frontend
 # The UI's standards generator (frontend/src/fleet/standards) imports scripts/standards-inventory, and the frontend build
 # type-checks it. scripts is only read here; nothing from it reaches the final image.
 COPY scripts scripts
+# The server build compiles the code shared with the plugins (server/tsconfig.json has rootDir ..), so plugin/core is needed. Only
+# plugin/core: .dockerignore leaves out plugin/claudecode and plugin/opencode, and nothing from plugin/ reaches the final image.
+COPY plugin plugin
 RUN npm run build -w frontend && npm run build -w server
 
-FROM docker.io/library/node:24-slim
+FROM docker.io/library/node:26-slim
 # The server makes the CA and its certificates by calling openssl (built-in TLS, #577); the slim image does not carry it.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4317 PODIUM_DB=/data/podium.sqlite

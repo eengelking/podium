@@ -26,6 +26,12 @@ export type Async<T> = {
 export interface FleetStoreApi {
   upsertSession(row: SessionRow): Promise<void>;
   getSession(id: string): Promise<SessionRow | undefined>;
+  /**
+   * The rows of the sessions among `ids`, in the order the ids were given; an id with no session is left out. One read for all of
+   * them (#906). The `...Of` methods below do the same for one kind of row: each answers with a key for every id asked, an empty
+   * list or 0 for one with nothing, in the order of `ids`, and each list is in the order its one-session method gives.
+   */
+  getSessions(ids: string[]): Promise<SessionRow[]>;
   /** Sessions that may be in the live set: not dropped, and either not ended or ended after `endedAfter`. */
   liveCandidates(endedAfter: number): Promise<SessionRow[]>;
   setDropped(id: string, at: number): Promise<void>;
@@ -49,11 +55,21 @@ export interface FleetStoreApi {
   spendTotals(since: number, cost?: CostOf): Promise<{ total: number; byOwner: { owner: string | null; group: string | null; costUsd: number }[] }>;
   /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
   groupOfOwner(owner: string | null): Promise<string | null>;
+  /** `groupOfOwner` for many owners at once (#906): a key for every owner asked. */
+  groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>>;
   distinctReporterVersions(): Promise<string[]>;
   upsertAgent(row: AgentRow): Promise<void>;
   getAgents(sessionId: string): Promise<AgentRow[]>;
+  /** The agents of one session with these ids (#952), ordered as `getAgents` orders them within one statement (a long list of ids is split); an id with no agent is left out. */
+  getAgentsByIds(sessionId: string, agentIds: string[]): Promise<AgentRow[]>;
+  /** `getAgents` for many sessions at once (#906). */
+  getAgentsOf(sessionIds: string[]): Promise<Map<string, AgentRow[]>>;
+  /** `upsertAgent` for every row, in one statement per table (#906); the rows may belong to different sessions. */
+  upsertAgents(rows: AgentRow[]): Promise<void>;
   /** Keeps the full texts a report carried; a text the report leaves out is left as it was. */
   upsertAgentTexts(sessionId: string, agentId: string, t: { prompt?: string; answer?: string }): Promise<void>;
+  /** `upsertAgentTexts` for many agents of one session in one statement (#906); the same agent is not named twice. */
+  upsertAgentTextsMany(sessionId: string, texts: { agentId: string; prompt?: string; answer?: string }[]): Promise<void>;
   getAgentTexts(sessionId: string, agentId: string): Promise<{ prompt: string | null; answer: string | null } | null>;
   /** Marks every running or queued agent of a session aborted. */
   abortOpenAgents(sessionId: string, at: number): Promise<void>;
@@ -65,6 +81,10 @@ export interface FleetStoreApi {
   countAutoCompactions(sessionId: string): Promise<number>;
   insertBlowout(row: Omit<BlowoutRow, 'id'>): Promise<void>;
   getBlowouts(sessionId: string): Promise<BlowoutRow[]>;
+  /** `getBlowouts` for many sessions at once (#906). */
+  getBlowoutsOf(sessionIds: string[]): Promise<Map<string, BlowoutRow[]>>;
+  /** `countAutoCompactions` for many sessions at once (#906). */
+  countAutoCompactionsOf(sessionIds: string[]): Promise<Map<string, number>>;
   countBlowouts(sessionId?: string): Promise<number>;
   /** The latest sample strictly before second `t`. */
   sampleBefore(sessionId: string, t: number): Promise<SampleRow | undefined>;
@@ -74,6 +94,8 @@ export interface FleetStoreApi {
   /** Writes a sample only if that second has none yet. */
   insertSampleIfAbsent(row: SampleRow): Promise<void>;
   samplesSince(sessionId: string, fromT: number): Promise<SampleRow[]>;
+  /** `samplesSince` for many sessions at once (#906). */
+  samplesSinceOf(sessionIds: string[], fromT: number): Promise<Map<string, SampleRow[]>>;
   /** Σ tokens_delta per second across all sessions, for seconds >= fromT. */
   fleetTokensPerSecond(fromT: number): Promise<{ t: number; v: number }[]>;
   /** Positive cost increase per minute across all sessions, for seconds >= fromT (minute = floor(t/60)). */
@@ -139,7 +161,7 @@ export type AsyncPeerReporterLookup = Async<PeerReporterLookup>;
 /** Reporters, ignore rules and the forget setting. `peerLookup()` stays synchronous: it reads nothing until a method is called. */
 export interface ReporterStoreApi {
   /** Every key a report from this sender can be known by: its own, and the row that already holds its session (#166). */
-  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId'> & { owner?: string | null }): Promise<string[]>;
+  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]>;
   /** Notes one accepted report: creates the reporter or updates it, and links the session. Resolves with the reporter's key. */
   record(s: ReporterSeen, now: number): Promise<string>;
   /** Reporters as orchestrator messaging needs them (#347). Answers at once; each read through it is async. */
@@ -476,6 +498,8 @@ export interface SessionRecordingsApi {
   forgetSession(sessionId: string): void;
   forgetPodiumPrompt(sessionId: string, ref: string): void;
   view(sessionId: string): Promise<RecordingView | null>;
+  /** `view` for many sessions with their loops already read (#906): one read of the recording rows, and a key for every session asked. */
+  viewMany(items: { sessionId: string; loops: { loop: string; name: string }[] }[]): Promise<Map<string, RecordingView | null>>;
   loopInfo(sessionId: string): Promise<RecordingLoopInfo[]>;
   totals(): Promise<RecordingTotals>;
   /** `exists` says whether the main database still holds the session; it is asked again just before the recording's state goes. */

@@ -224,10 +224,15 @@ describe('ServingRenewer failure and retry', () => {
     await timed.start(); // the start check fails
     expect(timed.view().lastFailure).toMatchObject({ trigger: 'start' });
     double.fixIt();
-    await expect.poll(() => timed.view().lastFailure, { timeout: 5000 }).toBeNull();
-    timed.stop();
+    // The retry runs real openssl, about 0.25 s for the whole test on a quiet machine. The poll used to share the test's
+    // own 5,000 ms limit, so the test timed out before the poll could on a machine busy with the rest of the suite (#904).
+    try {
+      await expect.poll(() => timed.view().lastFailure, { timeout: 25_000 }).toBeNull();
+    } finally {
+      timed.stop();
+    }
     expect(s.swaps.length).toBeGreaterThanOrEqual(1); // the clock stands still, so it stays due and keeps renewing until stopped
-  });
+  }, 30_000);
 
   it('renew now reports a failure to the caller', async () => {
     const root = scratch();

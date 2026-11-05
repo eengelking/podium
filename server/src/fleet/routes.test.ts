@@ -36,6 +36,20 @@ describe('POST /api/fleet/report', () => {
     expect(typeof res.body.serverTime).toBe('number');
   });
 
+  it('takes a v2 report from opencode, and answers 409 when the session id belongs to another harness (#850)', async () => {
+    const { app } = await setup();
+    const v2 = (id: string): Report => ({ ...fixtureReport(), v: 2, reporter: { ...fixtureReport().reporter, name: id === 'opencode' ? 'podium-reporter-opencode' : 'podium-reporter' }, harness: { id, name: id, version: '1', surface: 'tui' }, capabilities: { commands: [] } });
+    const first = await request(app).post('/api/fleet/report').send(v2('opencode'));
+    expect(first.status).toBe(200);
+    const clash = await request(app).post('/api/fleet/report').send(v2('pi'));
+    expect(clash.status).toBe(409);
+    expect(clash.body).toMatchObject({ ok: false, path: '$.harness.id' });
+    const v1 = fixtureReport();
+    v1.session.harness = 'claude-code';
+    expect((await request(app).post('/api/fleet/report').send(v1)).status).toBe(409);
+    expect((await request(app).post('/api/fleet/report').send(fixtureReport())).status).toBe(200);
+  });
+
   it('tells an older, a matching and a newer reporter where it stands, and accepts all three', async () => {
     const { app } = await setup();
     const send = async (version: string) => {
@@ -57,7 +71,7 @@ describe('POST /api/fleet/report', () => {
 
   it('400 with error and path for an invalid report, logging the path but not the body', async () => {
     const { app, logs } = await setup();
-    const res = await request(app).post('/api/fleet/report').send({ ...fixtureReport(), v: 2, secret: 'sk-ant-should-not-be-logged' });
+    const res = await request(app).post('/api/fleet/report').send({ ...fixtureReport(), v: 3, secret: 'sk-ant-should-not-be-logged' });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ ok: false, error: 'unsupported protocol version', path: '$.v' });
     expect(logs).toHaveLength(1);
@@ -153,6 +167,9 @@ describe('reads', () => {
     const capped = await request(app).get('/api/fleet/events?limit=5000');
     expect(capped.status).toBe(200);
     expect((await request(app).get('/api/fleet/events?limit=abc')).status).toBe(400);
+    // A number no BIGINT column holds is a 400, not a database error.
+    expect((await request(app).get('/api/fleet/events?before=100000000000000000000')).status).toBe(400);
+    expect((await request(app).get('/api/fleet/events?limit=100000000000000000000')).status).toBe(400);
     expect((await request(app).get('/api/fleet/events?sessionId=nobody')).body.events).toEqual([]);
   });
 
@@ -165,6 +182,12 @@ describe('reads', () => {
     expect(res.body.reporterSupport).toEqual({ min: expect.any(String), max: expect.any(String) });
   });
 
+  it('GET /health names the storage kind', async () => {
+    expect((await request((await setup()).app).get('/api/fleet/health')).body.dbKind).toBe('unknown');
+    const { app } = await setup(null, { dbKind: 'postgres' });
+    expect((await request(app).get('/api/fleet/health')).body.dbKind).toBe('postgres');
+  });
+
   it('GET /history lists ended sessions of a day', async () => {
     const { app, fleet } = await setup();
     const r = fixtureReport();
@@ -173,7 +196,7 @@ describe('reads', () => {
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const res = await request(app).get(`/api/fleet/history?day=${day}`);
     expect(res.body.sessions).toHaveLength(1);
-    expect(res.body.sessions[0]).toMatchObject({ name: 'invoice-v2', endReason: 'clear', blowouts: 2, agents: 4 });
+    expect(res.body.sessions[0]).toMatchObject({ name: 'invoice-v2', endReason: 'clear', blowouts: 2, agents: 4, harness: 'claude-code', costSource: 'estimate' });
     expect((await request(app).get('/api/fleet/history?day=yesterday')).status).toBe(400);
     // a date that does not exist is a 400, not a silent roll over into the next month
     for (const bad of ['2026-02-31', '2026-13-01', '2026-00-10', '2026-04-31', '2025-02-29']) {

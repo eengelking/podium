@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium reporter setup: harness picker (mockup for #857)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #857. No :root block and no color of its own: tokens.css supplies every color, and the screens use the app's own
+   classes and markup (the Admin page shell (.apage), Section and Panel, the reporters table, the Admin callout, .hint, .mono, and Choice,
+   which is .f.inline > .lab + .seg with aria-pressed, the pick-one control the toolbar and the Admin pages already use). Nothing here is
+   a new component. The only rules below lay out the two lines of mockup controls at the top. */
+.mockbar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 12px 24px 0; }
+.mocknote { padding: 8px 24px 0; max-width: 90ch; }
+/* Proposed spacing for the Admin callout (the only new rule, no new color): room above the picker and above the steps. */
+.adminv .callout .f.inline { margin-top: 10px; }
+.adminv .callout .f.inline + ol { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="podium">
+<div class="mockbar">
+  <span class="lab" id="mock-theme-l">Mode of this mockup</span>
+  <div class="modeseg" role="radiogroup" aria-labelledby="mock-theme-l">
+    <button type="button" role="radio" aria-checked="false" tabindex="-1" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="true" tabindex="0" data-mode="dark">Dark</button>
+  </div>
+</div>
+<p class="hint mocknote">Two screens, each in the app's own markup. On My reporters, hover or focus "Off on the machine" (dotted underline) to read how to turn messaging on: the note gives the steps for that reporter's own harness, work-mac on OpenCode and the build server on Claude Code. In the Admin callout the picker opens on the reporter's harness. Claude Code's text is today's, word for word. Open this page in a 400 px window to check the narrow layout.</p>
+
+<main class="adminv" aria-label="Admin">
+<div class="apage"><div class="apage-in">
+
+<div class="page-h">
+  <div>
+    <h1>My reporters</h1>
+    <p class="lead">The machines that report with your name and token, and who they can message.</p>
+  </div>
+</div>
+
+<section class="asec" aria-labelledby="pm-mine-h">
+  <div class="asec-h"><div><h2 id="pm-mine-h">Your reporters</h2><p class="hint">Every machine that reports with your name and token.</p></div></div>
+  <div class="panel">
+    <div class="tw2 scroll" tabindex="0" role="region" aria-label="Table of your reporters">
+      <table class="ptab">
+        <thead>
+          <tr><th>State</th><th>Machine</th><th>System</th><th>Messaging</th><th>Reporter version</th><th>Last report</th><th class="n">Live orchestrators</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="rstate reporting"><span class="rdot reporting" aria-hidden="true"></span>Reporting</span></td>
+            <td><span class="pm-name strong" title="work-mac">work-mac</span></td>
+            <td><span class="pm-os"><span>macOS</span></span></td>
+            <td><span class="badge off"><span class="dot" aria-hidden="true"></span><span class="tip tt" tabindex="0" aria-describedby="mtip1">Off on the machine<span id="mtip1" role="tooltip" class="tipbox" hidden>work-mac has messaging off. Only that machine can turn it on. On it, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart.</span></span></span></td>
+            <td><span class="compat ok mono">1.5.0</span></td>
+            <td class="mono muted nowrap">4s ago</td>
+            <td class="n mono">2</td>
+          </tr>
+          <tr>
+            <td><span class="rstate idle"><span class="rdot idle" aria-hidden="true"></span>Idle</span></td>
+            <td><span class="pm-name strong" title="build-server-eu-west-3-ci-runner-04.internal.example">build-server-eu-west-3-ci-runner-04.internal.example</span></td>
+            <td><span class="pm-os"><span>Linux</span></span></td>
+            <td><span class="badge off"><span class="dot" aria-hidden="true"></span><span class="tip tt" tabindex="0" aria-describedby="mtip2">Off on the machine<span id="mtip2" role="tooltip" class="tipbox" hidden>build-server-eu-west-3-ci-runner-04.internal.example has messaging off. Only that machine can turn it on. In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on. In the Claude desktop app there, open Settings &gt; Plugins &gt; Podium-Reporter &gt; Settings and turn on peers.</span></span></span></td>
+            <td><span class="compat ok mono">1.5.0</span></td>
+            <td class="mono muted nowrap">3m ago</td>
+            <td class="n mono">0</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="apager"><span class="hint" role="status">Showing 1 to 2 of 2</span></div>
+  </div>
+</section>
+
+<div class="page-h">
+  <div>
+    <h1>Reporters</h1>
+    <p class="lead">Admin &gt; Reporters, one reporter's detail: work-mac reports with the admin secret.</p>
+  </div>
+</div>
+
+<div class="callout" role="alert" data-pick>
+  <svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg>
+  <h3>This reporter is using the admin secret</h3>
+  <p>work-mac reports with the admin secret instead of a token made for one person. Its 3 sessions belong to no one, and anyone who holds that secret can report as anyone.</p>
+  <p class="f inline"><b>To fix it:</b>
+    <span class="seg" role="group" aria-label="Harness for work-mac">
+      <button type="button" data-h="claudecode" aria-pressed="false">Claude Code</button>
+      <button type="button" data-h="opencode" aria-pressed="true">OpenCode</button>
+    </span>
+  </p>
+  <ol data-for="claudecode" hidden>
+    <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
+    <li>On work-mac, open the reporter's options. In Claude Code, run <span class="mono">/plugin configure podium-reporter@eengelking-marketplace</span>. In the Claude desktop app, open Settings &gt; Plugins &gt; Podium-Reporter &gt; Settings.</li>
+    <li>Enter that token as <span class="mono">token</span> and the person's name as <span class="mono">userName</span>.</li>
+  </ol>
+  <ol data-for="opencode">
+    <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
+    <li>On work-mac, open <span class="mono">~/.podium/config.env</span> and set <span class="mono">PODIUM_TOKEN</span> to that token and <span class="mono">PODIUM_USER</span> to the person's name.</li>
+    <li>Run <span class="mono">opencode service restart</span>, so OpenCode loads the new settings.</li>
+  </ol>
+</div>
+
+</div></div>
+</main>
+</div>
+<script>
+  // Mockup only: the mode switch, and the picker. A picker shows its own harness's text and hides the other's.
+  const root = document.documentElement;
+  const modes = [...document.querySelectorAll('[data-mode]')];
+  const setMode = (m) => {
+    root.dataset.theme = m;
+    modes.forEach((b) => { const on = b.dataset.mode === m; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
+  };
+  modes.forEach((b) => {
+    b.addEventListener('click', () => setMode(b.dataset.mode));
+    b.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+      e.preventDefault();
+      const next = modes[(modes.indexOf(b) + 1) % modes.length];
+      setMode(next.dataset.mode); next.focus();
+    });
+  });
+  // Mockup only: the same behavior as components/Tip.tsx. Opens on hover or focus under the trigger (above when there is no room), Escape closes.
+  document.querySelectorAll('.tip').forEach((t) => {
+    const box = t.querySelector('.tipbox');
+    let hover = false, focus = false, dismissed = false;
+    const sync = () => {
+      const open = (hover || focus) && !dismissed;
+      box.hidden = !open;
+      if (!open) return;
+      const r = t.getBoundingClientRect(), b = box.getBoundingClientRect(), g = 8;
+      const below = r.bottom + 6;
+      const top = below + b.height > innerHeight - g && r.top - 6 - b.height >= g ? r.top - 6 - b.height : below;
+      box.style.top = top + 'px'; box.style.left = Math.max(g, Math.min(r.left, innerWidth - b.width - g)) + 'px';
+    };
+    t.addEventListener('mouseenter', () => { hover = true; dismissed = false; sync(); });
+    t.addEventListener('mouseleave', () => { hover = false; sync(); });
+    t.addEventListener('focus', () => { focus = true; dismissed = false; sync(); });
+    t.addEventListener('blur', () => { focus = false; sync(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !box.hidden) { dismissed = true; sync(); } });
+  });
+  document.querySelectorAll('[data-pick]').forEach((box) => {
+    box.querySelectorAll('.seg button').forEach((btn) => btn.addEventListener('click', () => {
+      box.querySelectorAll('.seg button').forEach((o) => o.setAttribute('aria-pressed', String(o === btn)));
+      box.querySelectorAll('[data-for]').forEach((el) => { el.hidden = el.dataset.for !== btn.dataset.h; });
+    }));
+  });
+</script>
+</body>
+</html>

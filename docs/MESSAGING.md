@@ -404,7 +404,7 @@ There are three scripts, from cheapest to most real:
 |---|---|---|
 | `scripts/podium-peers-demo.mjs` | Plays reporters against a running server and checks delivery, approval, a refusal between people and the flag going off. Prints PASS or FAIL per check | A throwaway server with auth on |
 | `scripts/podium-peers-seed.mjs` | Seeds one person's made-up machines, rights, requests and, with `--talk`, conversations, for looking at My reporters and Traffic | A throwaway server with auth on |
-| `scripts/podium-peers-e2e.sh` | Starts a throwaway server from this checkout, seeds it, and starts real Claude Code sessions in tmux that report to it | node, curl, git, tmux, Claude Code, and model usage |
+| `scripts/podium-peers-e2e.sh` | Starts a throwaway server from this checkout, seeds it, and starts real Claude Code or OpenCode sessions (`--harness`, or a mix) in tmux, on a private socket, that report to it | node, curl, git, tmux, Claude Code or OpenCode, and model usage |
 
 Each has `--help`. The demo and the seed change the Admin's settings and add people, so never point them at a server
 you use.
@@ -416,25 +416,25 @@ you use.
    prints the URL, the person's name and where the token and secret files are, never the token or the secret:
 
    ```sh
-   scripts/podium-peers-e2e.sh up            # --sessions, --model, --port, --dir, --no-build, --dry-run; see --help
+   scripts/podium-peers-e2e.sh up            # --sessions, --harness, --model, --opencode-model, --port, --dir, --no-build, --dry-run; see --help
    ```
 
    `--dir` must be a new or empty folder, or one an earlier `up` made, and not a symbolic link: `down` removes it
    whole, so `up` refuses a folder that already holds something else.
 
-2. Attach with `tmux attach -t podium-e2e`. Each session starts in a new folder, so Claude Code asks whether to trust
+2. Attach with `tmux -L podium-e2e attach -t podium-e2e` (tmux runs on a private socket named like the session). Each session starts in a new folder, so Claude Code asks whether to trust
    it. Accept that once in every window.
 3. Open the printed URL and sign in from the top bar with the printed name and the token from the token file.
-4. All the sessions run on this machine, so they share one reporter. On My reporters, give that reporter the right
+4. All the Claude Code sessions run on this machine, so they share one reporter (an OpenCode window has its own scratch home, so it is another reporter, and needs its own rights). On My reporters, give that reporter the right
    to send to itself (its cell on the Grid's diagonal), or turn on **Trust my own reporters**. The seeded made-up
    machines are there too, with their own rights and open requests.
 5. Type a prompt into a window. Send the text, pause, then send Enter on its own; a long prompt sent with its Enter
    in one `send-keys` is often left unsubmitted:
 
    ```sh
-   tmux send-keys -t podium-e2e:planner -l 'Run podium_peers, then send tester a short hello with podium_send.'
+   tmux -L podium-e2e send-keys -t podium-e2e:planner -l 'Run podium_peers, then send tester a short hello with podium_send.'
    sleep 1
-   tmux send-keys -t podium-e2e:planner C-m
+   tmux -L podium-e2e send-keys -t podium-e2e:planner C-m
    ```
 
 6. Watch the tester window take the message as a new turn, and Traffic draw the line.

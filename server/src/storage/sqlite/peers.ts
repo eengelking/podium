@@ -3,7 +3,7 @@ import { ReporterStore } from './reporters.js';
 import { PeerService } from './peerService.js';
 import type { PeerReporterLookup } from '../../fleet/peerTypes.js';
 import type { AsyncPeerReporterLookup, PeerStoreApi, PeerStoreOptions } from '../types.js';
-import type { AsyncLock } from './lock.js';
+import type { AsyncLock } from '../lock.js';
 
 /** The reporter lookup with each read taken under the connection's lock. */
 export function asyncLookupOver(lookup: PeerReporterLookup, lock: AsyncLock): AsyncPeerReporterLookup {

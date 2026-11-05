@@ -1,4 +1,4 @@
-// Small things only a browser shows: the page title following the route, reduced motion, the effort meter's levels, and the People view's order by Spend.
+// Small things only a browser shows: the page title following the route, reduced motion, the effort meter's levels and a level it does not know, and the People view's order by Spend.
 describe('the page title and motion', () => {
   before(() => cy.resetServer());
 
@@ -59,6 +59,13 @@ describe('the effort meter', () => {
       cy.get('button.trow.root').find(`[aria-label="Effort: ${level}"]`).should('exist');
     });
   }
+
+  it('reads "Effort: minimal" on hollow bars for a level it does not know, and "Effort not reported" with none (#936)', () => {
+    cy.reportAgain('api', { effort: 'minimal' }, undefined, undefined, true);
+    cy.card('api').find('[role=img][aria-label="Effort: minimal"]').should('exist').and('have.class', 'eff-other').find('b.on').should('not.exist');
+    cy.reportAgain('api', { effort: null }, undefined, undefined, true);
+    cy.card('api').find('[role=img][aria-label="Effort not reported"]').should('exist').and('have.class', 'eff-none');
+  });
 });
 
 describe('People view: order by Spend', () => {

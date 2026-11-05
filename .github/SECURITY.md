@@ -147,5 +147,5 @@ older one.
 
 This is a solo-maintained project, so response times aren't guaranteed, but reports are read and taken
 seriously. If a report turns out to be valid, the fix ships as a normal PR, with an entry under "Security"
-in `CHANGELOG.md`. If the fix is in the mod, the `version` in `mod/podium-reporter/.claude-plugin/plugin.json`
+in `CHANGELOG.md`. If the fix is in the mod, the `version` in `plugin/claudecode/.claude-plugin/plugin.json`
 is bumped too, because installed copies only update when it changes.

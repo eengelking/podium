@@ -4,6 +4,9 @@ import type { ReporterCompat, PeerLevel, PeerDelivery, PeerRequest, RecordingSet
 import type { OwnerDefaults, RightRow, SeenReporterRef, OwnerRequestView, EffectiveRight, ReporterRef } from '../fleet/peerTypes.js';
 import type { ActivityHistorySettings } from '../fleet/activityHistoryTypes.js';
 import type { PeerLimits } from './settings.js';
+import { CLAUDE_REPORTER_NAME, canonicalReporterName } from '../fleet/reporterNames.js';
+
+export { canonicalReporterName, storedReporterNames } from '../fleet/reporterNames.js';
 
 export type PeopleErrorCode = 'duplicate' | 'invalid' | 'not_found';
 
@@ -97,9 +100,14 @@ export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' |
 /** The credential the server records for a report made with the admin secret. */
 export const ADMIN_SECRET = 'admin secret';
 
+/** The name every reporter sent before a second one existed: the Claude Code reporter, and what a row from before the name was stored holds (#849). */
+export const DEFAULT_REPORTER_NAME = CLAUDE_REPORTER_NAME;
+
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {
   kind: 'mod' | 'hooks';
+  /** Which reporter sent it (`reporter.name` of the report). Absent means `DEFAULT_REPORTER_NAME`. A machine running two reporters is two rows (#849). */
+  reporterName?: string;
   machineId: string | null;
   machineName: string | null;
   source: string | null;
@@ -126,6 +134,8 @@ export interface ReporterRow {
   /** True when it reports with the admin secret instead of a token made for a person (issue #166). Always warned about. */
   adminSecret: boolean;
   version: string;
+  /** Which reporter this row is: `podium-reporter` for the Claude Code one (#849). */
+  reporterName: string;
   compat: ReporterCompat;
   firstSeenAt: number;
   lastSeenAt: number;
@@ -228,6 +238,16 @@ export interface SessionRow {
   machine_json: string | null;
   /** The session this one continues after a /clear (Report.session.clearedFrom, #206); NULL otherwise. */
   cleared_from: string | null;
+  /** The harness that runs the session (#851): `claude-code`, `opencode` and so on. Rows from before it was stored read `claude-code`. */
+  harness: string;
+  /** `harness` when the cost is the harness's own figure, which Podium never reprices; NULL when Podium priced it from the tokens. */
+  cost_source: string | null;
+  /** What the harness declared it can report (#940): a JSON `Capabilities` (a key it did not declare is absent). NULL when no report has declared any, as for every v1 session and every session stored before this. */
+  capabilities_json: string | null;
+  /** The model's name as the harness shows it (#940); NULL when no report has given one. */
+  model_label: string | null;
+  /** The company or service behind the model (#940); NULL when no report has given one. */
+  model_provider: string | null;
 }
 
 export interface AgentRow {
@@ -263,6 +283,9 @@ export interface AgentRow {
   prompt_excerpt: string | null;
   answer_excerpt: string | null;
   failure_json: string | null;
+  /** The model's name as the harness shows it, and the company behind it (#945); null when no report gave one. */
+  model_label: string | null;
+  model_provider: string | null;
   /** Read side only (getAgents): the length of the stored full text, null when there is none. */
   prompt_chars?: number | null;
   answer_chars?: number | null;
@@ -476,9 +499,18 @@ export interface PurgeRecordingsResult {
 export type StoredState = Exclude<RecordingState, 'off'>;
 
 /** The key a reporter is known by. */
-export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source'>): string {
-  if (s.machineId) return s.machineId;
-  return `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'reporterName'>): string {
+  const base = s.machineId ? s.machineId : `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+  return base + nameSuffix(s.reporterName);
+}
+
+/**
+ * What a reporter's name adds to its key (#849): nothing for the Claude Code reporter, so every key and ignore rule made before
+ * the name was stored stays valid, and `@<name>` for any other, so two reporters on one machine are two rows.
+ */
+export function nameSuffix(reporterName: string | undefined | null): string {
+  const name = canonicalReporterName(reporterName);
+  return name === CLAUDE_REPORTER_NAME ? '' : `@${name}`;
 }
 
 export * from './features.js';

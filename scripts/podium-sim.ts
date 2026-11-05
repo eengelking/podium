@@ -7,10 +7,12 @@
 // does the HTTP.
 import os from 'node:os';
 import { MAIN_LOOP, type ActivityEntry, type ActivityEvent, type AgentReport, ChangedFile, Effort, Failure, FilesReport, LoopReport, MachineInfo, Plan, Report } from '../server/src/fleet/protocol.ts';
-import { trimTrailingSlashes } from '../mod/podium-reporter/hooks/machine.ts';
-import { costOf, shortName, windowOf, type Family } from '../mod/podium-reporter/hooks/models.ts';
+import { trimTrailingSlashes } from '../plugin/core/machine.ts';
+import { costOf, shortName, windowOf, type Family } from '../plugin/claudecode/hooks/models.ts';
 
 const HELP = `podium-sim: POST simulated Claude Code session reports to a Podium server.
+It starts no harness and plays the reporter itself, so it takes no harness option; its models and prices come from
+plugin/claudecode/hooks/models.ts. To run a real OpenCode session, use scripts/podium-peers-e2e.sh --harness opencode.
 
 Usage: npm run podium:sim -- [options]
        npx tsx scripts/podium-sim.ts [options]

@@ -4,27 +4,12 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { Logger } from './logging/logger.js';
 import { isLoopback } from './hostCheck.js';
 import { REPORTING_MS } from './storage/rows.js';
+import { REPORTER_ROUTES as REPORTER_ROUTE_TEMPLATES } from '../../plugin/core/tls/routes.mjs';
 
 /**
  * The calls the mod makes, each behind the reporter's credential: reports, hooks, and the held requests for peers and answers.
- * `:id` stands for one path segment. The mod's helper (`mod/podium-reporter/hooks/helper.mjs`) forwards only these and keeps a copy
- * of the list; `reporterHelper.test.ts` fails if the two differ, the way `protocol.test.ts` does for the protocol block (#668).
+ * The list is `plugin/core/tls/routes.mjs`, the one copy the mod's helper forwards from and this gate matches against (#668, #948).
  */
-export const REPORTER_ROUTE_TEMPLATES: ReadonlyArray<readonly [method: string, path: string]> = [
-  ['POST', '/api/fleet/report'],
-  ['POST', '/api/fleet/hook'],
-  ['GET', '/api/fleet/sessions/:id/peers'],
-  ['POST', '/api/fleet/sessions/:id/peers/messages'],
-  ['POST', '/api/fleet/sessions/:id/peers/access'],
-  ['POST', '/api/fleet/sessions/:id/peers/requests/:id'],
-  ['POST', '/api/fleet/sessions/:id/peers/deliveries/:id/result'],
-  ['PUT', '/api/fleet/sessions/:id/diffs/:id'],
-  ['PUT', '/api/fleet/sessions/:id/asks/:id'],
-  ['GET', '/api/fleet/sessions/:id/asks/:id/answer'],
-  ['POST', '/api/fleet/sessions/:id/recording'],
-  ['POST', '/api/fleet/sessions/:id/asks/:id/close'],
-  ['POST', '/api/fleet/sessions/:id/deliveries/:id/result'],
-];
 const REPORTER_ROUTES: Array<[string, RegExp]> = REPORTER_ROUTE_TEMPLATES.map(([method, path]) => [method, new RegExp(`^${path.replaceAll(':id', '[^/]+')}$`)]);
 
 /** `s` without the `/` characters at its end. A loop, not `/\/+$/`, which is quadratic on a long run of slashes followed by another character. */

@@ -1,9 +1,10 @@
 name: Nightly
 
 # A daily snapshot of `development` for testers (#528). It publishes the tag `nightly-YYYY-MM-DD` and a GitHub prerelease that
-# carries a source tarball of the tested commit and the reporter's zip (#835), then removes every earlier nightly, so one exists at a time. There is no registry.
+# carries a source tarball of the tested commit and the two reporters' zips (#835, #857), then removes every earlier nightly, so one exists at a time. There is no registry.
 # A `schedule:` trigger only runs from the workflow file on the default branch, so this file takes effect when it reaches `main`;
-# it checks out `development` by name. Run it by hand from the Actions tab with `workflow_dispatch`.
+# it checks out `development` by name. The reporter's zip is built by the same scripts as a release's. A nightly never changes the tracked
+# dist/ (#983): that holds a release's build and moves only with a merge to `main`. Run it by hand from the Actions tab with `workflow_dispatch`.
 
 on:
   schedule:
@@ -82,7 +83,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.tip.outputs.skip != 'true'
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
 
       - name: Install
@@ -135,7 +136,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       - name: Publish the new nightly
         run: |
@@ -168,15 +169,20 @@ jobs:
 
           git archive --format=tar.gz --prefix="podium-${tag}/" -o "podium-${tag}.tar.gz" "$SHA"
           # The reporter as an archive for Claude Desktop (#835), named for the version development carries and the day.
+          # A full build, which empties dist/ in this throwaway checkout first, so the zips hold the source of the commit and nothing older.
+          node scripts/plugin-build.mjs
           zip="$(node scripts/podium-reporter-zip.mjs --out . --suffix "-${tag}")"
           test -f "$zip"
+          # The OpenCode reporter's archive (#857), named podium-opencode-<version>-nightly-<date>.zip.
+          ozip="$(node scripts/podium-reporter-zip.mjs --harness opencode --out . --suffix "-${tag}")"
+          test -f "$ozip"
 
           # A same-day rerun after a new commit moves the tag, so the old release of that day goes first. It is replaced, never left empty.
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release delete "$tag" --cleanup-tag --yes
           fi
 
-          gh release create "$tag" "podium-${tag}.tar.gz" "$zip" \
+          gh release create "$tag" "podium-${tag}.tar.gz" "$zip" "$ozip" \
             --target "$SHA" \
             --title "Nightly ${day}" \
             --notes-file notes.md \

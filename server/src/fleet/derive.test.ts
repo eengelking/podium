@@ -80,6 +80,20 @@ describe('paths and commands', () => {
     expect(forkCommand("/tmp/it's", null, 'abc')).toBe("cd '/tmp/it'\\''s' && claude --resume abc --fork-session");
     expect(forkCommand('/tmp/$(id) `x`; y', null, 'abc')).toBe("cd '/tmp/$(id) `x`; y' && claude --resume abc --fork-session");
   });
+
+  it('builds the resume command from the harness template (#853)', () => {
+    expect(resumeCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'claude-code')).toBe('cd /Users/dev/app && claude --resume ses_5a91c0e4d2b7f3a8');
+    expect(resumeCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'opencode')).toBe('opencode /Users/dev/app --session ses_5a91c0e4d2b7f3a8');
+    expect(resumeCommand('/Users/dev/my app', 'ses_x', 'ses_y', 'opencode')).toBe("opencode '/Users/dev/my app' --session ses_x");
+  });
+
+  it('gives no fork command for a harness that has none, and no command for one with no template (#853)', () => {
+    expect(forkCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'opencode')).toBeNull();
+    expect(resumeCommand('/Users/dev/app', null, 'abc', '')).toBe('cd /Users/dev/app && claude --resume abc');
+    expect(resumeCommand('/Users/dev/app', null, 'abc', 'acme-runner')).toBeNull();
+    expect(forkCommand('/Users/dev/app', null, 'abc', 'acme-runner')).toBeNull();
+    expect(forkCommand('/Users/dev/app', null, 'abc', 'claude-code')).toBe('cd /Users/dev/app && claude --resume abc --fork-session');
+  });
 });
 
 describe('buildSeries', () => {
@@ -128,6 +142,36 @@ describe('sessionView', () => {
     const input = { row: (await f.fleet.getSession(id))!, agents: await f.fleet.getAgents(id), blowouts: await f.fleet.getBlowouts(id), samples: [], heard: true };
     expect(sessionView(input, 1_791_648_001_000, CFG).compactions).toBe(0);
     expect(sessionView({ ...input, compactions: 3 }, 1_791_648_001_000, CFG).compactions).toBe(3);
+  });
+
+  it('shows an OpenCode session on a model Podium does not know: the harness\'s cost labeled as such, family other, context as reported (#851)', async () => {
+    const r = fixtureReport();
+    const report: Report = {
+      ...r,
+      agents: [],
+      session: { ...r.session, model: 'qwen3-coder:30b', harness: 'opencode', costSource: 'harness', costUsd: 0.37, context: { tokens: 1200, window: null, percent: null } },
+    };
+    const v = await viewOf(report, 1_791_648_001_000);
+    expect(v).toMatchObject({ harness: 'opencode', costSource: 'harness', costUsd: 0.37, modelFamily: 'other', context: { tokens: 1200, window: null, percent: null } });
+  });
+
+  it('carries what the harness declared, and null when nothing was (#940)', async () => {
+    const r = fixtureReport();
+    const declared = await viewOf({ ...r, capabilities: { context: false, commands: ['/clear'] }, session: { ...r.session, modelLabel: 'GPT-5.1', modelProvider: 'openai' } }, 1_791_648_001_000);
+    expect(declared).toMatchObject({ capabilities: { context: false, commands: ['/clear'] }, modelLabel: 'GPT-5.1', modelProvider: 'openai' });
+    expect(await viewOf(fixtureReport(), 1_791_648_001_000)).toMatchObject({ capabilities: null, modelLabel: null, modelProvider: null });
+  });
+
+  it('carries the label and provider an agent was reported with, and null when none was (#945)', async () => {
+    const r = fixtureReport();
+    const declared = await viewOf({ ...r, agents: r.agents.map((a) => ({ ...a, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' })) }, 1_791_648_001_000);
+    expect(declared.agents[0]).toMatchObject({ model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' });
+    expect((await viewOf(fixtureReport(), 1_791_648_001_000)).agents[0]).toMatchObject({ modelLabel: null, modelProvider: null });
+  });
+
+  it('shows a Claude Code session with Podium\'s own estimate (#851)', async () => {
+    const v = await viewOf(fixtureReport(), 1_791_648_001_000);
+    expect(v).toMatchObject({ harness: 'claude-code', costSource: 'estimate' });
   });
 
   it('derives the fixture', async () => {

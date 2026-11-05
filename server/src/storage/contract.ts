@@ -1,9 +1,8 @@
-// A contract any Storage adapter must meet (#313): the same calls through the async interface return what the
-// synchronous stores return. Run it from an adapter's test with a function that opens a fresh Storage and one that builds
-// the synchronous reference stores over a fresh database of its own.
+// A contract any Storage adapter must meet (#313, #1008): the same calls through the async interface give the same answers on every
+// registered adapter, none of them the reference for another (`contractSame.ts`). Run it once over the list of adapters.
 //
-// It also states what the app relies on from any database, with expected values written out and not compared with a
-// reference: the JavaScript type of every field of the main rows, how names are compared, and the order lists come back in.
+// It also states what the app relies on from any database, with expected values written out and not compared with another
+// adapter: the JavaScript type of every field of the main rows, how names are compared, and the order lists come back in.
 // An adapter whose database hands back bigints, 0/1 for flags, undefined for NULL, or sorts text with another collation,
 // fails here and not in a screen.
 import { describe, it, expect } from 'vitest';
@@ -12,19 +11,16 @@ import { ACTIVITY_HISTORY_DEFAULTS } from '../fleet/activityHistoryTypes.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingAdminRow, type RecordingBatch, type Report } from '../fleet/protocol.js';
 import { fixtureReport } from '../fleet/testing.js';
 import { PeopleError, nameKey } from './rows.js';
+import { settingsCases } from './contractSettings.js';
+import { reportCases } from './contractReports.js';
+import { txCases } from './contractTx.js';
+import { activityCases } from './contractActivity.js';
+import { peerCases } from './contractPeers.js';
+import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
 import type { StoredSessionRow } from '../fleet/activityHistoryTypes.js';
 import type { AgentRow, BlowoutRow, EventRow, GroupListRow, PersonListRow, PersonRow, ReporterRow, ReporterSeen, SampleRow, SessionRow } from './rows.js';
-import type { FleetStoreApi, PeopleStoreApi, ReporterStoreApi, Storage } from './types.js';
-
-/** An async interface with its methods returning their results at once, which is what the synchronous stores do. */
-type Sync<T> = { [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R> ? (...args: A) => R : T[K] };
-
-/** The synchronous stores an adapter's async ones are compared with, each over its own fresh database. */
-export interface ContractReference {
-  people: Sync<Pick<PeopleStoreApi, 'adminReportingAllowed' | 'setAdminReporting' | 'createGroup' | 'log' | 'listLog' | 'allGroups'>>;
-  fleet: Sync<Pick<FleetStoreApi, 'upsertSession' | 'getSession' | 'liveCandidates'>>;
-  reporters: Sync<Pick<ReporterStoreApi, 'record' | 'list'>> & { peerLookup(): PeerReporterLookup };
-}
+import type { ContractAdapter } from './contractAdapter.js';
+import type { Storage } from './types.js';
 
 export function session(over: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -34,6 +30,7 @@ export function session(over: Partial<SessionRow> = {}): SessionRow {
     cost_usd: 1.5, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4, rate_limits_json: null, blowouts: 0, plan_json: null,
     reporter_version: null, engine_version: null, loop_json: null, files_json: null, background_json: null,
     usage_json: null, attached: null, detached_at: null, owner: 'ed', machine_json: null, cleared_from: null,
+    harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -77,14 +74,15 @@ const SESSION_SHAPE: Shape<SessionRow> = {
   cost_usd: 'real?', tok_in: 'int', tok_out: 'int', tok_cr: 'int', tok_cw: 'int', rate_limits_json: 'text?', blowouts: 'int',
   plan_json: 'text?', plan_kept_json: 'text?', reporter_version: 'text?', reporter_build: 'text?', engine_version: 'text?',
   loop_json: 'text?', files_json: 'text?', background_json: 'text?', usage_json: 'text?', attached: 'int?', detached_at: 'int?',
-  owner: 'text?', machine_json: 'text?', cleared_from: 'text?',
+  owner: 'text?', machine_json: 'text?', cleared_from: 'text?', harness: 'text', cost_source: 'text?',
+  capabilities_json: 'text?', model_label: 'text?', model_provider: 'text?',
 };
 const AGENT_SHAPE: Shape<AgentRow> = {
   session_id: 'text', id: 'text', parent_id: 'text?', kind: 'text', type: 'text', name: 'text?', description: 'text', model: 'text?',
   effort: 'text?', effort_source: 'text?', status: 'text', started_at: 'int', ended_at: 'int?', context_tokens: 'int?',
   context_window: 'int?', context_percent: 'real?', tok_in: 'int', tok_out: 'int', tok_cr: 'int', tok_cw: 'int', cost_usd_est: 'real?',
   skills_json: 'text?', last_tool: 'text?', tool_calls: 'int', tool_counts_json: 'text?', usage_json: 'text?', blowouts: 'int',
-  steps_done: 'int?', steps_total: 'int?', prompt_excerpt: 'text?', answer_excerpt: 'text?', failure_json: 'text?',
+  steps_done: 'int?', steps_total: 'int?', prompt_excerpt: 'text?', answer_excerpt: 'text?', failure_json: 'text?', model_label: 'text?', model_provider: 'text?',
   prompt_chars: 'int?', answer_chars: 'int?',
 };
 const EVENT_SHAPE: Shape<EventRow> = { id: 'text', session_id: 'text', agent_id: 'text?', t: 'int', kind: 'text', text: 'text', data_json: 'text?' };
@@ -94,7 +92,7 @@ const PERSON_SHAPE: Shape<PersonRow> = { id: 'int', name: 'text', keyId: 'text',
 const PERSON_LIST_SHAPE: Shape<PersonListRow> = { id: 'int', name: 'text', groupId: 'int?', createdAt: 'int', rotatedAt: 'int?', revokedAt: 'int?', lastReportAt: 'int?', credential: 'text', groupName: 'text?', machines: 'texts' };
 const GROUP_LIST_SHAPE: Shape<GroupListRow> = { id: 'int', name: 'text', createdAt: 'int', members: 'texts', builtIn: 'bool' };
 const REPORTER_SHAPE: Shape<ReporterRow> = {
-  key: 'text', state: 'text', name: 'text', named: 'bool', who: 'text', credential: 'text?', adminSecret: 'bool', version: 'text', compat: 'text',
+  key: 'text', state: 'text', name: 'text', named: 'bool', who: 'text', credential: 'text?', adminSecret: 'bool', version: 'text', reporterName: 'text', compat: 'text',
   firstSeenAt: 'int', lastSeenAt: 'int', sessions: 'int', live: 'int', os: 'text?', peers: 'bool?',
 };
 const MESSAGE_SHAPE: Shape<MessageRow> = {
@@ -111,75 +109,62 @@ const mkSeen = (id: string, name: string | null, over: Partial<ReporterSeen> = {
   sessionId: `s-${id}`, os: 'macOS', peers: true, ...over,
 });
 
-export function runStorageContract(name: string, open: () => Storage, reference: () => ContractReference): void {
-  describe(`${name} storage contract`, () => {
-    it('matches the synchronous stores for people, the admin log and settings', async () => {
-      const store = open();
-      const { people } = reference();
-      expect(await store.people.adminReportingAllowed()).toBe(people.adminReportingAllowed());
-      await store.people.setAdminReporting(false);
-      people.setAdminReporting(false);
-      expect(await store.people.adminReportingAllowed()).toBe(false);
-      expect(await store.people.createGroup('Crew', 5)).toEqual(people.createGroup('Crew', 5));
-      await store.people.log('kind', 'detail', 'src', 10, 'me');
-      people.log('kind', 'detail', 'src', 10, 'me');
-      expect(await store.people.listLog({})).toEqual(people.listLog({}));
-      expect(await store.people.allGroups()).toEqual(people.allGroups());
-      await store.close();
-    });
+/** The contract over every adapter given: the comparison cases once over all of them, then the cases about one adapter's rows, one set per adapter. */
+export function runStorageContract(adapters: ContractAdapter[]): void {
+  describe('storage contract', () => {
+    const against = { adapters };
+    settingsCases(against);
+    fleetCases(against);
+    peopleCases(against);
+    reporterCases(against);
+    peerCases(against);
+    activityCases(against);
+    reportCases(against);
+    txCases(against);
+    for (const a of adapters) describe(a.name, () => ownCases(a));
+  });
+}
 
-    it('matches the synchronous stores for sessions', async () => {
-      const store = open();
-      const { fleet } = reference();
-      await store.fleet.upsertSession(session());
-      fleet.upsertSession(session());
-      expect(await store.fleet.getSession('s1')).toEqual(fleet.getSession('s1'));
-      expect(await store.fleet.getSession('nope')).toBeUndefined();
-      expect(await store.fleet.liveCandidates(0)).toEqual(fleet.liveCandidates(0));
-      await store.close();
-    });
-
-    it('matches the synchronous stores for reporters and the peer lookup', async () => {
-      const store = open();
-      const { reporters } = reference();
-      const key = await store.reporters.record(seen, 50);
-      expect(key).toBe(reporters.record(seen, 50));
-      expect(await store.reporters.hasAny()).toBe(true);
-      expect(await store.reporters.list({}, 60)).toEqual(reporters.list({}, 60));
-      const lookup = store.reporters.peerLookup();
-      expect(await lookup.get(key)).toEqual(reporters.peerLookup().get(key));
-      expect(await lookup.ofOwner('ED')).toEqual(reporters.peerLookup().ofOwner('ED'));
-      expect(await lookup.ofOwnerSeen('ed', 60)).toEqual(reporters.peerLookup().ofOwnerSeen('ed', 60));
-      expect(lookup.startedAt).toBe(reporters.peerLookup().startedAt);
-      await store.close();
-    });
+/** What the app relies on from one adapter, with the expected values written out. The same cases run on each. */
+function ownCases(adapter: ContractAdapter): void {
+  {
+    const open = () => adapter.open();
 
     it('returns the fleet rows with the types the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       const f = store.fleet;
       // a row with every nullable field empty, and one with every field filled
       await f.upsertSession(session({ id: 'bare' }));
       expectShape('session (empty)', (await f.getSession('bare'))!, SESSION_SHAPE);
+      expect(await f.getSession('bare')).toMatchObject({ harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null });
       expect((await f.getSession('bare'))!.ended_at).toBeNull();
       const full = session({
         id: 'full', status: 'done', wait_reason: 'w', wait_note: 'n', end_reason: 'completed', resume_id: 'r', ended_at: T0 + 5, dropped_at: T0 + 6,
         project_root: '/p', repo_name: 'repo', git_json: '{}', model: 'm', effort: 'high', context_tokens: 10, context_window: 200, context_percent: 5.5,
         cost_usd: 0.25, rate_limits_json: '{}', blowouts: 2, plan_json: '{}', reporter_version: '1.0.0', engine_version: '2.0.0', loop_json: '{}',
         files_json: '{}', background_json: '{}', usage_json: '[]', attached: 1, detached_at: T0 + 7, machine_json: '{}', cleared_from: 'bare', started_at: T0, last_seen_at: T0 + 4,
+        harness: 'opencode', cost_source: 'harness', capabilities_json: '{"context":false,"commands":["/clear"]}', model_label: 'GPT-5.1', model_provider: 'openai',
       });
       await f.upsertSession(full);
       expectShape('session (full)', (await f.getSession('full'))!, SESSION_SHAPE);
+      expect(await f.getSession('full')).toMatchObject({
+        harness: 'opencode', cost_source: 'harness', capabilities_json: '{"context":false,"commands":["/clear"]}', model_label: 'GPT-5.1', model_provider: 'openai',
+      });
       expectShape('session (live candidates)', (await f.liveCandidates(0))[0]!, SESSION_SHAPE);
 
       const agent = (id: string, over: Partial<AgentRow> = {}): AgentRow => ({
         session_id: 'bare', id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
         status: 'running', started_at: T0, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
         cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
-        prompt_excerpt: null, answer_excerpt: null, failure_json: null, ...over,
+        prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null, ...over,
       });
       await f.upsertAgent(agent('a1'));
-      await f.upsertAgent(agent('a2', { parent_id: 'a1', name: 'n', model: 'm', effort: 'low', effort_source: 'report', status: 'done', ended_at: T0 + 9, context_tokens: 1, context_window: 2, context_percent: 0.5, cost_usd_est: 0.1, skills_json: '[]', last_tool: 'Read', tool_calls: 3, tool_counts_json: '{}', usage_json: '[]', steps_done: 1, steps_total: 2, prompt_excerpt: 'p', answer_excerpt: 'a', failure_json: '{}' }));
+      await f.upsertAgent(agent('a2', { parent_id: 'a1', name: 'n', model: 'm', effort: 'low', effort_source: 'report', status: 'done', ended_at: T0 + 9, context_tokens: 1, context_window: 2, context_percent: 0.5, cost_usd_est: 0.1, skills_json: '[]', last_tool: 'Read', tool_calls: 3, tool_counts_json: '{}', usage_json: '[]', steps_done: 1, steps_total: 2, prompt_excerpt: 'p', answer_excerpt: 'a', failure_json: '{}', model_label: 'GPT-5.1', model_provider: 'openai' }));
       for (const a of await f.getAgents('bare')) expectShape(`agent ${a.id}`, a, AGENT_SHAPE);
+      // An agent stores its label and provider (#945), null when none was given, and a later write replaces them.
+      expect(await f.getAgents('bare')).toMatchObject([{ id: 'a1', model_label: null, model_provider: null }, { id: 'a2', model_label: 'GPT-5.1', model_provider: 'openai' }]);
+      await f.upsertAgent(agent('a2', { model_label: 'GPT-5.2', model_provider: null }));
+      expect((await f.getAgents('bare')).find((a) => a.id === 'a2')).toMatchObject({ model_label: 'GPT-5.2', model_provider: null });
       await f.upsertAgentTexts('bare', 'a2', { prompt: 'full prompt', answer: 'full answer' });
       expect((await f.getAgents('bare')).find((a) => a.id === 'a2')!.prompt_chars).toBe('full prompt'.length);
 
@@ -202,7 +187,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns people, groups and the Admin log with the types the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       const p = store.people;
       const group = await p.createGroup('Crew', T0);
       expect(Object.keys(group).sort(byText)).toEqual(['id', 'name']);
@@ -232,7 +217,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns reporter rows with the types the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       await store.fleet.upsertSession(session({ id: 's-m1', owner: 'ed' }));
       const key = await store.reporters.record(mkSeen('m1', 'box'), T0);
       await store.reporters.record(mkSeen('m2', null, { kind: 'hooks', source: '127.0.0.2', credential: null, os: null, peers: null }), T0 + 1);
@@ -248,9 +233,12 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('keeps people names unique whatever their case or spacing', async () => {
-      const store = open();
+      const store = await open();
       const p = store.people;
-      const { person } = await p.createPerson('Ed', null, T0);
+      const { person, token } = await p.createPerson('Ed', null, T0);
+      expect(person.createdAt).toBe(T0);
+      expect(token.length).toBeGreaterThan(10);
+      await expect(p.createPerson('ed', null, T0)).rejects.toThrow('already taken');
       for (const again of ['ed', ' ED ', 'eD']) {
         expect(nameKey(again), again).toBe(nameKey('Ed'));
         await expect(p.createPerson(again, null, T0), again).rejects.toMatchObject({ code: 'duplicate' });
@@ -262,11 +250,12 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       expect((await p.findByName('  eD '))!.id).toBe(person.id);
       expect((await p.findByName('Ed Two'))!.name).toBe('Ed Two');
       expect((await p.list({})).total).toBe(2);
+      expect((await p.list({})).rows.map((r) => r.name)).toEqual(['Ed', 'Ed Two']);
       await store.close();
     });
 
     it('returns lists in the order the app relies on, ties included', async () => {
-      const store = open();
+      const store = await open();
       const { fleet: f, people: p } = store;
       // Events: newest first; equal times by id, descending, as the bytes of the id compare (so 'b' > 'a' > 'B').
       for (const [id, t] of [['b', 100], ['B', 100], ['a', 100], ['c', 200], ['z', 50]] as const) await f.insertEvent({ id, session_id: 's1', agent_id: null, t, kind: 'k', text: id, data_json: null });
@@ -280,11 +269,11 @@ export function runStorageContract(name: string, open: () => Storage, reference:
         session_id: 's1', id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: '', model: null, effort: null, effort_source: null, status: 'done',
         started_at: started, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, cost_usd_est: null,
         skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null,
-        answer_excerpt: null, failure_json: null,
+        answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
       });
       for (const [id, at] of [['b', 20], ['a', 20], ['A', 20], ['z', 10], ['y', 30]] as const) await f.upsertAgent(agent(id, at));
       expect((await f.getAgents('s1')).map((a) => a.id)).toEqual(['z', 'A', 'a', 'b', 'y']);
-      // Samples and blowouts: by time. (Blowouts with the same time have no declared order.)
+      // Samples and blowouts: by time. Blowouts with the same time come back in the order they were stored.
       for (const t of [30, 10, 20]) await f.upsertSample({ session_id: 's1', t, tokens_total: t, tokens_delta: 1, peak_context: 0, running_agents: 0, cost_usd: null });
       expect((await f.samplesSince('s1', 0)).map((x) => x.t)).toEqual([10, 20, 30]);
       expect((await f.samplesSince('s1', 20)).map((x) => x.t)).toEqual([20, 30]);
@@ -292,10 +281,16 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       expect((await f.sampleBefore('s1', 30))!.t).toBe(20);
       for (const t of [300, 100, 200]) await f.insertBlowout({ session_id: 's1', agent_id: null, t, kind: 'compact', tokens_before: null, tokens_after: null });
       expect((await f.getBlowouts('s1')).map((b) => b.t)).toEqual([100, 200, 300]);
+      for (const kind of ['tie-b', 'tie-a']) await f.insertBlowout({ session_id: 's1', agent_id: null, t: 150, kind, tokens_before: null, tokens_after: null });
+      expect((await f.getBlowouts('s1')).filter((b) => b.t === 150).map((b) => b.kind)).toEqual(['tie-b', 'tie-a']);
       // Sessions: the live set and an ended range come back by start time.
       for (const [id, started] of [['s3', 3000], ['s2', 2000], ['s4', 4000]] as const) await f.upsertSession(session({ id, started_at: started, ended_at: started + 1, last_seen_at: started + 1 }));
       expect((await f.liveCandidates(0)).map((r) => r.id)).toEqual(['s1', 's2', 's3', 's4']);
       expect((await f.endedBetween(0, 10_000)).map((r) => r.id)).toEqual(['s2', 's3', 's4']);
+      // The same start time: by id, as bytes.
+      for (const id of ['t-b', 't-B', 't-a']) await f.upsertSession(session({ id, started_at: 5000, ended_at: 5001, last_seen_at: 5001 }));
+      expect((await f.liveCandidates(4999)).map((r) => r.id)).toEqual(['s1', 't-B', 't-a', 't-b']);
+      expect((await f.endedBetween(5000, 5002)).map((r) => r.id)).toEqual(['t-B', 't-a', 't-b']);
 
       // People and groups: by name, ignoring case.
       for (const n of ['bob', 'Alice', 'Carol', 'alice-2']) await p.createPerson(n, null, T0);
@@ -312,11 +307,81 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       const owned = await store.reporters.peerLookup().ofOwner('ED');
       expect(owned.map((r) => r.key)).toEqual(['m-a', 'm-2', 'm-b', 'm-c']);
       expect((await store.reporters.list({ sort: 'name', dir: 1 }, T0)).rows.map((r) => r.key)).toEqual(['m-a', 'm-2', 'm-b', 'm-c']);
+      // One rule for text (#822): bytes compare as they are, and a case-insensitive key folds ASCII letters only. So `zed` sorts before
+      // `Émile`, which sorts before `émile`, whatever the database's locale.
+      for (const [id, name] of [['m-e1', 'émile'], ['m-e2', 'Émile'], ['m-z', 'zed']] as const) await store.reporters.record(mkSeen(id, name), T0);
+      expect((await store.reporters.list({ sort: 'name', dir: 1 }, T0)).rows.map((r) => r.key).slice(4)).toEqual(['m-z', 'm-e2', 'm-e1']);
       await store.close();
     });
 
+    it('returns a person\'s certificates newest first, those issued in the same millisecond last-stored first', async () => {
+      const store = await open();
+      const { person } = await store.people.createPerson('cert-owner', null, T0);
+      const cert = (n: number) => ({
+        cert: `PEM${n}`, issuerFingerprint: n % 2 ? 'ca-a' : 'ca-b',
+        info: { fingerprintSha256: `fp${n}`, serial: `0${n}`, notBefore: new Date(T0).toISOString(), notAfter: new Date(T0 + 86_400_000).toISOString() },
+      }) as unknown as Parameters<Storage['personCerts']['add']>[1];
+      for (const n of [1, 2]) await store.personCerts.add(person.id, cert(n), T0);
+      await store.personCerts.add(person.id, cert(3), T0 - 1);
+      expect((await store.personCerts.listFor(person.id)).map((c) => c.fingerprint)).toEqual(['fp2', 'fp1', 'fp3']);
+      expect((await store.personCerts.current(person.id))!.fingerprint).toBe('fp2');
+      const by = await store.personCerts.reportersByIssuer(T0 - 5);
+      expect(by).toEqual({ total: 1, byIssuer: { 'ca-a': 1 } });
+      await store.close();
+    });
+
+    it('judges a reporter in the peer lookup by its own name, not by another reporter\'s range (#852)', async () => {
+      const store = await open();
+      const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '9.0.0' }), T0);
+      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '9.0.0', reporterName: 'podium-reporter-opencode' }), T0 + 5);
+      const lookup = store.reporters.peerLookup();
+      const seen = await lookup.ofOwnerSeen('Ed', T0 + 10);
+      const by = Object.fromEntries(seen.map((r) => [r.key, [r.reporterName, r.compat]]));
+      expect(by[claude]).toEqual(['podium-reporter-claudecode', 'newer']);
+      expect(by[other]).toEqual(['podium-reporter-opencode', 'newer']);
+      expect(await lookup.get(other)).toMatchObject({ reporterName: 'podium-reporter-opencode' });
+      await store.close();
+    });
+
+    it('finds a reporter that sends no machine id by its session, whichever reporter it is, and keeps the two harnesses apart (#967)', async () => {
+      const store = await open();
+      const noId = (over: Partial<ReporterSeen>) => mkSeen('x', 'box', { machineId: null, ...over });
+      const claude = await store.reporters.record(noId({ sessionId: 'sc', source: 'host-a' }), T0);
+      const oc = await store.reporters.record(noId({ sessionId: 'so', source: 'host-a', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 1);
+      expect(oc).not.toBe(claude);
+      // The source changed; the session is how each is found again, and each keeps its own row.
+      expect(await store.reporters.record(noId({ sessionId: 'sc', source: 'host-b', reporterName: 'podium-reporter-claudecode' }), T0 + 2)).toBe(claude);
+      expect(await store.reporters.record(noId({ sessionId: 'so', source: 'host-b', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 3)).toBe(oc);
+      expect((await store.reporters.list({}, T0 + 10)).rows).toHaveLength(2);
+      await store.close();
+    });
+
+    it('keeps two reporters on one machine as two rows, each with its own kind and version (#849)', async () => {
+      const store = await open();
+      const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.4.0' }), T0);
+      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '2.0.0', kind: 'hooks', reporterName: 'podium-reporter-opencode' }), T0 + 5);
+      expect(other).not.toBe(claude);
+      // The Claude Code reporter keeps the key it always had; the other is filed apart, with a name of its own.
+      expect(claude).toBe('m-two');
+      const { rows } = await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 10);
+      expect(rows.map((r) => [r.key, r.reporterName, r.version, r.sessions])).toEqual([
+        [claude, 'podium-reporter-claudecode', '1.4.0', 1],
+        [other, 'podium-reporter-opencode', '2.0.0', 1],
+      ]);
+      // A later report from each updates its own row only.
+      await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.99.0' }), T0 + 20);
+      const after = (await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 30)).rows;
+      expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter-claudecode', '1.99.0'], ['podium-reporter-opencode', '2.0.0']]);
+      // Each is judged against its own range (#852): the Claude Code reporter at 1.99.0 is above its range, and the OpenCode one has its own range, which 2.0.0 is also above.
+      expect(after.map((r) => [r.reporterName, r.compat])).toEqual([['podium-reporter-claudecode', 'newer'], ['podium-reporter-opencode', 'newer']]);
+      // The hooks-kind row is not a mod reporter, so it cannot be messaged; the lookup filters on kind, and the reporter name is not part of it yet.
+      const lookup = store.reporters.peerLookup();
+      expect(await lookup.get(other)).toBeNull();
+      expect(await lookup.get(claude)).toMatchObject({ key: claude, version: '1.99.0' });
+    });
+
     it('returns the messages of a conversation in the order they were sent, ties included', async () => {
-      const store = open();
+      const store = await open();
       let now = T0;
       const peers = store.peers({ now: () => now, flagOn: () => true, startedAt: T0 });
       const a = await store.reporters.record(mkSeen('a', 'box-a', { sessionId: 'sa' }), T0);
@@ -351,7 +416,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns recordings and the Activity history with the types and order the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       const memory = { now: T0, live: new Set(['B1', 'a1', 'c1']) };
       const act = store.activity({
         history: {
@@ -400,5 +465,5 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       for (const k of ['entries', 'sessions', 'bytes', 'fileBytes'] as const) expect(typeof hist.totals[k], `totals.${k}`).toBe('number');
       await store.close();
     });
-  });
+  }
 }

@@ -1,11 +1,12 @@
 // Express router for Podium, mounted at /api/fleet (SPEC 7.1, 7.7).
-import express, { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import { serverBuild } from './build.js';
-import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
+import { checkReporter, serverVersion, supportFor } from './compat.js';
 import { MAIN_LOOP, validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
-import { OwnerConflict } from './ingest.js';
+import { HarnessConflict, OwnerConflict } from './ingest.js';
 import { ADMIN_OWNER, nameKey, sourceAddress, keyOf, type PersonRow, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from '../storage/rows.js';
 import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi } from '../storage/types.js';
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
@@ -92,7 +93,7 @@ async function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: Repo
 }
 
 /** The key a sender is known by, and any other row that already holds its session, for the ignore check. */
-async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null }): Promise<{ key: string; otherKeys: string[] }> {
+async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null; reporterName?: string }): Promise<{ key: string; otherKeys: string[] }> {
   const own = keyOf(s);
   try {
     const keys = (await opts.reporters?.keysFor(s)) ?? [own];
@@ -127,7 +128,9 @@ const HISTORY_PAGE_SIZE = 50;
 function intParam(v: unknown): number | null | 'bad' {
   if (v === undefined || v === '') return null;
   if (typeof v !== 'string' || !/^\d+$/.test(v)) return 'bad';
-  return Number(v);
+  // A run of digits past 2^53 is not a whole number JavaScript holds, and a 64-bit column stops near 9.2e18: refuse it here.
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : 'bad';
 }
 
 /** The route a request matched, as `/api/fleet/report`. */
@@ -138,7 +141,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   const router = Router();
   // Set when the respond routes are mounted below; the live activity route reads the viewer through it.
   let respondAccess: RespondAccess | undefined;
-  const json = express.json({ limit: BODY_LIMIT, type: ['application/json', 'application/*+json'] });
+  const json = jsonBody({ limit: BODY_LIMIT, type: ['application/json', 'application/*+json'] });
 
   const guesses = opts.guesses ?? new GuessThrottle(fleet.now);
   /** A person's token is 192 random bits, so it cannot be guessed and is never throttled; anything else could be a guess at the admin secret. */
@@ -232,7 +235,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (
       result.report.reporter.hostSurface !== SIMULATOR_SURFACE &&
       (await refuseIgnored(opts, logger, fleet, req, res, {
-        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
+        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', reporterName: result.report.reporter.name, machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
         source: machineOf(req),
         version: result.report.reporter.version,
       }))
@@ -250,6 +253,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
           logger,
           {
             kind: asHooks ? 'hooks' : 'mod',
+            reporterName: r.reporter.name,
             machineId: r.machine?.id ?? null,
             machineName: r.machine?.name ?? null,
             source: machineOf(req),
@@ -276,8 +280,19 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
+      if (err instanceof HarnessConflict) {
+        logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
+          session_id: result.report.session.id,
+          owner: ownerOf(id),
+          status: 409,
+          reason: 'that session belongs to another harness',
+          source: machineOf(req),
+        });
+        res.status(409).json({ ok: false, error: 'that session belongs to another harness', path: '$.harness.id' });
+        return;
+      }
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {
           session_id: result.report.session.id,

@@ -169,7 +169,7 @@ export function Board(props: {
   const [changedAt, setChangedAt] = useState<Map<string, number>>(() => new Map());
   const [flash, setFlash] = useState<{ moved: Set<string>; fresh: Set<string> }>({ moved: new Set(), fresh: new Set() });
   const [note, setNote] = useState("");
-  const flashTimer = useRef<ReturnType<typeof setTimeout>>();
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     const cur = new Map<string, { column: BoardColumn; text: string }>();
     for (const col of BOARD_COLUMNS) for (const c of board.columns[col.key]) cur.set(c.key, { column: col.key, text: c.step.text });

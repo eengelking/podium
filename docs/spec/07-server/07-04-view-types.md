@@ -21,6 +21,10 @@ interface SessionView {
   dropAt: number | null; // epoch ms when a stale session leaves the wall by itself; null unless stale (7.5)
   context: { tokens: number | null; window: number | null; percent: number | null };
   costUsd: number | null; tokensTotal: number;
+  harness: string;                      // 'claude-code' for a session stored before harnesses were recorded (#851)
+  costSource: 'harness' | 'estimate';   // 'harness': costUsd is the harness's own figure, shown labeled as such (6.5)
+  capabilities: Capabilities | null;    // what the harness declared it can report (6.2); null when nothing was declared (v1, or a session stored before #940). A key it left out is absent
+  modelLabel: string | null; modelProvider: string | null;  // the model's name as the harness shows it, and the company behind it (#940); the chip reads the label, with `model` as its title
   blowouts: { orchestrator: number; agents: number; total: number; level: 0 | 1 | 2; loopsHit: number; loopsTotal: number;
               log: { t: number; agentId: string | null; kind: string; tokensBefore: number | null; tokensAfter: number | null }[] };
   compactions: number;                  // times Claude Code compacted the session on its own, any loop: its stored `compact` events with data.trigger "auto" (#805). 0 from a reporter older than the one that sends them.
@@ -42,12 +46,20 @@ interface SessionView {
   }[];
   clearedFrom: string | null;           // the session this one continues after a /clear (5.8)
   recording?: RecordingView | null;     // #353: { state: 'recording' | 'stopped' | 'limit', limit, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes, loops: { loop, name, recorded }[], ownerAllows }; everything the wall and the page show about a recording and no text; null or absent when nothing is chosen or kept
-  agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst
+  agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst + modelLabel and modelProvider (string | null, #945; the row and the panel read the label, with `model` as its title)
   series: { tokensPerSec: number[]; peakContext: number[]; running: number[]; blowoutSecondsAgo: number[] };  // 60 points, oldest first; peakContext in 0..1; missing seconds zero-filled
 }
 ```
 
-`resumeCommand` is `cd <cwd> && claude --resume <resumeId ?? id>`. `forkCommand` is the same command with ` --fork-session` added: `cd <cwd> && claude --resume <resumeId ?? id> --fork-session` (#352). Both quote a `cwd` or id that holds anything but safe shell characters, and both are built in `derive.ts`, so the page copies a string and never builds a command. No new report field is needed. `project` is `projectRoot ?? cwd` with the home directory shortened to `~`.
+`resumeCommand` and `forkCommand` come from a template for the session's harness (#853), built in `derive.ts`, so the page copies a string and never builds a command. A session with no stored harness is Claude Code's. Both quote a `cwd` or id that holds anything but safe shell characters.
+
+| Harness | `resumeCommand` | `forkCommand` |
+|---|---|---|
+| `claude-code` | `cd <cwd> && claude --resume <resumeId ?? id>` | the same command with ` --fork-session` added: `cd <cwd> && claude --resume <resumeId ?? id> --fork-session` (#352) |
+| `opencode` | `opencode <cwd> --session <resumeId ?? id>` | `null`: OpenCode has no fork command Podium can give |
+| any other | `null` | `null` |
+
+A command that is `null` is not a string the page copies: the Resume or Fork cell says it is not available (8.1). No new report field is needed. `project` is `projectRoot ?? cwd` with the home directory shortened to `~`.
 
 <!-- nav:start -->
 ---

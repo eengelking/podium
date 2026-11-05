@@ -36,9 +36,10 @@ npm run e2e                                    # the whole suite
 npm run e2e -- -- --spec "cypress/e2e/wall/**" # one folder (everything after the second -- goes to Cypress)
 npm run e2e -- --no-build                      # reuse the image built by the last run
 npm run e2e:down                               # remove anything an interrupted run left behind
+E2E_DB=postgres npm run e2e                    # the same suite with PostgreSQL behind the server (default: sqlite)
 ```
 
-`scripts/e2e-up.sh --help` lists the options. A run builds the image, makes a private network with a fresh admin secret that
+`scripts/e2e-up.sh --help` lists the options. With `E2E_DB=postgres` a PostgreSQL container (`E2E_PG_IMAGE`, default `postgres:17-alpine`) runs beside the server on the same private network, the server gets `PODIUM_DB=postgres://...` for it, and the specs' "fresh database" restart drops and recreates that database instead of emptying `/data`. Its password is random per run and scrubbed from the server log copy. The specs are the same for both databases. A run builds the image, makes a private network with a fresh admin secret that
 nothing prints, starts the server on it, seeds it with `scripts/e2e-seed.mjs`, runs Cypress in a second container and then
 removes every container, network and volume it made, whatever the result. No port is opened on your machine and your own
 Podium is never touched. The first run pulls the Cypress image, about 2.5 GB.
@@ -52,7 +53,7 @@ passes when the run was skipped, so it can be a required check for the release P
 1. Open the failed job and find the spec file and test title in the Cypress output: the group is the feature, the title is the rule.
 2. Download the `e2e-failure` artifact from the run. It holds `screenshots/<spec>/<test> (failed).png`, one for each failure, and
    `server.log`, the server's log with the admin secret scrubbed. It is kept 7 days. There is no video.
-3. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
+3. The workflow's `databases` input (default `sqlite postgres`) picks which database the server runs on; each is a full run of the suite, one after the other, so the job's limit is 180 minutes. Run it with `sqlite` or `postgres` alone to reproduce one. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
 4. To reproduce it, run the same spec locally with `--spec`. A failure that shows only on some runs is a flaky spec: do not
    add a retry or a wait. Find the assertion that reads something before it settles and make it a retrying one.
 
@@ -107,7 +108,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Refresh every and its storage; the Shortcuts switch and its word as a link to the list of keys (closed by the X, Esc or a click outside, stacked at 400 px), `[`, `]` and `\`, ignored while typing; collapse of each pane and the top bar and `podium.collapsed`; resize handle by key, Shift and double-click and the width kept in `podium.panels`; the legend sits between the rail and the right pane; rail footer | SPEC 8.1 Refresh every, Legend, Columns, Collapsing | `e2e/cypress/e2e/shell/display-settings.cy.js` |
 | Wall mode: collapse all, Esc, Exit, the browser leaving fullscreen, idle hide, the `w` key; a refusal of real fullscreen changes nothing (the real call is stubbed in the other tests) | SPEC 8.1 Wall mode | `e2e/cypress/e2e/shell/wall-mode.cy.js` |
 | Layout: no sideways scroll at 400 px on every page including Admin, no edge-tab overlap (#787), stacked panes, card columns, tile and facts columns, wall mode fills the window | SPEC 8.1 Columns, Wall columns | `e2e/cypress/e2e/shell/responsive.cy.js` |
-| The tab's title follows the route; the edge tab's own transition applies unless the reader prefers reduced motion (read from the stylesheet under each emulated setting); the effort meter at each level; People view ordered by Spend | SPEC 8.1 Effort meter, SPEC 8.4 | `e2e/cypress/e2e/shell/misc.cy.js` |
+| The tab's title follows the route; the edge tab's own transition applies unless the reader prefers reduced motion (read from the stylesheet under each emulated setting); the effort meter at each level and at one it does not know (hollow bars, "Effort: minimal"), and with none; People view ordered by Spend | SPEC 8.1 Effort meter, SPEC 8.4 | `e2e/cypress/e2e/shell/misc.cy.js` |
 | axe (color-contrast and target-size) on the six pages, light and dark, 1440 and 400 px | SPEC 8.4 | `e2e/cypress/e2e/a11y/axe.cy.js` |
 | axe on the orchestrator page, the sign-in, report, respond, record and file-diff dialogs and the activity dialog, and on every Admin page | SPEC 8.4 | `e2e/cypress/e2e/a11y/axe-more.cy.js` |
 | A card changes with no reload; the pill and alert when the server stops, and recovery; the alert with everything collapsed | SPEC 8.1 Data flow, Collapsing | `e2e/cypress/e2e/wall/live.cy.js` |
@@ -117,6 +118,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Feature | Spec | Covered by |
 |---|---|---|
 | KPI tiles; cards: bands, git line, plan, cost, context, long names, copy id | SPEC 8.1 Fleet wall | `e2e/cypress/e2e/wall/cards.cy.js` |
+| Harness badge (`.chip.hx`, shape plus name) only on a wall of more than one harness; an OpenCode card has a Context cell (#985) and shows "from OpenCode" under its cost; the orchestrator page labels the cost "Cost" and reads Fork as Not available; what a report declares (#940) wins over the console's table of harnesses: `context: false` hides the Context cell and shows the note, `context: true` shows the cell for a harness the table says has none, the model chip reads the harness's `modelLabel` with the model id as its title, and all of it holds after a server restart on the same data and from History once the session has ended; an agent's own `modelLabel` (#945) reads on its tree row and in its panel with the model id as the chip's title, and an agent without one shows its family name; a long agent model label (#975) is clipped with an ellipsis inside its Model cell, the full id as the chip's title, and stops before the next column; the agent tree and the orchestrator panel follow what the harness declares (#944): `context: false` and `effort: false` leave the Context and Effort headers, the `.ctxc` and `.eff` cells of the orchestrator row and every agent row, and the panel's Context and Effort rows out, with no sideways scroll, on the wall's page and in History after the session ends, while a Claude Code session keeps both | SPEC 8.1 Session cards | `e2e/cypress/e2e/wall/harness.cy.js` |
 | The Comp pill: after the Context label on the card and in the orchestrator's panel, its title and hidden text count the automatic compactions, beside the blowout badge, inside the card at 400 px, axe in both themes | SPEC 8.1 Session cards | `e2e/cypress/e2e/wall/comp-pill.cy.js` |
 | Toolbar: status segments, the sorts (Cost, Context used, Context blowouts, Model, Status, Newest, each checked against the seed's order), the filter, "N shown, M cleared today" | SPEC 8.1 Toolbar | `e2e/cypress/e2e/wall/toolbar.cy.js` |
 | Heartbeat lost: the card's line and countdown, the full sentence, the KPI count and Remove | SPEC 8.1 Session cards | `e2e/cypress/e2e/wall/stale.cy.js` |
@@ -164,7 +166,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Timer-driven sign-in states (#791, DECISIONS 50), each on a server restarted with `PODIUM_TEST_TIMINGS=1` and a short time: the Admin idle lock (the lock screen returns with no action); the sign-in to respond ending when idle (the page checks once a minute, so about 70 s); the lockout (five wrong tries, the message in Admin's unlock and in the console's sign-in, the lift after the lock time) | SPEC 7.7 Test-only timings | `e2e/cypress/e2e/admin/idle-lock.cy.js`, `e2e/cypress/e2e/admin/lockout.cy.js`, `e2e/cypress/e2e/respond/sign-in-idle.cy.js` |
 | People: create, token shown once, search, group, the actions menu by mouse and by key, rotate, revoke, delete, bulk select; Groups | SPEC 8.1 People, Groups | `e2e/cypress/e2e/admin/people-groups.cy.js` |
 | Reporters: filters, search, sort, details, ignore rules, removal | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters.cy.js` |
-| Reporters: outdated and newer versions and the top bar's counts, the admin-secret band and Show only these, the details of both, ignoring a version, Select all, "Not since restart" | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-states.cy.js` |
+| Reporters: outdated and newer versions and the top bar's counts, the admin-secret band and Show only these, the details of both, with the Compatibility text naming the reporter (#852), the Claude Code / OpenCode picker on the admin-secret steps (#857), ignoring a version, Select all, "Not since restart" | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-states.cy.js` |
 | Settings: the flags (each off, kept, on), warning bars, messaging limits, recording limits and their refusals, wall notices, the wall, forget old reporters; the recordings table with Stop | SPEC 8.1 Feature flags | `e2e/cypress/e2e/admin/settings.cy.js` |
 | Model prices: edit, cancel, Reset to built-in, add and Remove a model, a duplicate, an invalid price with `aria-invalid` and its message; a price change reprices a session's card ($0.42 to $16.20) and Spend today | SPEC 8.1 Model prices | `e2e/cypress/e2e/admin/model-prices.cy.js` |
 | Reporters: Idle, after two minutes without a report, with no reload. This is the one real-time wait in the suite, about 2.5 minutes of every run, a retrying assertion on the server's own threshold, not a fixed sleep | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-idle.cy.js` |
@@ -182,7 +184,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | `activity-output` on, off, and on with `activityOutput` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
 | `respond` on and off, and a reporter that cannot answer | `e2e/cypress/e2e/respond/respond.cy.js` |
 | `file-diff` on, off, and on with `fileDiff` off | `e2e/cypress/e2e/orchestrator/file-diff.cy.js` |
-| `peer-messaging` on, off, and on with a machine's `peers` off, with both routes to turn it on named | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |
+| `peer-messaging` on, off, and on with a machine's `peers` off, with both Claude Code routes to turn it on named in the hover note on "Off on the machine" (#857) | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |
 | `session-recording` on, off, and on with the reporter's option off | `e2e/cypress/e2e/recording/recording.cy.js` |
 | `update-check`: the switch only; the notice it produces is a stated gap below | `e2e/cypress/e2e/admin/settings.cy.js` |
 
@@ -208,7 +210,7 @@ Each of these is a stated gap, not a covered feature.
 |---|---|
 | Real Fullscreen API | Headless Chrome refuses the request, because Cypress's clicks are not a user gesture. The spec checks that a refusal changes nothing and, with `requestFullscreen` stubbed, the app's own wall-mode state. The real call is checked by hand. |
 | Real TLS: the Certificates page with a CA, the reporter certificate and its renewal | The throwaway server is plain HTTP. Covered by `server/src/tls*.test.ts` and `frontend/src/fleet/admin/certificates.test.tsx`. |
-| The reporter mod inside Claude Code | Out of scope (`npm run test:mod`). The suite plays the mod's reports and its diff answers. |
+| The reporter mod inside Claude Code | Out of scope (`npm run test:mod:claudecode`). The suite plays the mod's reports and its diff answers. |
 | The release-check notice at the bottom of the wall | It needs a newer release from GitHub. Only the switch is covered; the notice is covered by `frontend/src/fleet/wall.test.tsx`. |
 | Admin > Reporting with 45 days of history | The history needs `scripts/podium-seed-history.ts`, which needs `tsx`, which no container here carries, and no route writes rollups. The pages are checked for shape and for today's live figures. Covered by `frontend/src/fleet/admin/reporting.test.tsx` and `server/src/fleet/rollups.test.ts`. |
 | Traffic's range filter (Last 24 hours and Last 30 days narrowing the list) | A message older than a day cannot be made: the server stamps every message with its own clock. The range buttons are clicked and the list is asserted unchanged for recent messages only. |
@@ -222,6 +224,40 @@ The suite does not repeat what a unit test already settles and a browser adds no
 (`frontend/src/fleet/board.test.ts`), rail page math (`frontend/src/fleet/railPages.test.ts`), the derive rules and ingest validation
 (`server/src/fleet/derive.test.ts`), markdown rendering (`frontend/src/fleet/components/Markdown.test.tsx`), the CSV neutralizing, validation
 messages, and the standards pages (`npm run standards:parity`). A feature with only unit coverage and a layout, focus or live-update behavior gets a spec for that part.
+
+## What runs on PostgreSQL, and whether that is enough for the release gate
+
+The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). The decision on the
+gap is the maintainer's; this section states what is true on 2026-11-05 and the options.
+
+- **The storage contract and the adapter's own tests** (`server/src/storage/`, about 950 tests) run on PostgreSQL in every CI run, in the
+  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-pg.sh`. That job runs the whole server suite with
+  `PODIUM_TEST_PG` set, but only the storage tests use it.
+- **About 50 test files outside `server/src/storage/`** (routes, ingest, the fleet, peers, Admin) open a SQLite storage and nothing else. They
+  have never run on PostgreSQL. They are not to be converted: the contract is where the two databases are compared.
+- **The Cypress suite on PostgreSQL** (`E2E_DB=postgres`, the `databases` input of `e2e.yml`, default `sqlite postgres`) runs on a pull
+  request into `main` and on a manual dispatch, never on a PR into `development`. The default of both databases arrived with the
+  PostgreSQL adapter (#900, 2026-10-31). Every run of the E2E workflow listed by `gh run list` is older than that or ran a branch that did
+  not have it: the release PR for 1.4.0 (2026-10-30) and the three manual dispatches on 2026-10-31 have no PostgreSQL step in their logs. **No
+  CI run has ever run the suite on PostgreSQL**, so the first one will be the v1.5 release PR, which is also the first release that carries the adapter.
+
+Is that enough for the release gate? The storage contract settles what a store returns; it does not settle the routes, sign-in,
+recording, peers and live updates sitting on top of it, which only the Cypress run and the unit tests that open SQLite exercise. The
+risk is concentrated in one place: a failure on the release PR on PostgreSQL, with nothing earlier to point at the change that caused it.
+The options, cheapest first:
+
+1. **Rely on the release PR alone** (what is set up). No new cost; a PostgreSQL-only failure appears only when the release is already
+   being cut, and `development` is not known to be green on PostgreSQL between releases.
+2. **Run `E2E` by hand on `development` with `databases: postgres` before the release-prep PR opens**, and once more after any storage change
+   that merges. No workflow change; it is one manual step and it needs to be written into `podium-release`'s steps to happen.
+3. **Add a `schedule:` (nightly) or a `push` to `development` trigger that runs `postgres` only.** The suite takes about 10 minutes for one
+   database on the self-hosted runner, which also serves the nightly build. It needs an edit to `e2e.yml`, so it is a separate change.
+4. **Run the server's route and ingest tests on PostgreSQL** by making the 50 files open the storage through a switch (`PODIUM_TEST_PG`)
+   that the storage suite already uses. The largest change, and it overlaps with the contract; worth it only if option 2 or 3 keeps
+   finding PostgreSQL-only failures that the contract does not.
+
+Recommendation: 2 now, since it costs nothing and puts a real PostgreSQL run before the release PR rather than inside it, and 3 if that
+first run finds anything. This section changes when the workflow does.
 
 ## What is still open
 

@@ -15,7 +15,7 @@ order: 8
 
 **Why:** Before #267 each load of the mod kept its own machine id in its own store, so an inline copy and the
 marketplace install reported as two machines. Every load now shares `podium-machine-id` in the Claude config directory
-(`CLAUDE_CONFIG_DIR`, else `~/.claude`). The id is made in `mod/podium-reporter/hooks/machine.ts`.
+(`CLAUDE_CONFIG_DIR`, else `~/.claude`). The id is made in `plugin/core/machine.ts`.
 
 **Do:** Update the mod. A machine that already had two ids settles on one: the first load to run after the upgrade
 writes the file and the others adopt it.

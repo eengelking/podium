@@ -22,6 +22,7 @@ const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): Pe
   os: "macOS 26.1",
   peers: true,
   version: "1.2.0",
+  reporterName: "podium-reporter",
   state: "reporting",
   lastSeenAt: T0 - 40_000,
   compat: "ok",
@@ -108,9 +109,9 @@ const flush = () =>
     for (let i = 0; i < 10; i++) await Promise.resolve();
   });
 
-function page(opts: { server?: ReturnType<typeof fakeServer>; me?: RespondMe; peersFlag?: boolean; myReporters?: boolean } = {}) {
+function page(opts: { server?: ReturnType<typeof fakeServer>; me?: RespondMe; peersFlag?: boolean; myReporters?: boolean; sessions?: ReturnType<typeof makeSession>[] } = {}) {
   const server = opts.server ?? fakeServer();
-  const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
+  const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" }), ...(opts.sessions ?? [])], features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
   const view = render(<FleetView myReporters={opts.myReporters ?? true} state={state} respondApi={respondApi(opts.me)} peersApi={server.api} />);
   return { server, ...view };
 }
@@ -454,16 +455,41 @@ describe("Your reporters", () => {
     expect(mac).toHaveTextContent("40 s ago");
     expect(mac.lastElementChild).toHaveTextContent("1");
     const win = table.getByText("win-lab").closest("tr")!;
-    expect(within(win).getByText("Off on the machine")).toHaveClass("badge", "off");
+    const offWord = within(win).getByText("Off on the machine");
+    expect(offWord.closest(".badge")).toHaveClass("badge", "off");
+    // A dotted underline marks a word that explains itself on hover and focus (#857, the standards' help term).
+    expect(offWord).toHaveClass("tip", "tt");
     // A state is a shape and a word, as Admin's badges are (patterns.html#status).
     expect(within(mac).getByText("On").querySelector(".dot.running")).not.toBeNull();
-    expect(within(win).getByText("Off on the machine").querySelector(".dot:not(.running)")).not.toBeNull();
+    expect(offWord.closest(".badge")!.querySelector(".dot:not(.running)")).not.toBeNull();
     expect(win).toHaveTextContent("1.1.0");
-    const off = screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/);
-    // Both routes: the terminal command with the full key, and the Claude desktop app's settings (#837).
+    // The note replaces a row of text under the table: it opens on hover or focus, and a machine with no known session gets both harnesses' steps.
+    fireEvent.focus(offWord);
+    const off = screen.getByRole("tooltip");
+    expect(off).toHaveTextContent(/win-lab has messaging off\. Only that machine can turn it on/);
+    // Claude Code's two routes: the terminal command with the full key, and the Claude desktop app's settings (#837).
     expect(off).toHaveTextContent("In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on.");
     expect(off).toHaveTextContent("In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers.");
+    expect(off).toHaveTextContent("In OpenCode there, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart.");
+    // The row of text that said this under the table is gone; only the hover note carries it.
+    expect(document.querySelector(".pm-note")?.textContent ?? "").not.toContain("has messaging off");
     expect(screen.getByText("Showing 1 to 4 of 4")).toBeInTheDocument();
+  });
+
+  it("explains messaging in the harness the machine runs, from the sessions the console holds on it (#857)", async () => {
+    page({ sessions: [makeSession({ id: "s-oc", harness: "opencode", owner: "Ed", machine: { name: "win-lab", id: "k4" } })] });
+    await flush();
+    const table = within(screen.getByRole("region", { name: "Table of your reporters" }));
+    fireEvent.focus(within(table.getByText("win-lab").closest("tr")!).getByText("Off on the machine"));
+    const note = screen.getByRole("tooltip");
+    expect(note).toHaveTextContent("In OpenCode there, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart.");
+    expect(note).not.toHaveTextContent("Claude Code");
+    cleanup();
+    page({ sessions: [makeSession({ id: "s-cc", harness: "claude-code", owner: "Ed", machine: { name: "win-lab", id: "k4" } })] });
+    await flush();
+    const again = within(screen.getByRole("region", { name: "Table of your reporters" }));
+    fireEvent.focus(within(again.getByText("win-lab").closest("tr")!).getByText("Off on the machine"));
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent("OpenCode");
   });
 
   it("shows the server's state for each reporter with the badge, words and note Admin > Reporters uses, and its last report (#415)", async () => {
@@ -505,6 +531,15 @@ describe("Your reporters", () => {
     await flush();
     expect(screen.getAllByText("Reporter can't message: update it").length).toBeGreaterThan(0);
     expect(screen.getByText(/win-lab's reporter is too old to message/)).toBeInTheDocument();
+  });
+
+  it("does not send an OpenCode reporter that has not stated messaging to Claude Code's update steps (#967, #985)", async () => {
+    const d = baseRead();
+    d.reporters[3] = { ...d.reporters[3]!, peers: null, reporterName: "podium-reporter-opencode" };
+    page({ server: fakeServer(d) });
+    await flush();
+    expect(screen.queryByText(/win-lab's reporter is too old to message/)).toBeNull();
+    expect(screen.getByText(/win-lab's OpenCode reporter has not said whether messaging is on.*PODIUM_PEERS=true/)).toBeInTheDocument();
   });
 
   it("cuts a long machine name and keeps it whole as a title", async () => {

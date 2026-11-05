@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { familyName, ORCHESTRATOR_ROW as MAIN_LOOP, reporterBelow } from "../logic";
 import { RespondError } from "../respondApi";
+import { HarnessContext } from "../harnessContext";
 import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, isMine, minSec, planBackOnly, respondGate, shownAsk } from "../respond";
 import type { AskDetail, SessionView } from "../types";
 import { readEvery, useActivityFeed, writeEvery } from "../useActivityFeed";
@@ -216,7 +217,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   } else if (!edge && ask && detail && detail.ask.id === ask.id && kase !== "hidden") {
     const what = ASK_WORD[detail.ask.kind];
     const d = detail.delivery;
-    const summary = d ? deliverySummary(detail, d) : "";
+    const summary = d ? deliverySummary(detail, d, s.harness) : "";
     if (kase === "form") {
       const body =
         detail.ask.kind === "question" ? (
@@ -351,6 +352,8 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
         onSend={(t) => void send(t)}
         error={error}
         busy={busy}
+        commands={s.capabilities?.commands ?? null}
+        canReply={!s.respond?.limits.includes("no-reply-in-place")}
       />
     );
 
@@ -364,6 +367,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   const empty = feedEmpty(feed, signedIn, emptyBase);
   const model = familyName(s.modelFamily, s.model);
   return (
+    <HarnessContext.Provider value={s.harness}>
     <Modal
       titleId="respondTitle"
       title="Activity"
@@ -396,6 +400,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
         {compose ?? <div className="mpad" />}
       </div>
     </Modal>
+    </HarnessContext.Provider>
   );
 }
 

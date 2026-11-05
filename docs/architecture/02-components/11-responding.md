@@ -8,7 +8,7 @@ order: 11
 # Responding
 
 Files: `server/src/fleet/respond.ts`, `respondRoutes.ts`, `lockout.ts`, `frontend/src/fleet/useRespond.tsx`,
-`components/Respond.tsx`, `mod/podium-reporter/hooks/respond.ts`. Issue #206; SPEC 5.3, 7.1, 7.2 and 7.7. The
+`components/Respond.tsx`, `plugin/claudecode/hooks/respond.ts`. Issue #206; SPEC 5.3, 7.1, 7.2 and 7.7. The
 reasoning is in DECISIONS 28 to 30.
 
 **Server**
@@ -45,6 +45,14 @@ reasoning is in DECISIONS 28 to 30.
   `respond.ts` holds the rules for the button and the frames.
 - The modal lets its fields keep their own keys (`Modal.tsx`), and `useActivityFeed` follows a Podium entry's note
   as it changes.
+
+## The OpenCode reporter (#858)
+
+OpenCode has no hooks, so answering runs from the reporter's one-second flush tick instead of from a tool call. After each root's report, `plugin/opencode/answering.ts`
+starts one wait per open ask and acts on the messages and commands the reply handed over. The shared parts are in `plugin/core/respond.ts`: announcing an ask, the held
+request for its answer, a delivery's result, an ask's close, an outbox of those calls (one pass at a time, because several roots flush it) and the ids already acted on.
+Only the calls into OpenCode are in `plugin/opencode/host.ts`. A question reaches OpenCode through the TUI part (`tui.ts`) when one is attached, otherwise through the
+local route named in `service.json`. Podium is told a question can be answered only while one of the two is there. Plan approval and `/clear` are never in `accepts`.
 
 <!-- nav:start -->
 ---

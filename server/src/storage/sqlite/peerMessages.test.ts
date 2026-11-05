@@ -1,7 +1,8 @@
 // Orchestrator messaging (#347, #412): the message store, against a fake rights view and a fake reporter lookup.
 import { describe, it, expect } from 'vitest';
 import { openDb } from './db.js';
-import { PeerMessages, MAX_NOTICES, cleanPeerText, roundTripsUsed } from './peerMessages.js';
+import { PeerMessages } from './peerMessages.js';
+import { MAX_NOTICES } from '../peerText.js';
 import { linkKey, type LiveOrchestrator, type MessageTrail, type PeerRequestRow, type PeerRightsView, type ReporterRef, type SendOutcome, type Refusal } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerLevel } from '../../fleet/protocol.js';
 
@@ -9,7 +10,7 @@ const T0 = 1_800_000_000_000;
 const ID = /^dlv_[0-9a-f]{24}$/;
 
 function reporter(key: string, machine: string, extra: Partial<ReporterRef> = {}): ReporterRef {
-  return { key, machine, owner: 'Ed', adminSecret: false, os: null, peers: true, version: '1.2.0', ...extra };
+  return { key, machine, owner: 'Ed', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...extra };
 }
 
 const REPORTERS: ReporterRef[] = [
@@ -83,28 +84,6 @@ const ok = (r: SendOutcome | Refusal): SendOutcome => {
   if (!r.ok) throw new Error(`refused: ${r.status} ${r.error}`);
   return r;
 };
-
-describe('cleanPeerText', () => {
-  it('replaces control characters other than a line break and a tab with a space', () => {
-    expect(cleanPeerText('a\u0000b\u0007c\rd\u001be\u007ff\ng\th')).toBe('a b c d e f\ng\th');
-    expect(cleanPeerText('plain ✓ text')).toBe('plain ✓ text');
-  });
-});
-
-describe('roundTripsUsed', () => {
-  const r = (fromSession: string, extra: Partial<{ state: 'ready' | 'declined' | 'dropped'; approved: boolean }> = {}) => ({ fromSession, state: extra.state ?? 'ready', approved: extra.approved ?? false });
-  it('counts each change of direction as half a round trip, rounded up', () => {
-    expect(roundTripsUsed([])).toBe(0);
-    expect(roundTripsUsed([r('a'), r('a')])).toBe(0);
-    expect(roundTripsUsed([r('a'), r('b')])).toBe(1);
-    expect(roundTripsUsed([r('a'), r('b'), r('a')])).toBe(1);
-    expect(roundTripsUsed([r('a'), r('b'), r('a'), r('b')])).toBe(2);
-  });
-  it('counts from the newest approved message, and skips declined and dropped ones', () => {
-    expect(roundTripsUsed([r('a'), r('b'), r('a', { approved: true }), r('b')])).toBe(1);
-    expect(roundTripsUsed([r('a'), r('b', { state: 'declined' }), r('b', { state: 'dropped' }), r('a')])).toBe(0);
-  });
-});
 
 describe('PeerMessages: defaults', () => {
   it('runs on the wall clock with no trail', () => {

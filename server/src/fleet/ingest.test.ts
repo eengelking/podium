@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
-import { ingestReport } from './ingest.js';
+import { repriced } from './derive.js';
+import { HarnessConflict, ingestReport } from './ingest.js';
+import { Pricing } from './pricing.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
@@ -18,6 +20,26 @@ function withTokens(r: Report, input: number): Report {
 }
 
 describe('ingestReport', () => {
+  it('refuses a report for a session id another harness already owns (#850)', async () => {
+    await ingestReport(storage, fixtureReport(), T0);
+    const r = fixtureReport();
+    r.v = 2;
+    r.harness = { id: 'opencode', name: 'OpenCode', version: '1', surface: 'tui' };
+    r.session.harness = 'opencode';
+    await expect(ingestReport(storage, r, T0 + 1)).rejects.toBeInstanceOf(HarnessConflict);
+    expect((await f.getSession(r.session.id))?.harness).toBe('claude-code');
+  });
+
+  it('takes a later report from the same harness (#850)', async () => {
+    const r = fixtureReport();
+    r.v = 2;
+    r.harness = { id: 'opencode', name: 'OpenCode', version: '1', surface: 'tui' };
+    r.session.harness = 'opencode';
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, r, T0 + 1);
+    expect((await f.getSession(r.session.id))?.harness).toBe('opencode');
+  });
+
   it('creates the session, its agents, events and blowout rows', async () => {
     const res = await ingestReport(storage, fixtureReport(), T0);
     expect(res.created).toBe(true);
@@ -232,6 +254,226 @@ describe('ingestReport', () => {
     const res = await ingestReport(storage, r, T0);
     expect((await f.getSession(r.session.id))?.last_seen_at).toBe(T0);
     expect(res.clockSkewMs).toBe(42 - T0);
+  });
+});
+
+describe('ingestReport with a cost the harness reported (#851)', () => {
+  const harnessReport = (session: Partial<Report['session']> = {}): Report => {
+    const r = fixtureReport();
+    return {
+      ...r,
+      agents: [],
+      session: {
+        ...r.session,
+        model: 'llama3.1:8b',
+        harness: 'opencode',
+        costSource: 'harness',
+        costUsd: 0.42,
+        tokens: { input: 1000, output: 500, cacheRead: 0, cacheWrite: 0 },
+        ...session,
+      },
+    };
+  };
+
+  it('keeps the harness cost of a model Podium has no price for, and the harness it came from', async () => {
+    const r = harnessReport();
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: 0.42, harness: 'opencode', cost_source: 'harness' });
+  });
+
+  it('keeps an agent\'s cost when the session\'s cost is the harness\'s', async () => {
+    const base = harnessReport();
+    const r: Report = { ...base, agents: fixtureReport().agents.map((a) => ({ ...a, model: 'llama3.1:8b', costUsdEst: 0.1 })) };
+    await ingestReport(storage, r, T0);
+    expect((await f.getAgents(r.session.id)).every((a) => a.cost_usd_est === 0.1)).toBe(true);
+  });
+
+  it('keeps a reported cost of 0 as 0, labeled as the harness\'s figure', async () => {
+    const r = harnessReport({ costUsd: 0 });
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: 0, cost_source: 'harness' });
+  });
+
+  it('does not reprice a mixed session from its usage: the harness figure is the whole cost', async () => {
+    const usage = [
+      { model: 'claude-opus-4-5', tier: 'std' as const, tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
+      { model: 'llama3.1:8b', tier: 'std' as const, tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
+    ];
+    const r = harnessReport({ costUsd: 1.1, usageByModel: usage });
+    await ingestReport(storage, r, T0);
+    const row = (await f.getSession(r.session.id))!;
+    expect(row.usage_json).toBeNull();
+    expect(repriced(new Pricing({}), row.usage_json, row.cost_usd)).toBe(1.1);
+  });
+
+  it('leaves a Claude Code report as it was: the Claude Code harness and Podium\'s own estimate', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: r.session.costUsd, harness: 'claude-code', cost_source: null });
+  });
+
+  it('still drops the estimate of a non-Claude model when the reporter does not say the harness reported it', async () => {
+    const r = harnessReport({ costSource: 'estimate' });
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: null, cost_source: null, harness: 'opencode' });
+  });
+
+  it('keeps the harness a later report leaves out', async () => {
+    const r = harnessReport();
+    await ingestReport(storage, r, T0);
+    const later: Report = { ...r, session: { ...r.session, harness: undefined, costSource: undefined, costUsd: 0.5 } };
+    await ingestReport(storage, later, T0 + 1000);
+    expect((await f.getSession(r.session.id))!.harness).toBe('opencode');
+  });
+});
+
+describe('ingestReport with what a harness declares (#940)', () => {
+  const v2 = (over: Partial<Report> = {}, session: Partial<Report['session']> = {}): Report => {
+    const r = fixtureReport();
+    return { ...r, agents: [], capabilities: { context: false, effort: true, commands: ['/clear'] }, session: { ...r.session, harness: 'opencode', modelLabel: 'GPT-5.1', modelProvider: 'openai', ...session }, ...over };
+  };
+
+  it('stores the capabilities, the model label and the model provider', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    const row = (await f.getSession(r.session.id))!;
+    expect(JSON.parse(row.capabilities_json!)).toEqual({ context: false, effort: true, commands: ['/clear'] });
+    expect(row).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('updates them from a later report of the same session', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({ capabilities: { context: true, commands: [] } }, { modelLabel: 'GPT-5.2' }), T0 + 1000);
+    const row = (await f.getSession(r.session.id))!;
+    expect(JSON.parse(row.capabilities_json!)).toEqual({ context: true, commands: [] });
+    expect(row.model_label).toBe('GPT-5.2');
+  });
+
+  it('keeps what was stored when a later report does not declare them', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    const { capabilities: _c, ...bare } = r;
+    const later: Report = { ...bare, session: { ...r.session, modelLabel: undefined, modelProvider: undefined } };
+    await ingestReport(storage, later, T0 + 1000);
+    const row = (await f.getSession(r.session.id))!;
+    expect(JSON.parse(row.capabilities_json!)).toEqual({ context: false, effort: true, commands: ['/clear'] });
+    expect(row).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('drops the label and provider of the old model when a report names another model without them', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({}, { model: 'gpt-5.2', modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: 'gpt-5.2', model_label: null, model_provider: null });
+  });
+
+  it('clears a label or provider a report sends as null', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({}, { modelLabel: null, modelProvider: null }), T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model_label: null, model_provider: null });
+  });
+
+  it('leaves them not declared for a v1 report', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ capabilities_json: null, model_label: null, model_provider: null });
+  });
+});
+
+describe('ingestReport with a null model after a label was stored (#952)', () => {
+  it('clears the label and provider of a session whose report names no model and sends none', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, { ...r, session: { ...r.session, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' } }, T0);
+    await ingestReport(storage, { ...r, session: { ...r.session, model: null, modelLabel: undefined, modelProvider: undefined } }, T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: null, model_label: null, model_provider: null });
+  });
+
+  it('clears the label and provider of an agent whose report names no model and sends none', async () => {
+    const r = fixtureReport();
+    const agent = { ...r.agents[0]!, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' };
+    await ingestReport(storage, { ...r, agents: [agent] }, T0);
+    await ingestReport(storage, { ...r, agents: [{ ...agent, model: null, modelLabel: undefined, modelProvider: undefined }] }, T0 + 1000);
+    const row = (await f.getAgents(r.session.id)).find((a) => a.id === agent.id)!;
+    expect(row).toMatchObject({ model: null, model_label: null, model_provider: null });
+  });
+
+  it('stores no label or provider with a null model, even one the report sends', async () => {
+    const r = fixtureReport();
+    const agent = { ...r.agents[0]!, model: null, modelLabel: 'GPT-5.1', modelProvider: 'openai' };
+    await ingestReport(storage, { ...r, session: { ...r.session, model: null, modelLabel: 'GPT-5.1', modelProvider: 'openai' }, agents: [agent] }, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: null, model_label: null, model_provider: null });
+    expect((await f.getAgents(r.session.id)).find((a) => a.id === agent.id)).toMatchObject({ model: null, model_label: null, model_provider: null });
+  });
+});
+
+describe('ingestReport reads the stored agents once before the upsert (#952)', () => {
+  it('asks for the agents the report names, in one read, and not for the whole session', async () => {
+    const r = fixtureReport();
+    const second = { ...r.agents[0]!, id: 'second-agent' };
+    await ingestReport(storage, { ...r, agents: [r.agents[0]!, second] }, T0);
+    const byIds = vi.spyOn(f, 'getAgentsByIds');
+    const all = vi.spyOn(f, 'getAgents');
+    await ingestReport(storage, { ...r, agents: [r.agents[0]!, second] }, T0 + 1000);
+    expect(byIds).toHaveBeenCalledTimes(1);
+    expect(byIds).toHaveBeenCalledWith(r.session.id, [r.agents[0]!.id, 'second-agent']);
+    expect(all).toHaveBeenCalledTimes(1); // the sample's read, after the upsert
+  });
+
+  it('reads nothing before the upsert for a report with no agents', async () => {
+    const r = fixtureReport();
+    const byIds = vi.spyOn(f, 'getAgentsByIds');
+    await ingestReport(storage, { ...r, agents: [] }, T0);
+    expect(byIds).not.toHaveBeenCalled();
+  });
+});
+
+describe('ingestReport with an agent\'s model label and provider (#945)', () => {
+  const withAgent = (over: Record<string, unknown> = {}): Report => {
+    const r = fixtureReport();
+    return { ...r, agents: [{ ...r.agents[0]!, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai', ...over }] };
+  };
+  const stored = async (r: Report) => (await f.getAgents(r.session.id)).find((a) => a.id === r.agents[0]!.id)!;
+
+  it('stores the label and provider an agent was reported with', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    expect(await stored(r)).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('stores null for an agent whose report sent neither', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, r, T0);
+    expect(await stored(r)).toMatchObject({ model_label: null, model_provider: null });
+  });
+
+  it('updates them from a later report of the same agent', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ modelLabel: 'GPT-5.2', modelProvider: 'azure' }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model_label: 'GPT-5.2', model_provider: 'azure' });
+  });
+
+  it('keeps what was stored when a later report of the agent does not send them', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model: 'gpt-5.1', model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('drops the old label and provider when a report names a different model without them', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ model: 'gpt-5.2', modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model: 'gpt-5.2', model_label: null, model_provider: null });
+  });
+
+  it('clears a label or provider a report sends as null', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ modelLabel: null, modelProvider: null }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model_label: null, model_provider: null });
   });
 });
 

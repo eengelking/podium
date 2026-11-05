@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { AgentRow, SessionRow } from '../storage/rows.js';
 import { agentView } from './derive.js';
+import { CLAUDE_REPORTER_NAME } from './reporterNames.js';
 import { backgroundSummary, type ActivityEvent, type AgentReport, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Report, type SessionReport } from './protocol.js';
 
 export const HOOKS_REPORTER_VERSION = 'hooks';
@@ -282,7 +283,7 @@ export function hookToReport(payload: unknown, stored: { session?: SessionRow; a
     report: {
       v: 1,
       sentAt: now,
-      reporter: { name: 'podium-reporter', version: HOOKS_REPORTER_VERSION, engineVersion: null, hostSurface: 'settings-hooks' },
+      reporter: { name: CLAUDE_REPORTER_NAME, version: HOOKS_REPORTER_VERSION, engineVersion: null, hostSurface: 'settings-hooks' },
       session,
       agents: [...agents.values()].slice(-200),
       events,

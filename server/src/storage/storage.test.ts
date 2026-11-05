@@ -4,10 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { defaultDbFile, openStorage } from './index.js';
 import { openSqliteStorage } from './sqlite/index.js';
-import { runStorageContract } from './contract.js';
-import { sqliteReference } from './sqlite/contractReference.js';
-
-runStorageContract('sqlite', () => openSqliteStorage(':memory:', 0), sqliteReference);
 
 const gate = () => {
   let open!: () => void;
@@ -124,7 +120,7 @@ describe('openStorage', () => {
   });
 
   it('names an unknown kind in the error', () => {
-    expect(() => openStorage({ PODIUM_DB: 'postgres://h/db' })).toThrow(/unknown storage kind "postgres".*known: sqlite/);
+    expect(() => openStorage({ PODIUM_DB: 'mysql://h/db' })).toThrow(/unknown storage kind "mysql".*known: sqlite, postgres/);
   });
 
   it('defaults to a database file under the repo data folder', () => {

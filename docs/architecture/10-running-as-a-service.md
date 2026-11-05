@@ -12,7 +12,7 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 
 ## Container mode
 
-- `Containerfile` is a two-stage Node 24 build. The build stage runs `npm ci --ignore-scripts` and both builds. The runtime stage
+- `Containerfile` is a two-stage Node 26 build. The build stage runs `npm ci --ignore-scripts` and both builds. The runtime stage
   has production deps for `server`, the two `dist` trees, user `node`, and the `/data` volume.
 - The engine is Podman or Docker (`--engine`, saved as `PODIUMCTL_ENGINE`; default Podman if it is installed, else
   Docker). Every command takes the same arguments on both, so `podiumctl` only swaps the binary. Three differences
@@ -56,6 +56,26 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 - The reporter mod is not containerized. It runs inside each Claude Code process and posts to the server's URL.
   It is installed from `eengelking-marketplace` (39). Its `token` option is secret, so it is set with
   `/plugin configure`, not the `/config` menu.
+
+## A database on the network
+
+`PODIUM_DB=postgres://user:password@host:5432/dbname` works in both modes (#822, DECISIONS 53). `podiumctl` passes it through,
+and in container mode it replaces `/data/podium.sqlite`, so the container needs no database file; `/data` still holds the TLS
+CA. `podiumctl` sets `PODIUM_DATA_DIR` to `/data` in the container and, standalone, to the folder of the SQLite file or
+`~/.podium/data` for a database on the network. The Containerfile does not set it, so a SQLite container run without
+`podiumctl` keeps the CA beside its database file, and one with a PostgreSQL `PODIUM_DB` and no `PODIUM_DATA_DIR` stops at
+start with a message that names the variable. `podiumctl config` hides the user and the password, and its status line shows `host:port/dbname`.
+
+## The GitHub runner image
+
+`runner/Containerfile` is not the Podium image. It builds the image that runs this project's GitHub Actions runners
+(`ghcr.io/actions/actions-runner` plus the Docker CLI, `libatomic1` and `dirmngr`), and `podiumctl`, the e2e scripts and the
+release workflows never read it. The root `Containerfile` is the only one they build. Build the runner image with
+`podman build -t localhost/gh-runner:latest -f runner/Containerfile runner`. The Docker CLI inside it talks to the
+host's rootless Podman socket, which is how container jobs, `services:` and `docker build` work on a runner.
+`runner/entrypoint.sh` registers a runner once from `GH_REPO` and `RUNNER_TOKEN`, saves the registration in
+`$STATE_DIR` and reuses it on later starts. Neither file holds a secret; the token is passed at run time. How the host
+starts the instances (the install script and the Quadlet unit) is not in this repo.
 
 ## Verified
 

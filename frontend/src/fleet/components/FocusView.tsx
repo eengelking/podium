@@ -17,6 +17,8 @@ import { usePlanFolded } from "../usePanes";
  * opened, the facts, and the status band as the last row; then the plan and the agent tree side by side.
  */
 export function FocusView(props: {
+  /** Draw the harness badge in the header: the wall holds more than one harness (#853). */
+  showHarness?: boolean;
   s: SessionView;
   now: number;
   config: LifecycleConfig;
@@ -45,7 +47,7 @@ export function FocusView(props: {
   return (
     <div className="op">
       <div className={`osum${s.blowouts.level === 2 ? " risk" : ""}`}>
-        <FocusHeader s={s} kind={kind} now={now} />
+        <FocusHeader s={s} kind={kind} now={now} showHarness={props.showHarness} />
         {open && <BlowoutCallout s={s} onAgent={props.onAgent} id={detailId} />}
         <FactsBar s={s} now={now} onAgent={props.onAgent} blow={{ open, onToggle: () => setOpenFor(open ? null : s.id), controls: detailId }} />
         <RecordingLayer s={s} now={now} />

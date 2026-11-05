@@ -63,7 +63,7 @@ const openAgent = async (body: HTMLElement, id: string) => {
 const step = (id: string, state: PlanStep["state"], text = `step ${id}`, over: Partial<PlanStep> = {}): PlanStep => ({ id, text, state, activeText: null, ownerAgentId: null, ownerLabel: null, ...over });
 const planned = (over: Partial<SessionView>, ...steps: PlanStep[]) => makeSession({ ...over, plan: { title: "Plan", source: "TaskCreate", steps } });
 
-const row: HistoryRow = { id: "h1", name: "api-refactor", project: "~/dev/billing", model: "claude-opus-5-5", modelFamily: "opus", startedAt: 1_000_000, endedAt: 4_600_000, durationSec: 3600, costUsd: 12.84, blowouts: 2, agents: 3, endReason: "prompt_input_exit", clearedFrom: "238da512ffeeddcc", clearedInto: "9c1e2f4a5b6c7d8e" };
+const row: HistoryRow = { id: "h1", name: "api-refactor", project: "~/dev/billing", model: "claude-opus-5-5", modelFamily: "opus", startedAt: 1_000_000, endedAt: 4_600_000, durationSec: 3600, costUsd: 12.84, harness: "claude-code", costSource: "estimate", modelLabel: null, blowouts: 2, agents: 3, endReason: "prompt_input_exit", clearedFrom: "238da512ffeeddcc", clearedInto: "9c1e2f4a5b6c7d8e" };
 
 export const APP_SCREENS: Record<string, Screen> = {
   "app-orchestrator": app([withAgents()], openSession),

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import ts from 'typescript';
+import ts from '@typescript/typescript6';
 
 // #808: SQLite's JSON functions are spelled differently (or are missing) in other SQL databases, so no query in the adapter uses them.
 // A word counts only inside a string or template literal, so a TypeScript arrow `=>` or a comment never trips this.

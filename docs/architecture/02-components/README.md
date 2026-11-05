@@ -29,9 +29,9 @@ Most subsections name the files that own them and the issue that introduced them
 - [Built-in TLS (#577)](14-built-in-tls.md): How the server serves HTTPS itself, the structure its sub-issues agreed on and what is still blocked on the engine.
 - [People view](15-people-view.md): How the People view and the Admin spend tab are built from the fleet's data.
 - [Logging](16-logging.md): How the server's logging works, where it lives and what it keeps.
-- [Shared contract](17-shared-contract.md): Where the Report types live on the server and in the mod, and how a test keeps them identical.
+- [Shared contract](17-shared-contract.md): Where the Report types live: once, in plugin/core, imported by the server, the UI and every reporter.
 - [Other server parts](18-other-server-parts.md): The smaller server parts that have no page of their own, such as model prices.
-- [Storage](19-storage.md): How the server reaches its database: async interfaces, SQLite as the only adapter, the locks, the write-through caches and the rules for calling it.
+- [Storage](19-storage.md): How the server reaches its database: async interfaces, the SQLite and PostgreSQL adapters, the locks, the write-through caches and the rules for calling it.
 <!-- entries:end -->
 
 <!-- nav:start -->

@@ -1,14 +1,36 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { serverDir } from "../serverRoot.js";
 import type { ReporterCompat, ReporterSupport } from "./protocol.js";
+import { CLAUDE_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from "./reporterNames.js";
+
+/** The reporter every report came from before reporters had names, and the one an absent name means. */
+export const DEFAULT_REPORTER = CLAUDE_REPORTER_NAME;
 
 /**
- * The reporter (mod) versions this server reads correctly. It changes only when the report format
- * or the mod's behaviour requires it, not on every release. Only major.minor is compared, so a
- * mod-only patch fix never warns.
+ * The versions of each reporter this server reads correctly, by `reporter.name` (#852). A range changes only when the
+ * report format or that reporter's behaviour requires it, not on every release. Only major.minor is compared, so a
+ * patch fix never warns. A reporter with no entry here is not checked (`unknown`), so a new one starts at its first
+ * release with an entry of its own and never inherits another's range.
  */
-export const REPORTER_SUPPORT: ReporterSupport = { min: "0.2.0", max: "1.4.0" };
+export const REPORTER_SUPPORT: Readonly<Record<string, ReporterSupport>> = {
+  [DEFAULT_REPORTER]: { min: "0.2.0", max: "1.5.0" },
+  [OPENCODE_REPORTER_NAME]: { min: "1.4.0", max: "1.5.0" },
+};
+
+/** The name of the reporter that serves each harness (a session stores its harness, not its reporter). */
+const REPORTER_OF_HARNESS: Readonly<Record<string, string>> = { "claude-code": DEFAULT_REPORTER, opencode: OPENCODE_REPORTER_NAME };
+
+/** The range for one reporter, or null when this server has none for that name. */
+export function supportFor(reporterName: string | null | undefined): ReporterSupport | null {
+  const name = canonicalReporterName(reporterName);
+  return Object.hasOwn(REPORTER_SUPPORT, name) ? REPORTER_SUPPORT[name] : null;
+}
+
+/** The reporter that serves a harness; the harness id itself when none is known, so the warning still names something. */
+export function reporterOfHarness(harness: string | null | undefined): string {
+  return (harness && Object.hasOwn(REPORTER_OF_HARNESS, harness) ? REPORTER_OF_HARNESS[harness] : harness) || DEFAULT_REPORTER;
+}
 
 export type { ReporterCompat, ReporterSupport };
 
@@ -21,10 +43,13 @@ function cmp(a: [number, number], b: [number, number]): number {
   return a[0] - b[0] || a[1] - b[1];
 }
 
+/** `support` defaults to the named reporter's own range; a reporter with none is `unknown`, never judged by another's. */
 export function checkReporter(
   version: string | null | undefined,
-  support: ReporterSupport = REPORTER_SUPPORT,
+  reporterName: string | null | undefined = DEFAULT_REPORTER,
+  support: ReporterSupport | null = supportFor(reporterName),
 ): ReporterCompat {
+  if (!support) return "unknown";
   const v = minor(version);
   const lo = minor(support.min);
   const hi = minor(support.max);
@@ -39,10 +64,10 @@ let cached: string | null = null;
 /** The server's own version, from server/package.json (the same relative path from src/ and dist/). */
 export function serverVersion(): string {
   if (cached) return cached;
-  const here = path.dirname(fileURLToPath(import.meta.url));
+  const here = serverDir(import.meta.url);
   let version = "unknown";
   try {
-    const pkg = JSON.parse(readFileSync(path.join(here, "..", "..", "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8"));
     if (typeof pkg.version === "string") version = pkg.version;
   } catch {
     // keep "unknown"

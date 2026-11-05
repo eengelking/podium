@@ -1,10 +1,16 @@
 node_modules/
-dist/
+# The root dist/ is tracked: it is the built reporter on main, checked by scripts/plugin-dist-check.mjs (#983). The other dist folders are
+# build output, and a developer's own reporter build goes to dist-dev/.
+**/dist/
+!/dist/
+/dist-dev/
+.build-test/
 coverage/
 .env
 *.tsbuildinfo
 data/
 *.sqlite*
-mod/podium-reporter/.claude-plugin/types/
+plugin/claudecode/.claude-plugin/types/
 .claude/worktrees/
 server/build.json
+dist-zips/

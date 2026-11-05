@@ -287,6 +287,19 @@ describe('access requests (#412)', () => {
     expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_access_requested', 'peer_right_accepted']));
   });
 
+  it('names a machine by the reporter that can message, when an OpenCode reporter shares the machine (#967)', async () => {
+    const s = await linked('see');
+    const oc = report('Ed', 'sess-oc', 'oc', LINUX, { peers: undefined });
+    oc.v = 2;
+    oc.reporter = { ...oc.reporter, name: 'podium-reporter-opencode', version: '1.4.0' };
+    oc.harness = { id: 'opencode', name: 'OpenCode', version: '2.2.5', surface: 'tui' };
+    oc.capabilities = { commands: [] };
+    expect((await post(s, s.ed.token, oc)).status).toBe(200);
+    const asked = await request(s.app).post('/api/fleet/sessions/sess-dev/peers/access').set('X-Podium-Token', s.ed.token).send({ to: 'ci-runner-01', right: 'send', reason: 'Linux tests.' });
+    expect(asked.status).toBe(202);
+    expect(asked.body.to).toBe('ci-runner-01');
+  });
+
   it('answered from a session, says the level it applied, which can be higher than the request’s (#414)', async () => {
     const s = await linked('ask');
     const route = '/api/fleet/sessions/sess-dev/peers/access';

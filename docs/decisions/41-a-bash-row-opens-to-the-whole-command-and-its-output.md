@@ -52,7 +52,7 @@ recording already holds (#353); it adds no second copy.
   first when over.
 - **Claude Code's own cut.** A Bash result of about 90 KB or more arrives as a short `<persisted-output>` stub. The row
   shows what the mod received, so for that case it shows the stub.
-- **Redaction.** `redactBounded` in `mod/podium-reporter/hooks/recording.ts`, as the recording uses. No third approach.
+- **Redaction.** `redactBounded` in `plugin/core/diffRedact.ts`, as the recording uses. No third approach.
 
 **Why.**
 

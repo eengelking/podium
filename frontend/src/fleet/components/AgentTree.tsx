@@ -5,6 +5,7 @@ import type { AgentView, SessionView } from "../types";
 import { AgentRow } from "./AgentRow";
 import { backgroundOf, BlowBadge, Cost, ContextBar, EffortMeter, ModelChip, StatusChip } from "./Chips";
 import { IconOrch } from "./Icons";
+import { harnessOfSession } from "../harness";
 
 export interface AgentSort {
   key: AgentSortKey | null;
@@ -32,8 +33,14 @@ export function AgentTree(props: {
   onSelect: (id: string) => void;
 }) {
   const { s, now, sort, waiting } = props;
+  // What the session's harness reports decides which columns the table has (#944): one it cannot report is absent from every row, not zero.
+  const { context, effort } = harnessOfSession(s);
+  const mods = `${context ? "" : " no-ctx"}${effort ? "" : " no-eff"}`;
+  const headers = HEADERS.filter((h) => (h.key !== "ctx" || context) && (h.key !== "effort" || effort));
   // A sort orders each parent's children and keeps the tree (#101); with none the rows are in launch order.
-  const rows = buildTree(s.agents, sort.key ? agentOrder(sort.key, sort.dir, now) : undefined);
+  // The sort is the console's, not the session's: one kept from a session whose harness reported a column that this one lacks would order the rows by a column nobody can see.
+  const sortKey = sort.key && headers.some((h) => h.key === sort.key) ? sort.key : null;
+  const rows = buildTree(s.agents, sortKey ? agentOrder(sortKey, sort.dir, now) : undefined);
   // Each level past the second widens the Task column by one guide, so a deep row keeps as much room for its
   // task as a second-level one; the table scrolls sideways inside its own box (#101).
   const deep = Math.max(0, treeDepth(rows) - 2);
@@ -51,7 +58,7 @@ export function AgentTree(props: {
       <div className="sh">
         <h2>Agents</h2>
         <span className="src">
-          {sort.key ? (
+          {sortKey ? (
             <button type="button" className="btn" onClick={() => props.onSort(null)} title="Clear the sort and list the agents in the order they were launched">
               Launch order
             </button>
@@ -61,9 +68,9 @@ export function AgentTree(props: {
         </span>
       </div>
       <div className="tw" style={{ "--deep": deep } as CSSProperties}>
-        <div className="trow hd" role="group" aria-label="Sort the agents">
+        <div className={`trow hd${mods}`} role="group" aria-label="Sort the agents">
           <div>Task</div>
-          {HEADERS.map((h) => {
+          {headers.map((h) => {
             const on = sort.key === h.key;
             return (
               <div key={h.key} className={h.cls}>
@@ -77,7 +84,7 @@ export function AgentTree(props: {
         </div>
         <button
           type="button"
-          className="trow root"
+          className={`trow root${mods}`}
           aria-current={props.selectedAgent === ORCHESTRATOR_ROW}
           onClick={() => props.onSelect(ORCHESTRATOR_ROW)}
           data-agent={ORCHESTRATOR_ROW}
@@ -90,16 +97,20 @@ export function AgentTree(props: {
             </span>
           </div>
           <div className="cell">
-            <ModelChip family={s.modelFamily} model={s.model} />
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
           </div>
-          <div className="cell">
-            <EffortMeter effort={s.effort} />
-          </div>
-          <div className="ctxc">
-            <ContextBar percent={s.context.percent} blowouts={s.blowouts.orchestrator} />
-            <span>{fmtPct(s.context.percent)}</span>
-            <BlowBadge n={s.blowouts.orchestrator} />
-          </div>
+          {effort && (
+            <div className="cell">
+              <EffortMeter effort={s.effort} />
+            </div>
+          )}
+          {context && (
+            <div className="ctxc">
+              <ContextBar percent={s.context.percent} blowouts={s.blowouts.orchestrator} />
+              <span>{fmtPct(s.context.percent)}</span>
+              <BlowBadge n={s.blowouts.orchestrator} />
+            </div>
+          )}
           <div className="num c-tok" title={TOKENS_HINT}>{fmtTok(s.context.tokens)}</div>
           <div className="num" title={COST_HINT_ORCHESTRATOR}><Cost usd={orchestratorCostUsd(s)} family={s.modelFamily} /></div>
           <div className="num">{fmtDur(sessionElapsedSec(s, now))}</div>
@@ -118,6 +129,8 @@ export function AgentTree(props: {
               selected={props.selectedAgent === r.agent.id}
               flash={props.flashAgent === r.agent.id}
               delegating={delegating(r.agent.id)}
+              context={context}
+              effort={effort}
               onSelect={props.onSelect}
             />
           ))

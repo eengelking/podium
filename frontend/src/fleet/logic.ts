@@ -1,5 +1,5 @@
 // Pure presentation logic: sorting, filtering, plan progress, agent counts and the agent tree.
-import { MAIN_LOOP } from "../../../server/src/fleet/protocol";
+import { MAIN_LOOP } from "../../../plugin/core/protocol";
 import type { AgentView, Effort, ModelFamily, Plan, PlanStep, PlanStepView, PlanView, SessionView } from "./types";
 
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
@@ -306,11 +306,18 @@ export function defaultAgentDir(key: AgentSortKey): 1 | -1 {
   return key === "model" || key === "effort" || key === "status" ? 1 : -1;
 }
 
+/** No effort is -1, the five levels are 0 to 4, and any other text is 5, after max (#936). */
+function effortRank(effort: string | null): number {
+  if (!effort) return -1;
+  const i = EFFORTS.indexOf(effort as Effort);
+  return i < 0 ? EFFORTS.length : i;
+}
+
 /** Compares two agents by a column, ties by id; what `sortAgents` sorts with and `buildTree` orders siblings by. */
 export function agentOrder(key: AgentSortKey, dir: 1 | -1, now: number): (a: AgentView, b: AgentView) => number {
   const val: Record<AgentSortKey, (a: AgentView) => number> = {
     model: (a) => MODEL_ORDER.indexOf(a.modelFamily),
-    effort: (a) => (a.effort ? EFFORTS.indexOf(a.effort) : -1),
+    effort: (a) => effortRank(a.effort),
     ctx: (a) => a.context.percent ?? -1,
     tok: agentTokens,
     cost: (a) => a.costUsdEst ?? -1,
@@ -318,7 +325,8 @@ export function agentOrder(key: AgentSortKey, dir: 1 | -1, now: number): (a: Age
     status: (a) => AGENT_STATUS_ORDER[a.status],
   };
   const f = val[key];
-  return (a, b) => (f(a) - f(b)) * dir || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const text = (a: AgentView) => (key === "effort" && a.effort ? a.effort : "");
+  return (a, b) => (f(a) - f(b)) * dir || (text(a) < text(b) ? -dir : text(a) > text(b) ? dir : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 export function sortAgents(agents: readonly AgentView[], key: AgentSortKey, dir: 1 | -1, now: number): AgentView[] {

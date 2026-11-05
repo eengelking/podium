@@ -26,22 +26,26 @@ docs/spec/                         this file
 docs/architecture/                 written during the build (Phase 4 and section 10)
 docs/fixtures/report.sample.json     one full valid Report (section 6); shared by mod and server tests
 mockup/podium.html                   visual reference, do not edit
-mod/podium-reporter/                 the Claude Code mod
+plugin/core/                         code every harness shares (#927); a harness folder may import it, it imports no harness
+  protocol.ts                        the one copy of the Report types, limits and helpers; the server and UI import it too
+  transport.ts                       queue, flush, backoff, offline buffer
+  git.ts                             branch, worktree, ahead/behind, dirty
+  plan.ts                            Task*/TodoWrite → plan steps
+  failures.ts                        classify and excerpt failures
+  *.test.ts
+plugin/claudecode/                   the Claude Code mod (what is specific to that harness)
   .claude-plugin/plugin.json
   hooks/hooks.json
   hooks/register.ts                  wiring only: registers hooks, no logic
   hooks/state.ts                     in-memory session model and pure reducers
   hooks/report.ts                    builds a Report from state
-  hooks/transport.ts                 queue, flush, backoff, offline buffer
-  hooks/git.ts                       branch, worktree, ahead/behind, dirty
-  hooks/plan.ts                      Task*/TodoWrite → plan steps
-  hooks/failures.ts                  classify and excerpt failures
   hooks/models.ts                    model family, context windows, price table
-  hooks/protocol.ts                  Report types (kept identical to server/src/fleet/protocol.ts)
   hooks/respond.ts                   responding from Podium (#206): asks, answers, terminal lines (pure)
-  hooks/*.test.ts                    run by `claude plugin test`
+  hooks/*.test.ts                    run by `claude plugin test` against the built tree
+plugin/opencode/                     the OpenCode reporter (#855)
+dist/<harness>/                      the release build, tracked on `main` (`npm run plugin:build:release`); `dist-dev/<harness>/` is a developer's own (git-ignored)
 server/src/fleet/
-  protocol.ts                        Report + view types, validators
+  protocol.ts                        re-exports plugin/core/protocol.ts and adds the view types and validators
   ingest.ts                          Report → rows, events, blowouts, samples
   derive.ts                          SessionView, KPIs, blowout level, series
   sweeper.ts                         stale / linger / drop timers
@@ -165,14 +169,14 @@ The mod runs inside each Claude Code process and posts to `serverUrl`. It is ins
 `eengelking-marketplace`:
 
 - `eengelking/skills` lists `podium-reporter` in its `.claude-plugin/marketplace.json` with a `git-subdir`
-  source pointing at `mod/podium-reporter` in this repo. Use a full `https://` URL; the `owner/repo` shorthand
+  source pointing at the built `dist/claudecode` on this repo's `main` branch, which holds only releases. Use a full `https://` URL; the `owner/repo` shorthand
   clones over SSH.
 - Users run `/plugin install podium-reporter@eengelking-marketplace`.
 - This repo carries no marketplace file.
 - The mod's version is set in `plugin.json` and in `VERSION` in `hooks/register.ts`, kept equal by
   `scripts/versions.test.ts`.
 - The `token` option is `sensitive`, so it is set with `/plugin configure`, not the `/config` menu.
-- `claude --plugin-dir` stays the way to work on the mod.
+- To work on the mod, run `npm run plugin:build` and then `claude --plugin-dir dist-dev/claudecode`.
 
 ---
 

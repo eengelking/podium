@@ -8,7 +8,8 @@
 // everyone, never the text. The text of a message is never logged here: the Admin log and the server log get who, to
 // whom, whose and what happened.
 import { AsyncLocalStorage } from 'node:async_hooks';
-import express, { type Request, type RequestHandler, type Response, type Router } from 'express';
+import { type Request, type RequestHandler, type Response, type Router } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, LEVEL_WORDS, type PersonRow, type PeerReply, type SessionRow } from '../storage/rows.js';
@@ -16,7 +17,7 @@ import type { PeopleStoreApi, PeerStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
-import { asyncHandler } from './asyncHandler.js';
+import { asyncHandler, type NamedParams } from './asyncHandler.js';
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -24,7 +25,7 @@ export interface PeerDeps {
   token: string | null;
   people: PeopleStoreApi | null;
   logger: Logger;
-  requireToken: RequestHandler;
+  requireToken: RequestHandler<NamedParams>;
   identityOf: (res: Response) => Identity;
 }
 
@@ -130,12 +131,12 @@ export function peerReplyFor(fleet: Fleet, token: string | null, sessionId: stri
 export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
   const now = fleet.now;
-  const json = express.json({ limit: MESSAGE_BODY_LIMIT });
+  const json = jsonBody({ limit: MESSAGE_BODY_LIMIT });
   const withSource = wirePeerLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);
 
   const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
+    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
     res.status(status).json({ ok: false, error: reason });
   };
 
@@ -247,7 +248,9 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
 function reporterNamed(mine: ReporterRef[], to: string): ReporterRef | { status: 404 | 409; error: string } {
   const at = to.lastIndexOf('@');
   const want = (at >= 0 ? to.slice(at + 1) : to).trim().toLowerCase();
-  const found = mine.filter((r) => !r.adminSecret && r.machine.toLowerCase() === want);
+  const named = mine.filter((r) => !r.adminSecret && r.machine.toLowerCase() === want);
+  // Two harnesses on one machine share its name (#967); one that never sent the peers option (a reporter with it off) is not the one meant.
+  const found = named.length > 1 && named.some((r) => r.peers !== null) ? named.filter((r) => r.peers !== null) : named;
   if (found.length === 1) return found[0]!;
   if (found.length > 1) return { status: 409, error: `Two of your reporters are called ${want}. Ask your person to tell them apart on My reporters.` };
   return { status: 404, error: `No reporter of yours is called ${want}. Run podium_peers for the machines you have.` };

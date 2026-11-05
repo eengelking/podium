@@ -6,8 +6,10 @@ import { family } from './derive.js';
 
 // An older reporter prices a non-Claude model as Sonnet; Podium has no price for it, so drop the figure. A non-Claude model has no ledger price, and a loop that has not reported a model yet has no spend worth showing
 // as $0.00: both stay unknown (null) here. The Admin's prices apply on read, from the usage (issue #117).
-const priced = (model: string | null, usd: number | null): number | null =>
-  model ? (family(model) === 'other' ? null : usd) : usd || null;
+// A cost the harness reported is kept as it came, for any model and including 0, which can be a subscription plan rather than free (#851): Podium's
+// price table applies only to the models it knows.
+const priced = (model: string | null, usd: number | null, harnessCost = false): number | null =>
+  harnessCost ? usd : model ? (family(model) === 'other' ? null : usd) : usd || null;
 
 export interface IngestResult {
   sessionId: string;
@@ -81,9 +83,33 @@ function stampDoneOrder(plan: Plan | null, prevJson: string | null | undefined):
   return { ...plan, steps };
 }
 
+/** Whether the session's cost is the harness's own figure: what this report says, else what the last one said. */
+function harnessCost(s: Report['session'], prev: SessionRow | undefined): boolean {
+  return s.costSource ? s.costSource === 'harness' : prev?.cost_source === 'harness';
+}
+
+/**
+ * The model label and provider to store (#940, #945, #952), one rule for a session and for an agent.
+ * A row with no model has nothing for a label to describe, so a null `model` stores neither, whatever the report sends or the row held.
+ * Otherwise a value the report sends is stored (`null` clears it), and one it leaves out is kept while the report names the stored model; a different model drops it, because it described the old one.
+ */
+function modelNames(
+  model: string | null,
+  sent: { label: string | null | undefined; provider: string | null | undefined },
+  prev: { model: string | null; model_label: string | null; model_provider: string | null } | undefined,
+): { model_label: string | null; model_provider: string | null } {
+  if (model == null) return { model_label: null, model_provider: null };
+  const kept = model === prev?.model;
+  return {
+    model_label: sent.label === undefined ? (kept ? prev?.model_label ?? null : null) : sent.label,
+    model_provider: sent.provider === undefined ? (kept ? prev?.model_provider ?? null : null) : sent.provider,
+  };
+}
+
 function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number, owner: string | null): SessionRow {
   const s = r.session;
   const done = s.status === 'done';
+  const fromHarness = harnessCost(s, prev);
   return {
     id: s.id,
     name: s.name,
@@ -105,7 +131,7 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     context_tokens: s.context.tokens,
     context_window: s.context.window,
     context_percent: s.context.percent,
-    cost_usd: priced(s.model, s.costUsd),
+    cost_usd: priced(s.model, s.costUsd, fromHarness),
     tok_in: s.tokens.input,
     tok_out: s.tokens.output,
     tok_cr: s.tokens.cacheRead,
@@ -121,7 +147,8 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     loop_json: json(s.loop),
     files_json: json(s.files),
     background_json: json(s.background ?? null),
-    usage_json: json(s.usageByModel ?? null),
+    // The harness's figure is the whole cost, so no usage is kept to reprice it from (a mixed session would lose the share of a model Podium has no price for).
+    usage_json: fromHarness ? null : json(s.usageByModel ?? null),
     attached: s.attached == null ? null : s.attached ? 1 : 0,
     // The clock starts at the first report with nobody attached and keeps running while that stays true.
     detached_at: s.attached === false ? (prev?.attached === 0 && prev.detached_at !== null ? prev.detached_at : serverTime) : null,
@@ -130,10 +157,17 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     machine_json: r.machine ? JSON.stringify(r.machine) : prev?.machine_json ?? null,
     // Set once: a later report that leaves it out (an older reporter, a hook) keeps the link.
     cleared_from: s.clearedFrom ?? prev?.cleared_from ?? null,
+    // Set by the first report that names them; a later one that leaves them out (a hook) keeps them.
+    harness: s.harness ?? prev?.harness ?? 'claude-code',
+    cost_source: fromHarness ? 'harness' : null,
+    // What the harness declares (#940). A report that declares nothing (v1, a settings hook) keeps what was stored; a field sent as null clears it.
+    // A label or provider belongs to one model (see modelNames).
+    capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
+    ...modelNames(s.model, { label: s.modelLabel, provider: s.modelProvider }, prev),
   };
 }
 
-function agentRow(sessionId: string, a: AgentReport): AgentRow {
+function agentRow(sessionId: string, a: AgentReport, fromHarness: boolean, prev: AgentRow | undefined): AgentRow {
   return {
     session_id: sessionId,
     id: a.id,
@@ -155,18 +189,19 @@ function agentRow(sessionId: string, a: AgentReport): AgentRow {
     tok_out: a.tokens.output,
     tok_cr: a.tokens.cacheRead,
     tok_cw: a.tokens.cacheWrite,
-    cost_usd_est: priced(a.model, a.costUsdEst),
+    cost_usd_est: priced(a.model, a.costUsdEst, fromHarness),
     skills_json: JSON.stringify(a.skills),
     last_tool: a.lastTool,
     tool_calls: a.toolCalls,
     tool_counts_json: a.toolCounts ? JSON.stringify(a.toolCounts) : null,
-    usage_json: json(a.usageByModel ?? null),
+    usage_json: fromHarness ? null : json(a.usageByModel ?? null),
     blowouts: a.blowouts,
     steps_done: a.steps ? a.steps.done : null,
     steps_total: a.steps ? a.steps.total : null,
     prompt_excerpt: a.promptExcerpt,
     answer_excerpt: a.answerExcerpt,
     failure_json: json(a.failure),
+    ...modelNames(a.model, { label: a.modelLabel, provider: a.modelProvider }, prev),
   };
 }
 
@@ -174,8 +209,12 @@ function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : null;
 }
 
+/** The harness a report names: its block or its session's field; null for a v1 report that says nothing, which leaves a stored harness as it is (#851). */
+const namedHarness = (r: Report): string | null => r.harness?.id ?? r.session.harness ?? null;
 /** A session already belongs to someone else: the token's owner may not take it over. */
 export class OwnerConflict extends Error {}
+/** The session id is already stored under another harness (#850): one id never changes harness. */
+export class HarnessConflict extends Error {}
 
 /**
  * Stores one validated report. `serverTime` (never the reporter's clock) sets last_seen_at.
@@ -187,21 +226,24 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     const sid = report.session.id;
     const prev = await f.getSession(sid);
     if (owner !== null && prev?.owner && prev.owner !== owner) throw new OwnerConflict('session belongs to another owner');
+    if (prev && namedHarness(report) !== null && prev.harness !== namedHarness(report)) throw new HarnessConflict('session belongs to another harness');
     const row = sessionRow(report, prev, serverTime, owner);
     await f.upsertSession(row);
     const ended = report.session.status === 'done';
     const revived = !!prev && !ended && (prev.ended_at !== null || prev.dropped_at !== null);
 
     // 2. Agents: upsert what was reported; never delete one that is missing (a reload may lose it).
-    for (const a of report.agents) {
-      await f.upsertAgent(agentRow(sid, a));
-      if (a.promptText || a.answerText) {
-        await f.upsertAgentTexts(sid, a.id, {
-          ...(a.promptText ? { prompt: a.promptText } : {}),
-          ...(a.answerText ? { answer: a.answerText } : {}),
-        });
-      }
-    }
+    // One statement for the agents and one for their texts, whatever the number (#906).
+    const harness = row.cost_source === 'harness';
+    // Only the agents this report names, and none when it names none: the stored model, label and provider are all the upsert needs (#952).
+    const stored = new Map((report.agents.length ? await f.getAgentsByIds(sid, report.agents.map((a) => a.id)) : []).map((a) => [a.id, a]));
+    await f.upsertAgents(report.agents.map((a) => agentRow(sid, a, harness, stored.get(a.id))));
+    await f.upsertAgentTextsMany(
+      sid,
+      report.agents
+        .filter((a) => a.promptText || a.answerText)
+        .map((a) => ({ agentId: a.id, ...(a.promptText ? { prompt: a.promptText } : {}), ...(a.answerText ? { answer: a.answerText } : {}) })),
+    );
     if (ended) await f.abortOpenAgents(sid, serverTime);
 
     // 3. Events, idempotent by id. A blow event that is new adds a blowouts row.

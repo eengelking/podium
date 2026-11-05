@@ -1,25 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { validateReport, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
-import { bareFixture, loadFixture, REPO_ROOT as repo } from './testing.js';
+import { validateReport, shortId, harnessOf, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
+import { bareFixture, loadFixture } from './testing.js';
 import { checkReporter } from './compat.js';
 
-const here = path.join(repo, 'server', 'src', 'fleet');
-
-function protocolBlock(file: string): string {
-  const text = readFileSync(file, 'utf8');
-  const start = text.indexOf('// <protocol:begin>');
-  const end = text.indexOf('// <protocol:end>');
-  if (start < 0 || end < 0) throw new Error(`protocol markers missing in ${file}`);
-  return text.slice(start, end).replace(/\s+/g, ' ').trim();
-}
-
 describe('protocol', () => {
-  it('server and mod declare identical Report types', () => {
-    const server = protocolBlock(path.join(here, 'protocol.ts'));
-    const mod = protocolBlock(path.join(repo, 'mod', 'podium-reporter', 'hooks', 'protocol.ts'));
-    expect(mod).toBe(server);
+  it('shortens a session id to its first eight characters after any prefix, keeping the prefix (#853)', () => {
+    expect(shortId('3f9c2a1e-77b4-4d0a-9c55-1be2f4c0a8d6')).toBe('3f9c2a1e');
+    expect(shortId('ses_5a91c0e4d2b7f3a8')).toBe('ses_5a91c0e4');
+    expect(shortId('ses_5a91c0e4d2b7f3a8')).not.toBe(shortId('ses_5a91ffffd2b7f3a8'));
+    expect(shortId('abc')).toBe('abc');
+    expect(shortId('s1_')).toBe('s1_');
+    expect(shortId('toolongprefix_1234567890')).toBe('toolongp');
   });
 
   it('accepts the shared fixture', () => {
@@ -55,8 +46,100 @@ describe('protocol', () => {
     expect(validateReport(f)).toMatchObject({ ok: false, path: '$.v' });
   });
 
-  it('rejects v: 2', () => {
-    expect(validateReport({ ...loadFixture(), v: 2 })).toMatchObject({ ok: false, path: '$.v' });
+  it('rejects a version it does not know', () => {
+    expect(validateReport({ ...loadFixture(), v: 3 })).toMatchObject({ ok: false, path: '$.v' });
+    expect(validateReport({ ...loadFixture(), v: '2' })).toMatchObject({ ok: false, path: '$.v' });
+  });
+
+  describe('v2: a harness block and capabilities (#850)', () => {
+    const v2 = () => {
+      const f = loadFixture() as Record<string, any>;
+      f.v = 2;
+      f.reporter.name = 'podium-reporter-opencode';
+      f.harness = { id: 'opencode', name: 'OpenCode', version: '1.2.3', surface: 'tui' };
+      f.capabilities = { effort: true, plan: false, commands: ['/clear', '/compact'] };
+      f.session.effort = 'minimal';
+      f.session.modelProvider = 'anthropic';
+      f.session.modelLabel = 'Claude Sonnet';
+      f.session.costSource = 'harness';
+      return f;
+    };
+
+    it('accepts a report from opencode and reads it as v2', () => {
+      const r = validateReport(v2());
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.report.v).toBe(2);
+      expect(r.report.harness).toEqual({ id: 'opencode', name: 'OpenCode', version: '1.2.3', surface: 'tui' });
+      expect(r.report.capabilities).toEqual({ effort: true, plan: false, commands: ['/clear', '/compact'] });
+      expect(r.report.session.harness).toBe('opencode');
+      expect(r.report.session.effort).toBe('minimal');
+      expect(r.report.session.modelProvider).toBe('anthropic');
+      expect(r.report.session.modelLabel).toBe('Claude Sonnet');
+    });
+
+    it('reads a v1 report as Claude Code with the closed lists kept', () => {
+      const r = validateReport(loadFixture());
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.report.v).toBe(1);
+      expect(r.report.harness).toBeUndefined();
+      expect(harnessOf(r.report)).toBe('claude-code');
+      const f = loadFixture() as Record<string, any>;
+      f.session.effort = 'minimal';
+      expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.effort' });
+    });
+
+    it('takes free strings for an agent kind and a plan source', () => {
+      const f = v2();
+      f.agents[0].kind = 'task';
+      f.session.plan = { source: 'opencode_todo', steps: [] , updatedAt: 1 };
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(`${r.path}: ${r.error}`);
+      expect(r.report.agents[0].kind).toBe('task');
+    });
+
+    it('keeps each command once', () => {
+      const f = v2();
+      f.capabilities.commands = ['/clear', ' /clear', '/compact'];
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(r.error);
+      expect(r.report.capabilities?.commands).toEqual(['/clear', '/compact']);
+    });
+
+    it('treats an omitted capability as not supported and keeps null as null', () => {
+      const f = v2();
+      f.capabilities = {};
+      f.session.effort = null;
+      const r = validateReport(f);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.report.capabilities).toEqual({ commands: [] });
+      expect(r.report.session.effort).toBeNull();
+    });
+
+    it.each([
+      ['a missing harness', (f: any) => delete f.harness, '$.harness'],
+      ['a harness that is not an object', (f: any) => (f.harness = 'opencode'), '$.harness'],
+      ['an empty harness id', (f: any) => (f.harness.id = ''), '$.harness.id'],
+      ['an id with characters outside letters, digits, - and _', (f: any) => (f.harness.id = 'open code'), '$.harness.id'],
+      ['a harness id over 32 characters', (f: any) => (f.harness.id = 'a'.repeat(40)), '$.harness.id'],
+      ['an empty harness name', (f: any) => (f.harness.name = ''), '$.harness.name'],
+      ['a harness version that is not a string', (f: any) => (f.harness.version = 3), '$.harness.version'],
+      ['a missing capabilities block', (f: any) => delete f.capabilities, '$.capabilities'],
+      ['a capability that is not a boolean', (f: any) => (f.capabilities.effort = 'yes'), '$.capabilities.effort'],
+      ['commands that are not an array', (f: any) => (f.capabilities.commands = '/clear'), '$.capabilities.commands'],
+      ['a command that is not a string', (f: any) => (f.capabilities.commands = [1]), '$.capabilities.commands[0]'],
+      ['too many commands', (f: any) => (f.capabilities.commands = Array.from({ length: 65 }, (_, i) => `/c${i}`)), '$.capabilities.commands'],
+      ['an empty effort string', (f: any) => (f.session.effort = ''), '$.session.effort'],
+      ['a model provider that is not a string', (f: any) => (f.session.modelProvider = 1), '$.session.modelProvider'],
+      ['a cost source that is neither value', (f: any) => (f.session.costSource = 'guess'), '$.session.costSource'],
+      ['a session harness that disagrees with the block', (f: any) => (f.session.harness = 'claude-code'), '$.session.harness'],
+    ])('rejects %s', (_name, edit, path) => {
+      const f = v2();
+      edit(f);
+      expect(validateReport(f)).toMatchObject({ ok: false, path });
+    });
   });
 
   it('rejects a non-array agents', () => {
@@ -155,6 +238,29 @@ describe('protocol', () => {
     if (!r.ok) return;
     expect(r.report.session.waitNote).toBeNull();
     expect('extra' in r.report).toBe(false);
+  });
+
+  it('reads the harness and where the cost came from, and leaves both out when a report does not say (#851)', () => {
+    const f = loadFixture() as { session: Record<string, unknown> };
+    const bare = validateReport(f);
+    expect(bare.ok && bare.report.session.harness).toBeFalsy();
+    expect(bare.ok && bare.report.session.costSource).toBeFalsy();
+    f.session.harness = 'opencode';
+    f.session.costSource = 'harness';
+    const r = validateReport(f);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.report.session.harness).toBe('opencode');
+    expect(r.report.session.costSource).toBe('harness');
+  });
+
+  it('rejects a cost source that is neither the harness nor an estimate, and an empty harness (#851)', () => {
+    const f = loadFixture() as { session: Record<string, unknown> };
+    f.session.costSource = 'guess';
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.costSource' });
+    f.session.costSource = 'estimate';
+    f.session.harness = '';
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.harness' });
   });
 
   it('keeps a reporter build that is a commit hash and drops anything else (#400)', () => {
@@ -769,5 +875,99 @@ describe('protocol', () => {
       expect(acceptsFor('everything', ['not-interactive'], true)).toEqual([]);
       expect(acceptsFor('everything', [], false)).toEqual([]);
     });
+  });
+});
+
+describe('a number a column cannot store and read back (#1007)', () => {
+  /** Every path to a number in the fixture, as an array of keys. */
+  function numberPaths(v: unknown, trail: (string | number)[] = []): (string | number)[][] {
+    if (typeof v === 'number') return [trail];
+    if (Array.isArray(v)) return v.flatMap((x, i) => numberPaths(x, [...trail, i]));
+    if (v && typeof v === 'object') return Object.entries(v).flatMap(([k, x]) => numberPaths(x, [...trail, k]));
+    return [];
+  }
+  function setAt(root: Record<string, unknown>, trail: (string | number)[], value: number): void {
+    let at: any = root;
+    for (const k of trail.slice(0, -1)) at = at[k];
+    at[trail[trail.length - 1]!] = value;
+  }
+  // `v` picks the format and the reporter's version is checked beside the validator, not stored as a number.
+  const paths = numberPaths(loadFixture()).filter((p) => p[0] !== 'v');
+
+  it('finds the numeric fields of the fixture, so the cases below are not an empty list', () => {
+    expect(paths.length).toBeGreaterThan(40);
+  });
+
+  it.each(paths.map((p) => [p.join('.'), p] as const))('rejects 1e16 in %s', (_name, trail) => {
+    const f = loadFixture();
+    setAt(f, [...trail], 1e16);
+    expect(validateReport(f)).toMatchObject({ ok: false });
+  });
+
+  it.each(paths.map((p) => [p.join('.'), p] as const))('rejects -1e16 in %s', (_name, trail) => {
+    const f = loadFixture();
+    setAt(f, [...trail], -1e16);
+    expect(validateReport(f)).toMatchObject({ ok: false });
+  });
+
+  it('names the field, for the token count that broke a session in the review', () => {
+    const f = bareFixture() as any;
+    f.session.tokens.input = 1e16;
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.tokens.input' });
+  });
+
+  it('still takes a large count that a column holds and reads back', () => {
+    const f = bareFixture() as any;
+    f.session.tokens.input = 1e12;
+    expect(validateReport(f)).toMatchObject({ ok: true });
+  });
+});
+
+describe('a fractional time or token count (#1007)', () => {
+  function numberPaths(v: unknown, trail: (string | number)[] = []): (string | number)[][] {
+    if (typeof v === 'number') return [trail];
+    if (Array.isArray(v)) return v.flatMap((x, i) => numberPaths(x, [...trail, i]));
+    if (v && typeof v === 'object') return Object.entries(v).flatMap(([k, x]) => numberPaths(x, [...trail, k]));
+    return [];
+  }
+  function setAt(root: Record<string, unknown>, trail: (string | number)[], value: number): void {
+    let at: any = root;
+    for (const k of trail.slice(0, -1)) at = at[k];
+    at[trail[trail.length - 1]!] = value;
+  }
+  // SPEC 6.2: times are epoch milliseconds and token counts are integers.
+  const WHOLE = new Set(['startedAt', 'endedAt', 'at', 't', 'openedAt', 'sentAt', 'wakeAt', 'window', 'tokens', 'input', 'output', 'cacheRead', 'cacheWrite', 'cacheWrite1h', 'tokensBefore', 'tokensAfter']);
+  // `tokens` is also an object holding the four counts; only a number there is a count of its own.
+  const paths = numberPaths(loadFixture()).filter((p) => WHOLE.has(String(p[p.length - 1])));
+
+  it('finds the time and token fields of the fixture, so the cases below are not an empty list', () => {
+    expect(paths.length).toBeGreaterThan(15);
+  });
+
+  it.each(paths.map((p) => [p.join('.'), p] as const))('rejects 1000.5 in %s, naming the field', (_name, trail) => {
+    const f = loadFixture();
+    setAt(f, [...trail], 1000.5);
+    const r = validateReport(f);
+    expect(r).toMatchObject({ ok: false });
+    expect((r as { path: string }).path).toBe('$.' + trail.join('.').replace(/\.(\d+)/g, '[$1]'));
+  });
+
+  it.each([
+    ['session.startedAt', (f: any) => { f.session.startedAt = 1000.5; }, '$.session.startedAt'],
+    ['session.tokens.input', (f: any) => { f.session.tokens.input = 10.5; }, '$.session.tokens.input'],
+    ['session.context.tokens', (f: any) => { f.session.context.tokens = 10.5; }, '$.session.context.tokens'],
+    ['session.context.window', (f: any) => { f.session.context.window = 200000.5; }, '$.session.context.window'],
+    ['sentAt', (f: any) => { f.sentAt = 1000.5; }, '$.sentAt'],
+  ])('rejects a fractional %s on a bare report', (_n, edit, path) => {
+    const f = bareFixture() as any;
+    edit(f);
+    expect(validateReport(f)).toMatchObject({ ok: false, path });
+  });
+
+  it('still takes a fractional percentage and cost, which are not counts', () => {
+    const f = bareFixture() as any;
+    f.session.context.percent = 12.5;
+    f.session.costUsdEst = 0.0123;
+    expect(validateReport(f)).toMatchObject({ ok: true });
   });
 });

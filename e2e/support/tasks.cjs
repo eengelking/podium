@@ -60,12 +60,17 @@ function registerTasks(on, config) {
       return null;
     },
     /** Reports one seeded session again with `over` merged into its `session` and `agents` merged into its agents, as the reporter's next report would. */
-    async 'fleet:report'({ key, over, who, agents, steps }) {
+    async 'fleet:report'({ key, over, who, agents, steps, v2 }) {
       const seed = await seedModule();
       const m = manifest ?? readManifest();
       const r = seed.fleetReports({}, { rich: true, reporters: true }).find((x) => x.key === key);
       if (!r) throw new Error(`no seeded session "${key}"`);
       const body = { ...r.body, sentAt: Date.now(), session: { ...r.body.session, ...over } };
+      // `v2` sends it as a report v2, which accepts any text as `effort` (#936).
+      // `v2` may also be { harness: { id, name, version, surface }, capabilities } to report as another harness (#853).
+      if (v2) Object.assign(body, { v: 2, harness: { id: 'claude-code', name: 'Claude Code', version: '0', surface: null }, capabilities: {}, ...(typeof v2 === 'object' ? v2 : {}) });
+      // An OpenCode report comes from the OpenCode reporter, under its own name and a version it supports (#967).
+      if (body.harness?.id === 'opencode') body.reporter = { ...body.reporter, name: 'podium-reporter-opencode', version: '1.4.0' };
       // `steps` maps a plan step id to its new state.
       if (steps && body.session.plan) body.session.plan = { ...body.session.plan, steps: body.session.plan.steps.map((st) => (steps[st.id] ? { ...st, state: steps[st.id] } : st)) };
       // `agents` maps an agent id to the fields to change on it.

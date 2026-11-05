@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ActivityHistory } from './activityHistory.js';
 import { SessionRecordings } from './recordings.js';
 import type { ActivityHistoryApi, ActivityStorage, ActivityStoreOptions, SessionRecordingsApi } from '../types.js';
-import { AsyncLock } from './lock.js';
+import { AsyncLock } from '../lock.js';
 import type { RecordingTrail } from '../rows.js';
 
 /**
@@ -106,6 +106,7 @@ export class ActivityConnection {
         const loops = await loopsOf(sessionId);
         return step(() => r.view(sessionId, loops));
       },
+      viewMany: (items) => step(() => r.viewMany(items)),
       loopInfo: async (sessionId) => {
         const loops = await loopsOf(sessionId);
         return step(() => r.loopInfo(sessionId, loops));

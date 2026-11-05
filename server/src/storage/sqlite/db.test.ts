@@ -12,7 +12,7 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
     started_at: 1000, last_seen_at: 2000, ended_at: null, dropped_at: null, cwd: '/tmp/demo', project_root: null,
     repo_name: null, git_json: null, model: 'opus', effort: 'high', context_tokens: null, context_window: null,
     context_percent: null, cost_usd: 1.5, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, rate_limits_json: null,
-    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null,
+    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -27,7 +27,7 @@ describe('openDb', () => {
     const db = openDb(':memory:');
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
     expect(tables).toEqual(expect.arrayContaining(['admin_log', 'agent_texts', 'agents', 'blowouts', 'events', 'groups', 'people', 'person_machines', 'peer_messages', 'peer_owner_settings', 'peer_requests', 'peer_rights', 'reporter_ignores', 'reporter_sessions', 'reporters', 'samples', 'schema_migrations', 'sessions', 'settings']));
-    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }, { version: 30 }]);
     db.close();
   });
 
@@ -97,11 +97,22 @@ describe('openDb', () => {
     old.exec('ALTER TABLE sessions DROP COLUMN cleared_from');
     old.exec('ALTER TABLE sessions DROP COLUMN reporter_build');
     old.exec('ALTER TABLE sessions DROP COLUMN plan_kept_json');
+    old.exec('ALTER TABLE sessions DROP COLUMN harness');
+    old.exec('ALTER TABLE sessions DROP COLUMN cost_source');
+    old.exec('ALTER TABLE sessions DROP COLUMN capabilities_json');
+    old.exec('ALTER TABLE sessions DROP COLUMN model_label');
+    old.exec('ALTER TABLE sessions DROP COLUMN model_provider');
+    old.exec('ALTER TABLE agents DROP COLUMN model_label');
+    old.exec('ALTER TABLE agents DROP COLUMN model_provider');
+    for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
+      old.exec(`DROP INDEX ${t}_seq`);
+      old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
+    }
     for (const t of ['reporter_sessions', 'reporters', 'person_machines', 'people', 'groups', 'admin_log', 'settings', 'agent_texts']) old.exec(`DROP TABLE ${t}`);
     old.exec('DELETE FROM schema_migrations WHERE version >= 2');
     old.close();
     const db = openDb(file);
-    expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }, { version: 30 }]);
     expect(db.prepare("SELECT tool_calls, tool_counts_json FROM agents WHERE id = 'a'").get()).toEqual({ tool_calls: 7, tool_counts_json: null });
     expect(db.prepare("SELECT name, loop_json, files_json, attached, detached_at, owner, machine_json, cleared_from FROM sessions WHERE id = 's1'").get()).toEqual({ name: 'demo', loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, cleared_from: null });
     db.close();
@@ -135,7 +146,7 @@ describe('openDb', () => {
     const rotated = people.rotate(made.person.id);
     expect(rotated?.token).not.toBe(made.token);
     expect(people.findByKeyId('aabbccddeeff')?.name).toBe('Ada');
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 24 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 30 });
     db.close();
   });
 
@@ -160,6 +171,60 @@ describe('openDb', () => {
     db.close();
   });
 
+  it('gives existing peer messages and certificates their old insertion order as seq when it migrates to 25 (#822)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
+    tmpDirs.push(dir);
+    const file = path.join(dir, 'fleet.db');
+    // A database made by 1.4.0: migration 25 has not run, so neither table has a seq column.
+    const old = openDb(file);
+    for (const t of ['peer_messages', 'person_certificates']) {
+      old.exec(`DROP INDEX ${t}_seq`);
+      old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
+    }
+    old.exec('DELETE FROM schema_migrations WHERE version = 25');
+    old.exec(`INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES ('Ada', 'ada', 'aabbccddeeff', '${'0'.repeat(64)}', 1000)`);
+    // Three messages sent in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in.
+    for (const id of ['c', 'a', 'b']) {
+      old.exec(`INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at)
+        VALUES ('${id}', 'ed', 'l', 'k1', 'k2', 's1', 's2', 'n1', 'm1', 'n2', 'm2', 't-${id}', 5000, 'ready', 5000)`);
+    }
+    for (const fp of ['fz', 'fa']) {
+      old.exec(`INSERT INTO person_certificates (fingerprint_sha256, serial, issuer_fingerprint, person_id, cert_pem, not_before, not_after, issued_at)
+        VALUES ('${fp}', '01', 'ca', 1, 'PEM', 1, 99999, 7000)`);
+    }
+    old.close();
+
+    const db = openDb(file);
+    expect(db.prepare('SELECT id FROM peer_messages ORDER BY sent_at, seq').all()).toEqual([{ id: 'c' }, { id: 'a' }, { id: 'b' }]);
+    expect(db.prepare('SELECT seq FROM peer_messages ORDER BY seq').all()).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+    expect(db.prepare('SELECT fingerprint_sha256 AS f FROM person_certificates ORDER BY issued_at DESC, seq DESC').all()).toEqual([{ f: 'fa' }, { f: 'fz' }]);
+    expect(db.prepare('SELECT version FROM schema_migrations WHERE version = 25').all()).toEqual([{ version: 25 }]);
+    db.close();
+  });
+
+  it('numbers existing peer requests by time and then id as seq when it migrates to 26 (#890, #916)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
+    tmpDirs.push(dir);
+    const file = path.join(dir, 'fleet.db');
+    // A database made before migration 26: peer_requests has no seq column.
+    const old = openDb(file);
+    old.exec('DROP INDEX peer_requests_seq');
+    old.exec('ALTER TABLE peer_requests DROP COLUMN seq');
+    old.exec('DELETE FROM schema_migrations WHERE version = 26');
+    // Three requests made in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in. The number follows the id, as PostgreSQL's does.
+    for (const id of ['prq_c', 'prq_a', 'prq_b']) {
+      old.exec(`INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at)
+        VALUES ('${id}', 'ed', 'access', 'k1', 'k2', 'see', 'why-${id}', 'n1', 's1', NULL, 5000)`);
+    }
+    old.close();
+
+    const db = openDb(file);
+    expect(db.prepare('SELECT id FROM peer_requests ORDER BY created_at, seq').all()).toEqual([{ id: 'prq_a' }, { id: 'prq_b' }, { id: 'prq_c' }]);
+    expect(db.prepare('SELECT seq FROM peer_requests ORDER BY seq').all()).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations WHERE version = 26').all()).toEqual([{ version: 26 }]);
+    db.close();
+  });
+
   it('is idempotent on an existing file and turns WAL on', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
     tmpDirs.push(dir);
@@ -169,7 +234,7 @@ describe('openDb', () => {
     a.close();
     const db = openDb(file);
     expect(db.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 24 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 30 });
     expect(db.prepare('SELECT name FROM sessions').all()).toEqual([{ name: 'demo' }]);
     expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
     db.close();

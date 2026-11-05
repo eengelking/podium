@@ -3,7 +3,8 @@
 // restart) or ten idle minutes ends it. Nothing here ever returns, logs or stores a token or the secret: a token is shown once,
 // in the response that creates or rotates it.
 import { randomBytes } from 'node:crypto';
-import express, { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
 import type { ActivityHistoryApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
@@ -17,7 +18,7 @@ import { Lockout } from '../fleet/lockout.js';
 import { messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
-import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
+import { PEER_LEVELS, shortId, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import { ALLOW_HTTP_KEY, type ServingRenewer } from '../tlsRenew.js';
 import type { LiveTlsSettings } from '../tlsLive.js';
@@ -190,7 +191,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // The Activity history delete takes up to 200 session ids, so its own parser (below) has a larger limit.
   const STORED_DELETE = '/stored-activity/delete';
-  const smallJson = express.json({ limit: '8kb' });
+  const smallJson = jsonBody({ limit: '8kb' });
   router.use((req, res, next) => (req.path === STORED_DELETE ? next() : smallJson(req, res, next)));
 
   async function sessionValid(req: Request): Promise<boolean> {
@@ -388,7 +389,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       tlsOff(res);
       return null;
     }
-    const id = idParam(req.params.id ?? '');
+    const id = idParam(typeof req.params.id === 'string' ? req.params.id : '');
     if (id === null) {
       res.status(400).json({ ok: false, error: 'bad id' });
       return null;
@@ -569,6 +570,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
     const { kind, pattern } = (req.body ?? {}) as { kind?: unknown; pattern?: unknown };
     if (typeof kind !== 'string' || typeof pattern !== 'string') return void res.status(400).json({ ok: false, error: 'give a kind and a pattern' });
+    // Not every database stores a NUL byte in text, so a pattern with one is refused for all of them.
+    if (pattern.includes('\u0000')) return void res.status(400).json({ ok: false, error: 'a pattern cannot contain a NUL character' });
     try {
       // `removed` is the drop in the list across the add, so the count and the add are one step: another change must not land between.
       const { rule, removed } = await storage.tx(async () => {
@@ -861,14 +864,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   /** A recording removed by the Admin, written to the Admin log with the Admin as the one who did it and never any text. */
   const recordingDeleted = (req: Request, g: { sessionId: string; name: string; entries: number; bytes: number }) =>
-    audit(req, 'recording_deleted', `Deleted the recording of ${g.name} (${g.sessionId.slice(0, 8)}): ${countWords(g.entries, 'entry', 'entries')}, ${sizeText(g.bytes)}`, { session_id: g.sessionId, entries: g.entries, bytes: g.bytes });
+    audit(req, 'recording_deleted', `Deleted the recording of ${g.name} (${shortId(g.sessionId)}): ${countWords(g.entries, 'entry', 'entries')}, ${sizeText(g.bytes)}`, { session_id: g.sessionId, entries: g.entries, bytes: g.bytes });
   /** Who the mark of a recording the Admin stopped names: the administrator, or `Admin` for the admin secret. */
   const adminName = async (req: Request): Promise<string> => {
     const who = await actorOf(req);
     return who === null || who === ADMIN_SECRET_ACTOR ? 'Admin' : who;
   };
 
-  router.post(STORED_DELETE, express.json({ limit: '64kb' }), asyncHandler(async (req, res) => {
+  router.post(STORED_DELETE, jsonBody({ limit: '64kb' }), asyncHandler(async (req, res) => {
     const body = parseDeleteBody(req.body);
     if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
     if (('match' in body.value ? body.value.match.source : body.value.source) === 'recordings') {
@@ -1002,7 +1005,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const out = await rec.service.stop(sid, await adminName(req));
     if (!out) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     if (out.changed) {
-      await audit(req, 'recording_stopped', `Stopped the recording of ${sid.slice(0, 8)}`, { session_id: sid });
+      await audit(req, 'recording_stopped', `Stopped the recording of ${shortId(sid)}`, { session_id: sid });
       rec.changed(sid);
     }
     res.json({ ok: true, grant: out.grant });

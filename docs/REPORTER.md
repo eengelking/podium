@@ -15,6 +15,8 @@ Contents:
 
 - [Install the mod](#install-the-mod)
 - [Install in the Claude desktop app on Windows 11](#install-in-the-claude-desktop-app-on-windows-11)
+- [Install the OpenCode reporter](#install-the-opencode-reporter)
+- [OpenCode settings](#opencode-settings)
 - [In the session](#in-the-session)
 - [Options](#options)
 - [Over TLS](#over-tls)
@@ -24,7 +26,8 @@ Contents:
 
 ## Install the mod
 
-The reporter is a Claude Code mod in `mod/podium-reporter/`. Install it from the eengelking
+The reporter is a Claude Code mod. Its source is `plugin/claudecode/` (with shared code in `plugin/core/`), and what you install is
+the built plugin that each release commits to `dist/claudecode/` on `main` (DECISIONS 60) and zips for Claude Desktop. Install it from the eengelking
 marketplace, in Claude Code:
 
 ```
@@ -43,11 +46,15 @@ If the server uses a token (`podiumctl start` generates one), enter it with
 If the server needs a token and you send none, or send one that does not belong to your name, the reporter
 gets HTTP 401, logs it once, and tries again about once a minute. `/podium` and the status line say so.
 
-To work on the mod itself, load it from a checkout for one session instead:
+To work on the mod itself, build it and load the built folder from a checkout for one session instead:
 
 ```sh
-claude --plugin-dir /path/to/podium/mod/podium-reporter
+npm run plugin:dev:claudecode
 ```
+
+That builds `dist-dev/claudecode` (git-ignored, with the commit stamped in) and starts `claude` with it loaded. Add `-- --watch` to rebuild on every change (then `/reload-plugins`).
+The source is not loadable on its own, because it imports the shared code from outside its folder. `npm run plugin:build` builds
+without starting `claude`, and `npm run plugin:dev:cleanup` removes the build folders.
 
 To update an installed mod, run this in a shell and then `/reload-plugins` in the session (see "Updating
 the mod" in [docs/user-guide/](user-guide/README.md)):
@@ -82,6 +89,92 @@ What does not work on Windows: the tmux web terminal. The server does not run on
 Reports from the app reach the server over the folder link described in [Over TLS](#over-tls), not a socket. Cloud and WSL sessions
 do not load plugins.
 
+## Install the OpenCode reporter
+
+The OpenCode reporter (`plugin/opencode/`, with shared code in `plugin/core/`) watches OpenCode 2.x sessions and reports them to Podium, and
+answers them from Podium where you allow it (see [OpenCode settings](#opencode-settings)). What you install is the built folder `dist/opencode/`, which a release commits to `main` and zips as
+`podium-opencode-<version>.zip` (the nightly prerelease has `podium-opencode-<version>-nightly-<date>.zip`). OpenCode supplies the plugin API at runtime, so
+nothing else is bundled. Pick one way to install it.
+
+**From the archive.** Download the zip from the GitHub Release and unzip it into a `podium` folder in OpenCode's plugin folder:
+
+```sh
+mkdir -p ~/.config/opencode/plugins/podium
+unzip podium-opencode-<version>.zip -d ~/.config/opencode/plugins/podium
+```
+
+OpenCode loads each folder in its config directory's `plugins/` (`$OPENCODE_CONFIG_DIR` when that is set, otherwise `~/.config/opencode/`).
+The folder must hold `package.json` at its top, not one more folder down.
+
+**From Git.** One line, and OpenCode can update it later. Quote the specifier, because `#` starts a comment in a shell:
+
+```sh
+opencode plugin add "git+https://github.com/eengelking/podium.git#main::path:dist/opencode"
+```
+
+`dist/opencode` on `main` always holds the current release, because `main` only moves on a release, so an update follows the latest release. There is no
+version range to pin to. To stay on one version, install the archive above, whose zip is named for its version.
+The part after `::path:` is required, because the package is in a folder of the repository and not at its top.
+`opencode plugin check` shows an update and `opencode plugin update` installs it.
+
+**Then restart OpenCode's service,** so it loads the plugin:
+
+```sh
+opencode service restart
+```
+
+The reporter runs in all three ways OpenCode runs. In the background service (the default) it lives as long as the service. With the service
+disabled (`opencode service set disabled true`) and with `opencode --standalone` (a private server), OpenCode starts the plugin with each
+command, so the reporter lives only as long as that command: a session reports `done` when the command ends.
+
+Settings come from the environment and `~/.podium/config.env`, the same file the Claude Code reporter reads, never from `opencode.json`.
+Set the server and token there:
+
+```sh
+PODIUM_SERVER=http://127.0.0.1:4317
+PODIUM_TOKEN=<token>
+```
+
+See [what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts), and `plugin/opencode/README.md` for what it reports.
+
+## OpenCode settings
+
+The OpenCode reporter reads these from the environment and `~/.podium/config.env`. A variable that is set, even to nothing, wins over the file. Each
+switch is off unless it is exactly `true`; `PODIUM_RESPOND` is the one that also takes a level name. Nothing here is read from `opencode.json`, except the
+five plugin options at the end of the table.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `PODIUM_SERVER` | `http://127.0.0.1:4317` | Where reports go |
+| `PODIUM_TOKEN` | empty | Sent as `X-Podium-Token` |
+| `PODIUM_USER` | empty | The name your token was made for |
+| `PODIUM_IDLE_SECONDS` | `60` | A session is `done` after this long with no activity (at least 5), unless the OpenCode terminal UI is attached: then it stays `waiting` and keeps taking messages until it is closed or deleted (DECISIONS 59). Also the `idleSeconds` plugin option |
+| `PODIUM_REPORTER_CONFIG`, `PODIUM_REPORTER_CONTEXT` | empty | Which reporter config file to use over TLS (see [Over TLS](#over-tls)) |
+| `PODIUM_ACTIVITY_FEED` | off | The activity feed, as for Claude Code's `activityFeed` option. Answering needs it too |
+| `PODIUM_ACTIVITY_OUTPUT` | off | A shell call's output in the feed. Needs the feed on |
+| `PODIUM_FULL_PROMPTS` | off | Whole task prompts and final answers, as for `fullPrompts` |
+| `PODIUM_SESSION_RECORDING` | off | Allow session recording, as for `sessionRecording`. The person is told through a toast when a recording starts or stops |
+| `PODIUM_FILE_DIFF` | off | Send a changed file's diff on request, as for `fileDiff`. The list of changed files is always sent |
+| `PODIUM_RESPOND` | off | How far Podium may answer: `true` or `questions`, `questions-and-plans`, or `everything`. Needs `PODIUM_ACTIVITY_FEED` too, and the Admin's Respond from Podium switch |
+| `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send` and `podium_request_access` tools once Podium says the session takes part, and withdraws them if it stops (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
+| `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with the cheapest small model in OpenCode's model list (an enabled chat model whose id names a Haiku, mini, nano, flash, lite or small tier) and uses OpenCode's default model only when none is listed (a chosen model that fails gives no explanation, so the expensive default is never the retry). The explanation ends with the model that wrote it. It is cut at 400 characters, and its cost is not counted anywhere |
+| `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds`, `fileDiffPreload` | `1000`, `5000`, empty, `60`, on | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named. `fileDiffPreload: false` turns off sending the diffs ahead of a request; it only narrows `PODIUM_FILE_DIFF`, so it never turns a diff on. These five are read only if OpenCode hands the plugin its options, and the PR that added them (#978) found they cannot be set on an auto-discovered plugin, which every install above is. That is not confirmed with a live run, so use the environment variable (`PODIUM_IDLE_SECONDS`) where one exists |
+
+What OpenCode reports: the model and its provider, tokens and cost (OpenCode's own figure), the context size and percent (from `ctx.model.list`, so a model
+that list does not hold shows a size and no percent), effort (the model's variant on each step, shown as observed), the skills it used (from the `skill` tool), tokens per
+model, the plan (from the todo tool, or the name the `plan` tool gives it), the files it changed, failures with the engine's error text (a run that auto-compacts three times before it fails is classed "Context window exhausted", with the times of the compactions as evidence; a shell call that exits non-zero is a failed call with its exit code, read from the call's `metadata.exit`, which OpenCode 2.2.5 sets and reports as a success), compactions, and the git branch, the project's root and `owner/name` from its git remote (the folder's name when there is none), the background work an idle session still runs (a shell, named by its first word and never its command, or a subagent, at most 20; shown as the wait on the card rather than a wait on you), whether the terminal UI is attached (`true`, or unknown), and, for a dev build, the commit it was built from.
+
+Not available on OpenCode, and why:
+
+- **Messages after the session goes `done`.** A session reports `done` after `idleSeconds` of quiet (60 by default) unless the OpenCode terminal UI is attached. A `done` session is a closed one: a question or permission still open on it is closed as ended, and the session takes no message from Podium until it reports activity again, which reopens it under the same id. With the terminal UI attached it stays `waiting` and keeps taking messages (DECISIONS 59). Under `opencode --standalone` or with the service disabled, the command ending also ends the reporter.
+- **`attached` is `true` or unknown, never `false`.** The reporter sees only its own terminal UI part. A session run from `opencode serve`'s web client, the desktop app or `opencode run` has a client it cannot see, and `false` would make Podium hide the card after a minute (the rule for a Claude Code session left running after `/exit`). So `attached` is `true` while the terminal UI part is attached and unknown (`null`) otherwise, and the console cannot tell a session left running without a terminal from one with a web client.
+- **Plan approval and `/clear`.** OpenCode has no plan-approval step and no equivalent of `/clear`, so the console does not offer them for an OpenCode session.
+- **The fork command.** The console's fork command is a shell line (`claude --resume <id> --fork-session`). Podium knows no OpenCode command line that starts a new session from a copy of one, so the cell reads as not available. The resume command works.
+- **A cost for explained failures.** The explain call does not report usage, so its cost is in no total.
+- **Rate limits.** OpenCode's event stream carries none. OpenCode's HTTP API has `usage.limits` (`/api/experimental/usage/limits`), which returns the allowance of the OpenCode Console workspace the person is signed in to (the Go plan's rolling, weekly and monthly percent used, and per-model budgets), and a failed step names `rate_limit` as its reason. It is an experimental call for one vendor's plan, not a provider's rate limit, and the reporter does not read it.
+
+A plan's steps come from OpenCode's todo tool, which exists only with `experimental.todo: true` in `opencode.json`. Without it the plan shows the title the `plan` tool gave it and no steps.
+
 ## In the session
 
 The session appears in Podium once you send its first prompt. A session that has done nothing yet is kept
@@ -101,7 +194,8 @@ off the wall, because Claude Code's background daemon also runs idle twins and s
   - `Option problem:` names a switch option whose value is not `true` or `false` (the text `"true"`, say). The mod does not
     read such a text as true, so a consent option is never turned on by a stray value; it uses the default and the line
     says which option to fix.
-- `/podium name <text>` gives the session a display name. Without one, a name you gave the session in Claude
+- In OpenCode `/podium` shows the same `Sign-in:`, `Messaging:` and `Context:` lines, and ends with the two commands below. `Messaging:` gives the reason it is off, the first that applies: `PODIUM_PEERS` is off, OpenCode cannot submit a prompt, there is no per-person token with a user name and no reporter config file, no session has reported yet, or Podium says no. There is no `interactive` fact and no `Option problem:` line. The answer is a toast, because the command has no way to print a reply. The status line also stays in the prompt's footer, not only as a toast on change.
+- `/podium name <text>` gives the session a display name. OpenCode keeps it in its plugin storage, so it survives a restart, and it wins over the title OpenCode gives the session and the `sessionName` option. Without one, a name you gave the session in Claude
   Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The title the Claude
   desktop app shows for the session comes next, read from `claude agents --json` about every 30 seconds (#595); it is
   the only source on a Team or Enterprise login, where Claude Code skips the mod's `classic.*` hooks (see
@@ -173,6 +267,7 @@ connects to the address in the file, the server's reporter port, over HTTPS with
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
 file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes. If you use more than one Podium server, name each file with a context (below).
+The OpenCode reporter finds and uses the file the same way, with no helper: it makes the connection inside the OpenCode process, and it has no status line, so what is wrong (a file others can read, an expired or refused certificate, the wrong name) is written once to the console as a `podium-reporter:` line.
 
 ### Contexts: more than one Podium server
 
@@ -204,7 +299,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
   `/podium context`.
 - **With no contexts, nothing changes.**
 
-- **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
+- **It needs `node`.** The reporter starts a small helper (`plugin/core/tls/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
   **On Windows 11, Node.js must be installed** (the LTS installer from nodejs.org is enough). Install it before you start
@@ -382,10 +477,14 @@ put on record:
 - That name.
 - Which machine the session runs on: its short host name (on a Mac `scutil --get LocalHostName`, else what `hostname` prints, up to the first dot) and a
   random 12-character id. The mod makes the id the first time and keeps it in one file
-  (`~/.claude/podium-machine-id`, or under `CLAUDE_CONFIG_DIR` when that is set). Two machines with the same
-  host name stay apart, and every copy of the mod on a machine reports the same id. The name is pinned the
-  same way, in `podium-machine-name` beside the id file, so a name that changes with the network (#715) does not
-  split one machine into two. Delete that file to take the machine's current name.
+  (`~/.podium/machine-id`, shared with the OpenCode reporter). An id the Claude Code reporter already made, in
+  `~/.claude/podium-machine-id` (or under `CLAUDE_CONFIG_DIR`) or in its store, is never replaced: it is copied there, so that install keeps its
+  row (#967). The OpenCode reporter reads the shared file on each load, and can see only the file, not the store; so an OpenCode id may change once, when
+  Claude Code next writes the id it keeps. Two machines with the same
+  host name stay apart, and every reporter on a machine reports the same id. Both reporters read the name and the OS one way (#967): the name is pinned
+  in `~/.podium/machine-name`, with the Claude Code reporter's `podium-machine-name` beside its id file, which that reporter reads first so a name it already reported never changes (the OpenCode reporter reads the shared pin first), so a name that changes with the network (#715) does not
+  split one machine into two. Delete the pin to take the machine's current name. The two reporters on a machine appear in Admin > Reporters as two rows, named
+  `podium-reporter-claudecode` and `podium-reporter-opencode` (the Claude Code reporter still sends `podium-reporter` in its v1 reports, which the server reads as the first).
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
   `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does. Reading a Windows version
   string does not make Windows a supported platform; see In the session.
@@ -397,6 +496,53 @@ replaced with `[redacted]`: `sk-ant-...` keys, `ghp_...` tokens, `AKIA...` keys,
 the values after `password=`, `token=`, `secret=`, `apikey=` and `api_key=`. A whole prompt or answer goes
 out only for `fullPrompts`, and what an agent is doing goes out only for `activityFeed`, while someone
 watches or, if the Admin keeps Activity history, whenever the agent runs.
+
+## The OpenCode reporter: what it trusts
+
+This is the threat note for the OpenCode reporter (`plugin/opencode/`, #856). It says what the reporter relies on and what it does not.
+
+**Where settings come from.** The server URL, the token, the user name and every consent option are read only from `PODIUM_*` environment
+variables and from `~/.podium/config.env`. They are never read from `opencode.json`, in the project or in the user's config. A project's
+`opencode.json` is part of a clone, so whoever wrote the repo wrote it: if it could set `serverUrl` it could send the token to its own server, and
+if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin option still read is
+`idleSeconds`, which gains an attacker nothing. A consent option is on only when it is exactly `true`
+(`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
+`PODIUM_FILE_DIFF`, `PODIUM_EXPLAIN_FAILURES`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
+The same holds for which reporter config file is used: `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT` come from those two places only, and `plugin/opencode/tls.test.ts` shows that an `opencode.json` that names a file, a context or a server changes none of them.
+
+**The key file.** A reporter config file (#948) holds your private key. The reporter reads it from `~/.podium/` (or the path `PODIUM_REPORTER_CONFIG` or the current context gives), and nothing in a
+project can name it. It refuses a file that group or others can read (anything but mode `0600`), and says so. The key is held in the memory of the OpenCode process and used only for the
+connection to the server in that file, over HTTPS, never to another address and never over plain HTTP. It is never logged, put in a report, an error, a status or a
+console line. When the certificate is near its end, the reporter renews it and rewrites the file under a lock that every Claude Code and OpenCode session on the machine shares, so two sessions do not renew at once.
+
+**The token file.** `~/.podium/config.env` holds the token, so it should be mode `0600` and the folder `0700`. Those permissions are the
+operating system's, not Podium's: anything that runs as the same user can read the file. The reporter creates the machine id file as `0600` and does
+not change the mode of a file you made.
+
+**Same process, no wall.** OpenCode loads plugins into one shared service process and has no trust gate: a plugin in a repo's
+`.opencode/plugins/`, or in the config directory's `plugins/`, runs with the same reach as the reporter. It can read `~/.podium/` (tokens and mTLS keys), read the key the
+reporter holds in memory, send reports as you, and call `permission.reply` or `session.prompt` itself. The reporter cannot prevent that and does not try to sandbox it; this is OpenCode's boundary. Only
+install OpenCode plugins you trust, and do not open an untrusted repo in OpenCode with a token on the machine.
+
+**`service.json`.** In service mode OpenCode writes the service's address, pid and password to `$XDG_STATE_HOME/opencode/service.json`. Anything that
+can read it can answer questions and permissions. The file's permissions are OpenCode's. The reporter reads it only to answer a question form when no TUI part is attached (#858): at the moment an answer is sent, never at start, and it uses the
+password only for a request to this machine (`127.0.0.1`, `localhost` or `[::1]` over plain HTTP), so a file that names another address gets no request. A person who does not
+want that turns `PODIUM_RESPOND` off, and questions are then not offered at all.
+
+**Text that arrives as the user's.** OpenCode does not mark text sent with `session.prompt` or as `synthetic`: the model sees it as the user's own words.
+A message from the console (#858) starts with a line saying who sent it and that it came through Podium, so the model is not told it is the person at the terminal.
+When messaging is on, framing that says a message came from another orchestrator or a person is added by Podium in the text, as the Claude reporter does (#411).
+
+**The TUI part.** Answering a question needs a second part of the plugin that runs in the terminal UI (`plugin/opencode/tui.ts`). It talks only to the server part, over
+OpenCode's plugin RPC for the same project, and it reads nothing from Podium. It replies to a form only when the server part hands it an answer, which the server part does
+only for an answer Podium delivered with the Admin's flags and `PODIUM_RESPOND` on.
+
+**A repo that removes the reporter.** A project can list the plugin as removed (`"plugins":["-podium.reporter"]`). A session that was already reporting then
+stops, and the console shows it going stale like any other session whose reporter went quiet. The limit: a session that never loaded the reporter never reported, so
+there is nothing to go stale and the console cannot tell it from a session that was never started.
+
+**Several locations in one process.** One OpenCode process can hold a plugin instance per location. Each reads the same settings and the same machine id, and the
+reading is safe to run once per location.
 
 ## Sessions without the mod
 

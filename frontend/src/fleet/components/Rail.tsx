@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
 import { planProgress, sessionCounts } from "../logic";
 import type { SessionView } from "../types";
 import { backgroundOf, BlowBadge, ModelChip, PlanBar, sessionDot, stateKind } from "./Chips";
@@ -116,7 +116,7 @@ export function Rail(props: {
               </span>
             )}
             <BlowBadge n={s.blowouts.total} level={s.blowouts.level} />
-            <ModelChip family={s.modelFamily} model={s.model} />
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
           </div>
           <div className="l2">
             {p ? (

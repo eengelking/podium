@@ -15,9 +15,22 @@ and #221.
 - `ReporterStore` owns migration 11 (`reporters` and `reporter_sessions`) and is built once in `index.ts`, then
   handed to both routers.
 - `routes.ts` calls `record()` after a report or hook is stored. The key is the machine id (or the source address
-  when the report has none), plus `#<owner>` for a second account on the same machine (`accountKey`), and the
+  when the report has none), plus `#<owner>` for a second account on the same machine (`accountKey`), plus `@<reporter name>` for any reporter
+  but the Claude Code one (#849, migration 27: two reporters on one machine are two rows, and every earlier key stays the
+  same), and the
   credential is recorded as a key id, never a token.
 - `routes.ts` calls `rejected()` at each refusal. It keeps the last 200 in memory only.
+
+**Reporter names (#967)**
+
+- `server/src/fleet/reporterNames.ts` holds the three names (`podium-reporter`, `podium-reporter-claudecode`,
+  `podium-reporter-opencode`) and `canonicalReporterName`, which reads the legacy name and an absent name as the
+  Claude Code reporter. A v2 report must carry its harness's own name (`namesFor` in `protocol.ts`). `nameSuffix` adds nothing for that reporter, so a legacy report and a new-name report from one
+  machine are one row with one key.
+- No migration: a row made before holds `podium-reporter` in `reporter_name` and is read as the Claude Code reporter in
+  both adapters. `record` writes the canonical name, so the row takes the new name the next time its reporter reports,
+  and `knownKey` matches either spelling. The same case in `contract.ts` and `contractUpgrade.ts` runs on each adapter.
+- `validateReport` accepts the legacy and the Claude Code name in v1, all three in v2, and answers 400 for any other.
 
 **One row per reporter**
 

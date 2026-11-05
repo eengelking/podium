@@ -4,13 +4,15 @@ import { useRespond } from "../useRespond";
 import { RecordPicker } from "./RecordPicker";
 import { fmtDur, fmtTok } from "../format";
 import { AGENT_TIME_HINT, AGENTS_HINT, COST_HINT_SESSION, sessionAgentSec, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT } from "../logic";
+import { harnessOf } from "../harness";
 import { systemKind } from "../peers";
 import type { SessionView } from "../types";
 import { BlowBadge, Cost } from "./Chips";
 import { IconCheck, IconChevron, IconCopy, IconWarn, IconX } from "./Icons";
 import { NOT_REPORTED, SYSTEM_ICON } from "./PeerRights";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
-import { SHORT_ID, useCopy } from "./SessionId";
+import { shortId } from "../../../../plugin/core/protocol";
+import { useCopy } from "./SessionId";
 
 
 /** The nearest ancestor that scrolls, or the document: what would clip a popup that opens upward. */
@@ -94,10 +96,20 @@ function PopCell({ label, value, valueClass, tip }: { label: string; value: Reac
   );
 }
 
-/** The session id's first eight characters; a click copies the whole id, with the card's feedback (#322, #352). */
+/** A Resume or Fork cell with nothing to copy: it keeps its place in the grid but is not a button (#853). */
+function NotAvailableCell({ label, why }: { label: string; why: string }) {
+  return (
+    <div className="fact" title={why}>
+      <div className="k">{label}</div>
+      <div className="v soft">Not available</div>
+    </div>
+  );
+}
+
+/** The session id, shortened (`shortId`); a click copies the whole id, with the card's feedback (#322, #352). */
 function SessionCell({ id }: { id: string }) {
   const { state, copy } = useCopy(id);
-  const short = id.slice(0, SHORT_ID);
+  const short = shortId(id);
   return (
     <div className="fact copy">
       <button type="button" className="cellbtn" onClick={copy} title={id} aria-label={`Session ${short}, copy the full id`}>
@@ -121,6 +133,28 @@ const RESUME_TIP = (
         It starts in this session's working directory. Flags such as <code>--mcp-config</code> are not restored; pass them again.
       </li>
       <li>To try something without changing this session, use Fork.</li>
+    </ul>
+  </>
+);
+
+/** What Resume does for a harness whose popup has no Claude Code flags in it (#853). */
+const GENERIC_RESUME_TIP = (
+  <>
+    <b>Continues this same session in a new terminal.</b>
+    <ul>
+      <li>It picks up the whole conversation where it left off.</li>
+      <li>Run it once the session has ended. Resuming one that is still running in another terminal writes both into the same conversation.</li>
+      <li>It starts in this session's working directory.</li>
+    </ul>
+  </>
+);
+
+const GENERIC_FORK_TIP = (
+  <>
+    <b>Starts a copy of this conversation in a new session.</b>
+    <ul>
+      <li>This session is not changed.</li>
+      <li>It works in the same directory, so file edits are real. Start it in a worktree to keep them apart.</li>
     </ul>
   </>
 );
@@ -309,6 +343,26 @@ export interface BlowControl {
   controls: string;
 }
 
+/** Resume and Fork: copy buttons from the harness's templates; a command the harness lacks leaves a quiet cell in the same place (#853). */
+function SessionCommands({ s }: { s: SessionView }) {
+  const h = harnessOf(s.harness);
+  const claude = h.id === "claude-code";
+  return (
+    <>
+      {s.resumeCommand === null ? (
+        <NotAvailableCell label="Resume" why={`Podium has no resume command for ${h.name}.`} />
+      ) : (
+        <CopyCell label="Resume" name="Copy resume command" text={s.resumeCommand} tip={claude ? RESUME_TIP : GENERIC_RESUME_TIP} />
+      )}
+      {s.forkCommand === null ? (
+        <NotAvailableCell label="Fork" why={`${h.name} has no fork command Podium can give.`} />
+      ) : (
+        <CopyCell label="Fork" name="Copy fork command" text={s.forkCommand} tip={claude ? FORK_TIP : GENERIC_FORK_TIP} />
+      )}
+    </>
+  );
+}
+
 /**
  * Twelve cells in fixed places, six to a row (#165, #352, #427). Row one: Agents, Est. cost, Tokens, Running for, Agent time, Blowouts.
  * Row two: Machine and System (joined in one cell, #353), Reporter, Session, Resume, Fork, Recording. A cell never moves because another has nothing to say.
@@ -331,8 +385,8 @@ export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: numbe
           )}
         </div>
       </div>
-      <div className="fact cost" title={COST_HINT_SESSION}>
-        <div className="k">Est. cost</div>
+      <div className="fact cost" title={s.costSource === "harness" ? `The whole session, as ${harnessOf(s.harness).name} reports it. Podium does not estimate it.` : COST_HINT_SESSION}>
+        <div className="k">{s.costSource === "harness" ? "Cost" : "Est. cost"}</div>
         <div className="v mono"><Cost usd={s.costUsd} family={s.modelFamily} /></div>
       </div>
       <div className="fact">
@@ -351,8 +405,7 @@ export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: numbe
       <MachineFact s={s} />
       <ReporterFact s={s} />
       <SessionCell id={s.id} />
-      <CopyCell label="Resume" name="Copy resume command" text={s.resumeCommand} tip={RESUME_TIP} />
-      <CopyCell label="Fork" name="Copy fork command" text={s.forkCommand} tip={FORK_TIP} />
+      <SessionCommands s={s} />
       <RecordingFact s={s} now={now} />
     </div>
   );

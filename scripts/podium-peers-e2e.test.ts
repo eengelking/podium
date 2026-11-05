@@ -32,7 +32,25 @@ describe("podium-peers-e2e.sh", () => {
       expect(r.stdout).toContain("C-m");
       expect(r.stdout).toContain("--model NAME");
       expect(r.stdout).toContain("--no-build");
+      for (const word of ["--harness LIST", "--opencode-model", "--opencode-config", "--activity-output", "--session-recording", "--file-diff", "tmux -L", "opencode --standalone"]) expect(r.stdout, word).toContain(word);
     }
+  });
+
+  it("gives a window's project folder one commit, so a session in it reports a git branch", () => {
+    const src = fs.readFileSync(SCRIPT, "utf8");
+    const fn = /^init_project\(\) \{\n[\s\S]*?\n\}\n/m.exec(src)?.[0];
+    expect(fn, "init_project is defined").toBeTruthy();
+    expect(src.match(/^\s+init_project "\$dir"$/gm)).toHaveLength(2); // the Claude Code window and the OpenCode window
+    const dir = tempDir();
+    // A git identity and signing config that would break a plain commit: the helper must not depend on either.
+    const env = { ...process.env, HOME: dir, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+    const git = (...a: string[]) => spawnSync("git", ["-C", dir, ...a], { encoding: "utf8", env });
+    for (const again of [false, true]) {
+      const r = spawnSync("bash", ["-c", `${fn}\ninit_project "$1"`, "bash", dir], { encoding: "utf8", env });
+      expect(r.status, r.stderr).toBe(0);
+      expect(git("rev-list", "--count", "HEAD").stdout.trim(), again ? "a second call adds none" : "one commit").toBe("1");
+    }
+    expect(git("branch", "--show-current").stdout.trim()).not.toBe("");
   });
 
   it("refuses a number with a leading zero, rather than reading it as octal", () => {
@@ -145,7 +163,8 @@ describe("podium-peers-e2e.sh", () => {
     expect(r.stdout).toContain("podium-peers-seed.mjs --talk");
     for (const name of ["planner", "tester", "notes", "docs", "s5"]) expect(r.stdout).toContain(`as ${name} in ${dir}/proj-${name}`);
     expect(r.stdout).toContain("Claude Code (sonnet)");
-    expect(r.stdout).toContain("tmux attach -t e2e-dry-test");
+    expect(r.stdout).toContain("tmux -L e2e-dry-test attach -t e2e-dry-test");
+    expect(r.stdout).toContain("tmux -L e2e-dry-test");
     expect(fs.existsSync(dir)).toBe(false);
   });
 
@@ -153,8 +172,108 @@ describe("podium-peers-e2e.sh", () => {
     const dir = path.join(os.tmpdir(), `podium-peers-e2e-dry-${process.pid}`);
     const r = run("down", "--dry-run", "--dir", dir, "--tmux", "e2e-dry-test");
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("would: kill the tmux session e2e-dry-test");
-    expect(r.stdout).toContain(`would: remove ${dir}`);
+    expect(r.stdout).toContain("would: kill the tmux server on socket e2e-dry-test");
+    expect(r.stdout).toContain(`would: remove the links in ${dir}/home-claude, then ${dir}`);
     expect(run("down", "--dry-run", "--dir", dir, "--keep").stdout).toContain(`keeping ${dir}`);
+  });
+
+  describe("harnesses (#976)", () => {
+    const dir = path.join(os.tmpdir(), `podium-peers-e2e-harness-${process.pid}`);
+    const dry = (...args: string[]) => run("up", "--dry-run", "--dir", dir, "--tmux", "e2e-h-test", ...args);
+
+    it("starts Claude Code in every window by default, and builds only that plugin", () => {
+      const r = dry();
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("build the claudecode plugin");
+      expect(r.stdout).not.toContain("opencode");
+      expect(r.stdout).not.toContain("OpenCode");
+      expect(r.stdout).not.toContain("activityOutput");
+      expect(r.stdout.match(/start Claude Code \(haiku\)/g)).toHaveLength(4);
+      // A scratch home that holds no .podium, so a reporter config file there cannot send the session to the maintainer's server.
+      expect(r.stdout).toContain(`HOME ${dir}/home-claude (links to your home, except .podium)`);
+      expect(r.stdout).toContain("tmux -L e2e-h-test");
+    });
+
+    it("starts OpenCode windows with their own home, env file and --standalone", () => {
+      const r = dry("--harness", "opencode", "--opencode-model", "opencode/some-free", "--sessions", "2");
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("build the opencode plugin");
+      expect(r.stdout).not.toContain("build the claudecode plugin");
+      expect(r.stdout).toContain(`start OpenCode (opencode/some-free) as planner in ${dir}/proj-planner, home ${dir}/home-planner with the plugin copied in, env file ${dir}/oc-env-planner.sh, opencode --standalone`);
+      expect(r.stdout).toContain("as tester in");
+      expect(r.stdout).not.toContain("start Claude Code");
+      expect(r.stdout).not.toContain("write " + dir + "/settings.json");
+    });
+
+    it("lets one run mix the harnesses, window by window, on one server", () => {
+      const r = dry("--harness", "claudecode,opencode", "--opencode-model", "p/m", "--model", "sonnet");
+      expect(r.status).toBe(0);
+      const order = [...r.stdout.matchAll(/start (Claude Code|OpenCode) \([^)]*\) as (\w+)/g)].map((m) => `${m[2]}:${m[1]}`);
+      expect(order).toEqual(["planner:Claude Code", "tester:OpenCode", "notes:Claude Code", "docs:OpenCode"]);
+      expect(r.stdout).toContain("Claude Code (sonnet)");
+      expect(r.stdout).toContain("OpenCode (p/m)");
+      expect(r.stdout.match(/start the server/g)).toHaveLength(1);
+    });
+
+    it("needs a model for OpenCode and never defaults one", () => {
+      const r = dry("--harness", "opencode");
+      expect(r.status).toBe(2);
+      expect(r.stderr).toMatch(/--opencode-model PROVIDER\/MODEL is required/);
+      expect(dry("--harness", "claudecode,opencode").status).toBe(2);
+      expect(dry("--harness", "opencode", "--opencode-model", "a b").stderr).toMatch(/--opencode-model takes/);
+    });
+
+    it("refuses --tmux default, whose socket is the user's own tmux server", () => {
+      expect(dry("--tmux", "default").stderr).toMatch(/--tmux default is the name of your own tmux server's socket/);
+    });
+
+    it("refuses a harness it does not know and an empty list", () => {
+      expect(dry("--harness", "pi").stderr).toMatch(/--harness takes claudecode or opencode, or a comma list of them, not 'pi'/);
+      expect(dry("--harness", "claudecode,,opencode").status).toBe(2);
+      expect(dry("--harness", "").stderr).toMatch(/--harness needs a value/);
+      expect(dry("--opencode-config", path.join(dir, "missing.json")).stderr).toMatch(/is not a file/);
+    });
+
+    it("turns on the Admin flags and the reporter options through flags, for both harnesses", () => {
+      const r = dry("--harness", "claudecode,opencode", "--opencode-model", "p/m", "--activity-output", "--session-recording", "--file-diff");
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("podium-peers-seed.mjs --talk --activity-output --session-recording --file-diff");
+      expect(r.stdout).toContain('"activityOutput": true, "sessionRecording": true, "fileDiff": true');
+    });
+
+    it("writes an OpenCode window's files and takes the caller's provider block, with ask permissions that win", () => {
+      // A real up starts a server and sessions; this runs only the window's own preparation, with stand-in tools on PATH.
+      const work = tempDir();
+      const bin = path.join(work, "bin");
+      fs.mkdirSync(bin);
+      const fake = (name: string, body: string) => fs.writeFileSync(path.join(bin, name), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+      fake("tmux", "exit 0");
+      fake("opencode", "exit 0");
+      fake("curl", "exit 0");
+      const cfg = path.join(work, "provider.json");
+      fs.writeFileSync(cfg, JSON.stringify({ provider: { lmstudio: { name: "Local" } }, model: "wrong/model", permission: { bash: "allow", read: "allow" } }));
+      const r = spawnSync("bash", ["-c", `
+        set -e
+        sed -n -e '/^init_project() {/,/^}/p' -e '/^start_opencode() {/,/^}/p' "${SCRIPT}" > "$WORK/fn.sh"
+        DRY=0; DIR="$WORK/run"; URL=http://127.0.0.1:1; SEED_FILE="$DIR/seed.out"; TMUX_NAME=t
+        OC_DIST="$WORK/dist-oc"; OC_MODEL=lmstudio/m; OC_CONFIG="$OC_CONFIG"
+        mkdir -p "$DIR" "$OC_DIST/plugin"; echo x > "$OC_DIST/plugin/index.ts"
+        step() { :; }; tm() { :; }
+        . "$WORK/fn.sh"
+        start_opencode win "$DIR/proj-win" " PODIUM_FILE_DIFF=true"
+      `], { encoding: "utf8", env: { ...process.env, WORK: work, OC_CONFIG: cfg, PATH: `${bin}:${process.env.PATH}` } });
+      expect(r.status, r.stderr).toBe(0);
+      const conf = JSON.parse(fs.readFileSync(path.join(work, "run/proj-win/opencode.json"), "utf8"));
+      expect(conf.model).toBe("lmstudio/m");
+      expect(conf.provider.lmstudio.name).toBe("Local");
+      expect(conf.permission).toEqual({ bash: "ask", edit: "ask", read: "allow" });
+      expect(fs.existsSync(path.join(work, "run/home-win/.config/opencode/plugins/podium/plugin/index.ts"))).toBe(true);
+      const env = fs.readFileSync(path.join(work, "run/oc-env-win.sh"), "utf8");
+      expect(env).toContain(`export HOME=${path.join(work, "run/home-win")}`);
+      expect(env).toContain("export PODIUM_SERVER=http://127.0.0.1:1");
+      expect(env).toContain("PODIUM_FILE_DIFF=true");
+      expect(env).toContain("sed -n 's/^token=//p'");
+      expect(env).not.toMatch(/PODIUM_TOKEN=[^"]/);
+    });
   });
 });

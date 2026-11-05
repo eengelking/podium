@@ -24,7 +24,7 @@ export function session(over: Partial<SessionRow> & { id: string }): SessionRow 
     repo_name: 'demo', git_json: null, model: 'claude-opus-5-5', effort: 'high', context_tokens: null, context_window: null,
     context_percent: 40, cost_usd: 1, tok_in: 100, tok_out: 50, tok_cr: 10, tok_cw: 5, rate_limits_json: null,
     blowouts: 0, plan_json: null, reporter_version: '1.2.2', engine_version: '2.1.301', loop_json: null, files_json: null,
-    attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null,
+    attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -34,7 +34,7 @@ export function agent(sessionId: string, id: string, over: Partial<AgentRow> = {
     session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look around', model: 'claude-haiku-4-5',
     effort: null, effort_source: null, status: 'done', started_at: at(0, 9), ended_at: at(0, 10), context_tokens: null, context_window: null,
     context_percent: null, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, cost_usd_est: 0, skills_json: null, last_tool: null, tool_calls: 0,
-    tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null, answer_excerpt: null, failure_json: null,
+    tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }

@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
-import { describe, expect, it } from "vitest";
-import { buildReporterZip, included, listFiles, run, zipBytes } from "./podium-reporter-zip.mjs";
+import { beforeAll, describe, expect, it } from "vitest";
+import { buildHarness } from "./plugin-build.mjs";
+import { buildReporterZip, listFiles, run, zipBytes } from "./podium-reporter-zip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "podium-reporter-zip.mjs");
@@ -30,52 +31,97 @@ function readZip(buf: Buffer): Map<string, Buffer> {
 }
 
 describe("podium-reporter-zip", () => {
-  const version = JSON.parse(readFileSync(join(ROOT, "mod/podium-reporter/.claude-plugin/plugin.json"), "utf8")).version;
+  const version = JSON.parse(readFileSync(join(ROOT, "plugin/claudecode/.claude-plugin/plugin.json"), "utf8")).version;
+  // The zip is made from a built folder, so each run builds one into a temporary folder and never touches the real dist/.
+  const dist = mkdtempSync(join(tmpdir(), "reporter-zip-dist-"));
+  let src = "";
+  beforeAll(() => {
+    src = buildHarness("claudecode", { outDir: dist }).dir;
+  });
+  const cli = (...args: string[]) => ["--src", src, ...args];
 
   it("is named for the version in plugin.json", () => {
-    expect(buildReporterZip().name).toBe(`podium-reporter-${version}.zip`);
-    expect(buildReporterZip(undefined, "-nightly-2026-10-30").name).toBe(`podium-reporter-${version}-nightly-2026-10-30.zip`);
+    expect(buildReporterZip(src).name).toBe(`podium-reporter-${version}.zip`);
+    expect(buildReporterZip(src, "-nightly-2026-10-30").name).toBe(`podium-reporter-${version}-nightly-2026-10-30.zip`);
+  });
+
+  it("zips opencode as a package: package.json and plugin/ at the root, no Claude manifest, named podium-opencode-<version> (#857)", () => {
+    const ocSrc = buildHarness("opencode", { outDir: dist }).dir;
+    const zip = buildReporterZip(ocSrc, "-nightly-2026-11-03", "opencode");
+    expect(zip.name).toBe(`podium-opencode-${version}-nightly-2026-11-03.zip`);
+    expect(zip.version).toBe(version);
+    expect(zip.files).toEqual(expect.arrayContaining(["package.json", "plugin/opencode/index.ts", "plugin/core/protocol.ts"]));
+    expect(zip.files.some((f: string) => f.startsWith(".claude-plugin/") || f.endsWith(".test.ts"))).toBe(false);
+    expect(run(["--harness", "opencode", "--src", ocSrc, "--out", mkdtempSync(join(tmpdir(), "oc-zip-out-")), "--expect-version", version]).out).toContain(`podium-opencode-${version}.zip`);
+  });
+
+  it("refuses a claudecode folder for the opencode harness", () => {
+    expect(() => buildReporterZip(src, "", "opencode")).toThrow("has no package.json");
   });
 
   it("has plugin.json and hooks.json at its root and no tests or .DS_Store", () => {
-    const { files } = buildReporterZip();
+    const { files } = buildReporterZip(src);
     expect(files).toContain(".claude-plugin/plugin.json");
     expect(files).toContain("hooks/hooks.json");
-    expect(files).toContain("hooks/register.ts");
+    expect(files).toContain("plugin/claudecode/hooks/register.ts");
     expect(files.some((f: string) => f.startsWith("podium-reporter/"))).toBe(false);
     expect(files.filter((f: string) => f.endsWith(".test.ts") || f.endsWith(".DS_Store"))).toEqual([]);
   });
 
-  it("lists exactly the mod's files that are not tests, in the zip's central directory", () => {
-    const zip = buildReporterZip();
+  it("holds exactly the built folder's files, byte for byte, in the zip's central directory", () => {
+    const zip = buildReporterZip(src);
     const entries = readZip(zip.bytes);
     expect([...entries.keys()]).toEqual(zip.files);
-    expect(zip.files).toEqual(listFiles(join(ROOT, "mod/podium-reporter")));
-    expect(entries.get(".claude-plugin/plugin.json")?.equals(readFileSync(join(ROOT, "mod/podium-reporter/.claude-plugin/plugin.json")))).toBe(true);
+    expect(zip.files).toEqual(listFiles(src));
+    for (const f of zip.files) expect(entries.get(f)?.equals(readFileSync(join(src, f))), f).toBe(true);
+  });
+
+  it("refuses a folder that carries a dev stamp", () => {
+    const stamped = buildHarness("claudecode", { outDir: mkdtempSync(join(tmpdir(), "reporter-zip-stamp-")), stamp: true });
+    const file = join(stamped.dir, ".claude-plugin", "dev-build.json");
+    if (!stamped.files.includes(".claude-plugin/dev-build.json")) writeFileSync(file, '{"commit":"a1b2c3d4","tag":"","dirty":false}');
+    expect(() => buildReporterZip(stamped.dir)).toThrow(/dev stamp that must not be zipped/);
   });
 
   it("builds the same bytes twice", () => {
-    expect(buildReporterZip().bytes.equals(buildReporterZip().bytes)).toBe(true);
+    expect(buildReporterZip(src).bytes.equals(buildReporterZip(src).bytes)).toBe(true);
   });
 
   it("is a zip the system unzip accepts", () => {
     const dir = mkdtempSync(join(tmpdir(), "reporter-zip-"));
-    const file = execFileSync("node", [SCRIPT, "--out", dir], { encoding: "utf8" }).trim();
+    const file = execFileSync("node", [SCRIPT, ...cli("--out", dir)], { encoding: "utf8" }).trim();
     expect(file).toBe(join(dir, `podium-reporter-${version}.zip`));
     const r = spawnSync("unzip", ["-tq", file], { encoding: "utf8" });
     if (r.error) return; // no unzip on this machine
     expect(r.status).toBe(0);
   });
 
+  it("fails clearly when the dist folder was never built", () => {
+    const empty = mkdtempSync(join(tmpdir(), "reporter-zip-"));
+    const r = run(["--out", empty], empty);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("Build the plugin first: npm run plugin:build:release");
+    expect(run(["--harness", "opencode", "--out", empty], empty).err).toContain("npm run plugin:build:release");
+    expect(run(["--harness", "nope"]).err).toContain('Unknown harness "nope"');
+  });
+
+  it("refuses a folder that is not self-contained, and an output folder inside the built one", () => {
+    const broken = buildHarness("claudecode", { outDir: mkdtempSync(join(tmpdir(), "reporter-zip-")) }).dir;
+    writeFileSync(join(broken, "plugin", "claudecode", "hooks", "register.ts"), 'import "../../../../outside.ts"\n');
+    expect(run(["--src", broken, "--out", tmpdir()]).err).toContain("not a complete plugin folder");
+    expect(run(cli("--out", join(src, "hooks"))).err).toContain("inside the built folder");
+    expect(run(cli("--out", src)).err).toContain("inside the built folder");
+  });
+
   it("refuses when the version is not the one expected", () => {
-    const r = spawnSync("node", [SCRIPT, "--out", mkdtempSync(join(tmpdir(), "reporter-zip-")), "--expect-version", "0.0.0"], { encoding: "utf8" });
+    const r = spawnSync("node", [SCRIPT, ...cli("--out", mkdtempSync(join(tmpdir(), "reporter-zip-")), "--expect-version", "0.0.0")], { encoding: "utf8" });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(`version ${version}, not 0.0.0`);
-    expect(spawnSync("node", [SCRIPT, "--out", mkdtempSync(join(tmpdir(), "reporter-zip-")), "--expect-version", version]).status).toBe(0);
+    expect(spawnSync("node", [SCRIPT, ...cli("--out", mkdtempSync(join(tmpdir(), "reporter-zip-")), "--expect-version", version)]).status).toBe(0);
   });
 
   it("refuses a flag with no value instead of skipping the check it guards", () => {
-    for (const args of [["--expect-version"], ["--out", "--suffix", "-x"]]) {
+    for (const args of [["--expect-version"], ["--out", "--suffix", "-x"], ["--harness"], ["--src"]]) {
       const r = spawnSync("node", [SCRIPT, ...args], { encoding: "utf8" });
       expect(r.status).toBe(1);
       expect(r.stderr).toContain("needs a value");
@@ -86,30 +132,24 @@ describe("podium-reporter-zip", () => {
     for (const flag of ["--help", "-h"]) expect(execFileSync("node", [SCRIPT, flag], { encoding: "utf8" })).toContain("Usage:");
   });
 
-  it("skips tests and .DS_Store but not other files", () => {
-    expect(included("hooks/a.test.ts")).toBe(false);
-    expect(included("hooks/.DS_Store")).toBe(false);
-    expect(included("hooks/a.ts")).toBe(true);
-  });
-
   it("walks a folder in name order and writes a zip for a fixture", () => {
     const dir = mkdtempSync(join(tmpdir(), "reporter-zip-"));
     mkdirSync(join(dir, ".claude-plugin"));
     mkdirSync(join(dir, "hooks"));
     writeFileSync(join(dir, ".claude-plugin", "plugin.json"), '{"version":"9.9.9"}');
+    writeFileSync(join(dir, "hooks", "hooks.json"), '{"modules":["./a.ts"]}');
     writeFileSync(join(dir, "hooks", "b.ts"), "b");
     writeFileSync(join(dir, "hooks", "a.ts"), "a");
-    writeFileSync(join(dir, "hooks", "a.test.ts"), "t");
     const zip = buildReporterZip(dir);
     expect(zip.name).toBe("podium-reporter-9.9.9.zip");
-    expect(zip.files).toEqual([".claude-plugin/plugin.json", "hooks/a.ts", "hooks/b.ts"]);
+    expect(zip.files).toEqual([".claude-plugin/plugin.json", "hooks/a.ts", "hooks/b.ts", "hooks/hooks.json"]);
     expect(readZip(zipBytes([["x/é.txt", Buffer.from("hi")]])).get("x/é.txt")?.toString()).toBe("hi");
   });
 
   it("runs the command line in process: writes the zip, checks the version, reports a bad flag", () => {
     const dir = mkdtempSync(join(tmpdir(), "reporter-zip-"));
-    expect(run(["--out", dir, "--suffix", "-x", "--expect-version", version])).toEqual({ code: 0, out: join(dir, `podium-reporter-${version}-x.zip`) });
-    expect(run(["--out", dir, "--expect-version", "0.0.0"]).err).toContain(`version ${version}, not 0.0.0`);
+    expect(run(cli("--out", dir, "--suffix", "-x", "--expect-version", version))).toEqual({ code: 0, out: join(dir, `podium-reporter-${version}-x.zip`) });
+    expect(run(cli("--out", dir, "--expect-version", "0.0.0")).err).toContain(`version ${version}, not 0.0.0`);
     expect(run(["--out"]).err).toContain("--out needs a value");
     expect(run(["--suffix", "--out", dir]).code).toBe(1);
     expect(run(["-h"])).toMatchObject({ code: 0 });

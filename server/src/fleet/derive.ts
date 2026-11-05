@@ -1,8 +1,9 @@
 // Pure derivation (SPEC 7.3, 7.4): SessionView, blowout level, series, KPIs. No I/O here: callers
 // pass rows in and get views out, so every rule is unit-tested without a database.
 import type { AgentRow, BlowoutRow, EventRow, SampleRow, SessionRow } from '../storage/rows.js';
-import { checkReporter } from './compat.js';
+import { checkReporter, reporterOfHarness } from './compat.js';
 import { idleOnBackground } from './protocol.js';
+import type { Capabilities } from '../../../plugin/core/protocol.js';
 import { tokenSum } from './ingest.js';
 import type { ModelUsage, Pricing } from './pricing.js';
 import type {
@@ -66,13 +67,35 @@ export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-export function resumeCommand(cwd: string, resumeId: string | null, id: string): string {
-  return `cd ${shellQuote(cwd)} && claude --resume ${shellQuote(resumeId ?? id)}`;
+/**
+ * How each harness resumes and forks a session (#853). A harness with no entry, or no `fork`, has no such command: the console shows
+ * the cell as not available, never another harness's command.
+ */
+const SESSION_COMMANDS: Readonly<Record<string, { resume: (cwd: string, id: string) => string; fork?: (cwd: string, id: string) => string }>> = {
+  'claude-code': {
+    resume: (cwd, id) => `cd ${shellQuote(cwd)} && claude --resume ${shellQuote(id)}`,
+    // A new session that starts from a copy of this conversation (#352).
+    fork: (cwd, id) => `cd ${shellQuote(cwd)} && claude --resume ${shellQuote(id)} --fork-session`,
+  },
+  opencode: {
+    resume: (cwd, id) => `opencode ${shellQuote(cwd)} --session ${shellQuote(id)}`,
+  },
+};
+
+// An empty id is Claude Code's, as the console reads it.
+const commandsOf = (harness: string): (typeof SESSION_COMMANDS)[string] | null => {
+  const id = harness || 'claude-code';
+  return Object.hasOwn(SESSION_COMMANDS, id) ? SESSION_COMMANDS[id]! : null;
+};
+
+/** The command that continues the session in a terminal; null when this harness has none. A session from before the harness was stored is Claude Code's. */
+export function resumeCommand(cwd: string, resumeId: string | null, id: string, harness = 'claude-code'): string | null {
+  return commandsOf(harness)?.resume(cwd, resumeId ?? id) ?? null;
 }
 
-/** The resume command with `--fork-session`: a new session that starts from a copy of this conversation (#352). */
-export function forkCommand(cwd: string, resumeId: string | null, id: string): string {
-  return `${resumeCommand(cwd, resumeId, id)} --fork-session`;
+/** The command that starts a copy of the conversation in a new session; null when this harness has none. */
+export function forkCommand(cwd: string, resumeId: string | null, id: string, harness = 'claude-code'): string | null {
+  return commandsOf(harness)?.fork?.(cwd, resumeId ?? id) ?? null;
 }
 
 function parse<T>(text: string | null, fallback: T): T {
@@ -124,6 +147,8 @@ export function agentView(a: AgentRow, pricing?: Pricing): AgentView {
     answerChars: a.answer_chars ?? null,
     failure: parse<Failure | null>(a.failure_json, null),
     modelFamily: family(a.model),
+    modelLabel: a.model_label,
+    modelProvider: a.model_provider,
   };
 }
 
@@ -240,12 +265,13 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     reporter: row.reporter_version === 'hooks' ? 'hooks' : 'mod',
     reporterVersion: row.reporter_version === 'hooks' ? null : row.reporter_version,
     reporterBuild: row.reporter_version === 'hooks' ? null : row.reporter_build ?? null,
-    compat: row.reporter_version === 'hooks' ? 'unknown' : checkReporter(row.reporter_version),
+    reporterName: reporterOfHarness(row.harness),
+    compat: row.reporter_version === 'hooks' ? 'unknown' : checkReporter(row.reporter_version, reporterOfHarness(row.harness)),
     project: shortenHome(row.project_root ?? row.cwd, cfg.home),
     cwd: shortenHome(row.cwd, cfg.home),
     repoName: row.repo_name,
-    resumeCommand: resumeCommand(row.cwd, row.resume_id, row.id),
-    forkCommand: forkCommand(row.cwd, row.resume_id, row.id),
+    resumeCommand: resumeCommand(row.cwd, row.resume_id, row.id, row.harness),
+    forkCommand: forkCommand(row.cwd, row.resume_id, row.id, row.harness),
     git: parse<GitInfo | null>(row.git_json, null),
     model: row.model,
     modelFamily: family(row.model),
@@ -294,6 +320,11 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     asks: input.asks ?? [],
     ...(input.recording ? { recording: input.recording } : {}),
     clearedFrom: row.cleared_from ?? null,
+    harness: row.harness,
+    costSource: row.cost_source === 'harness' ? 'harness' : 'estimate',
+    capabilities: parse<Capabilities | null>(row.capabilities_json, null),
+    modelLabel: row.model_label,
+    modelProvider: row.model_provider,
     agents,
     series: buildSeries(input.samples, input.blowouts, now),
   };

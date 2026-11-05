@@ -5,7 +5,7 @@ describe('wall: empty state', () => {
   it('tells you how to start a session when nothing reports', () => {
     cy.openConsole('#/');
     cy.contains('.none', 'No Claude Code sessions are reporting.');
-    cy.contains('.none', 'claude --plugin-dir mod/podium-reporter');
+    cy.contains('.none', 'claude --plugin-dir dist-dev/claudecode');
     cy.tid('connection-pill').should('contain.text', '0 reporters live');
   });
 

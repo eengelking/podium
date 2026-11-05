@@ -5,21 +5,27 @@ import { respondGate } from "../respond";
 import { RespondButton } from "./Respond";
 import { COST_HINT_SESSION, currentStep, delegateText, dropAtOf, inferredStep, planProgress, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT, treeOrder } from "../logic";
 import type { AgentView, LifecycleConfig, SessionView } from "../types";
-import { BlowBadge, CompBadge, ContextBar, Cost, cssVar, delegatesOf, EffortMeter, FAMILY_COLOR, GitLine, ModelChip, PlanBar, StateIcon, stateKind, type StateKind } from "./Chips";
+import { BlowBadge, CompBadge, ContextBar, Cost, CostSourceNote, cssVar, delegatesOf, EffortMeter, FAMILY_COLOR, GitLine, HarnessBadge, ModelChip, PlanBar, StateIcon, stateKind, type StateKind } from "./Chips";
 import { backgroundLead, backgroundTitle, toolOfNote, waitLead } from "../waiting";
 import { Sparkline } from "./Sparkline";
 import { OwnerLine } from "./People";
 import { SessionId } from "./SessionId";
 import { IconPin } from "./Icons";
 import { bandWords } from "../recording";
+import { harnessOfSession } from "../harness";
+import { updateSentence } from "../reporterUpdate";
 
 export const HOOKS_NOTE = "Reported by Claude Code settings hooks, not the reporter mod: context, cost, tokens, the plan and which agent launched which are unavailable, so every agent shows under the orchestrator.";
 
-/** What to tell the user when the server places this session's reporter outside the range it supports; null when it does not. */
-export function versionNote(s: Pick<SessionView, "compat" | "reporterVersion">): { chip: string; label: string; text: string } | null {
+/** What to tell the user when the server places this session's reporter outside the range it supports for that reporter; null when it does not. */
+export function versionNote(s: Pick<SessionView, "compat" | "reporterVersion" | "reporterName">): { chip: string; label: string; text: string } | null {
   const v = s.reporterVersion ?? "unknown";
-  if (s.compat === "outdated") return { chip: `reporter ${v} · update`, label: `${v} · update`, text: `This session's reporter (${v}) is older than the server supports. Update the podium-reporter mod: run claude plugin update podium-reporter@eengelking-marketplace, then /reload-plugins in that session. Reports are still accepted, but newer fields may be missing.` };
-  if (s.compat === "newer") return { chip: `reporter ${v} · upgrade server`, label: `${v} · upgrade server`, text: `This session's reporter (${v}) is newer than the server supports. Upgrade the Podium server. Reports are still accepted, but some fields may be ignored.` };
+  const name = s.reporterName;
+  if (s.compat === "outdated") {
+    const how = updateSentence(name);
+    return { chip: `reporter ${v} · update`, label: `${v} · update`, text: `This session's reporter (${name} ${v}) is older than the server supports for ${name}. ${how} Reports are still accepted, but newer fields may be missing.` };
+  }
+  if (s.compat === "newer") return { chip: `reporter ${v} · upgrade server`, label: `${v} · upgrade server`, text: `This session's reporter (${name} ${v}) is newer than the server supports for ${name}. Upgrade the Podium server. Reports are still accepted, but some fields may be ignored.` };
   return null;
 }
 
@@ -172,7 +178,7 @@ export function bandLine(s: SessionView, kind: StateKind, sinceSeen: number, now
   return <span className="bl">{kind === "running" ? "Running" : "Done"}</span>;
 }
 
-export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now: number; config: LifecycleConfig; entering: boolean; leaving: boolean; onOpen: () => void; onRemove?: () => void; owner?: CardOwner; pin?: CardPin }) {
+export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now: number; config: LifecycleConfig; entering: boolean; leaving: boolean; onOpen: () => void; onRemove?: () => void; owner?: CardOwner; pin?: CardPin; showHarness?: boolean }) {
   const { s, now, config } = props;
   const respond = useRespond();
   // Respond (#206) sits at the right end of the band. The card is one big button, so it is laid over the band from the slot.
@@ -191,6 +197,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   // The states that want the person (or say the session is lost) get the heavier tint; a calm state a lighter one. The top line is the same thin line on every band.
   const hot = kind === "waiting" || kind === "stale";
   const hooks = s.reporter === "hooks";
+  const harness = harnessOfSession(s);
   const cls = `card sc${props.entering ? " enter" : ""}${props.leaving ? " leave" : ""}${risk ? " risk" : ""}${detached ? " detached" : ""}`;
   const sinceSeen = Math.max(0, (now - s.lastSeenAt) / 1000);
   const hasNotes = detached || hooks || vNote !== null;
@@ -198,7 +205,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   const recBand = s.recording ? bandWords(s.recording, now) : null;
   // The card is one big button, so Remove sits beside it in a slot rather than inside it.
   return (
-    <div className={`card-slot${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
+    <div className={`card-slot${props.leaving ? " leave" : ""}${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
     <button type="button" className={cls} onClick={props.onOpen} disabled={props.leaving} data-session={s.id}>
       {/* Four layers, always in this order (#144): who, what it is doing, cost and health, then the status band. */}
       <div className="z1">
@@ -209,8 +216,9 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           </span>
           {props.pin && <span className="pinslot" aria-hidden="true" />}
           <span className="mdl">
-            <ModelChip family={s.modelFamily} model={s.model} />
-            <EffortMeter effort={s.effort} />
+            {props.showHarness && <HarnessBadge harness={s.harness} />}
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
+            {harness.effort && <EffortMeter effort={s.effort} />}
           </span>
         </div>
         {props.owner && <OwnerLine owner={s.owner} machine={props.owner.machine} showName={props.owner.showName} />}
@@ -281,10 +289,10 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <Sparkline values={s.series.tokensPerSec} w={72} h={20} />
         </div>
       </div>
-      <div className="z3">
+      <div className={`z3${harness.context ? "" : " three"}`}>
         <div className="c" title={COST_HINT_SESSION}>
           <span className="k">Cost</span>
-          <span className="v mono"><Cost usd={s.costUsd} family={s.modelFamily} /></span>
+          <span className="v mono"><Cost usd={s.costUsd} family={s.modelFamily} /><CostSourceNote s={s} /></span>
         </div>
         <div className="c" title={TOKENS_HINT}>
           <span className="k">Tokens</span>
@@ -294,6 +302,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <span className="k">Time</span>
           <span className="v mono">{fmtDur(sessionElapsedSec(s, now))}</span>
         </div>
+        {harness.context && (
         <div className={`c ctx${risk ? " hi" : ""}`} title={risk ? riskText(s) : undefined}>
           <span className="k">
             Context
@@ -303,6 +312,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <span className="v mono">{fmtPct(s.context.percent)}</span>
           {s.context.percent !== null && <ContextBar percent={s.context.percent} blowouts={s.blowouts.total} />}
         </div>
+        )}
       </div>
       <div className={`band ${kind}${hot ? " hot" : ""}`}>
         <span className="bi"><StateIcon kind={kind} /></span>

@@ -1,5 +1,7 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
 import { fmtCount, fmtDay } from "../format";
+import { isShellTool } from "../harness";
+import { useHarness } from "../harnessContext";
 import { reporterBelow } from "../logic";
 import type { ActivityEntryView, SessionView } from "../types";
 import { EVERY_CHOICES, readEvery, useActivityFeed, writeEvery, type FeedEntry, type FeedState, type FetchActivity, type FetchHistory } from "../useActivityFeed";
@@ -7,7 +9,7 @@ import { ActivityOutputFlag, BashRow, LINE_CUT, missingOutput, Redacted, useRowA
 import { Modal } from "./Modal";
 import { useRespond } from "../useRespond";
 import { nameKey } from "../respond";
-import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
+import { DESKTOP_OPTIONS, OPENCODE_RESTART, OPENCODE_SETTINGS_FILE, OPTION_CMD, optionVariable } from "../pluginOptions";
 
 // The Activity section of the agent and orchestrator panels (#118, mockup/podium-agent-feed.html): the loop's recent
 // tool calls and the text it writes, newest at the bottom, fetched on the viewer's interval while the panel is open.
@@ -83,12 +85,13 @@ function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; running
   const adminOutput = useContext(ActivityOutputFlag);
   const k = KIND[e.kind];
   const respond = useRespond();
+  const harness = useHarness();
   const me = respond?.me?.signedIn ? respond.me.name : null;
   const space = e.text.indexOf(" ");
   const name = e.kind === "tool" ? (space < 0 ? e.text : e.text.slice(0, space)) : "";
   const arg = e.kind === "tool" && space >= 0 ? e.text.slice(space + 1) : "";
   // Only a Bash row opens: the mod sends a whole command and output for no other tool (#431).
-  if (e.kind === "tool" && name === "Bash") {
+  if (e.kind === "tool" && isShellTool(harness.id, name)) {
     const stored = e.key !== undefined && e.key.startsWith("h") && e.live !== true;
     const running = props.running && !stored && e.output === undefined && !e.done;
     return (
@@ -322,7 +325,17 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
               `The activity feed needs podium-reporter 0.13.0 or later. This session reports ${s.reporterVersion}. ${UPDATE}`
             ) : (
               <>
-                Turn on the <code>activityFeed</code> option (Send an agent’s recent activity) of podium-reporter to see them: in Claude Code, run <code>{OPTION_CMD}</code>, or in the Claude desktop app, open {DESKTOP_OPTIONS}. Each entry is redacted and cut to 300 characters before it is sent.
+                Turn on the <code>activityFeed</code> option (Send an agent’s recent activity) of podium-reporter to see them:{" "}
+                {s.harness === "opencode" ? (
+                  <>
+                    add <code>{optionVariable("activityFeed")}=true</code> to <code>{OPENCODE_SETTINGS_FILE}</code>, then run <code>{OPENCODE_RESTART}</code>.
+                  </>
+                ) : (
+                  <>
+                    in Claude Code, run <code>{OPTION_CMD}</code>, or in the Claude desktop app, open {DESKTOP_OPTIONS}.
+                  </>
+                )}{" "}
+                Each entry is redacted and cut to 300 characters before it is sent.
               </>
             )}
           </div>

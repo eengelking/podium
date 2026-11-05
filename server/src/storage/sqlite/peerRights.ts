@@ -331,8 +331,8 @@ export class PeerRights implements PeerRightsApi {
   private insertRequest(r: Omit<PeerRequestRow, 'id' | 'createdAt' | 'closedAt' | 'outcome'>): PeerRequestRow {
     const row: PeerRequestRow = { ...r, id: `prq_${randomBytes(12).toString('hex')}`, createdAt: this.now(), closedAt: null, outcome: null };
     this.stmt(
-      `INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_requests))`,
     ).run(row.id, row.owner, row.kind, row.fromKey, row.toKey, row.level, row.reason, row.by, row.fromSession, row.messageId, row.createdAt);
     return row;
   }
@@ -412,8 +412,8 @@ export class PeerRights implements PeerRightsApi {
     const key = nameKey(owner);
     const rows =
       about === undefined
-        ? this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, id').all()
-        : this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, id').all(about, about);
+        ? this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, seq').all()
+        : this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, seq').all(about, about);
     return (rows as unknown as DbRequest[]).filter((r) => nameKey(r.owner) === key).map(toRequest);
   }
 
@@ -456,6 +456,7 @@ export class PeerRights implements PeerRightsApi {
       "UPDATE peer_requests SET closed_at = ?, outcome = 'dropped' WHERE kind = 'message' AND closed_at IS NULL AND message_id NOT IN (SELECT id FROM peer_messages)",
     ).run(this.now());
     let n = Number(this.stmt('DELETE FROM peer_requests WHERE closed_at IS NOT NULL AND closed_at < ?').run(cutoff).changes);
+    // order-insensitive: every key listed is checked, in whatever order.
     const keys = this.stmt(
       'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',
     ).all() as unknown as { k: string }[];

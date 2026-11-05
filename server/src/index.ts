@@ -1,14 +1,14 @@
 import { config as loadEnv } from "dotenv";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { repoRoot } from "./serverRoot.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.join(__dirname, "..", "..");
+const REPO_ROOT = repoRoot(import.meta.url);
 // quiet: dotenv 17 and later print an "injected env" line at startup, which the logger's text output pins (#11).
 loadEnv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 
 import fs from "node:fs";
+import http from "node:http";
 import express from "express";
 import { createRouter } from "./routes.js";
 import { dataDir, openStorage, storageSpec } from "./storage/index.js";
@@ -17,7 +17,8 @@ import { createFleetRouter } from "./fleet/routes.js";
 import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
 import { Lockout } from "./fleet/lockout.js";
-import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { failureLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { serveSpa } from "./spa.js";
 import { readTestTimings } from "./testTimings.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
@@ -40,8 +41,9 @@ import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `kind://`), which only labels the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the folder of a file-based database) is where the TLS folder lives.
-const DB_PATH = storageSpec(process.env).target;
+// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its label (a plain path as given, or `host:port/dbname` for a database on the network, never a user or a password), which only names the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the folder of a file-based database) is where the TLS folder lives.
+const DB_SPEC = storageSpec(process.env);
+const DB_PATH = DB_SPEC.label;
 const DATA_DIR = dataDir(process.env);
 const TOKEN = process.env.PODIUM_TOKEN || null;
 
@@ -56,7 +58,7 @@ if (TOKEN && TOKEN.length < 24) {
 warnIfTlsNotPersistent({ env: process.env, dataDir: DATA_DIR, logger });
 
 const storage = await openStorage(process.env);
-const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
+const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH, dbKind: DB_SPEC.kind });
 // The Activity history lives in its own file beside the database (#432), opened by the storage; nothing is written to it under the default policy.
 const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { authOn: TOKEN !== null, secret: TOKEN });
 // The live set is read from the database before anything listens or sweeps.
@@ -126,22 +128,21 @@ app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, report
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
-app.use(express.static(frontendDist));
-app.get("*", pageLimiter(), (_req, res) => {
-  res.sendFile(path.join(frontendDist, "index.html"));
-});
+serveSpa(app, frontendDist);
 
-const server = app.listen(PORT, HOST, () => {
+// http.createServer(app).listen is what Express 4's app.listen did. Express 5's also hands a listen error to the callback, which would
+// log "listening" for a port that is taken and leave the process running; here the error stays uncaught and stops the process (#392).
+const server = http.createServer(app).listen(PORT, HOST, () => {
   // The settings an agent needs to read a deployment; never the token, a header value or a ship URL's password.
   const s = logging.settings;
   logger.info("server.start", `Podium server listening on http://${HOST}:${PORT}`, {
     bind: HOST,
     port: PORT,
     db_path: DB_PATH,
+    db_kind: DB_SPEC.kind,
     auth: TOKEN !== null,
     node_version: process.version,
-    reporter_min: REPORTER_SUPPORT.min,
-    reporter_max: REPORTER_SUPPORT.max,
+    reporter_support: Object.entries(REPORTER_SUPPORT).map(([name, r]) => `${name} ${r.min} to ${r.max}`).join(", "),
     log_level: s.level,
     log_format: s.format,
     log_shipping: s.shipping,

@@ -15,11 +15,11 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 **Goal:** the shared contract exists as code and fixtures, and the workspace builds.
 
 ### T0.1 Protocol types and fixture
-- **Scope:** `server/src/fleet/protocol.ts`, `mod/podium-reporter/hooks/protocol.ts`, `docs/fixtures/report.sample.json`.
+- **Scope:** `server/src/fleet/protocol.ts`, `plugin/core/protocol.ts` (#927; first built as a copy in the mod), `docs/fixtures/report.sample.json`.
 - **Depends on:** none.
 - **Acceptance:**
   1. `protocol.ts` exports `Report`, `Plan`, `AgentReport`, `Failure`, `ActivityEvent`, `SessionView`, `AgentView`, `ActivityView`, `Kpis` exactly as in sections 6.2 and 7.4, plus a hand-written `validateReport(unknown)` that returns `{ ok: true, report } | { ok: false, error, path }` and enforces every limit in 7.7.
-  2. The mod's `protocol.ts` has identical type declarations (types only). A test in each project reads the sibling's file and fails if the interface text differs after whitespace normalization.
+  2. The types live once, in `plugin/core/protocol.ts`, and the server's `protocol.ts` re-exports them, so there is no second copy to compare (#927; the phase first built a copy in the mod with a test that compared the two).
   3. `docs/fixtures/report.sample.json` is a full valid report with a running orchestrator, a plan with four steps in different states, one done subagent, one running fork, one failed subagent with a failure and one with two blowouts, and three events. `validateReport` accepts it.
   4. `validateReport` rejects: a missing `v`, `v: 2`, a non-array `agents`, an agent with an unknown `status`, a 600-char event text (clamped, not rejected), 201 agents (rejected), a non-object body.
 
@@ -65,7 +65,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
   2. `SessionView.status` is `stale` when `now − lastSeenAt > STALE_AFTER_MS` and the stored status is not `done`.
   3. `series` has exactly 60 points per array, zero-filled for seconds with no sample, `peakContext` in 0..1, and `blowoutSecondsAgo` containing the age in seconds of each blowout in the last 60 s.
   4. KPIs match hand-computed values for a three-session fixture, including est. cost today and tokens in the last 60 s.
-  5. `resumeCommand` uses `resumeId` when present, else the session id, and quotes a `cwd` containing spaces. `forkCommand` is the same string with ` --fork-session` added, with the same quoting (#352).
+  5. `resumeCommand` uses `resumeId` when present, else the session id, and quotes a `cwd` containing spaces. `forkCommand` is the same string with ` --fork-session` added, with the same quoting (#352). For a harness with no such command (OpenCode has no fork command, a harness Podium has no template for has neither), the field is `null` (#853).
   6. `project` replaces the home directory prefix with `~`.
 
 ### T1.4 Sweeper and SSE
@@ -181,19 +181,19 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Scope:** `hooks/register.ts`, `plugin.json`, `hooks/hooks.json`.
 - **Depends on:** T3.2.
 - **Acceptance:**
-  1. `claude plugin validate mod/podium-reporter` passes with no errors and lists the hooked events from section 5.3 and the `$` calls from 5.4. Attach its output to `docs/architecture/`.
-  2. `tsc -p mod/podium-reporter` passes once types are laid, or the type-check recipe from the reference is used if not.
+  1. `claude plugin validate dist-dev/claudecode` passes with no errors and lists the hooked events from section 5.3 and the `$` calls from 5.4. Attach its output to `docs/architecture/`.
+  2. The mod type-checks (`npm run typecheck:mod:claudecode`) and passes.
   3. Every hook calls `next(e)` exactly once (or `yield*` for `turn.step`) and returns its result unchanged; a test with a hook that throws inside the reporter proves the session is unaffected.
   4. `session.start` registers `/podium` and starts the flusher, git poller and (if enabled) status line. A session-id change detected by the flusher sends a `done` report for the old id and starts the new one.
   5. `/podium` returns the dashboard URL, connection state, reports sent and failed, last error; `/podium name <text>` sets the name and persists it.
   6. `session.end` flushes with `status: "done"` and `endReason` before the hook returns.
-  7. `claude plugin test mod/podium-reporter` passes, with an end-to-end hook test that raises `session.start`, `agent.spawn` (subagent and fork), `tool.call` (Agent, Skill, TaskCreate, TaskUpdate, a failing Bash), `turn.step` (with usage and a window-exceeded stop), `session.compact` (auto) and `session.end`, and asserts the final posted report's agents, plan, failure, blowouts and skills.
+  7. `npm run test:mod:claudecode` (a build, then `claude plugin test`) passes, with an end-to-end hook test that raises `session.start`, `agent.spawn` (subagent and fork), `tool.call` (Agent, Skill, TaskCreate, TaskUpdate, a failing Bash), `turn.step` (with usage and a window-exceeded stop), `session.compact` (auto) and `session.end`, and asserts the final posted report's agents, plan, failure, blowouts and skills.
 
 ### T3.4 Real-session verification
 - **Scope:** running the real mod; no new files except notes in `docs/architecture/`.
 - **Depends on:** T3.3, T1.5.
 - **Acceptance:**
-  1. Start the server. Run `claude --plugin-dir mod/podium-reporter --model haiku -p "<a tiny task that uses the Agent tool once and TaskCreate once>"` (see rules in 10.4 on cost). The session appears in `GET /api/fleet/state` with the right model, a git branch, at least one agent with a model and a state, and a plan with the task, then ends and leaves the live set.
+  1. Start the server. Run `claude --plugin-dir dist-dev/claudecode --model haiku -p "<a tiny task that uses the Agent tool once and TaskCreate once>"` (see rules in 10.4 on cost). The session appears in `GET /api/fleet/state` with the right model, a git branch, at least one agent with a model and a state, and a plan with the task, then ends and leaves the live set.
   2. Compare `session.costUsd` with what `/cost` or the final result reports. Record whether session cost includes subagents.
   3. Record in `docs/architecture/` under "Mod API findings": which Assumptions in section 5 were right and which were wrong, with the evidence, including whether `classic.PermissionRequest` and `classic.Notification` are hookable, whether `session.compact` fires for agents, whether effort is visible on spawn, and the exact import-extension rule.
 
@@ -226,7 +226,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Scope:** `README.md`, `docs/architecture/`, `.env.example`.
 - **Depends on:** all above.
 - **Acceptance:**
-  1. `README.md` explains what Podium is, how to run the server and UI, how to install the mod (from `eengelking-marketplace`, or `claude --plugin-dir mod/podium-reporter` for a session), how to run the server with `podiumctl` (4.4), how to run the simulator, the env vars (`PORT`, `HOST`, `PODIUM_DB`, `PODIUM_TOKEN`, `STALE_AFTER_MS`, `DROP_AFTER_MS`, `LINGER_MS`) and what is sent off the session (section 6.4).
+  1. `README.md` explains what Podium is, how to run the server and UI, how to install the mod (from `eengelking-marketplace`, or `npm run plugin:build` then `claude --plugin-dir dist-dev/claudecode` for a session), how to run the server with `podiumctl` (4.4), how to run the simulator, the env vars (`PORT`, `HOST`, `PODIUM_DB`, `PODIUM_TOKEN`, `STALE_AFTER_MS`, `DROP_AFTER_MS`, `LINGER_MS`) and what is sent off the session (section 6.4).
   2. `docs/architecture/` documents the final architecture, the mod API findings, deviations from this spec with reasons, known issues, and the verification evidence.
   3. `.env.example` lists the new env vars with defaults.
   4. No `TODO` is left in code without a matching entry under "Known issues".

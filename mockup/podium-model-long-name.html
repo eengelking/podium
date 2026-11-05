@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium Agents table: a long model name</title>
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<!-- Mockup for issue #975. Colors are tokens from tokens.css (linked, with no root-level token block of its own). The theme button sets data-theme on <html> the way useTheme does. The .trow, .chip and .ctxc rules below are copied from fleet.css; only the lines marked "new" differ. -->
+<style>
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui, system-ui, sans-serif); padding: 32px 16px 72px; }
+.page { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
+h1 { font-size: 26px; line-height: 1.15; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; }
+p { margin: 0; max-width: 68ch; color: var(--ink2); }
+p + p { margin-top: 8px; }
+code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px; }
+button.theme { font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button.theme:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; }
+.panel > .pt { padding: 8px 12px; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--grid); }
+.narrow { width: 400px; max-width: 100%; }
+.say { font-size: 12.5px; color: var(--ink2); padding: 8px 12px; border-top: 1px solid var(--grid); }
+.tip { display: inline-block; font-size: 12px; background: var(--raised); border: 1px solid var(--border); padding: 3px 8px; border-radius: 4px; color: var(--ink); }
+.verdict { font-weight: 600; color: var(--ink); }
+
+/* From fleet.css: the agent tree */
+.tw { overflow-x: auto; position: relative; }
+.trow { display: grid; grid-template-columns: minmax(210px, 1fr) var(--model-w, 92px) 52px 142px 64px 64px 70px 104px; gap: 10px; align-items: center; padding: 0 12px; min-height: 36px; border-bottom: 1px solid var(--grid); width: 100%; min-width: calc(892px + var(--model-w, 92px) - 92px); box-sizing: border-box; font-size: 13px; }
+.trow:last-child { border-bottom: 0; }
+.trow.hd { min-height: 28px; color: var(--muted); font-size: 11.5px; }
+.trow .num { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.trow .cell { display: flex; align-items: center; min-width: 0; }
+.trow .nm { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.trow .nm .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .nm .tx em { color: var(--muted); font-style: normal; margin-left: 6px; font-size: 12px; }
+.trow .nm .a { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 4px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--border); white-space: nowrap; color: var(--ink2); }
+.chip i { width: 7px; height: 7px; border-radius: 2px; background: var(--c); flex: none; }
+.ctxc { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); }
+.bar { height: 5px; border-radius: 3px; background: var(--grid); overflow: hidden; flex: 1; }
+.bar > i { display: block; height: 100%; border-radius: 3px; background: var(--ink2); }
+.eff { display: inline-flex; align-items: center; gap: 2px; }
+.eff b { width: 4px; height: 10px; border-radius: 1px; background: var(--axis); }
+.eff b.on { background: var(--eff-high); }
+.st { display: inline-flex; align-items: center; gap: 6px; color: var(--warn-text, var(--warn)); }
+.st::before { content: ""; width: 8px; height: 8px; border-radius: 50%; border: 2px solid currentColor; box-sizing: border-box; }
+
+/* Today: nothing clips the label, so it paints over the next columns. */
+/* New: the label is its own span, and it clips. */
+.fix .chip { width: 100%; box-sizing: border-box; min-width: 0; }
+.fix .chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wide { --model-w: 148px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <section>
+    <h1>A long model name in the Agents table</h1>
+    <p>OpenCode sends names such as <code>google/gemma-4-26b-a4b-it</code>. The Model column is 92px wide and the chip does not clip, so the label paints over Effort and Context (#975). Any harness with a long model name does the same.</p>
+    <p>Two ways to fix it, both with the full model id already in the chip's title. <span class="verdict">Recommended: B.</span></p>
+    <p style="margin-top:10px"><button class="theme" type="button" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'">Switch light / dark</button></p>
+  </section>
+
+  <section>
+    <h2>Today</h2>
+    <div class="panel" id="today"><div class="pt">Agents</div><div class="tw" data-rows></div>
+      <div class="say">The label runs past the chip and over the Effort and Context cells.</div></div>
+  </section>
+
+  <section>
+    <h2>A: clip inside the 92px column</h2>
+    <p>The column keeps its width. The chip ends in an ellipsis.</p>
+    <div class="panel fix" id="a"><div class="pt">Agents</div><div class="tw" data-rows></div>
+      <div class="say">Clean, but 92px leaves about eight characters, so <code>google/…</code> and <code>anthropic/…</code> tell the models apart only by the provider.</div></div>
+  </section>
+
+  <section>
+    <h2>B: a wider Model column, then clip</h2>
+    <p>The Model track grows from 92px to 148px (the table's minimum width grows by 56px). Every chip fills the track, so the column reads as one even stack whatever the name, and a name longer than that is clipped with an ellipsis. Hover or focus the row to read the whole id from the title.</p>
+    <div class="panel fix wide" id="b"><div class="pt">Agents</div><div class="tw" data-rows></div>
+      <div class="say">About 16 characters show: <code>google/gemma-4-2…</code>. Short names such as Opus 5.5 sit in a chip of the same width, label on the left.</div>
+      <div class="say"><span class="tip">google/gemma-4-26b-a4b-it</span> The title, as the native tooltip shows it.</div></div>
+  </section>
+
+  <section>
+    <h2>B at 400px</h2>
+    <p>The agent tree already scrolls sideways inside its own container, so the page does not (accessibility.html, narrow width). The wider column adds 56px to what scrolls.</p>
+    <div class="narrow"><div class="panel fix wide" id="n"><div class="pt">Agents</div><div class="tw" data-rows></div></div></div>
+  </section>
+
+  <section>
+    <h2>Standards</h2>
+    <p>Tokens only (<code>--border</code>, <code>--ink2</code>, <code>--grid</code> and the model color <code>--c</code>, as now). It follows the existing long-text rule on patterns.html: a name in a row is cut with an ellipsis and has its full text as a title. It adds no component and no variant. The Model track width changes in the four <code>.trow</code> rules and the narrow-width override, and the chip in that column is as wide as its cell. If the maintainer prefers A, the track stays at 92px.</p>
+  </section>
+</div>
+<script>
+// Rows are built here so the mockup stays short. Each chip's label is its own span so it can clip (the markup change in ModelChip).
+var ROWS = [
+  { task: "Create allow-me.txt", kind: "orchestrator", c: "var(--other)", model: "google/gemma-4-26b-a4b-it", ctx: 2, tok: "5.7k", cost: "$0.00", time: "1:24" },
+  { task: "Review the diff", kind: "reviewer", c: "var(--opus)", model: "Opus 5.5", ctx: 31, tok: "212k", cost: "$1.48", time: "6:02" },
+  { task: "Run the tests", kind: "general-purpose", c: "var(--other)", model: "anthropic/claude-sonnet-4-5-20250929", ctx: 12, tok: "48k", cost: "$0.21", time: "2:40" }
+];
+function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+document.querySelectorAll("[data-rows]").forEach(function (box) {
+  var h = '<div class="trow hd"><div>Task</div><div>Model</div><div>Effort</div><div>Context</div><div class="num">Tokens</div><div class="num">Cost</div><div class="num">Time</div><div>Status</div></div>';
+  ROWS.forEach(function (r) {
+    h += '<div class="trow"><div class="nm"><span class="a"></span><span class="tx"><b>' + esc(r.task) + '</b><em>' + esc(r.kind) + '</em></span></div>' +
+      '<div class="cell"><span class="chip" style="--c:' + r.c + '" title="' + esc(r.model) + '"><i></i><span>' + esc(r.model) + '</span></span></div>' +
+      '<div class="cell"><span class="eff" role="img" aria-label="Effort: high"><b class="on"></b><b class="on"></b><b class="on"></b><b></b><b></b></span></div>' +
+      '<div class="ctxc"><div class="bar"><i style="width:' + r.ctx + '%"></i></div><span>' + r.ctx + '%</span></div>' +
+      '<div class="num">' + r.tok + '</div><div class="num">' + r.cost + '</div><div class="num">' + r.time + '</div><div><span class="st">waiting on you</span></div></div>';
+  });
+  box.innerHTML = h;
+});
+</script>
+</body>
+</html>

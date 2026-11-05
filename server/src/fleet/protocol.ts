@@ -1,813 +1,12 @@
 // Podium wire protocol: the Report the reporter mod POSTs (SPEC 6.2), the view types the server
 // sends to the UI (SPEC 7.4), and a hand-written validator that enforces the limits in SPEC 7.7.
-//
-// The block between the PROTOCOL markers is copied verbatim into
-// mod/podium-reporter/hooks/protocol.ts. A test compares the two after whitespace normalization,
-// so edit both together.
+// The Report types, limits and helpers themselves are in plugin/core/protocol.ts, the one copy the server,
+// the UI and the reporters share; this file re-exports them so the server's imports stay as they were.
 
 import { parseBuild } from './parseBuild.js';
-
-// <protocol:begin>
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-
-export type AgentStatus = 'queued' | 'running' | 'done' | 'failed' | 'aborted';
-
-export type FailureClass =
-  | 'Tool error'
-  | 'Blocked by permission'
-  | 'Model API error'
-  | 'Refusal'
-  | 'Context window exhausted'
-  | 'Aborted'
-  | 'Unknown';
-
-export type EventKind =
-  | 'start' | 'end' | 'spawn' | 'skill' | 'done' | 'fail' | 'blow' | 'compact' | 'plan' | 'wait' | 'note';
-
-export interface TokenCounts {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-}
-
-/** `cacheWrite` is the 5-minute cache write; `cacheWrite1h` the 1-hour one (0 when the reporter cannot split them). */
-export interface UsageTokens extends TokenCounts {
-  cacheWrite1h: number;
-}
-
-/**
- * One model's token totals, so the server prices them with the Admin's prices (issue #117). `tier` is `long`
- * for requests whose prompt (input + cache reads + cache writes) is over 100,000 tokens.
- */
-export interface ModelUsage {
-  model: string;
-  tier: 'std' | 'long';
-  tokens: UsageTokens;
-}
-
-export interface ContextFill {
-  tokens: number | null;
-  window: number | null;
-  percent: number | null;
-}
-
-export interface GitInfo {
-  branch: string | null;
-  detached: boolean;
-  isWorktree: boolean;
-  worktreePath: string | null;
-  ahead: number;
-  behind: number;
-  dirty: number;
-}
-
-export type FileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
-
-/** One file the session changed. `added` and `removed` are null for a binary file. */
-export interface ChangedFile {
-  path: string;
-  status: FileStatus;
-  added: number | null;
-  removed: number | null;
-  /** The old path of a renamed file. */
-  from: string | null;
-  /** The git hash of the file's content on disk (#631), so an edit that leaves the counts alone still shows. Absent for a deleted file, an older reporter, or when git could not hash it. */
-  rev?: string;
-}
-
-/**
- * What the session changed in its repository: the files (at most 200, by path) and the totals over
- * all of them. `since` says what the diff is against: the commit HEAD was at when the session began,
- * the merge base with the upstream branch when that commit is gone, or HEAD alone.
- */
-export interface FilesReport {
-  files: ChangedFile[];
-  total: number;
-  added: number;
-  removed: number;
-  since: 'start' | 'upstream' | 'worktree';
-}
-
-export interface RateLimit {
-  kind: string;
-  percentUsed: number;
-  resetsAt: string | null;
-}
-
-export interface PlanStep {
-  id: string;
-  text: string;
-  state: 'pending' | 'active' | 'done' | 'blocked';
-  activeText: string | null;
-  ownerAgentId: string | null;
-  ownerLabel: string | null;
-}
-
-export interface Plan {
-  title: string | null;
-  source: 'TaskCreate' | 'TodoWrite' | 'podium_plan';
-  steps: PlanStep[];
-}
-
-export interface Failure {
-  class: FailureClass;
-  at: number;
-  tool: string | null;
-  call: string | null;
-  exitCode: number | null;
-  outputTail: string[];
-  evidence: string[];
-  explanation: string | null;
-  retriedAs: string | null;
-}
-
-/**
- * What the orchestrator's main loop reports about its own work, in the shapes an AgentReport uses for
- * the fields of the same name. Calls made by agents it launched are not counted here.
- */
-export interface LoopReport {
-  skills: string[];
-  lastTool: string | null;
-  toolCalls: number;
-  toolCounts: Record<string, number>;
-  steps: { done: number; total: null };
-}
-
-/** The loop key of the orchestrator's own feed, in the report reply's `watch` list and the activity route (#118). Engine agent ids never start with `@`. */
-export const MAIN_LOOP = '@orchestrator';
-
-/** The status of one file's diff, as the mod answers a request for it (#319, SPEC 6.4). */
-export const FILE_DIFF_STATUSES = ['ok', 'binary', 'withheld', 'too-large', 'unavailable'] as const;
-export type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
-
-/** A diff the session's owner is waiting for, in the report reply's `diffs` list. */
-export interface DiffRequest {
-  id: string;
-  path: string;
-}
-
-/** The mod's answer to a DiffRequest. `text` is a unified diff, redacted by the mod, and null for any status but `ok`. */
-export interface FileDiffReply {
-  path: string;
-  status: FileDiffStatus;
-  text: string | null;
-  /** The mod cut the diff at a line or byte limit. */
-  truncated: boolean;
-  shownLines: number;
-  totalLines: number;
-  /** How many values the mod replaced with [redacted]. */
-  redactions: number;
-  /** What the diff is against: the short starting commit, the upstream merge base, or "worktree". null when there is none. */
-  base: string | null;
-}
-
-/** `reasoning` is reserved for the model's thinking; the reporter does not send it. */
-export type ActivityKind = 'tool' | 'text' | 'reasoning';
-
-/**
- * One entry of a loop's activity feed (#118): a tool call (the tool's name, a space, and a short summary of its
- * arguments) or the text the model wrote in one step. Redacted and cut to 300 characters by the reporter. Sent only
- * with the `activityFeed` option on, and only for a loop the server's reply lists as watched.
- */
-export interface ActivityEntry {
-  at: number;
-  kind: ActivityKind;
-  text: string;
-  /**
-   * The tool call's id, so the output of a call that was running when its entry first went out can be matched to that entry
-   * later (#431). Sent with the fields below.
-   */
-  id?: string;
-  /**
-   * A Bash call's whole command, redacted, line breaks kept, cut to 20,000 characters with a "[cut off at 20,000 characters]"
-   * marker (#431). Rides the `activityFeed` option and is stored in the Activity history (#432). Only on a `tool` entry.
-   */
-  command?: string;
-  /** The mod cut the command at its limit. */
-  commandCut?: boolean;
-  /**
-   * The call's output, stdout then stderr, redacted and cut like `command` (#431). Sent only with the `activityOutput` option on
-   * and only while a viewer has the loop's feed open (the reply's `watchOutput`); the server holds it in memory and never stores
-   * it. Absent while the call runs and when the output was not captured; an empty string is a call that printed nothing.
-   */
-  output?: string;
-  /** The mod cut the output at its limit. */
-  outputCut?: boolean;
-  /**
-   * The call has finished (#598). Sent with `activityFeed` on, with or without `output`; absent while it runs. It is not output:
-   * it needs neither the `activityOutput` option nor the Admin flag, and an older mod sends it only with `output`.
-   */
-  done?: boolean;
-  /** The command's exit status, when the mod can read it. Sent with `done`, never kept in the Activity history. */
-  exitCode?: number;
-  /** The call failed. Sent with `done` when the exit status says so, whether or not `exitCode` is known. */
-  failed?: boolean;
-}
-
-export interface AgentReport {
-  id: string;
-  parentId: string | null;
-  kind: 'subagent' | 'fork' | 'teammate';
-  type: string;
-  name: string | null;
-  description: string;
-  model: string | null;
-  effort: Effort | null;
-  effortSource: 'requested' | 'observed' | 'inherited' | 'unknown';
-  status: AgentStatus;
-  startedAt: number;
-  endedAt: number | null;
-  context: ContextFill;
-  tokens: TokenCounts;
-  costUsdEst: number | null;
-  /** Tokens per model and prompt-size tier. Absent when the reporter is too old to send it. */
-  usageByModel?: ModelUsage[];
-  skills: string[];
-  lastTool: string | null;
-  toolCalls: number;
-  /** Finished calls per tool name. null when the reporter is too old to send it. */
-  toolCounts: Record<string, number> | null;
-  blowouts: number;
-  steps: { done: number; total: number | null } | null;
-  promptExcerpt: string;
-  answerExcerpt: string | null;
-  /**
-   * The whole task prompt and final answer, redacted, line breaks kept. Sent only when the reporter's
-   * `fullPrompts` option is on, and only once per text (the server keeps what it was given).
-   */
-  promptText?: string;
-  answerText?: string;
-  /** The agent's last 20 activity entries, oldest first: only while someone watches it, with the `activityFeed` option on (0.13.0 and later). */
-  activity?: ActivityEntry[];
-  failure: Failure | null;
-}
-
-export interface ActivityEvent {
-  id: string;
-  t: number;
-  kind: EventKind;
-  agentId: string | null;
-  text: string;
-  data: Record<string, unknown> | null;
-}
-
-/** What a session idle between turns is still waiting on: background work in flight, or a scheduled wake-up (#119). */
-export type BackgroundKind = 'shell' | 'agent' | 'monitor' | 'workflow' | 'wakeup' | 'other';
-
-export interface BackgroundTask {
-  type: BackgroundKind;
-  /** A short description; never a whole shell command. */
-  description: string;
-  status: string;
-}
-
-export interface BackgroundWait {
-  tasks: BackgroundTask[];
-  /** When the next scheduled wake-up fires (epoch ms); null when there is none or its time is unknown. */
-  wakeAt: number | null;
-}
-
-export interface SessionReport {
-  id: string;
-  name: string;
-  status: 'running' | 'waiting' | 'done';
-  waitReason: 'permission' | 'input' | null;
-  waitNote: string | null;
-  endReason: string | null;
-  resumeId: string | null;
-  startedAt: number;
-  cwd: string;
-  projectRoot: string | null;
-  repoName: string | null;
-  git: GitInfo | null;
-  model: string | null;
-  effort: Effort | null;
-  context: ContextFill;
-  costUsd: number | null;
-  tokens: TokenCounts;
-  /** Tokens per model and tier for the whole session, agents included. Absent when the reporter is too old to send it. */
-  usageByModel?: ModelUsage[];
-  rateLimits: RateLimit[];
-  blowouts: number;
-  plan: Plan | null;
-  /** The main loop's steps, tools and skills. null when the reporter is too old to send it. */
-  loop: LoopReport | null;
-  /** The files the session changed. null when the reporter is too old to send it. */
-  files: FilesReport | null;
-  /** Whether any client (a terminal, a phone) is attached. false for a background session left running after /exit. null when unknown: a reporter too old to send it. */
-  attached: boolean | null;
-  /** Background work the session is idle on. Absent from a reporter older than 0.11.0 and when there is none. */
-  background?: BackgroundWait | null;
-  /** Whether the reporter's `activityFeed` option is on. Absent from a reporter older than 0.13.0. */
-  activityFeed?: boolean;
-  /** Whether the reporter's `activityOutput` option is on (#431): a Bash command's output may go out, only while a viewer has the feed open. Absent from a reporter older than the release that adds it. */
-  activityOutput?: boolean;
-  /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
-  fileDiff?: boolean;
-  /** Whether the reporter's `fileDiffPreload` option is on (#631): the console may ask for every changed file's diff while its page is open. Absent from a reporter older than the release that adds it. */
-  fileDiffPreload?: boolean;
-  /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
-  activity?: ActivityEntry[];
-  /** Whether and how far the session can be answered from Podium (#206). Absent from a reporter older than 0.14.0. */
-  respond?: RespondInfo;
-  /** The asks open now, at most 8; sent only while the last reply said `respond: true`. */
-  asks?: Ask[];
-  /** The session id this one continues after a /clear (SPEC 5.8). */
-  clearedFrom?: string | null;
-  /** Whether the reporter's `peers` option is on (#347). Absent from a reporter older than the release that adds it, whose sessions are never listed as peers. */
-  peers?: boolean;
-  /** Whether the reporter's `sessionRecording` option is on (#353): the owner's consent to be recorded. Absent from a reporter older than the release that adds it. */
-  sessionRecording?: boolean;
-}
-
-export interface Report {
-  v: 1;
-  sentAt: number;
-  /** `build` is the commit hash of a dev build of the mod (#400). A release, and a mod that predates it, leave it out. */
-  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
-  session: SessionReport;
-  agents: AgentReport[];
-  events: ActivityEvent[];
-  /** The person this reporter is configured as. The server checks it against the token's owner and refuses a mismatch. Omitted or null when none is set. */
-  userName?: string | null;
-  /** The machine the session runs on. Sent only with a userName, so nothing identifying leaves an unnamed reporter. Omitted or null from a reporter older than 0.9.0. */
-  machine?: MachineInfo | null;
-}
-
-/** Which machine a session runs on: its host name, and a random id the reporter keeps so two machines with one host name stay apart. */
-export interface MachineInfo {
-  name: string;
-  id: string;
-  /** The machine's OS and version as the mod read it, such as `macOS 27.0.1` (#347). Free text, never parsed; absent or null when it could not be read. */
-  os?: string | null;
-}
-/** "1 shell, 1 agent": the counts of a background wait by kind. The activity feed's wait row is read from it. */
-export function backgroundSummary(b: BackgroundWait): string {
-  const n = new Map<string, number>();
-  for (const t of b.tasks) n.set(t.type, (n.get(t.type) ?? 0) + 1);
-  return [...n].map(([k, c]) => `${c} ${k}`).join(', ');
-}
-
-/** A waiting session whose only wait is on background work or a wake-up, not on the person (#119). */
-export function idleOnBackground<T extends { status: string; waitReason: string | null; background?: BackgroundWait | null }>(s: T): s is T & { background: BackgroundWait } {
-  return s.status === 'waiting' && s.waitReason === null && !!s.background;
-}
-
-// ---- Responding (#206, SPEC 5.3, 6.2, 7.1) --------------------------------------------------
-
-/** The reporter's `respond` option: what this session accepts from Podium. */
-export type RespondLevel = 'off' | 'questions' | 'questions-and-plans' | 'everything';
-export const RESPOND_LEVELS: readonly RespondLevel[] = ['off', 'questions', 'questions-and-plans', 'everything'];
-
-/** One kind of answer a session can take from Podium. */
-export type RespondKind = 'question' | 'plan-approve' | 'plan-feedback' | 'permission' | 'message' | 'command';
-export const RESPOND_KINDS: readonly RespondKind[] = ['question', 'plan-approve', 'plan-feedback', 'permission', 'message', 'command'];
-
-/** Why a kind the level allows is missing from `accepts`. */
-export type RespondLimit = 'no-permission-hooks' | 'not-interactive';
-export const RESPOND_LIMIT_NAMES: readonly RespondLimit[] = ['no-permission-hooks', 'not-interactive'];
-
-/** The kinds each level allows. Each level allows what the one before it does. */
-export const LEVEL_KINDS: Record<RespondLevel, readonly RespondKind[]> = {
-  off: [],
-  questions: ['question', 'message'],
-  'questions-and-plans': ['question', 'message', 'plan-approve', 'plan-feedback'],
-  everything: ['question', 'message', 'plan-approve', 'plan-feedback', 'permission', 'command'],
-};
-
-/** Whether and how far a session can be answered from Podium (Report.session.respond). */
-export interface RespondInfo {
-  level: RespondLevel;
-  /** What the session takes now: the level's kinds, less what `limits` removes; empty while the activityFeed option is off. */
-  accepts: RespondKind[];
-  limits: RespondLimit[];
-}
-
-/** The kinds a level allows once the limits are applied. */
-export function acceptsFor(level: RespondLevel, limits: readonly RespondLimit[], activityFeed: boolean): RespondKind[] {
-  if (!activityFeed || limits.includes('not-interactive')) return [];
-  const drop: RespondKind[] = limits.includes('no-permission-hooks') ? ['plan-approve', 'permission'] : [];
-  return LEVEL_KINDS[level].filter((k) => !drop.includes(k));
-}
-
-export type AskKind = 'question' | 'plan' | 'permission';
-
-export interface AskOption {
-  label: string;
-  description: string;
-  preview: string | null;
-}
-
-export interface AskQuestion {
-  question: string;
-  header: string;
-  multiSelect: boolean;
-  options: AskOption[];
-}
-
-/**
- * One thing a session waits on its person for that Podium can answer. Its id is the tool call's `tool_use_id`.
- * Redacted by the reporter, and cut to RESPOND_LIMITS with a visible marker.
- */
-export interface Ask {
-  id: string;
-  kind: AskKind;
-  /** The loop that asked: set for a subagent's permission prompt; null for the main loop. */
-  agentId: string | null;
-  openedAt: number;
-  questions?: AskQuestion[];
-  plan?: { text: string; filePath: string | null };
-  /** The tool and its arguments; `cut` when anything was cut off, and then Podium cannot allow it. */
-  tool?: { name: string; input: Record<string, unknown>; cut: boolean };
-}
-
-export const RESPOND_LIMITS = {
-  asks: 8,
-  questions: 4,
-  options: 4,
-  question: 1000,
-  header: 40,
-  label: 200,
-  description: 1000,
-  preview: 4000,
-  plan: 40_000,
-  toolInput: 20_000,
-  /** A typed answer, a deny reason, a close's answer summary. */
-  answer: 2000,
-  /** A message, a reply in place of an answer, plan feedback. */
-  message: 20_000,
-  /** Messages and commands waiting for one session. */
-  deliveries: 20,
-  /** The longest a held request for an answer waits, in seconds ($.http.fetch gives up at 30). */
-  holdSeconds: 20,
-} as const;
-
-/** What a delivery carries. `reply` is a message sent in place of an answer. */
-export type DeliveryKind = 'question' | 'reply' | 'plan-approve' | 'plan-feedback' | 'allow-once' | 'deny' | 'message' | 'command';
-export const DELIVERY_KINDS: readonly DeliveryKind[] = ['question', 'reply', 'plan-approve', 'plan-feedback', 'allow-once', 'deny', 'message', 'command'];
-
-/** One question's answer by position: the chosen options' indexes, a typed answer, or null for skipped. */
-export type QuestionAnswer = { options: number[] } | { text: string } | null;
-
-export type PlanMode = 'auto' | 'acceptEdits' | 'default';
-export const PLAN_MODES: readonly PlanMode[] = ['auto', 'acceptEdits', 'default'];
-
-export type PodiumCommand = 'clear' | 'compact';
-export const PODIUM_COMMANDS: readonly PodiumCommand[] = ['clear', 'compact'];
-
-/** One answer or message sent from Podium, as the server hands it to the mod. */
-export interface Delivery {
-  id: string;
-  /** The ask it answers; null for a message or a command. */
-  askId: string | null;
-  /** Who sent it: a person's name, or `Admin` for the admin secret. */
-  by: string;
-  at: number;
-  kind: DeliveryKind;
-  answers?: QuestionAnswer[];
-  mode?: PlanMode;
-  text?: string;
-  command?: PodiumCommand;
-}
-
-/** What became of a delivery, as the mod reports it. */
-export type DeliveryResult = 'took' | 'queued' | 'not-taken' | 'refused' | 'closed';
-export const DELIVERY_RESULTS: readonly DeliveryResult[] = ['took', 'queued', 'not-taken', 'refused', 'closed'];
-
-/** How an ask closed without an answer from Podium. */
-export type AskCloseOutcome = 'terminal' | 'closed' | 'ended';
-
-export interface AskClose {
-  outcome: AskCloseOutcome;
-  at: number;
-  /** A short summary of the terminal's answer: a question's answers joined with "; ", `No, keep planning`, `allowed` or `denied`. */
-  answer?: string | null;
-  /** True for a plan approved in the terminal (which mode is not known). */
-  planApproved?: boolean;
-}
-
-// ---- Orchestrator messaging (#347, SPEC 5.3, 6.2, 7.7) --------------------------------------
-
-export const PEER_LIMITS = {
-  /** The longest message the server takes; the Admin's limit is at most this. */
-  message: 20_000,
-  /** An orchestrator's reason when it asks for a right. */
-  reason: 1000,
-  /** A `to` address, `name@machine`. */
-  address: 200,
-  /** Peer deliveries in one reply. */
-  deliveries: 20,
-  /** Open requests in one reply. */
-  requests: 20,
-  /** The OS string in a report. */
-  os: 80,
-} as const;
-
-/** A right one reporter has to another: none, can see, can send with approval (`ask`), can send. Sending includes seeing. */
-export type PeerLevel = 'none' | 'see' | 'ask' | 'send';
-export const PEER_LEVELS: readonly PeerLevel[] = ['none', 'see', 'ask', 'send'];
-
-/** One orchestrator, as a message names its sender. */
-export interface PeerParty {
-  name: string;
-  machine: string;
-  owner: string;
-  /** The sender's short session id, for `name@machine#id`; absent from a server older than #500. */
-  id?: string;
-}
-
-/**
- * Something for this session's orchestrator from the messaging side, in the report reply. `message` is another
- * orchestrator's text, to be framed by the mod (SPEC 5.3); `notice` is Podium's own sentence about one of this
- * orchestrator's messages or requests (dropped, declined, answered), with `from` null. Its result goes to the peer
- * result route, never responding's.
- */
-export interface PeerDelivery {
-  id: string;
-  kind: 'message' | 'notice';
-  at: number;
-  from: PeerParty | null;
-  text: string;
-}
-
-/** What became of a peer delivery, as the mod reports it. */
-export type PeerResult = 'took' | 'queued' | 'refused';
-export const PEER_RESULTS: readonly PeerResult[] = ['took', 'queued', 'refused'];
-
-/** A request the owner answers: an Admin's proposed right, an orchestrator's request for one, a message waiting for approval. */
-export type PeerRequestKind = 'proposal' | 'access' | 'message';
-
-/** How an owner answers a request: allow a proposal or an access request, deliver a message, or decline either. */
-export type PeerAnswer = 'allow' | 'decline' | 'deliver';
-export const PEER_ANSWERS: readonly PeerAnswer[] = ['allow', 'decline', 'deliver'];
-
-/** One open request, as the owner's sessions on the machine it concerns are told of it. A reporter is named by its machine, an orchestrator by its name too. */
-export interface PeerRequest {
-  id: string;
-  kind: PeerRequestKind;
-  at: number;
-  /** The reporter that would get the right, or the sender of a message. */
-  from: { machine: string; name: string | null };
-  /** The reporter the right is to, or the receiver of a message. */
-  to: { machine: string; name: string | null };
-  /** The right proposed or asked for; null for a message. */
-  level: PeerLevel | null;
-  /** Who asked: `Admin` for a proposal, the orchestrator's name for an access request or a message. */
-  by: string;
-  /** An orchestrator's reason, for an access request. */
-  reason: string | null;
-  /** The message's text, for a message waiting for approval. */
-  text: string | null;
-}
-
-/** The reply to an accepted report. Older servers send only some of it. */
-export interface ReportReply {
-  ok: true;
-  serverTime: number;
-  ackedEvents: number;
-  sessionId: string;
-  liveSessions: number;
-  serverVersion: string;
-  /** The commit of a dev build of the server (#400); null for a release. Older servers do not send it. */
-  serverBuild?: string | null;
-  reporterSupport: { min: string; max: string };
-  reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
-  watch: string[];
-  /**
-   * The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is
-   * on (#431). A subset of `watch`: a loop listed there only because the Activity history keeps it is not here. The mod captures
-   * a Bash call's output only for these loops, and only with its `activityOutput` option on. Absent from a server older than the
-   * release that adds it, which asks for none.
-   */
-  watchOutput?: string[];
-  /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
-  respond: boolean;
-  /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
-  deliveries: Delivery[];
-  /** Whether this session's orchestrator can take part in messaging now (#347): authentication on, the Admin's flag on, the session owned by a person, and the `peers` option on. */
-  peers?: boolean;
-  /** Messages and notices for this orchestrator, oldest first, handed over only while it is idle; empty while `peers` is false. */
-  peerDeliveries?: PeerDelivery[];
-  /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
-  peerRequests?: PeerRequest[];
-  /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
-  recording?: RecordingGrant;
-}
-
-/**
- * Session recording (#353, SPEC 6.4 "Session recording"). Everything an orchestrator and the agents under it do, whole, for
- * troubleshooting. Three yes answers are needed before anything leaves the machine: the Admin's `session-recording` flag,
- * a choice by the session's owner or an Admin, and the reporter's `sessionRecording` option (off by default).
- */
-export const RECORDING_KINDS = ['prompt', 'text', 'tool', 'result', 'thinking', 'clear', 'compact', 'decision', 'gap', 'stopped', 'limit'] as const;
-/**
- * What one recorded entry is. The mod writes `prompt` (a task prompt, a person's prompt or a message from Podium), `text` (what the
- * model wrote), `tool` (a call with its whole input), `result` (that call's whole output, `name` the tool, `failed` when it failed),
- * `thinking` (a mark where the model thought; its text is not available, see SPEC 6.4), `clear` and `compact` (the transcript was
- * emptied or compacted; `by` when Podium ran it), `decision` (an answer or approval sent from Podium and taken by Claude Code: `name`
- * is `question`, `plan` or `permission`, `callSeq` the call it answers, `by` who sent it, `failed` when it refused: a deny, a plan sent
- * back) and `gap` (`lost` entries never reached the server). The server writes `stopped` and `limit` itself.
- */
-export type RecordingKind = (typeof RECORDING_KINDS)[number];
-
-/** One recorded entry, as the mod sends it. `(loop, seq)` is the entry's identity: a resend of an entry the server holds is dropped. */
-export interface RecordingEntry {
-  /** The loop it belongs to: `@orchestrator` (MAIN_LOOP) or an agent id. */
-  loop: string;
-  /** Counts up from 1 per session and loop, assigned by the mod when the entry happens. */
-  seq: number;
-  /** When it happened on the machine, epoch ms. */
-  at: number;
-  kind: RecordingKind;
-  /** The whole text, redacted on the machine and cut at RECORDING_LIMITS.text with a visible marker. An empty string for `thinking`, `clear`, `compact` and `gap`. */
-  text: string;
-  /** The tool's name, for `tool` and `result`. */
-  name?: string;
-  /** The `seq` of the `tool` entry a `result` answers, in the same loop. */
-  callSeq?: number;
-  /** A `result` of a call that failed. */
-  failed?: boolean;
-  /** The text was cut at the limit. */
-  cut?: boolean;
-  /** For `gap`: how many entries of this loop were dropped on the machine (the queue was full during an outage). */
-  lost?: number;
-  /** For `decision`, `clear` and `compact`: who sent it from Podium. Taken from the mod for these kinds only; a `prompt` is marked by the server (SPEC 6.4). */
-  by?: string;
-}
-
-/** What one request to the recording route carries. The mod splits a larger backlog so each request stays within RECORDING_LIMITS.bodyBytes. */
-export interface RecordingBatch {
-  v: 1;
-  sentAt: number;
-  /** Oldest first. At most RECORDING_LIMITS.entries. */
-  entries: RecordingEntry[];
-}
-
-/** The server's answer to a batch. A batch that was accepted is never sent again. */
-export interface RecordingBatchReply {
-  ok: true;
-  /** How many entries were new; the rest were already held. */
-  stored: number;
-  /** The state after this batch, so a cap reached by it stops the mod at once. */
-  recording: RecordingGrant;
-}
-
-export const RECORDING_STATES = ['off', 'recording', 'stopped', 'limit'] as const;
-/** `off`: nothing is chosen. `recording`: capturing. `stopped`: capture ended and what was recorded is kept. `limit`: the per-session cap or the disk budget stopped it. */
-export type RecordingState = (typeof RECORDING_STATES)[number];
-
-/** Which cap stopped a recording. */
-export type RecordingLimit = 'session' | 'budget';
-
-/** The three yes answers. Capture needs all three. */
-export interface RecordingConsent {
-  /** The Admin's `session-recording` flag is on and the server has authentication on. */
-  admin: boolean;
-  /** Someone with the right (the session's owner or an Admin) chose to record this session. */
-  chosen: boolean;
-  /** The session's last report said the `sessionRecording` option is on. */
-  owner: boolean;
-}
-
-/**
- * The consent state in a report's reply (`recording`) and in a batch's. The mod captures only while `state` is `recording` and
- * every `consent` answer is true, and only the loops in `loops`. When `chosen` is true but `owner` is false it captures nothing and
- * tells the owner so in the terminal. It is sent in every reply while a recording is chosen or kept, and `state: "off"` otherwise.
- */
-export interface RecordingGrant {
-  state: RecordingState;
-  consent: RecordingConsent;
-  /** The loops to capture (`@orchestrator` or agent ids). A loop that starts later under a recorded session is not in it until chosen. */
-  loops: string[];
-  limit: RecordingLimit | null;
-  /** Who chose it (a person's name, or `Admin`), for the terminal text and the notice. */
-  startedBy: string | null;
-  startedAt: number | null;
-  /** Who stopped it and when, once `state` is `stopped`. */
-  stoppedBy: string | null;
-  stoppedAt: number | null;
-  /** When the oldest part still kept goes, epoch ms; null when nothing is kept. */
-  keptUntil: number | null;
-  /** The recording's size so far, in bytes. */
-  bytes: number;
-}
-
-/** Limits for session recording. Sizes were set from a simulated-traffic measurement (#353, SPEC 6.4 "Measured write load"); the Admin's values are in RECORDING_DEFAULTS. */
-export const RECORDING_LIMITS = {
-  /** Entries in one batch. */
-  entries: 200,
-  /** Characters of one entry's text; the mod's cut-off marker comes on top (room for it is added on the server). */
-  text: 100_000,
-  /** Serialized bytes of one batch, below the 512 KB body limit with room for JSON escaping. */
-  bodyBytes: 480_000,
-  /** Bytes the mod queues while the server cannot be reached. Past it the oldest entries go and a `gap` entry says how many. */
-  queueBytes: 8_000_000,
-  /** Rows of one replay page, and the most a request may ask for. */
-  page: 200,
-} as const;
-
-/** What the Admin sets, one JSON row `recording_settings` in `settings`. Defaults set from measurement (#353). */
-export interface RecordingSettings {
-  /** How long each part is kept, counted from when it was recorded. */
-  keepHours: number;
-  /** Disk budget for all recordings, in megabytes. At this size every recording stops, and a new one needs room for one more request (SPEC 7.7). */
-  budgetMb: number;
-  /** Limit for one session, in megabytes. A recording stops when its session reaches it. */
-  sessionMb: number;
-}
-export const RECORDING_DEFAULTS: RecordingSettings = { keepHours: 6, budgetMb: 4096, sessionMb: 512 };
-/** Whole numbers. `keepHours` is at most 7 days. */
-export const RECORDING_RANGES = { keepHours: { min: 1, max: 168 }, budgetMb: { min: 64, max: 102_400 }, sessionMb: { min: 8, max: 4096 } } as const;
-
-/** What a person with the right sends to start (or change) a recording: the loops to record from now on. Nothing before it is kept. */
-export interface RecordingStartRequest {
-  loops: string[];
-}
-
-/**
- * One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`.
- * `seq` is the entry's own number within its loop (the mod's, from 1; 0 and below for a mark the server wrote), which a result's
- * `callSeq` names.
- */
-export interface RecordingRow {
-  n: number;
-  seq: number;
-  loop: string;
-  at: number;
-  kind: RecordingKind;
-  text: string;
-  name?: string;
-  callSeq?: number;
-  failed?: boolean;
-  cut?: boolean;
-  lost?: number;
-  by?: string | null;
-}
-
-/** A loop the layer and the replay's loop filter name, with whether it is recorded. */
-export interface RecordingLoopInfo {
-  loop: string;
-  name: string;
-  recorded: boolean;
-}
-
-/** One page of a replay, oldest first: the newest `RECORDING_LIMITS.page` rows, then older ones with `before` = `olderBefore`. */
-export interface RecordingPage {
-  entries: RecordingRow[];
-  /** The `n` to pass as `before` for the next older page, or null. */
-  olderBefore: number | null;
-  total: number;
-  grant: RecordingGrant;
-  loops: RecordingLoopInfo[];
-  /** The session's owner, for the refusal a viewer who may not read it is shown. */
-  owner: string | null;
-}
-
-/** A row of the Admin's Recordings table. */
-export interface RecordingAdminRow {
-  sessionId: string;
-  name: string;
-  owner: string | null;
-  startedBy: string | null;
-  state: RecordingState;
-  limit: RecordingLimit | null;
-  /** How many loops are recorded, and a short label such as "orchestrator and 3 agents". */
-  loops: number;
-  label: string;
-  bytes: number;
-  keptUntil: number | null;
-}
-
-/**
- * What everyone sees of a recording (#353): the card's band and the orchestrator page's layer. State, who started it, which loops
- * and when it goes; never any text. `SessionView.recording` is this, or null when nothing is chosen or kept.
- */
-export interface RecordingView {
-  state: Exclude<RecordingState, 'off'>;
-  limit: RecordingLimit | null;
-  startedBy: string | null;
-  startedAt: number | null;
-  stoppedBy: string | null;
-  stoppedAt: number | null;
-  keptUntil: number | null;
-  bytes: number;
-  /** Every loop of the session, with whether it is recorded; the layer names both groups in words. */
-  loops: RecordingLoopInfo[];
-  /** Whether the reporter's `sessionRecording` option is on. False while the recording is chosen means nothing is being captured. */
-  ownerAllows: boolean;
-}
-
-// <protocol:end>
-
-/** Why the server let go of a held message, as its sender is told: the log rows and Traffic's delivery words (#467). */
-export const PEER_DROP_WORDS: Record<string, string> = {
-  'receiver-ended': 'the receiver ended first',
-  'session-deleted': 'a session was deleted',
-  'link-removed': 'the link was removed',
-  'messaging-off': 'orchestrator messaging was turned off',
-  refused: 'the receiving reporter refused it',
-};
+import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
+import { CAPABILITY_KEYS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
+export * from '../../../plugin/core/protocol.js';
 
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
 export interface PlanStepView extends PlanStep {
@@ -818,7 +17,7 @@ export interface PlanView extends Omit<Plan, 'steps'> {
   steps: PlanStepView[];
 }
 
-/** Limits for a file's diff on request (#319, SPEC 6.4). The mod keeps its own copy of the ones it uses, in hooks/fileDiff.ts. */
+/** Limits for a file's diff on request (#319, SPEC 6.4). The mod keeps its own copy of the ones it uses, in plugin/core/fileDiff.ts. */
 export const FILE_DIFF_LIMITS = {
   /** Lines and bytes the mod sends; more is cut at a line boundary. */
   lines: 2000,
@@ -873,6 +72,9 @@ export type SessionStatusView = 'running' | 'waiting' | 'stale' | 'done';
 
 export interface AgentView extends Omit<AgentReport, 'promptText' | 'answerText' | 'activity'> {
   modelFamily: ModelFamily;
+  /** The model's name as the harness shows it, and the company behind it (#945); null when no report gave one. The row and the panel read the label. */
+  modelLabel: string | null;
+  modelProvider: string | null;
   /** Length of the full prompt / answer the server holds, null when it has none (served by the text endpoint). */
   promptChars: number | null;
   answerChars: number | null;
@@ -889,7 +91,7 @@ export interface BlowoutLogEntry {
 /** `outdated`: below the supported range, update the mod. `newer`: above it, upgrade the server. `unknown`: unreadable, no warning. */
 export type ReporterCompat = 'ok' | 'outdated' | 'newer' | 'unknown';
 
-/** The reporter versions a server reads correctly (major.minor compared; patch ignored). */
+/** The versions of one reporter a server reads correctly (major.minor compared; patch ignored). The server holds one range per reporter name (#852). */
 export interface ReporterSupport {
   min: string;
   max: string;
@@ -904,15 +106,18 @@ export interface SessionView {
   reporterVersion: string | null;
   /** The commit hash of a dev build of the mod (#400); null for a release, a hooks-only session and a mod that does not send one. */
   reporterBuild: string | null;
-  /** How that version sits against the range this server supports. Always `unknown` for hooks. */
+  /** The reporter that sent it (`podium-reporter` for Claude Code), which the version warning names (#852). */
+  reporterName: string;
+  /** How that version sits against that reporter's own range on this server. Always `unknown` for hooks. */
   compat: ReporterCompat;
   project: string;
   /** The session's working directory, home shortened to `~`. */
   cwd: string;
   repoName: string | null;
-  resumeCommand: string;
-  /** `resumeCommand` plus `--fork-session`: starts a copy of the conversation in a new session (#352). */
-  forkCommand: string;
+  /** The command that continues the session in a terminal, from the harness's template; null when the harness has none (#853). */
+  resumeCommand: string | null;
+  /** The command that starts a copy of the conversation in a new session (#352); null when the harness has none (#853). */
+  forkCommand: string | null;
   git: GitInfo | null;
   model: string | null;
   modelFamily: ModelFamily;
@@ -972,6 +177,15 @@ export interface SessionView {
   respond: RespondInfo | null;
   /** The session's asks, open or closed in the last 10 minutes, without their content (served only to the owner or an Admin). */
   asks: AskSummary[];
+  /** The harness that runs the session; `claude-code` for a session from before it was stored (#851). */
+  harness: string;
+  /** Who worked out `costUsd`: `harness` when the harness reported it, which the console labels as the harness's figure; `estimate` when Podium priced it. */
+  costSource: CostSource;
+  /** What the harness declared it can report (#940); null when no report has declared any (every v1 session, and every session stored before this). A key it did not declare is absent. */
+  capabilities: Capabilities | null;
+  /** The model's name as the harness shows it, and the company or service behind it (#940); null when none was sent. */
+  modelLabel: string | null;
+  modelProvider: string | null;
   /** The session this one continues after a /clear. */
   clearedFrom: string | null;
   /** The session's recording, for the notice everyone sees (#353): absent or null when nothing is chosen or kept. Carries no text. */
@@ -1126,6 +340,11 @@ export interface HistoryRow {
   endedAt: number;
   durationSec: number;
   costUsd: number | null;
+  /** The harness that ran the session, and who worked out `costUsd` (#853), as in SessionView. */
+  harness: string;
+  costSource: CostSource;
+  /** The model's name as the harness shows it (#940); null when none was sent. */
+  modelLabel: string | null;
   blowouts: number;
   agents: number;
   endReason: string | null;
@@ -1144,6 +363,8 @@ export interface HistoryRow {
 // ---------------------------------------------------------------------------------------------
 
 export const LIMITS = {
+  /** Commands a v2 report may declare (#850). */
+  commands: 64,
   name: 80,
   text: 240,
   excerpt: 400,
@@ -1236,14 +457,45 @@ function strOrNull(v: unknown, path: string, max: number): string | null {
   return str(v, path, max);
 }
 
+/**
+ * The largest size a number in a report may have, either way (#1007). Every integer column is 64-bit, but the server reads
+ * a row back as a JavaScript number, which holds an integer exactly only up to 2^53, and several readers add rows together
+ * (rollups, spend). 2^50 is about 1.1e15: far past any epoch millisecond or token count, and sums of eight such values still read back.
+ * A larger one stored on either database makes the row throw on every later read.
+ */
+export const MAX_REPORT_NUMBER = 2 ** 50;
+
 function num(v: unknown, path: string): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new Invalid(path, 'expected a finite number');
+  if (Math.abs(v) > MAX_REPORT_NUMBER) throw new Invalid(path, `expected a number no larger than ${MAX_REPORT_NUMBER} either way`);
   return v;
 }
 
 function numOrNull(v: unknown, path: string): number | null {
   if (v === null || v === undefined) return null;
   return num(v, path);
+}
+
+/**
+ * An epoch millisecond or a token count: SPEC 6.2 says these are integers, and a fractional one is refused (#1007). A database may keep
+ * 1000.5 as a float while another rejects it for an integer column, so rounding or accepting it would make the stores differ.
+ */
+function whole(v: unknown, path: string): number {
+  const n = num(v, path);
+  if (!Number.isInteger(n)) throw new Invalid(path, 'expected a whole number');
+  return n;
+}
+
+function wholeOrNull(v: unknown, path: string): number | null {
+  if (v === null || v === undefined) return null;
+  return whole(v, path);
+}
+
+/** A token count: a whole number, not below zero. */
+function count(v: unknown, path: string): number {
+  const n = whole(v, path);
+  if (n < 0) throw new Invalid(path, 'expected a non-negative number');
+  return n;
 }
 
 function int(v: unknown, path: string): number {
@@ -1287,7 +539,25 @@ function arr(v: unknown, path: string, max: number): unknown[] {
   return v;
 }
 
-const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const EFFORTS: readonly KnownEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const AGENT_KINDS = ['subagent', 'fork', 'teammate'] as const;
+const PLAN_SOURCES = ['TaskCreate', 'TodoWrite', 'podium_plan'] as const;
+
+/** A closed list for a v1 report, a free non-empty string (clamped) for a v2 one (#850); null stays null. */
+function listOrFree<T extends string>(version: ReportVersion, v: unknown, path: string, allowed: readonly T[]): string | null {
+  if (version === 1) return oneOfOrNull(v, path, allowed);
+  if (v === null || v === undefined) return null;
+  const out = str(v, path, LIMITS.short);
+  if (out === '') throw new Invalid(path, 'must not be empty');
+  return out;
+}
+
+/** Same, for a value that cannot be null. */
+function listOrFreeReq<T extends string>(version: ReportVersion, v: unknown, path: string, allowed: readonly T[]): string {
+  const out = listOrFree(version, v, path, allowed);
+  if (out === null) throw new Invalid(path, version === 1 ? `expected one of ${allowed.join(', ')}` : 'expected a string');
+  return out;
+}
 const AGENT_STATUSES: readonly AgentStatus[] = ['queued', 'running', 'done', 'failed', 'aborted'];
 const EVENT_KINDS: readonly EventKind[] = ['start', 'end', 'spawn', 'skill', 'done', 'fail', 'blow', 'compact', 'plan', 'wait', 'note'];
 const FAILURE_CLASSES: readonly FailureClass[] = [
@@ -1303,10 +573,10 @@ const FAILURE_CLASSES: readonly FailureClass[] = [
 function tokens(v: unknown, path: string): TokenCounts {
   const o = obj(v, path);
   return {
-    input: int(o.input, `${path}.input`),
-    output: int(o.output, `${path}.output`),
-    cacheRead: int(o.cacheRead, `${path}.cacheRead`),
-    cacheWrite: int(o.cacheWrite, `${path}.cacheWrite`),
+    input: count(o.input, `${path}.input`),
+    output: count(o.output, `${path}.output`),
+    cacheRead: count(o.cacheRead, `${path}.cacheRead`),
+    cacheWrite: count(o.cacheWrite, `${path}.cacheWrite`),
   };
 }
 
@@ -1322,11 +592,11 @@ function usageByModel(v: unknown, path: string): { usageByModel?: ModelUsage[] }
         model: str(o.model, `${p}.model`, LIMITS.short),
         tier: oneOf(o.tier, `${p}.tier`, ['std', 'long'] as const),
         tokens: {
-          input: int(t.input, `${p}.tokens.input`),
-          output: int(t.output, `${p}.tokens.output`),
-          cacheRead: int(t.cacheRead, `${p}.tokens.cacheRead`),
-          cacheWrite: int(t.cacheWrite, `${p}.tokens.cacheWrite`),
-          cacheWrite1h: t.cacheWrite1h === undefined || t.cacheWrite1h === null ? 0 : int(t.cacheWrite1h, `${p}.tokens.cacheWrite1h`),
+          input: count(t.input, `${p}.tokens.input`),
+          output: count(t.output, `${p}.tokens.output`),
+          cacheRead: count(t.cacheRead, `${p}.tokens.cacheRead`),
+          cacheWrite: count(t.cacheWrite, `${p}.tokens.cacheWrite`),
+          cacheWrite1h: t.cacheWrite1h === undefined || t.cacheWrite1h === null ? 0 : count(t.cacheWrite1h, `${p}.tokens.cacheWrite1h`),
         },
       };
     }),
@@ -1337,8 +607,8 @@ function context(v: unknown, path: string): ContextFill {
   const o = obj(v, path);
   const percent = numOrNull(o.percent, `${path}.percent`);
   return {
-    tokens: numOrNull(o.tokens, `${path}.tokens`),
-    window: numOrNull(o.window, `${path}.window`),
+    tokens: wholeOrNull(o.tokens, `${path}.tokens`),
+    window: wholeOrNull(o.window, `${path}.window`),
     percent: percent === null ? null : Math.max(0, Math.min(100, percent)),
   };
 }
@@ -1357,7 +627,7 @@ function git(v: unknown, path: string): GitInfo | null {
   };
 }
 
-function plan(v: unknown, path: string): Plan | null {
+function plan(v: unknown, path: string, version: ReportVersion): Plan | null {
   if (v === null || v === undefined) return null;
   const o = obj(v, path);
   const steps = arr(o.steps, `${path}.steps`, LIMITS.planSteps).map((s, i) => {
@@ -1374,7 +644,7 @@ function plan(v: unknown, path: string): Plan | null {
   });
   return {
     title: strOrNull(o.title, `${path}.title`, LIMITS.text),
-    source: oneOf(o.source, `${path}.source`, ['TaskCreate', 'TodoWrite', 'podium_plan'] as const),
+    source: listOrFreeReq(version, o.source, `${path}.source`, PLAN_SOURCES),
     steps,
   };
 }
@@ -1392,7 +662,7 @@ function failure(v: unknown, path: string): Failure | null {
   const exit = numOrNull(o.exitCode, `${path}.exitCode`);
   return {
     class: oneOf(o.class, `${path}.class`, FAILURE_CLASSES),
-    at: num(o.at, `${path}.at`),
+    at: whole(o.at, `${path}.at`),
     tool: strOrNull(o.tool, `${path}.tool`, LIMITS.short),
     call: strOrNull(o.call, `${path}.call`, LIMITS.call),
     exitCode: exit === null ? null : Math.round(exit),
@@ -1403,7 +673,7 @@ function failure(v: unknown, path: string): Failure | null {
   };
 }
 
-function agent(v: unknown, path: string): AgentReport {
+function agent(v: unknown, path: string, version: ReportVersion): AgentReport {
   const o = obj(v, path);
   let steps: AgentReport['steps'] = null;
   if (o.steps !== null && o.steps !== undefined) {
@@ -1414,16 +684,17 @@ function agent(v: unknown, path: string): AgentReport {
   return {
     id: str(o.id, `${path}.id`, LIMITS.id),
     parentId: strOrNull(o.parentId, `${path}.parentId`, LIMITS.id),
-    kind: oneOf(o.kind, `${path}.kind`, ['subagent', 'fork', 'teammate'] as const),
+    kind: listOrFreeReq(version, o.kind, `${path}.kind`, AGENT_KINDS),
     type: str(o.type, `${path}.type`, LIMITS.short),
     name: strOrNull(o.name, `${path}.name`, LIMITS.name),
     description: str(o.description, `${path}.description`, LIMITS.text),
     model: strOrNull(o.model, `${path}.model`, LIMITS.short),
-    effort: oneOfOrNull(o.effort, `${path}.effort`, EFFORTS),
+    ...modelFields(o, path, version),
+    effort: listOrFree(version, o.effort, `${path}.effort`, EFFORTS),
     effortSource: oneOf(o.effortSource, `${path}.effortSource`, ['requested', 'observed', 'inherited', 'unknown'] as const),
     status: oneOf(o.status, `${path}.status`, AGENT_STATUSES),
-    startedAt: num(o.startedAt, `${path}.startedAt`),
-    endedAt: numOrNull(o.endedAt, `${path}.endedAt`),
+    startedAt: whole(o.startedAt, `${path}.startedAt`),
+    endedAt: wholeOrNull(o.endedAt, `${path}.endedAt`),
     context: context(o.context, `${path}.context`),
     tokens: tokens(o.tokens, `${path}.tokens`),
     costUsdEst: (() => {
@@ -1452,10 +723,14 @@ function event(v: unknown, path: string): ActivityEvent {
   if (o.data !== null && o.data !== undefined) {
     data = obj(o.data, `${path}.data`);
     if (JSON.stringify(data).length > 4096) throw new Invalid(`${path}.data`, 'at most 4096 characters of data allowed');
+    // The two counts a compact event carries are stored in columns of their own (ingest.ts); the rest of `data` is stored as text.
+    for (const k of ['tokensBefore', 'tokensAfter']) {
+      if (typeof data[k] === 'number') whole(data[k], `${path}.data.${k}`);
+    }
   }
   return {
     id: str(o.id, `${path}.id`, LIMITS.id),
-    t: num(o.t, `${path}.t`),
+    t: whole(o.t, `${path}.t`),
     kind: oneOf(o.kind, `${path}.kind`, EVENT_KINDS),
     agentId: strOrNull(o.agentId, `${path}.agentId`, LIMITS.id),
     text: str(o.text, `${path}.text`, LIMITS.text),
@@ -1508,7 +783,64 @@ function filesReport(v: unknown, path: string): FilesReport | null {
   };
 }
 
-function session(v: unknown, path: string): SessionReport {
+/**
+ * The harness and cost source of a session report (#851), each left out when the report does not say. In a v2 report the
+ * harness block is the one source of the id, so a session `harness` that names another one is an error (#850).
+ */
+function harnessFields(o: Record<string, unknown>, path: string, harnessId: string | null): { harness?: string; costSource?: CostSource } {
+  const harness = o.harness === undefined || o.harness === null ? null : str(o.harness, `${path}.harness`, LIMITS.short);
+  if (harness === '') throw new Invalid(`${path}.harness`, 'must not be empty');
+  if (harnessId !== null && harness !== null && harness !== harnessId) throw new Invalid(`${path}.harness`, 'must match $.harness.id');
+  const costSource = oneOfOrNull(o.costSource, `${path}.costSource`, ['harness', 'estimate'] as const);
+  const id = harnessId ?? harness;
+  return { ...(id === null ? {} : { harness: id }), ...(costSource === null ? {} : { costSource }) };
+}
+
+/** The reporter names a report may carry: v1 is the Claude Code reporter's protocol; in v2 a harness has its own reporter, so an OpenCode build still sending the legacy name is refused rather than filed under Claude Code (#967). */
+function namesFor(version: ReportVersion, harnessId: string | null): readonly ReporterName[] {
+  if (version === 1 || harnessId === 'claude-code') return [LEGACY_REPORTER_NAME, CLAUDE_REPORTER_NAME];
+  return harnessId === 'opencode' ? [OPENCODE_REPORTER_NAME] : KNOWN_REPORTER_NAMES;
+}
+
+/** The `harness` block of a v2 report (#850). */
+function harnessBlock(v: unknown, path: string): HarnessInfo {
+  const o = obj(v, path);
+  // Checked as sent: `str` clamps, and a clamped id would let two long ids collide.
+  const id = typeof o.id === 'string' ? o.id : str(o.id, `${path}.id`, 0);
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) throw new Invalid(`${path}.id`, 'expected 1 to 32 letters, digits, - or _');
+  const name = str(o.name, `${path}.name`, LIMITS.name).trim();
+  if (!name) throw new Invalid(`${path}.name`, 'must not be empty');
+  return { id, name, version: str(o.version, `${path}.version`, LIMITS.short), surface: strOrNull(o.surface, `${path}.surface`, LIMITS.short) };
+}
+
+/** The `capabilities` block of a v2 report (#850): a boolean per key the reporter declares (a key left out is not declared), and its commands. Unknown keys are dropped. */
+function capabilitiesBlock(v: unknown, path: string): Capabilities {
+  const o = obj(v, path);
+  const out: Capabilities = { commands: [] };
+  for (const key of CAPABILITY_KEYS) {
+    if (o[key] !== undefined) out[key] = bool(o[key], `${path}.${key}`);
+  }
+  if (o.commands !== undefined) {
+    const seen = arr(o.commands, `${path}.commands`, LIMITS.commands).map((c, i) => {
+      const cmd = str(c, `${path}.commands[${i}]`, LIMITS.short).trim();
+      if (!cmd) throw new Invalid(`${path}.commands[${i}]`, 'must not be empty');
+      return cmd;
+    });
+    out.commands = [...new Set(seen)];
+  }
+  return out;
+}
+
+/** A model's provider and label (v2 only, #850); a field that is omitted stays omitted, null stays null. v1 never carries them. */
+function modelFields(o: Record<string, unknown>, path: string, version: ReportVersion): { modelProvider?: string | null; modelLabel?: string | null } {
+  if (version === 1) return {};
+  const out: { modelProvider?: string | null; modelLabel?: string | null } = {};
+  if (o.modelProvider !== undefined) out.modelProvider = strOrNull(o.modelProvider, `${path}.modelProvider`, LIMITS.short);
+  if (o.modelLabel !== undefined) out.modelLabel = strOrNull(o.modelLabel, `${path}.modelLabel`, LIMITS.short);
+  return out;
+}
+
+function session(v: unknown, path: string, version: ReportVersion, harnessId: string | null): SessionReport {
   const o = obj(v, path);
   const id = str(o.id, `${path}.id`, LIMITS.id);
   if (!id) throw new Invalid(`${path}.id`, 'must not be empty');
@@ -1521,19 +853,21 @@ function session(v: unknown, path: string): SessionReport {
     waitNote: strOrNull(o.waitNote, `${path}.waitNote`, LIMITS.waitNote),
     endReason: strOrNull(o.endReason, `${path}.endReason`, LIMITS.short),
     resumeId: strOrNull(o.resumeId, `${path}.resumeId`, LIMITS.id),
-    startedAt: num(o.startedAt, `${path}.startedAt`),
+    startedAt: whole(o.startedAt, `${path}.startedAt`),
     cwd: str(o.cwd, `${path}.cwd`, LIMITS.path),
     projectRoot: strOrNull(o.projectRoot, `${path}.projectRoot`, LIMITS.path),
     repoName: strOrNull(o.repoName, `${path}.repoName`, LIMITS.short),
     git: git(o.git, `${path}.git`),
     model: strOrNull(o.model, `${path}.model`, LIMITS.short),
-    effort: oneOfOrNull(o.effort, `${path}.effort`, EFFORTS),
+    ...modelFields(o, path, version),
+    effort: listOrFree(version, o.effort, `${path}.effort`, EFFORTS),
     context: context(o.context, `${path}.context`),
     costUsd: (() => {
       const c = numOrNull(o.costUsd, `${path}.costUsd`);
       return c === null ? null : Math.max(0, c);
     })(),
     tokens: tokens(o.tokens, `${path}.tokens`),
+    ...harnessFields(o, path, harnessId),
     ...usageByModel(o.usageByModel, `${path}.usageByModel`),
     rateLimits: arr(o.rateLimits, `${path}.rateLimits`, LIMITS.rateLimits).map((r, i) => {
       const p = `${path}.rateLimits[${i}]`;
@@ -1545,7 +879,7 @@ function session(v: unknown, path: string): SessionReport {
       };
     }),
     blowouts: int(o.blowouts, `${path}.blowouts`),
-    plan: plan(o.plan, `${path}.plan`),
+    plan: plan(o.plan, `${path}.plan`, version),
     loop: loop(o.loop, `${path}.loop`),
     files: filesReport(o.files, `${path}.files`),
     attached: o.attached === undefined || o.attached === null ? null : bool(o.attached, `${path}.attached`),
@@ -1584,7 +918,7 @@ function ask(v: unknown, path: string): Ask {
   const id = str(o.id, `${path}.id`, LIMITS.id);
   if (!id) throw new Invalid(`${path}.id`, 'must not be empty');
   const kind = oneOf(o.kind, `${path}.kind`, ['question', 'plan', 'permission'] as const);
-  const out: Ask = { id, kind, agentId: strOrNull(o.agentId, `${path}.agentId`, LIMITS.id), openedAt: num(o.openedAt, `${path}.openedAt`) };
+  const out: Ask = { id, kind, agentId: strOrNull(o.agentId, `${path}.agentId`, LIMITS.id), openedAt: whole(o.openedAt, `${path}.openedAt`) };
   const room = (n: number) => n + CUT_MARKER_ROOM;
   if (kind === 'question') {
     const qs = arr(o.questions, `${path}.questions`, RESPOND_LIMITS.questions);
@@ -1670,7 +1004,7 @@ function activity(v: unknown, path: string): { activity?: ActivityEntry[] } {
       const p = `${path}[${i}]`;
       const o = obj(e, p);
       const kind = oneOf(o.kind, `${p}.kind`, ACTIVITY_KINDS);
-      const entry: ActivityEntry = { at: num(o.at, `${p}.at`), kind, text: str(o.text, `${p}.text`, LIMITS.activityText) };
+      const entry: ActivityEntry = { at: whole(o.at, `${p}.at`), kind, text: str(o.text, `${p}.text`, LIMITS.activityText) };
       if (o.id !== undefined && o.id !== null) entry.id = str(o.id, `${p}.id`, LIMITS.id);
       // The command and output belong to a tool call; on any other entry they are dropped, not rejected.
       const tool = kind === 'tool';
@@ -1767,7 +1101,7 @@ function background(v: unknown, path: string): BackgroundWait | null {
       status: str(to.status, `${p}.status`, 40),
     };
   });
-  const wakeAt = numOrNull(o.wakeAt, `${path}.wakeAt`);
+  const wakeAt = wholeOrNull(o.wakeAt, `${path}.wakeAt`);
   return tasks.length ? { tasks, wakeAt } : null;
 }
 
@@ -1792,21 +1126,28 @@ export function validateReport(body: unknown): ValidateResult {
   try {
     const o = obj(body, '$');
     if (o.v === undefined) throw new Invalid('$.v', 'missing protocol version');
-    if (o.v !== 1) throw new Invalid('$.v', 'unsupported protocol version');
+    if (o.v !== 1 && o.v !== 2) throw new Invalid('$.v', 'unsupported protocol version');
+    const version: ReportVersion = o.v;
+    // v2 names its harness and what it can send; v1 has no block, so it means Claude Code unless the session says otherwise (#851).
+    const harness = version === 2 ? harnessBlock(o.harness, '$.harness') : null;
+    const capabilities = version === 2 ? capabilitiesBlock(o.capabilities, '$.capabilities') : null;
     const r = obj(o.reporter, '$.reporter');
     const report: Report = {
-      v: 1,
-      sentAt: num(o.sentAt, '$.sentAt'),
+      v: version,
+      sentAt: whole(o.sentAt, '$.sentAt'),
       reporter: {
-        name: oneOf(r.name, '$.reporter.name', ['podium-reporter'] as const),
+        // The legacy name is the Claude Code reporter, and a reporter's name must be its own harness's (#967).
+        name: canonicalReporterName(oneOf(r.name, '$.reporter.name', namesFor(version, harness?.id ?? null))) as ReporterName,
         version: str(r.version, '$.reporter.version', LIMITS.short),
         engineVersion: strOrNull(r.engineVersion, '$.reporter.engineVersion', LIMITS.short),
         hostSurface: strOrNull(r.hostSurface, '$.reporter.hostSurface', LIMITS.short),
       },
-      session: session(o.session, '$.session'),
-      agents: arr(o.agents, '$.agents', LIMITS.agents).map((a, i) => agent(a, `$.agents[${i}]`)),
+      session: session(o.session, '$.session', version, harness?.id ?? null),
+      agents: arr(o.agents, '$.agents', LIMITS.agents).map((a, i) => agent(a, `$.agents[${i}]`, version)),
       events: arr(o.events, '$.events', LIMITS.events).map((e, i) => event(e, `$.events[${i}]`)),
     };
+    if (harness) report.harness = harness;
+    if (capabilities) report.capabilities = capabilities;
     const build = parseBuild(r.build);
     if (build !== null) report.reporter.build = build;
     const userName = strOrNull(o.userName, '$.userName', LIMITS.name);
@@ -1834,7 +1175,7 @@ function recordingEntry(v: unknown, path: string): RecordingEntry {
   const entry: RecordingEntry = {
     loop: str(o.loop, `${path}.loop`, LIMITS.id),
     seq,
-    at: num(o.at, `${path}.at`),
+    at: whole(o.at, `${path}.at`),
     kind,
     text: o.text === undefined || o.text === null ? '' : text(o.text, `${path}.text`, RECORDING_LIMITS.text + CUT_MARKER_ROOM),
   };
@@ -1865,7 +1206,7 @@ export function validateRecordingBatch(body: unknown): { ok: true; batch: Record
       ok: true,
       batch: {
         v: 1,
-        sentAt: num(o.sentAt, '$.sentAt'),
+        sentAt: whole(o.sentAt, '$.sentAt'),
         entries: arr(o.entries, '$.entries', RECORDING_LIMITS.entries).map((e, i) => recordingEntry(e, `$.entries[${i}]`)),
       },
     };

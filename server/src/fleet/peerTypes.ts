@@ -10,6 +10,7 @@
 //   conversation, since the last message its owner approved.
 // - An orchestrator is a session's main loop. Only an orchestrator sends or receives; a session is one.
 
+import { shortId } from './protocol.js';
 import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery, ReporterCompat } from './protocol.js';
 import type { PeerLimits, ReporterState } from '../storage/rows.js';
 
@@ -30,8 +31,8 @@ export interface Refusal {
   status: 400 | 403 | 404 | 409 | 410 | 422 | 429;
   error: string;
 }
-/** The first eight characters of a session id: enough to tell same-named orchestrators apart in `name@machine#id`. */
-export const peerShortId = (sessionId: string): string => sessionId.slice(0, 8);
+/** The short id of a session (`shortId`): enough to tell same-named orchestrators apart in `name@machine#id`. */
+export const peerShortId = (sessionId: string): string => shortId(sessionId);
 
 export const refuse = (status: Refusal['status'], error: string): Refusal => ({ ok: false, status, error });
 
@@ -54,6 +55,8 @@ export interface ReporterRef {
   /** The `peers` option as last reported; null from a reporter too old to send it. */
   peers: boolean | null;
   version: string;
+  /** Which reporter it is (`reporter.name`), so a version warning names it (#852). */
+  reporterName: string;
 }
 
 /** A reporter's machine name by key, or the key itself when it is unknown. A trail handler gets one that answers at once. */

@@ -6,7 +6,7 @@ propose a change, and how it gets merged.
 ## What belongs in this repo
 
 Podium shows every Claude Code session on one machine in one browser tab. This repo holds the whole thing:
-the reporter mod (`mod/podium-reporter/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
+the reporter mod (`plugin/claudecode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
 container image.
 
 A change fits if it makes Podium better at watching sessions. Some things are out on purpose, and
@@ -23,7 +23,7 @@ If your idea needs one of those, open an issue and say why before writing code.
 
 ## Setting up
 
-You need Node 24 and npm. The mod's own tests and type check also need Claude Code installed.
+You need Node 26 and npm. The mod's own tests and type check also need Claude Code installed.
 
 ```sh
 git clone https://github.com/eengelking/podium.git && cd podium
@@ -32,11 +32,24 @@ npm run dev          # server on http://127.0.0.1:4317, Vite UI on http://localh
 npm run podium:sim -- --sessions 5 --chaos    # fake sessions, in a second terminal
 ```
 
-To try the mod in a real session, load it from your checkout:
+To try the mod in a real session, build it and load the built folder from your checkout. Claude Code runs against `dist-dev/claudecode/`, not
+the source in `plugin/`, because a built folder is what gets installed (DECISIONS 56, 59):
 
 ```sh
-claude --plugin-dir /path/to/podium/mod/podium-reporter
+npm run plugin:dev:claudecode
 ```
+
+That builds `dist-dev/claudecode/` and starts `claude --plugin-dir` on it. `npm run plugin:dev:claudecode -- --watch` also rebuilds into the same
+folder whenever a file under `plugin/claudecode/` or `plugin/core/` changes (it ignores tests, `.DS_Store`, `dist/` and `dist-dev/`, and a failed rebuild
+keeps the last good one); run `/reload-plugins` in the session after each rebuild. Arguments for `claude` go after a second `--`:
+`npm run plugin:dev:claudecode -- --watch -- --model sonnet`. `PODIUM_CLAUDE_BIN` names the `claude` to run if it is not on `PATH`.
+`npm run plugin:dev:cleanup` deletes `dist-dev/`, `.build-test/` and `dist-zips/` (or `npm run plugin:dev:cleanup claudecode` only
+`dist-dev/claudecode/`). It never touches `dist/`, which is tracked, and removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no dev runner yet,
+so `npm run plugin:dev:opencode` exits with an error; build it with `node scripts/plugin-build.mjs opencode --dev-stamp`
+and load `dist-dev/opencode/plugin/opencode/index.ts` as an OpenCode plugin, or copy `dist-dev/opencode/` into `~/.config/opencode/plugins/podium/` ("Install the OpenCode reporter" in `docs/REPORTER.md`). `scripts/plugin-dev.mjs` is the script behind these.
+
+`npm run plugin:build` alone builds without starting anything, and a change in `plugin/` shows only after a rebuild and a `/reload-plugins`.
+Its output, `dist-dev/`, is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist-dev/claudecode/` still reports `Dev: <commit>`. `npm run plugin:build:release` builds every harness with no stamp into the tracked `dist/`, emptying it first. Only the `release-prep/<version>` PR commits that (DECISIONS 60); the check and the zip script refuse a folder that carries a stamp.
 
 ## Checks to run
 
@@ -44,17 +57,24 @@ claude --plugin-dir /path/to/podium/mod/podium-reporter
 npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
 npm run build          # UI and server build, scripts type-check
-npm run test:mod       # the mod's tests (needs Claude Code)
-npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
+npm run plugin:build    # build dist-dev/<harness>/ with the dev stamp, for trying the reporter from your checkout; fails if it is not self-contained
+npm run plugin:build:release  # the release build: empties dist/ and builds every harness there with no stamp (only release-prep commits it)
+npm run plugin:dist:check     # fails unless the tracked dist/ is exactly what a clean build of plugin/ produces (CI runs it on a PR into main)
+npm run plugin:dev:claudecode  # build it and start Claude Code with it loaded (`-- --watch` rebuilds on change); `plugin:dev:cleanup` deletes the build folders
+npm run test:core                 # the tests in plugin/core/, with no harness CLI and no harness API types installed (CI runs it)
+npm run test:mod:claudecode       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
+npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
+E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs both)
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
 scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open (macOS)
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
-scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code sessions in tmux (costs model usage)
+scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code or OpenCode sessions in tmux (--harness; costs model usage unless the model is local or free)
+scripts/podium-opencode-demo.sh --help  # `start` checks the reporter certificate, builds dist-dev/opencode/, starts Ollama and OpenCode with the plugin; `stop` closes both and checks your OpenCode config is unchanged (macOS, Homebrew)
 node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in headless Chrome, save a PNG, optionally run JavaScript in it
 node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
 ```
@@ -70,6 +90,18 @@ one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
+**The PostgreSQL adapter's tests** (`server/src/storage/postgres/`, decision 53) run against the server `PODIUM_TEST_PG` names, and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without the variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without it on purpose, set `PODIUM_TEST_ONLY=sqlite` (the kinds to run): the run then prints that PostgreSQL was NOT RUN, and that is not a pass for a pull request, so use `scripts/test-pg.sh` before one. If the variable is set and no server answers, the run fails. `scripts/test-pg.sh [vitest args]` does the container steps below for you and removes the container after (#891). Each test file makes its own database on that server and drops it after, so the server can be shared and the tests can run in parallel. Start a throwaway server in a container, with a placeholder password of your own, and never point the variable at a database you care about:
+
+```sh
+podman run -d --name podium-test-pg -e POSTGRES_PASSWORD=change-me -p 55432:5432 docker.io/library/postgres:17
+export PODIUM_TEST_PG=postgres://postgres:change-me@localhost:55432/postgres
+npm test -w server                                       # the whole server suite, PostgreSQL tests included
+npx vitest run server/src/storage/postgres/people.test.ts # one file
+podman rm -f podium-test-pg                              # when you are done
+```
+
+CI's `test-postgres` job does the same with a service container. `scripts/throwaway-db.mjs` makes and drops a database on a PostgreSQL server for the scripts that start their own server (smoke, soak, perf, the peers e2e): when `PODIUM_DB` names one, they use a database of their own on it instead of a SQLite file (`--help` lists the commands). `E2E_DB=postgres npm run e2e` runs the Cypress suite against PostgreSQL in containers.
+
 The `PODIUM_TEST_*` variables (decision 50) shorten the Admin idle lock, the sign-in idle end and the lockout so a spec can reach them. They are for the end-to-end suite only, count only with `PODIUM_TEST_TIMINGS=1`, and are never set on a real server.
 
 `frontend/src/fleet/a11y.axe.test.tsx` runs axe-core over the console's pages and the standards pages inside `npm test`. A new page or a
@@ -78,16 +110,28 @@ big new state gets a case there. It cannot judge contrast or target size, which 
 `KNOWN` list with the issue that tracks it, and comes out when it is fixed.
 
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
-have no Claude Code, so run those yourself when you touch the mod.
+have no Claude Code, so run those yourself when you touch a reporter (see "Testing a reporter" below).
+The shared code's own tests in `plugin/core/` need no Claude Code: CI runs them in their own job (`npm run test:core`) and under `npm test`.
 
 Two scanners also run on PRs, and after a merge to `development` or `main`: SonarCloud (`.github/workflows/sonar.yml`, quality gate and coverage on new code) and CodeQL
 (`.github/workflows/codeql.yml`, the `security-extended` queries; results are under Security > Code scanning). Neither runs on
 your machine. Fix what they flag in your PR.
 
 SonarCloud cannot see the mod's own tests, because they run only inside Claude Code, so a line added to
-`mod/podium-reporter/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
+`plugin/claudecode/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
 nothing from the engine (see `place.ts`, which takes what it needs from `$` as an argument), test it from `scripts/` with vitest,
-and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `mod/podium-reporter/hooks/*.ts` for this.
+and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `plugin/claudecode/hooks/*.ts` for this, and it measures `plugin/core/` too.
+
+### Testing a reporter
+
+Each reporter is a folder under `plugin/`, and the shared code is `plugin/core/`. The checks follow the same convention for every harness (#934):
+
+- `npm run test:core` runs the tests in `plugin/core/` with no harness CLI and no harness API types installed. CI runs it on every PR.
+- A harness `<harness>` ships `npm run test:mod:<harness>` and `npm run typecheck:mod:<harness>`. The first builds `dist/<harness>/` with `--with-tests` (`node scripts/plugin-build.mjs <harness> --with-tests --out .build-test`) and runs that harness's own test runner on it. The second type-checks `plugin/<harness>/` against that harness's API types, using the `tsconfig.json` in `plugin/<harness>/`.
+- A harness whose runner or types need a CLI the CI runners lack says so in `ci.yml`, as Claude Code's do. `claudecode` has the pair and CI does not run it. `opencode` has it too, and CI does run it (`test-opencode`): its tests are vitest's, run on the built `dist/opencode/` (`npm run test:mod:opencode`), and `npm run typecheck:mod:opencode` installs the pinned `@opencode/plugin` types once into `.build-test/opencode-types/` (about 160 MB, never a dependency of this repo) and checks `plugin/opencode/` against them.
+- `scripts/harness-scripts.test.ts` (part of `npm test`) fails when a folder under `plugin/` other than `core` has no matching pair in `package.json`. No harness is exempt.
+
+Which checks a change runs depends on where it sits. A change to `plugin/core/` runs `test:core` and every harness's pair, because a core change can break any harness. A change to `plugin/<harness>/` runs that harness's pair.
 
 ### The nightly
 
@@ -128,10 +172,12 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/decisions/` | Why a significant choice was made |
 | `docs/gotchas/` | Sharp edges that are easy to hit |
 | `docs/e2e/COVERAGE.md` | The end-to-end suite: the map of every feature to its Cypress spec, how to run it, how to read a CI failure, how to add a spec, the test-id convention |
+| `.claude/skills/podium-live-test/` | The live test with real harness sessions (Claude Code, OpenCode): tmux, a throwaway server, keeping the session off your real server, answering from the API, shutting it down. Run it when a change touches the harness contract |
 | `docs/PERFORMANCE.md` | What Podium costs to run at four fleet sizes, how to measure it again (`scripts/podium-perf*`), and the ranked findings of the performance audit |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |
+| `docs/DEPRECATIONS.md` | Features marked for removal: the release that announced each, the release that removes it (within three minor releases) and what to use instead |
 | `docs/DEMO.md` | A script for showing Podium to other people |
 | `docs/templates/` | The page templates (guide, reference, internals, and the index, entry, section and chapter pages of a split topic). Copy one to start a page; the rules are under "Writing docs" |
 | `CHANGELOG.md` | One entry per release |
@@ -196,6 +242,9 @@ whole, and a short log still splits. A section that is itself a set of subsectio
   `node scripts/check-doc-refs.mjs` (also in `npm test`) fails on a citation no page answers to and on a reference to the old
   single-file paths (the five old files are short stubs that point at the folders, for links from outside the repo).
 - **Moved text is not reworded.** Only headings, frontmatter, links and the generated parts change.
+- **A deprecation goes in `docs/DEPRECATIONS.md`.** A feature marked for deprecation is removed within three minor releases, the announcing
+  one counted as the first. Add a row to "Deprecated now" with a `Deprecated` line under `[Unreleased]`. `node scripts/check-deprecations.mjs`
+  (also in `npm test`) fails when the version reaches a removal that has not been done.
 
 The templates for these pages are `topic-index.md` (the folder's `README.md`), `decision-entry.md`, `gotcha-entry.md`,
 `spec-section.md` and `chapter.md` (a part of a guide or of the architecture). A fact that a page states is stated once.
@@ -260,27 +309,47 @@ python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
 `podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
+### The plugin build and the tracked dist/
+
+The reporters live in `plugin/`: shared code in `plugin/core/`, Claude Code's own in `plugin/claudecode/`, and `plugin/opencode/`, the OpenCode
+reporter (#855, DECISIONS 56). They are installed from a built folder, not from the source.
+
+- `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options). A build that names
+  no harness empties the output folder first, so nothing from an earlier build stays. `--with-tests` keeps the test files, `--out <dir>` builds
+  elsewhere, `--check` only checks a folder already built, and `--dev-stamp` writes the commit into the folder and builds into `dist-dev/`
+  unless `--out` says otherwise (`npm run plugin:build` and `npm run plugin:dev` add it; CI, the release and `npm run plugin:build:release` never do).
+- `scripts/plugin-dev.mjs` is behind `npm run plugin:dev`, `plugin:dev:claudecode`, `plugin:dev:opencode` and `plugin:dev:cleanup` (see "Trying the mod" above; `--help` lists the options). It finds `git` through `scripts/git-bin.mjs`, as the other plugin scripts do, and `cleanup` deletes only the three ignored folders below, and only when git reports them ignored.
+- `dist-dev/` (a developer's stamped build), `.build-test/` (where `npm run test:mod:claudecode` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output. `dist/` is not: it is tracked, holds the release build, and a feature PR never changes it.
+- `scripts/podium-reporter-zip.mjs` zips `dist/claudecode/` into `podium-reporter-<version>.zip`, and with `--harness opencode` zips `dist/opencode/` into `podium-opencode-<version>.zip` (#857). Each harness's version is read from its own manifest: `.claude-plugin/plugin.json`, or `package.json` for opencode.
+- `scripts/plugin-dist-check.mjs` (`npm run plugin:dist:check`) rebuilds in memory and fails unless `dist/` is exactly that build: the same
+  files and bytes, nothing extra, no dev stamp, every harness at the product version. `ci.yml` runs it on a PR into `main` and on a push to
+  `main`, so only a release (or a hotfix) with its final build can reach `main`. It writes nothing; to fix a failure run
+  `npm run plugin:build:release` and commit `dist/` (DECISIONS 60, #983).
+- `eengelking-marketplace` installs from `dist/claudecode` on `main`, with no `ref`, so a release reaches an installed copy as a new
+  commit there. `release.yml` runs the check, zips the tracked `dist/` and runs `scripts/plugin-dist-compare.mjs` once for each archive,
+  which fails the release if a zip differs from `dist/<harness>/` in the tag's checkout.
+
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under
-`mod/podium-reporter/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
+`plugin/claudecode/` or `plugin/core/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
 version files alone. The maintainer decides when `development` is ready to release. A release-prep PR into
-`development` then sets one number in `plugin.json`, `VERSION` in `mod/podium-reporter/hooks/register.ts`, the three
+`development` then sets one number in `plugin/claudecode/.claude-plugin/plugin.json` (and in the version file of any other harness that has one), `VERSION` in `plugin/claudecode/hooks/register.ts`, the three
 `package.json` files and the lockfile (`npm install --package-lock-only`), and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
 "Releases", says how the bump level is chosen, and the `podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
 
-If the bump is a new minor version, also move `max` in `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
-that version. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
+If the bump is a new minor version, also move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
+that version. Each reporter has its own entry, so another reporter's range moves only with that reporter's releases. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
 `min` only when the server stops reading older reports correctly. SPEC 6.8 has the rule.
 
 ### The report format
 
-The mod and the server share one set of report types, copied between `<protocol:begin>` and
-`<protocol:end>` markers in `server/src/fleet/protocol.ts` and `mod/podium-reporter/hooks/protocol.ts`. A
-test compares them. Change both together.
+The server, the UI and every reporter share one set of report types, in `plugin/core/protocol.ts` (DECISIONS 57). There is no
+copy to keep in line. Keep that file free of Node imports, because the UI imports it, and put code that needs Node in another file of
+`plugin/core/`. `plugin/core/` never imports a harness folder and one harness never imports the other; `server/src/plugin.test.ts` fails when one does.
 
 ### Voice
 

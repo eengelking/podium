@@ -1,11 +1,9 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
+import { shortId } from "../../../../plugin/core/protocol";
 import { IconCheck, IconCopy } from "./Icons";
 
 /** How long "Copied" stays on a copy control. */
 export const COPIED_MS = 1600;
-
-/** The characters of a session id shown on the card and the orchestrator page; the click copies all of it. */
-export const SHORT_ID = 8;
 
 /** Copies `text` inside a click handler. `state` is "copied" or "failed" for 1.6 s after a try, then "idle". */
 export function useCopy(text: string) {
@@ -41,7 +39,7 @@ export function useCopy(text: string) {
  */
 export const SessionId = forwardRef<HTMLButtonElement, { id: string }>(function SessionId({ id }, ref) {
   const { state, copy } = useCopy(id);
-  const short = id.slice(0, SHORT_ID);
+  const short = shortId(id);
   const label = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : short;
   return (
     <button ref={ref} type="button" className="sid" title={`Copy session id ${id}`} aria-label={state === "idle" ? `Copy session id ${short}` : undefined} onClick={copy}>

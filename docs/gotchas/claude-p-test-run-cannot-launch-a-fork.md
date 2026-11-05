@@ -19,5 +19,5 @@ order: 45
 <!-- nav:start -->
 ---
 
-Previous: [npm run test:mod and npm run typecheck:mod fail on a clean machine](test-mod-and-typecheck-mod-fail-on-a-clean-machine.md) · Up: [Gotchas](README.md) · Next: [A prompt sent to Claude Code with tmux send-keys stays in the box unsent](tmux-send-keys-prompt-stays-unsent.md)
+Previous: [npm run test:mod:claudecode and npm run typecheck:mod:claudecode fail on a clean machine](test-mod-and-typecheck-mod-fail-on-a-clean-machine.md) · Up: [Gotchas](README.md) · Next: [A prompt sent to Claude Code with tmux send-keys stays in the box unsent](tmux-send-keys-prompt-stays-unsent.md)
 <!-- nav:end -->

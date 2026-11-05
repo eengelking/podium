@@ -8,7 +8,7 @@ group: Reference
 
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text
 companion to the interactive page [`docs/atlas/podium-atlas.html`](podium-atlas.html) (open it in a browser):
-the first section lists the thirty-two parts on that page's system map, the second lists the reporter's hooks and
+the first section lists the thirty-four parts on that page's system map, the second lists the reporter's hooks and
 timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../architecture/README.md), [Server](../SERVER.md) and
 [Reporter](../REPORTER.md); intended behavior is in [Spec](../spec/README.md).
 
@@ -28,10 +28,10 @@ Contents:
 
 | Location | Where it runs |
 |---|---|
-| Reporter | Inside each Claude Code process, on the machine that runs the session |
+| Reporter | Inside each coding-harness process, on the machine that runs the session |
 | Network | Between the two: a listener or a proxy that carries reports and browsers |
 | Server | The Podium server process |
-| Storage | A file the server keeps on disk |
+| Storage | The database behind the server: the two SQLite files, or a PostgreSQL database |
 | Console | The React page in your browser |
 
 Sessions call out to the server; the server never calls in to a session. Anything the server wants a session
@@ -43,13 +43,14 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Reporter | Hooks and reducers | Callbacks on tool calls, turns and session start and end. They fold events into an in-memory model and wait on nothing but a person's answer, a peer tool call and the final report. |
-| Reporter | Transport and timer | A timer that posts a full snapshot and any unsent events to the server, and reads the reply. Backs off while the server is offline. |
-| Reporter | Claude Code session | The process being watched: an orchestrator plus the agents it launches. Podium never wraps or replaces it. |
-| Reporter | In-session tools | How Podium reaches back into a session: answers to questions, plans and permission prompts, messages from your other orchestrators, and `/podium`. |
-| Reporter | TLS helper | A script the mod starts once per session. It holds the client certificate, makes the mutual-TLS connection and forwards only reporter routes. The mod picks its config file by `PODIUM_REPORTER_CONFIG`, then `PODIUM_REPORTER_CONTEXT`, then the current context in `~/.podium/contexts.json`, then the newest `reporter-config-*.pem`. |
-| Reporter | Collectors | Small readers for what hooks do not carry: git branch and changed files, machine id, build, models. |
-| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff (on request, or loaded ahead while the owner has the console page open), and a whole-session recording. Each is redacted and size-capped. |
+| Reporter | Hooks and reducers | The harness's callbacks on tool calls, turns and session start and end, folded into an in-memory model. They wait on nothing but a person's answer, a peer tool call and the final report. The plan and failure reducers are in `plugin/core/`; the session model and the hook wiring are in the Claude Code adapter today. |
+| Reporter | Transport and timer | A timer that posts a full snapshot and any unsent events to the server, and reads the reply. Backs off while the server is offline. `Transport` is in `plugin/core/`; the timer and the report builder are in the Claude Code adapter today. |
+| Reporter | Coding harness session | The process being watched: one session of a coding harness (Claude Code or OpenCode) on a developer's machine, an orchestrator plus the agents it launches. Podium never wraps or replaces it. |
+| Reporter | Harness adapter | The harness-specific half of a reporter. Today it is `plugin/claudecode/` (the hook wiring, the model and price table, the engine API use, `/podium` and the in-session tools) and `plugin/opencode/` (#855) is the OpenCode reporter: a plugin against `@opencode/plugin` that folds the event bus into one record per root session, flushes every second (the `flushIntervalMs` option, never below 200 ms), and reports effort (the model's variant), the context window (`window.ts`, from OpenCode's model list), skills, usage by model, failure detail and changed files, and with the matching consent a file diff on request, the activity feed and a shell call's output, full prompts and the session recording (the recorder, diff reader and feed budgets are the ones in `plugin/core/`), and `peers: true` when `PODIUM_PEERS` is on (#969). It adds the `plan` tool and, with `PODIUM_PEERS`, `podium_peers`, `podium_send` and `podium_request_access` (`tools.ts`, `peers.ts`), registers `/podium`, shows the connection's status and the answer to `/podium` as a toast (`notice.ts`, over a `notice` event on the plugin RPC bridge to the TUI part) and in the prompt's footer (a `status` event, and `statusSlot.ts` claims `prompt.footer.status`; #987), takes the `/podium` words `allow`, `decline`, `deliver`, `name` and `context` (`command.ts`; `name` is kept in the plugin's storage), reads the dev-build stamp (`build.ts`), reports what an idle session still runs through the `experimental.idle` hook, offers the messaging tools only once Podium says the session takes part (`ctx.tool.reload`), and explains a failure through `ctx.experimental.generate` only with `PODIUM_EXPLAIN_FAILURES` on. It answers a question and a message from Podium where the person turned on `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED`, and a permission and `/compact` too only at the respond level `everything` (`PODIUM_RESPOND` names the level: `questions`, `questions-and-plans` or `everything`, and `true` is `questions`; #858: `answering.ts` drives it from the flush tick, `plugin/core/respond.ts` does the announcing, waiting and reporting back, and the Claude Code adapter uses the same `Responder` (#971), `host.ts` calls OpenCode with a `msg_` id OpenCode accepts, and a question goes through the TUI part `tui.ts` when one is attached, otherwise through the local route in `service.json`; plan approval and `/clear` are not offered). Its settings are the plugin options, then the environment, then the defaults (server `http://127.0.0.1:4317`, idle 60 seconds, never below 5); a project's plugin options set only `idleSeconds`, `flushIntervalMs`, `heartbeatMs` (never below 1,000 ms), `sessionName` and `fileDiffPreload`, and every consent option comes from the environment and `~/.podium/config.env` only. Its secure connection (#948) is `plugin/opencode/tls.ts`, which finds the reporter config file in `~/.podium/` and connects over mutual TLS in-process through the shared client in `plugin/core/tls/`, is started once per location and is stopped when the last load closes; its TLS settings (`PODIUM_REPORTER_CONFIG`, `PODIUM_REPORTER_CONTEXT`) come only from the environment and `~/.podium/config.env`, never `opencode.json`. The Claude Code adapter's TLS link (`tlsLink.ts`) starts the helper script and talks to it. Everything shared is in `plugin/core/`, which an adapter imports and which never imports an adapter. `scripts/plugin-build.mjs` builds `dist/<harness>/` for each harness with a manifest (`claudecode` by its `.claude-plugin/plugin.json`, `opencode`, a package, by its `package.json`; the build leaves out the `*.node.test.ts` tests; CI's `test-opencode` job tests it), and the built folders `dist/claudecode/` and `dist/opencode/` are tracked on `main`: the release-prep PR rebuilds them (`npm run plugin:build:release`, which empties `dist/` first), and `scripts/plugin-dist-check.mjs` fails any PR into `main`, and any push to it, unless `dist/` is exactly a clean build of `plugin/` (same files and bytes, nothing extra, no dev stamp, every harness at the product version). A developer's stamped build goes to the git-ignored `dist-dev/`. `release.yml` runs the check, zips the tracked `dist/` and fails a release whose zip differs from it, for each harness. A release carries two archives, `podium-reporter-<version>.zip` and `podium-opencode-<version>.zip`, and a nightly both with `-nightly-<date>` added. OpenCode installs from `main` with `opencode plugin add "git+https://github.com/eengelking/podium.git#main::path:dist/opencode"`, or from the archive unzipped into `~/.config/opencode/plugins/podium/`. The marketplace entry is Claude Code's. |
+| Reporter | In-session tools | How Podium reaches back into a session: answers to questions, plans and permission prompts, messages from your other orchestrators, and `/podium`. The peer message frame is in `plugin/core/`; the rest is in the Claude Code adapter. |
+| Reporter | TLS helper | The mutual-TLS client every reporter shares (`plugin/core/tls/client.mjs`, #927) and the script around it that the Claude Code mod starts once per session (`plugin/core/tls/helper.mjs`: the Unix socket or, on Windows, the request folder, the `ready` line, the signals and the check that the parent is alive). It holds the client certificate, makes the mutual-TLS connection, renews the certificate under a lock several sessions share, and forwards only the routes in `plugin/core/tls/routes.mjs`, the one list the server's plain-HTTP gate imports too. The OpenCode reporter has no script: `plugin/opencode/tls.ts` runs the same client in its own process, from a reporter config file found in `~/.podium/` (never from `opencode.json`), starts it once per location and stops it on cleanup, and prints each problem once as a `podium-reporter: ...` line that also leads its status line. A reporter picks its config file by `PODIUM_REPORTER_CONFIG`, then `PODIUM_REPORTER_CONTEXT`, then the current context in `~/.podium/contexts.json`, then the newest `reporter-config-*.pem`. The Claude Code adapter keeps only `hooks/tlsLink.ts`, which starts the script and talks to it. |
+| Reporter | Collectors | Small readers for what hooks do not carry: git branch, changed files, project root and repository name (`place.ts`), machine id and build (in `plugin/core/`), and models (in the Claude Code adapter). |
+| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff (on request, or loaded ahead while the owner has the console page open), and a whole-session recording. Each is redacted and size-capped. The recorder (`recording.ts`), the diff reader (`fileDiff.ts`), the feed and its budgets (`feed.ts`) and diff redaction are in `plugin/core/`, shared by both reporters (#969); each adapter supplies the data from its own hooks or events. |
 | Reporter | Simulator, settings hooks | Other ways to report: a simulator that fakes a busy fleet, and Claude Code's settings hooks for sessions started without the mod. |
 
 ### Network
@@ -80,10 +81,12 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`, and each kind declares its own default target) and loads it on demand. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
-| Storage | SQLite adapter (the default) | The only adapter built today, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the numbered migrations, one lock per connection, and both database files. Another adapter (not built) would sit beside it, register its own kind and own its own database; this is the replaceable part. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). |
+| Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`; `postgres` is the other kind, and `postgresql://` is an alias for it; each kind declares its own default target, which `postgres` does not have, and a `label()` for the log and the health check: `host:port/dbname`, never a user or password) and loads it on demand. `/health` shows that label as `dbPath` and the kind as `dbKind`. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
+| Storage | SQLite adapter (the default) | One of two adapters, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the 30 numbered migrations, one lock per connection, and both database files. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). Migration 25 adds a `seq` column to `peer_messages` and `person_certificates`, an explicit insertion order that replaces SQLite's `rowid` on a tie. Migration 27 adds `reporter_name` to `reporters`, and a reporter's key carries it for any reporter but the Claude Code one (`podium-reporter-claudecode`, or the legacy `podium-reporter` read as the same, #967), so one machine can hold a row per reporter. Migration 28 adds `harness` and `cost_source` to `sessions`: the harness a session runs under (existing rows become `claude-code`) and `harness` when its cost is the harness's own figure, which ingest keeps as it came and never reprices. Migration 29 adds `capabilities_json`, `model_label` and `model_provider` to `sessions`: what a harness declares it can report, and its model's label and provider (empty until a report declares them). Migration 30 adds `model_label` and `model_provider` to `agents`, the same two for an agent (empty for every agent stored before it). |
+| Storage | PostgreSQL adapter | The other adapter, in `server/src/storage/postgres/`, chosen when `PODIUM_DB` is a `postgres://` (or `postgresql://`) address. It implements the same `Storage` interfaces over the `pg` driver, which only this folder imports, and passes the same contract suite. It keeps two schemas in one database, each on its own pool: `podium` (10 connections) and `podium_activity` (4 connections). Transactions run one at a time through `PgDb.tx`. A session advisory lock taken at startup keeps a second server off the database. Version 1 of each schema is a baseline and a later change is a new step: `podium` has four so far, `podium_activity` none. |
 | Storage | `podium.sqlite` | The SQLite adapter's main file, reached only through the adapter: WAL mode, with the live fleet, people and certificates, reporters, messaging, daily rollups, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file, for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
+| Storage | PostgreSQL database | The PostgreSQL adapter's database, used instead of the two SQLite files: one database with two schemas, `podium` (fleet, people, reporters, messaging, settings; a pool of 10 connections) and `podium_activity` (Activity history and recordings; a pool of 4). A session advisory lock keeps a second server off it. |
 
 ### Console
 
@@ -98,9 +101,10 @@ to do travels back in the reply to a report.
 
 ## The reporter's hooks and timers
 
-These are the handlers in `mod/podium-reporter/hooks/register.ts` that make up the first four rows of
-[The parts](#the-parts). Each runs after Claude Code has done its own work, and an error in one is logged and never
-passed on, so a bug in Podium cannot fail a tool call.
+These are the handlers the Claude Code adapter registers in `plugin/claudecode/hooks/register.ts`, so every name below is a
+Claude Code hook (`classic.*` is Claude Code's own hook set, the others come from its mod API). A reporter for another
+harness registers its own hooks in its own adapter. Each runs after Claude Code has done its own work, and an error in one
+is logged and never passed on, so a bug in Podium cannot fail a tool call.
 
 ### Reporter
 
@@ -144,34 +148,61 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
-| Reporter | `newSession` | Creates the in-memory model of a session. In `mod/podium-reporter/hooks/state.ts`. |
-| Reporter | `addEvent` | Adds an event to the model's queue for the next report. In `mod/podium-reporter/hooks/state.ts`. |
-| Reporter | `taskCreate` | Plan from TaskCreate. In `mod/podium-reporter/hooks/plan.ts`. |
-| Reporter | `taskUpdate` | Plan from TaskUpdate. In `mod/podium-reporter/hooks/plan.ts`. |
-| Reporter | `redact` | Replaces secret-shaped text with [redacted]. In `mod/podium-reporter/hooks/failures.ts`. |
-| Reporter | `class Transport` | Posts a report, backs off, reads the reply. In `mod/podium-reporter/hooks/transport.ts`. |
-| Reporter | `due()` | Whether a report goes now (changed, or heartbeat due, and no backoff). In `mod/podium-reporter/hooks/transport.ts`. |
-| Reporter | `flush` | The timer's entry point; posts a report if one is due. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `flushOnce` | Builds and posts one report, then reads the reply. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `buildReport` | Builds the report: a full snapshot plus unsent events. In `mod/podium-reporter/hooks/report.ts`. |
-| Reporter | `questionRace` | A question's answer from Podium races the terminal's dialog. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `planRace` | The same race for a plan's approval or feedback. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `permissionAsk` | A tool's permission prompt, answered from Podium. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `handleDeliveries` | Acts on the answers and messages in a reply. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `toolDecision` | Turns an answer from Podium into a hook result. In `mod/podium-reporter/hooks/respond.ts`. |
-| Reporter | `planApproval` | The hook result that approves a plan. In `mod/podium-reporter/hooks/respond.ts`. |
-| Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `peerPrompt` | The frame around a peer message. In `mod/podium-reporter/hooks/peers.ts`. |
-| Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `mod/podium-reporter/hooks/helper.mjs`. |
-| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `mod/podium-reporter/hooks/helper.mjs`. |
-| Reporter | `readGit` | Branch, ahead/behind. In `mod/podium-reporter/hooks/git.ts`. |
-| Reporter | `readChanges` | Changed files with +/- counts. In `mod/podium-reporter/hooks/git.ts`. |
-| Reporter | `machineIdPath` | Where the random machine id is kept. In `mod/podium-reporter/hooks/machine.ts`. |
-| Reporter | `osFromSwVers` | Reads the macOS version. In `mod/podium-reporter/hooks/machine.ts`. |
-| Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `mod/podium-reporter/hooks/recording.ts`. |
-| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `mod/podium-reporter/hooks/diffRedact.ts`. |
-| Reporter | `setWatched` | Records which loops someone is watching. In `mod/podium-reporter/hooks/state.ts`. |
+| Reporter | `class Reporter` | The OpenCode runtime, one transport per root, the flush tick, diffs, recording, failure explanations, the idle sweep and the bounded final flush. In `plugin/opencode/reporter.ts`. |
+| Reporter | `apply` | Folds one OpenCode bus event into a Store. In `plugin/opencode/state.ts`. |
+| Reporter | `buildReport` | A root as a v2 report with the harness block. In `plugin/opencode/report.ts`. |
+| Reporter | `optionsOf` | Plugin options, then environment, then defaults. In `plugin/opencode/options.ts`. |
+| Reporter | `class Answering` | Waits for answers to open asks and acts on messages and /compact, from the flush tick, up to the respond level. In `plugin/opencode/answering.ts`. |
+| Reporter | `class Peers` | The messaging tools' calls, the peer messages that arrive as prompts, and the person's answers to a request. In `plugin/opencode/peers.ts`. |
+| Reporter | `podiumTools` | The plan tool, and the three messaging tools where PODIUM_PEERS allows. In `plugin/opencode/tools.ts`. |
+| Reporter | `messageIdFor` | The msg_ id OpenCode takes, made from a delivery id. In `plugin/opencode/host.ts`. |
+| Reporter | `windowFromList` | A model's context window from ctx.model.list. In `plugin/opencode/window.ts`. |
+| Reporter | `class StatusWatcher` | Turns a change in the connection's status into a toast. In `plugin/opencode/notice.ts`. |
+| Reporter | `toolName` | The Claude Code name for an OpenCode tool. In `plugin/opencode/activity.ts`. |
+| Reporter | `runPodium` | Runs what was typed after /podium: allow, decline or deliver an id, context, name, else the status. In `plugin/opencode/command.ts`. |
+| Reporter | `mountStatus` | Claims the prompt.footer.status slot for the connection's status line, or null when the host cannot. In `plugin/opencode/statusSlot.ts`. |
+| Reporter | `buildOf` | The dev build stamped into the built folder, or null for a release. In `plugin/opencode/build.ts`. |
+| Reporter | `setBackground` | The shell or subagent an idle root still runs, as a background wait. In `plugin/opencode/state.ts`. |
+| Reporter | `class Responder` | Announces an ask, waits for its answer, and reports deliveries and closes. In `plugin/core/respond.ts`. |
+| Reporter | `register` | The adapter's entry point, wires every hook. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `registerPeerTools` | Podium_peers, podium_send and podium_request_access. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `newSession` | Creates the in-memory model of a session. In `plugin/claudecode/hooks/state.ts`. |
+| Reporter | `addEvent` | Adds an event to the model's queue for the next report. In `plugin/claudecode/hooks/state.ts`. |
+| Reporter | `taskCreate` | Plan from TaskCreate. In `plugin/core/plan.ts`. |
+| Reporter | `taskUpdate` | Plan from TaskUpdate. In `plugin/core/plan.ts`. |
+| Reporter | `redact` | Replaces secret-shaped text with [redacted]. In `plugin/core/failures.ts`. |
+| Reporter | `class Transport` | Posts a report, backs off, reads the reply. In `plugin/core/transport.ts`. |
+| Reporter | `due()` | Whether a report goes now (changed, or heartbeat due, and no backoff). In `plugin/core/transport.ts`. |
+| Reporter | `flush` | The timer's entry point; posts a report if one is due. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `flushOnce` | Builds and posts one report, then reads the reply. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `buildReport` | Builds the report: a full snapshot plus unsent events. In `plugin/claudecode/hooks/report.ts`. |
+| Reporter | `questionRace` | A question's answer from Podium races the terminal's dialog. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `planRace` | The same race for a plan's approval or feedback. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `permissionAsk` | A tool's permission prompt, answered from Podium. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `handleDeliveries` | Acts on the answers and messages in a reply. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `toolDecision` | Turns an answer from Podium into a hook result. In `plugin/claudecode/hooks/respond.ts`. |
+| Reporter | `planApproval` | The hook result that approves a plan. In `plugin/claudecode/hooks/respond.ts`. |
+| Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `peerPrompt` | The frame around a peer message. In `plugin/core/peers.ts`. |
+| Reporter | `createTlsClient` | The mutual-TLS client every reporter shares (guard, open, request, fetch, start, stop, status). In `plugin/core/tls/client.mjs`. |
+| Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `plugin/core/tls/client.mjs`. |
+| Reporter | `withLock` | The cross-process lock a renewal runs under. In `plugin/core/tls/lock.mjs`. |
+| Reporter | `parseConfig` | Reads the reporter config file. In `plugin/core/tls/config.mjs`. |
+| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `plugin/core/tls/helper.mjs`. |
+| Reporter | `openLink` | Finds the reporter config file and connects in the OpenCode process through core's client. In `plugin/opencode/tls.ts`. |
+| Reporter | `startLink` | Starts the helper script for a Claude Code session. In `plugin/claudecode/hooks/tlsLink.ts`. |
+| Reporter | `readGit` | Branch, ahead/behind. In `plugin/core/git.ts`. |
+| Reporter | `readChanges` | Changed files with +/- counts. In `plugin/core/git.ts`. |
+| Reporter | `machineIdPath` | Where the random machine id is kept. In `plugin/core/machine.ts`. |
+| Reporter | `osFromSwVers` | Reads the macOS version. In `plugin/core/machine.ts`. |
+| Reporter | `gitPlace` | The project root (a worktree reports its main checkout) and owner/name from the origin remote. In `plugin/core/place.ts`. |
+| Reporter | `repoFromRemote` | Owner/name from an origin URL. In `plugin/core/place.ts`. |
+| Reporter | `class Recorder` | Numbers, redacts and batches a session recording, for either harness. In `plugin/core/recording.ts`. |
+| Reporter | `readFileDiff` | Reads one changed file's diff, for either harness. In `plugin/core/fileDiff.ts`. |
+| Reporter | `feedOf` | The activity entries that go out, with a shell call's output only when allowed. In `plugin/core/feed.ts`. |
+| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `plugin/core/diffRedact.ts`. |
+| Reporter | `setWatched` | Records which loops someone is watching. In `plugin/claudecode/hooks/state.ts`. |
 | Reporter | `ingestHook` | Takes a settings-hook report, giving a reduced view. In `server/src/fleet/fleet.ts`. |
 
 ### Network
@@ -234,22 +265,32 @@ code. A function's line number is on the page, not here, because it moves.
 | Location | Item | Description |
 |---|---|---|
 | Storage | `Storage` | The async store interfaces the app layer uses, and tx. In `server/src/storage/types.ts`. |
-| Storage | `storageSpec` | Reads PODIUM_DB once into a kind and a target; an unknown kind throws. In `server/src/storage/index.ts`. |
+| Storage | `storageSpec` | Reads PODIUM_DB once into a kind, a target and a label; an unknown kind throws. In `server/src/storage/index.ts`. |
 | Storage | `openStorage` | Async; loads the chosen kind's adapter on demand. In `server/src/storage/index.ts`. |
 | Storage | `registerStorageKind` | Adds an implementation to the registry. In `server/src/storage/index.ts`. |
-| Storage | `StorageKind` | What a registered kind declares: fileBased, defaultTarget() and load. In `server/src/storage/index.ts`. |
+| Storage | `StorageKind` | What a registered kind declares: fileBased, defaultTarget(), load and label(). In `server/src/storage/index.ts`. |
 | Storage | `defaultDbFile` | The default kind's default target, taken from the registry. In `server/src/storage/index.ts`. |
 | Storage | `dataDir` | PODIUM_DATA_DIR, else a file target's folder; holds tls/. In `server/src/storage/index.ts`. |
 | Storage | `runStorageContract` | The suite every implementation must pass. In `server/src/storage/contract.ts`. |
+| Storage | `health` | The /health answer; dbPath is the database label and dbKind its kind. In `server/src/fleet/fleet.ts`. |
+| Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/lock.ts`. |
 | Storage | `openSqliteStorage` | Builds every store on one connection, each call behind one lock. In `server/src/storage/sqlite/index.ts`. |
-| Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/sqlite/lock.ts`. |
 | Storage | `class ActivityConnection` | The activity file's own connection and lock. In `server/src/storage/sqlite/activity.ts`. |
 | Storage | `SqliteActivityHistoryOpts` | The neutral history options plus what only this adapter honors (vacuumPages). In `server/src/storage/sqlite/activityHistory.ts`. |
 | Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/storage/sqlite/recordings.ts`. |
-| Storage | `sqliteReference` | What the contract suite reads back from SQLite. In `server/src/storage/sqlite/contractReference.ts`. |
+| Storage | `sqliteContractAdapter` | The SQLite adapter as the storage tests see it. In `server/src/storage/sqlite/contractAdapter.ts`. |
+| Storage | `postgresContractAdapter` | The PostgreSQL adapter as the storage tests see it. In `server/src/storage/postgres/contractAdapter.ts`. |
+| Storage | `openPostgresStorage` | Takes the single-process lock, migrates both schemas and builds every store. In `server/src/storage/postgres/index.ts`. |
+| Storage | `class PgDb` | One pool; tx takes transactions one at a time and a call inside one joins it. In `server/src/storage/postgres/conn.ts`. |
+| Storage | `numbered` | Turns the SQLite stores' ? and :name placeholders into $n. In `server/src/storage/postgres/conn.ts`. |
+| Storage | `toSafeNumber` | Bigint and numeric as numbers; an unsafe integer is an error. In `server/src/storage/postgres/conn.ts`. |
+| Storage | `acquireSingleProcessLock` | A session advisory lock; a second server refuses to start. In `server/src/storage/postgres/singleProcess.ts`. |
+| Storage | `migrate` | Applies the steps not yet in schema_migrations. In `server/src/storage/postgres/schema.ts`. |
+| Storage | `class PgActivityConnection` | The Activity history and recordings on their own pool. In `server/src/storage/postgres/activity.ts`. |
 | Storage | `openDb` | Opens the main file, sets WAL and applies the migrations. In `server/src/storage/sqlite/db.ts`. |
 | Storage | `openActivityDb` | Opens the activity file, sets incremental vacuum and WAL, applies its steps. In `server/src/storage/sqlite/activityDb.ts`. |
 | Storage | `activityDbPath` | The activity file's path, beside the main one. In `server/src/storage/sqlite/activityDb.ts`. |
+| Storage | `migrate` | Applies the steps not yet in schema_migrations. In `server/src/storage/postgres/schema.ts`. |
 
 ### Console
 
@@ -283,7 +324,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Answering a waiting session | The one place Podium acts. It answers a question, plan or permission prompt. | The session stops at a prompt and the mod holds the hook open; it is reported as an open ask; the server holds it in memory for its owner; the owner signs in and answers; the answer waits for the next reply; the mod turns it into the held hook's result. |
 | One orchestrator messages another | Cross-machine messages between one person's orchestrators, with rights and an audit trail. | A session calls `podium_send`; the timer sends it; the server resolves the target and checks rights and limits; the message is stored as ready or awaiting approval; it is handed over when the target is idle; the mod frames it, submits it as a prompt and reports the result. |
 | Recording and replaying | Records a whole session and plays it back. The most sensitive feature has the most switches. | Three yeses start it (Admin switch, owner's choice, reporter option); the recorder redacts and numbers entries; batches go up every five seconds; the owner replays it; the sweeper purges it on schedule. |
-| Securing the reporter link | Mutual TLS, from creating a person to a revoked certificate. | An Admin creates a person; the server issues a certificate; the config file is shown once; the mod starts the TLS helper; the handshake needs a certificate; it is checked again on every request; it renews itself. |
+| Securing the reporter link | Mutual TLS, from creating a person to a revoked certificate. | An Admin creates a person; the server issues a certificate; the config file is shown once; the Claude Code mod starts the TLS helper (the OpenCode reporter runs the same client in its own process); the handshake needs a certificate; it is checked again on every request; it renews itself. |
 
 ## Four ways to run it
 
@@ -301,5 +342,6 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Server | Memory only: open asks and answers, the live activity feed, diff requests, the messaging directory, Admin sessions, the update notice | The most sensitive live data. Gone on restart, on purpose. |
 | Storage | `podium.sqlite` | The SQLite adapter's main file, in WAL mode. The app reaches it only through the `Storage` interface and the adapter, which owns it: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file: opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
-| Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
+| Storage | PostgreSQL database | Used instead of the two files above when `PODIUM_DB` is a `postgres://` address: one database with two schemas, `podium` and `podium_activity`, holding the same tables as `podium.sqlite` and `activity.sqlite`. Text is `COLLATE "C"` and times are bigint milliseconds. Nothing is written to `podium_activity` unless an Admin turns on history or recording. The log and the health check show `host:port/dbname`, never the user or the password. |
+| Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder; a `postgres://` database has no folder, so `PODIUM_DATA_DIR` is required), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
 | Console | Preferences and cookies | Convenience only: theme, pins and collapsed panes. The respond and Admin cookies are `HttpOnly` and `SameSite=Strict`. Tokens are never written to storage. |

@@ -34,6 +34,7 @@ export const GROUPS = [
       { slug: "design-standards", label: "Design standards" },
       { slug: "architecture-atlas", label: "Architecture atlas" },
       { file: "atlas/ATLAS.md", slug: "atlas", label: "Atlas tables" },
+      { file: "DEPRECATIONS.md", slug: "deprecations", label: "Deprecations" },
     ],
   },
   {

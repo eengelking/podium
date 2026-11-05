@@ -278,6 +278,36 @@ export class SessionRecordings {
     };
   }
 
+  /** `view` for many sessions (#906). In-process SQLite pays nothing for a read, so this is a loop. */
+  viewMany(items: { sessionId: string; loops: { loop: string; name: string }[] }[]): Map<string, RecordingView | null> {
+    const out = new Map<string, RecordingView | null>(items.map((i) => [i.sessionId, null]));
+    if (!this.opts.authOn || items.length === 0) return out;
+    const loops = new Map(items.map((i) => [i.sessionId, i.loops]));
+    for (let at = 0; at < items.length; at += 500) {
+      const ids = items.slice(at, at + 500).map((i) => i.sessionId);
+      // order-insensitive: the rows are put in a map by the session's id.
+      const rows = this.db.prepare(`${ROW_SQL} WHERE session_id IN (${ids.map(() => '?').join(', ')})`).all(...ids).map(rowOf);
+      for (const r of rows) out.set(r.sessionId, this.viewOfRow(r, loops.get(r.sessionId) ?? []));
+    }
+    return out;
+  }
+
+  private viewOfRow(r: RecRow, all: { loop: string; name: string }[]): RecordingView {
+    const chosen = new Set(r.loops);
+    return {
+      state: this.stateOf(r),
+      limit: r.state === 'limit' ? r.limitKind : null,
+      startedBy: r.startedBy,
+      startedAt: r.startedAt,
+      stoppedBy: r.stoppedBy,
+      stoppedAt: r.stoppedAt,
+      keptUntil: this.keptUntil(r),
+      bytes: r.bytes,
+      loops: all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) })),
+      ownerAllows: this.optionOn(r.sessionId),
+    };
+  }
+
   /** Every loop of a session with whether it is recorded, for the replay's loop filter. */
   loopInfo(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): RecordingLoopInfo[] {
     const chosen = new Set(this.row(sessionId)?.loops ?? []);
@@ -361,7 +391,7 @@ export class SessionRecordings {
 
   /** The Admin turned the flag off: every running recording stops and keeps what it has. Returns the sessions stopped. */
   stopAll(by: string): string[] {
-    const ids = (this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording'").all() as { id: string }[]).map((x) => x.id);
+    const ids = (this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' ORDER BY session_id").all() as { id: string }[]).map((x) => x.id);
     const now = this.opts.now();
     this.tx(() => {
       for (const id of ids) {
@@ -467,7 +497,7 @@ export class SessionRecordings {
           this.setLimit(sessionId, which);
           hit.push({ sessionId, which, bytes: size });
           if (which === 'budget') {
-            for (const other of this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ?").all(sessionId) as { id: string }[]) {
+            for (const other of this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ? ORDER BY session_id").all(sessionId) as { id: string }[]) {
               this.setLimit(other.id, 'budget');
               hit.push({ sessionId: other.id, which: 'budget', bytes: 0 });
             }
@@ -673,6 +703,7 @@ export class SessionRecordings {
 
   private async deleteEntriesOf(sessionId: string): Promise<void> {
     for (;;) {
+      // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
       const done = await this.step(() => this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)').run(sessionId, this.chunk).changes);
       if (Number(done) < this.chunk) return;
       await yieldNow();
@@ -686,6 +717,7 @@ export class SessionRecordings {
 
   /** Removes the recordings of sessions the main database no longer holds (their own retention ran out). Returns the entries removed. */
   async dropMissingSessions(exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
+    // order-insensitive: the ids are compared with the live ones as a set.
     const stored = await this.step(() => (this.st('SELECT session_id AS id FROM rec_sessions').all() as { id: string }[]).map((r) => r.id));
     const missing: string[] = [];
     for (const id of stored) if (!(await exists(id))) missing.push(id);
@@ -707,6 +739,7 @@ export class SessionRecordings {
       let bytes = 0;
       for (;;) {
         const rows = await this.step(() => this.tx(() => {
+          // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
           const gone = this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE t < ? LIMIT ?) RETURNING session_id AS sid, b').all(cutoff, this.chunk) as { sid: string; b: number }[];
           const per = new Map<string, { n: number; b: number }>();
           for (const g of gone) {
@@ -729,6 +762,7 @@ export class SessionRecordings {
       const dropped = await this.step(() => {
         for (const sid of touched) this.st('UPDATE rec_sessions SET oldest_t = (SELECT MIN(t) FROM rec_entries WHERE session_id = ?) WHERE session_id = ?').run(sid, sid);
         let n = 0;
+        // order-insensitive: every id listed is processed, in whatever order.
         for (const r of this.st('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0 AND COALESCE(started_at, 0) < ?').all(cutoff) as { id: string }[]) {
           const row = this.row(r.id);
           if (row && row.state === 'recording' && this.enabled() && this.opts.isLive(r.id)) continue;

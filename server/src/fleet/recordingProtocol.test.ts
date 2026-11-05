@@ -104,3 +104,24 @@ describe('recording settings constants (#353)', () => {
     expect(RECORDING_LIMITS.bodyBytes).toBeLessThan(512 * 1024);
   });
 });
+
+describe('a recorded number a column cannot store and read back (#1007)', () => {
+  it.each([
+    ['sentAt', { ...batch([entry]), sentAt: 1e16 }, '$.sentAt'],
+    ['at', batch([{ ...entry, at: 1e16 }]), '$.entries[0].at'],
+    ['seq', batch([{ ...entry, seq: 1e16 }]), '$.entries[0].seq'],
+    ['callSeq', batch([{ ...entry, callSeq: 1e16 }]), '$.entries[0].callSeq'],
+    ['lost', batch([{ loop: 'a1', seq: 2, at: 1, kind: 'gap', lost: 1e16 }]), '$.entries[0].lost'],
+  ])('rejects 1e16 in %s', (_n, body, path) => {
+    expect(validateRecordingBatch(body)).toMatchObject({ ok: false, path });
+  });
+});
+
+describe('a fractional recorded time (#1007)', () => {
+  it.each([
+    ['sentAt', { ...batch([entry]), sentAt: 1000.5 }, '$.sentAt'],
+    ['at', batch([{ ...entry, at: 1000.5 }]), '$.entries[0].at'],
+  ])('rejects 1000.5 in %s', (_n, body, path) => {
+    expect(validateRecordingBatch(body)).toMatchObject({ ok: false, path });
+  });
+});

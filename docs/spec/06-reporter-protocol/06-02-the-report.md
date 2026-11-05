@@ -14,7 +14,7 @@ All times are epoch milliseconds. All token counts are integers. Unknown fields 
 interface Report {
   v: 1;
   sentAt: number;
-  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
+  reporter: { name: 'podium-reporter' | 'podium-reporter-claudecode'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
   session: {
     id: string;
     name: string;                       // display name (6.6)
@@ -33,6 +33,8 @@ interface Report {
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null;
     context: { tokens: number | null; window: number | null; percent: number | null };
     costUsd: number | null;             // the engine ledger's session cost; the server prices usageByModel instead when it is present (6.5)
+    harness?: string;                   // the harness that runs the session; absent means 'claude-code' (#851)
+    costSource?: 'harness' | 'estimate'; // 'harness': costUsd is the harness's own figure and is kept as it is (6.5); default 'estimate'
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };  // main loop only, cumulative
     usageByModel?: { model: string; tier: 'std' | 'long'; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number } }[];  // the whole session, agents included (#117); absent from a reporter older than 0.12.0
     rateLimits: { kind: string; percentUsed: number; resetsAt: string | null }[];
@@ -53,7 +55,7 @@ interface Report {
     respond?: {                         // whether and how far this session can be answered from Podium (#206, 5.3, 5.9); absent from a reporter older than 0.14.0
       level: 'off' | 'questions' | 'questions-and-plans' | 'everything';   // the `respond` option as set
       accepts: RespondKind[];           // what the session takes now: the level's kinds, empty while `activityFeed` is off or the session is not interactive, less what `limits` removes
-      limits: ('no-permission-hooks' | 'not-interactive')[];  // why a kind the level allows is missing: PermissionRequest hooks don't run here (drops plan-approve and permission), or a `claude -p` run (drops everything)
+      limits: ('no-permission-hooks' | 'not-interactive' | 'no-reply-in-place')[];  // why a kind the level allows is missing: PermissionRequest hooks don't run here (drops plan-approve and permission), a `claude -p` run (drops everything), or the session takes no typed reply in place of a question's answer (drops no kind, #968)
     };
     asks?: Ask[];                       // the asks open now, at most 8; sent only while the last reply said `respond: true`, else omitted
     clearedFrom?: string | null;        // the session id this one continues after a /clear (5.8); null or absent otherwise
@@ -63,7 +65,7 @@ interface Report {
   agents: AgentReport[];                // every agent seen this session, running or finished
   events: ActivityEvent[];              // not yet acknowledged
   userName?: string;                    // the person this reporter is set up as (the `userName` option); omitted when empty. The server checks it against the token's owner (7.7)
-  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (on macOS `scutil --get LocalHostName`, else `hostname`, up to the first dot, ≤ 64; the first one read is pinned in `podium-machine-name` beside the id file and reported by every later load, so a name that changes with the network does not show one machine under two names, #715; deleting the file takes the current name) and a random 12-hex id the mod keeps in one file, `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`), made on first use and shared by every load of the mod on the machine (#267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
+  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (on macOS `scutil --get LocalHostName`, else `hostname`, up to the first dot, ≤ 64; the first one read is pinned in `podium-machine-name` beside the id file and reported by every later load, so a name that changes with the network does not show one machine under two names, #715; deleting the file takes the current name) and a random 12-hex id the reporters keep in one file, `~/.podium/machine-id`, made on first use and shared by every load of every reporter on the machine (#856; an id a Claude install already kept in `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`) is copied there, #267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
 }
 
 interface FilesReport {
@@ -220,6 +222,36 @@ interface ActivityEvent {
   data: Record<string, unknown> | null;
 }
 ```
+
+## Report v2: a harness block and capabilities (#850)
+
+A report with `v: 2` is the v1 shape plus two blocks, so a harness other than Claude Code can report. It goes to the same endpoint and gets the same reply. The server reads both versions, and a v1 report means Claude Code. Any other `v` is a 400 at `$.v`.
+
+```ts
+interface ReportV2 extends Omit<Report, 'v'> {
+  v: 2;
+  // both blocks are required in v2; a report without one is a 400 at its path
+  harness: { id: string; name: string; version: string; surface: string | null };  // id: 1 to 32 letters, digits, - or _ (the key the server uses)
+  capabilities: {                       // each key is a boolean; a key left out is not declared (below)
+    effort?: boolean; plan?: boolean; agents?: boolean; cost?: boolean; context?: boolean; git?: boolean; respond?: boolean;
+    commands?: string[];                // the slash commands Podium may send, at most 64, none empty; left out means none
+  };
+}
+```
+
+What changes inside the v1 fields when `v` is 2:
+
+- `session.effort` and `agents[].effort` are any non-empty string or `null`; `plan.source` and `agents[].kind` are any non-empty string. v1 keeps its closed lists.
+- `session.model` and `agents[].model` stay strings. New and optional on both: `modelProvider` (such as `anthropic`) and `modelLabel` (the name the harness shows).
+- The server stores what a report declares (7.2): `capabilities` as sent (a key left out stays not declared), and `modelProvider` and `modelLabel`. A later report of the session replaces `capabilities` and replaces a label or provider it sends, `null` included; a report that carries none of them, v1 or a settings hook, leaves what is stored alone (except for the null model below). A report that names a different `model` and sends no label or provider drops the stored ones, because they described the old model. A report whose `model` is `null` stores no label and no provider, whatever it sends and whatever was stored, because a label with no model has nothing to describe (#952); the model wins. An agent's `modelLabel` and `modelProvider` are stored the same way, per agent, keyed by the agent's id (#945), under the same rule: one helper decides it for a session and for an agent (#952).
+- `session.costSource` says whether `costUsd` is the harness's own figure (`harness`) or an estimate (6.5). `session.harness`, if sent, must equal `harness.id`.
+
+**Omitted and null.** The two mean different things, in v2 and wherever a field is optional. A field that is **omitted** is not supported by that reporter. A capability key is the one exception (#940): `true` and `false` are the reporter's answer, and a key left out is **not declared**, so the console draws that field as it would for the harness without a declaration (8.1) and does not read the omission as a no. `null` means it is supported and has no value now (an effort not chosen, a cost not yet known). A reader never turns one into the other. This does not change v1, whose optional fields keep the rule at the top of this page.
+
+**Refusals.**
+
+- A v2 report to a server that only knows v1 gets that server's `400` at `$.v`. The reporter turns it into a notice that the server only reads version 1 and needs an update, instead of showing the bare 400.
+- A session id is kept by the harness that first reported it. A report that names another harness (the block, or `session.harness`) for that id is `409` at `$.harness.id`. A v1 report that names none leaves the stored harness as it is (#851).
 
 <!-- nav:start -->
 ---

@@ -2,6 +2,7 @@
 // the activity / agent panel. Data comes from useFleet; everything here is presentation state.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./fleet.css";
+import { mixedHarnesses } from "./harness";
 import { idleOnBackground } from "./waiting";
 import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type AgentSortKey, type SortKey, type StatusFilter } from "./logic";
 import { PAGE } from "./components/ActivityList";
@@ -553,7 +554,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
             {myReporters ? (
-              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} />
+              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} sessions={all} />
             ) : (
               <main className="main" id="podium-main">
                 {/* An open orchestrator and a replay carry their own h1; the wall and the board get one a screen reader can find (#636). */}
@@ -580,9 +581,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     flashAgent={flash}
                     onAgent={selectAgent}
                     onRemove={onRemove}
+                    showHarness={mixedHarnesses(all)}
                   />
                 ) : (
                   <Wall
+                    showHarness={mixedHarnesses(all)}
                     sessions={shown}
                     totalLive={all.length}
                     kpis={state.kpis}

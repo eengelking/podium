@@ -4,14 +4,15 @@
 // responding's /respond router, so they share its sign-in, its cross-site check and its no-store header. Every browser route needs
 // the signed-in person to be the session's owner or an Admin. A recording's text goes to the one reader and nowhere else: it is
 // never logged, and the Admin log carries only who did what to which session, with counts.
-import express, { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
 import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
-import { MAIN_LOOP, RECORDING_LIMITS, validateRecordingBatch, validateRecordingStart, type RecordingPage } from './protocol.js';
+import { MAIN_LOOP, RECORDING_LIMITS, shortId, validateRecordingBatch, validateRecordingStart, type RecordingPage } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler } from './asyncHandler.js';
 
@@ -23,7 +24,6 @@ const sourceOf = (req: Request): string => sourceAddress(req.ip);
 /** Authentication on and the Admin's flag (#353). The reporter's `sessionRecording` option is checked per session. */
 export const recordingEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.recordings.enabled();
 
-const id8 = (id: string): string => id.slice(0, 8);
 
 /** The Admin log row and the server log line for one recording event, never any text of the recording. */
 export async function logRecording(people: PeopleStoreApi | null, logger: Logger, now: number, kind: string, detail: string, source: string, actor: string | null, fields: Record<string, string | number | boolean | null>): Promise<void> {
@@ -40,14 +40,14 @@ export function wireRecordingLogs(fleet: Fleet, people: PeopleStoreApi | null, l
   const writeTrail = async (t: RecordingTrail) => {
     const now = fleet.now();
     const name = (await fleet.db.getSession(t.sessionId))?.name ?? 'a session';
-    const where = `${name} (${id8(t.sessionId)})`;
+    const where = `${name} (${shortId(t.sessionId)})`;
     if (t.kind === 'limit') {
       const why = t.which === 'budget' ? 'the disk budget was reached' : `the session reached its limit (${sizeText(t.bytes)})`;
       await logRecording(people, logger, now, 'recording_limit', `Recording of ${where} stopped: ${why}`, 'server', null, { session_id: t.sessionId, limit: t.which, bytes: t.bytes });
     } else if (t.kind === 'stopped') {
       await logRecording(people, logger, now, 'recording_stopped', `Recording of ${where} stopped: the Admin turned session recording off`, 'server', null, { session_id: t.sessionId, by: t.by });
     } else {
-      await logRecording(people, logger, now, 'recording_started', `Recording of ${where} continues after /clear from ${id8(t.from)}`, 'server', t.by, { session_id: t.sessionId, from_session: t.from });
+      await logRecording(people, logger, now, 'recording_started', `Recording of ${where} continues after /clear from ${shortId(t.from)}`, 'server', t.by, { session_id: t.sessionId, from_session: t.from });
     }
     fleet.recordingChanged(t.sessionId);
   };
@@ -56,7 +56,7 @@ export function wireRecordingLogs(fleet: Fleet, people: PeopleStoreApi | null, l
 /** The mod's route (SPEC 7.1). */
 export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
-  const json = express.json({ limit: BATCH_BODY_LIMIT });
+  const json = jsonBody({ limit: BATCH_BODY_LIMIT });
 
   router.post('/sessions/:id/recording', d.requireToken, json, asyncHandler(async (req, res) => {
     const v = validateRecordingBatch(req.body);
@@ -92,7 +92,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   const now = fleet.now;
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
+    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
     res.status(status).json({ ok: false, error: reason, ...extra });
   };
 
@@ -110,7 +110,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       refuse(req, res, 401, 'sign in to open the recording');
       return null;
     }
-    const row = await fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id as string);
     if (!row) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;
@@ -123,7 +123,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   };
 
   const audit = (req: Request, v: { actor: string }, row: SessionRow, kind: string, detail: string, fields: Record<string, string | number | boolean | null> = {}): Promise<void> =>
-    logRecording(people, logger, now(), kind, `${detail} in ${row.name} (${id8(row.id)})`, sourceOf(req), v.actor, { session_id: row.id, ...fields });
+    logRecording(people, logger, now(), kind, `${detail} in ${row.name} (${shortId(row.id)})`, sourceOf(req), v.actor, { session_id: row.id, ...fields });
 
   browser.get('/sessions/:id/recording', asyncHandler(async (req, res) => {
     const got = await access(req, res);

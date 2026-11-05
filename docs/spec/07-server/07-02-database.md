@@ -148,6 +148,28 @@ ALTER TABLE sessions ADD COLUMN cleared_from TEXT;                        -- Rep
 CREATE INDEX sessions_cleared_from ON sessions(cleared_from);             -- finds clearedInto for History
 ```
 
+Migration 28 (#851; PostgreSQL main step 4) records the harness a session runs under and who worked out its cost (6.5):
+
+```sql
+ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';  -- Report.session.harness; every earlier row is a Claude Code session
+ALTER TABLE sessions ADD COLUMN cost_source TEXT;                              -- 'harness' when cost_usd is the harness's own figure; NULL when Podium priced it
+```
+
+Migration 29 (#940; PostgreSQL main step 5) stores what a harness declares. NULL in each means no report has declared it, which is what every earlier row and every v1 session is:
+
+```sql
+ALTER TABLE sessions ADD COLUMN capabilities_json TEXT;  -- Report.capabilities as sent: a JSON Capabilities; a key left out was not declared
+ALTER TABLE sessions ADD COLUMN model_label TEXT;        -- Report.session.modelLabel
+ALTER TABLE sessions ADD COLUMN model_provider TEXT;     -- Report.session.modelProvider
+```
+
+Migration 30 (#945; PostgreSQL main step 6) gives an agent the same two fields. NULL means no report gave one, which is every agent stored before this. A report that sends neither keeps what the agent has, unless it names a different `model` (6.2):
+
+```sql
+ALTER TABLE agents ADD COLUMN model_label TEXT;     -- Report.agents[].modelLabel
+ALTER TABLE agents ADD COLUMN model_provider TEXT;  -- Report.agents[].modelProvider
+```
+
 Migration 17 (#277) drops `people.token_last4`, the last four characters of a person's token, which nothing has read since #218:
 
 ```sql
@@ -162,6 +184,7 @@ read a conversation afterwards ([7.7](07-07-hardening.md#orchestrator-messaging-
 ```sql
 ALTER TABLE reporters ADD COLUMN os TEXT;                                 -- Report.machine.os as last reported; a report without one keeps it
 ALTER TABLE reporters ADD COLUMN peers INTEGER;                           -- the `peers` option as last reported (1 or 0); NULL from an older reporter
+ALTER TABLE reporters ADD COLUMN reporter_name TEXT NOT NULL DEFAULT 'podium-reporter';  -- #849, migration 27: which reporter sent the row; the key is the machine id (or address) plus `@<name>` for any reporter but `podium-reporter`, so a machine running two reporters has two rows and every earlier key stays valid
 CREATE TABLE peer_rights (from_key TEXT, to_key TEXT, owner TEXT, level TEXT, paused INTEGER, set_at INTEGER, PRIMARY KEY (from_key, to_key));
   -- one direction between two of one owner's reporters (the same reporter twice included); level none | see | ask | send.
   -- A `none` row exists only to hold a pause, or a removal under Trust my own reporters
@@ -260,6 +283,32 @@ The sweeper runs this hourly:
 The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `RETAIN_SESSIONS_MS`,
 `RETAIN_ADMIN_LOG_MS` and `RETAIN_ROLLUP_MS` (395 days). `GET /api/admin/log` also returns the period as `retainMs`, and Admin > Admin log says
 "Entries are kept for N days."
+
+## PostgreSQL (#822)
+
+`PODIUM_DB=postgres://user:password@host:5432/dbname` (or `postgresql://`) makes PostgreSQL the database
+([DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)). The
+database must exist and be empty or made by Podium; the server creates its schemas and tables and migrates them at start. The
+tables above, and every rule that comes with them, hold on PostgreSQL as written, with these differences in how they are kept:
+
+- **Two schemas in one database.** The main tables are in the schema `podium`. The Activity history (`entries`,
+  `stored_sessions`, `loops`) and the recordings (`rec_sessions`, `rec_entries`) are in `podium_activity`, with their own
+  connections, as they are in `activity.sqlite`. Each has its own `schema_migrations` table (`version`, `applied_at`) in place
+  of `schema_migrations` in the main file and `PRAGMA user_version` in the Activity file.
+- **One baseline migration.** Version 1 of each schema creates the end state of the SQLite migrations (migration 25 included).
+  A later change is the next numbered step.
+- **Types.** Times are `BIGINT` milliseconds, reals are `DOUBLE PRECISION`, ids that were `INTEGER PRIMARY KEY` are `BIGINT`
+  identity columns, and flags stay 0/1 integers. A number the server reads is a JavaScript number; a whole number above
+  `Number.MAX_SAFE_INTEGER` is an error.
+- **Text compares as bytes.** Every text column is `COLLATE "C"`, and the case-folding the SQLite tables do with `lower()` uses
+  `podium_lower`, which folds ASCII letters only.
+- **Order.** Where two rows can tie, the order ends on `seq` or `id`: peer messages by `sent_at, seq`, person certificates by
+  `issued_at DESC, seq DESC`, sessions by `started_at, id`, blowouts by `t, id`. SQLite migration 25 adds `seq` to
+  `peer_messages` and `person_certificates` for it.
+- **No pragmas, no VACUUM.** Autovacuum gives back space, and the Activity history's compaction does nothing.
+- **Limits.** One server process for each database: the server holds a session advisory lock, and a second server on the same
+  database stops at start. Podium does not move data from a SQLite file into PostgreSQL, and it supports no read replica or high
+  availability. The password is never logged or returned by `/health`, which show `host:port/dbname`.
 
 <!-- nav:start -->
 ---

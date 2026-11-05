@@ -34,11 +34,12 @@ Rules the module must obey:
 Run during development:
 
 ```
-claude plugin validate mod/podium-reporter          # manifest + source: lists every event hooked and every $ call made
-tsc -p mod/podium-reporter                           # only once the engine has laid types in .claude-plugin/types/
-claude plugin test mod/podium-reporter               # runs hooks/*.test.ts against the engine
-claude --plugin-dir mod/podium-reporter              # a session with the mod loaded (hot-reloads on save)
-claude --plugin-dir mod/podium-reporter -p "…"       # headless; always loads fresh
+npm run plugin:build                                 # writes dist-dev/claudecode/, the built plugin (stamped, git-ignored)
+claude plugin validate dist-dev/claudecode               # manifest + source: lists every event hooked and every $ call made
+npm run typecheck:mod:claudecode                                # type-checks plugin/claudecode and plugin/core
+npm run test:mod:claudecode                                     # builds with the tests, then `claude plugin test` runs hooks/*.test.ts against the engine
+claude --plugin-dir dist-dev/claudecode                  # a session with the mod loaded (rebuild after an edit)
+claude --plugin-dir dist-dev/claudecode -p "…"           # headless; always loads fresh
 ```
 
 <!-- nav:start -->

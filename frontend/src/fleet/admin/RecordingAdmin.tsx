@@ -2,7 +2,7 @@
 // budget, the limit for one session) and the table of every recording that is running or kept, where an Admin can stop or delete
 // any of them after a confirmation. Recordings are also listed by Stored activity with its Source filter set to Recordings.
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { RECORDING_RANGES } from "../../../../server/src/fleet/protocol";
+import { RECORDING_RANGES } from "../../../../plugin/core/protocol";
 import { replayHash } from "../../route";
 import { fmtWhen } from "../recording";
 import type { RecordingAdminRow, RecordingSettings } from "../types";
@@ -74,7 +74,13 @@ export function RecordingLimits({ api, state, onSaved, onLocked }: { api: AdminA
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => setF(initial()), [settings.keepHours, settings.budgetMb, settings.sessionMb]);
+  // Reset during render when a saved limit changes, so a mount does not overwrite an edit.
+  const savedKey = `${settings.keepHours}|${settings.budgetMb}|${settings.sessionMb}`;
+  const [shownFor, setShownFor] = useState(savedKey);
+  if (shownFor !== savedKey) {
+    setShownFor(savedKey);
+    setF(initial());
+  }
   const set = (patch: Partial<typeof f>) => {
     setDone("");
     setF((cur) => ({ ...cur, ...patch }));

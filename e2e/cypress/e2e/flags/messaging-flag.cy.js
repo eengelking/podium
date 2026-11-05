@@ -20,10 +20,12 @@ describe('flags: orchestrator messaging', () => {
     cy.openConsole('#/me/reporters');
     cy.contains('table.ptab tr', 'ci-runner-01').should('contain.text', 'Off');
     cy.contains('table.ptab tr', 'ed-mbp').should('contain.text', 'On');
-    // The note names both routes to turn it on: the terminal command with the full key, and Claude desktop's settings (#837).
-    cy.contains('.pm-note', 'ci-runner-01 has messaging off')
-      .should('contain.text', 'In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on.')
+    // The word is a hover/focus note (#857) that names both Claude Code routes to turn it on (#837); there is no separate line under the table.
+    cy.contains('table.ptab tr', 'ci-runner-01').find('.tip.tt [role=tooltip]')
+      .should('contain.text', 'ci-runner-01 has messaging off. Only that machine can turn it on.')
+      .and('contain.text', 'In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on.')
       .and('contain.text', 'In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers.');
+    cy.contains('.pm-note', 'has messaging off').should('not.exist');
   });
 
   it('off: removes Traffic and My reporters, says so on their pages and stops the data', () => {
