@@ -187,8 +187,11 @@ contract.
 - **Values.** `PgDb` converts `bigint` and `numeric` to numbers, and throws if a whole number would lose digits. Flags stay
   0/1 columns, and the stores turn them into booleans where the SQLite stores do.
 - **The transaction.** `tx` takes a client from the pool for the whole callback and takes transactions one at a time through a
-  gate, so a read then a write inside one is a single step, as the SQLite lock made it. A nested `tx` joins the open one
-  through the async context. `savepoint` is used for the steps `peerRights` and `personCerts` can undo alone.
+  gate, and a statement made outside a transaction takes its turn at the same gate, so a call from another task waits while a
+  transaction is open and a read then a write inside one is a single step, as the SQLite lock made it (#1007). Calls
+  outside a transaction therefore run one at a time, as they do on SQLite. A call made inside the callback, or a nested `tx`,
+  joins the open transaction through the async context, which also means a call started inside the callback and left
+  running joins it and must finish before it ends. `savepoint` is used for the steps `peerRights` and `personCerts` can undo alone.
 - **One process.** At start, a client of its own takes `pg_try_advisory_lock`. If another Podium holds it, the server stops with
   a message naming the database (host, port and name) and exits non-zero. It is released at `close`, or when the connection
   ends.
