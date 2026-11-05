@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const pgGate = vi.fn<() => Promise<void>>();
 vi.mock('./gate.js', () => ({ pgGate: () => pgGate() }));
+vi.mock('../serverGate.js', () => ({ checkServers: () => undefined }));
+vi.mock('../index.js', () => ({ testedStorageKinds: () => [], contractAdapterFor: async () => undefined }));
 
 import setup from './globalSetup.js';
 

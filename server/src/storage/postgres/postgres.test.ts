@@ -1,49 +1,11 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { MAIN_LOOP } from '../../fleet/protocol.js';
-import { runStorageContract } from '../contract.js';
 import { openStorage } from '../index.js';
-import { sqliteReference } from '../sqlite/contractReference.js';
-import type { Storage } from '../types.js';
 import { openPostgresStorage } from './index.js';
-import { upgradeCases } from '../contractUpgrade.js';
-import { openUpgradedPostgres } from './upgradeTesting.js';
 import { TEST_PG, createTestDatabase, type TestDatabase } from './testing.js';
 
 const target = (td: TestDatabase): string => td.url.replace(/^postgres:\/\//, '');
-
-// The whole contract against PostgreSQL. A test that fails
-// before its own close leaves its database and storage behind, so every one opened is also dropped after the file.
-describe.skipIf(!TEST_PG)('postgres storage', () => {
-  const opened: { td: TestDatabase; storage: Storage }[] = [];
-  afterAll(async () => {
-    for (const { td, storage } of opened.splice(0)) {
-      await Promise.race([storage.close().catch(() => undefined), new Promise((r) => setTimeout(r, 2000))]);
-      await td.drop();
-    }
-  });
-  runStorageContract('postgres', async () => {
-    const td = await createTestDatabase();
-    const storage = await openPostgresStorage(target(td), 0);
-    const entry = { td, storage };
-    opened.push(entry);
-    return { ...storage, close: async () => { await storage.close(); await td.drop(); opened.splice(opened.indexOf(entry), 1); } };
-  }, sqliteReference);
-});
-
-describe.skipIf(!TEST_PG)('postgres upgrade contract', () => {
-  const dropped: TestDatabase[] = [];
-  afterAll(async () => {
-    for (const td of dropped) await td.drop();
-  });
-  upgradeCases({
-    openUpgraded: async (rows, reporters, sessions) => {
-      const { storage, td } = await openUpgradedPostgres(rows, reporters, sessions);
-      dropped.push(td);
-      return storage;
-    },
-  });
-});
 
 describe.skipIf(!TEST_PG)('opening the PostgreSQL storage', () => {
   const dbs: TestDatabase[] = [];

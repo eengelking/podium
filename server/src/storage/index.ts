@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { repoRoot } from '../serverRoot.js';
 import type { Storage } from './types.js';
+import type { ContractAdapter } from './contractAdapter.js';
 
 export type { Storage, FleetStore, FleetStoreApi, PeerSettingsStoreApi, PeerRightsStoreApi, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
   FeatureFlagsApi, PeerStoreApi, ActivityStorage, ActivityStoreOptions, ActivityHistoryApi, ActivityHistoryOptions, SessionRecordingsApi, RecordingsOptions, PeerStoreOptions, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
@@ -18,6 +19,8 @@ export interface StorageKind {
   load: StorageLoader;
   /** What the log and the health check show for a target. It never carries a password. */
   label(target: string): string;
+  /** Imports the adapter's entry for the storage tests (#1008). The contract, the upgrade cases and the differential test run over every kind that has one. */
+  testing?: () => Promise<ContractAdapter>;
 }
 
 /** The kind PODIUM_DB means when it names none: a plain path or `:memory:`, or nothing at all. */
@@ -27,11 +30,13 @@ const REPO_ROOT = repoRoot(import.meta.url);
 
 /** The one place that knows which implementations exist: a new database is a registration here. */
 const registry = new Map<string, StorageKind>([
-  [DEFAULT_STORAGE_KIND, { fileBased: true, defaultTarget: () => path.join(REPO_ROOT, 'data', 'podium.sqlite'), load: async () => (await import('./sqlite/index.js')).openSqliteStorage, label: (target) => target }],
+  [DEFAULT_STORAGE_KIND, { fileBased: true, defaultTarget: () => path.join(REPO_ROOT, 'data', 'podium.sqlite'), load: async () => (await import('./sqlite/index.js')).openSqliteStorage, label: (target) => target,
+    testing: async () => (await import('./sqlite/contractAdapter.js')).sqliteContractAdapter() }],
   ['postgres', {
     fileBased: false,
     defaultTarget: () => { throw new Error('postgres has no default target'); },
     load: async () => (await import('./postgres/index.js')).openPostgresStorage,
+    testing: async () => (await import('./postgres/contractAdapter.js')).postgresContractAdapter(),
     label: (target) => (URL.canParse(`postgres://${target}`) ? postgresLabel(new URL(`postgres://${target}`)) : 'postgres://<unparseable>'),
   }],
 ]);
@@ -48,6 +53,16 @@ const ALIASES = new Map([['postgresql', 'postgres']]);
 export function registerStorageKind(kind: string, entry: Omit<StorageKind, 'defaultTarget' | 'label'> & Partial<Pick<StorageKind, 'defaultTarget' | 'label'>>): () => void {
   registry.set(kind, { defaultTarget: () => { throw new Error(`${kind} has no default target`); }, label: (target) => target, ...entry });
   return () => { registry.delete(kind); };
+}
+
+/** The names of the registered kinds that have an entry for the storage tests, in registration order. Tests only. */
+export const testedStorageKinds = (): string[] => [...registry].filter(([, k]) => k.testing).map(([name]) => name);
+
+/** The storage tests' entry for a registered kind (#1008). Tests only. */
+export async function contractAdapterFor(kind: string): Promise<ContractAdapter> {
+  const entry = registry.get(kind);
+  if (!entry?.testing) throw new Error(`storage kind "${kind}" has no entry for the storage tests`);
+  return entry.testing();
 }
 
 /** The default kind's default target: what the server opens when PODIUM_DB is unset or empty. */

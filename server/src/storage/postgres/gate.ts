@@ -1,16 +1,8 @@
-// The PostgreSQL tests run only against a server `PODIUM_TEST_PG` names (#822). This gate makes that impossible to miss (#891):
-// without the variable it prints that the suite is skipped and how to run it; with the variable and no server behind it, it fails
-// the run instead of letting every PostgreSQL test fail one by one, or be taken for a pass. Used by globalSetup.ts (vitest.config.ts).
+// The PostgreSQL tests run only against a server `PODIUM_TEST_PG` names (#822). With the variable set and no server behind it, this gate fails
+// the run instead of letting every PostgreSQL test fail one by one, or be taken for a pass (#891). A variable that is not set is `../serverGate.ts`'s
+// business (#1008). Used by globalSetup.ts (vitest.config.ts).
 import pg from 'pg';
 import { TEST_PG } from './testing.js';
-
-export const PG_SKIP_NOTICE = [
-  '',
-  '  ! PostgreSQL tests SKIPPED: PODIUM_TEST_PG is not set, so server/src/storage/postgres/ and the PostgreSQL storage contract did not run.',
-  '    A green run here says nothing about PostgreSQL. Run them with a throwaway container:  scripts/test-pg.sh',
-  '    (CI runs them in the "Test with PostgreSQL" job.)',
-  '',
-].join('\n');
 
 /** host:port/dbname of a connection string: what may be printed. Never the user or the password. */
 function label(value: string): string {
@@ -29,14 +21,13 @@ async function connectOnce(url: string): Promise<void> {
   try { await c.query('SELECT 1'); } finally { await c.end(); }
 }
 
-/** Prints the skip notice when `PODIUM_TEST_PG` is not set; throws when it is set and the server does not answer. */
+/** Does nothing when `PODIUM_TEST_PG` is not set (the server gate has judged that); throws when it is set and the server does not answer. */
 export async function pgGate(
   env?: Record<string, string | undefined>,
   connect: (url: string) => Promise<void> = connectOnce,
-  print: (line: string) => void = (l) => console.warn(l),
 ): Promise<void> {
   const { PODIUM_TEST_PG: url } = env ?? { PODIUM_TEST_PG: TEST_PG }; // destructured: podiumctl's settings test lists what the server reads, and this is for tests only
-  if (!url) { print(PG_SKIP_NOTICE); return; }
+  if (!url) return;
   try {
     await connect(url);
   } catch (e) {

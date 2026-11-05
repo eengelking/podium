@@ -27,6 +27,10 @@ jobs:
       - name: Test (server, frontend, simulator, podiumctl)
         # A failed attempt is retried twice (scripts/ci-retry.sh), so a flaky test does not fail the PR; each retry leaves a warning.
         run: scripts/ci-retry.sh --name "Test" --timeout 15m -- npm test
+        env:
+          # This job has no database server. It says so, and the run prints that PostgreSQL was NOT RUN; the "Test with PostgreSQL" job below runs it,
+          # and every other adapter has a job of its own, which a test in server/src/storage/adapters.test.ts requires (#1008).
+          PODIUM_TEST_ONLY: sqlite
 
       - name: Build (UI, server, scripts type-check)
         run: npm run build
@@ -44,8 +48,8 @@ jobs:
         if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
         run: npm run plugin:dist:check
 
-  # The PostgreSQL adapter's tests (#822) are skipped unless PODIUM_TEST_PG names a server, and `npm test` above sets none. This job gives
-  # them one: a service container with a health check, on a GitHub-hosted runner (the self-hosted runners above are containers on a shared
+  # The PostgreSQL adapter's tests (#822) need PODIUM_TEST_PG to name a server (the run fails without one unless it is limited with PODIUM_TEST_ONLY,
+  # as `npm test` above is). This job gives them one: a service container with a health check, on a GitHub-hosted runner (the self-hosted runners above are containers on a shared
   # Podman host, where a service's published port is not reachable as localhost). Each test file makes and drops its own database, so
   # the one server serves them all. The service trusts connections (no password): it lives for one job and only the runner reaches it.
   test-postgres:
