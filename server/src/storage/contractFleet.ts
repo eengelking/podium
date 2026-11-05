@@ -224,6 +224,98 @@ export function fleetCases(o: Openers): void {
     expect(t.get('ended session gone')).toBeUndefined();
     expect(t.get('live kept')).toBeDefined();
   });
+
+  it('stores text with non-ASCII letters, emoji, quotes, backslashes and wildcards as it is, and finds it by a search that treats them as plain characters (#1007)', async () => {
+    // Every value here is one a person can type or a harness can send, and the report validator lets it through (it removes control
+    // characters, which includes NUL; a NUL never reaches a store, and not every database stores one, so it is no case here).
+    // a token and the credential made from it are random, so they are not compared
+    const plain = <P extends { keyId: string; tokenHash: string; credential?: string }>(p: P): P => ({ ...bare(p), ...(p.credential === undefined ? {} : { credential: 'c' }) });
+    const odd = ['Émile Zola', 'émile', '日本語 テスト', 'party \u{1F389} \u{1F9D1}‍\u{1F4BB}', 'é combining', 'it\'s "quoted" \\ back; --', '100% sure_ish', '%', '_', 'ǅ title'];
+    const t = await sameOnBoth(o, async (s, rec) => {
+      // the people, group, machine and Admin-log paths
+      for (const [i, name] of odd.entries()) await rec(`person ${i}`, s.people.createPerson(name, null, T0 + i).then((r) => plain(r.person)));
+      for (const [i, name] of odd.entries()) await rec(`group ${i}`, s.people.createGroup(`g ${name}`, T0 + i));
+      for (const [i, name] of odd.entries()) await s.people.log('note', name, name, T0 + i, name);
+      await rec('people', s.people.list({ pageSize: 50 }).then((r) => ({ ...r, rows: r.rows.map(plain) })));
+      // the built-in group is created when the database is, so its time is the wall clock's and is not compared
+      await rec('groups', s.people.listGroups({ pageSize: 50 }).then((r) => ({ ...r, rows: r.rows.filter((g) => !g.builtIn) })));
+      await rec('log', s.people.listLog({ pageSize: 50 }));
+      // a search takes % and _ as the characters they are
+      for (const q of ['%', '_', '100%', 'sure_', 'Émile', 'émile', 'ÉMILE', '日本', '\u{1F389}', 'é', '\\', '"quoted"', "it's", 'ǆ'])
+        await rec(`search ${JSON.stringify(q)}`, s.people.list({ q, pageSize: 50 }).then((r) => r.rows.map((p) => p.name)));
+      // sessions, agents, events and settings
+      const fleet = s.fleet;
+      for (const [i, name] of odd.entries()) {
+        await fleet.upsertSession(session({ id: `s${i}`, name, cwd: `/w/${name}`, wait_note: name, owner: name, started_at: T0 + i }));
+        await fleet.upsertAgent(agent(`s${i}`, `a${i}`, { description: name, name, prompt_excerpt: name, answer_excerpt: name, last_tool: name }));
+        await fleet.insertEvent({ id: `e${i}`, session_id: `s${i}`, agent_id: null, t: T0 + i, kind: 'note', text: name, data_json: JSON.stringify({ name }) });
+        await fleet.upsertAgentTexts(`s${i}`, `a${i}`, { prompt: name, answer: name });
+      }
+      await rec('sessions', fleet.getSessions(odd.map((_, i) => `s${i}`)));
+      await rec('agents', fleet.getAgentsOf(odd.map((_, i) => `s${i}`)));
+      await rec('events', fleet.listEvents({ limit: 50 }));
+      await rec('texts', Promise.all(odd.map((_, i) => fleet.getAgentTexts(`s${i}`, `a${i}`))));
+      // reporter ignore rules and the reporter search
+      for (const [i, name] of odd.entries()) await s.reporters.record(seen(`m${i}`, name), T0 + i);
+      for (const [i, name] of odd.entries()) await rec(`ignore ${i}`, s.reporters.addIgnore('key', `k-${name}`, T0 + i));
+      await rec('ignores', s.reporters.listIgnores());
+      for (const q of ['%', '_', 'Émile', 'émile', '日本', '\u{1F389}', '\\']) await rec(`reporters ${JSON.stringify(q)}`, s.reporters.keys({ q }, T0 + 100));
+    });
+    // the values themselves, not only the agreement between two databases
+    const names = (t.get('people') as { rows: { name: string }[] }).rows.map((p) => p.name).sort();
+    expect(names).toEqual([...odd].sort());
+    const sessions = t.get('sessions') as { name: string; wait_note: string; owner: string }[];
+    expect(sessions.map((r) => r.name)).toEqual(odd);
+    expect(sessions.map((r) => r.wait_note)).toEqual(odd);
+    expect((t.get('texts') as { prompt: string }[]).map((r) => r.prompt)).toEqual(odd);
+    expect((t.get('events') as { text: string }[]).map((r) => r.text).sort()).toEqual([...odd].sort());
+    // a wildcard is a plain character in a search: '%' finds the two names with a percent sign in them, '_' the two with an underscore
+    expect(t.get('search "%"')).toEqual(['%', '100% sure_ish']);
+    expect(t.get('search "_"')).toEqual(['100% sure_ish', '_']);
+    // a person's name is folded by the app (full Unicode lower case) before it reaches a store, so É and é are one letter to the search
+    for (const q of ['Émile', 'émile', 'ÉMILE']) expect(t.get(`search ${JSON.stringify(q)}`), q).toEqual(['émile', 'Émile Zola']);
+    expect(t.get('search "日本"')).toEqual(['日本語 テスト']);
+    expect(t.get('search "\\\\"')).toEqual(["it's \"quoted\" \\ back; --"]);
+  });
+
+  it('stores and reads back the largest number the validator takes in every whole-number column, and doubles at both ends of the range (#1007)', async () => {
+    const M = MAX_REPORT_NUMBER;
+    const reals = { cost_usd: 1 / 3, context_percent: M / 3 };
+    const t = await sameOnBoth(o, async (s, rec) => {
+      const f = s.fleet;
+      await f.upsertSession(session({
+        id: 'max', started_at: M, last_seen_at: M, ended_at: M, dropped_at: M, context_tokens: M, context_window: M, tok_in: M, tok_out: M, tok_cr: M, tok_cw: M,
+        blowouts: M, attached: 1, detached_at: M, ...reals,
+      }));
+      await f.upsertSession(session({ id: 'tiny', cost_usd: 1e-300, context_percent: 5e-324, started_at: 0, last_seen_at: 0, tok_in: 0 }));
+      await f.upsertAgent(agent('max', 'a', {
+        started_at: M, ended_at: M, context_tokens: M, context_window: M, tok_in: M, tok_out: M, tok_cr: M, tok_cw: M, tool_calls: M, blowouts: M, steps_done: M, steps_total: M,
+        cost_usd_est: M / 7, context_percent: 1 / 3,
+      }));
+      await f.upsertSample(sample('max', M, { tokens_total: M, tokens_delta: M, running_agents: M, peak_context: M / 3, cost_usd: 1e-300 }));
+      await f.insertEvent({ id: 'e', session_id: 'max', agent_id: null, t: M, kind: 'k', text: 't', data_json: null });
+      await f.insertBlowout({ session_id: 'max', agent_id: null, t: M, kind: 'compact', tokens_before: M, tokens_after: M });
+      await rec('session', f.getSession('max'));
+      await rec('tiny', f.getSession('tiny'));
+      await rec('agents', f.getAgents('max'));
+      await rec('sample', f.latestSample('max'));
+      await rec('events', f.listEvents({ sessionId: 'max', limit: 5 }));
+      await rec('events before the end of the range', f.listEvents({ before: M + 1, limit: 5 }));
+      await rec('blowouts', f.getBlowouts('max'));
+      await rec('live', f.liveCandidates(0));
+      await rec('ended between', f.endedBetween(M - 1, M + 1));
+      await rec('samples since', f.samplesSince('max', M));
+    });
+    const row = t.get('session') as Record<string, unknown>;
+    for (const col of ['started_at', 'last_seen_at', 'ended_at', 'dropped_at', 'context_tokens', 'context_window', 'tok_in', 'tok_out', 'tok_cr', 'tok_cw', 'blowouts', 'detached_at']) expect(row[col], col).toBe(M);
+    expect(row.cost_usd).toBe(reals.cost_usd);
+    expect(row.context_percent).toBe(reals.context_percent);
+    expect((t.get('tiny') as Record<string, unknown>).cost_usd).toBe(1e-300);
+    expect((t.get('tiny') as Record<string, unknown>).context_percent).toBe(5e-324);
+    expect((t.get('agents') as Record<string, unknown>[])[0]).toMatchObject({ started_at: M, tool_calls: M, steps_total: M, cost_usd_est: M / 7 });
+    expect(t.get('sample')).toMatchObject({ t: M, tokens_total: M, running_agents: M, peak_context: M / 3 });
+    expect((t.get('events') as { t: number }[]).map((e) => e.t)).toEqual([M]);
+  });
 }
 
 export function peopleCases(o: Openers): void {
