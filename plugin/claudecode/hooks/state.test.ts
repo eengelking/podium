@@ -415,6 +415,16 @@ describe('full prompt and answer text (opt-in)', () => {
 })
 
 // A session idle on a background process is not waiting on the person (#119). The Stop hook input lists the
+describe('a plan the plan tool only named (#1012)', () => {
+  test('is reported by its title with no steps, as OpenCode reports it', () => {
+    const meta = { version: '0.0.0', engineVersion: null, hostSurface: null, now: T0 + 10, storedName: null, optionName: null }
+    const s0 = turnComplete(newSession({ id: 's', cwd: '/x', startedAt: T0, model: 'claude-opus-5-5' }), { reason: 'answer' }, T0 + 1)
+    expect(buildReport(s0, [], meta).session.plan).toBeNull()
+    const s = toolResult(s0, { tool: 'mcp__podium-reporter__plan', input: { title: 'Ship it' }, result: {} }, T0 + 2)
+    expect(buildReport(s, [], meta).session.plan).toEqual({ title: 'Ship it', source: 'podium_plan', steps: [] })
+  })
+})
+
 // background tasks and scheduled wake-ups still in flight; the report says what the session waits on.
 describe('background work (#119)', () => {
   const meta = { version: '0.0.0', engineVersion: null, hostSurface: null, now: T0 + 10, storedName: null, optionName: null }

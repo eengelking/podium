@@ -6,6 +6,7 @@ import {
   acceptsFor,
   RESPOND_LEVELS,
   RESPOND_LIMITS,
+  tooManyOptions,
   type Ask,
   type AskQuestion,
   type Delivery,
@@ -76,7 +77,7 @@ export function askQuestions(input: Record<string, unknown>): AskQuestion[] | un
   for (const q of qs) {
     if (!q || typeof q !== 'object') return undefined;
     const o = q as Record<string, unknown>;
-    if (typeof o.question !== 'string' || !Array.isArray(o.options) || !o.options.length || o.options.length > L.options) return undefined;
+    if (typeof o.question !== 'string' || !Array.isArray(o.options) || !o.options.length || tooManyOptions(o.options.length)) return undefined;
     out.push({
       question: cut(o.question, L.question),
       header: line(o.header, L.header),

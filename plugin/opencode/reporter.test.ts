@@ -185,6 +185,18 @@ describe('state: failures and plan', () => {
     expect(r.events.some((e) => e.kind === 'fail')).toBe(true);
   });
 
+  it('records a failed tool call as a failure candidate but raises no fail event until the turn or the agent fails, as Claude Code does (#1012)', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ev('session.tool.input.started', { sessionID: ROOT, id: 'c1', name: 'bash' }, 2),
+      ev('session.tool.called', { sessionID: ROOT, id: 'c1', input: { command: 'npm test' } }, 3),
+      ev('session.tool.failed', { sessionID: ROOT, id: 'c1', error: { message: 'exit code 2' } }, 4),
+    );
+    const root = s.roots.get(ROOT)!;
+    expect(root.sessions.get(ROOT)!.failure).not.toBeNull();
+    expect(root.events.some((e) => e.kind === 'fail')).toBe(false);
+  });
+
   it('records an interrupted run and a failed step', () => {
     const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.execution.interrupted', { sessionID: ROOT }, 2), ev('session.step.failed', { sessionID: ROOT, error: { message: 'boom' } }, 3));
     const root = s.roots.get(ROOT)!;
@@ -679,7 +691,8 @@ describe('failure detail', () => {
     call(t2, 'c1', 'shell', { command: 'x' }, 3);
     apply(t2, ev('session.tool.success', { sessionID: KID, id: 'c1', content: [{ type: 'text', text: 'Exited with code 9' }], metadata: { exit: 4 } }, 5), 5);
     expect(failureOf(t2).exitCode).toBe(4);
-    expect(s.roots.get(ROOT)!.events.map((e) => e.text)).toContain('Bash failed');
+    // A failed call is a candidate for the failure, not an event of its own, as in Claude Code (#1012).
+    expect(s.roots.get(ROOT)!.events.map((e) => e.text)).not.toContain('Bash failed');
   });
 
   it('takes the exit code from the metadata when the text does not state it, and ignores a zero exit, a missing one and a non-shell tool (#986)', () => {

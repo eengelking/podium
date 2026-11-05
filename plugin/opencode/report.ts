@@ -3,7 +3,7 @@
 import { cap, clip, excerpt, whole, LIMITS } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
-import { toPlan, type PlanState } from '../core/plan.ts';
+import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
 
@@ -129,14 +129,6 @@ function status(root: Root): { status: 'running' | 'waiting' | 'done'; waitReaso
   return { status: 'waiting', waitReason: root.background ? null : 'input', waitNote: null };
 }
 
-/**
- * A plan the plan tool named but no todo list has steps for yet (OpenCode's todo tool is off unless the person turns `experimental.todo` on).
- * Shown by its title with no steps, so the name reaches the console; null while nothing named it.
- */
-function titleOnly(p: PlanState): Report['session']['plan'] {
-  return p.toolTitle ? { title: p.toolTitle, source: 'podium_plan', steps: [] } : null;
-}
-
 /** A full snapshot of the root plus the events given (at most 100). */
 export function buildReport(root: Root, events: readonly ActivityEvent[], meta: ReportMeta): Report {
   const main = root.sessions.get(root.id)!;
@@ -173,7 +165,8 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       usageByModel: usageRows(...[...root.sessions.values()].map((s) => s.usage)),
       rateLimits: [],
       blowouts: main.blowouts,
-      plan: plan ? { ...plan, source: 'todowrite' } : titleOnly(root.plan),
+      // A plan with steps came from the todo tool; one the plan tool only named is its title alone, which core's `toPlan` already makes (#1012).
+      plan: plan?.steps.length ? { ...plan, source: 'todowrite' } : plan,
       loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, steps: { done: main.steps, total: null } },
       files: root.files ? { ...root.files, files: root.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) } : null,
       fileDiff: meta.fileDiff === true,

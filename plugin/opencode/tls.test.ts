@@ -965,9 +965,11 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
 
   it('asks OpenCode\'s model to explain a failure only with PODIUM_EXPLAIN_FAILURES on', async () => {
     const failing = (dir: string) => sessionEvents(dir, [
-      { id: `${dir}3`, type: 'session.tool.input.started', data: { sessionID: `ses_${dir}`, id: 'c1', name: 'bash' }, created: at, location: { directory: `/loc/${dir}` } },
-      { id: `${dir}4`, type: 'session.tool.called', data: { sessionID: `ses_${dir}`, id: 'c1', input: { command: 'npm test' } }, created: at, location: { directory: `/loc/${dir}` } },
-      { id: `${dir}5`, type: 'session.tool.failed', data: { sessionID: `ses_${dir}`, id: 'c1', error: { message: 'exit code 2' } }, created: at, location: { directory: `/loc/${dir}` } },
+      // The failing session is a subagent: a root session's own failure reaches no report, so nothing explains it (#1012).
+      { id: `${dir}k`, type: 'session.created', data: { sessionID: `ses_${dir}k`, parentID: `ses_${dir}` }, created: at, location: { directory: `/loc/${dir}` } },
+      { id: `${dir}3`, type: 'session.tool.input.started', data: { sessionID: `ses_${dir}k`, id: 'c1', name: 'bash' }, created: at, location: { directory: `/loc/${dir}` } },
+      { id: `${dir}4`, type: 'session.tool.called', data: { sessionID: `ses_${dir}k`, id: 'c1', input: { command: 'npm test' } }, created: at, location: { directory: `/loc/${dir}` } },
+      { id: `${dir}5`, type: 'session.tool.failed', data: { sessionID: `ses_${dir}k`, id: 'c1', error: { message: 'exit code 2' } }, created: at, location: { directory: `/loc/${dir}` } },
     ]);
     await withPodium({}, async () => {
       await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_EXPLAIN_FAILURES: 'true', PODIUM_SERVER: 'http://podium.test:4317' }, async () => {

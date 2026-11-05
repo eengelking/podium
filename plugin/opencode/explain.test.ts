@@ -47,6 +47,19 @@ describe('explaining failures (#969)', () => {
     expect(explain).toHaveBeenCalledTimes(1);
   });
 
+  it('explains only failed agents, as Claude Code does, not the root session, whose failure no report carries (#1012)', async () => {
+    const explain = vi.fn(async () => 'x');
+    const { r } = rig(explain);
+    r.handle(ev('session.tool.input.started', { sessionID: ROOT, id: 'r1', name: 'bash' }, 100));
+    r.handle(ev('session.tool.called', { sessionID: ROOT, id: 'r1', input: { command: 'npm test' } }, 101));
+    r.handle(ev('session.tool.failed', { sessionID: ROOT, id: 'r1', error: { message: 'exit code 2' } }, 102));
+    r.handle(ev('session.execution.failed', { sessionID: ROOT }, 103));
+    expect(r.store.roots.get(ROOT)!.sessions.get(ROOT)!.failure).not.toBeNull();
+    await r.tick();
+    await r.tick();
+    expect(explain).not.toHaveBeenCalled();
+  });
+
   it('builds the prompt from the redacted failure record and names OpenCode', async () => {
     let prompt = '';
     const { r } = rig(async (p) => { prompt = p; return 'x'; });
