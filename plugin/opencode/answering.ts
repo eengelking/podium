@@ -120,13 +120,14 @@ export class Answering {
       }
       const answer = formAnswer(ask.fields ?? [], d.answers ?? []);
       if (!answer) return this.result(root, d, 'refused');
-      if (this.host.formChannel() === null) return this.result(root, d, 'not-taken');
+      // Not `not-taken`: SPEC 7.1 keeps that for a plan approval, which OpenCode has none of, and it would lock the ask (#1012).
+      if (this.host.formChannel() === null) return this.result(root, d, 'refused');
       await this.host.formReply(ask.sessionId, ask.id, answer);
       this.record(root, ask, d);
       return this.result(root, d, 'took');
     } catch (err) {
       this.warn('an answer from Podium', err);
-      return this.result(root, d, 'not-taken');
+      return this.result(root, d, 'refused');
     }
   }
 

@@ -182,9 +182,9 @@ export function assignOwners(p: PlanState, agents: readonly OwnerCandidate[]): P
   return changed ? { ...p, tasks } : p;
 }
 
-/** The plan as the Report carries it; null when there are no tasks. */
+/** The plan as the Report carries it; null when there are no tasks and no name from the plan tool. A named plan with no tasks is its title alone (#1012). */
 export function toPlan(p: PlanState): Plan | null {
-  if (!p.tasks.length) return null;
+  if (!p.tasks.length) return p.toolTitle ? { title: p.toolTitle, source: 'podium_plan', steps: [] } : null;
   const done = new Set(p.tasks.filter((t) => t.status === 'completed').map((t) => t.id));
   const known = new Set(p.tasks.map((t) => t.id));
   const steps: PlanStep[] = p.tasks.slice(0, 100).map((t) => {

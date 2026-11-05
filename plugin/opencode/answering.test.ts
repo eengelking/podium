@@ -51,6 +51,25 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
     expect(podiumAsk(root.asks.get('per_l')!, root)!.tool!.cut).toBe(true);
   });
 
+  it('leaves a question with more options than Podium carries to the terminal, as Claude Code does, and does not cut it to the first four (#1012)', () => {
+    const s = store();
+    const field = { key: 'q0', title: 'Pick', type: 'string', options: Array.from({ length: 5 }, (_, i) => ({ value: `v${i}`, label: `V${i}`, description: '' })) };
+    apply(s, ev('form.created', { form: { id: 'frm_5', sessionID: ROOT, fields: [field] } }), 2);
+    const root = s.roots.get(ROOT)!;
+    expect(podiumAsk(root.asks.get('frm_5')!, root)).toBeNull();
+    apply(s, ev('form.created', { form: { id: 'frm_4', sessionID: ROOT, fields: [{ ...field, options: field.options.slice(0, 4) }] } }), 3);
+    expect(podiumAsk(root.asks.get('frm_4')!, root)).toMatchObject({ kind: 'question' });
+  });
+
+  it('writes a permission note from the string resources only, never "[object Object]" for a structured one (#1012)', () => {
+    const s = store();
+    apply(s, ev('permission.asked', { id: 'per_o', sessionID: ROOT, action: 'bash', resources: [{ command: 'rm x', cwd: '/w' }, 'rm y'] }), 2);
+    const note = s.roots.get(ROOT)!.asks.get('per_o')!.note;
+    expect(note).not.toContain('[object');
+    expect(note).not.toContain('{');
+    expect(note).toBe('bash rm y');
+  });
+
   it('shows a question form as questions with their options, and leaves one it cannot carry to the terminal', () => {
     const s = store();
     apply(s, ev('form.created', { form: FORM }), 2);
@@ -530,14 +549,14 @@ describe('Reporter answering (#858)', () => {
     expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/dq/result']).toMatchObject({ result: 'refused' });
   });
 
-  it('reports a permission OpenCode did not take as not taken', async () => {
+  it('reports a permission OpenCode did not take as refused, never not-taken, which locks the ask (#1012)', async () => {
     const { host } = fakeHost({ permissionReply: async () => { throw new Error('gone'); } });
     const { r, server } = rig(host);
     r.handle(permission());
     await r.tick();
     await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
     server.answer('per_1', { id: 'dn', kind: 'allow-once' });
-    await vi.waitFor(async () => { await r.tick(); expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/dn/result']).toMatchObject({ result: 'not-taken' }); });
+    await vi.waitFor(async () => { await r.tick(); expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/dn/result']).toMatchObject({ result: 'refused' }); });
   });
 
   it('answers a question form by field key', async () => {
@@ -553,7 +572,7 @@ describe('Reporter answering (#858)', () => {
     expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/dq/result']).toMatchObject({ result: 'took' });
   });
 
-  it('refuses an answer that does not fit the form, and reports one the channel lost as not taken', async () => {
+  it('refuses an answer that does not fit the form, and reports one the channel lost as refused, never not-taken (#1012)', async () => {
     let channel: 'tui' | null = 'tui';
     const { host, calls } = fakeHost({ formChannel: () => channel });
     const { r, server } = rig(host);
@@ -567,7 +586,7 @@ describe('Reporter answering (#858)', () => {
     channel = null;
     await r.tick();
     server.answer('frm_1', { id: 'lost', kind: 'question', answers: [{ options: [0] }] });
-    await vi.waitFor(async () => { await r.tick(); expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/lost/result']).toMatchObject({ result: 'not-taken' }); });
+    await vi.waitFor(async () => { await r.tick(); expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/lost/result']).toMatchObject({ result: 'refused' }); });
     expect(calls).toEqual([]);
   });
 

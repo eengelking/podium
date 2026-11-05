@@ -17,6 +17,11 @@ describe('plan', () => {
     ])
   })
 
+  test('a plan the plan tool named with no steps yet is its title alone, for every harness (#1012)', () => {
+    expect(toPlan(setTitle(emptyPlan, { title: 'Ship it' }))).toEqual({ title: 'Ship it', source: 'podium_plan', steps: [] })
+    expect(toPlan(emptyPlan)).toBeNull()
+  })
+
   test('the title comes from metadata.title too, and only from the first TaskCreate', () => {
     let p = create(emptyPlan, '1', 'a', { metadata: { title: 'First title' } })
     p = create(p, '2', 'b', { metadata: { title: 'Later title' } })

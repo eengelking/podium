@@ -520,6 +520,9 @@ export const RESPOND_LIMITS = {
   holdSeconds: 20,
 } as const;
 
+/** True when a question has more options than Podium carries. Such a question is left to the terminal by every harness, never cut to the first few (#1012). */
+export const tooManyOptions = (count: number): boolean => count > RESPOND_LIMITS.options;
+
 /** What a delivery carries. `reply` is a message sent in place of an answer. */
 export type DeliveryKind = 'question' | 'reply' | 'plan-approve' | 'plan-feedback' | 'allow-once' | 'deny' | 'message' | 'command';
 export const DELIVERY_KINDS: readonly DeliveryKind[] = ['question', 'reply', 'plan-approve', 'plan-feedback', 'allow-once', 'deny', 'message', 'command'];

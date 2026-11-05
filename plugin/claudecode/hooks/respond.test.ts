@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Ask, Delivery, Report } from '../../core/protocol.ts'
-import { answersMap, decisionRecord, planApproval, respondInfo, respondLevel, toolDecision, toolDenied, toolInput, planRejection, cut, terminalAnswers, thousands } from './respond.ts'
+import { askQuestions, answersMap, decisionRecord, planApproval, respondInfo, respondLevel, toolDecision, toolDenied, toolInput, planRejection, cut, terminalAnswers, thousands } from './respond.ts'
 
 // Responding to a waiting session from Podium (#206, SPEC 5.3). The world beneath the plugin is a fake Podium server
 // and a terminal whose dialogs the test answers by hand.
@@ -776,5 +776,13 @@ describe('respond: a login whose classic hooks are skipped (#742)', () => {
     await w.clock.advance(2500)
     await w.clock.advance(5000)
     expect(w.posts.at(-1)!.session.respond?.limits).toEqual([])
+  })
+})
+
+describe('a question with more options than Podium carries (#1012)', () => {
+  const q = (n: number) => ({ questions: [{ question: 'Pick?', header: 'Pick', multiSelect: false, options: Array.from({ length: n }, (_, i) => ({ label: `O${i}`, description: '' })) }] })
+  test('is left to the terminal, the rule OpenCode shares through core, and four options are carried whole', () => {
+    expect(askQuestions(q(5))).toBeUndefined()
+    expect(askQuestions(q(4))![0]!.options).toHaveLength(4)
   })
 })

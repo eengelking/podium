@@ -1,7 +1,7 @@
 // What an answer from Podium turns into for OpenCode (#858). Pure: no OpenCode API, no network. The asks Podium is shown (redacted
 // and cut), the reply OpenCode takes for a permission, the answer object for a question form, and the text of a message.
 import { clip, redact } from '../core/failures.ts';
-import { RESPOND_LIMITS, type Ask as PodiumAsk, type AskQuestion, type Delivery, type QuestionAnswer } from '../core/protocol.ts';
+import { RESPOND_LIMITS, tooManyOptions, type Ask as PodiumAsk, type AskQuestion, type Delivery, type QuestionAnswer } from '../core/protocol.ts';
 import type { Ask, FormField, Root } from './state.ts';
 
 /** The reply OpenCode takes for a permission. Podium never sends `always`: allowing once is the most a person at a console can grant. */
@@ -26,15 +26,15 @@ function permissionAsk(a: Ask, root: Root): PodiumAsk {
   return { id: a.id, kind: 'permission', agentId: agentOf(a, root), openedAt: a.openedAt, tool: { name: clip(a.action ?? 'permission', 120), input: { resources: shown }, cut } };
 }
 
-/** A question ask: one question per form field. Null when the form has no field, or more than a report can carry (it is then left to the terminal). */
+/** A question ask: one question per form field. Null when the form has no field, or more than a report can carry, fields or options (it is then left to the terminal). */
 function questionAsk(a: Ask, root: Root): PodiumAsk | null {
   const fields = a.fields ?? [];
-  if (!fields.length || fields.length > RESPOND_LIMITS.questions) return null;
+  if (!fields.length || fields.length > RESPOND_LIMITS.questions || fields.some((f) => tooManyOptions(f.options.length))) return null;
   const questions: AskQuestion[] = fields.map((f) => ({
     question: clip(f.description || f.title || f.key, RESPOND_LIMITS.question),
     header: clip(f.title || f.key, RESPOND_LIMITS.header),
     multiSelect: f.type === 'array',
-    options: f.options.slice(0, RESPOND_LIMITS.options).map((o) => ({ label: clip(o.label, RESPOND_LIMITS.label), description: clip(o.description, RESPOND_LIMITS.description), preview: null })),
+    options: f.options.map((o) => ({ label: clip(o.label, RESPOND_LIMITS.label), description: clip(o.description, RESPOND_LIMITS.description), preview: null })),
   }));
   return { id: a.id, kind: 'question', agentId: agentOf(a, root), openedAt: a.openedAt, questions };
 }

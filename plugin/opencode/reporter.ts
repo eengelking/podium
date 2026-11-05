@@ -487,6 +487,8 @@ export class Reporter {
     if (!this.opts.explainFailures || !ask) return;
     for (const root of this.store.roots.values()) {
       for (const s of root.sessions.values()) {
+        // Only an agent's failure reaches a report, as in Claude Code; the root session's would be explained for nobody (#1012).
+        if (s.id === root.id) continue;
         const f = s.failure;
         if (!f || f.explanation || s.explainedAt === f.at) continue;
         if (this.explaining >= EXPLAIN_AT_ONCE) return;

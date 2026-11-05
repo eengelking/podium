@@ -401,7 +401,7 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   if (!denied) s.candidate = cand;
   const cls = classify({ reason: 'error', candidate: denied ?? cand, stopReason: null, blowouts: s.blowoutTimes.length, now: at });
   s.failure = buildFailure(cls ?? 'Tool error', denied ?? cand, evidence({ blowoutTimes: s.blowoutTimes, failedCalls: s.failedCalls, reads: {}, denyText: denied?.denyText ?? null }), at);
-  emit(root, at, 'fail', s.id === root.id ? null : s.id, `${call.tool} failed`, { class: s.failure.class });
+  // No `fail` event here: Claude Code raises one when the turn or the agent ends in failure, and so does `session.execution.failed` below (#1012).
 }
 
 function ask(root: Root, a: Ask): void {
@@ -557,7 +557,9 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'permission.asked': {
       const id = str(d.id);
-      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, ...(str(d.source?.id) ? { callId: str(d.source.id)! } : {}), note: clip([str(d.action), ...(Array.isArray(d.resources) ? d.resources.slice(0, 2) : [])].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources: Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [] });
+      // Only the string resources: a structured one would read as "[object Object]" in the note (#1012).
+      const resources: string[] = Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [];
+      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, ...(str(d.source?.id) ? { callId: str(d.source.id)! } : {}), note: clip([str(d.action), ...resources.slice(0, 2)].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources });
       break;
     }
     case 'permission.replied': {
