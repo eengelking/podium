@@ -11,7 +11,7 @@
   <a href="https://github.com/eengelking/podium/actions/workflows/codeql.yml"><img alt="CodeQL" height="20" src="https://github.com/eengelking/podium/actions/workflows/codeql.yml/badge.svg"></a>
 </p>
 
-**A Claude Code session is waiting on you...**
+**A coding agent session is waiting on you...**
 
 Official homepage and documentation: [podium.engelking.dev](https://podium.engelking.dev)
 
@@ -19,16 +19,26 @@ Run a few sessions at once and it happens fast. One is stopped at a permission p
 context window. A subagent failed ten minutes ago and nothing told you. The only way to find out is to
 click through every terminal, and that takes more effort than the work itself.
 
-Podium is a single pane of glass for Claude Code. Whether it's just you or your whole team, every session
-shows up in one browser tab, so you can see what all of them are doing at a glance. Each session appears
-within about two seconds of its first prompt and leaves when it ends, with no refresh.
+Podium is a single pane of glass for your coding agents. It works with Claude Code and OpenCode, and
+sessions from both show up side by side. Whether it's just you or your whole team, every session shows up in
+one browser tab, so you can see what all of them are doing at a glance. Each session appears within about
+two seconds of its first prompt and leaves when it ends, with no refresh.
+
+| Harness | Reporter | Install |
+|---|---|---|
+| Claude Code | `podium-reporter`, a Claude Code plugin | [Claude Code](#claude-code) |
+| OpenCode | `podium-reporter`, an OpenCode plugin | [OpenCode](#opencode) |
+
+Both reporters share one core, so a status, a failure or a consent option reads the same on the wall whichever
+harness runs the session. A few things differ because the harnesses do, and
+[The reporter mod](docs/REPORTER.md) lists them.
 
 **There are other tools like this.** Podium started as something I built for myself, because I run several
-Claude Code sessions at once and was tired of clicking through terminals to find the one that needed me. It
+Claude Code sessions at once (OpenCode came later) and was tired of clicking through terminals to find the one that needed me. It
 turned out to be useful enough to share. I haven't compared it with every similar tool, so if another one fits
 how you work better, use that one. If you try Podium and something is missing, I'd like to hear about it.
 
-![Podium showing a busy wall of simulated Claude Code sessions: running, stale and failing orchestrators, context blowouts, subagents, cost and context meters, and the activity feed](docs/images/podium-chaos.png)
+![Podium showing a busy wall of simulated sessions: running, stale and failing orchestrators, context blowouts, subagents, cost and context meters, and the activity feed](docs/images/podium-chaos.png)
 
 For every session you see:
 
@@ -42,7 +52,7 @@ a tool's permission prompt, a message, `/clear` or `/compact`), and only once th
 session's owner have both turned that on. It never types into a terminal.
 
 Run it for yourself on one machine, or point a whole team's sessions at one server and the console groups
-the wall by person. The Claude Code mod, `podium-reporter`, sends the data.
+the wall by person. The reporter, `podium-reporter`, sends the data, with one build for Claude Code and one for OpenCode.
 
 New here? The [user guide](docs/user-guide/README.md) walks through setup and reading the console, and the
 [documentation table](#documentation) below lists everything else.
@@ -80,10 +90,16 @@ which show under Admin when they send the admin secret with `--token`.
 To serve the built UI and the API without a container, `npm run build` and then `npm run start -w server`
 (http://127.0.0.1:4317). To run it as a managed service, see [Running the server](docs/SERVER.md).
 
-## Install the mod
+## Install the reporter
 
-The server shows sessions, and the mod, `podium-reporter`, is what sends them. Install it on every machine where you run
-Claude Code. In Claude Code:
+The server shows sessions, and the reporter, `podium-reporter`, is what sends them. Install it on every machine where you run
+Claude Code or OpenCode, for each harness you use. Both ask for the same things: the server address
+(`http://127.0.0.1:4317` by default, which is where `npm run dev` and `podiumctl start` listen), and a token and your name if
+the server uses them.
+
+### Claude Code
+
+In Claude Code:
 
 ```
 /plugin marketplace add eengelking/skills
@@ -91,21 +107,33 @@ Claude Code. In Claude Code:
 /plugin configure podium-reporter@eengelking-marketplace
 ```
 
-The last command asks for the server address (`http://127.0.0.1:4317` by default, which is where `npm run dev` and
-`podiumctl start` listen), and a token and your name if the server uses them. Then run `/reload-plugins`, or start a new
-session. The status line under the prompt reads `podium v<version>` and shows how many sessions are live, and the session
-appears in the console within a couple of seconds.
+Then run `/reload-plugins`, or start a new session. The status line under the prompt reads `podium v<version>` and shows how
+many sessions are live, and the session appears in the console within a couple of seconds.
 
 - **Claude desktop app on Windows 11:** it has no `/plugin marketplace`. Download `podium-reporter-<version>.zip` from the
   [releases page](https://github.com/eengelking/podium/releases) and upload it in Settings > Plugins. The steps, and the
   Node.js it needs, are in [Install in the Claude desktop app](docs/REPORTER.md#install-in-the-claude-desktop-app-on-windows-11).
-- **From a checkout of this repository:** the mod is built before Claude Code can load it. Run `npm run plugin:dev:claudecode`,
+- **From a checkout of this repository:** the reporter is built before Claude Code can load it. Run `npm run plugin:dev:claudecode`,
   which builds `dist-dev/claudecode` and starts `claude` with it loaded. Add `-- --watch` to rebuild when you change the source in
   `plugin/` (then run `/reload-plugins`), and run `npm run plugin:dev:cleanup` to delete the build folders afterwards.
 - **Update or remove it:** see [Updating the mod](docs/user-guide/09-updating-the-mod.md) and
   [Remove it](docs/user-guide/11-remove-it.md).
 
-All the options, and exactly what leaves a session, are in [The reporter mod](docs/REPORTER.md).
+### OpenCode
+
+The OpenCode reporter watches OpenCode 2.x sessions. One line installs it from Git, and OpenCode can update it later:
+
+```sh
+opencode plugin add "git+https://github.com/eengelking/podium.git#main::path:dist/opencode"
+opencode service restart
+```
+
+Or download `podium-opencode-<version>.zip` from the [releases page](https://github.com/eengelking/podium/releases) and unzip it
+into `~/.config/opencode/plugins/podium`. The server address, token and name come from the environment and
+`~/.podium/config.env`, the same file the Claude Code reporter reads, and not from `opencode.json`. From a checkout of this
+repository, `npm run plugin:dev:opencode` builds `dist-dev/opencode` and starts OpenCode with it loaded.
+
+All the options for both harnesses, what leaves a session, and what each harness cannot do are in [The reporter mod](docs/REPORTER.md).
 
 ## Documentation
 
@@ -116,7 +144,7 @@ All the options, and exactly what leaves a session, are in [The reporter mod](do
 | [Introduction](docs/INTRODUCTION.md) | What Podium is, what it does and does not do, and where to read next |
 | [User guide](docs/user-guide/README.md) | Set Podium up, read the console and use Admin |
 | [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy) or turn on [built-in TLS](docs/SERVER.md#built-in-tls), and change its settings |
-| [The reporter mod](docs/REPORTER.md) | Install `podium-reporter` (in a terminal, or by [uploading the archive in the Claude desktop app on Windows 11](docs/REPORTER.md#install-in-the-claude-desktop-app-on-windows-11)), set its options and see what leaves a session |
+| [The reporter mod](docs/REPORTER.md) | Install `podium-reporter` for [Claude Code](docs/REPORTER.md#install-the-mod) (in a terminal, or by uploading the archive in the Claude desktop app on Windows 11) or for [OpenCode](docs/REPORTER.md#install-the-opencode-reporter), set its options and see what leaves a session |
 | [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |
 | [Session recording and replay](docs/REPLAY.md) | Record a session whole and play it back: the three yes answers, what is and is not captured, the notice, retention, limits and who can read it |
 | [Gotchas](docs/gotchas/README.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/gotchas/README.md#reporters-and-machines) |
