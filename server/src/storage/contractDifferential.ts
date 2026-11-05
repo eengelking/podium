@@ -178,9 +178,9 @@ const anyValue = (v: unknown, test: (x: unknown) => boolean): boolean =>
  * there (the databases no longer hold the same rows). `PODIUM_DIFF_STRICT=1` makes them failures. A case that is listed and now passes fails,
  * so a fixed defect has to be taken off the list.
  */
-const STRICT = process.env.PODIUM_DIFF_STRICT === '1';
+const { PODIUM_DIFF_STRICT: STRICT_ENV, PODIUM_DIFF_SEED: SEED_ENV } = process.env; // destructured: podiumctl's settings test lists what the server reads, and these are for tests only
+const STRICT = STRICT_ENV === '1';
 
-const SEED_ENV = process.env.PODIUM_DIFF_SEED; // destructuring would hide the name from the settings test that lists what the server reads; this is tests only
 export const seedOf = (): number => (SEED_ENV ? Number(SEED_ENV) >>> 0 : Math.floor(Math.random() * 2 ** 32));
 
 /** Wraps a case about one adapter: when the case is in the adapter's `known` list it may fail (a warning) and must not pass (remove the entry). */
