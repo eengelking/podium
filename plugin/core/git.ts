@@ -54,7 +54,9 @@ export async function readGit(run: Runner, cwd: string): Promise<GitInfo | null>
   };
   try {
     const [abbrev, gitDir, commonDir, top, status] = await Promise.all([
-      ok(['git', 'rev-parse', '--abbrev-ref', 'HEAD']),
+      // A repository with no commits has no HEAD to abbreviate, so ask for the branch it will be born on (#1013).
+      // Outside a repository both fail and the read is null.
+      ok(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).catch(() => ok(['git', 'symbolic-ref', '--short', 'HEAD'])),
       ok(['git', 'rev-parse', '--git-dir']),
       ok(['git', 'rev-parse', '--git-common-dir']),
       ok(['git', 'rev-parse', '--show-toplevel']),
