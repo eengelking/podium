@@ -25,7 +25,7 @@ A list whose order does not matter (a set of ids, a total) is marked with a comm
 // File names that differ between the adapters for the same store: the SQLite file name -> the PostgreSQL one.
 const FILE_ALIASES = { db: "fleet" };
 // Files that are not stores: tests, fixtures and the schema.
-const SKIP_FILE = /(\.test\.|testing|Testing|Fixtures|contractReference|schema\.)/;
+const SKIP_FILE = /(\.test\.|testing|Testing|Fixtures|contractReference|contractAdapter|schema\.)/;
 const MARKER = /order-insensitive:[ \t]*\S/;
 
 /** The adapter folders under `<root>/server/src/storage`, as { name, dir }. */

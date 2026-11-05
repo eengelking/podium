@@ -278,7 +278,8 @@ code. A function's line number is on the page, not here, because it moves.
 | Storage | `class ActivityConnection` | The activity file's own connection and lock. In `server/src/storage/sqlite/activity.ts`. |
 | Storage | `SqliteActivityHistoryOpts` | The neutral history options plus what only this adapter honors (vacuumPages). In `server/src/storage/sqlite/activityHistory.ts`. |
 | Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/storage/sqlite/recordings.ts`. |
-| Storage | `sqliteReference` | What the contract suite reads back from SQLite. In `server/src/storage/sqlite/contractReference.ts`. |
+| Storage | `sqliteContractAdapter` | The SQLite adapter as the storage tests see it. In `server/src/storage/sqlite/contractAdapter.ts`. |
+| Storage | `postgresContractAdapter` | The PostgreSQL adapter as the storage tests see it. In `server/src/storage/postgres/contractAdapter.ts`. |
 | Storage | `openPostgresStorage` | Takes the single-process lock, migrates both schemas and builds every store. In `server/src/storage/postgres/index.ts`. |
 | Storage | `class PgDb` | One pool; tx takes transactions one at a time and a call inside one joins it. In `server/src/storage/postgres/conn.ts`. |
 | Storage | `numbered` | Turns the SQLite stores' ? and :name placeholders into $n. In `server/src/storage/postgres/conn.ts`. |

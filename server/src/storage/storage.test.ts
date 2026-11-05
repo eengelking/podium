@@ -1,28 +1,9 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { defaultDbFile, openStorage } from './index.js';
 import { openSqliteStorage } from './sqlite/index.js';
-import { runStorageContract } from './contract.js';
-import { sqliteReference } from './sqlite/contractReference.js';
-import { upgradeCases } from './contractUpgrade.js';
-import { openUpgradedSqlite } from './sqlite/upgradeTesting.js';
-
-runStorageContract('sqlite', () => openSqliteStorage(':memory:', 0), sqliteReference);
-describe('sqlite upgrade contract', () => {
-  const dirs: string[] = [];
-  afterAll(() => {
-    for (const d of dirs) rmSync(d, { recursive: true, force: true });
-  });
-  upgradeCases({
-    openUpgraded: async (rows, reporters, sessions) => {
-      const { storage, dir } = openUpgradedSqlite(rows, reporters, sessions);
-      dirs.push(dir);
-      return storage;
-    },
-  });
-});
 
 const gate = () => {
   let open!: () => void;
