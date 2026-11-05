@@ -1,8 +1,8 @@
 // Contract cases for the Activity store (#890): the Activity history, session recordings, the two settings stores that belong to
-// them, and the transaction the main store offers. Each runs one scenario over the adapter and over the reference
-// (`sameOnBoth`).
+// them, and the transaction the main store offers. Each runs one scenario over every adapter
+// (`sameOnAll`).
 import { it, expect } from 'vitest';
-import { sameOnBoth, type Openers } from './contractSame.js';
+import { sameOnAll, type Openers } from './contractSame.js';
 import { ACTIVITY_HISTORY_DEFAULTS } from '../fleet/activityHistoryTypes.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingBatch, type Report } from '../fleet/protocol.js';
 import { fixtureReport } from '../fleet/testing.js';
@@ -36,8 +36,8 @@ function activityOf(s: Storage, memory: { now: number; live: Set<string>; policy
 }
 
 export function activityCases(o: Openers): void {
-  it('matches the reference for the Activity history: ingesting, Podium entries, paging, notes, totals and the list', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the Activity history: ingesting, Podium entries, paging, notes, totals and the list', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const memory = { now: T0, live: new Set(['s1']) };
       const h = activityOf(s, memory).history;
       await rec('enabled', h.enabled());
@@ -71,8 +71,8 @@ export function activityCases(o: Openers): void {
     expect(t.get('stored again (nothing new)')).toBe(0);
   });
 
-  it('matches the reference for the Activity history purge, preview, deletes, dropping missing sessions and forgetting one', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the Activity history purge, preview, deletes, dropping missing sessions and forgetting one', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const memory = { now: T0, live: new Set<string>() };
       const h = activityOf(s, memory).history;
       for (const [id, at, owner] of [['old', T0 - 40 * DAY, 'ed'], ['mid', T0 - 10 * DAY, 'ann'], ['new', T0 - 1000, 'ed'], ['gone', T0 - 2000, null]] as const) {
@@ -99,8 +99,8 @@ export function activityCases(o: Openers): void {
     expect((t.get('delete it again') as { entries: number }).entries).toBe(0);
   });
 
-  it('matches the reference for the Activity history settings with and without a sign-in token, and for a transaction', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the Activity history settings with and without a sign-in token, and for a transaction', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       for (const authOn of [true, false]) {
         const a = s.activityHistorySettings(authOn);
         await rec(`get (auth ${authOn})`, a.get());
@@ -124,8 +124,8 @@ export function activityCases(o: Openers): void {
     expect((t.get('log after rollback') as { rows: unknown[] }).rows).toHaveLength(1);
   });
 
-  it('matches the reference for starting, stopping and carrying over a recording, and for what a session may send', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for starting, stopping and carrying over a recording, and for what a session may send', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const memory = { now: T0, live: new Set(['r1', 'r2', 'r3']) };
       const r = activityOf(s, memory, [MAIN_LOOP, 'agent-1']).recordings;
       await rec('enabled', r.enabled());
@@ -173,8 +173,8 @@ export function activityCases(o: Openers): void {
     expect(t.get('capturing (no)')).toBe(false);
   });
 
-  it('matches the reference for replaying, listing, deleting, purging and dropping recordings', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for replaying, listing, deleting, purging and dropping recordings', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const memory = { now: T0, live: new Set(['a1', 'B1', 'c1']) };
       const r = activityOf(s, memory).recordings;
       for (const [id, owner] of [['a1', 'Ed'], ['B1', 'ann'], ['c1', null], ['d1', 'ed']] as const) {

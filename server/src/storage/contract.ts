@@ -1,9 +1,8 @@
-// A contract any Storage adapter must meet (#313): the same calls through the async interface return what the
-// synchronous stores return. Run it from an adapter's test with a function that opens a fresh Storage and one that builds
-// the synchronous reference stores over a fresh database of its own.
+// A contract any Storage adapter must meet (#313, #1008): the same calls through the async interface give the same answers on every
+// registered adapter, none of them the reference for another (`contractSame.ts`). Run it once over the list of adapters.
 //
-// It also states what the app relies on from any database, with expected values written out and not compared with a
-// reference: the JavaScript type of every field of the main rows, how names are compared, and the order lists come back in.
+// It also states what the app relies on from any database, with expected values written out and not compared with another
+// adapter: the JavaScript type of every field of the main rows, how names are compared, and the order lists come back in.
 // An adapter whose database hands back bigints, 0/1 for flags, undefined for NULL, or sorts text with another collation,
 // fails here and not in a screen.
 import { describe, it, expect } from 'vitest';
@@ -20,19 +19,8 @@ import { peerCases } from './contractPeers.js';
 import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
 import type { StoredSessionRow } from '../fleet/activityHistoryTypes.js';
 import type { AgentRow, BlowoutRow, EventRow, GroupListRow, PersonListRow, PersonRow, ReporterRow, ReporterSeen, SampleRow, SessionRow } from './rows.js';
-import type { FleetStoreApi, PeopleStoreApi, ReporterStoreApi, Storage } from './types.js';
-
-/** An async interface with its methods returning their results at once, which is what the synchronous stores do. */
-type Sync<T> = { [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R> ? (...args: A) => R : T[K] };
-
-/** The synchronous stores an adapter's async ones are compared with, each over its own fresh database. */
-export interface ContractReference {
-  people: Sync<Pick<PeopleStoreApi, 'adminReportingAllowed' | 'setAdminReporting' | 'createGroup' | 'log' | 'listLog' | 'allGroups'>>;
-  fleet: Sync<Pick<FleetStoreApi, 'upsertSession' | 'getSession' | 'liveCandidates'>>;
-  /** A fresh reference storage, which gives the reference answers for the stores that have no synchronous class to compare with (#890). */
-  storage: () => Storage | Promise<Storage>;
-  reporters: Sync<Pick<ReporterStoreApi, 'record' | 'list'>> & { peerLookup(): PeerReporterLookup };
-}
+import type { ContractAdapter } from './contractAdapter.js';
+import type { Storage } from './types.js';
 
 export function session(over: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -121,9 +109,10 @@ const mkSeen = (id: string, name: string | null, over: Partial<ReporterSeen> = {
   sessionId: `s-${id}`, os: 'macOS', peers: true, ...over,
 });
 
-export function runStorageContract(name: string, open: () => Storage | Promise<Storage>, reference: () => ContractReference): void {
-  describe(`${name} storage contract`, () => {
-    const against = { open, referenceStorage: () => reference().storage() };
+/** The contract over every adapter given: the comparison cases once over all of them, then the cases about one adapter's rows, one set per adapter. */
+export function runStorageContract(adapters: ContractAdapter[]): void {
+  describe('storage contract', () => {
+    const against = { adapters };
     settingsCases(against);
     fleetCases(against);
     peopleCases(against);
@@ -132,47 +121,14 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
     activityCases(against);
     reportCases(against);
     txCases(against);
+    for (const a of adapters) describe(a.name, () => ownCases(a));
+  });
+}
 
-    it('matches the synchronous stores for people, the admin log and settings', async () => {
-      const store = await open();
-      const { people } = reference();
-      expect(await store.people.adminReportingAllowed()).toBe(people.adminReportingAllowed());
-      await store.people.setAdminReporting(false);
-      people.setAdminReporting(false);
-      expect(await store.people.adminReportingAllowed()).toBe(false);
-      expect(await store.people.createGroup('Crew', 5)).toEqual(people.createGroup('Crew', 5));
-      await store.people.log('kind', 'detail', 'src', 10, 'me');
-      people.log('kind', 'detail', 'src', 10, 'me');
-      expect(await store.people.listLog({})).toEqual(people.listLog({}));
-      expect(await store.people.allGroups()).toEqual(people.allGroups());
-      await store.close();
-    });
-
-    it('matches the synchronous stores for sessions', async () => {
-      const store = await open();
-      const { fleet } = reference();
-      await store.fleet.upsertSession(session());
-      fleet.upsertSession(session());
-      expect(await store.fleet.getSession('s1')).toEqual(fleet.getSession('s1'));
-      expect(await store.fleet.getSession('nope')).toBeUndefined();
-      expect(await store.fleet.liveCandidates(0)).toEqual(fleet.liveCandidates(0));
-      await store.close();
-    });
-
-    it('matches the synchronous stores for reporters and the peer lookup', async () => {
-      const store = await open();
-      const { reporters } = reference();
-      const key = await store.reporters.record(seen, 50);
-      expect(key).toBe(reporters.record(seen, 50));
-      expect(await store.reporters.hasAny()).toBe(true);
-      expect(await store.reporters.list({}, 60)).toEqual(reporters.list({}, 60));
-      const lookup = store.reporters.peerLookup();
-      expect(await lookup.get(key)).toEqual(reporters.peerLookup().get(key));
-      expect(await lookup.ofOwner('ED')).toEqual(reporters.peerLookup().ofOwner('ED'));
-      expect(await lookup.ofOwnerSeen('ed', 60)).toEqual(reporters.peerLookup().ofOwnerSeen('ed', 60));
-      expect(lookup.startedAt).toBe(reporters.peerLookup().startedAt);
-      await store.close();
-    });
+/** What the app relies on from one adapter, with the expected values written out. The same cases run on each. */
+function ownCases(adapter: ContractAdapter): void {
+  {
+    const open = () => adapter.open();
 
     it('returns the fleet rows with the types the interfaces declare', async () => {
       const store = await open();
@@ -279,7 +235,10 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
     it('keeps people names unique whatever their case or spacing', async () => {
       const store = await open();
       const p = store.people;
-      const { person } = await p.createPerson('Ed', null, T0);
+      const { person, token } = await p.createPerson('Ed', null, T0);
+      expect(person.createdAt).toBe(T0);
+      expect(token.length).toBeGreaterThan(10);
+      await expect(p.createPerson('ed', null, T0)).rejects.toThrow('already taken');
       for (const again of ['ed', ' ED ', 'eD']) {
         expect(nameKey(again), again).toBe(nameKey('Ed'));
         await expect(p.createPerson(again, null, T0), again).rejects.toMatchObject({ code: 'duplicate' });
@@ -291,6 +250,7 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
       expect((await p.findByName('  eD '))!.id).toBe(person.id);
       expect((await p.findByName('Ed Two'))!.name).toBe('Ed Two');
       expect((await p.list({})).total).toBe(2);
+      expect((await p.list({})).rows.map((r) => r.name)).toEqual(['Ed', 'Ed Two']);
       await store.close();
     });
 
@@ -505,5 +465,5 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
       for (const k of ['entries', 'sessions', 'bytes', 'fileBytes'] as const) expect(typeof hist.totals[k], `totals.${k}`).toBe('number');
       await store.close();
     });
-  });
+  }
 }

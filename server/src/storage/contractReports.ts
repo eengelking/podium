@@ -1,8 +1,8 @@
 // Contract cases for the report and rollup queries behind Admin > Reporting (#890): the four daily rollup tables, the stored sessions
-// the reports read, the people and counts beside them, and the Admin log. One scenario runs over the adapter and over the reference
-// (`sameOnBoth`). Several rows share a day, an owner or a time on purpose, so the order of ties is part of what is compared.
+// the reports read, the people and counts beside them, and the Admin log. One scenario runs over every adapter
+// (`sameOnAll`). Several rows share a day, an owner or a time on purpose, so the order of ties is part of what is compared.
 import { it, expect } from 'vitest';
-import { sameOnBoth, type Openers } from './contractSame.js';
+import { sameOnAll, type Openers } from './contractSame.js';
 import { session } from './contract.js';
 import type { AgentRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
@@ -14,8 +14,8 @@ const usage = (day: string, owner: string, model: string, over: object = {}) => 
 });
 
 export function reportCases(o: Openers): void {
-  it('matches the reference for the rollup tables: writing, reading a range with several rows a day, stats, and deleting', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the rollup tables: writing, reading a range with several rows a day, stats, and deleting', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       await rec('empty stats', Promise.all(TABLES.map((tb) => f.rollupStats(tb))));
       await rec('empty oldest', Promise.all(TABLES.map((tb) => f.rollupOldestDay(tb))));
@@ -56,14 +56,14 @@ export function reportCases(o: Openers): void {
     expect(t.get('peak never goes down')).toBe(3);
   });
 
-  it('matches the reference for the stored sessions a report reads, the people beside them, and the Admin log', async () => {
+  it('agrees on every adapter for the stored sessions a report reads, the people beside them, and the Admin log', async () => {
     const agent = (sessionId: string, id: string): AgentRow => ({
       session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
       status: 'done', started_at: T0, ended_at: T0 + 1, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
       cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
       prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
     });
-    const t = await sameOnBoth(o, async (s, rec) => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       await rec('no sessions: oldest', f.oldestSessionSeen());
       await rec('no sessions: spans', f.sampleSpans());

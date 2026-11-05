@@ -1,8 +1,8 @@
 // Contract cases for orchestrator messaging (#890): the rights between reporters, the owners' defaults and limits, requests for
-// access, and the messages, answers, retention and views built on them. Each runs one scenario over the adapter and over the the reference
-// reference (`sameOnBoth`). Ids of messages and requests are generated, so they are scrubbed from what is compared and used as they come.
+// access, and the messages, answers, retention and views built on them. Each runs one scenario over every adapter
+// (`sameOnAll`). Ids of messages and requests are generated, so they are scrubbed from what is compared and used as they come.
 import { it, expect } from 'vitest';
-import { sameOnBoth, type Openers } from './contractSame.js';
+import { sameOnAll, type Openers } from './contractSame.js';
 import type { Report } from '../fleet/protocol.js';
 import type { Actor } from '../fleet/peerTypes.js';
 import type { ReporterSeen } from './rows.js';
@@ -38,8 +38,8 @@ async function setUp(s: Storage, clock: { now: number }): Promise<{ peers: PeerS
 }
 
 export function peerCases(o: Openers): void {
-  it('matches the reference for rights: setting, pausing, removing, proposing and the refusals between owners', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for rights: setting, pausing, removing, proposing and the refusals between owners', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const { peers, a, b, c, eve } = await setUp(s, clock);
       const r = peers.rights;
@@ -74,8 +74,8 @@ export function peerCases(o: Openers): void {
     expect((t.get('set across owners') as { ok: boolean }).ok).toBe(false);
   });
 
-  it('matches the reference for owner defaults and limits, and for requests for access in the order they were opened', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for owner defaults and limits, and for requests for access in the order they were opened', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const { peers, a, b, c } = await setUp(s, clock);
       const r = peers.rights;
@@ -103,7 +103,7 @@ export function peerCases(o: Openers): void {
   });
 
   it('lists open requests made in the same millisecond in the order they were made, whatever their pair, kind, reason or id', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const { peers, a, b, c } = await setUp(s, clock);
       const r = peers.rights;
@@ -121,8 +121,8 @@ export function peerCases(o: Openers): void {
     expect((t.get('open (with a later one)') as { reason: string }[]).map((x) => x.reason).at(-1)).toBe('later');
   });
 
-  it('matches the reference for sending, listing, results and the order of a conversation, through approval and decline', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for sending, listing, results and the order of a conversation, through approval and decline', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const { peers, a, b, c } = await setUp(s, clock);
       for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
@@ -151,8 +151,8 @@ export function peerCases(o: Openers): void {
     expect((t.get('send too long') as { ok: boolean }).ok).toBe(false);
   });
 
-  it('matches the reference for answering a request, a paused answer, replying to a session and what ended or deleted sessions drop', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for answering a request, a paused answer, replying to a session and what ended or deleted sessions drop', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const { peers, a, b, c } = await setUp(s, clock);
       await peers.rights.setRight('ed', a, b, 'send', ED);
@@ -187,8 +187,8 @@ export function peerCases(o: Openers): void {
     expect(t.get('live after ended')).toBeNull();
   });
 
-  it('matches the reference for the owner and admin views, retention, and dropping every held message', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the owner and admin views, retention, and dropping every held message', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const { peers, a, b, c } = await setUp(s, clock);
       await peers.rights.setRight('ed', a, b, 'send', ED);

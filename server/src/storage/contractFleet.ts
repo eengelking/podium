@@ -1,8 +1,8 @@
 // Contract cases for the fleet, people and reporter methods the first cases do not reach (#890): spend and its split, samples and
 // retention, sessions that were cleared or dropped, the People tab's deletes and lookups, and the reporter ignore and forget rules.
-// Each runs one scenario over the adapter and over the reference (`sameOnBoth`).
+// Each runs one scenario over every adapter (`sameOnAll`).
 import { it, expect } from 'vitest';
-import { sameOnBoth, type Openers } from './contractSame.js';
+import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
 import { session } from './contract.js';
 import { validateReport, MAX_REPORT_NUMBER } from '../fleet/protocol.js';
 import { ingestReport } from '../fleet/ingest.js';
@@ -29,8 +29,8 @@ const seen = (id: string, name: string | null, over: Partial<ReporterSeen> = {})
 });
 
 export function fleetCases(o: Openers): void {
-  it('matches the reference for the spend queries: totals, the split by owner, ties in the order, and the group of an owner', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the spend queries: totals, the split by owner, ties in the order, and the group of an owner', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       const { person } = await s.people.createPerson('Ann', null, T0);
       const crew = await s.people.createGroup('Crew', T0);
@@ -65,8 +65,8 @@ export function fleetCases(o: Openers): void {
     expect(t.get('group of Ann')).toBe('Crew');
   });
 
-  it('matches the reference for sessions that were cleared, dropped, deleted or ended, and for the reporter versions they carry', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for sessions that were cleared, dropped, deleted or ended, and for the reporter versions they carry', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       await f.upsertSession(session({ id: 'first', reporter_version: '1.0.0', ended_at: T0 + 5, status: 'done' }));
       await f.upsertSession(session({ id: 'second', reporter_version: '1.0.0', cleared_from: 'first' }));
@@ -87,8 +87,8 @@ export function fleetCases(o: Openers): void {
     expect(t.get('delete again')).toBe(false);
   });
 
-  it('matches the reference for agent texts, aborting open agents, compactions and samples written once', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for agent texts, aborting open agents, compactions and samples written once', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       await f.upsertSession(session({ id: 'x' }));
       await f.upsertAgent(agent('x', 'run', { status: 'running' }));
@@ -119,7 +119,7 @@ export function fleetCases(o: Openers): void {
   });
 
   it('reads many sessions at once, and writes many agents at once, as the one-at-a-time methods do (#906)', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       const { person } = await s.people.createPerson('Ann', null, T0);
       const crew = await s.people.createGroup('Crew', T0);
@@ -172,29 +172,24 @@ export function fleetCases(o: Openers): void {
     expect(t.get('auto compactions')).toEqual(new Map([['c', 0], ['missing', 0], ['a', 1], ['b', 0]]));
   });
 
-  it('batched reads and writes past one statement\'s share of ids and rows return everything, in order (#906)', async () => {
-    const s = await o.open();
-    try {
-      const f = s.fleet;
-      const ids = Array.from({ length: 1100 }, (_, i) => `n${String(i).padStart(4, '0')}`);
-      for (const id of ids) await f.upsertSession(session({ id, name: id }));
-      await f.upsertAgents(Array.from({ length: 1100 }, (_, i) => agent('n0000', `g${String(i).padStart(4, '0')}`, { started_at: T0 + i })));
-      await f.upsertAgentTextsMany('n0000', Array.from({ length: 1100 }, (_, i) => ({ agentId: `g${String(i).padStart(4, '0')}`, prompt: `p${i}` })));
-      expect((await f.getSessions(ids)).map((r) => r.id)).toEqual(ids);
-      const agents = await f.getAgentsOf(ids);
-      expect(agents.size).toBe(1100);
-      expect(agents.get('n0000')!.map((a) => a.id)).toEqual((await f.getAgents('n0000')).map((a) => a.id));
-      expect(agents.get('n0000')).toHaveLength(1100);
-      expect(agents.get('n1099')).toEqual([]);
-      expect(await f.getAgentTexts('n0000', 'g1099')).toEqual({ prompt: 'p1099', answer: null });
-      expect((await f.countAutoCompactionsOf(ids)).size).toBe(1100);
-    } finally {
-      await s.close();
-    }
+  onEachAdapter(o, 'batched reads and writes past one statement\'s share of ids and rows return everything, in order (#906)', async (s) => {
+    const f = s.fleet;
+    const ids = Array.from({ length: 1100 }, (_, i) => `n${String(i).padStart(4, '0')}`);
+    for (const id of ids) await f.upsertSession(session({ id, name: id }));
+    await f.upsertAgents(Array.from({ length: 1100 }, (_, i) => agent('n0000', `g${String(i).padStart(4, '0')}`, { started_at: T0 + i })));
+    await f.upsertAgentTextsMany('n0000', Array.from({ length: 1100 }, (_, i) => ({ agentId: `g${String(i).padStart(4, '0')}`, prompt: `p${i}` })));
+    expect((await f.getSessions(ids)).map((r) => r.id)).toEqual(ids);
+    const agents = await f.getAgentsOf(ids);
+    expect(agents.size).toBe(1100);
+    expect(agents.get('n0000')!.map((a) => a.id)).toEqual((await f.getAgents('n0000')).map((a) => a.id));
+    expect(agents.get('n0000')).toHaveLength(1100);
+    expect(agents.get('n1099')).toEqual([]);
+    expect(await f.getAgentTexts('n0000', 'g1099')).toEqual({ prompt: 'p1099', answer: null });
+    expect((await f.countAutoCompactionsOf(ids)).size).toBe(1100);
   }, 60_000);
 
-  it('matches the reference for the fleet-wide rates and for what retention deletes', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the fleet-wide rates and for what retention deletes', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       const now = T0 + 400 * DAY;
       await f.upsertSession(session({ id: 'live', ended_at: null, last_seen_at: now }));
@@ -229,9 +224,14 @@ export function fleetCases(o: Openers): void {
     // Every value here is one a person can type or a harness can send, and the report validator lets it through (it removes control
     // characters, which includes NUL; a NUL never reaches a store, and not every database stores one, so it is no case here).
     // a token and the credential made from it are random, so they are not compared
-    const plain = <P extends { keyId: string; tokenHash: string; credential?: string }>(p: P): P => ({ ...bare(p), ...(p.credential === undefined ? {} : { credential: 'c' }) });
+    const plain = <P extends { credential?: string; keyId?: string; tokenHash?: string }>(p: P): P => ({
+      ...p,
+      ...(p.keyId === undefined ? {} : { keyId: 'k' }),
+      ...(p.tokenHash === undefined ? {} : { tokenHash: 'h' }),
+      ...(p.credential === undefined ? {} : { credential: 'c' }),
+    });
     const odd = ['Émile Zola', 'émile', '日本語 テスト', 'party \u{1F389} \u{1F9D1}‍\u{1F4BB}', 'é combining', 'it\'s "quoted" \\ back; --', '100% sure_ish', '%', '_', 'ǅ title'];
-    const t = await sameOnBoth(o, async (s, rec) => {
+    const t = await sameOnAll(o, async (s, rec) => {
       // the people, group, machine and Admin-log paths
       for (const [i, name] of odd.entries()) await rec(`person ${i}`, s.people.createPerson(name, null, T0 + i).then((r) => plain(r.person)));
       for (const [i, name] of odd.entries()) await rec(`group ${i}`, s.people.createGroup(`g ${name}`, T0 + i));
@@ -281,7 +281,7 @@ export function fleetCases(o: Openers): void {
   it('stores and reads back the largest number the validator takes in every whole-number column, and doubles at both ends of the range (#1007)', async () => {
     const M = MAX_REPORT_NUMBER;
     const reals = { cost_usd: 1 / 3, context_percent: M / 3 };
-    const t = await sameOnBoth(o, async (s, rec) => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
       await f.upsertSession(session({
         id: 'max', started_at: M, last_seen_at: M, ended_at: M, dropped_at: M, context_tokens: M, context_window: M, tok_in: M, tok_out: M, tok_cr: M, tok_cw: M,
@@ -319,8 +319,8 @@ export function fleetCases(o: Openers): void {
 }
 
 export function peopleCases(o: Openers): void {
-  it('matches the reference for looking a person up by key id or administrator token, and for the group they are in', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for looking a person up by key id or administrator token, and for the group they are in', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const p = s.people;
       const admins = await rec('administrators group', p.administratorsGroupId());
       const { person: boss, token } = await p.createPerson('boss', admins, T0);
@@ -344,8 +344,8 @@ export function peopleCases(o: Openers): void {
     expect(t.get('not an administrator')).toBeUndefined();
   });
 
-  it('matches the reference for the last-administrator rule, restoring a revoked person and deleting several at once', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the last-administrator rule, restoring a revoked person and deleting several at once', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const p = s.people;
       const admins = (await p.administratorsGroupId())!;
       const { person: a } = await p.createPerson('adm-a', admins, T0);
@@ -371,8 +371,8 @@ export function peopleCases(o: Openers): void {
 }
 
 export function reporterCases(o: Openers): void {
-  it('matches the reference for the keys a sender is known by, the filtered key list, removing, and the refused-report list', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the keys a sender is known by, the filtered key list, removing, and the refused-report list', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const r = s.reporters;
       await rec('keys (new)', r.keysFor({ kind: 'mod', machineId: 'mk', source: '203.0.113.1', sessionId: 'sk', owner: 'ed' }));
       const k1 = await rec('record', r.record(seen('mk', 'kay'), T0));
@@ -396,8 +396,8 @@ export function reporterCases(o: Openers): void {
     expect(t.get('remove many')).toBe(1);
   });
 
-  it('matches the reference for ignore rules: first match wins, a rule hides what it matches, and removing by state', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for ignore rules: first match wins, a rule hides what it matches, and removing by state', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const r = s.reporters;
       await r.record(seen('i1', 'one', { version: '0.0.1' }), T0);
       await r.record(seen('i2', 'two', { version: '0.0.2', source: '203.0.113.55' }), T0);
@@ -422,8 +422,8 @@ export function reporterCases(o: Openers): void {
     expect((t.get('rules') as unknown[]).length).toBe(2);
   });
 
-  it('matches the reference for the forget setting and for forgetting reporters not heard from', async () => {
-    const t = await sameOnBoth(o, async (s, rec) => {
+  it('agrees on every adapter for the forget setting and for forgetting reporters not heard from', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
       const r = s.reporters;
       await rec('setting (fresh)', r.forgetSetting());
       await rec('set days too low', r.setForgetSetting({ days: 0 }));
@@ -443,8 +443,7 @@ export function reporterCases(o: Openers): void {
     expect(t.get('forget (off)')).toBe(0);
   });
 
-  it('rejects a report whose number no column can read back, and keeps reading the sessions already stored (#1007)', async () => {
-    const s = await o.open();
+  onEachAdapter(o, 'rejects a report whose number no column can read back, and keeps reading the sessions already stored (#1007)', async (s) => {
     const good = validateReport(loadFixture());
     expect(good.ok).toBe(true);
     if (!good.ok) return;
@@ -470,6 +469,5 @@ export function reporterCases(o: Openers): void {
     expect(await s.fleet.getSession(id)).toEqual(before);
     expect((await s.fleet.getSession('the-biggest'))?.tok_in).toBe(MAX_REPORT_NUMBER);
     expect((await s.fleet.liveCandidates(0)).map((r) => r.id).sort()).toEqual([id, 'the-biggest'].sort());
-    await s.close();
   });
 }
