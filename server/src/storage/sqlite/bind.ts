@@ -7,14 +7,13 @@ function clean(v: unknown): unknown {
   return typeof v === 'string' && v.includes('\0') ? v.replaceAll('\0', '') : v;
 }
 
-/** Positional values, or one object of named values. A Buffer or any other value that is not text is passed as it is. */
+const hasNul = (v: unknown): boolean => typeof v === 'string' && v.includes('\0');
+const isNamed = (a: unknown): a is Record<string, unknown> => a !== null && typeof a === 'object' && !ArrayBuffer.isView(a) && !(a instanceof ArrayBuffer);
+
+/** Positional values, or one object of named values. A Buffer or any other value that is not text is passed as it is. Nothing is copied when no value has a NUL (the usual case). */
 function cleanArgs(args: unknown[]): unknown[] {
-  return args.map((a) => {
-    if (a !== null && typeof a === 'object' && !ArrayBuffer.isView(a) && !(a instanceof ArrayBuffer)) {
-      return Object.fromEntries(Object.entries(a).map(([k, x]) => [k, clean(x)]));
-    }
-    return clean(a);
-  });
+  if (!args.some((a) => (isNamed(a) ? Object.values(a).some(hasNul) : hasNul(a)))) return args;
+  return args.map((a) => (isNamed(a) ? Object.fromEntries(Object.entries(a).map(([k, x]) => [k, clean(x)])) : clean(a)));
 }
 
 /** Makes every statement the connection prepares clean its values before it binds them. */

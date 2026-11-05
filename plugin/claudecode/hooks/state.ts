@@ -373,7 +373,7 @@ export function setIdentity(
     cwd: i.cwd ?? s.cwd,
     projectRoot: i.projectRoot === undefined ? s.projectRoot : i.projectRoot,
     repoName: i.repoName === undefined ? s.repoName : i.repoName,
-    startedAt: i.startedAt ?? s.startedAt,
+    startedAt: i.startedAt == null ? s.startedAt : whole(i.startedAt),
     main: i.model ? { ...s.main, model: i.model } : s.main,
     dirty: true,
   };
@@ -951,7 +951,7 @@ export function measure(s: SessionState, i: MeasureInput): SessionState {
     ? i.rateLimits.slice(0, 10).map((r) => ({ kind: cap(String(r.kind), 120), percentUsed: Number(r.percentUsed) || 0, resetsAt: r.resetsAt ?? null }))
     : s.rateLimits;
   const costUsd = i.cost && typeof i.cost.usd === 'number' ? i.cost.usd : s.costUsd;
-  const startedAt = typeof i.startedAt === 'number' && i.startedAt > 0 ? whole(i.startedAt) : s.startedAt;
+  const startedAt = typeof i.startedAt === 'number' && whole(i.startedAt) > 0 ? whole(i.startedAt) : s.startedAt;
   const same = JSON.stringify([context, rateLimits, costUsd, startedAt]) === JSON.stringify([s.context, s.rateLimits, s.costUsd, s.startedAt]);
   return same ? s : { ...s, context, rateLimits, costUsd, startedAt, dirty: true };
 }

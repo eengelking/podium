@@ -3,7 +3,7 @@
 // (The mod's tests run in the hooks sandbox, which cannot reach the server code.)
 import { describe, it, expect } from 'vitest';
 import { scriptedReport, scriptedState, T0 } from '../plugin/claudecode/hooks/scripted.ts';
-import { compaction, drainEvents, measure, newSession, resetForNewId, step } from '../plugin/claudecode/hooks/state.ts';
+import { compaction, drainEvents, measure, newSession, resetForNewId, setIdentity, step } from '../plugin/claudecode/hooks/state.ts';
 import { buildReport } from '../plugin/claudecode/hooks/report.ts';
 import { planAsk, questionAsk, respondInfo, toolAsk } from '../plugin/claudecode/hooks/respond.ts';
 import { validateReport } from '../server/src/fleet/protocol.ts';
@@ -68,6 +68,13 @@ describe('mod report -> server, with fractions from the host (#1007)', () => {
     expect(Number.isInteger(r.session.startedAt)).toBe(true);
     expect(Number.isInteger(r.session.context.tokens)).toBe(true);
     expect(Number.isInteger(r.session.context.window)).toBe(true);
+  });
+
+  it('keeps the known start when the host sends a start that rounds to zero, and rounds a start given as identity', () => {
+    const before = scriptedState();
+    expect(measure(before, { startedAt: 0.4 }).startedAt).toBe(before.startedAt);
+    const r = validated(setIdentity(scriptedState(), { startedAt: BIG }));
+    expect(Number.isInteger(r.session.startedAt)).toBe(true);
   });
 
   it('rounds a fractional start of a new session and of one cleared into a new id', () => {
