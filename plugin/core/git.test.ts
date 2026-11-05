@@ -49,6 +49,23 @@ describe('git', () => {
     expect(await readGit(runner({ 'rev-parse --abbrev-ref HEAD': { exitCode: 128, stdout: '' } }), '/tmp')).toBeNull()
   })
 
+  test('a repository with no commits reports its unborn branch, worktree state and status (#1013)', async () => {
+    const g = await readGit(
+      runner({
+        ...base,
+        'rev-parse --abbrev-ref HEAD': { exitCode: 128, stdout: 'HEAD\n' },
+        'symbolic-ref --short HEAD': { stdout: 'main\n' },
+        'status --porcelain=v1 -b': { stdout: '## No commits yet on main\n?? a.txt\n' },
+      }),
+      '/repo',
+    )
+    expect(g).toEqual({ branch: 'main', detached: false, isWorktree: false, worktreePath: null, ahead: 0, behind: 0, dirty: 1 })
+  })
+
+  test('a directory that is not a repository still gives null when symbolic-ref fails too (#1013)', async () => {
+    expect(await readGit(runner({ 'rev-parse --abbrev-ref HEAD': { exitCode: 128 }, 'symbolic-ref --short HEAD': { exitCode: 128 } }), '/tmp')).toBeNull()
+  })
+
   test('dirty counts modified, untracked and renamed lines', () => {
     expect(parseStatus('## main...origin/main\n M src/a.ts\n?? new.txt\nR  old.ts -> new.ts\nA  added.ts\n')).toEqual({ ahead: 0, behind: 0, dirty: 4 })
     expect(parseStatus('## main\n')).toEqual({ ahead: 0, behind: 0, dirty: 0 })
