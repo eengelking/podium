@@ -71,7 +71,17 @@ export function numbered(sql: string, params: Params | undefined): { text: strin
     } else out += c;
   }
   if (list && values.length !== list.length) throw new Error('storage: fewer ? placeholders than values');
-  return { text: out, values: values.map((v) => (v === undefined ? null : v)) };
+  return { text: out, values: values.map(bound) };
+}
+
+/**
+ * What one bound value becomes (#1007), so PostgreSQL stores what SQLite does: `undefined` and NaN are NULL (SQLite turns a NaN into
+ * NULL, PostgreSQL would keep it as a number that is not NULL), and a NUL is removed from text (PostgreSQL refuses it, SQLite keeps it;
+ * the report validator already strips it, so this changes only input that never arrives over HTTP).
+ */
+export function bound(v: Param): Param {
+  if (v === undefined || (typeof v === 'number' && Number.isNaN(v))) return null;
+  return typeof v === 'string' && v.includes('\0') ? v.replaceAll('\0', '') : v;
 }
 
 /** Whether the error came from the server (it carries a SQLSTATE `code`), as opposed to a lost or broken connection. */

@@ -278,6 +278,30 @@ export function fleetCases(o: Openers): void {
     expect(t.get('search "\\\\"')).toEqual(["it's \"quoted\" \\ back; --"]);
   });
 
+  it('stores a NUL in a string without it and a NaN as NULL, the same on every adapter (#1007)', async () => {
+    // The report validator strips a NUL and refuses a NaN before a store is called, so none of this is reachable over HTTP. It is a rule of
+    // the storage layer anyway: a database may refuse a NUL in text, or keep a NaN as a number that is not NULL, so each adapter converts
+    // them where it binds a value, and the stored data is the same in all of them.
+    const t = await sameOnAll(o, async (s, rec) => {
+      const f = s.fleet;
+      await f.upsertSession(session({ id: 'n', name: 'a\0b', wait_note: '\0', owner: 'x\0', cost_usd: Number.NaN, started_at: T0, last_seen_at: T0 }));
+      await f.upsertAgent(agent('n', 'a1', { description: 'd\0', cost_usd_est: Number.NaN }));
+      await f.upsertSample(sample('n', Math.floor(T0 / 1000), { cost_usd: Number.NaN }));
+      await f.insertEvent({ id: 'e', session_id: 'n', agent_id: null, t: T0, kind: 'note', text: 'te\0xt', data_json: null });
+      await rec('session', f.getSession('n'));
+      await rec('agents', f.getAgents('n'));
+      await rec('events', f.listEvents({ limit: 10 }));
+      await rec('cost per minute', f.fleetCostPerMinute(0, priced));
+    });
+    const row = t.get('session') as { name: string; wait_note: string; owner: string; cost_usd: number | null };
+    expect(row.name).toBe('ab');
+    expect(row.wait_note).toBe('');
+    expect(row.owner).toBe('x');
+    expect(row.cost_usd).toBeNull();
+    expect((t.get('agents') as { description: string; cost_usd_est: number | null }[])[0]).toMatchObject({ description: 'd', cost_usd_est: null });
+    expect((t.get('events') as { text: string }[])[0]!.text).toBe('text');
+  });
+
   it('stores and reads back the largest number the validator takes in every whole-number column, and doubles at both ends of the range (#1007)', async () => {
     const M = MAX_REPORT_NUMBER;
     const reals = { cost_usd: 1 / 3, context_percent: M / 3 };

@@ -5,6 +5,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { cleanBinds } from './bind.js';
 import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, ADMIN_LOG_KEEP } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
@@ -370,7 +371,7 @@ const storedCost: CostOf = (r) => r.cost_usd;
 /** Opens (and migrates) a database. `:memory:` for tests; a file path gets WAL and its folder made. `upTo` stops after that migration, so a test can build an older database. */
 export function openDb(file: string, upTo = Infinity): DatabaseSync {
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
-  const db = new sqlite.DatabaseSync(file);
+  const db = cleanBinds(new sqlite.DatabaseSync(file));
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA synchronous = NORMAL');
   db.exec('PRAGMA foreign_keys = ON');
