@@ -105,3 +105,38 @@ describe('OpenCode fixtures: what the wall shows', () => {
     expect(kinds).toContain('compact');
   });
 });
+
+// #1007: the server rejects a fractional time or token count with a 400 for the whole report. Every number OpenCode puts on an event
+// (its `created` time, the `tokens` of a step, a usage update or a compaction, its cost) and the model's context window come from the
+// host, so each fixture is replayed with half added to all of them and every report must still validate with whole numbers.
+describe.each(['short-session', 'subagent', 'permission', 'question', 'compaction'])('OpenCode fixture %s with fractions from the host (#1007)', (name) => {
+  const frac = (v: unknown): unknown => (typeof v === 'number' ? v + 0.5 : Array.isArray(v) ? v.map(frac) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, frac(x)])) : v);
+  const fractional = (e: BusEvent): BusEvent => {
+    const d = (e.data ?? {}) as Record<string, unknown>;
+    const data = { ...d, ...(d.tokens !== undefined ? { tokens: frac(d.tokens) } : {}), ...(typeof d.cost === 'number' ? { cost: d.cost + 0.5 } : {}) };
+    return { ...e, ...(typeof e.created === 'number' ? { created: e.created + 0.5 } : {}), data } as BusEvent;
+  };
+
+  it('sends only whole times and counts', async () => {
+    const bodies: unknown[] = [];
+    const clock = { now: 0 };
+    const reporter = new Reporter(
+      { fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!)); return { status: 200, ok: true, text: '{}' }; }, now: () => clock.now, runIn: () => async () => ({ exitCode: 1, stdout: "" }), log: () => undefined, windowOf: async () => 200_000.5 },
+      { ...optionsOf({ serverUrl: 'http://podium.test' }, null, {}), idleMs: 60_000 },
+    );
+    for (const e of load(name)) {
+      clock.now = e.created ?? clock.now;
+      reporter.handle(fractional(e));
+      await Promise.resolve();
+    }
+    clock.now += 1;
+    await reporter.tick();
+    clock.now += 61_000;
+    await reporter.tick();
+    expect(bodies.length).toBeGreaterThanOrEqual(2);
+    for (const body of bodies) {
+      const v = validateReport(body);
+      if (!v.ok) throw new Error(`${name}: ${v.path}: ${v.error}`);
+    }
+  });
+});

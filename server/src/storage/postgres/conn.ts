@@ -71,7 +71,17 @@ export function numbered(sql: string, params: Params | undefined): { text: strin
     } else out += c;
   }
   if (list && values.length !== list.length) throw new Error('storage: fewer ? placeholders than values');
-  return { text: out, values: values.map((v) => (v === undefined ? null : v)) };
+  return { text: out, values: values.map(bound) };
+}
+
+/**
+ * What one bound value becomes (#1007), so PostgreSQL stores what SQLite does: `undefined` and NaN are NULL (SQLite turns a NaN into
+ * NULL, PostgreSQL would keep it as a number that is not NULL), and a NUL is removed from text (PostgreSQL refuses it, SQLite keeps it;
+ * the report validator already strips it, so this changes only input that never arrives over HTTP).
+ */
+export function bound(v: Param): Param {
+  if (v === undefined || (typeof v === 'number' && Number.isNaN(v))) return null;
+  return typeof v === 'string' && v.includes('\0') ? v.replaceAll('\0', '') : v;
 }
 
 /** Whether the error came from the server (it carries a SQLSTATE `code`), as opposed to a lost or broken connection. */
@@ -102,8 +112,9 @@ export interface PoolOptions { connectionString: string; schema: string; max: nu
 
 /**
  * One pool, and the transaction a call runs in. A call made inside `tx` (and inside a `savepoint`) sees its client through the async
- * context and uses it; any other call takes a client from the pool for that statement. Transactions are taken one at a time through
- * `gate`: the server is one process, and a read followed by a write is one step, as it was under the SQLite lock.
+ * context and uses it; any other call takes a client from the pool for that statement. Every statement outside a transaction and every
+ * transaction takes its turn through `gate`, so a transaction is exclusive and a read followed by a write is one step, as under the
+ * SQLite lock (#1007). The cost is the same as there: calls made outside a transaction run one at a time.
  */
 export class PgDb {
   readonly pool: pg.Pool;
@@ -131,8 +142,19 @@ export class PgDb {
   async query<T extends object = Record<string, unknown>>(sql: string, params?: Params): Promise<{ rows: T[]; count: number }> {
     if (this.failure) throw this.failure;
     const { text, values } = numbered(sql, params);
-    const r = await (this.client.getStore() ?? this.pool).query(text, values);
+    const r = await this.statement(text, values);
     return { rows: r.rows as T[], count: r.rowCount ?? 0 };
+  }
+
+  /**
+   * Runs one statement. Inside a `tx` it runs on the transaction's client at once. Outside one it takes its turn at the gate, so it
+   * waits while another task's transaction is open, as every call waited on the SQLite lock; it is then never a step between a
+   * transaction's read and its write.
+   */
+  private statement(text: string, values?: Param[]): Promise<pg.QueryResult> {
+    const client = this.client.getStore();
+    if (client) return client.query(text, values);
+    return this.gate.run(() => this.pool.query(text, values));
   }
 
   async all<T extends object = Record<string, unknown>>(sql: string, params?: Params): Promise<T[]> {
@@ -151,7 +173,7 @@ export class PgDb {
   /** Runs statements that take no values, such as a migration's script. */
   async exec(script: string): Promise<void> {
     if (this.failure) throw this.failure;
-    await (this.client.getStore() ?? this.pool).query(script);
+    await this.statement(script);
   }
 
   /** Commits when `fn` resolves, rolls back when it rejects. Inside a `tx` it joins that one. Each `tx` holds one pooled client from its first statement to its last. */

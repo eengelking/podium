@@ -191,8 +191,11 @@ contract.
 - **Values.** `PgDb` converts `bigint` and `numeric` to numbers, and throws if a whole number would lose digits. Flags stay
   0/1 columns, and the stores turn them into booleans where the SQLite stores do.
 - **The transaction.** `tx` takes a client from the pool for the whole callback and takes transactions one at a time through a
-  gate, so a read then a write inside one is a single step, as the SQLite lock made it. A nested `tx` joins the open one
-  through the async context. `savepoint` is used for the steps `peerRights` and `personCerts` can undo alone.
+  gate, and a statement made outside a transaction takes its turn at the same gate, so a call from another task waits while a
+  transaction is open and a read then a write inside one is a single step, as the SQLite lock made it (#1007). Calls
+  outside a transaction therefore run one at a time, as they do on SQLite. A call made inside the callback, or a nested `tx`,
+  joins the open transaction through the async context, which also means a call started inside the callback and left
+  running joins it and must finish before it ends. `savepoint` is used for the steps `peerRights` and `personCerts` can undo alone.
 - **One process.** At start, a client of its own takes `pg_try_advisory_lock`. If another Podium holds it, the server stops with
   a message naming the database (host, port and name) and exits non-zero. It is released at `close`, or when the connection
   ends.
@@ -202,6 +205,11 @@ contract.
   orderings need, so both adapters answer the same. A list that a caller can see states its order in both adapters, and neither leaves it to the table's storage order (#890):
   open peer requests end on `seq`, an insertion number (SQLite migration 26, PostgreSQL step 2) that a generated `id` cannot give, which a request made after the upgrade gets as `MAX(seq) + 1` in both adapters. A request that already existed at the upgrade has no recorded insertion order in PostgreSQL, so both adapters number those by `created_at` and then `id`, and two of them that tie list the same in each (#916; SQLite migration 26 was changed to match, which does not touch a database that already ran it), `clearedInto` on `id` after the start time,
   and the spend queries, the reporter keys, the reporter versions seen, the rollup days and each rollup table's rows end on a key.
+- **NaN and NUL (#1007).** Both adapters store a NaN as NULL (SQLite does so itself; PostgreSQL's `bound()` in `conn.ts` converts it) and
+  remove a NUL from text where they bind a value (`sqlite/bind.ts` and `bound()`), so the stored data is the same. The report
+  validator and the Admin routes already refuse both, so this changes nothing a person can send. One divergence is accepted and
+  stays in PostgreSQL's `known` list: a fraction, an infinity or a number of 1e21 or more sent to an integer column or compared
+  with one makes PostgreSQL throw where SQLite accepts it. The HTTP edge refuses those numbers; the store has no typed validation.
 - **No password in the open.** The label in the log and in `/health` is `host:port/dbname`.
 
 The PostgreSQL tests need `PODIUM_TEST_PG` to name a server ([CONTRIBUTING](../../../CONTRIBUTING.md)). A run without it fails and names the adapter, because a run that leaves one out is not a pass; `PODIUM_TEST_ONLY=sqlite` leaves it out on purpose and the run prints that PostgreSQL was NOT RUN. A run with the variable and no server fails too (`server/src/storage/serverGate.ts`, `postgres/gate.ts`). CI runs them in the `test-postgres` job, which the "Protect development and main" ruleset requires.

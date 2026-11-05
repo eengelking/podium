@@ -10,6 +10,7 @@ import {
   fullText,
   cap,
   clip,
+  whole,
   type EndReason,
   type FailureCandidate,
 } from '../../core/failures.ts';
@@ -54,11 +55,11 @@ const usageKey = (model: string, tier: 'std' | 'long') => `${model}\u0000${tier}
 export function addUsage(usage: Record<string, ModelUsage> | undefined, model: string | null, u: Usage): Record<string, ModelUsage> {
   const prior = usage ?? {};
   if (!model) return prior;
-  const input = u.input_tokens || 0;
-  const cacheRead = u.cache_read_input_tokens || 0;
-  const written = u.cache_creation_input_tokens || 0;
+  const input = whole(u.input_tokens || 0);
+  const cacheRead = whole(u.cache_read_input_tokens || 0);
+  const written = whole(u.cache_creation_input_tokens || 0);
   // The 1-hour part, when Claude Code says; the rest of the cache writes is the 5-minute rate.
-  const hour = Math.min(written, Math.max(0, u.cache_creation?.ephemeral_1h_input_tokens || 0));
+  const hour = Math.min(written, Math.max(0, whole(u.cache_creation?.ephemeral_1h_input_tokens || 0)));
   const tier = input + cacheRead + written > LONG_PROMPT_TOKENS ? 'long' : 'std';
   const key = usageKey(model, tier);
   const was = prior[key]?.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
@@ -69,7 +70,7 @@ export function addUsage(usage: Record<string, ModelUsage> | undefined, model: s
       tier,
       tokens: {
         input: was.input + input,
-        output: was.output + (u.output_tokens || 0),
+        output: was.output + whole(u.output_tokens || 0),
         cacheRead: was.cacheRead + cacheRead,
         cacheWrite: was.cacheWrite + (written - hour),
         cacheWrite1h: was.cacheWrite1h + hour,
@@ -234,7 +235,7 @@ export function emptyLoop(model: string | null = null): LoopStats {
 export function newSession(i: { id: string; cwd: string; startedAt: number; model?: string | null }): SessionState {
   return {
     id: i.id,
-    startedAt: i.startedAt,
+    startedAt: whole(i.startedAt),
     cwd: i.cwd,
     projectRoot: null,
     repoName: null,
@@ -268,7 +269,7 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
 
 /** A fresh session under a new id (after /clear), keeping where it runs. */
 export function resetForNewId(s: SessionState, id: string, startedAt: number): SessionState {
-  const n = newSession({ id, cwd: s.cwd, startedAt, model: s.main.model });
+  const n = newSession({ id, cwd: s.cwd, startedAt: whole(startedAt), model: s.main.model });
   return { ...n, projectRoot: s.projectRoot, repoName: s.repoName, git: s.git, main: { ...n.main, effort: s.main.effort } };
 }
 
@@ -372,7 +373,7 @@ export function setIdentity(
     cwd: i.cwd ?? s.cwd,
     projectRoot: i.projectRoot === undefined ? s.projectRoot : i.projectRoot,
     repoName: i.repoName === undefined ? s.repoName : i.repoName,
-    startedAt: i.startedAt ?? s.startedAt,
+    startedAt: i.startedAt == null ? s.startedAt : whole(i.startedAt),
     main: i.model ? { ...s.main, model: i.model } : s.main,
     dirty: true,
   };
@@ -479,7 +480,7 @@ export function step(s0: SessionState, i: StepInput, now: number): SessionState 
   const next: LoopStats = { ...loop, model: model ?? null, steps: loop.steps + 1, lastStopReason: i.stopReason, lastActiveAt: now };
   if (effort) next.effort = effort;
   if (u) {
-    const t = { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0 };
+    const t = { input: whole(u.input_tokens || 0), output: whole(u.output_tokens || 0), cacheRead: whole(u.cache_read_input_tokens || 0), cacheWrite: whole(u.cache_creation_input_tokens || 0) };
     next.tokens = { input: loop.tokens.input + t.input, output: loop.tokens.output + t.output, cacheRead: loop.tokens.cacheRead + t.cacheRead, cacheWrite: loop.tokens.cacheWrite + t.cacheWrite };
     next.usage = addUsage(loop.usage, model ?? null, u);
     next.cost = loop.cost + (costOf(t, model) ?? 0);
@@ -538,7 +539,8 @@ function fillPercent(loop: LoopStats, tokens: number | null | undefined): number
  * A compaction ran. An automatic one is a blowout when the context was at least AUTO_COMPACT_BLOWOUT_FILL full or its fill is
  * unknown; an earlier one (Claude Code compacts after a quiet stretch too) is only an event, like a manual or a plugin's (#803).
  */
-export function compaction(s: SessionState, i: CompactInput, now: number): SessionState {
+export function compaction(s: SessionState, input: CompactInput, now: number): SessionState {
+  const i: CompactInput = { ...input, ...(typeof input.tokensBefore === 'number' && Number.isFinite(input.tokensBefore) ? { tokensBefore: whole(input.tokensBefore) } : {}), ...(typeof input.tokensAfter === 'number' && Number.isFinite(input.tokensAfter) ? { tokensAfter: whole(input.tokensAfter) } : {}) };
   const loop = loopOf(s, i.agentId);
   const idleMs = loop?.lastActiveAt != null ? Math.max(0, now - loop.lastActiveAt) : null;
   if (i.trigger === 'auto') {
@@ -940,8 +942,8 @@ export function measure(s: SessionState, i: MeasureInput): SessionState {
   const c = i.context;
   const context = c
     ? {
-        tokens: typeof c.tokens === 'number' ? c.tokens : s.context.tokens,
-        window: typeof c.window === 'number' ? c.window : s.context.window,
+        tokens: typeof c.tokens === 'number' && Number.isFinite(c.tokens) ? whole(c.tokens) : s.context.tokens,
+        window: typeof c.window === 'number' && Number.isFinite(c.window) ? whole(c.window) : s.context.window,
         percent: typeof c.percent === 'number' ? c.percent : s.context.percent,
       }
     : s.context;
@@ -949,7 +951,7 @@ export function measure(s: SessionState, i: MeasureInput): SessionState {
     ? i.rateLimits.slice(0, 10).map((r) => ({ kind: cap(String(r.kind), 120), percentUsed: Number(r.percentUsed) || 0, resetsAt: r.resetsAt ?? null }))
     : s.rateLimits;
   const costUsd = i.cost && typeof i.cost.usd === 'number' ? i.cost.usd : s.costUsd;
-  const startedAt = typeof i.startedAt === 'number' && i.startedAt > 0 ? i.startedAt : s.startedAt;
+  const startedAt = typeof i.startedAt === 'number' && whole(i.startedAt) > 0 ? whole(i.startedAt) : s.startedAt;
   const same = JSON.stringify([context, rateLimits, costUsd, startedAt]) === JSON.stringify([s.context, s.rateLimits, s.costUsd, s.startedAt]);
   return same ? s : { ...s, context, rateLimits, costUsd, startedAt, dirty: true };
 }

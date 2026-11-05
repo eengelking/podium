@@ -457,14 +457,45 @@ function strOrNull(v: unknown, path: string, max: number): string | null {
   return str(v, path, max);
 }
 
+/**
+ * The largest size a number in a report may have, either way (#1007). Every integer column is 64-bit, but the server reads
+ * a row back as a JavaScript number, which holds an integer exactly only up to 2^53, and several readers add rows together
+ * (rollups, spend). 2^50 is about 1.1e15: far past any epoch millisecond or token count, and sums of eight such values still read back.
+ * A larger one stored on either database makes the row throw on every later read.
+ */
+export const MAX_REPORT_NUMBER = 2 ** 50;
+
 function num(v: unknown, path: string): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new Invalid(path, 'expected a finite number');
+  if (Math.abs(v) > MAX_REPORT_NUMBER) throw new Invalid(path, `expected a number no larger than ${MAX_REPORT_NUMBER} either way`);
   return v;
 }
 
 function numOrNull(v: unknown, path: string): number | null {
   if (v === null || v === undefined) return null;
   return num(v, path);
+}
+
+/**
+ * An epoch millisecond or a token count: SPEC 6.2 says these are integers, and a fractional one is refused (#1007). A database may keep
+ * 1000.5 as a float while another rejects it for an integer column, so rounding or accepting it would make the stores differ.
+ */
+function whole(v: unknown, path: string): number {
+  const n = num(v, path);
+  if (!Number.isInteger(n)) throw new Invalid(path, 'expected a whole number');
+  return n;
+}
+
+function wholeOrNull(v: unknown, path: string): number | null {
+  if (v === null || v === undefined) return null;
+  return whole(v, path);
+}
+
+/** A token count: a whole number, not below zero. */
+function count(v: unknown, path: string): number {
+  const n = whole(v, path);
+  if (n < 0) throw new Invalid(path, 'expected a non-negative number');
+  return n;
 }
 
 function int(v: unknown, path: string): number {
@@ -542,10 +573,10 @@ const FAILURE_CLASSES: readonly FailureClass[] = [
 function tokens(v: unknown, path: string): TokenCounts {
   const o = obj(v, path);
   return {
-    input: int(o.input, `${path}.input`),
-    output: int(o.output, `${path}.output`),
-    cacheRead: int(o.cacheRead, `${path}.cacheRead`),
-    cacheWrite: int(o.cacheWrite, `${path}.cacheWrite`),
+    input: count(o.input, `${path}.input`),
+    output: count(o.output, `${path}.output`),
+    cacheRead: count(o.cacheRead, `${path}.cacheRead`),
+    cacheWrite: count(o.cacheWrite, `${path}.cacheWrite`),
   };
 }
 
@@ -561,11 +592,11 @@ function usageByModel(v: unknown, path: string): { usageByModel?: ModelUsage[] }
         model: str(o.model, `${p}.model`, LIMITS.short),
         tier: oneOf(o.tier, `${p}.tier`, ['std', 'long'] as const),
         tokens: {
-          input: int(t.input, `${p}.tokens.input`),
-          output: int(t.output, `${p}.tokens.output`),
-          cacheRead: int(t.cacheRead, `${p}.tokens.cacheRead`),
-          cacheWrite: int(t.cacheWrite, `${p}.tokens.cacheWrite`),
-          cacheWrite1h: t.cacheWrite1h === undefined || t.cacheWrite1h === null ? 0 : int(t.cacheWrite1h, `${p}.tokens.cacheWrite1h`),
+          input: count(t.input, `${p}.tokens.input`),
+          output: count(t.output, `${p}.tokens.output`),
+          cacheRead: count(t.cacheRead, `${p}.tokens.cacheRead`),
+          cacheWrite: count(t.cacheWrite, `${p}.tokens.cacheWrite`),
+          cacheWrite1h: t.cacheWrite1h === undefined || t.cacheWrite1h === null ? 0 : count(t.cacheWrite1h, `${p}.tokens.cacheWrite1h`),
         },
       };
     }),
@@ -576,8 +607,8 @@ function context(v: unknown, path: string): ContextFill {
   const o = obj(v, path);
   const percent = numOrNull(o.percent, `${path}.percent`);
   return {
-    tokens: numOrNull(o.tokens, `${path}.tokens`),
-    window: numOrNull(o.window, `${path}.window`),
+    tokens: wholeOrNull(o.tokens, `${path}.tokens`),
+    window: wholeOrNull(o.window, `${path}.window`),
     percent: percent === null ? null : Math.max(0, Math.min(100, percent)),
   };
 }
@@ -631,7 +662,7 @@ function failure(v: unknown, path: string): Failure | null {
   const exit = numOrNull(o.exitCode, `${path}.exitCode`);
   return {
     class: oneOf(o.class, `${path}.class`, FAILURE_CLASSES),
-    at: num(o.at, `${path}.at`),
+    at: whole(o.at, `${path}.at`),
     tool: strOrNull(o.tool, `${path}.tool`, LIMITS.short),
     call: strOrNull(o.call, `${path}.call`, LIMITS.call),
     exitCode: exit === null ? null : Math.round(exit),
@@ -662,8 +693,8 @@ function agent(v: unknown, path: string, version: ReportVersion): AgentReport {
     effort: listOrFree(version, o.effort, `${path}.effort`, EFFORTS),
     effortSource: oneOf(o.effortSource, `${path}.effortSource`, ['requested', 'observed', 'inherited', 'unknown'] as const),
     status: oneOf(o.status, `${path}.status`, AGENT_STATUSES),
-    startedAt: num(o.startedAt, `${path}.startedAt`),
-    endedAt: numOrNull(o.endedAt, `${path}.endedAt`),
+    startedAt: whole(o.startedAt, `${path}.startedAt`),
+    endedAt: wholeOrNull(o.endedAt, `${path}.endedAt`),
     context: context(o.context, `${path}.context`),
     tokens: tokens(o.tokens, `${path}.tokens`),
     costUsdEst: (() => {
@@ -692,10 +723,14 @@ function event(v: unknown, path: string): ActivityEvent {
   if (o.data !== null && o.data !== undefined) {
     data = obj(o.data, `${path}.data`);
     if (JSON.stringify(data).length > 4096) throw new Invalid(`${path}.data`, 'at most 4096 characters of data allowed');
+    // The two counts a compact event carries are stored in columns of their own (ingest.ts); the rest of `data` is stored as text.
+    for (const k of ['tokensBefore', 'tokensAfter']) {
+      if (typeof data[k] === 'number') whole(data[k], `${path}.data.${k}`);
+    }
   }
   return {
     id: str(o.id, `${path}.id`, LIMITS.id),
-    t: num(o.t, `${path}.t`),
+    t: whole(o.t, `${path}.t`),
     kind: oneOf(o.kind, `${path}.kind`, EVENT_KINDS),
     agentId: strOrNull(o.agentId, `${path}.agentId`, LIMITS.id),
     text: str(o.text, `${path}.text`, LIMITS.text),
@@ -818,7 +853,7 @@ function session(v: unknown, path: string, version: ReportVersion, harnessId: st
     waitNote: strOrNull(o.waitNote, `${path}.waitNote`, LIMITS.waitNote),
     endReason: strOrNull(o.endReason, `${path}.endReason`, LIMITS.short),
     resumeId: strOrNull(o.resumeId, `${path}.resumeId`, LIMITS.id),
-    startedAt: num(o.startedAt, `${path}.startedAt`),
+    startedAt: whole(o.startedAt, `${path}.startedAt`),
     cwd: str(o.cwd, `${path}.cwd`, LIMITS.path),
     projectRoot: strOrNull(o.projectRoot, `${path}.projectRoot`, LIMITS.path),
     repoName: strOrNull(o.repoName, `${path}.repoName`, LIMITS.short),
@@ -883,7 +918,7 @@ function ask(v: unknown, path: string): Ask {
   const id = str(o.id, `${path}.id`, LIMITS.id);
   if (!id) throw new Invalid(`${path}.id`, 'must not be empty');
   const kind = oneOf(o.kind, `${path}.kind`, ['question', 'plan', 'permission'] as const);
-  const out: Ask = { id, kind, agentId: strOrNull(o.agentId, `${path}.agentId`, LIMITS.id), openedAt: num(o.openedAt, `${path}.openedAt`) };
+  const out: Ask = { id, kind, agentId: strOrNull(o.agentId, `${path}.agentId`, LIMITS.id), openedAt: whole(o.openedAt, `${path}.openedAt`) };
   const room = (n: number) => n + CUT_MARKER_ROOM;
   if (kind === 'question') {
     const qs = arr(o.questions, `${path}.questions`, RESPOND_LIMITS.questions);
@@ -969,7 +1004,7 @@ function activity(v: unknown, path: string): { activity?: ActivityEntry[] } {
       const p = `${path}[${i}]`;
       const o = obj(e, p);
       const kind = oneOf(o.kind, `${p}.kind`, ACTIVITY_KINDS);
-      const entry: ActivityEntry = { at: num(o.at, `${p}.at`), kind, text: str(o.text, `${p}.text`, LIMITS.activityText) };
+      const entry: ActivityEntry = { at: whole(o.at, `${p}.at`), kind, text: str(o.text, `${p}.text`, LIMITS.activityText) };
       if (o.id !== undefined && o.id !== null) entry.id = str(o.id, `${p}.id`, LIMITS.id);
       // The command and output belong to a tool call; on any other entry they are dropped, not rejected.
       const tool = kind === 'tool';
@@ -1066,7 +1101,7 @@ function background(v: unknown, path: string): BackgroundWait | null {
       status: str(to.status, `${p}.status`, 40),
     };
   });
-  const wakeAt = numOrNull(o.wakeAt, `${path}.wakeAt`);
+  const wakeAt = wholeOrNull(o.wakeAt, `${path}.wakeAt`);
   return tasks.length ? { tasks, wakeAt } : null;
 }
 
@@ -1099,7 +1134,7 @@ export function validateReport(body: unknown): ValidateResult {
     const r = obj(o.reporter, '$.reporter');
     const report: Report = {
       v: version,
-      sentAt: num(o.sentAt, '$.sentAt'),
+      sentAt: whole(o.sentAt, '$.sentAt'),
       reporter: {
         // The legacy name is the Claude Code reporter, and a reporter's name must be its own harness's (#967).
         name: canonicalReporterName(oneOf(r.name, '$.reporter.name', namesFor(version, harness?.id ?? null))) as ReporterName,
@@ -1140,7 +1175,7 @@ function recordingEntry(v: unknown, path: string): RecordingEntry {
   const entry: RecordingEntry = {
     loop: str(o.loop, `${path}.loop`, LIMITS.id),
     seq,
-    at: num(o.at, `${path}.at`),
+    at: whole(o.at, `${path}.at`),
     kind,
     text: o.text === undefined || o.text === null ? '' : text(o.text, `${path}.text`, RECORDING_LIMITS.text + CUT_MARKER_ROOM),
   };
@@ -1171,7 +1206,7 @@ export function validateRecordingBatch(body: unknown): { ok: true; batch: Record
       ok: true,
       batch: {
         v: 1,
-        sentAt: num(o.sentAt, '$.sentAt'),
+        sentAt: whole(o.sentAt, '$.sentAt'),
         entries: arr(o.entries, '$.entries', RECORDING_LIMITS.entries).map((e, i) => recordingEntry(e, `$.entries[${i}]`)),
       },
     };

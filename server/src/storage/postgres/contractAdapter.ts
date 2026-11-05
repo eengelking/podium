@@ -60,9 +60,8 @@ export function postgresContractAdapter(): ContractAdapter {
       }
     },
     known: [
-      { id: 'non-integer number', issue: '#1007', why: 'a number that is not a whole number is sent to an integer column', input: (x) => typeof x === 'number' && !Number.isSafeInteger(x) },
-      { id: 'NUL in a string', issue: '#1007', why: 'a string with a NUL character is sent to a text column', input: (x) => typeof x === 'string' && x.includes('\0') },
-      { id: 'outside call waits for the transaction', issue: '#1007', why: 'a call from outside a transaction runs inside it' },
+      // Accepted by the maintainer (#1007): no typed validation layer is built. A NaN is not in this list: both adapters store it as NULL.
+      { id: 'non-integer number', issue: '#1007', why: 'a fraction, an infinity or a number of 1e21 or more is sent to an integer column or compared with one: PostgreSQL throws and SQLite accepts it (the report validator and the query-number check refuse it before any store is called, so this is not reachable over HTTP)', input: (x) => typeof x === 'number' && !Number.isNaN(x) && !Number.isSafeInteger(x) },
     ],
     dispose: async () => {
       for (const { td, storage } of open.splice(0)) {

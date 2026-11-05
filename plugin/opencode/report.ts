@@ -1,6 +1,6 @@
 // A Root as a v2 report (#855). Pure. The harness block, the capabilities and the session's `harness` come from here;
 // everything shared (the report types, redaction, the plan) comes from core.
-import { cap, clip, excerpt, LIMITS } from '../core/failures.ts';
+import { cap, clip, excerpt, whole, LIMITS } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
 import { toPlan, type PlanState } from '../core/plan.ts';
@@ -51,7 +51,8 @@ function pct(tokens: number | null, window: number | null): number | null {
 }
 
 function contextOf(s: Sess, meta: ReportMeta): ContextFill {
-  const window = meta.windowOf?.(s.provider, s.model) ?? null;
+  const w = meta.windowOf?.(s.provider, s.model) ?? null;
+  const window = w === null ? null : whole(w);
   return { tokens: s.ctxTokens, window, percent: pct(s.ctxTokens, window) };
 }
 

@@ -570,6 +570,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
     const { kind, pattern } = (req.body ?? {}) as { kind?: unknown; pattern?: unknown };
     if (typeof kind !== 'string' || typeof pattern !== 'string') return void res.status(400).json({ ok: false, error: 'give a kind and a pattern' });
+    // Not every database stores a NUL byte in text, so a pattern with one is refused for all of them.
+    if (pattern.includes('\u0000')) return void res.status(400).json({ ok: false, error: 'a pattern cannot contain a NUL character' });
     try {
       // `removed` is the drop in the list across the add, so the count and the add are one step: another change must not land between.
       const { rule, removed } = await storage.tx(async () => {

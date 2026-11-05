@@ -159,12 +159,20 @@ describe.skipIf(!TEST_PG)('postgres peer store', () => {
       const failed = tx.catch((e: Error) => e.message);
       const send = w.peers.messages.send('sa', 'beta@box-b', 'kept');
       await new Promise((r) => setTimeout(r, 50));
+      // Not yet stored: the send is queued behind the transaction, not running inside it. A read made now waits for the transaction
+      // too (#1007), so it is settled only after the release and finds the send, which went in behind the rolled-back transaction.
+      let readDone = false;
+      const read = rows('SELECT COUNT(*) AS n FROM peer_messages').then((r) => {
+        readDone = true;
+        return r;
+      });
       try {
-        // Not yet stored: the send is queued behind the transaction, not running inside it.
-        expect(await rows('SELECT COUNT(*) AS n FROM peer_messages')).toEqual([{ n: 0 }]);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(readDone).toBe(false);
       } finally {
         release();
       }
+      expect(await read).toEqual([{ n: 1 }]);
       expect(await failed).toBe('abandoned');
       expect((await send).ok).toBe(true);
       expect(await rows('SELECT text FROM peer_messages')).toEqual([{ text: 'kept' }]);

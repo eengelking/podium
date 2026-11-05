@@ -225,6 +225,40 @@ The suite does not repeat what a unit test already settles and a browser adds no
 (`server/src/fleet/derive.test.ts`), markdown rendering (`frontend/src/fleet/components/Markdown.test.tsx`), the CSV neutralizing, validation
 messages, and the standards pages (`npm run standards:parity`). A feature with only unit coverage and a layout, focus or live-update behavior gets a spec for that part.
 
+## What runs on PostgreSQL, and whether that is enough for the release gate
+
+The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). The decision on the
+gap is the maintainer's; this section states what is true on 2026-11-05 and the options.
+
+- **The storage contract and the adapter's own tests** (`server/src/storage/`, about 950 tests) run on PostgreSQL in every CI run, in the
+  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-pg.sh`. That job runs the whole server suite with
+  `PODIUM_TEST_PG` set, but only the storage tests use it.
+- **About 50 test files outside `server/src/storage/`** (routes, ingest, the fleet, peers, Admin) open a SQLite storage and nothing else. They
+  have never run on PostgreSQL. They are not to be converted: the contract is where the two databases are compared.
+- **The Cypress suite on PostgreSQL** (`E2E_DB=postgres`, the `databases` input of `e2e.yml`, default `sqlite postgres`) runs on a pull
+  request into `main` and on a manual dispatch, never on a PR into `development`. The default of both databases arrived with the
+  PostgreSQL adapter (#900, 2026-10-31). Every run of the E2E workflow listed by `gh run list` is older than that or ran a branch that did
+  not have it: the release PR for 1.4.0 (2026-10-30) and the three manual dispatches on 2026-10-31 have no PostgreSQL step in their logs. **No
+  CI run has ever run the suite on PostgreSQL**, so the first one will be the v1.5 release PR, which is also the first release that carries the adapter.
+
+Is that enough for the release gate? The storage contract settles what a store returns; it does not settle the routes, sign-in,
+recording, peers and live updates sitting on top of it, which only the Cypress run and the unit tests that open SQLite exercise. The
+risk is concentrated in one place: a failure on the release PR on PostgreSQL, with nothing earlier to point at the change that caused it.
+The options, cheapest first:
+
+1. **Rely on the release PR alone** (what is set up). No new cost; a PostgreSQL-only failure appears only when the release is already
+   being cut, and `development` is not known to be green on PostgreSQL between releases.
+2. **Run `E2E` by hand on `development` with `databases: postgres` before the release-prep PR opens**, and once more after any storage change
+   that merges. No workflow change; it is one manual step and it needs to be written into `podium-release`'s steps to happen.
+3. **Add a `schedule:` (nightly) or a `push` to `development` trigger that runs `postgres` only.** The suite takes about 10 minutes for one
+   database on the self-hosted runner, which also serves the nightly build. It needs an edit to `e2e.yml`, so it is a separate change.
+4. **Run the server's route and ingest tests on PostgreSQL** by making the 50 files open the storage through a switch (`PODIUM_TEST_PG`)
+   that the storage suite already uses. The largest change, and it overlaps with the contract; worth it only if option 2 or 3 keeps
+   finding PostgreSQL-only failures that the contract does not.
+
+Recommendation: 2 now, since it costs nothing and puts a real PostgreSQL run before the release PR rather than inside it, and 3 if that
+first run finds anything. This section changes when the workflow does.
+
 ## What is still open
 
 - **Known axe findings.** None. #794 to #800 were the last, and their `known` entries are gone from `e2e/cypress/e2e/a11y/axe.cy.js` and `axe-more.cy.js`.

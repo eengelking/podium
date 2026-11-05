@@ -4,6 +4,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { cleanBinds } from './bind.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 
@@ -141,7 +142,7 @@ export function activityDbPath(dbPath: string): string {
 /** Opens (and migrates) the activity database. `:memory:` for tests; a file path gets WAL and its folder made. */
 export function openActivityDb(file: string): DatabaseSync {
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
-  const db = new sqlite.DatabaseSync(file);
+  const db = cleanBinds(new sqlite.DatabaseSync(file));
   // Incremental auto-vacuum only takes effect on a file with no table yet, so it is set before anything else is written.
   db.exec('PRAGMA auto_vacuum = INCREMENTAL');
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL');

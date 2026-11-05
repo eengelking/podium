@@ -167,6 +167,9 @@ describe('reads', () => {
     const capped = await request(app).get('/api/fleet/events?limit=5000');
     expect(capped.status).toBe(200);
     expect((await request(app).get('/api/fleet/events?limit=abc')).status).toBe(400);
+    // A number no BIGINT column holds is a 400, not a database error.
+    expect((await request(app).get('/api/fleet/events?before=100000000000000000000')).status).toBe(400);
+    expect((await request(app).get('/api/fleet/events?limit=100000000000000000000')).status).toBe(400);
     expect((await request(app).get('/api/fleet/events?sessionId=nobody')).body.events).toEqual([]);
   });
 

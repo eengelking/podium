@@ -1,7 +1,7 @@
 // What the OpenCode reporter knows about its sessions (#855). Pure: no engine API, no clock of its own, no network.
 // `apply` folds one bus event into a Store; report.ts turns a Root into a v2 report. A root session and the child
 // sessions it launched are one Root and one report; a child is an agent in that report.
-import { activityText, clip, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
+import { activityText, clip, whole, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
@@ -266,16 +266,18 @@ function addActivity(root: Root, s: Sess, entry: ActivityEntry): void {
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+/** A token count the host sent, as the whole number the server requires (#1007). */
+const count = (v: unknown): number => whole(num(v));
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 
 /** `session.usage.updated` and `session.step.ended` carry tokens as `{input, output, reasoning, cache: {read, write}}`. */
 export function tokensOf(t: any): Tokens {
   return {
-    input: num(t?.input),
+    input: count(t?.input),
     // Reasoning tokens are billed as output.
-    output: num(t?.output) + num(t?.reasoning),
-    cacheRead: num(t?.cache?.read),
-    cacheWrite: num(t?.cache?.write),
+    output: count(t?.output) + count(t?.reasoning),
+    cacheRead: count(t?.cache?.read),
+    cacheWrite: count(t?.cache?.write),
   };
 }
 
@@ -413,7 +415,7 @@ function ask(root: Root, a: Ask): void {
  */
 export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   const d = ev.data ?? {};
-  const t = typeof ev.created === 'number' ? ev.created : at;
+  const t = whole(typeof ev.created === 'number' && Number.isFinite(ev.created) ? ev.created : at);
   const sid = str(d.sessionID) ?? str(d.form?.sessionID);
   const type = ev.type;
   if (!sid) return null;
@@ -591,7 +593,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const auto = d.reason === 'auto';
       // The compaction's own usage is the summary it wrote: that is about what the context holds now. The next step ends with the real size.
       const before = s.ctxTokens;
-      const after = failed || !num(d.tokens?.output) ? before : num(d.tokens?.output);
+      const after = failed || !count(d.tokens?.output) ? before : count(d.tokens?.output);
       if (!failed) s.ctxTokens = after;
       if (auto && !failed) {
         s.blowouts++;
