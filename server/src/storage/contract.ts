@@ -369,15 +369,15 @@ function ownCases(adapter: ContractAdapter): void {
         [other, 'podium-reporter-opencode', '2.0.0', 1],
       ]);
       // A later report from each updates its own row only.
-      await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.5.0' }), T0 + 20);
+      await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.99.0' }), T0 + 20);
       const after = (await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 30)).rows;
-      expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter-claudecode', '1.5.0'], ['podium-reporter-opencode', '2.0.0']]);
-      // Each is judged against its own range (#852): the Claude Code reporter at 1.5.0 is above its range, and the OpenCode one has its own range, which 2.0.0 is also above.
+      expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter-claudecode', '1.99.0'], ['podium-reporter-opencode', '2.0.0']]);
+      // Each is judged against its own range (#852): the Claude Code reporter at 1.99.0 is above its range, and the OpenCode one has its own range, which 2.0.0 is also above.
       expect(after.map((r) => [r.reporterName, r.compat])).toEqual([['podium-reporter-claudecode', 'newer'], ['podium-reporter-opencode', 'newer']]);
       // The hooks-kind row is not a mod reporter, so it cannot be messaged; the lookup filters on kind, and the reporter name is not part of it yet.
       const lookup = store.reporters.peerLookup();
       expect(await lookup.get(other)).toBeNull();
-      expect(await lookup.get(claude)).toMatchObject({ key: claude, version: '1.5.0' });
+      expect(await lookup.get(claude)).toMatchObject({ key: claude, version: '1.99.0' });
     });
 
     it('returns the messages of a conversation in the order they were sent, ties included', async () => {

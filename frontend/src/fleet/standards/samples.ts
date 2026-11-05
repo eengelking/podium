@@ -101,6 +101,7 @@ export const SAMPLES: Sample[] = [
       { label: "Pinned to its place on the wall", screen: "app-pinned", selector: card("s2") },
       { label: "Delegating to an agent", screen: "app-wall-deleg", selector: card("s3") },
       { label: "No effort reported", screen: "app-effort-none", selector: card("s1") },
+      { label: "An effort outside the five levels, as sent (hollow bars)", screen: "app-effort-other", selector: card("s1") },
       { label: "Titled with the machine (Admin > Settings > The wall)", screen: "app-card-machine-title", selector: card("s1") },
     ]),
   },
@@ -247,6 +248,9 @@ export const SAMPLES: Sample[] = [
     cases: [
       { label: "Nested agents, a fork, a failure", screen: "focus-running", selector: ".two > .sec:last-child" },
       { label: "Queued, aborted and failed agents", screen: "app-agent-states", selector: ".two > .sec:last-child" },
+      { label: "Harness reports no context and no effort (both columns dropped)", screen: "app-tree-no-ctx-eff", selector: ".two > .sec:last-child" },
+      { label: "Harness reports no context (Context column dropped)", screen: "app-tree-no-ctx", selector: ".two > .sec:last-child" },
+      { label: "Harness reports no effort (Effort column dropped)", screen: "app-tree-no-eff", selector: ".two > .sec:last-child" },
     ],
   },
   {
