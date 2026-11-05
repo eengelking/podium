@@ -254,7 +254,8 @@ function termOf(t, adapter, nullable) {
     .replace(/\basc\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  const reads = (expr.match(/[a-z_]\w*(?!\w|\s*\()/g) ?? []).some((id) => nullable?.(id));
+  // every identifier that is not a function name (not followed by an opening parenthesis)
+  const reads = [...expr.matchAll(/[a-z_]\w*/g)].some((m) => !/^\s*\(/.test(expr.slice(m.index + m[0].length)) && nullable?.(m[0]));
   const nulls = nullable && reads && !expr.includes("coalesce(") ? ` nulls ${stated ?? defaultNulls(adapter, desc)}` : "";
   return expr + nulls;
 }

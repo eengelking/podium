@@ -12,6 +12,8 @@ import type { AgentRow, CostOf, ReporterSeen, SampleRow } from './rows.js';
 const T0 = 1_800_000_000_000;
 const DAY = 86_400_000;
 /** A person's key id and token hash come from a random token, so they differ between two storages by design; the rest must not. */
+/** Orders strings by UTF-16 code unit, the order a bare `sort()` gives, stated so the intent is plain. */
+const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const bare = <T extends { keyId: string; tokenHash: string } | undefined | null>(p: T): T => (p ? { ...p, keyId: 'k', tokenHash: 'h' } : p);
 const priced: CostOf = (row) => row.cost_usd;
 const sample = (id: string, t: number, over: Partial<SampleRow> = {}): SampleRow => ({
@@ -262,13 +264,13 @@ export function fleetCases(o: Openers): void {
       for (const q of ['%', '_', 'Émile', 'émile', '日本', '\u{1F389}', '\\']) await rec(`reporters ${JSON.stringify(q)}`, s.reporters.keys({ q }, T0 + 100));
     });
     // the values themselves, not only the agreement between two databases
-    const names = (t.get('people') as { rows: { name: string }[] }).rows.map((p) => p.name).sort();
-    expect(names).toEqual([...odd].sort());
+    const names = (t.get('people') as { rows: { name: string }[] }).rows.map((p) => p.name).sort(byCode);
+    expect(names).toEqual([...odd].sort(byCode));
     const sessions = t.get('sessions') as { name: string; wait_note: string; owner: string }[];
     expect(sessions.map((r) => r.name)).toEqual(odd);
     expect(sessions.map((r) => r.wait_note)).toEqual(odd);
     expect((t.get('texts') as { prompt: string }[]).map((r) => r.prompt)).toEqual(odd);
-    expect((t.get('events') as { text: string }[]).map((r) => r.text).sort()).toEqual([...odd].sort());
+    expect((t.get('events') as { text: string }[]).map((r) => r.text).sort(byCode)).toEqual([...odd].sort(byCode));
     // a wildcard is a plain character in a search: '%' finds the two names with a percent sign in them, '_' the two with an underscore
     expect(t.get('search "%"')).toEqual(['%', '100% sure_ish']);
     expect(t.get('search "_"')).toEqual(['100% sure_ish', '_']);
@@ -334,8 +336,8 @@ export function fleetCases(o: Openers): void {
     for (const col of ['started_at', 'last_seen_at', 'ended_at', 'dropped_at', 'context_tokens', 'context_window', 'tok_in', 'tok_out', 'tok_cr', 'tok_cw', 'blowouts', 'detached_at']) expect(row[col], col).toBe(M);
     expect(row.cost_usd).toBe(reals.cost_usd);
     expect(row.context_percent).toBe(reals.context_percent);
-    expect((t.get('tiny') as Record<string, unknown>).cost_usd).toBe(1e-300);
-    expect((t.get('tiny') as Record<string, unknown>).context_percent).toBe(5e-324);
+    expect(String((t.get('tiny') as Record<string, unknown>).cost_usd)).toBe('1e-300');
+    expect(String((t.get('tiny') as Record<string, unknown>).context_percent)).toBe('5e-324');
     expect((t.get('agents') as Record<string, unknown>[])[0]).toMatchObject({ started_at: M, tool_calls: M, steps_total: M, cost_usd_est: M / 7 });
     expect(t.get('sample')).toMatchObject({ t: M, tokens_total: M, running_agents: M, peak_context: M / 3 });
     expect((t.get('events') as { t: number }[]).map((e) => e.t)).toEqual([M]);
@@ -492,6 +494,6 @@ export function reporterCases(o: Openers): void {
 
     expect(await s.fleet.getSession(id)).toEqual(before);
     expect((await s.fleet.getSession('the-biggest'))?.tok_in).toBe(MAX_REPORT_NUMBER);
-    expect((await s.fleet.liveCandidates(0)).map((r) => r.id).sort()).toEqual([id, 'the-biggest'].sort());
+    expect((await s.fleet.liveCandidates(0)).map((r) => r.id).sort(byCode)).toEqual([id, 'the-biggest'].sort(byCode));
   });
 }
