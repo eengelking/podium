@@ -18,7 +18,8 @@ description: What is specific to Podium around a pull request - the pre-PR check
 4. **Atlas.** A structural or architectural change loads `podium-atlas-update`, or has the `podium-atlas-keeper` agent run it (a fresh, non-fork agent; do not edit the atlas files while it runs). Read its report and the diff before committing. A change that touches nothing the atlas states needs no update, and the PR says so.
 5. **Docs.** `documentation-sync`, plus `podium-docs-site` for a doc page.
 6. **End-to-end specs.** A feature a browser can observe loads `podium-e2e-update`, or has the `podium-e2e-keeper` agent run it (a fresh, non-fork agent). `npm run e2e` passes on the whole suite, and `docs/e2e/COVERAGE.md` changes with the feature.
-7. **`/code-review` once** for a code change, per CLAUDE.md's Review row.
+7. **Server tests on every adapter.** A change under `server/` runs `scripts/test-pg.sh` (the whole server suite against a throwaway PostgreSQL container, SQLite included), not `npm test -w server` alone. Never set `PODIUM_TEST_ONLY` to get past a "`PODIUM_TEST_PG` is not set" error: that only hides the adapter, and a run that did it is reported as `SQLite only, PostgreSQL NOT RUN`, not as passing. Only set it when the user asked in this session to leave an adapter out. The PR body has a line naming each adapter that ran and its counts (for example `SQLite and PostgreSQL: 217 files, 4476 tests`), and the Haiku trace and parity check reads that line and runs the suites again itself.
+8. **`/code-review` once** for a code change, per CLAUDE.md's Review row.
 
 ## The PR trace check, Podium patterns
 

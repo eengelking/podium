@@ -250,6 +250,8 @@ function podium(opts: { respond?: boolean; deliveries?: Delivery[]; recording?: 
   const reports: Report[] = [];
   const calls: string[] = [];
   const bodies: Record<string, unknown> = {};
+  /** Every delivery result in the order sent, as `<id> <result>`: `bodies` keeps only the last one per path. */
+  const results: string[] = [];
   const held = new Map<string, (r: { status: number; text: string }) => void>();
   const queued = new Map<string, Delivery>();
   let respond = opts.respond ?? true;
@@ -264,6 +266,7 @@ function podium(opts: { respond?: boolean; deliveries?: Delivery[]; recording?: 
     }
     calls.push(`${init.method} ${path}`);
     if (init.body) bodies[`${init.method} ${path}`] = JSON.parse(init.body);
+    if (init.body && path.endsWith('/result')) results.push(`${/deliveries\/([^/]+)\/result/.exec(path)![1]} ${(JSON.parse(init.body) as { result: string }).result}`);
     const m = /\/asks\/([^/]+)\/answer/.exec(path);
     if (init.method === 'GET' && m) {
       const id = decodeURIComponent(m[1]!);
@@ -279,7 +282,7 @@ function podium(opts: { respond?: boolean; deliveries?: Delivery[]; recording?: 
     return { status: 200, ok: true, text: '{}' };
   };
   return {
-    fetch, reports, calls, bodies,
+    fetch, reports, calls, bodies, results,
     answer(askId: string, d: Partial<Delivery>) {
       const delivery = D({ askId, ...d });
       const h = held.get(askId);
@@ -322,6 +325,28 @@ function rig(host: Host, respond = true, activityFeed = true, server = podium(),
 }
 
 const last = (s: ReturnType<typeof podium>): Report => s.reports[s.reports.length - 1]!;
+
+describe('respond while answering is off (#1011)', () => {
+  it('sends level off from a reporter built the way index.ts builds one with answering off: no Answering at all', async () => {
+    const server = podium();
+    const options = optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' });
+    expect(options.consent.respond).toBe(false);
+    const r = new Reporter({ fetch: server.fetch, now: () => 10_000, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined }, { ...options, idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }, 10_000));
+    await r.tick();
+    expect(last(server).session.respond).toEqual({ level: 'off', accepts: [], limits: [] });
+    expect(last(server).capabilities).toMatchObject({ respond: false, commands: [] });
+    expect(server.calls).toEqual([]);
+  });
+
+  it('still sends respond with level off, so the console says "Turned off" and not "Reporter can\'t answer"', async () => {
+    const { host } = fakeHost();
+    const { r, server } = rig(host, false, true, podium(), undefined, { PODIUM_RESPOND: '' });
+    await r.tick();
+    expect(last(server).session.respond).toEqual({ level: 'off', accepts: [], limits: [] });
+    expect(last(server).asks ?? []).toEqual([]);
+  });
+});
 
 describe('respond levels (#969)', () => {
   const kinds = (level: string) => {
@@ -383,25 +408,25 @@ describe('respond levels (#969)', () => {
     }
   });
 
-  it('level off says nothing about answering and takes nothing', async () => {
+  it('level off says so and takes nothing', async () => {
     const { host, calls } = fakeHost();
     const { r, server } = rig(host, false, true, podium({ deliveries: [D({ id: 'm1', kind: 'message', text: 'hello' })] }), undefined, { PODIUM_RESPOND: 'off' });
     r.handle(permission());
     await r.tick();
     await r.tick();
-    expect(last(server).session.respond).toBeUndefined();
+    expect(last(server).session.respond).toEqual({ level: 'off', accepts: [], limits: [] });
     expect(calls).toEqual([]);
   });
 });
 
 describe('Reporter answering (#858)', () => {
-  it('says nothing about answering until the person allowed it, and never waits for an answer', async () => {
+  it('says answering is off until the person allowed it, and never waits for an answer', async () => {
     const { host } = fakeHost();
     const { r, server } = rig(host, false);
     r.handle(permission());
     await r.tick();
-    expect(last(server).session.respond).toBeUndefined();
-    expect(last(server).session.asks).toBeUndefined();
+    expect(last(server).session.respond).toEqual({ level: 'off', accepts: [], limits: [] });
+    expect(last(server).session.asks ?? []).toEqual([]);
     expect(last(server).capabilities).toMatchObject({ respond: false, commands: [] });
     expect(server.calls).toEqual([]);
   });
@@ -568,7 +593,7 @@ describe('Reporter answering (#858)', () => {
     await vi.waitFor(async () => { await r.tick(); expect(server.bodies['POST /api/fleet/sessions/ses_root/asks/per_1/close']).toMatchObject({ outcome: 'ended' }); });
   });
 
-  it('sends a message as a labeled prompt, queued while a turn runs, once even when handed over twice', async () => {
+  it('sends a message as a labeled prompt, queued then taken while a turn runs, once even when handed over twice (#1011)', async () => {
     const { host, calls } = fakeHost();
     const msg = D({ id: 'm1', kind: 'message', text: 'please stop' });
     const { r, server } = rig(host, true, true, podium({ deliveries: [msg, msg] }));
@@ -576,7 +601,7 @@ describe('Reporter answering (#858)', () => {
     await r.tick();
     await r.tick();
     expect(calls).toEqual(['prompt ses_root m1 please stop']);
-    await vi.waitFor(async () => { await r.tick(); expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m1/result']).toMatchObject({ result: 'queued' }); });
+    await vi.waitFor(async () => { await r.tick(); expect(server.results).toEqual(['m1 queued', 'm1 took']); });
   });
 
   it('reports a message sent to an idle session as taken', async () => {
@@ -624,7 +649,7 @@ describe('Reporter answering (#858)', () => {
     expect(res('c4')).toMatchObject({ result: 'refused' });
   });
 
-  it('reports a message OpenCode did not take as not taken', async () => {
+  it('reports a message or /compact OpenCode did not take as refused, never not-taken, which locks the ask (#1011)', async () => {
     const { host } = fakeHost({ prompt: async () => { throw new Error('no'); }, compact: async () => { throw new Error('no'); } });
     const server = podium();
     const { r, t } = rig(host, true, true, server);
@@ -634,8 +659,8 @@ describe('Reporter answering (#858)', () => {
     await r.tick();
     await r.tick();
     await r.tick();
-    expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m9/result']).toMatchObject({ result: 'not-taken' });
-    expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m8/result']).toMatchObject({ result: 'not-taken' });
+    expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m9/result']).toMatchObject({ result: 'refused' });
+    expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m8/result']).toMatchObject({ result: 'refused' });
   });
 
   it('says why OpenCode did not take a message, a command or an answer, instead of hiding it', async () => {

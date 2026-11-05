@@ -34,10 +34,10 @@ say '/podium'; sleep 1; tmux send-keys -t "$T" C-m; sleep 1; tmux capture-pane -
 | C2, C3 | Prompt `Use the bash tool to run exactly: touch allow-me.txt` (add `Do not run anything else.` for deny). Files are in `$LIVE/proj-planner`. An open ask shows `Allow once  Always allow  Reject`; answer promptly, because the model often runs one more command and a next ask follows a few seconds later: loop on `live_asks` until it stays empty. |
 | C4 | `Use the question tool to ask me one question: "Favorite color?" with options Red and Blue. Then tell me which I chose.` Only offered with a TUI attached or a background service (see exclusions). |
 | C5 | The session shows a message that starts with a line saying it came through Podium (`[Message from X via Podium, not typed at this terminal]`), then `PONG-FROM-PODIUM`. |
-| C6 | The result is `queued` with no later `took` today (see known gaps); assert what happens and report it. |
+| C6 | The server log says `came back queued`, then `came back took` (#1011). |
 | C7 | The log says `ran /compact ... came back took`, and the `compact` event has `trigger:"manual"` and a token drop. A `Compaction` block was not seen in the pane: rely on the event. |
 | C8 | `export PODIUM_RESPOND=questions` in a second window before starting OpenCode. `accepts` is `[question, message]`. |
-| C9 | A window with `export PODIUM_RESPOND=` (empty wins over the file). The card sends no `respond` field at all (see known gaps). |
+| C9 | A window with `export PODIUM_RESPOND=` (empty wins over the file). `live_json <id> respond` reads `{"level":"off","accepts":[],"limits":[]}`, as Claude Code's does (#1011). |
 | C10 | `costSource` is `harness` and cost is `0` for a free model. Effort is the model variant (`opencode run -m <provider/model>#<variant> "..."`) and reads `default` with no variant. `usageByModel` is sent but not stored. There is no `rateLimits` key at all. Context window comes from `ctx.model.list` on a later report, so check after a second turn. |
 | C11 | `Use the task tool to launch one general subagent with the prompt "Reply with the single word AGENT-OK"`. Subagents are child sessions; the permission ask's `agentId` is the child session id. Needs `PODIUM_FULL_PROMPTS`. |
 | C12 | Tool names are mapped (`shell` is shown as Bash); `output` needs `--activity-output`. |
@@ -46,7 +46,7 @@ say '/podium'; sleep 1; tmux send-keys -t "$T" C-m; sleep 1; tmux capture-pane -
 | C17 | Ctrl+C prints `Continue  opencode -s <id>`, a handy way to get the id. Killing the only tmux window ends the session, so open a second one first. Leave with Ctrl+C (not Ctrl+D, which closes the shell and the tmux server), start a new window with `new-session ... -c "$LIVE/proj-planner"`, source `$LIVE/oc-env-planner.sh`, run `opencode --standalone -s <session id>`. |
 | C18 | `add` refuses a file that is not a reporter config: make two small ones in the scratch home (v1 header, a `# user:` line, an `https` `# server:` line, an `# issued-at:` epoch, mode 0600, named `reporter-config-<name>-<epoch>.pem`). |
 | C19 | The tools `podium_peers` and `podium_send` are removed (the model says the tool was removed), and the footer has no messaging text. |
-| C20 | Choose in the TUI. Observed: the later `live_answer` returns `{"error":"closed","outcome":"terminal"} [410]`. |
+| C20 | Choose in the TUI. The later `live_answer` returns `{"error":"closed","outcome":"terminal"} [410]` while the session is still on that turn, and `404 unknown ask` once a report shows it running again (SPEC 7.1, #829). |
 | C21 | Restart the server as in the core row and `live_signin` again. The footer goes `offline` then `live` and the ask is listed again. |
 | C22 | The first Ctrl+C with an ask open rejects the ask (outcome `terminal`) and does not exit; a second one ends the session with `status:"done"`, `endReason:"shutdown"` (a killed process gives the same). `attached` stays true for a done session. A session quiet for `idleSeconds` with no TUI attached goes `done`; with a TUI it stays `waiting`. |
 
@@ -69,7 +69,7 @@ say '/podium'; sleep 1; tmux send-keys -t "$T" C-m; sleep 1; tmux capture-pane -
 
 **Expected, not a gap:** a run with no TUI (`opencode run --standalone`) is not kept on the board: it is `done` when its process ends and leaves the wall (DECISIONS 59), so its absence from `/api/fleet/state` is not a failure. The no-TUI checks (idle `done`, a question with no channel) need a session that stays up, so they were NOT RUN; do not count them as a fail.
 
-**Known reporter gaps** (current behavior the run reports, each tracked in an issue; delete its wording when the issue is fixed). #1011: answering off, and the delivery results. #1012: the shell permission display, the terminal confirmation lines and the other differences from Claude Code. #1013: `git` for a repo with no commit. answering off sends no `respond` field, so the console tells the person to update the Claude Code plugin; a busy message gets `queued` with no later `took`, and a failed delivery is reported `not-taken`, against SPEC 7.1; a shell permission ask carries `tool = {name:"shell", input:{resources:["touch x"]}}`, so `input` is the resources and not a `command`, and the card may show raw JSON (not checked in a browser). A repo with no commit gives the session `git: null` although the footer shows the branch; `up` now makes one commit, so a run does not hit it.
+**Known reporter gaps** (current behavior the run reports, each tracked in an issue; delete its wording when the issue is fixed). #1012: the shell permission display, the terminal confirmation lines and the other differences from Claude Code. #1013: `git` for a repo with no commit. A shell permission ask carries `tool = {name:"shell", input:{resources:["touch x"]}}`, so `input` is the resources and not a `command`, and the card may show raw JSON (not checked in a browser). A repo with no commit gives the session `git: null` although the footer shows the branch; `up` now makes one commit, so a run does not hit it.
 
 ## Shut down
 
