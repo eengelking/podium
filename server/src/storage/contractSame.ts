@@ -79,12 +79,12 @@ export async function sameOnAll(o: Openers, scenario: Scenario): Promise<Map<str
 }
 
 /** Registers `body` as one test per adapter, titled with the adapter's name, for a case about an adapter's own behavior in one storage. */
-export function onEachAdapter(o: Openers, title: string, body: (s: Storage) => Promise<void>, timeout?: number): void {
+export function onEachAdapter(o: Openers, title: string, body: (s: Storage, adapter: string) => Promise<void>, timeout?: number): void {
   for (const a of o.adapters) {
     it(`${title} [${a.name}]`, async () => {
       const s = await a.open();
       try {
-        await body(s);
+        await body(s, a.name);
       } finally {
         await s.close();
       }
