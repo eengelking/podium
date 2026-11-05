@@ -583,15 +583,18 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
   showStatus($, r);
 }
 
+/** The host's context figure, or null while it is still the cleared session's (#1014); the first different figure ends the hold. */
+function freshContext<T extends { tokens?: number } | null | undefined>(r: Pick<Runtime, 'staleContext'>, context: T): T | null {
+  if (r.staleContext === null) return context;
+  if (typeof context?.tokens === 'number' && Math.round(context.tokens) === r.staleContext) return null;
+  r.staleContext = null;
+  return context;
+}
+
 async function readUsage($: Engine, r: Runtime): Promise<void> {
   try {
     const u = await $.session.usage();
-    let context: typeof u.context | null = u.context;
-    if (r.staleContext !== null) {
-      if (typeof context?.tokens === 'number' && Math.round(context.tokens) === r.staleContext) context = null;
-      else r.staleContext = null;
-    }
-    r.state = measure(r.state, { context, cost: u.cost ?? null, rateLimits: u.rateLimits, startedAt: u.startedAt });
+    r.state = measure(r.state, { context: freshContext(r, u.context), cost: u.cost ?? null, rateLimits: u.rateLimits, startedAt: u.startedAt });
   } catch (err) {
     record($, 'session.usage', err);
   }
@@ -1726,9 +1729,11 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   const usage = await attempt(() => $.session.usage(), null);
   const projectRoot = repo?.root ?? root ?? e.cwd;
   const same = !!rt && rt.state.id === id;
+  // A /clear that reaches here as a start under the new id: the host still answers with the old session's figure (#1014).
+  const hold = { staleContext: same && rt ? rt.staleContext : (rt?.state.context.tokens ?? null) };
   let state = same && rt ? rt.state : newSession({ id, cwd: e.cwd, startedAt: usage?.startedAt || now, model });
   state = setIdentity(state, { cwd: e.cwd, projectRoot, repoName: repo?.name ?? repoFromRemote(repo?.remote) ?? lastSegment(projectRoot), model });
-  if (usage) state = measure(state, { context: usage.context, cost: usage.cost ?? null, rateLimits: usage.rateLimits, startedAt: usage.startedAt });
+  if (usage) state = measure(state, { context: freshContext(hold, usage.context), cost: usage.cost ?? null, rateLimits: usage.rateLimits, startedAt: usage.startedAt });
   if (!same) state = addEvent(state, 'start', null, `session.start · ${shortName(model)}`, now, { surface: e.surface });
   if (recorder.sessionId !== id) recorder.begin(id);
   // A /clear starts the session again under a new id; the helper goes on (#584). A file saved since this one was read is not taken up.
@@ -1793,7 +1798,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     skillCalls: 0,
     machine: rt?.machine ?? (await readMachine($)),
     clearedFrom: same && rt ? rt.clearedFrom : null,
-    staleContext: same && rt ? rt.staleContext : null,
+    staleContext: hold.staleContext,
     interactive: e.surface !== null || (same && !!rt?.interactive) || (await wasInteractive($, id)),
     sessionCwd: await attempt<string | null>(() => $.session.cwd(), null),
   };
@@ -2176,7 +2181,7 @@ export const register: Register = (on, rawOptions) => {
 
   on('session.measure', async ($, e, next) => {
     safe('session.measure', (r) => {
-      r.state = measure(r.state, { context: e.context, cost: e.cost ?? null, rateLimits: e.rateLimits });
+      r.state = measure(r.state, { context: freshContext(r, e.context), cost: e.cost ?? null, rateLimits: e.rateLimits });
     });
     return next(e);
   }).catch(($, e, next) => next(e));
