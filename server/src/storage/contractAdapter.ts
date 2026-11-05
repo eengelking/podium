@@ -4,6 +4,12 @@
 import type { LegacyReporter, LegacyRequest, LegacySession } from './contractUpgrade.js';
 import type { Storage } from './types.js';
 
+/** What an adapter's database holds, by name: each table with its columns, and the indexes. Names only; the types differ between databases. */
+export interface SchemaNames {
+  tables: Record<string, string[]>;
+  indexes: string[];
+}
+
 export interface ContractAdapter {
   /** The registry name of the kind (`sqlite`, `postgres`, ...). Failures name it. */
   name: string;
@@ -15,6 +21,8 @@ export interface ContractAdapter {
   open(): Promise<Storage>;
   /** A storage over a database made at the oldest supported schema and holding the given rows, opened (and so migrated). Closing it removes what was made. */
   openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[]): Promise<Storage>;
+  /** The names of the tables, columns and indexes of a freshly opened database, both the main and the Activity one. Read from the database itself, not from the code that makes it. */
+  schema(): Promise<SchemaNames>;
   /** Removes anything a failed test left behind. Called once after the adapter's suites. */
   dispose(): Promise<void>;
 }

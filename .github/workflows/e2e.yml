@@ -125,6 +125,11 @@ jobs:
               fi
               echo "::endgroup::"
             done
+            echo "$db" >> "$RUNNER_TEMP/e2e-passed"
+          done
+          # A database whose run is missing fails the run, so a skipped or dropped database cannot pass the release gate (#1008).
+          for db in $DATABASES; do
+            grep -qx "$db" "$RUNNER_TEMP/e2e-passed" 2>/dev/null || { echo "::error::no passing run of the suite on $db"; fail=1; }
           done
           exit "$fail"
 
@@ -162,11 +167,15 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           E2E: ${{ needs.e2e.result }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           echo "change check: $CHANGES, e2e run: $E2E"
           if [ "$CHANGES" != "success" ]; then echo "::error::the change check did not finish"; exit 1; fi
           case "$E2E" in
             success) echo "The e2e suite passed." ;;
-            skipped) echo "Skipped: nothing in this change needs the e2e run." ;;
+            skipped)
+              # The release PR (into main) always runs every database; a skip there is a failure (#1008).
+              if [ "$BASE_REF" = "main" ]; then echo "::error::the e2e run was skipped on a PR into main"; exit 1; fi
+              echo "Skipped: nothing in this change needs the e2e run." ;;
             *) echo "::error::the e2e suite did not pass ($E2E)"; exit 1 ;;
           esac
