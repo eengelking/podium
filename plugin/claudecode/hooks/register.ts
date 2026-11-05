@@ -201,6 +201,8 @@ interface Runtime {
   machine: MachineInfo | null;
   /** The session this one continues after a /clear (#206); sent with every report under the new id. */
   clearedFrom: string | null;
+  /** The context token count the old session had when a /clear began the new one (#1014). The host keeps answering with it until the next prompt, so it is not reported under the new id; it stops counting once the host answers with another. */
+  staleContext: number | null;
   /** Whether a person's client is on this session: false for a `claude -p` run, which never responds. */
   interactive: boolean;
   /** What `$.session.cwd()` last answered, so a move it reports is told apart from an answer that stayed put while the hooks carry the new folder (#382). */
@@ -584,7 +586,12 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
 async function readUsage($: Engine, r: Runtime): Promise<void> {
   try {
     const u = await $.session.usage();
-    r.state = measure(r.state, { context: u.context, cost: u.cost ?? null, rateLimits: u.rateLimits, startedAt: u.startedAt });
+    let context: typeof u.context | null = u.context;
+    if (r.staleContext !== null) {
+      if (typeof context?.tokens === 'number' && Math.round(context.tokens) === r.staleContext) context = null;
+      else r.staleContext = null;
+    }
+    r.state = measure(r.state, { context, cost: u.cost ?? null, rateLimits: u.rateLimits, startedAt: u.startedAt });
   } catch (err) {
     record($, 'session.usage', err);
   }
@@ -729,6 +736,7 @@ async function switchSession($: Engine, r: Runtime, newId: string, now: number):
   } catch {
     // keep now
   }
+  r.staleContext = r.state.context.tokens;
   const effort = r.state.main.effort;
   r.state = addEvent(resetForNewId(r.state, newId, startedAt), 'start', null, `session.start · ${shortName(r.state.main.model)}${effort ? ` ${effort}` : ''}`, now);
   r.storedName = await loadName($, newId);
@@ -1785,6 +1793,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     skillCalls: 0,
     machine: rt?.machine ?? (await readMachine($)),
     clearedFrom: same && rt ? rt.clearedFrom : null,
+    staleContext: same && rt ? rt.staleContext : null,
     interactive: e.surface !== null || (same && !!rt?.interactive) || (await wasInteractive($, id)),
     sessionCwd: await attempt<string | null>(() => $.session.cwd(), null),
   };

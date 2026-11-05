@@ -817,6 +817,19 @@ describe('podium-reporter end to end', () => {
     expect(next.events.every((e) => e.id.startsWith('sess-after-clear:'))).toBe(true)
   })
 
+  test('a /clear: the context figure the host still holds from the old session is not reported under the new id (#1014)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.context.tokens).toBe(120_000)
+    await $.session.end({ reason: 'clear', sessionId: SID, resume: { id: SID } })
+    w.sessionId.value = 'sess-after-clear'
+    await w.clock.advance(1000)
+    const next = w.posts.at(-1)!
+    expect(next.session.id).toBe('sess-after-clear')
+    expect(next.session.context.tokens).not.toBe(120_000)
+  })
+
   test('a session id change without session.end still closes the old id', async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
