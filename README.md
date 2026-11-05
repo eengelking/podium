@@ -128,6 +128,7 @@ All the options, and exactly what leaves a session, are in [The reporter mod](do
 | [Decisions](docs/decisions/README.md) | Why the significant choices were made |
 | [Live testing](docs/LIVE_TESTING.md) | Check a change with real Claude Code or OpenCode sessions in tmux against a throwaway server |
 | [Performance](docs/PERFORMANCE.md) | What Podium costs to run at four fleet sizes, how to measure it, and what the performance audit found |
+| [Deprecations](docs/DEPRECATIONS.md) | Features marked for removal, the release that announced each, the release that removes it, and what to use instead |
 | [Changelog](CHANGELOG.md) | What changed in each release |
 | [Contributing](CONTRIBUTING.md) | How to propose and land a change, and the tests and checks to run (PRs go to `development`, not `main`) |
 | [Security](.github/SECURITY.md) | How to report a vulnerability (privately) |
