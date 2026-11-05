@@ -233,7 +233,10 @@ function ownCases(adapter: ContractAdapter): void {
     it('keeps people names unique whatever their case or spacing', async () => {
       const store = await open();
       const p = store.people;
-      const { person } = await p.createPerson('Ed', null, T0);
+      const { person, token } = await p.createPerson('Ed', null, T0);
+      expect(person.createdAt).toBe(T0);
+      expect(token.length).toBeGreaterThan(10);
+      await expect(p.createPerson('ed', null, T0)).rejects.toThrow('already taken');
       for (const again of ['ed', ' ED ', 'eD']) {
         expect(nameKey(again), again).toBe(nameKey('Ed'));
         await expect(p.createPerson(again, null, T0), again).rejects.toMatchObject({ code: 'duplicate' });
@@ -245,6 +248,7 @@ function ownCases(adapter: ContractAdapter): void {
       expect((await p.findByName('  eD '))!.id).toBe(person.id);
       expect((await p.findByName('Ed Two'))!.name).toBe('Ed Two');
       expect((await p.list({})).total).toBe(2);
+      expect((await p.list({})).rows.map((r) => r.name)).toEqual(['Ed', 'Ed Two']);
       await store.close();
     });
 
