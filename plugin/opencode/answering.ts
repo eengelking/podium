@@ -32,6 +32,9 @@ const UNSUPPORTED: readonly RespondKind[] = ['plan-approve', 'plan-feedback'];
 /** Which kinds of delivery take an ask of each kind. */
 const TAKES: Record<Ask['kind'], readonly Delivery['kind'][]> = { permission: ['allow-once', 'deny', 'reply'], question: ['question'] };
 
+/** What a report says while the person has not allowed answering: level `off`, nothing taken. Absent, the console reads "Reporter can't answer" (SPEC 6.8, #1011). */
+export const RESPOND_OFF: RespondInfo = { level: 'off', accepts: [], limits: [] };
+
 export class Answering {
   /** Ask ids with a wait running. */
   private readonly listening = new Set<string>();
@@ -49,9 +52,9 @@ export class Answering {
     this.log(`podium-reporter: OpenCode did not take ${what}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  /** What the session takes now. Null while the person has not allowed answering: the report then says nothing about it. */
-  info(): RespondInfo | null {
-    if (!this.consent.respond) return null;
+  /** What the session takes now. While the person has not allowed answering it is level `off` and takes nothing: a report with no `respond` reads as "Reporter can't answer" (SPEC 6.8), which is not the case (#1011). */
+  info(): RespondInfo {
+    if (!this.consent.respond) return RESPOND_OFF;
     // A question form cannot be given up for a typed reply until OpenCode can cancel a form and take a prompt in one step (#968).
     const limits: RespondLimit[] = ['no-reply-in-place'];
     const accepts = acceptsFor(this.consent.level, limits, this.consent.activityFeed).filter((k) => !UNSUPPORTED.includes(k) && (k !== 'question' || this.host.formChannel() !== null));
@@ -60,18 +63,18 @@ export class Answering {
 
   /** The asks Podium may be told of: only while the server takes answers, and only those it can answer. */
   asks(root: Root, transport: Transport): PodiumAsk[] {
-    if (!transport.respond || !this.info()?.accepts.length) return [];
+    if (!transport.respond || !this.info().accepts.length) return [];
     return [...root.asks.values()].filter((a) => this.can(a)).flatMap((a) => podiumAsk(a, root) ?? []).slice(0, 8);
   }
 
   private can(a: Ask): boolean {
-    const accepts = this.info()?.accepts ?? [];
+    const accepts = this.info().accepts;
     return accepts.includes(a.kind === 'permission' ? 'permission' : 'question');
   }
 
   /** One pass after a report: starts a wait for each new ask and acts on the messages and commands the reply handed over. */
   async drive(root: Root, transport: Transport): Promise<void> {
-    if (!transport.respond || !this.info()?.accepts.length) return;
+    if (!transport.respond || !this.info().accepts.length) return;
     for (const ask of root.asks.values()) {
       // A root that ended keeps no ask to announce.
       if (!root.done && !this.listening.has(ask.id) && this.can(ask)) {
@@ -136,7 +139,7 @@ export class Answering {
 
   /** A message or `/compact`. Anything else is refused. */
   private async deliver(root: Root, d: Delivery): Promise<void> {
-    const accepts = this.info()?.accepts ?? [];
+    const accepts = this.info().accepts;
     try {
       if (d.kind === 'message' && accepts.includes('message') && d.text) {
         const busy = [...root.sessions.values()].some((s) => s.executing);
@@ -144,8 +147,10 @@ export class Answering {
         // Seen back as the prompt it becomes: the recording keeps the text that was sent, which is how the server knows it is Podium's.
         root.sentFromPodium.push({ framed, text: d.text });
         if (root.sentFromPodium.length > 20) root.sentFromPodium.shift();
+        // Queued while a turn runs, and the later `took` follows once OpenCode has the prompt (SPEC 7.1).
+        if (busy) this.result(root, d, 'queued');
         await this.host.prompt(root.id, d.id, framed);
-        return this.result(root, d, busy ? 'queued' : 'took');
+        return this.result(root, d, 'took');
       }
       if (d.kind === 'command' && d.command === 'compact' && accepts.includes('command')) {
         root.podiumCompact = d.by;
@@ -155,7 +160,8 @@ export class Answering {
       return this.result(root, d, 'refused');
     } catch (err) {
       this.warn(d.kind === 'message' ? 'a message from Podium' : 'the /compact from Podium', err);
-      return this.result(root, d, 'not-taken');
+      // Not `not-taken`: SPEC 7.1 keeps that for a plan approval, and it would lock the ask.
+      return this.result(root, d, 'refused');
     }
   }
 }

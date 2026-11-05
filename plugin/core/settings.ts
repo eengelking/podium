@@ -3,7 +3,9 @@
 // A project's own config (OpenCode's `opencode.json`, a repo's `.opencode/`) is part of a clone, so whoever wrote the repo wrote
 // it. It must not be able to point the reporter at another server (the token goes along), name the person, or switch on answering
 // or recording. The server URL, the token, the user name and every consent option therefore come only from `PODIUM_*`
-// environment variables and from `~/.podium/config.env`, never from project config. Each reporter calls this once; none keeps its own copy.
+// environment variables and from `~/.podium/config.env`, never from project config. The OpenCode reporter calls this once and keeps no copy.
+// The Claude Code reporter does not call it: it reads its own consent from the plugin's options (`respond`, `peers` and the rest),
+// so `PODIUM_RESPOND` has no effect on Claude Code (#1011).
 
 import { trimTrailingSlashes } from './machine.ts';
 import type { RespondLevel } from './protocol.ts';

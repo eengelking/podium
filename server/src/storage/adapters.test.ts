@@ -12,7 +12,7 @@ import { differentialCases } from './contractDifferential.js';
 import { upgradeCases } from './contractUpgrade.js';
 import { calls, noting } from './contractCalls.js';
 import { storageMethods } from './contractMethods.js';
-import { checkServers, onlyKinds } from './serverGate.js';
+import { checkServers, notRunNotice, onlyKinds } from './serverGate.js';
 
 /** Plumbing a route assigns or reads, not a store call; each with the reason it is not called. */
 const NOT_CALLED = new Set<string>([
@@ -93,6 +93,18 @@ describe('the server gate', () => {
 
   it('refuses a name in PODIUM_TEST_ONLY that is not a registered kind', () => {
     expect(() => checkServers({ PODIUM_TEST_ONLY: 'sqlte' }, need, () => undefined)).toThrow(/sqlte.*not a registered storage kind.*sqlite, postgres, other/);
+  });
+
+  it('names scripts/test-pg.sh first when a server is missing, and says PODIUM_TEST_ONLY is not a way past the error (#1011)', () => {
+    let msg = '';
+    try { checkServers({}, need, () => undefined); } catch (e) { msg = (e as Error).message; }
+    expect(msg).toMatch(/scripts\/test-pg\.sh.*PODIUM_TEST_ONLY/s);
+    expect(msg).toMatch(/not a way past this error/);
+    expect(msg).toMatch(/every adapter/);
+  });
+
+  it('says in the NOT RUN notice that a run limited this way is not a pass for a PR (#1011)', () => {
+    expect(notRunNotice(['postgres'])).toMatch(/not.*pass for a pull request/);
   });
 
   it('still fails for a kind the limit names when its server is not configured', () => {

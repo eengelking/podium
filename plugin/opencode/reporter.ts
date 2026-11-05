@@ -10,7 +10,7 @@ import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
 import { Peers } from './peers.ts';
-import { Answering, type Consent, type Host } from './answering.ts';
+import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
 import { apply, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
@@ -296,8 +296,9 @@ export class Reporter {
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
   private respondFor(root: Root, t: Transport): ReportMeta['respond'] {
-    const info = this.answering?.info();
-    return info ? { info, asks: this.answering!.asks(root, t) } : null;
+    // No Answering exists while the person has not allowed answering (index.ts), and the report still says so (#1011).
+    if (!this.answering) return { info: RESPOND_OFF, asks: [] };
+    return { info: this.answering.info(), asks: this.answering.asks(root, t) };
   }
 
   private send(root: Root, t: Transport, now: number): Promise<void> {

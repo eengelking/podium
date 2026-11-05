@@ -274,6 +274,21 @@ describe('RespondStore', () => {
     expect(s.summaries(sid)).toEqual([]);
   });
 
+  it('holds an answered-in-the-terminal ask as 410 terminal until a running report, then as unknown (#1011, SPEC 7.1)', async () => {
+    const { s, sid, tick } = store();
+    s.announce(sid, QUESTION);
+    tick(500);
+    s.close(sid, 'toolu_q', { outcome: 'terminal', at: T0 + 500 });
+    expect(await s.hold(sid, 'toolu_q', 10)).toEqual({ kind: 'closed', outcome: 'terminal' });
+    // Claude Code runs again as soon as the terminal answer is taken, so its next report drops the ask: a 404 within a second is #829, not a lost close.
+    const r = fixtureReport();
+    r.session.status = 'running';
+    r.session.asks = [];
+    r.sentAt = T0 + 2000;
+    s.noteReport(r, true);
+    expect(await s.hold(sid, 'toolu_q', 10)).toEqual({ kind: 'unknown' });
+  });
+
   it('keeps a closed ask for an idle report that the session never ran between, or that predates the close (#208)', () => {
     const { s, sid, tick } = store();
     s.announce(sid, QUESTION);
