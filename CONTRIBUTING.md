@@ -177,6 +177,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |
+| `docs/DEPRECATIONS.md` | Features marked for removal: the release that announced each, the release that removes it (within three minor releases) and what to use instead |
 | `docs/DEMO.md` | A script for showing Podium to other people |
 | `docs/templates/` | The page templates (guide, reference, internals, and the index, entry, section and chapter pages of a split topic). Copy one to start a page; the rules are under "Writing docs" |
 | `CHANGELOG.md` | One entry per release |
@@ -241,6 +242,9 @@ whole, and a short log still splits. A section that is itself a set of subsectio
   `node scripts/check-doc-refs.mjs` (also in `npm test`) fails on a citation no page answers to and on a reference to the old
   single-file paths (the five old files are short stubs that point at the folders, for links from outside the repo).
 - **Moved text is not reworded.** Only headings, frontmatter, links and the generated parts change.
+- **A deprecation goes in `docs/DEPRECATIONS.md`.** A feature marked for deprecation is removed within three minor releases, the announcing
+  one counted as the first. Add a row to "Deprecated now" with a `Deprecated` line under `[Unreleased]`. `node scripts/check-deprecations.mjs`
+  (also in `npm test`) fails when the version reaches a removal that has not been done.
 
 The templates for these pages are `topic-index.md` (the folder's `README.md`), `decision-entry.md`, `gotcha-entry.md`,
 `spec-section.md` and `chapter.md` (a part of a guide or of the architecture). A fact that a page states is stated once.
