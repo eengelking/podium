@@ -922,3 +922,52 @@ describe('a number a column cannot store and read back (#1007)', () => {
     expect(validateReport(f)).toMatchObject({ ok: true });
   });
 });
+
+describe('a fractional time or token count (#1007)', () => {
+  function numberPaths(v: unknown, trail: (string | number)[] = []): (string | number)[][] {
+    if (typeof v === 'number') return [trail];
+    if (Array.isArray(v)) return v.flatMap((x, i) => numberPaths(x, [...trail, i]));
+    if (v && typeof v === 'object') return Object.entries(v).flatMap(([k, x]) => numberPaths(x, [...trail, k]));
+    return [];
+  }
+  function setAt(root: Record<string, unknown>, trail: (string | number)[], value: number): void {
+    let at: any = root;
+    for (const k of trail.slice(0, -1)) at = at[k];
+    at[trail[trail.length - 1]!] = value;
+  }
+  // SPEC 6.2: times are epoch milliseconds and token counts are integers.
+  const WHOLE = new Set(['startedAt', 'endedAt', 'at', 't', 'openedAt', 'sentAt', 'wakeAt', 'window', 'tokens', 'input', 'output', 'cacheRead', 'cacheWrite', 'cacheWrite1h', 'tokensBefore', 'tokensAfter']);
+  // `tokens` is also an object holding the four counts; only a number there is a count of its own.
+  const paths = numberPaths(loadFixture()).filter((p) => WHOLE.has(String(p[p.length - 1])));
+
+  it('finds the time and token fields of the fixture, so the cases below are not an empty list', () => {
+    expect(paths.length).toBeGreaterThan(15);
+  });
+
+  it.each(paths.map((p) => [p.join('.'), p] as const))('rejects 1000.5 in %s, naming the field', (_name, trail) => {
+    const f = loadFixture();
+    setAt(f, [...trail], 1000.5);
+    const r = validateReport(f);
+    expect(r).toMatchObject({ ok: false });
+    expect((r as { path: string }).path).toBe('$.' + trail.join('.').replace(/\.(\d+)/g, '[$1]'));
+  });
+
+  it.each([
+    ['session.startedAt', (f: any) => { f.session.startedAt = 1000.5; }, '$.session.startedAt'],
+    ['session.tokens.input', (f: any) => { f.session.tokens.input = 10.5; }, '$.session.tokens.input'],
+    ['session.context.tokens', (f: any) => { f.session.context.tokens = 10.5; }, '$.session.context.tokens'],
+    ['session.context.window', (f: any) => { f.session.context.window = 200000.5; }, '$.session.context.window'],
+    ['sentAt', (f: any) => { f.sentAt = 1000.5; }, '$.sentAt'],
+  ])('rejects a fractional %s on a bare report', (_n, edit, path) => {
+    const f = bareFixture() as any;
+    edit(f);
+    expect(validateReport(f)).toMatchObject({ ok: false, path });
+  });
+
+  it('still takes a fractional percentage and cost, which are not counts', () => {
+    const f = bareFixture() as any;
+    f.session.context.percent = 12.5;
+    f.session.costUsdEst = 0.0123;
+    expect(validateReport(f)).toMatchObject({ ok: true });
+  });
+});

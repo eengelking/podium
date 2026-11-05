@@ -116,3 +116,12 @@ describe('a recorded number a column cannot store and read back (#1007)', () => 
     expect(validateRecordingBatch(body)).toMatchObject({ ok: false, path });
   });
 });
+
+describe('a fractional recorded time (#1007)', () => {
+  it.each([
+    ['sentAt', { ...batch([entry]), sentAt: 1000.5 }, '$.sentAt'],
+    ['at', batch([{ ...entry, at: 1000.5 }]), '$.entries[0].at'],
+  ])('rejects 1000.5 in %s', (_n, body, path) => {
+    expect(validateRecordingBatch(body)).toMatchObject({ ok: false, path });
+  });
+});
