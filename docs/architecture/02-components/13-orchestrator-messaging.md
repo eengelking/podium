@@ -114,7 +114,7 @@ channel's flags decide: disconnected is Not delivered, paused is Held (kept in t
 `deliver` hands "From Podium Chat, <channel>, <name> wrote:" and the text to the session, and the mention is Waiting. The
 message is stored with its mentions, and `core.watch` follows each delivery's trail so the mention moves to Working, Done, Not
 delivered or Dropped. A mention of another person's agent is stored as `approval` and asked of its owner (below). The counts of
-every person it concerns are bumped (`readState.bump`), and the console is told by a `chat` signal that carries counts only.
+every person it concerns are bumped (`readState.bump`), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
 
 **A Direct Message.** The conversation is `peer_messages`, so its rules are the messaging store's. A person's text is stored as a
 message with `author: person`; it is stored `queued` after `deliver` took it, so the peer path does not hand it a second time. A

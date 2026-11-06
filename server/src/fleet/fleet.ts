@@ -285,7 +285,8 @@ export class Fleet {
       isLive: (id) => this.live.has(id),
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),
-      signal: (s: ChatSignal & { rev: number }) => void this.emit(() => ['chat', s]),
+      // The stream goes to every open console, so it carries a change counter and a coarse scope only: no name, count or id (#1034).
+      signal: (s: ChatSignal & { rev: number }) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
       warn: (what, err) => this.logger.warn('chat.failed', `podium: ${what}: ${(err as Error).message}`, { reason: (err as Error).message }),
     };
     this.chat = new ChatService(host, storage.chat({ now }));

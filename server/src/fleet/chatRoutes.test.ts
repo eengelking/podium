@@ -716,7 +716,7 @@ describe('direct messages', () => {
 });
 
 describe('the stream', () => {
-  it('sends a chat event with counts and no text when a message changes what a person has unread', async () => {
+  it('sends a chat event with only a revision and a scope: no name, count, id or text', async () => {
     const s = await world();
     const sse: string[] = [];
     s.fleet.hub.add({ write: (c: string) => sse.push(c) });
@@ -726,9 +726,9 @@ describe('the stream', () => {
     expect(chats.length).toBeGreaterThan(0);
     const data = JSON.parse(chats.at(-1)!.split('data: ')[1]!);
     expect(data).toMatchObject({ scope: 'public', rev: expect.any(Number) });
+    for (const c of chats) expect(Object.keys(JSON.parse(c.split('data: ')[1]!)).sort()).toEqual(['rev', 'scope']);
     expect(sse.join('')).not.toContain('SECRET-STREAM-TEXT');
-    const edCounts = chats.map((c) => JSON.parse(c.split('data: ')[1]!)).find((d) => d.owner === 'ed');
-    expect(edCounts).toMatchObject({ unread: 1, mentions: 1 });
+    expect(chats.join('')).not.toMatch(/owner|unread|mentions|approvals|"ed"|"alex"/);
   });
 });
 
@@ -1021,7 +1021,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await requestsOf(w.alexB)).toEqual([]);
   });
 
-  it('writes audit rows for the request, the answer and the link, never the text, and signals both owners with a count', async () => {
+  it('writes audit rows for the request, the answer and the link, never the text, and signals with no name or count', async () => {
     const w = await world();
     const sse: string[] = [];
     w.fleet.hub.add({ write: (c: string) => sse.push(c) });
@@ -1035,8 +1035,8 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(kinds).toEqual(expect.arrayContaining(['chat_across_requested', 'peer_sent', 'peer_approved', 'peer_person_link_opened', 'peer_person_link_paused', 'peer_person_link_removed']));
     expect(JSON.stringify(await logRows(w))).not.toContain(MSG_FROM_ED);
     const chats = sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!));
-    expect(chats.find((d) => d.owner === 'alex' && d.approvals === 1)).toBeTruthy();
-    expect(chats.find((d) => d.owner === 'alex' && d.approvals === 0)).toBeTruthy();
+    expect(chats.length).toBeGreaterThan(0);
+    for (const d of chats) expect(Object.keys(d).sort()).toEqual(['rev', 'scope']);
     expect(sse.join('')).not.toContain(MSG_FROM_ED);
   });
 
@@ -1154,7 +1154,8 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(JSON.stringify(await logRows(w))).not.toContain(REPLY);
     expect(sse.join('')).not.toContain(REPLY);
     const chats = sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!));
-    expect(chats.find((d) => d.owner === 'ed' && d.unread === 1 && d.mentions === 1)).toBeTruthy();
+    expect(chats.length).toBeGreaterThan(0);
+    for (const d of chats) expect(Object.keys(d).sort()).toEqual(['rev', 'scope']);
   });
 
   it('counts the answer as one unread and a mention for the person, and one unread for the owner', async () => {

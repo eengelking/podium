@@ -58,7 +58,7 @@ one owner.
 
 - Three stores and three read paths, each in both adapters, with a contract case for each.
 - A person's message to another person's agent waits for a human, so it is not a way to reach an agent quickly.
-- The stream's `chat` event is sent to every open console and carries one person's counts under their name, so it must stay content-free.
+- The stream's `chat` event is sent to every open console, so it carries only a change counter and a coarse scope. Counts and approvals come from the Chat routes, which check who is asking.
 
 <!-- nav:start -->
 ---

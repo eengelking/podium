@@ -47,7 +47,7 @@ export type ChatEvent =
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'purged'; channelMessages: number; directMessages: number };
 
-/** What the stream carries about Chat: which thread changed and a person's counts, never a message. */
+/** What Chat tells the host changed. The stream sends only `rev` and `scope` of it; the rest is for the host and is never broadcast. */
 export interface ChatSignal {
   scope: 'public' | 'group' | 'dm';
   /** The person whose counts changed, folded; null for a change everyone sees. */
