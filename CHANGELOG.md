@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Fixed
+
+- **A running Bash call now follows the text that introduced it in the Activity feed (#899).** The Claude Code reporter stamped a step's text when the step ended, after a tool call that started while the model was still writing, so the call's row sat before its own text and, with text after it, never read as running. The text now keeps the time its step began and is listed first, and a call that starts during the step is listed right after it, then settles in place when it ends. OpenCode already lists the text before the call, from reading its code (not confirmed in a live session).
+
 ## [1.5.1] - 2026-11-05
 
 ### Fixed
