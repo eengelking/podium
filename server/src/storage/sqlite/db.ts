@@ -400,6 +400,19 @@ CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
     // NULL means not paused, or paused before this was kept, which either owner may resume.
     sql: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;`,
   },
+  {
+    version: 33,
+    // An Admin reading a person's group or a Direct Message (#1034): one record per reading session, so the people in the thread can be told. It holds who,
+    // which thread and when, never any text. A session is the Admin's reads of one thread with less than 30 minutes between them.
+    // The Admin who paused a link is named with the pause (paused_by_admin), so the owner knows whom to ask.
+    sql: `
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TEXT;
+CREATE TABLE chat_admin_reads (
+  thread TEXT NOT NULL, admin_key TEXT NOT NULL, admin TEXT NOT NULL, started_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

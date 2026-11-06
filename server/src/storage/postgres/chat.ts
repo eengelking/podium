@@ -7,7 +7,7 @@ import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
   CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
-import type { ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
+import type { AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
@@ -154,6 +154,65 @@ class PgReadState {
   }
 }
 
+interface DbAdminRead {
+  thread: string;
+  admin: string;
+  started_at: number;
+  last_seen_at: number;
+}
+
+const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at });
+
+/** The records of an Admin reading a thread that is not theirs (`chat_admin_reads`): who, which thread and when. Never any text. */
+class PgAdminReads {
+  constructor(
+    private readonly db: PgDb,
+    private readonly now: () => number,
+  ) {}
+
+  async touch(thread: string, admin: string, gapMs: number): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }> {
+    const now = this.now();
+    const key = nameKey(admin);
+    const last = await this.db.get<DbAdminRead>('SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread = ? AND admin_key = ? ORDER BY last_seen_at DESC, started_at DESC LIMIT 1', [thread, key]);
+    if (last && now - last.last_seen_at <= gapMs) {
+      const seen = Math.max(now, last.last_seen_at);
+      await this.db.run('UPDATE chat_admin_reads SET last_seen_at = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [seen, thread, key, last.started_at]);
+      return { record: { admin: last.admin, startedAt: last.started_at, lastSeenAt: seen }, started: false, previousSeenAt: last.last_seen_at };
+    }
+    await this.db.run(
+      'INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(thread, admin_key, started_at) DO UPDATE SET last_seen_at = excluded.last_seen_at',
+      [thread, key, admin, now, now],
+    );
+    return { record: { admin, startedAt: now, lastSeenAt: now }, started: true, previousSeenAt: null };
+  }
+
+  async list(thread: string): Promise<AdminReadRow[]> {
+    return (await this.db.all<DbAdminRead>('SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key', [thread])).map(toRead);
+  }
+
+  async live(threads: string[], since: number): Promise<(AdminReadRow & { thread: string })[]> {
+    if (!threads.length) return [];
+    const marks = threads.map(() => '?').join(', ');
+    const rows = await this.db.all<DbAdminRead>(
+      `SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread IN (${marks}) AND last_seen_at > ? ORDER BY thread, started_at, admin_key`,
+      [...threads, since],
+    );
+    return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
+  }
+
+  async threads(prefix: string): Promise<string[]> {
+    return (await this.db.all<{ thread: string }>('SELECT DISTINCT thread FROM chat_admin_reads WHERE substr(thread, 1, ?) = ? ORDER BY thread', [prefix.length, prefix])).map((r) => r.thread);
+  }
+
+  forget(thread: string): Promise<number> {
+    return this.db.run('DELETE FROM chat_admin_reads WHERE thread = ?', [thread]);
+  }
+
+  purge(olderThan: number): Promise<number> {
+    return this.db.run('DELETE FROM chat_admin_reads WHERE last_seen_at < ?', [olderThan]);
+  }
+}
+
 /** This server's scope, minted on first use and kept in `settings`. */
 function scopeOf(db: PgDb): () => Promise<string> {
   let known: string | null = null;
@@ -176,12 +235,21 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
   const group = new PgChannel(db, 'group_messages', opts.now, scope);
   const pub = new PgChannel(db, 'public_messages', opts.now, scope);
   const state = new PgReadState(db, opts.now);
+  const reads = new PgAdminReads(db, opts.now);
   const readState: ChatReadStateApi = {
     get: (person, thread) => state.get(person, thread),
     list: (person) => state.list(person),
     bump: (person, thread, mention) => db.tx(() => state.bump(person, thread, mention)),
     markRead: (person, thread, upTo) => db.tx(() => state.markRead(person, thread, upTo)),
     forget: (thread) => state.forget(thread),
+  };
+  const adminReads: ChatAdminReadsApi = {
+    touch: (thread, admin, gapMs) => db.tx(() => reads.touch(thread, admin, gapMs)),
+    list: (thread) => reads.list(thread),
+    live: (threads, since) => reads.live(threads, since),
+    threads: (prefix) => reads.threads(prefix),
+    forget: (thread) => reads.forget(thread),
+    purge: (olderThan) => reads.purge(olderThan),
   };
   const groupApi: ChannelStoreApi<[GroupScope]> = {
     post: (s, input) => group.post(s, input),
@@ -205,5 +273,5 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     del: async (key) => void (await db.run('DELETE FROM settings WHERE key = ?', [key])),
     prefixed: (prefix) => db.all<{ key: string; value: string }>('SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key', [prefix.length, prefix]),
   });
-  return { serverScope: () => scope(), group: groupApi, public: publicApi, readState, settings };
+  return { serverScope: () => scope(), group: groupApi, public: publicApi, readState, adminReads, settings };
 }

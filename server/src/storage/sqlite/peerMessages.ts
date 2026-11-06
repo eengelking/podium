@@ -5,6 +5,7 @@
 // each event goes to `trail` as a row, and the routes decide what to write (never the text).
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { pausedByOf } from '../peerText.js';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
 import {
   HELD_STATES,
@@ -523,6 +524,7 @@ export class PeerMessages implements PeerMessagesApi {
       lastAt: last.sentAt,
       state,
       paused,
+      ...(paused ? pausedByOf(ab, ba) : {}),
       aToB: canSend(ab.level),
       bToA: canSend(ba.level),
       roundTrips: { used: roundTripsUsed(g), cap: this.rights.limits(named.owner).roundTrips },

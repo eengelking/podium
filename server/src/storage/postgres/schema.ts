@@ -230,6 +230,19 @@ CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
     // Who paused a person's link to another person's agent (#1034), as SQLite migration 32 keeps it. NULL means not paused, or paused before this was kept.
     sql: typed(`ALTER TABLE peer_rights ADD COLUMN paused_by TXT;`),
   },
+  {
+    version: 9,
+    // An Admin reading a person's group or a Direct Message (#1034), as SQLite migration 33 keeps it: one record per reading session, who and when, never any text.
+    // The Admin who paused a link is named with the pause (paused_by_admin), so the owner knows whom to ask.
+    sql: typed(`
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TXT;
+CREATE TABLE chat_admin_reads (
+  thread TXT NOT NULL, admin_key TXT NOT NULL, admin TXT NOT NULL, started_at INT NOT NULL, last_seen_at INT NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

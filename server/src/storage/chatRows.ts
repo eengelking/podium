@@ -121,8 +121,15 @@ export interface ChatKv {
   prefixed(prefix: string): Promise<{ key: string; value: string }[]>;
 }
 
-const flagText = (f: ChannelFlags): string => `${f.paused ? 'p' : ''}${f.disconnected ? 'd' : ''}`;
-const flagsOf = (v: string | undefined): ChannelFlags => ({ paused: !!v?.includes('p'), disconnected: !!v?.includes('d') });
+// A flag value is its letters (`p` paused, `d` disconnected), then `|` and the name of the Admin who paused it, when one did.
+const flagText = (f: ChannelFlags): string => `${f.paused ? 'p' : ''}${f.disconnected ? 'd' : ''}${f.paused && f.pausedByAdmin ? `|${f.pausedByAdmin}` : ''}`;
+const flagsOf = (v: string | undefined): ChannelFlags => {
+  const bar = v?.indexOf('|') ?? -1;
+  const letters = bar < 0 ? (v ?? '') : (v as string).slice(0, bar);
+  const by = bar < 0 ? '' : (v as string).slice(bar + 1);
+  const paused = letters.includes('p');
+  return { paused, disconnected: letters.includes('d'), ...(paused && by ? { pausedByAdmin: by } : {}) };
+};
 
 /** The Chat settings over a key-value view of `settings`, the same for every adapter; each adapter lends only the reads and writes. */
 export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
@@ -156,7 +163,10 @@ export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
     },
     async setFlags(scope, patch) {
       checkScope(scope);
-      const next = { ...flagsOf(await kv.get(FLAG_PREFIX + scope)), ...(patch.paused === undefined ? {} : { paused: patch.paused }), ...(patch.disconnected === undefined ? {} : { disconnected: patch.disconnected }) };
+      const had = flagsOf(await kv.get(FLAG_PREFIX + scope));
+      const paused = patch.paused ?? had.paused;
+      const by = patch.paused === undefined ? had.pausedByAdmin : patch.pausedByAdmin;
+      const next: ChannelFlags = { paused, disconnected: patch.disconnected ?? had.disconnected, ...(paused && by ? { pausedByAdmin: by } : {}) };
       if (flagText(next)) await kv.set(FLAG_PREFIX + scope, flagText(next));
       else await kv.del(FLAG_PREFIX + scope);
       return next;

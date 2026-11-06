@@ -1,6 +1,6 @@
 // Pure helpers both messaging stores share (#822): neither adapter imports the other, so what they have in common lives here.
 // Nothing in this file touches a database.
-import type { MessageState } from '../fleet/peerTypes.js';
+import type { EffectiveRight, MessageState } from '../fleet/peerTypes.js';
 
 /** Notices kept for one orchestrator; the oldest goes first. */
 export const MAX_NOTICES = 20;
@@ -94,4 +94,10 @@ export const REPLY_WORDS = {
   removed: (owner: string, person: string): string => `${owner} removed the link between ${person} and this session, so Podium did not send the answer. ${owner} can open it again.`,
   paused: (person: string): string => `The link between ${person} and this session is paused, so Podium did not send the answer. Try again once the link is resumed.`,
   rate: (n: number, person: string): string => `There have been ${n} answers to ${person} in the last minute, the limit on this link. Wait a minute, then send again.`,
+};
+
+/** Who paused a link, from its two directions: the Admin's name travels with an Admin's pause. */
+export const pausedByOf = (ab: EffectiveRight, ba: EffectiveRight): Pick<EffectiveRight, 'pausedBy' | 'pausedByAdmin'> => {
+  const x = ab.pausedBy === 'admin' ? ab : ba.pausedBy === 'admin' ? ba : ab.pausedBy ? ab : ba;
+  return { ...(x.pausedBy ? { pausedBy: x.pausedBy } : {}), ...(x.pausedByAdmin ? { pausedByAdmin: x.pausedByAdmin } : {}) };
 };

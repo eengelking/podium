@@ -27,6 +27,13 @@ export const fail = (status: number, error: string): Fail => ({ ok: false, statu
 /** The thread names the read state keeps counts under. */
 export const publicThread = 'public';
 export const groupThread = (owner: string): string => `group:${nameKey(owner)}`;
+
+/** An Admin who is reading a thread now (#1034): since when, and until when it counts as live if the Admin reads no more. Epoch milliseconds. */
+export interface AdminReading {
+  admin: string;
+  since: number;
+  until: number;
+}
 /** A direct message's thread: `dm:` and its two session ids, the smaller first. */
 export const dmThread = (a: string, b: string): string => `dm:${a <= b ? `${a}|${b}` : `${b}|${a}`}`;
 /** The id a person has in a direct message of their own with one agent. */
@@ -45,6 +52,7 @@ export type ChatEvent =
   | { kind: 'dm_sent'; owner: string; by: string; messageId: string; sessionId: string }
   | { kind: 'across'; owner: string; person: string; by: string; messageId: string; sessionId: string; approval: boolean }
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
+  | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
   | { kind: 'purged'; channelMessages: number; directMessages: number };
 
 /** What Chat tells the host changed. The stream sends only `rev` and `scope` of it; the rest is for the host and is never broadcast. */

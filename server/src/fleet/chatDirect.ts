@@ -7,7 +7,8 @@ import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
-import { dmThread, fail, isPersonId, personId, type ChatViewer, type Fail } from './chatTypes.js';
+import type { AdminReads, ReadSubject } from './chatAdminReads.js';
+import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 export interface PartyView {
   sessionId: string;
@@ -29,6 +30,11 @@ export interface DirectInfo {
   lastAt: number;
   state: ConversationSummary['state'];
   paused: boolean;
+  /** Who paused the link while it is paused: the Admin's name travels in `pausedByAdmin` (#1034). Null when it is not paused or the pauser is not known. */
+  pausedBy: LinkPauser | null;
+  pausedByAdmin: string | null;
+  /** The Admins reading this conversation now, each with since when and until when they count as live. Empty when no one is. Never text. */
+  adminReading: AdminReading[];
   canSend: { aToB: boolean; bToA: boolean };
   roundTrips: { used: number; cap: number };
   /** The names of the agents that have left the live set while others have not. */
@@ -50,6 +56,8 @@ export interface CrossInfo {
   viewerIs: 'sender' | 'owner' | 'admin';
   /** Who paused the link while it is paused; null when it is not, or when the pauser is not known (a pause made before it was kept). */
   pausedBy: LinkPauser | null;
+  /** The Admin's name, while `pausedBy` is `admin`; null otherwise. */
+  pausedByAdmin: string | null;
   /** Whether the viewer may resume it: whoever paused it, an Admin always, and either owner when the pauser is not known. */
   canResume: boolean;
 }
@@ -116,7 +124,10 @@ export function reasonOf(m: Pick<MessageRow, 'state' | 'why' | 'owner' | 'toName
 }
 
 export class DirectChat {
-  constructor(private readonly core: ChatCore) {}
+  constructor(
+    private readonly core: ChatCore,
+    private readonly reads: AdminReads,
+  ) {}
 
   private get peers() {
     return this.core.host.peers.messages;
@@ -156,6 +167,9 @@ export class DirectChat {
       lastAt: c.lastAt,
       state: c.state,
       paused: c.paused,
+      pausedBy: c.paused ? (c.pausedBy ?? null) : null,
+      pausedByAdmin: c.paused && c.pausedBy === 'admin' ? (c.pausedByAdmin ?? null) : null,
+      adminReading: [],
       canSend: { aToB: c.aToB, bToA: c.bToA },
       roundTrips: c.roundTrips,
       ended: gone.map((p) => p.name),
@@ -176,7 +190,8 @@ export class DirectChat {
     const role = this.role(viewer, c);
     const viewerIs = role === 'owner' ? 'owner' : role === 'sender' ? 'sender' : 'admin';
     const pausedBy = link === 'paused' ? (row?.pausedBy ?? null) : null;
-    return { person: personEnd.name, owner: c.owner, link, viewerIs, pausedBy, canResume: link === 'paused' && (viewerIs === 'admin' || pausedBy === null || pausedBy === viewerIs) };
+    const pausedByAdmin = pausedBy === 'admin' ? (row?.pausedByAdmin ?? null) : null;
+    return { person: personEnd.name, owner: c.owner, link, viewerIs, pausedBy, pausedByAdmin, canResume: link === 'paused' && (viewerIs === 'admin' || pausedBy === null || pausedBy === viewerIs) };
   }
 
   /** How the viewer stands to a conversation: the owner of its agent, the person who wrote to that agent, an Admin, or no one who may read it. */
@@ -228,10 +243,13 @@ export class DirectChat {
       const me = { sessionId: personId(viewer.name), name: viewer.name, machine: '', reporterKey: '' };
       const agent = { sessionId: o.sessionId, name: o.name, machine: o.machine, reporterKey: o.reporterKey };
       const [x, y] = me.sessionId <= agent.sessionId ? [me, agent] : [agent, me];
-      const cross: CrossInfo | null = fresh.own ? null : { person: viewer.name, owner: o.owner, link: 'none', viewerIs: 'sender', pausedBy: null, canResume: false };
-      return { ok: true as const, thread: dmThread(a, b), a: this.party(x), b: this.party(y), messages: [] as DirectMessageView[], older: null, total: 0, ended: [] as string[], owner: nameKey(fresh.own ? viewer.name : o.owner), paused: false, roundTrips: { used: 0, cap: 0 }, cross };
+      const cross: CrossInfo | null = fresh.own ? null : { person: viewer.name, owner: o.owner, link: 'none', viewerIs: 'sender', pausedBy: null, pausedByAdmin: null, canResume: false };
+      return { ok: true as const, thread: dmThread(a, b), a: this.party(x), b: this.party(y), messages: [] as DirectMessageView[], older: null, total: 0, ended: [] as string[], owner: nameKey(fresh.own ? viewer.name : o.owner), paused: false, pausedBy: null, pausedByAdmin: null, adminReads: [] as { admin: string; startedAt: number; lastSeenAt: number }[], roundTrips: { used: 0, cap: 0 }, cross };
     }
-    if (!this.role(viewer, c)) return fail(403, 'Only the people in a conversation and an Admin can read it.');
+    const role = this.role(viewer, c);
+    if (!role) return fail(403, 'Only the people in a conversation and an Admin can read it.');
+    // An Admin's read is recorded before it is answered, so no conversation is read without a record, and its people are told.
+    if (role === 'admin') await this.reads.note(viewer, this.subject(c));
     let page;
     try {
       page = await this.peers.page(c.owner, a, b, opts);
@@ -239,7 +257,25 @@ export class DirectChat {
       return fail(400, (err as Error).message);
     }
     const info = this.info({ ...c, hiddenAt: null }, new Map());
-    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: c.paused, roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
+    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads: await this.reads.list(info.thread), roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
+  }
+
+  /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners. */
+  private subject(c: ConversationSummary): ReadSubject {
+    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    const owners = [nameKey(c.owner), ...(person ? [nameKey(person.sessionId.slice('person:'.length))] : [])];
+    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: [...new Set(owners)] };
+  }
+
+  /** An Admin's open conversation says it is still being read, so its people keep seeing it. Content-free. */
+  async reading(viewer: ChatViewer, rawA: string, rawB: string): Promise<{ ok: true } | Fail> {
+    if (!viewer.admin) return fail(403, 'Only an Admin reads a conversation that is not their own.');
+    const [a, b] = this.ids(viewer, rawA, rawB);
+    const c = await this.find(a, b);
+    if (!c) return fail(404, 'There is no such conversation.');
+    if (this.role(viewer, c) !== 'admin') return fail(403, 'That conversation is yours, so reading it is not recorded.');
+    await this.reads.note(viewer, this.subject(c));
+    return { ok: true };
   }
 
   /** The person writes. See the file's head for the path; the text is redacted first, and nothing is stored for an agent that did not take it. */
@@ -359,7 +395,12 @@ export class DirectChat {
     const role = this.role(viewer, c);
     if (!role) return fail(403, 'Only the people in a conversation and an Admin can change its link.');
     const cross = await this.crossOf(c, viewer);
-    if (!cross) return fail(404, 'That link is between two of your own reporters. Change it on My reporters.');
+    // An Admin can stop any conversation (pause it, and resume what they paused or anyone did) but never remove its link: that is the people's.
+    if (role === 'admin' && op !== 'pause' && op !== 'resume') return fail(403, 'An Admin can pause and resume a link, not remove it. Its people do that.');
+    if (!cross) {
+      if (role !== 'admin') return fail(404, 'That link is between two of your own reporters. Change it on My reporters.');
+      return this.adminLink(viewer, c, op);
+    }
     if (op === 'allow' && role === 'sender') return fail(403, `Only ${cross.owner} can open the link again.`);
     const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId))!;
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId))!;
@@ -368,10 +409,21 @@ export class DirectChat {
       const who = cross.pausedBy === 'sender' ? cross.person : cross.pausedBy === 'owner' ? cross.owner : 'An Administrator';
       return fail(403, cross.pausedBy === 'admin' ? 'An Administrator paused this link, so only an Administrator can resume it.' : `${who} paused this link, so only ${who} can resume it.`);
     }
+    // An Admin's pause stays an Admin's: pausing again does not take it over.
+    if (op === 'pause' && cross.pausedBy === 'admin' && role !== 'admin') return { ok: true, link: cross.link };
     const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' }, op === 'pause' ? role : undefined);
     if (!out.ok) return fail(out.status, out.error);
     await this.tell(personEnd.name, c.owner);
     return { ok: true, link: (await this.crossOf(c, viewer))?.link ?? 'none' };
+  }
+
+  /** An Admin pauses or resumes the link between two of a person's own reporters, by the pause the owner has on My reporters, tagged as the Admin's. */
+  private async adminLink(viewer: ChatViewer, c: ConversationSummary, op: PersonLinkOp): Promise<{ ok: true; link: CrossInfo['link'] } | Fail> {
+    if (isPersonId(c.a.sessionId) || isPersonId(c.b.sessionId)) return fail(404, 'That conversation has no link to pause.');
+    const out = await this.peerStore.rights.pauseLink(null, c.a.reporterKey, c.b.reporterKey, op === 'pause', { name: viewer.actor, admin: true });
+    if (!out.ok) return fail(out.status, out.error);
+    this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    return { ok: true, link: op === 'pause' ? 'paused' : 'open' };
   }
 
   /**
@@ -423,6 +475,7 @@ export class DirectChat {
     if (role !== 'owner' && role !== 'sender') return fail(403, 'Only the people in a conversation can delete it.');
     const removed = await this.peers.deleteConversation(c.owner, a, b);
     await this.core.store.readState.forget(dmThread(a, b));
+    await this.reads.forget(dmThread(a, b));
     this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });
     this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
@@ -459,6 +512,11 @@ export class DirectChat {
   /** Every owner's conversations, against the live set now: at start and hourly, for what changed while the server was down. */
   async reconcile(): Promise<void> {
     for (const owner of new Set((await this.peers.conversations({})).map((c) => c.owner))) await this.reconcileOwner(owner, null);
+  }
+
+  /** The threads of every conversation that still exists, hidden ones included. */
+  async threads(): Promise<Set<string>> {
+    return new Set((await this.peers.conversations({})).map((c) => dmThread(c.a.sessionId, c.b.sessionId)));
   }
 
   /** Deletes the messages of conversations hidden longer than the grace period. */

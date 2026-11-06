@@ -18,6 +18,15 @@ export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
     res.json(out);
   }));
 
+  /** An Admin's open conversation pings this every 15 seconds so its people keep seeing that it is being read. Answers only `ok`. */
+  browser.post('/chat/dm/:a/:b/reading', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const out = await direct().reading(v, req.params.a!, req.params.b!);
+    if ('status' in out) return void d.refuse(req, res, out);
+    res.json({ ok: true });
+  }));
+
   browser.post('/chat/dm/:a/:b/messages', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;

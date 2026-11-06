@@ -8,7 +8,7 @@ import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
   CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
-import type { ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
+import type { AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
 const PUBLIC_COLS = 'id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
@@ -162,6 +162,63 @@ class ReadState {
   }
 }
 
+interface DbAdminRead {
+  thread: string;
+  admin: string;
+  started_at: number;
+  last_seen_at: number;
+}
+
+const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at });
+
+/** The records of an Admin reading a thread that is not theirs (`chat_admin_reads`): who, which thread and when. Never any text. */
+class AdminReads {
+  constructor(
+    private readonly db: DatabaseSync,
+    private readonly now: () => number,
+  ) {}
+
+  touch(thread: string, admin: string, gapMs: number): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
+    const now = this.now();
+    const key = nameKey(admin);
+    const last = this.db.prepare('SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread = ? AND admin_key = ? ORDER BY last_seen_at DESC, started_at DESC LIMIT 1').get(thread, key) as unknown as DbAdminRead | undefined;
+    if (last && now - last.last_seen_at <= gapMs) {
+      const seen = Math.max(now, last.last_seen_at);
+      this.db.prepare('UPDATE chat_admin_reads SET last_seen_at = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(seen, thread, key, last.started_at);
+      return { record: { admin: last.admin, startedAt: last.started_at, lastSeenAt: seen }, started: false, previousSeenAt: last.last_seen_at };
+    }
+    this.db
+      .prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(thread, admin_key, started_at) DO UPDATE SET last_seen_at = excluded.last_seen_at')
+      .run(thread, key, admin, now, now);
+    return { record: { admin, startedAt: now, lastSeenAt: now }, started: true, previousSeenAt: null };
+  }
+
+  list(thread: string): AdminReadRow[] {
+    return (this.db.prepare('SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key').all(thread) as unknown as DbAdminRead[]).map(toRead);
+  }
+
+  live(threads: string[], since: number): (AdminReadRow & { thread: string })[] {
+    if (!threads.length) return [];
+    const marks = threads.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(`SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread IN (${marks}) AND last_seen_at > ? ORDER BY thread, started_at, admin_key`)
+      .all(...threads, since) as unknown as DbAdminRead[];
+    return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
+  }
+
+  threads(prefix: string): string[] {
+    return (this.db.prepare('SELECT DISTINCT thread FROM chat_admin_reads WHERE substr(thread, 1, ?) = ? ORDER BY thread').all(prefix.length, prefix) as unknown as { thread: string }[]).map((r) => r.thread);
+  }
+
+  forget(thread: string): number {
+    return Number(this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ?').run(thread).changes);
+  }
+
+  purge(olderThan: number): number {
+    return Number(this.db.prepare('DELETE FROM chat_admin_reads WHERE last_seen_at < ?').run(olderThan).changes);
+  }
+}
+
 /** This server's scope, minted on first use and kept in `settings`. */
 function scopeOf(db: DatabaseSync): () => string {
   let known: string | null = null;
@@ -187,6 +244,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
   const group = new Channel(db, 'group_messages', opts.now, scope);
   const pub = new Channel(db, 'public_messages', opts.now, scope);
   const state = new ReadState(db, opts.now);
+  const reads = new AdminReads(db, opts.now);
   const step = <T>(fn: () => T): Promise<T> => lock.run(fn);
   const readState: ChatReadStateApi = {
     get: (person, thread) => step(() => state.get(person, thread)),
@@ -194,6 +252,14 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     bump: (person, thread, mention) => step(() => state.bump(person, thread, mention)),
     markRead: (person, thread, upTo) => step(() => state.markRead(person, thread, upTo)),
     forget: (thread) => step(() => state.forget(thread)),
+  };
+  const adminReads: ChatAdminReadsApi = {
+    touch: (thread, admin, gapMs) => step(() => reads.touch(thread, admin, gapMs)),
+    list: (thread) => step(() => reads.list(thread)),
+    live: (threads, since) => step(() => reads.live(threads, since)),
+    threads: (prefix) => step(() => reads.threads(prefix)),
+    forget: (thread) => step(() => reads.forget(thread)),
+    purge: (olderThan) => step(() => reads.purge(olderThan)),
   };
   const groupApi: ChannelStoreApi<[GroupScope]> = {
     post: (s, input) => step(() => group.post(s, input)),
@@ -218,5 +284,5 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     del: (key) => step(() => void db.prepare('DELETE FROM settings WHERE key = ?').run(key)),
     prefixed: (prefix) => step(() => db.prepare("SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key").all(prefix.length, prefix) as unknown as { key: string; value: string }[]),
   });
-  return { serverScope: () => step(scope), group: groupApi, public: publicApi, readState, settings };
+  return { serverScope: () => step(scope), group: groupApi, public: publicApi, readState, adminReads, settings };
 }

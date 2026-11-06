@@ -1321,3 +1321,376 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect((await w.alexB.get(CH)).body.directs).toEqual([]);
   });
 });
+
+describe('an Admin reading a conversation (#1034)', () => {
+  const MIN = 60_000;
+  const AB = `${CH}/dm/sess-dev/sess-tester`;
+  const ping = (b: ReturnType<typeof request.agent>, path: string, body: Record<string, unknown> = {}) => b.post(path).set(H).send(body);
+  const reads = (b: ReturnType<typeof request.agent>, q = '?owner=Ed') => read(b, 'group', q).then((r) => r.body.adminReads as { admin: string; startedAt: number; lastSeenAt: number }[]);
+  const groupLive = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.channels as { id: string; adminReading: unknown }[]).find((c) => c.id === 'group')!.adminReading;
+  const dmLive = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.directs as { adminReading: unknown[] }[]).map((d) => d.adminReading);
+  const store = (w: W) => w.fleet.chat.core.store.adminReads;
+  const MSG = 'Please look at the build, Alex.';
+
+  async function crossWorld() {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG}`);
+    return w;
+  }
+  const CROSS = `${CH}/dm/person:ed/sess-alex`;
+
+  it('records a reading of a person\'s group, tells that person, and shows no one else anything', async () => {
+    const w = await world();
+    await say(w.edB, 'group', 'for the admin');
+    expect(await groupLive(w.edB)).toEqual([]);
+    expect(await reads(w.edB, '')).toEqual([]);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect(texts(await read(admin, 'group', '?owner=Ed'))).toEqual(['for the admin']);
+    const start = w.now();
+    expect(await groupLive(w.edB)).toEqual([{ admin: 'Admin secret', since: start, until: start + 30_000 }]);
+    expect(await reads(w.edB, '')).toEqual([{ admin: 'Admin secret', startedAt: start, lastSeenAt: start }]);
+    // The Admin reads the record too; another person sees nothing of Ed's group.
+    expect(await reads(admin)).toHaveLength(1);
+    expect(await groupLive(w.alexB)).toEqual([]);
+    expect(JSON.stringify((await w.alexB.get(CH)).body)).not.toContain('Admin secret');
+    expect((await read(w.alexB, 'group', '?owner=Ed')).status).toBe(403);
+    // The record carries no text.
+    expect(JSON.stringify(await store(w).list('group:ed'))).not.toContain('for the admin');
+  });
+
+  it('puts reads within 30 minutes in one record and starts a second one after a longer gap', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const t0 = w.now();
+    await read(admin, 'group', '?owner=Ed');
+    w.tick(29 * MIN);
+    await read(admin, 'group', '?owner=Ed');
+    w.tick(29 * MIN);
+    await read(admin, 'group', '?owner=Ed');
+    expect(await reads(w.edB, '')).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 + 58 * MIN }]);
+    w.tick(31 * MIN);
+    const ed = await signedIn(w, 'Ed', w.ed.token);
+    await read(admin, 'group', '?owner=Ed');
+    expect(await reads(ed, '')).toEqual([
+      { admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 + 58 * MIN },
+      { admin: 'Admin secret', startedAt: t0 + 89 * MIN, lastSeenAt: t0 + 89 * MIN },
+    ]);
+  });
+
+  it('is live for 30 seconds after the last read, and the overview never reports one whose time has passed', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const t0 = w.now();
+    await read(admin, 'group', '?owner=Ed');
+    w.tick(29_000);
+    expect(await groupLive(w.edB)).toEqual([{ admin: 'Admin secret', since: t0, until: t0 + 30_000 }]);
+    await read(admin, 'group', '?owner=Ed');
+    expect(await groupLive(w.edB)).toEqual([{ admin: 'Admin secret', since: t0, until: t0 + 59_000 }]);
+    w.tick(30_000);
+    expect(await groupLive(w.edB)).toEqual([]);
+    w.tick(1_000);
+    expect(await groupLive(w.edB)).toEqual([]);
+    // The record stays.
+    expect(await reads(w.edB, '')).toHaveLength(1);
+  });
+
+  it('records an Admin who is a person under that person\'s name', async () => {
+    const w = await world();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    await read(rootB, 'group', '?owner=Ed');
+    expect((await reads(w.edB, ''))[0]).toMatchObject({ admin: 'Root' });
+    expect(await groupLive(w.edB)).toMatchObject([{ admin: 'Root' }]);
+    // Their own group, named or not, is not a reading of someone else's.
+    await say(rootB, 'group', 'mine');
+    await read(rootB, 'group');
+    await read(rootB, 'group', '?owner=Root');
+    expect(await store(w).list('group:root')).toEqual([]);
+  });
+
+  it('never records General, nor a person reading their own group, nor a person who may not read another\'s', async () => {
+    const w = await world();
+    await say(w.edB, 'general', 'hello all');
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await read(admin, 'general')).status).toBe(200);
+    expect((await read(w.edB, 'general')).status).toBe(200);
+    expect((await read(w.edB, 'group')).status).toBe(200);
+    expect((await read(w.edB, 'group', '?owner=Ed')).status).toBe(200);
+    expect((await read(w.alexB, 'group', '?owner=Ed')).status).toBe(403);
+    expect(await store(w).threads('')).toEqual([]);
+    expect((await ping(admin, `${CH}/channels/general/reading`)).status).toBe(400);
+    expect(await store(w).threads('')).toEqual([]);
+    await settle();
+    expect(await logKinds(w)).not.toContain('chat_admin_read');
+  });
+
+  it('records an Admin reading a conversation between a person\'s two agents, for that person', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect(await dmLive(w.edB)).toEqual([[]]);
+    expect((await admin.get(`${AB}/messages`)).body.adminReads).toHaveLength(1);
+    const t0 = w.now();
+    expect(await dmLive(w.edB)).toEqual([[{ admin: 'Admin secret', since: t0, until: t0 + 30_000 }]]);
+    const thread = (await w.edB.get(`${AB}/messages`)).body;
+    expect(thread.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 }]);
+    expect(await dmLive(w.alexB)).toEqual([]);
+    expect((await w.alexB.get(`${AB}/messages`)).status).toBe(403);
+  });
+
+  it('tells both owners of a conversation across owners, an Admin reads it too, and a third person sees nothing', async () => {
+    const w = await crossWorld();
+    const zed = await signedIn(w, 'Zed', (await w.people.createPerson('Zed')).token);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await admin.get(`${CROSS}/messages`)).status).toBe(200);
+    const t0 = w.now();
+    const live = { admin: 'Admin secret', since: t0, until: t0 + 30_000 };
+    expect(await dmLive(w.edB)).toEqual([[live]]);
+    expect(await dmLive(w.alexB)).toEqual([[live]]);
+    expect((await w.edB.get(`${CROSS}/messages`)).body.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 }]);
+    expect((await w.alexB.get(`${CROSS}/messages`)).body.adminReads).toHaveLength(1);
+    expect(await dmLive(zed)).toEqual([]);
+    expect(JSON.stringify((await zed.get(CH)).body)).not.toContain('Admin secret');
+    expect((await zed.get(`${CROSS}/messages`)).status).toBe(403);
+    expect((await ping(zed, `${CROSS}/reading`)).status).toBe(403);
+    // Neither owner's reading of it is recorded.
+    await w.alexB.get(`${CROSS}/messages`);
+    await w.edB.get(`${CROSS}/messages`);
+    expect((await w.edB.get(`${CROSS}/messages`)).body.adminReads).toHaveLength(1);
+    expect(await store(w).threads('dm:')).toHaveLength(1);
+  });
+
+  it('writes one chat_admin_read per reading session to the Admin log, with no text', async () => {
+    const w = await world();
+    await say(w.edB, 'group', 'PRIVATE-GROUP-TEXT');
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await read(admin, 'group', '?owner=Ed');
+    w.tick(MIN);
+    await read(admin, 'group', '?owner=Ed');
+    await ping(admin, `${CH}/channels/group/reading`, { owner: 'Ed' });
+    await settle();
+    expect((await logKinds(w)).filter((k) => k === 'chat_admin_read')).toHaveLength(1);
+    w.tick(31 * MIN);
+    await read(admin, 'group', '?owner=Ed');
+    await settle();
+    const rows = (await logRows(w)).filter((r) => r.kind === 'chat_admin_read');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.detail).toMatch(/Admin secret.*ed/i);
+    expect(JSON.stringify(rows)).not.toContain('PRIVATE-GROUP-TEXT');
+  });
+
+  it('sends only a revision and a scope on the stream when a reading starts', async () => {
+    const w = await world();
+    await say(w.edB, 'group', 'STREAM-SECRET-TEXT');
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const chats = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat'));
+    await read(admin, 'group', '?owner=Ed');
+    const first = chats().length;
+    expect(first).toBeGreaterThan(0);
+    await read(admin, 'group', '?owner=Ed');
+    expect(chats()).toHaveLength(first);
+    await admin.get(`${AB}/messages`);
+    expect(chats().length).toBeGreaterThan(first);
+    // A reading that went stale and starts again within the session is told again.
+    const before = chats().length;
+    w.tick(31_000);
+    await ping(admin, `${CH}/channels/group/reading`, { owner: 'Ed' });
+    expect(chats().length).toBeGreaterThan(before);
+    for (const c of chats()) expect(Object.keys(JSON.parse(c.split('data: ')[1]!)).sort()).toEqual(['rev', 'scope']);
+    expect(sse.join('')).not.toMatch(/STREAM-SECRET-TEXT|Admin secret/);
+  });
+
+  it('lets only an Admin ping a reading, and answers it with nothing but ok', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    for (const b of [w.edB, w.alexB]) {
+      expect((await ping(b, `${CH}/channels/group/reading`, { owner: 'Ed' })).status).toBe(403);
+      expect((await ping(b, `${AB}/reading`)).status).toBe(403);
+    }
+    expect(await store(w).threads('')).toEqual([]);
+    const t0 = w.now();
+    const g = await ping(admin, `${CH}/channels/group/reading`, { owner: 'Ed' });
+    expect(g.status).toBe(200);
+    expect(g.body).toEqual({ ok: true });
+    w.tick(15_000);
+    const d = await ping(admin, `${AB}/reading`);
+    expect(d.status).toBe(200);
+    expect(d.body).toEqual({ ok: true });
+    // A ping keeps a reading live.
+    expect(await groupLive(w.edB)).toMatchObject([{ since: t0, until: t0 + 30_000 }]);
+    await ping(admin, `${CH}/channels/group/reading`, { owner: 'Ed' });
+    expect(await groupLive(w.edB)).toMatchObject([{ since: t0, until: t0 + 45_000 }]);
+    expect((await ping(admin, `${CH}/channels/group/reading`)).status).toBe(400);
+    expect((await ping(admin, `${CH}/dm/sess-dev/sess-nope/reading`)).status).toBe(404);
+    expect((await request(w.app).post(`${AB}/reading`).send({})).status).toBe(403);
+  });
+
+  it('deletes the records with the conversation, with Remove all messages, and by the retention days', async () => {
+    const w = await crossWorld();
+    await linkedConversation(w);
+    await say(w.edB, 'group', 'g');
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await admin.get(`${CROSS}/messages`);
+    await admin.get(`${AB}/messages`);
+    await read(admin, 'group', '?owner=Ed');
+    expect((await store(w).threads('')).length).toBe(3);
+    // Delete conversation.
+    expect((await w.edB.delete(AB).set(H)).status).toBe(200);
+    expect(await store(w).threads('dm:')).toHaveLength(1);
+    expect((await w.edB.delete(CROSS).set(H)).status).toBe(200);
+    expect(await store(w).threads('dm:')).toEqual([]);
+    // Remove all messages.
+    expect(await reads(w.edB, '')).toHaveLength(1);
+    expect((await w.edB.delete(`${CH}/channels/group/messages`).set(H).send({})).status).toBe(200);
+    expect(await store(w).threads('')).toEqual([]);
+    // Retention: a reading older than the Admin's days goes with the hourly job.
+    await read(admin, 'group', '?owner=Ed');
+    w.tick(29 * 86_400_000);
+    await w.fleet.retain();
+    expect(await store(w).threads('')).toHaveLength(1);
+    w.tick(2 * 86_400_000);
+    await w.fleet.retain();
+    expect(await store(w).threads('')).toEqual([]);
+  });
+
+  it('deletes the records of a hidden conversation when its grace period ends', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await admin.get(`${AB}/messages`);
+    await tester(w, { status: 'done', waitReason: null });
+    await dev(w, { status: 'done', waitReason: null });
+    w.tick(10_000);
+    await w.fleet.sweep();
+    w.tick(23 * 3_600_000);
+    await w.fleet.retain();
+    expect(await store(w).threads('dm:')).toHaveLength(1);
+    w.tick(2 * 3_600_000);
+    await w.fleet.retain();
+    expect(await store(w).threads('dm:')).toEqual([]);
+  });
+
+  it('names every Admin who is reading at once, each with their own record', async () => {
+    const w = await crossWorld();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const secret = await signedIn(w, 'Admin', SECRET);
+    await read(secret, 'group', '?owner=Ed');
+    w.tick(5_000);
+    await read(rootB, 'group', '?owner=Ed');
+    await secret.get(`${CROSS}/messages`);
+    w.tick(5_000);
+    await rootB.get(`${CROSS}/messages`);
+    const names = (a: { admin: string }[]) => a.map((x) => x.admin).sort();
+    expect(names((await groupLive(w.edB)) as { admin: string }[])).toEqual(['Admin secret', 'Root']);
+    for (const b of [w.edB, w.alexB]) expect(names(((await dmLive(b)) as { admin: string }[][])[0]!)).toEqual(['Admin secret', 'Root']);
+    expect((await reads(w.edB, '')).map((r) => r.admin).sort()).toEqual(['Admin secret', 'Root']);
+    // One stops reading: the other stays named.
+    w.tick(26_000);
+    await read(rootB, 'group', '?owner=Ed');
+    expect(await groupLive(w.edB)).toMatchObject([{ admin: 'Root' }]);
+  });
+
+  // ---- Pausing a Direct Message link as an Admin ---------------------------------------------------------------------------
+
+  const linkOp = (b: ReturnType<typeof request.agent>, op: string, path = `${AB}/link`) => b.put(path).set(H).send({ op });
+  const dmInfo = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.directs as { paused: boolean; pausedBy: string | null; state: string }[])[0]!;
+
+  it('lets an Admin pause and resume a conversation between one person\'s agents, which that person cannot undo', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    // The owner has no pause or resume of their own here: they change it on My reporters.
+    expect((await linkOp(w.edB, 'pause')).status).toBe(404);
+    expect(await dmInfo(w.edB)).toMatchObject({ paused: false, pausedBy: null });
+    expect((await linkOp(admin, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    expect(await dmInfo(w.edB)).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Admin secret', state: 'paused' });
+    expect((await w.edB.get(`${AB}/messages`)).body).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Admin secret' });
+    // Ed cannot resume it, by the page or by My reporters.
+    const mac = (await w.edB.get(`${AB}/messages`)).body;
+    const keys = [mac.a.reporterKey, mac.b.reporterKey];
+    const mine = await w.edB.put('/api/fleet/respond/peers/links').set(H).send({ a: keys[0], b: keys[1], paused: false });
+    expect(mine.status).toBe(403);
+    expect(await dmInfo(w.edB)).toMatchObject({ paused: true, pausedBy: 'admin' });
+    // The Admin resumes it.
+    expect((await linkOp(admin, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
+    expect(await dmInfo(w.edB)).toMatchObject({ paused: false, pausedBy: null, pausedByAdmin: null });
+    // Ed may pause and resume it on My reporters as before.
+    expect((await w.edB.put('/api/fleet/respond/peers/links').set(H).send({ a: keys[0], b: keys[1], paused: true })).status).toBe(200);
+    expect(await dmInfo(w.edB)).toMatchObject({ paused: true, pausedBy: null });
+    expect((await w.edB.put('/api/fleet/respond/peers/links').set(H).send({ a: keys[0], b: keys[1], paused: false })).status).toBe(200);
+    await settle();
+    const kinds = await logKinds(w);
+    expect(kinds).toEqual(expect.arrayContaining(['peer_right_paused', 'peer_right_resumed']));
+    const rows = (await logRows(w)).filter((r) => r.kind === 'peer_right_paused');
+    expect(rows.map((r) => r.actor)).toContain('Admin secret');
+  });
+
+  it('lets an Admin pause and resume a conversation across owners, and neither remove its link, nor delete it, nor write to it', async () => {
+    const w = await crossWorld();
+    await answerAllow(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await linkOp(admin, 'pause', `${CROSS}/link`)).body).toMatchObject({ ok: true, link: 'paused' });
+    expect((await w.edB.get(CH)).body.directs[0].cross).toMatchObject({ pausedBy: 'admin', pausedByAdmin: 'Admin secret', canResume: false });
+    expect((await linkOp(w.alexB, 'resume', `${CROSS}/link`)).status).toBe(403);
+    expect((await linkOp(admin, 'resume', `${CROSS}/link`)).body).toMatchObject({ ok: true, link: 'open' });
+    for (const op of ['remove', 'allow']) expect((await linkOp(admin, op, `${CROSS}/link`)).status, op).toBe(403);
+    expect((await admin.delete(CROSS).set(H)).status).toBe(403);
+    expect((await admin.post(`${CROSS}/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
+    expect((await w.edB.get(CH)).body.directs[0].cross).toMatchObject({ link: 'open', pausedByAdmin: null });
+  });
+  it('names the Admin who paused a link by their own name, when that Admin is a person, and keeps the pause theirs', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const rootB = await signedIn(w, 'Root', (await w.people.createPerson('Root', admins.id)).token);
+    expect((await linkOp(rootB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    expect(await dmInfo(w.edB)).toMatchObject({ pausedBy: 'admin', pausedByAdmin: 'Root' });
+    // Ed pausing again does not take the pause over from the Admin.
+    const mac = (await w.edB.get(`${AB}/messages`)).body;
+    expect((await w.edB.put('/api/fleet/respond/peers/links').set(H).send({ a: mac.a.reporterKey, b: mac.b.reporterKey, paused: true })).status).toBe(200);
+    expect(await dmInfo(w.edB)).toMatchObject({ pausedBy: 'admin', pausedByAdmin: 'Root' });
+    expect((await w.edB.put('/api/fleet/respond/peers/links').set(H).send({ a: mac.a.reporterKey, b: mac.b.reporterKey, paused: false })).status).toBe(403);
+    expect((await linkOp(rootB, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
+  });
+
+  it('names the Admin who paused a person\'s group, and lets only an Admin resume it', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const info = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.channels as { id: string; paused: boolean; pausedByAdmin?: string | null }[]).find((c) => c.id === 'group')!;
+    expect(await info(w.edB)).toMatchObject({ paused: false, pausedByAdmin: null });
+    expect((await w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true })).status).toBe(200);
+    expect(await info(w.edB)).toMatchObject({ paused: true, pausedByAdmin: null });
+    expect((await w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: false })).status).toBe(200);
+    expect((await admin.put(`${CH}/channels/group/pause`).set(H).send({ owner: 'Ed', paused: true })).status).toBe(200);
+    expect(await info(w.edB)).toMatchObject({ paused: true, pausedByAdmin: 'Admin secret' });
+    expect((await w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: false })).status).toBe(403);
+    expect(await info(w.edB)).toMatchObject({ paused: true, pausedByAdmin: 'Admin secret' });
+    expect((await admin.put(`${CH}/channels/group/pause`).set(H).send({ owner: 'Ed', paused: false })).status).toBe(200);
+    expect(await info(w.edB)).toMatchObject({ paused: false, pausedByAdmin: null });
+  });
+
+  it('refuses an Admin\'s remove, delete and send on a conversation between one person\'s agents', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await linkOp(admin, 'remove')).status).toBe(403);
+    expect((await linkOp(admin, 'allow')).status).toBe(403);
+    expect((await admin.delete(AB).set(H)).status).toBe(403);
+    expect((await admin.post(`${AB}/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
+    expect((await linkOp(w.alexB, 'pause')).status).toBe(403);
+    expect((await w.edB.get(CH)).body.directs).toHaveLength(1);
+  });
+
+  /** Alex opens the link Ed's message asked for. */
+  async function answerAllow(w: W) {
+    const reqs = ((await w.alexB.get('/api/fleet/respond/peers')).body.requests ?? []) as { id: string }[];
+    expect((await w.alexB.post(`/api/fleet/respond/peers/requests/${reqs[0]!.id}`).set(H).send({ answer: 'deliver' })).status).toBe(200);
+  }
+});

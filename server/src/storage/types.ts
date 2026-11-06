@@ -409,6 +409,8 @@ export interface ChatSettings {
 export interface ChannelFlags {
   paused: boolean;
   disconnected: boolean;
+  /** The name of the Admin who paused it, while one did (#1034). Only an Admin can resume such a pause. Absent otherwise. */
+  pausedByAdmin?: string;
 }
 
 export interface ChatSettingsApi {
@@ -421,6 +423,32 @@ export interface ChatSettingsApi {
   setFlags(scope: string, patch: Partial<ChannelFlags>): Promise<ChannelFlags>;
   /** Every scope with a flag on, by scope. */
   allFlags(): Promise<Record<string, ChannelFlags>>;
+}
+
+/** One reading session of an Admin in a thread that is not theirs (#1034): who, when it began and when the Admin last read it. Never any text. */
+export interface AdminReadRow {
+  admin: string;
+  startedAt: number;
+  lastSeenAt: number;
+}
+
+/** The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text. */
+export interface ChatAdminReadsApi {
+  /**
+   * An Admin read `thread` now. A read within `gapMs` of that Admin's last read of it (names compared folded) is the same session and refreshes its
+   * `lastSeenAt`; a longer gap starts a new record. `previousSeenAt` is the session's last read before this one, or null when it began now.
+   */
+  touch(thread: string, admin: string, gapMs: number): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
+  /** The thread's records, oldest first. */
+  list(thread: string): Promise<AdminReadRow[]>;
+  /** The records of these threads last read after `since`, by thread, then oldest first. */
+  live(threads: string[], since: number): Promise<(AdminReadRow & { thread: string })[]>;
+  /** Every thread that has a record and starts with `prefix`, by name. */
+  threads(prefix: string): Promise<string[]>;
+  /** The thread is gone: removes its records. Returns how many. */
+  forget(thread: string): Promise<number>;
+  /** Removes the records last read before `olderThan`. Returns how many. */
+  purge(olderThan: number): Promise<number>;
 }
 
 export interface ChatStoreOptions {
@@ -436,6 +464,8 @@ export interface ChatStoreApi {
   /** General (`public_messages`): every signed-in user and reporter. */
   readonly public: ChannelStoreApi<[]>;
   readonly readState: ChatReadStateApi;
+  /** The records of an Admin reading a thread that is not theirs. */
+  readonly adminReads: ChatAdminReadsApi;
   /** The Admin's limits and the channels' pause and disconnect flags, in `settings`. */
   readonly settings: ChatSettingsApi;
 }

@@ -6,6 +6,7 @@ import { peerShortId, type LiveOrchestrator } from './peerTypes.js';
 import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
 import { ChatCore, type AcrossUpdate, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
+import type { AdminReads } from './chatAdminReads.js';
 import {
   CHANNEL_NAMES, GLOBAL_SCOPE, fail, groupScope, groupThread, personScope, publicThread, type ChannelId, type ChatViewer, type Fail,
 } from './chatTypes.js';
@@ -63,6 +64,8 @@ export function messageView(m: ChannelMessage, viewer: string | null): ChannelMe
 /** The flags a channel is under for the person it concerns: the group's own, or General's for everyone and for one person's agents. */
 export interface ChannelState {
   paused: boolean;
+  /** The Admin's name while an Admin paused it (the group of another person, or General for everyone); only an Admin can then resume it. Null otherwise. */
+  pausedByAdmin: string | null;
   pausedForEveryone: boolean;
   disconnected: boolean;
 }
@@ -70,7 +73,10 @@ export interface ChannelState {
 type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump: string | null; deliver: LiveOrchestrator | null };
 
 export class ChannelChat {
-  constructor(private readonly core: ChatCore) {}
+  constructor(
+    private readonly core: ChatCore,
+    private readonly reads: AdminReads,
+  ) {}
 
   private get store() {
     return this.core.store;
@@ -131,11 +137,11 @@ export class ChannelChat {
     const f = this.store.settings;
     if (channel === 'group') {
       const g = await f.flags(groupScope(owner as string));
-      return { paused: g.paused, pausedForEveryone: false, disconnected: g.disconnected };
+      return { paused: g.paused, pausedByAdmin: g.paused ? (g.pausedByAdmin ?? null) : null, pausedForEveryone: false, disconnected: g.disconnected };
     }
     const all = await f.flags(GLOBAL_SCOPE);
     const mine: ChannelFlags = person ? await f.flags(personScope(person)) : { paused: false, disconnected: false };
-    return { paused: all.paused || mine.paused, pausedForEveryone: all.paused, disconnected: mine.disconnected };
+    return { paused: all.paused || mine.paused, pausedByAdmin: all.paused ? (all.pausedByAdmin ?? null) : null, pausedForEveryone: all.paused, disconnected: mine.disconnected };
   }
 
   /** The flags that bind a message to an agent of `agentOwner` in `channel`. */
@@ -152,6 +158,21 @@ export class ChannelChat {
     } catch (err) {
       return fail(400, (err as Error).message);
     }
+  }
+
+  /** An Admin read a person's group: recorded (and the person told) before it is answered. Returns the group's records, which its person and an Admin may read. */
+  async readRecord(viewer: ChatViewer, channel: ChannelId, owner: string | null) {
+    if (channel !== 'group' || owner === null) return [];
+    if (viewer.admin && nameKey(owner) !== nameKey(viewer.name)) await this.reads.note(viewer, { scope: 'group', thread: groupThread(owner), owners: [nameKey(owner)] });
+    return this.reads.list(groupThread(owner));
+  }
+
+  /** An Admin's open group says it is still being read. Content-free. */
+  async reading(viewer: ChatViewer, owner: string | null): Promise<{ ok: true } | Fail> {
+    if (!viewer.admin) return fail(403, 'Only an Admin reads a group that is not their own.');
+    if (owner === null || nameKey(owner) === nameKey(viewer.name)) return fail(400, 'That group is yours, so reading it is not recorded.');
+    await this.reads.note(viewer, { scope: 'group', thread: groupThread(owner), owners: [nameKey(owner)] });
+    return { ok: true };
   }
 
   async total(channel: ChannelId, owner: string | null): Promise<number> {
@@ -507,7 +528,11 @@ export class ChannelChat {
     const scope = this.scopeKey(viewer, channel, owner, everyone);
     if ('ok' in scope) return scope;
     const before = await this.store.settings.flags(scope.key);
-    await this.store.settings.setFlags(scope.key, { paused });
+    // An Admin's pause is named and stays theirs: the person it binds cannot lift it, and pausing again does not take it over.
+    const mine = scope.owner !== null && nameKey(scope.owner) === nameKey(viewer.name);
+    if (before.pausedByAdmin && !viewer.admin) return paused ? { ok: true, delivered: 0, ...(await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name))) } : fail(403, `${before.pausedByAdmin}, an Administrator, paused this, so only an Administrator can resume it.`);
+    const byAdmin = paused && viewer.admin && (everyone || !mine) ? viewer.actor : undefined;
+    await this.store.settings.setFlags(scope.key, { paused, ...(byAdmin ? { pausedByAdmin: byAdmin } : {}) });
     let delivered = 0;
     if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : nameKey(viewer.name), viewer.name);
     this.core.onEvent({ kind: paused ? 'paused' : 'resumed', channel, owner: scope.owner, by: viewer.actor, everyone, count: delivered });
@@ -537,6 +562,7 @@ export class ChannelChat {
     if (channel === 'general' && !viewer.admin) return fail(403, 'Only an Admin can remove the messages of General.');
     const removed = await this.handle(channel, owner).clear();
     await this.store.readState.forget(this.threadOf(channel, owner));
+    if (channel === 'group') await this.reads.forget(this.threadOf(channel, owner));
     this.core.onEvent({ kind: 'cleared', channel, owner, by: viewer.actor, everyone: false, count: removed });
     this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
     return { ok: true, removed };

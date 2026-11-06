@@ -57,6 +57,16 @@ export function peerCases(o: Openers): void {
       await rec('effective (paused)', r.effective(a, b));
       await rec('pause unknown link', r.pauseLink('ed', a, 'nope', true, ED));
       await rec('resume link', r.pauseLink('ed', a, b, false, ED));
+      await rec('admin pauses the link', r.pauseLink(null, a, b, true, { name: 'Root', admin: true }));
+      await rec('effective (an Admin\'s pause)', r.effective(a, b));
+      await rec('rights (an Admin\'s pause)', r.rightsOf('ed'));
+      await rec('owner pauses it again', r.pauseLink('ed', a, b, true, ED));
+      await rec('effective (still the Admin\'s)', r.effective(b, a));
+      await rec('owner resumes (refused)', r.pauseLink('ed', a, b, false, ED));
+      await rec('owner resumes the reporter (the Admin\'s pause stays)', r.pauseReporter(a, false, ADMIN));
+      await rec('effective (after the reporter resume)', r.effective(a, b));
+      await rec('admin resumes the link', r.pauseLink(null, a, b, false, { name: 'Root', admin: true }));
+      await rec('effective (resumed)', r.effective(a, b));
       await rec('pause reporter', r.pauseReporter(a, true, ADMIN));
       await rec('pause reporter (not admin)', r.pauseReporter(a, true, ED));
       await rec('rights (paused)', r.rightsOf('ed'));
@@ -73,6 +83,11 @@ export function peerCases(o: Openers): void {
       clock.now += 1;
     });
     expect((t.get('set across owners') as { ok: boolean }).ok).toBe(false);
+    expect(t.get('effective (an Admin\'s pause)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Root' });
+    expect(t.get('effective (still the Admin\'s)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Root' });
+    expect(t.get('owner resumes (refused)')).toMatchObject({ ok: false, status: 403 });
+    expect(t.get('effective (after the reporter resume)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Root' });
+    expect(t.get('effective (resumed)')).toEqual({ level: 'send', paused: false });
   });
 
   it('agrees on every adapter for owner defaults and limits, and for requests for access in the order they were opened', async () => {
@@ -443,7 +458,8 @@ export function peerCases(o: Openers): void {
     expect(t.get('the link paused by the sender')).toMatchObject({ paused: true, pausedBy: 'sender' });
     expect(t.get('the link after a resume')).not.toHaveProperty('pausedBy');
     expect(t.get('the link paused by the owner')).toMatchObject({ paused: true, pausedBy: 'owner' });
-    expect(t.get('the link paused by an Admin')).toMatchObject({ paused: true, pausedBy: 'admin' });
+    expect(t.get('the link paused by the owner')).not.toHaveProperty('pausedByAdmin');
+    expect(t.get('the link paused by an Admin')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'ed' });
     expect(t.get('the link paused by nobody known')).toMatchObject({ paused: true });
     expect(t.get('the link paused by nobody known')).not.toHaveProperty('pausedBy');
     expect(t.get('paused: refused')).toMatchObject({ ok: false, status: 409 });
