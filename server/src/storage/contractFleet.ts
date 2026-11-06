@@ -345,6 +345,30 @@ export function fleetCases(o: Openers): void {
 }
 
 export function peopleCases(o: Openers): void {
+  it('hands out the same group id after a createGroup that failed, on every adapter (#1039)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      // a time that is not a number is refused; only that it was refused is compared, since the message is the database's
+      await rec('refused', s.people.createGroup('s2', Number.NaN).then(() => 'created', () => 'refused'));
+      await rec('next', s.people.createGroup('é', 2 ** 31));
+      await rec('after that', s.people.createGroup('plain', T0));
+      // the same for the other rows that take an id: a person, an Admin log line and an ignore rule, each after a refused call
+      await rec('person refused', s.people.createPerson('p1', null, Number.NaN).then(() => 'created', () => 'refused'));
+      await rec('person', s.people.createPerson('p2', null, T0).then((r) => r.person.id));
+      await rec('log refused', s.people.log('k', 'd', 's', Number.NaN).then(() => 'logged', () => 'refused'));
+      await s.people.log('k', 'second', 's', T0);
+      await rec('log', s.people.listLog({}).then((r) => r.rows.map((l) => [l.id, l.detail])));
+      await rec('rule refused', s.reporters.addIgnore('key', 'z', Number.NaN).then(() => 'added', () => 'refused'));
+      await rec('rule', s.reporters.addIgnore('key', 'a', T0).then((r) => r.id));
+      await rec('rule again', s.reporters.addIgnore('key', 'a', T0).then((r) => r.id));
+      await rec('next rule', s.reporters.addIgnore('key', 'b', T0).then((r) => r.id));
+    });
+    // a failed insert used no id: the next group takes the one the failed call would have taken, one past the built-in group
+    const next = t.get('next') as { id: number };
+    const after = t.get('after that') as { id: number };
+    expect(t.get('refused')).toBe('refused');
+    expect(after.id).toBe(next.id + 1);
+  });
+
   it('agrees on every adapter for looking a person up by key id or administrator token, and for the group they are in', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const p = s.people;

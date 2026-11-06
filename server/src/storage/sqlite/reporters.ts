@@ -7,7 +7,7 @@ import { checkReporter } from '../../fleet/compat.js';
 import { clampPage, likeTerm } from './people.js';
 import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-import { keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -417,6 +417,7 @@ export class ReporterStore {
     if (!IGNORE_KINDS.includes(kind)) throw new Error('kind must be key, address or version');
     if (/^\*+$/.test(p)) throw new Error('pattern must name something besides *');
     if (p.length < 1 || p.length > MAX_PATTERN) throw new Error(`pattern must be 1 to ${MAX_PATTERN} characters`);
+    checkTime(now, 'A rule time');
     this.stmt('INSERT OR IGNORE INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?)').run(kind, p, now);
     const rule = ReporterStore.ruleOf(this.stmt('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?').get(kind, p) as never);
     // order-insensitive: every row is tested against the rule, in whatever order.

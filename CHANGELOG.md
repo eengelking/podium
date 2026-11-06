@@ -16,6 +16,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **A refused group, person, Admin log or ignore-rule time no longer makes PostgreSQL and SQLite hand out different ids (#1039).** `createGroup`, `createPerson`, `log` and `addIgnore` now refuse a time that is not a whole number before they write anything. Before, a failed insert used up an id on PostgreSQL and not on SQLite, so the next group got id 3 on one and 2 on the other. A contract case now runs the sequence on every adapter. No screen could send such a time, so nothing a person sees changes.
 - **A long model name no longer hides the session's name on a wall card or runs off the card (#1028).** An OpenCode model such as `lmstudio-community/qwen3-coder-30b-a3b-instruct-mlx` used to take all the room in the card's first row, so the name had none and the chip was cut at the card's edge. The model chip now shrinks and ends in an ellipsis, as it does in the Agents table, with the full id as its title. The harness badge and effort meter keep their size, and a card with a short model name looks the same. The reporter was not at fault: the card and the orchestrator page read the same name.
 
 ## [1.5.1] - 2026-11-05
