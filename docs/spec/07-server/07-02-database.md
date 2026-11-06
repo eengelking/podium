@@ -257,7 +257,7 @@ CREATE TABLE chat_admin_reads (   -- one row per Admin and thread and reading se
   PRIMARY KEY (thread, admin_key, started_at)
 );
 CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
-ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused' or 'resumed'
+ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected' or 'reconnected'
 ```
 
 A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds

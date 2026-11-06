@@ -39,7 +39,7 @@ one owner.
   first version of this decision raised no alert for a read. That is reversed (#1034, PROJECT.md "An Admin Never Reads in Silence"): the people in
   a conversation an Admin reads see a red banner that names every Admin reading, a permanent record line in the thread, and a callout in their
   reporter, and the Admin log records each reading session. An Admin can also pause and resume any Direct Message link, and cannot remove a link,
-  allow, delete a conversation or send. An Admin's pause names the Admin and the owner cannot resume it. An Admin's pause, resume and clear are
+  allow, delete a conversation or send. An Admin's pause names the Admin and the owner cannot resume it. An Admin's pause, resume, disconnect, reconnect and clear are
   recorded for good. The audit events record the action and never the text.
 - Delivery stays `queue` on both harnesses.
 

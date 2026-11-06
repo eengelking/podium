@@ -158,7 +158,7 @@ row; `touch` returns whether it started a new one). A new session writes `chat_a
 reporter session of the people in the thread; a reading that came back after more than 30 seconds raises the content-free `chat` signal for
 those people, so their page shows the red banner at once. A reading is live for 30 seconds after the last read (`LIVE_MS`), which `liveFor` reports as
 `adminReading` (`since`, `until`) on the overview, so a reading whose time passed is never shown. The Admin's page pings
-`POST …/reading` every 15 seconds while the thread is open (`KEEP_ALIVE_MS` in `Chat.tsx`). An Admin's pause, resume and remove all go through
+`POST …/reading` every 15 seconds while the thread is open (`KEEP_ALIVE_MS` in `Chat.tsx`). An Admin's pause, resume, disconnect, reconnect and remove all go through
 `stopped`, which writes the same table with a `kind` and tells the sessions; `forget` (Delete conversation) and `maintain` (retention) are the only
 things that delete records, and Remove all messages never calls them. `chat.browse` answers `?owner=` with names and counts only, so it notes no
 read. The sentence a reporter shows is built by `AdminNotices` (`chatAdminNotices.ts`): held in memory for 5 minutes, at most 8 for a session, and
