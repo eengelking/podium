@@ -151,6 +151,11 @@ describe('chat: the page', () => {
       cy.tid('chat-box').type('{enter}');
       cy.tid('chat-send-error').should('not.exist');
       cy.tid('chat-message').should('have.length', had + 1).last().should('contain.text', '@everyone stand up');
+      // The list of addresses is read again after a send, on the same page, so @group and @everyone can be picked at once.
+      cy.tid('chat-box').type('@');
+      cy.tid('chat-listbox').contains('[role=option]', '@group').should('not.have.attr', 'aria-disabled');
+      cy.tid('chat-listbox').contains('[role=option]', '@everyone').should('not.have.attr', 'aria-disabled');
+      cy.tid('chat-box').clear();
       // The list of addresses is read again on a fresh page, and now says @group can be picked.
       cy.reload();
       cy.tid('chat-box').type('@');

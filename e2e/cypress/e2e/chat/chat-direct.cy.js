@@ -113,7 +113,10 @@ describe('chat: the controls of a Direct Message', () => {
     openDm();
     openMenu(DM).find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Delete conversation…').click();
-    cy.tid('chat-confirm').should('have.attr', 'aria-label', 'Delete conversation').and('contain.text', 'messages are removed for you and an Admin, and it leaves your list.');
+    // The count in the question is the number of messages the thread shows (the merged ones), not a figure of its own.
+    cy.tid('chat-message').its('length').then((n) => {
+      cy.tid('chat-confirm').should('have.attr', 'aria-label', 'Delete conversation').and('contain.text', `Its ${n} messages are removed for you and an Admin, and it leaves your list.`);
+    });
     cy.tid('chat-confirm').contains('button', 'Keep it').click();
     cy.chatRow(DM).should('exist');
     openMenu(DM).contains('[role=menuitem]', 'Delete conversation…').click();
