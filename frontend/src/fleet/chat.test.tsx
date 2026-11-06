@@ -284,6 +284,12 @@ describe("the page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Chat" })).toBeInTheDocument();
   });
 
+  it("says in its rules who reads a conversation with another person's agent", async () => {
+    page();
+    await flush();
+    expect(screen.getByText(/A conversation with another person's agent is read by that person, the agent's owner and an Admin/)).toBeInTheDocument();
+  });
+
   it("says messaging is off, and asks a signed-out browser to sign in without reading anything", async () => {
     const off = page({ peersFlag: false });
     await flush();
@@ -1184,6 +1190,16 @@ describe("a conversation across owners", () => {
     page({ chat: crossWorld("owner", { link: "waiting" }) });
     await flush();
     expect(row("d:s-dash")).toHaveTextContent("Waiting for approval");
+    expect(row("d:s-dash")).toHaveTextContent("Maya and your agent");
+    expect(row("d:s-dash")).not.toHaveTextContent("You and one agent");
+    cleanup();
+    page({ chat: crossWorld("sender") });
+    await flush();
+    expect(row("d:s-dash")).toHaveTextContent("You and Ed's agent");
+    cleanup();
+    page({ chat: crossWorld("admin") });
+    await flush();
+    expect(row("d:s-dash")).toHaveTextContent("Maya and Ed's agent");
   });
 });
 

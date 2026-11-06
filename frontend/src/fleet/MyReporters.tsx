@@ -107,7 +107,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
               <div>{props.notice}</div>
             </div>
           )}
-          <PageHeader title="My reporters" lead={peers.data?.reporters.length ? `${LEAD} Only your own reporters are here. Podium does not carry messages between people.` : LEAD} />
+          <PageHeader title="My reporters" lead={peers.data?.reporters.length ? `${LEAD} Only your own reporters are here. A person using Chat who wants to message one of your agents asks you below first.` : LEAD} />
           {body}
         </div>
       </div>

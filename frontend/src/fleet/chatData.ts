@@ -227,6 +227,14 @@ export function dmName(d: Pick<DirectInfo, "a" | "b"> & { cross?: Cross | null }
 /** A conversation between two agents has a link to pause and remove; the person's own with one agent has none. */
 export const hasLink = (d: Pick<DirectInfo, "a" | "b">): boolean => d.a.kind === "agent" && d.b.kind === "agent";
 
+/** The line under a Direct Message's name: who is in it, from the viewer's side. */
+export function dmSub(d: Pick<DirectInfo, "a" | "b"> & { cross?: Cross | null }): string {
+  const c = d.cross;
+  if (!c) return hasLink(d) ? "Two agents, and you" : "You and one agent";
+  if (c.viewerIs === "sender") return `You and ${c.owner}'s agent`;
+  return `${c.person} and ${c.viewerIs === "owner" ? "your" : `${c.owner}'s`} agent`;
+}
+
 export type TagIcon = "pause" | "clock" | "trash";
 export interface Tag {
   icon: TagIcon;

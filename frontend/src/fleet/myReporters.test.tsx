@@ -388,6 +388,13 @@ describe("Waiting for you", () => {
     expect(server.api.answer).toHaveBeenCalledWith("prq_x", "deliver");
   });
 
+  it("says in the lead that a person using Chat asks first, not that Podium carries no messages between people", async () => {
+    page();
+    await flush();
+    expect(screen.getByText(/A person using Chat who wants to message one of your agents asks you below first/)).toBeInTheDocument();
+    expect(screen.queryByText(/does not carry messages between people/)).toBeNull();
+  });
+
   it("declines a person's message with the decline answer", async () => {
     const d = baseRead();
     d.requests = [PERSON];

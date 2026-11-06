@@ -2,7 +2,7 @@
 // opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
 // of the agent's state when pointed at or focused, the same colors as its icon.
 import type { MouseEvent, ReactNode } from "react";
-import { channelTag, dmName, dmTag, hasLink, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { channelTag, dmName, dmSub, dmTag, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, channelMenu, dmMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
@@ -101,7 +101,7 @@ export function ChatSidebar(p: SidebarProps) {
         <ChDm />
         <span className="stack">
           <span className="nm" title={name}>{name}</span>
-          <span className="sub">{hasLink(d) ? "Two agents, and you" : "You and one agent"}</span>
+          <span className="sub">{dmSub(d)}</span>
           <TagLine tag={dmTag(d)} />
         </span>
         {d.unread > 0 && <span className="unread" aria-label={`${d.unread} new`}>{d.unread}</span>}
