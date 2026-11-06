@@ -40,6 +40,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
 .ch-item:hover { background: var(--hover); }
 .ch-item.on { background: var(--sel); }
+/* People and agents: the hover (and keyboard focus) highlight takes the color of the agent's state, the same colors as its icon. */
+.ch-item.hl-running:hover, .ch-item.hl-running:focus-within { background: color-mix(in srgb, var(--good-text) 16%, transparent); }
+.ch-item.hl-waiting:hover, .ch-item.hl-waiting:focus-within { background: color-mix(in srgb, var(--warn) 20%, transparent); }
+.ch-item.hl-deleg:hover, .ch-item.hl-deleg:focus-within, .ch-item.hl-bg:hover, .ch-item.hl-bg:focus-within { background: color-mix(in srgb, var(--deleg-text) 16%, transparent); }
+.ch-item.hl-stale:hover, .ch-item.hl-stale:focus-within { background: color-mix(in srgb, var(--serious) 18%, transparent); }
+.ch-item.hl-done:hover, .ch-item.hl-done:focus-within { background: color-mix(in srgb, var(--ink2) 14%, transparent); }
 .podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 20px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .podium .ch-item.on .ch-row { font-weight: 600; }
 .podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 0; }
@@ -362,7 +368,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         (S.menu === d.id ? menu(d) : '') + '</li>';
     }
     function pRow(p) {
-      return '<li class="ch-item" data-ctx="a:' + esc(p.name) + '"><button type="button" class="ch-row" data-person="' + p.id + '" title="Message ' + esc(p.name) + '">' +
+      return '<li class="ch-item hl-' + p.st + '" data-ctx="a:' + esc(p.name) + '"><button type="button" class="ch-row" data-person="' + p.id + '" title="Message ' + esc(p.name) + '">' +
         si(p.st) + '<span class="stack"><span class="nm">' + esc(nm(p.name)) + '</span><span class="sub">' + esc(p.role) + ', ' + esc(WORD[p.st].toLowerCase()) + '</span></span></button>' +
         '<button type="button" class="ch-more" data-more="a:' + esc(p.name) + '" aria-haspopup="menu" aria-expanded="' + (S.menu === 'a:' + p.name) + '" aria-label="Actions for ' + esc(nm(p.name)) + '">' + I.dots + '</button>' + (S.menu === 'a:' + p.name ? agentMenu(p.name, true) : '') + '</li>';
     }
