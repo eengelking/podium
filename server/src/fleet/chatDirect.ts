@@ -3,7 +3,8 @@
 // delivery and the reporter's consent), and the same text is stored here with who wrote it. This file never reads or writes a channel: the audience of a
 // table is the table, and `chatSeparation.test.ts` holds this file to it.
 import { nameKey } from '../storage/rows.js';
-import type { ConversationSummary, MessageRow, MessageState, OwnerConversation, Refusal } from './peerTypes.js';
+import { isPersonKey, type ConversationSummary, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
+import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import { dmThread, fail, isPersonId, personId, type ChatViewer, type Fail } from './chatTypes.js';
 
@@ -36,6 +37,18 @@ export interface DirectInfo {
   unread: number;
   mentions: number;
   hiddenAt: number | null;
+  /** Set for a conversation between a person and another person's agent (#1034); null for one with the viewer's own agent or between two agents. */
+  cross: CrossInfo | null;
+}
+
+/** The two people of a conversation across owners: the person who writes, the owner of the agent, and where their link stands. */
+export interface CrossInfo {
+  person: string;
+  owner: string;
+  /** `waiting` while a message waits for the owner; `open`, `paused`, `removed`, or `none` (no link: the owner declined, or nothing was sent yet). */
+  link: 'waiting' | 'open' | 'paused' | 'removed' | 'none';
+  /** Which of the two the viewer is: the person who wrote, the agent's owner, or an Admin reading. */
+  viewerIs: 'sender' | 'owner' | 'admin';
 }
 
 export interface DirectMessageView {
@@ -49,6 +62,10 @@ export interface DirectMessageView {
   state: MessageState;
   stateAt: number;
   why: string | null;
+  /** The reason in words for a message that was declined or dropped; null otherwise. */
+  reason: string | null;
+  /** The owner a person's message waits for, while it waits for approval (#1034). */
+  waitingFor: string | null;
   approved: boolean;
 }
 
@@ -78,10 +95,21 @@ export function directMessages(rows: MessageRow[]): DirectMessageView[] {
       state: m.state,
       stateAt: m.stateAt,
       why: m.why,
+      reason: reasonOf(m),
+      waitingFor: m.state === 'approval' ? m.owner : null,
       approved: m.approved,
     });
   }
   return out;
+}
+
+/** A declined or dropped message's reason in words, for the person who wrote it. */
+export function reasonOf(m: Pick<MessageRow, 'state' | 'why' | 'owner' | 'toName'>): string | null {
+  if (m.state === 'declined') return `${m.owner} declined it.`;
+  if (m.state !== 'dropped' || !m.why) return null;
+  if (m.why === 'receiver-ended') return `${m.toName} ended before it got the message.`;
+  if (m.why === 'link-removed') return `${m.owner} removed the link.`;
+  return `${PEER_DROP_WORDS[m.why] ?? m.why}.`.replace(/^./, (c) => c.toUpperCase());
 }
 
 export class DirectChat {
@@ -89,6 +117,11 @@ export class DirectChat {
 
   private get peers() {
     return this.core.host.peers.messages;
+  }
+
+  /** The whole peer store: rights as well as messages (a person's link to another person's agent, #1034). */
+  private get peerStore() {
+    return this.core.host.peers;
   }
 
   private liveOf(sessionId: string) {
@@ -126,7 +159,26 @@ export class DirectChat {
       unread: count.unread,
       mentions: count.mentions,
       hiddenAt: c.hiddenAt,
+      cross: null,
     };
+  }
+
+  /** Who is in a conversation across owners, and where the link between them stands. Null for any other conversation. */
+  private async crossOf(c: ConversationSummary, viewer: ChatViewer): Promise<CrossInfo | null> {
+    const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId));
+    if (!personEnd || !agentEnd || nameKey(c.owner) === personEnd.sessionId.slice('person:'.length)) return null;
+    const row = await this.peerStore.rights.personLink(personEnd.sessionId, agentEnd.reporterKey);
+    const link: CrossInfo['link'] = row === null ? (c.state === 'waiting' ? 'waiting' : 'none') : row.level === 'none' ? 'removed' : row.paused ? 'paused' : c.state === 'waiting' ? 'waiting' : 'open';
+    const role = this.role(viewer, c);
+    return { person: personEnd.name, owner: c.owner, link, viewerIs: role === 'owner' ? 'owner' : role === 'sender' ? 'sender' : 'admin' };
+  }
+
+  /** How the viewer stands to a conversation: the owner of its agent, the person who wrote to that agent, an Admin, or no one who may read it. */
+  private role(viewer: ChatViewer, c: ConversationSummary): 'owner' | 'sender' | 'admin' | null {
+    if (viewer.personId !== null && nameKey(c.owner) === nameKey(viewer.name)) return 'owner';
+    if (viewer.personId !== null && (c.a.sessionId === personId(viewer.name) || c.b.sessionId === personId(viewer.name))) return 'sender';
+    return viewer.admin ? 'admin' : null;
   }
 
   /** The viewer's conversations, without hidden ones. Never any text. */
@@ -134,7 +186,8 @@ export class DirectChat {
     if (viewer.personId === null) return [];
     const rs = await this.core.store.readState.list(viewer.name);
     const counts = new Map(rs.map((r) => [r.thread, { unread: r.unread, mentions: r.mentions }]));
-    return (await this.peers.ownerConversations(viewer.name)).map((c) => this.info(c, counts));
+    const mine = await this.peers.ownerConversations(viewer.name);
+    return Promise.all(mine.map(async (c) => ({ ...this.info(c, counts), cross: await this.crossOf(c, viewer) })));
   }
 
   /** `me` is the viewer's own place in a conversation with one agent. */
@@ -149,13 +202,15 @@ export class DirectChat {
     return (await this.peers.conversations({})).find((c) => c.a.sessionId === x && c.b.sessionId === y) ?? null;
   }
 
-  /** The viewer's own agent, live, for a conversation that has no message yet. */
-  private newWith(viewer: ChatViewer, a: string, b: string): { sessionId: string } | null {
+  /** A live agent the viewer can start a conversation with (no message yet): their own, or another person's whose reporter takes part in messaging (#1034). */
+  private newWith(viewer: ChatViewer, a: string, b: string): { sessionId: string; own: boolean } | null {
     if (viewer.personId === null) return null;
     const me = personId(viewer.name);
     const other = a === me ? b : b === me ? a : null;
     const o = other ? this.liveOf(other) : null;
-    return o && nameKey(o.owner) === nameKey(viewer.name) ? { sessionId: o.sessionId } : null;
+    if (!o) return null;
+    if (nameKey(o.owner) === nameKey(viewer.name)) return { sessionId: o.sessionId, own: true };
+    return o.peers === true ? { sessionId: o.sessionId, own: false } : null;
   }
 
   async thread(viewer: ChatViewer, rawA: string, rawB: string, opts: { before?: string | null; limit: number }) {
@@ -168,9 +223,10 @@ export class DirectChat {
       const me = { sessionId: personId(viewer.name), name: viewer.name, machine: '', reporterKey: '' };
       const agent = { sessionId: o.sessionId, name: o.name, machine: o.machine, reporterKey: o.reporterKey };
       const [x, y] = me.sessionId <= agent.sessionId ? [me, agent] : [agent, me];
-      return { ok: true as const, thread: dmThread(a, b), a: this.party(x), b: this.party(y), messages: [] as DirectMessageView[], older: null, total: 0, ended: [] as string[], owner: nameKey(viewer.name), paused: false, roundTrips: { used: 0, cap: 0 } };
+      const cross: CrossInfo | null = fresh.own ? null : { person: viewer.name, owner: o.owner, link: 'none', viewerIs: 'sender' };
+      return { ok: true as const, thread: dmThread(a, b), a: this.party(x), b: this.party(y), messages: [] as DirectMessageView[], older: null, total: 0, ended: [] as string[], owner: nameKey(fresh.own ? viewer.name : o.owner), paused: false, roundTrips: { used: 0, cap: 0 }, cross };
     }
-    if (!viewer.admin && nameKey(c.owner) !== nameKey(viewer.name)) return fail(403, 'Only its owner and an Admin can read a conversation.');
+    if (!this.role(viewer, c)) return fail(403, 'Only the people in a conversation and an Admin can read it.');
     let page;
     try {
       page = await this.peers.page(c.owner, a, b, opts);
@@ -178,7 +234,7 @@ export class DirectChat {
       return fail(400, (err as Error).message);
     }
     const info = this.info({ ...c, hiddenAt: null }, new Map());
-    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: c.paused, roundTrips: c.roundTrips };
+    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: c.paused, roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
   }
 
   /** The person writes. See the file's head for the path; the text is redacted first, and nothing is stored for an agent that did not take it. */
@@ -187,8 +243,15 @@ export class DirectChat {
     const [a, b] = this.ids(viewer, rawA, rawB);
     const owner = nameKey(viewer.name);
     const c = await this.find(a, b);
-    if (c && nameKey(c.owner) !== owner) return fail(403, 'Only its owner and an Admin can read a conversation, and only its owner can add to it.');
-    if (!c && !this.newWith(viewer, a, b)) return fail(404, 'There is no such conversation.');
+    const role = c ? this.role(viewer, c) : null;
+    const me = personId(viewer.name);
+    // Another person's agent (#1034): the person asks its owner. The agent's owner writes to it from their own conversation with it.
+    if (c && role === 'owner' && [c.a.sessionId, c.b.sessionId].some((id) => isPersonId(id) && id !== me)) return fail(409, 'This conversation is with another person. Write to your agent from your own conversation with it.');
+    if (c && role === 'sender') return this.sendAcrossDm(viewer, [a, b].find((id) => !isPersonId(id))!, body);
+    if (c && role !== 'owner') return fail(403, 'Only the people in a conversation can add to it, and an Admin can read it.');
+    const fresh = c ? null : this.newWith(viewer, a, b);
+    if (!c && !fresh) return fail(404, 'There is no such conversation.');
+    if (fresh && !fresh.own) return this.sendAcrossDm(viewer, fresh.sessionId, body);
     if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     const text = this.core.redact(body.text);
     const agents = [a, b].filter((id) => !isPersonId(id));
@@ -234,6 +297,87 @@ export class DirectChat {
     return { ok: true as const, message: directMessages(stored)[0]!, skipped, errors };
   }
 
+  // ---- A person writes to another person's agent (#1034) ------------------------------------------------------------
+
+  /** The count the owner's stream signal carries: messages from other people that wait for the owner's approval. A count only. */
+  async approvalsFor(owner: string): Promise<number> {
+    return (await this.peerStore.rights.openRequests(owner)).filter((r) => r.kind === 'message' && isPersonKey(r.fromKey)).length;
+  }
+
+  /** Tells the person's consoles, and the owner's with the count of what waits for them. Never any text. */
+  private async tell(person: string, owner: string): Promise<void> {
+    this.core.signal({ scope: 'dm', owner: nameKey(person) });
+    if (nameKey(owner) !== nameKey(person)) this.core.signal({ scope: 'dm', owner: nameKey(owner), approvals: await this.approvalsFor(owner) });
+  }
+
+  /** The text of a person's message to another person's agent: stored and held for the agent's owner, or sent at once over a link the owner opened. */
+  private async acrossRow(viewer: ChatViewer, sessionId: string, text: string, rate: boolean): Promise<{ ok: true; row: MessageRow } | Fail> {
+    if (viewer.personId === null) return fail(403, "Only a signed-in person can write to another person's agent.");
+    const limits = await this.core.limits();
+    if (text.length > limits.maxChars) return fail(422, `The message is ${text.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
+    if (rate) {
+      const wait = this.core.rate(`person:${nameKey(viewer.name)}`, limits.perMinute);
+      if (wait !== null) return fail(429, `That is more than ${limits.perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`);
+    }
+    const row = await this.peers.sendAcross({ person: viewer.name, toSession: sessionId, text });
+    if ('ok' in row) return fail(row.status, row.error);
+    this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
+    await this.tell(viewer.name, row.owner);
+    return { ok: true, row };
+  }
+
+  /** What the channel side asks: the same, with its own text (already redacted) and its own rate limit. */
+  async across(viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }): Promise<{ ok: true; state: 'approval' | 'ready'; owner: string } | Fail> {
+    const out = await this.acrossRow(viewer, sessionId, text, opts.rate);
+    if ('status' in out) return out;
+    return { ok: true, state: out.row.state === 'approval' ? 'approval' : 'ready', owner: out.row.owner };
+  }
+
+  private async sendAcrossDm(viewer: ChatViewer, agentId: string, body: Record<string, unknown>) {
+    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    if (Array.isArray(body.to) && body.to.some((x) => x !== agentId)) return fail(400, 'to must name an agent of this conversation.');
+    const out = await this.acrossRow(viewer, agentId, this.core.redact(body.text), true);
+    if ('status' in out) return out;
+    return { ok: true as const, message: directMessages([out.row])[0]!, skipped: [] as { sessionId: string; name: string; why: string }[], errors: [] as { sessionId: string; name: string; status: number; error: string }[] };
+  }
+
+  /**
+   * Pause link, Resume link, Remove link, or (the agent's owner only) open it again after a removal, for a conversation across owners. The person who
+   * wrote and the agent's owner may each pause, resume or remove at any time; either one's pause holds for both, and a removal keeps the link removed.
+   */
+  async link(viewer: ChatViewer, rawA: string, rawB: string, rawOp: unknown): Promise<{ ok: true; link: CrossInfo['link'] } | Fail> {
+    const op = (['pause', 'resume', 'remove', 'allow'] as const).find((x) => x === rawOp) as PersonLinkOp | undefined;
+    if (!op) return fail(400, 'op must be pause, resume, remove or allow.');
+    const [a, b] = this.ids(viewer, rawA, rawB);
+    const c = await this.find(a, b);
+    if (!c) return fail(404, 'There is no such conversation.');
+    const role = this.role(viewer, c);
+    if (!role) return fail(403, 'Only the people in a conversation and an Admin can change its link.');
+    const cross = await this.crossOf(c, viewer);
+    if (!cross) return fail(404, 'That link is between two of your own reporters. Change it on My reporters.');
+    if (op === 'allow' && role === 'sender') return fail(403, `Only ${cross.owner} can open the link again.`);
+    const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId))!;
+    const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId))!;
+    const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' });
+    if (!out.ok) return fail(out.status, out.error);
+    await this.tell(personEnd.name, c.owner);
+    return { ok: true, link: (await this.crossOf(c, viewer))?.link ?? 'none' };
+  }
+
+  /** What the owner's answer, a drop or a delivery did to a person's message to another person's agent: the channel side moves the mention the person wrote. */
+  peerTrail(t: MessageTrail): void {
+    const m = t.message;
+    if (m.author !== 'person' || !isPersonId(m.fromSession) || nameKey(m.owner) === m.fromSession.slice('person:'.length)) return;
+    const person = m.fromSession.slice('person:'.length);
+    const update = (from: ('approval' | 'waiting')[], state: 'waiting' | 'working' | 'dropped', why: string | null) => this.core.tellAcross({ person, sessionId: m.toSession, from, state, why });
+    if (t.kind === 'approved') update(['approval'], 'waiting', null);
+    else if (t.kind === 'declined') update(['approval'], 'dropped', `${m.owner} declined it`);
+    else if (t.kind === 'delivered') update(['waiting', 'approval'], 'working', null);
+    else if (t.kind === 'dropped') update(['approval', 'waiting'], 'dropped', reasonOf({ state: 'dropped', why: t.why, owner: m.owner, toName: m.toName })?.replace(/\.$/, '') ?? null);
+    else return;
+    void this.tell(m.fromName, m.owner).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not signal', err));
+  }
+
   /** What the agent did with a text: taken is Delivered, refused is Dropped. An agent that ended drops its queued messages itself. */
   private followed(sessionId: string, id: string, out: DeliveryOutcome): void {
     const result = out.kind === 'took' ? 'took' : out.kind === 'not-delivered' ? 'refused' : null;
@@ -244,17 +388,21 @@ export class DirectChat {
       .catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be updated', err));
   }
 
-  /** Delete conversation: the messages and the row go; the link and its rights stay. */
+  /** Delete conversation: the messages and the row go; the link and its rights stay. Either person of a conversation across owners may. */
   async remove(viewer: ChatViewer, rawA: string, rawB: string): Promise<{ ok: true; removed: number } | Fail> {
-    if (viewer.personId === null) return fail(403, 'Only the person who owns a conversation can delete it.');
+    if (viewer.personId === null) return fail(403, 'Only the people in a conversation can delete it.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
     if (!c) return fail(404, 'There is no such conversation.');
-    if (nameKey(c.owner) !== nameKey(viewer.name)) return fail(403, 'Only its owner can delete a conversation.');
-    const removed = await this.peers.deleteConversation(viewer.name, a, b);
+    const role = this.role(viewer, c);
+    if (role !== 'owner' && role !== 'sender') return fail(403, 'Only the people in a conversation can delete it.');
+    const removed = await this.peers.deleteConversation(c.owner, a, b);
     await this.core.store.readState.forget(dmThread(a, b));
-    this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(viewer.name), by: viewer.actor, a, b, count: removed });
-    this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
+    this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });
+    this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    if (person && role === 'sender') this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
+    else if (person && nameKey(person.name) !== nameKey(c.owner)) this.core.signal({ scope: 'dm', owner: nameKey(person.name) });
     return { ok: true, removed };
   }
 

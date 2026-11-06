@@ -21,6 +21,13 @@ export function linkKey(a: string, b: string): string {
   return a <= b ? `${a}|${b}` : `${b}|${a}`;
 }
 
+/**
+ * A person's end of a link (#1034): `person:<name, folded>`. A link joins two reporters, but when one person writes to another person's agent the
+ * link joins that person to the agent's reporter, and `from` is this key. Such a row is owned by the agent's owner, who answers for it; the person
+ * may pause or remove it too, and neither may do more than that to the other.
+ */
+export const isPersonKey = (k: string): boolean => k.startsWith('person:');
+
 /** Whether a level allows sending, and how. */
 export const canSee = (l: PeerLevel): boolean => l !== 'none';
 export const canSend = (l: PeerLevel): boolean => l === 'ask' || l === 'send';
@@ -115,6 +122,12 @@ export interface EffectiveRight {
   paused: boolean;
 }
 
+/** The most messages one person may have waiting for one owner's approval (#1034), so a flood cannot fill an owner's list. */
+export const CROSS_PENDING_MAX = 5;
+
+export type PersonLinkOp = 'allow' | 'pause' | 'resume' | 'remove';
+export const PERSON_LINK_OPS: readonly PersonLinkOp[] = ['allow', 'pause', 'resume', 'remove'];
+
 export interface PeerRequestRow {
   id: string;
   owner: string;
@@ -141,7 +154,7 @@ export interface PeerRequestRow {
  * reporters matches it to a Grid cell even when two machines share a name, and the message it is about. The mod's
  * `peerRequests` keep the protocol's shape.
  */
-export type OwnerRequestView = PeerRequest & { fromKey: string; toKey: string; messageId: string | null };
+export type OwnerRequestView = PeerRequest & { fromKey: string; toKey: string; messageId: string | null; /** The request is a person's message to this owner's agent (#1034): `fromKey` is `person:<name>`, not a reporter. */ fromPerson: boolean };
 
 /** What answering a request did. For a message, the message store acts on `message`. */
 export type AnswerOutcome =
@@ -178,6 +191,14 @@ export interface PeerRightsApi {
   removeLink(owner: string | null, a: string, b: string, actor: Actor): { ok: true } | Refusal;
   /** An Admin's Pause all links (or resume) for one reporter: every link it is in, at once, under Trust too. */
   pauseReporter(key: string, paused: boolean, actor: Actor): { ok: true; links: number } | Refusal;
+  /** The link from a person (`person:<name>`) to an agent's reporter, or null when there is none. A `none` row is a removed link: it holds, so the person cannot ask again by writing again. */
+  personLink(personKey: string, toKey: string): RightRow | null;
+  /**
+   * Changes the link between a person and another person's reporter (#1034): `allow` opens it (sending without approval), `pause` and `resume` hold and
+   * release what goes over it, `remove` leaves a removed link. It never lets a person touch their own reporters, and it is refused (403) for a reporter
+   * on the admin secret. Who may ask (the reporter's owner, the person, an Admin) is the caller's check.
+   */
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): { ok: true; right: RightRow | null } | Refusal;
 
   /** An Admin proposes a right; it applies only when the owner accepts it. No default accepts it. */
   propose(from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; request: PeerRequestRow } | Refusal;
@@ -223,6 +244,7 @@ export const isIdle = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>): bool
 /** What the message store needs from the rights store: a narrow view, so either can be tested alone. */
 export interface PeerRightsView {
   effective(from: string, to: string): EffectiveRight;
+  personLink: PeerRightsApi['personLink'];
   limits(owner: string): PeerLimits;
   openMessageRequest: PeerRightsApi['openMessageRequest'];
   closeMessageRequest: PeerRightsApi['closeMessageRequest'];
@@ -279,6 +301,15 @@ export interface PersonMessageInput {
   toSession: string;
   /** The other agent of the conversation the person is adding to; absent for the person's own conversation with `toSession`. */
   withSession?: string;
+  text: string;
+}
+
+/** What a person writes to another person's agent (#1034). It is held for the agent's owner unless the owner has opened a link to the person. */
+export interface AcrossInput {
+  /** The person's name as shown. */
+  person: string;
+  /** The agent that would get it. */
+  toSession: string;
   text: string;
 }
 
@@ -358,6 +389,7 @@ export type RightsTrail =
   | { kind: 'set'; right: RightRow | { from: string; to: string; owner: string; level: 'none' }; actor: Actor }
   | { kind: 'paused' | 'resumed'; owner: string; a: string; b: string; actor: Actor }
   | { kind: 'removed'; owner: string; a: string; b: string; actor: Actor }
+  | { kind: 'person-link'; op: PersonLinkOp; owner: string; person: string; toKey: string; actor: Actor }
   | { kind: 'proposed'; request: PeerRequestRow; actor: Actor }
   | { kind: 'access-requested'; request: PeerRequestRow }
   | { kind: 'accepted' | 'declined'; request: PeerRequestRow; actor: Actor }
@@ -407,9 +439,15 @@ export interface PeerMessagesApi {
   sendFromPerson(input: PersonMessageInput): MessageRow | Refusal;
   /** One page of the owner's conversation, the newest page first; `before` is the `older` of the page after it. A cursor that was not given out throws. */
   page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): MessagePage;
+  /**
+   * A person writes to an agent of another person (#1034). Stored `approval` with a request for the agent's owner when no link is open, `ready` when one
+   * is, and refused when the link was removed or is paused, when a message from this person already waits for the owner, or when the person already has
+   * too many waiting at this owner. Everything it says names only the agent written to, never another of the owner's.
+   */
+  sendAcross(input: AcrossInput): MessageRow | Refusal;
   /** Deletes the owner's messages of one conversation. Returns how many. */
   deleteConversation(owner: string, a: string, b: string): number;
-  /** The owner's conversations, newest first, hidden ones only when `includeHidden`. */
+  /** The conversations `owner` owns, newest first, hidden ones only when `includeHidden`; and those `owner` took part in as the person who wrote to another person's agent (#1034). Never another person's other conversations. */
   ownerConversations(owner: string, opts?: { includeHidden?: boolean }): OwnerConversation[];
   /** Hides the owner's conversation (every agent in it has left), keeping its messages. Returns how many it marked; 0 when it is hidden already. */
   hideConversation(owner: string, a: string, b: string): number;

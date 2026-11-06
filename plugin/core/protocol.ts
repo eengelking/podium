@@ -595,6 +595,11 @@ export interface PeerParty {
   owner: string;
   /** The sender's short session id, for `name@machine#id`; absent from a server older than #500. */
   id?: string;
+  /**
+   * True when `name` is a person, not an orchestrator (#1034): another person who wrote to this one's agent through Podium Chat, with their owner's say-so.
+   * Then `machine` is empty and `owner` is the person who owns this session, so the frame can say the text is not theirs.
+   */
+  person?: boolean;
 }
 
 /**

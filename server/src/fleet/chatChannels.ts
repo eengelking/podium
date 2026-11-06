@@ -5,7 +5,7 @@ import { nameKey } from '../storage/rows.js';
 import { peerShortId, type LiveOrchestrator } from './peerTypes.js';
 import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
-import { ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
+import { ChatCore, type AcrossUpdate, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import {
   CHANNEL_NAMES, GLOBAL_SCOPE, fail, groupScope, groupThread, personScope, publicThread, type ChannelId, type ChatViewer, type Fail,
 } from './chatTypes.js';
@@ -260,13 +260,20 @@ export class ChannelChat {
     const framed = `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${viewer.name} wrote:\n${checked.text}`;
     const inputs: NonNullable<ChannelPostInput['mentions']> = [];
     const sentTo = new Map<number, { sessionId: string; deliveryId: string }>();
+    // An @ of another person's agent (#1034) is a request for that agent's owner. It is made after the message is stored, so a message that fails to store leaves no request behind.
+    const across: { index: number; o: LiveOrchestrator }[] = [];
     for (const p of planned) {
       let input = p.input;
       const o = p.deliver;
       if (o) {
         const flags = await this.bindingFlags(channel, owner, o.owner);
         if (nameKey(o.owner) !== nameKey(viewer.name) && !viewer.admin) {
-          input = { ...input, state: 'not-delivered', why: "it is another person's agent, and Podium does not yet hand it text that is not its own person's" };
+          if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${o.name}'s person` };
+          else if (flags.paused) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is paused for ${o.name}'s person, so Podium did not ask them` };
+          else {
+            across.push({ index: inputs.length, o });
+            input = { ...input, state: 'approval', why: `Waiting for ${o.owner} to approve` };
+          }
         } else if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${o.name}'s person` };
         else if (flags.paused) input = { ...input, state: 'held', why: `${CHANNEL_NAMES[channel]} is paused` };
         else {
@@ -300,9 +307,43 @@ export class ChannelChat {
       return fail(400, (err as Error).message);
     }
     for (const [index, sent] of sentTo) this.follow(channel, owner, message.id, index, sent.deliveryId, sent.sessionId);
+    for (const x of across) await this.askAcross(viewer, channel, owner, message, x, checked.text, warnings);
     await this.afterPost(channel, owner, viewer.name, planned);
     this.core.onEvent({ kind: 'sent', channel, owner, by: viewer.actor, messageId: message.id, sessionId: null });
     return { ok: true, message, warnings };
+  }
+
+  /** Asks the agent's owner, through the direct-message side, and moves the mention the person wrote to what came of it. */
+  private async askAcross(viewer: ChatViewer, channel: ChannelId, owner: string | null, message: ChannelMessage, x: { index: number; o: LiveOrchestrator }, text: string, warnings: string[]): Promise<void> {
+    const asked = this.core.across ? await this.core.across(viewer, x.o.sessionId, text, { rate: false }) : null;
+    const patch: { state: MentionState; why: string | null } = asked?.ok
+      ? asked.state === 'approval'
+        ? { state: 'approval', why: `Waiting for ${asked.owner} to approve` }
+        : { state: 'waiting', why: null }
+      : { state: 'not-delivered', why: asked ? asked.error : "Podium cannot hand this agent a message from another person" };
+    if (!asked?.ok) warnings.push(`${x.o.name}: ${patch.why}`);
+    if (patch.state !== 'approval') {
+      await this.handle(channel, owner).setMention(message.id, x.index, patch);
+      const m = message.mentions[x.index];
+      if (m) message.mentions[x.index] = { ...m, ...patch, stateAt: this.core.host.now() };
+    }
+  }
+
+  /** What became of a person's message to another person's agent (#1034): the oldest mention of that agent in General by that person, in one of the states it may move from, moves. */
+  async acrossUpdate(u: AcrossUpdate): Promise<void> {
+    const h = this.handle('general', null);
+    let before: string | null = null;
+    const found: { message: ChannelMessage; index: number }[] = [];
+    for (let i = 0; i < HELD_PAGES; i++) {
+      const page: ChannelPage = await h.page({ before, limit: HELD_PAGE });
+      found.unshift(...page.messages.flatMap((message) => (message.authorKind === 'person' && nameKey(message.authorRef) === u.person ? message.mentions.flatMap((m, index) => (m.sessionId === u.sessionId && u.from.includes(m.state) ? [{ message, index }] : [])) : [])));
+      if (!page.older) break;
+      before = page.older;
+    }
+    const hit = found[0];
+    if (!hit) return;
+    await h.setMention(hit.message.id, hit.index, { state: u.state, why: u.why });
+    this.core.signal({ scope: 'public', owner: null });
   }
 
   /** What becomes of a delivered mention moves its state: taken is working, refused is not delivered, a drop is dropped. */

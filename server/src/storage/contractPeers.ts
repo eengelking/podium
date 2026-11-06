@@ -337,4 +337,116 @@ export function peerCases(o: Openers): void {
     expect((t.get('the other conversation') as { text: string }[]).map((x) => x.text)).toEqual(['to gamma']);
     expect((t.get('conversations') as unknown[]).length).toBe(1);
   });
+  it("agrees on every adapter for a person writing to another person's agent: the request, the link it opens, pausing, removing and the refusals (#1034)", async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b, c } = await setUp(s, clock);
+      // Three more agents of ed on box-a, so a flood can pass the cap on what one person may have waiting.
+      for (const n of [1, 2, 3, 4]) {
+        await s.fleet.upsertSession(session({ id: `sx${n}`, owner: 'ed' }));
+        await peers.note(`sx${n}`, a, 'ed', waiting(`extra${n}`, 'box-a'));
+      }
+      const m = peers.messages;
+      await rec('empty', m.sendAcross({ person: 'Eve', toSession: 'sb', text: ' ' }));
+      await rec('nobody by that id', m.sendAcross({ person: 'Eve', toSession: 'nope', text: 'hi' }));
+      await rec('too long', m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'x'.repeat(20_001) }));
+      await rec("the person's own agent", m.sendAcross({ person: 'Ed', toSession: 'sb', text: 'hi' }));
+      const first = await rec('first message waits for approval', m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'hello beta' }));
+      await rec('the same agent again while it waits', m.sendAcross({ person: 'EVE', toSession: 'sb', text: 'hello again' }));
+      await rec('a request is open', peers.rights.openRequests('ed'));
+      await rec('nothing is handed over yet', peers.replyFor('sb', true));
+      await rec('eve list', m.ownerConversations('eve'));
+      await rec('ed list', m.ownerConversations('ed'));
+      await rec('a third person list', m.ownerConversations('zed'));
+      await rec('owner read', m.page('ed', 'person:eve', 'sb', { limit: 10 }));
+      await rec('reporters grid leaves the person out', peers.rights.rightsOf('ed'));
+      // The flood: five waiting at one owner, then refused.
+      for (const to of ['sa', 'sc', 'sx1', 'sx2']) await rec(`waiting for ${to}`, m.sendAcross({ person: 'Eve', toSession: to, text: `hi ${to}` }));
+      await rec('past the cap', m.sendAcross({ person: 'Eve', toSession: 'sx3', text: 'one too many' }));
+      // A decline stores no link and tells the person's side only through the message.
+      const toC = (await peers.rights.openRequests('ed')).find((r) => r.toKey === c)!;
+      await rec('decline', peers.answer(toC.id, 'ed', 'decline', ED));
+      await rec('no link after a decline', peers.rights.personLink('person:eve', c));
+      // An agent that ends with a request open drops it.
+      await peers.ended('sa');
+      await rec('after the agent ended', m.page('ed', 'person:eve', 'sa', { limit: 10 }));
+      await rec('requests after the end', peers.rights.openRequests('ed'));
+      // An allow opens the link and delivers.
+      const toB = (await peers.rights.openRequests('ed')).find((r) => r.toKey === b)!;
+      await rec('request view', peers.ownerView('ed', T0));
+      await rec('allow', peers.answer(toB.id, 'ed', 'deliver', ED));
+      await rec('the link', peers.rights.personLink('person:eve', b));
+      await rec('effective', peers.rights.effective('person:eve', b));
+      await rec('handed over, framed as a person', peers.replyFor('sb', true));
+      await rec('taken', m.result('sb', (first as { id: string }).id, 'took'));
+      await rec('sent over the open link', m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'second' }));
+      await rec('pause', peers.setPersonLink('person:eve', b, 'pause', ED));
+      await rec('paused: refused', m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'third' }));
+      await rec('paused: nothing handed over', peers.replyFor('sb', true));
+      await rec('resume', peers.setPersonLink('person:eve', b, 'resume', ED));
+      await rec('resumed: handed over', peers.replyFor('sb', true));
+      await rec('remove', peers.setPersonLink('person:eve', b, 'remove', ED));
+      await rec('removed: refused', m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'fourth' }));
+      await rec('remove again', peers.setPersonLink('person:eve', b, 'remove', ED));
+      await rec('pause a removed link', peers.setPersonLink('person:eve', b, 'pause', ED));
+      await rec('a link to ones own agent', peers.setPersonLink('person:ed', b, 'allow', ED));
+      await rec('a link to nobody', peers.setPersonLink('person:eve', 'nope', 'allow', ED));
+      await rec('not a person', peers.setPersonLink('eve', b, 'allow', ED));
+      await rec('open it again', peers.setPersonLink('person:eve', b, 'allow', ED));
+      await rec('sent again', m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'fifth' }));
+      // The hourly sweep keeps a person's messages and an open request.
+      clock.now += 3_600_000;
+      await rec('retain', peers.retain());
+      await rec('after retain', m.page('ed', 'person:eve', 'sb', { limit: 10 }));
+      await rec('requests after retain', peers.rights.openRequests('ed'));
+      await rec('delete (the person is not the stored owner)', m.deleteConversation('eve', 'person:eve', 'sb'));
+      await rec('delete', m.deleteConversation('ed', 'person:eve', 'sb'));
+      await rec('eve list after the delete', m.ownerConversations('eve'));
+    });
+    const state = (label: string) => (t.get(label) as { state: string }).state;
+    expect(t.get('empty')).toMatchObject({ ok: false, status: 400 });
+    expect(t.get('nobody by that id')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('too long')).toMatchObject({ ok: false, status: 422 });
+    expect(t.get("the person's own agent")).toMatchObject({ ok: false, status: 422 });
+    expect(t.get('first message waits for approval')).toMatchObject({ author: 'person', fromName: 'Eve', fromSession: 'person:eve', fromKey: 'person:eve', toSession: 'sb', owner: 'ed', state: 'approval' });
+    expect(t.get('the same agent again while it waits')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('a request is open') as unknown[]).toHaveLength(1);
+    expect(t.get('a request is open')).toMatchObject([{ kind: 'message', owner: 'ed', fromKey: 'person:eve', by: 'Eve' }]);
+    expect((t.get('nothing is handed over yet') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect((t.get('eve list') as unknown[]).length).toBe(1);
+    expect((t.get('ed list') as unknown[]).length).toBe(1);
+    expect(t.get('a third person list')).toEqual([]);
+    expect((t.get('owner read') as { messages: { text: string }[] }).messages.map((x) => x.text)).toEqual(['hello beta']);
+    expect(t.get('reporters grid leaves the person out')).toEqual([]);
+    expect(t.get('past the cap')).toMatchObject({ ok: false, status: 429 });
+    expect(state('waiting for sx2')).toBe('approval');
+    expect(t.get('decline')).toMatchObject({ ok: true });
+    expect(t.get('no link after a decline')).toBeNull();
+    expect((t.get('after the agent ended') as { messages: { state: string; why: string }[] }).messages.map((x) => [x.state, x.why])).toEqual([['dropped', 'receiver-ended']]);
+    expect((t.get('requests after the end') as unknown[]).length).toBe(3);
+    expect(t.get('allow')).toMatchObject({ ok: true });
+    expect(t.get('the link')).toMatchObject({ from: 'person:eve', owner: 'ed', level: 'send', paused: false });
+    expect(t.get('effective')).toEqual({ level: 'send', paused: false });
+    const handed = (t.get('handed over, framed as a person') as { peerDeliveries: { kind: string; text: string; from: { name: string; machine: string; owner: string; person?: boolean } }[] }).peerDeliveries;
+    expect(handed.map((d) => [d.text, d.from])).toEqual([['hello beta', { name: 'Eve', machine: '', owner: 'ed', person: true }]]);
+    expect(t.get('taken')).toBe('new');
+    expect(t.get('sent over the open link')).toMatchObject({ state: 'ready', author: 'person' });
+    expect(t.get('paused: refused')).toMatchObject({ ok: false, status: 409 });
+    expect((t.get('paused: nothing handed over') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect((t.get('resumed: handed over') as { peerDeliveries: { text: string }[] }).peerDeliveries.map((d) => d.text)).toEqual(['second']);
+    expect(t.get('removed: refused')).toMatchObject({ ok: false, status: 403 });
+    expect(t.get('remove again')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('pause a removed link')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('a link to ones own agent')).toMatchObject({ ok: false, status: 403 });
+    expect(t.get('a link to nobody')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('not a person')).toMatchObject({ ok: false, status: 400 });
+    expect(t.get('sent again')).toMatchObject({ state: 'ready' });
+    expect((t.get('after retain') as { messages: unknown[] }).messages.length).toBe(3);
+    expect((t.get('requests after retain') as unknown[]).length).toBe(2);
+    expect(t.get('delete (the person is not the stored owner)')).toBe(0);
+    expect(t.get('delete')).toBe(3);
+    const left = t.get('eve list after the delete') as { a: { sessionId: string }; b: { sessionId: string } }[];
+    expect(left.some((c) => c.a.sessionId === 'sb' || c.b.sessionId === 'sb')).toBe(false);
+    expect(left.length).toBeGreaterThan(0);
+  });
 }

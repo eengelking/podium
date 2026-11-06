@@ -5,12 +5,27 @@ import { cleanPeerText } from '../storage/peerText.js';
 import { scrubStored } from '../logging/redact.js';
 import { CHAT_EVERYONE } from '../storage/features.js';
 import { nameKey } from '../storage/rows.js';
-import type { ChatSettings, ChatStoreApi, PeopleStoreApi } from '../storage/types.js';
+import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '../storage/types.js';
 import type { Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
-import { fail, type ChatEvent, type ChatHost, type ChatSignal, type Fail } from './chatTypes.js';
+import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail } from './chatTypes.js';
 
 const MINUTE = 60_000;
+
+/**
+ * What the channel side asks of the direct-message side when a person @-addresses another person's agent (#1034): the text goes to the agent's owner for
+ * approval (or over a link the owner already opened). The channel never sees a conversation; it gets only whether that worked.
+ */
+export type AcrossAsk = (viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }) => Promise<{ ok: true; state: 'approval' | 'ready'; owner: string } | Fail>;
+
+/** What became of such a message, told to the channel side so the mention the person wrote can move: the person (folded), the agent, and the states it may move from. */
+export interface AcrossUpdate {
+  person: string;
+  sessionId: string;
+  from: MentionState[];
+  state: MentionState;
+  why: string | null;
+}
 
 export interface ChatLimits extends ChatSettings {
   /** Whether @group and @everyone are allowed (the Admin's flag). */
@@ -39,6 +54,9 @@ export class ChatCore {
   onEvent: (e: ChatEvent) => void = () => {};
   /** Replaced by the routes: the names of everyone who can sign in, for the counts a post changes for all of them. */
   people: Pick<PeopleStoreApi, 'list'> | null = null;
+  /** Replaced by the Chat service: hands a person's @ of another person's agent to the direct-message side. */
+  across: AcrossAsk | null = null;
+  private readonly acrossHearers: ((u: AcrossUpdate) => void)[] = [];
   private rev = 0;
   private readonly recent = new Map<string, number[]>();
   private readonly following = new Map<string, (o: DeliveryOutcome) => void>();
@@ -48,6 +66,15 @@ export class ChatCore {
     readonly store: ChatStoreApi,
   ) {
     host.respond.watch((t) => this.onTrail(t));
+  }
+
+  /** The channel side hears what became of a person's message to another person's agent. */
+  hearAcross(fn: (u: AcrossUpdate) => void): void {
+    this.acrossHearers.push(fn);
+  }
+
+  tellAcross(u: AcrossUpdate): void {
+    for (const h of this.acrossHearers) h(u);
   }
 
   async limits(): Promise<ChatLimits> {

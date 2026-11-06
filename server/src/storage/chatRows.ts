@@ -6,7 +6,7 @@ import { nameKey } from './rows.js';
 import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState } from './types.js';
 
 export const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
-export const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped'];
+export const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
 
 /** The `settings` key that holds this server's scope, minted once. */
 export const CHAT_SCOPE_KEY = 'chat_scope';
@@ -53,7 +53,7 @@ export function checkAuthorKind(kind: string): ChatAuthorKind {
 export function mentionsOf(input: ChannelPostInput, at: number): ChannelMention[] {
   return (input.mentions ?? []).map((m) => {
     const state = m.state ?? 'waiting';
-    if (!MENTION_STATES.includes(state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held or dropped.');
+    if (!MENTION_STATES.includes(state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
     return { sessionId: m.sessionId, peerKey: m.peerKey, typed: m.typed, state, why: m.why ?? null, stateAt: at };
   });
 }
@@ -86,7 +86,7 @@ export function toChannelMessage(r: DbChannelRow): ChannelMessage {
 export function withMentionState(mentions: ChannelMention[], index: number, patch: { state: MentionState; why?: string | null }, at: number): ChannelMention[] | null {
   const current = mentions[index];
   if (!Number.isInteger(index) || !current) return null;
-  if (!MENTION_STATES.includes(patch.state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held or dropped.');
+  if (!MENTION_STATES.includes(patch.state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
   return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at } : m));
 }
 

@@ -348,14 +348,14 @@ describe('addressing with @', () => {
     expect(await logKinds(s)).toContain('chat_settings_changed');
   });
 
-  it('does not deliver a mention of another person\'s agent, and says why; the agent hears nothing', async () => {
+  it('holds a mention of another person\'s agent for that person to approve; the agent hears nothing yet (#1034)', async () => {
     const s = await world();
     const res = await say(s.edB, 'general', '@review@alex-box can you check');
     expect(res.status).toBe(201);
-    expect(res.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-alex', state: 'not-delivered' });
-    expect(res.body.message.mentions[0].why).toMatch(/another person's agent/);
+    expect(res.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-alex', state: 'approval', why: 'Waiting for Alex to approve' });
     const alexReply = await alexOne(s);
     expect(alexReply.body.deliveries ?? []).toEqual([]);
+    expect(alexReply.body.peerDeliveries ?? []).toEqual([]);
   });
 
   it('gives the person a mention badge, counts unread for others, and clears both on mark read', async () => {
@@ -537,9 +537,12 @@ describe('direct messages', () => {
     expect((await s.edB.post(`${CH}/dm/me/nobody/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
   });
 
-  it('refuses a send to another person\'s agent', async () => {
+  it('holds a send to another person\'s agent for that person to approve (#1034), and refuses one to an agent nobody has', async () => {
     const s = await world();
-    expect((await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
+    const sent = await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'hi' });
+    expect(sent.status).toBe(202);
+    expect(sent.body.message).toMatchObject({ state: 'approval', waitingFor: 'Alex', text: 'hi' });
+    expect((await s.edB.post(`${CH}/dm/me/nobody/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
   });
 
   it('shows a clear error and stores nothing at 20 waiting messages', async () => {
@@ -803,5 +806,244 @@ describe('the reporter-token routes for agents', () => {
     const third = await agentRead(s, 'sess-dev', 'group', `?before=${encodeURIComponent(second.body.older)}`);
     expect(third.body.older).toBeNull();
     expect((await agentRead(s, 'sess-dev', 'group', '?before=junk')).status).toBe(400);
+  });
+});
+
+describe('a person writing to another person\'s agent (#1034)', () => {
+  const MSG_FROM_ED = 'Please look at the build, Alex.';
+  /** The whole text of the post, which is what the agent is handed: the @ stays in it. */
+  const FULL = `@review@alex-box ${MSG_FROM_ED}`;
+  const requestsOf = async (b: ReturnType<typeof request.agent>) => ((await b.get('/api/fleet/respond/peers')).body.requests ?? []) as { id: string; kind: string; fromPerson: boolean; fromKey: string; from: { name: string | null; machine: string }; text: string | null }[];
+  const answer = (b: ReturnType<typeof request.agent>, id: string, a: 'deliver' | 'decline') => b.post(`/api/fleet/respond/peers/requests/${id}`).set(H).send({ answer: a });
+  const dmPath = '/dm/me/sess-alex';
+  const mention = async (w: W) => (await read(w.edB, 'general')).body.messages.at(-1).mentions[0] as { state: string; why: string | null; sessionId: string };
+  const thread = (b: ReturnType<typeof request.agent>, path = `${CH}/dm/me/sess-alex/messages`) => b.get(path);
+  const link = (b: ReturnType<typeof request.agent>, op: string, path = `${CH}/dm/me/sess-alex/link`) => b.put(path).set(H).send({ op });
+  /** Alex's agent reports idle and says what it was handed, as the mod does. */
+  const handed = async (w: W) => ((await alexOne(w)).body.peerDeliveries ?? []) as { id: string; kind: string; text: string; from: { name: string; machine: string; owner: string; person?: boolean } }[];
+  const took = (w: W, id: string, result: 'took' | 'queued') => request(w.app).post(`/api/fleet/sessions/sess-alex/peers/deliveries/${id}/result`).set('X-Podium-Token', w.alex.token).send({ result });
+
+  it('shows the owner a request in My reporters, and the sender "Waiting for Alex to approve"', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    expect(await mention(w)).toMatchObject({ state: 'approval', why: 'Waiting for Alex to approve' });
+    const reqs = await requestsOf(w.alexB);
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]).toMatchObject({ kind: 'message', fromPerson: true, fromKey: 'person:ed', from: { name: 'Ed', machine: 'Podium Chat' } });
+    expect(reqs[0]!.text).toBe(FULL);
+    expect(await requestsOf(w.edB)).toEqual([]);
+    expect((await w.alexB.get(CH)).body.approvals).toBe(1);
+    expect((await w.edB.get(CH)).body.approvals).toBe(0);
+  });
+
+  it('opens a link on Allow and hands the text over framed as a person\'s, then moves the mention to working', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    const id = (await requestsOf(w.alexB))[0]!.id;
+    expect((await answer(w.alexB, id, 'deliver')).status).toBe(200);
+    await w.fleet.flush();
+    expect(await mention(w)).toMatchObject({ state: 'waiting', why: null });
+    const got = await handed(w);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ kind: 'message', text: FULL, from: { name: 'Ed', machine: '', owner: 'Alex', person: true } });
+    expect((await took(w, got[0]!.id, 'queued')).status).toBe(200);
+    expect((await took(w, got[0]!.id, 'took')).status).toBe(200);
+    await settle();
+    expect(await mention(w)).toMatchObject({ state: 'working' });
+    // A second message goes straight over the open link, with no new request.
+    await say(w.edB, 'general', '@review@alex-box and the tests too');
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    expect(await mention(w)).toMatchObject({ state: 'waiting' });
+    expect((await handed(w)).map((d) => d.text)).toEqual(['@review@alex-box and the tests too']);
+  });
+
+  it('makes the conversation a Direct Message both owners read, an Admin reads, and nobody else', async () => {
+    const w = await world();
+    const zed = await w.people.createPerson('Zed');
+    const zedB = await signedIn(w, 'Zed', zed.token);
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    const asEd = await thread(w.edB);
+    expect(asEd.status).toBe(200);
+    expect(asEd.body.messages.map((m: { text: string; state: string }) => [m.text, m.state])).toEqual([[FULL, 'approval']]);
+    expect(asEd.body.cross).toMatchObject({ person: 'Ed', owner: 'Alex', link: 'waiting', viewerIs: 'sender' });
+    const asAlex = await thread(w.alexB, `${CH}/dm/person:ed/sess-alex/messages`);
+    expect(asAlex.status).toBe(200);
+    expect(asAlex.body.cross).toMatchObject({ viewerIs: 'owner' });
+    expect(asAlex.body.messages[0].text).toBe(FULL);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const asAdmin = await thread(admin, `${CH}/dm/person:ed/sess-alex/messages`);
+    expect(asAdmin.status).toBe(200);
+    expect(asAdmin.body.cross).toMatchObject({ viewerIs: 'admin' });
+    expect((await link(admin, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
+    expect((await admin.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
+    // A third person: 403 on the thread, nothing in the list, and no way to touch it.
+    expect((await thread(zedB, `${CH}/dm/person:ed/sess-alex/messages`)).status).toBe(403);
+    expect(JSON.stringify((await zedB.get(CH)).body.directs)).toBe('[]');
+    expect((await link(zedB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(403);
+    expect((await zedB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).status).toBe(403);
+    expect((await zedB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(403);
+    // Both list it.
+    expect((await w.edB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['sender']);
+    expect((await w.alexB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['owner']);
+    // The owner cannot send into someone else's conversation as if it were their own.
+    expect((await w.alexB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'reply' })).status).toBe(409);
+  });
+
+  it('drops the message and tells the sender why when the owner denies it, and opens no link', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    expect((await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'decline')).status).toBe(200);
+    await w.fleet.flush();
+    expect(await mention(w)).toMatchObject({ state: 'dropped', why: 'Alex declined it' });
+    const t = await thread(w.edB);
+    expect(t.body.messages[0]).toMatchObject({ state: 'declined', reason: 'Alex declined it.' });
+    expect(t.body.cross.link).toBe('none');
+    expect(await handed(w)).toEqual([]);
+    // The person may ask again: a denial is not a removed link.
+    await say(w.edB, 'general', `@review@alex-box once more`);
+    expect(await mention(w)).toMatchObject({ state: 'approval' });
+  });
+
+  it('makes a second @ of the same agent while one waits create no second request', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box first`);
+    const again = await say(w.edB, 'general', `@review@alex-box second`);
+    expect(again.body.message.mentions[0]).toMatchObject({ state: 'not-delivered' });
+    expect(again.body.message.mentions[0].why).toMatch(/still waits for Alex to approve/);
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+    const dm = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'third' });
+    expect(dm.status).toBe(409);
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+  });
+
+  it('refuses with the reason after the owner removes the link, and the owner can open it again', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    const out = await link(w.alexB, 'remove', `${CH}/dm/person:ed/sess-alex/link`);
+    expect(out.body).toMatchObject({ ok: true, link: 'removed' });
+    const again = await say(w.edB, 'general', '@review@alex-box are you there');
+    expect(again.body.message.mentions[0]).toMatchObject({ state: 'not-delivered' });
+    expect(again.body.message.mentions[0].why).toMatch(/Alex removed the link/);
+    const dm = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'hello?' });
+    expect(dm.status).toBe(403);
+    expect(dm.body.error).toMatch(/Alex removed the link/);
+    expect((await thread(w.edB)).body.cross.link).toBe('removed');
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    // Only the owner can open it again.
+    expect((await link(w.edB, 'allow')).status).toBe(403);
+    expect((await link(w.alexB, 'allow', `${CH}/dm/person:ed/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
+    expect((await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'back' })).status).toBe(202);
+  });
+
+  it('lets either owner pause and resume, and a pause blocks sends and says so', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    // The sender pauses: the owner sees it paused, and the sender is refused with the reason.
+    expect((await link(w.edB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    expect((await thread(w.alexB, `${CH}/dm/person:ed/sess-alex/messages`)).body.cross.link).toBe('paused');
+    const refused = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'while paused' });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatch(/paused/);
+    expect(await handed(w)).toEqual([]);
+    expect((await link(w.alexB, 'resume', `${CH}/dm/person:ed/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
+    expect((await handed(w)).map((d) => d.text)).toEqual([FULL]);
+    // The owner pauses: the sender hears it.
+    expect((await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).body.link).toBe('paused');
+    expect((await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'again' })).status).toBe(409);
+    expect((await link(w.edB, 'bogus')).status).toBe(400);
+  });
+
+  it('drops a request when the agent ends first, tells both sides, and closes the owner\'s request', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+    await alexOne(w, { status: 'done', waitReason: null });
+    await w.fleet.flush();
+    await settle();
+    expect(await mention(w)).toMatchObject({ state: 'dropped', why: 'review ended before it got the message' });
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const t = await thread(w.edB);
+    expect(t.body.messages[0]).toMatchObject({ state: 'dropped', reason: 'review ended before it got the message.' });
+    expect(sse.join('')).not.toContain(MSG_FROM_ED);
+  });
+
+  it('lets either owner delete the conversation, and keeps the link', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    expect((await w.alexB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).body).toMatchObject({ ok: true, removed: 1 });
+    // Gone from both lists; the thread now reads as a fresh one, since the person may write to that agent again.
+    expect((await thread(w.edB)).body).toMatchObject({ messages: [], total: 0, cross: { link: 'none' } });
+    expect((await w.edB.get(CH)).body.directs).toEqual([]);
+    const next = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'new start' });
+    expect(next.status).toBe(202);
+    expect(next.body.message.state).toBe('ready');
+    expect((await w.edB.delete(`${CH}${dmPath}`).set(H)).body).toMatchObject({ ok: true, removed: 1 });
+    expect((await w.alexB.get(CH)).body.directs).toEqual([]);
+  });
+
+  it('says nothing about the owner\'s other agents in a refusal, and shares no text with the channels or the stream', async () => {
+    const w = await world();
+    await post(w, w.alex.token, report('Alex', 'sess-secret', 'hidden-plan', BOX));
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    const again = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'x' });
+    await link(w.alexB, 'remove', `${CH}/dm/person:ed/sess-alex/link`).catch(() => undefined);
+    const refused = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'y' });
+    const gone = await w.edB.post(`${CH}/dm/me/sess-secret-nope/messages`).set(H).send({ text: 'z' });
+    for (const body of [again.body, refused.body, gone.body]) expect(JSON.stringify(body)).not.toMatch(/hidden-plan|sess-secret/);
+    // The channel read, the group, the agent routes and the stream never carry the conversation's text.
+    const seen: string[] = [];
+    for (const b of [w.edB, w.alexB]) for (const path of ['', '/channels/group/messages', '/channels/general/messages']) seen.push(JSON.stringify((await b.get(`${CH}${path}`)).body.directs ?? ''));
+    expect(seen.join('')).not.toContain(MSG_FROM_ED);
+  });
+
+  it('limits how fast a person can ask, so a flood makes no more than one request', async () => {
+    const w = await world();
+    let limited = 0;
+    for (let i = 0; i < 9; i++) {
+      const res = await say(w.edB, 'general', `@review@alex-box flood ${i}`);
+      if (res.status === 429) limited++;
+    }
+    expect(limited).toBeGreaterThan(0);
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+  });
+
+  it('still delivers the owner\'s own @ of their own agent in the normal way', async () => {
+    const w = await world();
+    const res = await say(w.alexB, 'general', '@review@alex-box do the thing');
+    expect(res.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-alex', state: 'waiting' });
+    expect(await requestsOf(w.alexB)).toEqual([]);
+  });
+
+  it('writes audit rows for the request, the answer and the link, never the text, and signals both owners with a count', async () => {
+    const w = await world();
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`);
+    await link(w.edB, 'remove');
+    await w.fleet.flush();
+    await settle();
+    const kinds = await logKinds(w);
+    expect(kinds).toEqual(expect.arrayContaining(['chat_across_requested', 'peer_sent', 'peer_approved', 'peer_person_link_opened', 'peer_person_link_paused', 'peer_person_link_removed']));
+    expect(JSON.stringify(await logRows(w))).not.toContain(MSG_FROM_ED);
+    const chats = sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!));
+    expect(chats.find((d) => d.owner === 'alex' && d.approvals === 1)).toBeTruthy();
+    expect(chats.find((d) => d.owner === 'alex' && d.approvals === 0)).toBeTruthy();
+    expect(sse.join('')).not.toContain(MSG_FROM_ED);
+  });
+
+  it('refuses a person on the admin secret, and an agent that does not take part in messaging', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await admin.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(403);
+    await alexOne(w, { peers: false });
+    const off = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'hi' });
+    expect(off.status).toBe(404);
   });
 });
