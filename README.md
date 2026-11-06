@@ -117,7 +117,7 @@ All the options, and exactly what leaves a session, are in [The reporter mod](do
 | [User guide](docs/user-guide/README.md) | Set Podium up, read the console and use Admin |
 | [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy) or turn on [built-in TLS](docs/SERVER.md#built-in-tls), and change its settings |
 | [The reporter mod](docs/REPORTER.md) | Install `podium-reporter` (in a terminal, or by [uploading the archive in the Claude desktop app on Windows 11](docs/REPORTER.md#install-in-the-claude-desktop-app-on-windows-11)), set its options and see what leaves a session |
-| [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |
+| [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Chat (which replaced Traffic), troubleshooting and an end-to-end test |
 | [Session recording and replay](docs/REPLAY.md) | Record a session whole and play it back: the three yes answers, what is and is not captured, the notice, retention, limits and who can read it |
 | [Gotchas](docs/gotchas/README.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/gotchas/README.md#reporters-and-machines) |
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |

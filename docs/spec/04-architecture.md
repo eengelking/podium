@@ -82,7 +82,8 @@ Containerfile, .containerignore      the server and UI as a container image (4.4
 - `FleetApp` for `#/` (the default);
 - `FleetApp` for `#/board` (the same console with the kanban board in the middle, [8.1](08-ui/08-01-what-the-ui-must-do.md));
 - `FleetApp` for `#/me/reporters` (the same console with My reporters under the top bar, [8.1](08-ui/08-01-what-the-ui-must-do.md));
-- `FleetApp` for `#/traffic` (the same console with Traffic under the top bar, [8.1](08-ui/08-01-what-the-ui-must-do.md));
+- `FleetApp` for `#/chat` (the same console with Chat in the middle, [8.1](08-ui/08-01-what-the-ui-must-do.md); it replaced Traffic in 1.6, #1034);
+- `FleetApp` for `#/traffic` (deprecated; the page redirects to Chat, and until its removal the same console with Traffic under the top bar, [8.1](08-ui/08-01-what-the-ui-must-do.md));
 - `HistoryView` for `#/history`;
 - `AdminView` for `#/admin`.
 

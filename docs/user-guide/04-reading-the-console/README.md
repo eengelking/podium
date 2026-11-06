@@ -40,6 +40,7 @@ Drag the handles between the columns to resize them.
 - [Session recording](13-session-recording.md): Turn on session recording and know which three switches must all be on.
 - [My reporters](14-my-reporters.md): See your reporters and choose which of them may see and message each other.
 - [Traffic](15-traffic.md): Read the traffic map of which orchestrators message which, and what they said.
+- [Chat](16-chat.md): Talk with your orchestrators and subagents in channels and Direct Messages, address them with @, and read what they say to each other.
 - [History](16-history.md): Look up the sessions that ended on a day you pick, with their agent detail.
 - [What the numbers mean](17-what-the-numbers-mean.md): Look up how cost and the other numbers on the console are worked out.
 <!-- entries:end -->

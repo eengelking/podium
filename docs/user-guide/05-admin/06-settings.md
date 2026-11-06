@@ -40,7 +40,13 @@ These settings apply to every browser and stay after a restart.
   other, only between that person's own machines, once each machine's podium-reporter has its `peers` option on and the
   owner has given the pair a right on [My reporters](../04-reading-the-console/14-my-reporters.md). It needs authentication on. Turned on, it adds an
   **Orchestrator messaging** section here, a Messaging section on each reporter, [My reporters](../04-reading-the-console/14-my-reporters.md) and
-  [Traffic](../04-reading-the-console/15-traffic.md).
+  [Chat](../04-reading-the-console/16-chat.md). Chat has its own switch, below. ([Traffic](../04-reading-the-console/15-traffic.md) is deprecated.)
+- **Address @group and @everyone in Chat** (`chat-everyone`) is off by default and needs Orchestrator messaging on. Turned on, a
+  message in [Chat](../04-reading-the-console/16-chat.md) can address `@group` (every agent in the sender's group) or `@everyone`.
+  Turned off, a message that uses either is refused and nothing is sent. Addressing one agent as `name@location` is always allowed.
+  Chat's limits (how many days a channel keeps its messages, how long a Direct Message with no agents left is kept, the longest
+  message and the posts a minute) are settings in the Admin API (`chat`, [SPEC 7.1](../../spec/07-server/07-01-endpoints.md)); this page has no
+  boxes for them yet.
 
 - **Session recording** (`session-recording`) is off by default. It lets the owner of a session, or an Admin, record the
   session whole and replay it (see [Session recording](../04-reading-the-console/13-session-recording.md)). It needs authentication on, and the switch is
