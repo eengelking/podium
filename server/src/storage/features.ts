@@ -48,6 +48,9 @@ export const UPDATE_CHECK = 'update-check';
 /** Session recording (#353): a session's owner, or an Admin, records what an orchestrator and its agents do. Off until the Admin turns it on, and never on without a token. */
 export const SESSION_RECORDING = 'session-recording';
 
+/** Addressing @group and @everyone in Chat (#1034): off until an Admin turns it on, and a message that uses either is refused while it is off. */
+export const CHAT_EVERYONE = 'chat-everyone';
+
 export const FEATURES: readonly FeatureDef[] = [
   {
     id: ACTIVITY_FEED,
@@ -81,6 +84,13 @@ export const FEATURES: readonly FeatureDef[] = [
     name: 'Orchestrator messaging',
     description:
       "Lets a person's orchestrators find and message each other, on the machines they choose, through this server. Only between one person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the right on My reporters.",
+    defaultOn: false,
+  },
+  {
+    id: CHAT_EVERYONE,
+    name: 'Address @group and @everyone in Chat',
+    description:
+      'Lets a message in Chat address @group (every orchestrator in the sender\'s group) or @everyone (everyone signed in). Off, a message that uses either is refused and nothing is sent. Addressing one agent as name@location is always allowed. Needs Orchestrator messaging on.',
     defaultOn: false,
   },
   {

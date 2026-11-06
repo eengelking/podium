@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { jsonBody } from '../jsonBody.js';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
-import type { ActivityHistoryApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
+import type { ActivityHistoryApi, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
@@ -50,6 +50,8 @@ export interface AdminRouterOptions {
   reporters?: ReporterStoreApi;
   /** Orchestrator messaging (#347): the limits, a reporter's links, proposals, Pause all links and the conversations. */
   peers?: PeerStoreApi;
+  /** The Chat limits (#1034): kept in the settings table. Without it the Chat settings are not offered. */
+  chat?: ChatSettingsApi;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistoryApi; settings: LiveActivityHistorySettings };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
@@ -122,7 +124,7 @@ function publicPerson(p: PersonRow, groupName: string | null) {
 }
 
 export function createAdminRouter(opts: AdminRouterOptions): Router {
-  const { people, wall, prices, features, reporters, peers, storage } = opts;
+  const { people, wall, prices, features, reporters, peers, chat, storage } = opts;
   const now = opts.now ?? Date.now;
   const idleMs = opts.idleMs ?? ADMIN_IDLE_MS;
   const maxFails = opts.maxFails ?? 5;
@@ -692,6 +694,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       modelPrices: prices?.view() ?? { asOf: PRICES_AS_OF, models: [] },
       forgetReporters: (await reporters?.forgetSetting()) ?? { enabled: false, days: 30 },
       ...(peers ? { peerMessaging: await peers.settings.get() } : {}),
+      ...(chat ? { chat: await chat.get() } : {}),
       ...(history ? { activityHistory: await activityState(history) } : {}),
       ...(rec ? { recording: await recordingState(rec) } : {}),
     });
@@ -733,6 +736,15 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       const v = out.settings;
       await audit(req, 'peer_limits_changed', `Orchestrator messaging limits: ${v.roundTrips} round trips, ${v.perMinute} a minute, ${v.maxChars} characters, kept ${v.retainDays} days`, { ...v });
       return void res.json({ ok: true, peerMessaging: v });
+    }
+    if ('chat' in body) {
+      const p = body.chat;
+      if (!chat || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'chat must give retainDays, graceHours, maxChars and/or perMinute' });
+      const out = await chat.set(p);
+      if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
+      const v = out.settings;
+      await audit(req, 'chat_settings_changed', `Chat limits: kept ${v.retainDays} days, hidden conversations kept ${v.graceHours} hours, ${v.maxChars} characters, ${v.perMinute} posts a minute`, { ...v });
+      return void res.json({ ok: true, chat: v });
     }
     if ('activityHistory' in body) {
       const p = body.activityHistory;

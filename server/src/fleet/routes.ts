@@ -13,6 +13,7 @@ import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
 import { mountRespondRoutes, replyFor, type RespondAccess } from './respondRoutes.js';
+import { mountChatAgentRoutes, mountChatBrowserRoutes } from './chatRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
 import { mountRecordingBrowserRoutes, mountRecordingRoutes, recordingEnabled, wireRecordingLogs } from './recordingRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -551,6 +552,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   // Orchestrator messaging (#347): the mod's routes here, the owner's on responding's browser router below.
   const peerDeps: PeerDeps = { fleet, token: opts.token ?? null, people: opts.people ?? null, logger, requireToken, identityOf };
   mountPeerRoutes(router, peerDeps);
+  mountChatAgentRoutes(router, peerDeps);
 
   // Session recording (#353): the mod's batch route here, the owner's and the Admin's on responding's browser router below.
   wireRecordingLogs(fleet, opts.people ?? null, logger);
@@ -571,6 +573,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     alsoSignIn: () => peersEnabled(fleet, opts.token ?? null) || recordingEnabled(fleet, opts.token ?? null),
     extendBrowser: (browser, h) => {
       mountPeerBrowserRoutes(browser, peerDeps, h);
+      mountChatBrowserRoutes(browser, peerDeps, h);
       mountRecordingBrowserRoutes(browser, peerDeps, h);
     },
   });
