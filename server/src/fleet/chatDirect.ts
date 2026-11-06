@@ -440,8 +440,8 @@ export class DirectChat {
       const who = cross.pausedBy === 'sender' ? cross.person : cross.pausedBy === 'owner' ? cross.owner : 'An Administrator';
       return fail(403, cross.pausedBy === 'admin' ? 'An Administrator paused this link, so only an Administrator can resume it.' : `${who} paused this link, so only ${who} can resume it.`);
     }
-    // An Admin's pause stays an Admin's: pausing again does not take it over.
-    if (op === 'pause' && cross.pausedBy === 'admin' && role !== 'admin') return { ok: true, link: cross.link };
+    // A pause stays with whoever made it: pausing again does not take it over, so the one who paused can still resume it. Only an Admin's pause replaces another's.
+    if (op === 'pause' && cross.link === 'paused' && role !== 'admin') return { ok: true, link: cross.link };
     const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' }, op === 'pause' ? role : undefined);
     if (!out.ok) return fail(out.status, out.error);
     if (role === 'admin' && (op === 'pause' || op === 'resume') && (op === 'pause') !== (cross.link === 'paused')) await this.stoppedLink(viewer, c, op);
@@ -542,6 +542,11 @@ export class DirectChat {
   async sessionChanged(sessionId: string, owner: string): Promise<void> {
     await this.reconcileOwner(owner, sessionId);
     this.core.signal({ scope: 'dm', owner: nameKey(owner) });
+  }
+
+  /** A session reported: its hidden conversations come back. `reconcileOwner` signals the consoles only when one did. */
+  async sessionSeen(sessionId: string, owner: string): Promise<void> {
+    await this.reconcileOwner(owner, sessionId);
   }
 
   /** Every owner's conversations, against the live set now: at start and hourly, for what changed while the server was down. */

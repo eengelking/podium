@@ -1118,6 +1118,17 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await crossOf(w.edB)).toMatchObject({ link: 'open', pausedBy: null });
   });
 
+  it('keeps a pause with whoever made it: pausing an already paused link does not take it over', async () => {
+    const w = await world();
+    await openLink(w);
+    expect((await link(w.edB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    // The owner pauses again: nothing changes, so the sender who paused it can still resume it.
+    expect((await link(w.alexB, 'pause', L)).body).toMatchObject({ ok: true, link: 'paused' });
+    expect(await crossOf(w.edB)).toMatchObject({ link: 'paused', pausedBy: 'sender', canResume: true });
+    expect(await crossOf(w.alexB)).toMatchObject({ pausedBy: 'sender', canResume: false });
+    expect((await link(w.edB, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
+  });
+
   it('lets an Admin pause and resume any link, and only an Admin resume one an Admin paused', async () => {
     const w = await world();
     await openLink(w);

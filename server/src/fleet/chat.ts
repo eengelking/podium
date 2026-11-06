@@ -83,12 +83,12 @@ export class ChatService {
     return this.core.store.settings;
   }
 
-  /** Replaced by the routes, so a Chat event reaches the Admin log and the server log. */
   /** The callouts a session's next report reply carries for its person: an Admin read or stopped their conversation. Empty for most. Content-free. */
   adminNoticesFor(sessionId: string): AdminNotice[] {
     return this.core.notices.for(sessionId);
   }
 
+  /** Replaced by the routes, so a Chat event reaches the Admin log and the server log. */
   set onEvent(fn: (e: ChatEvent) => void) {
     this.core.onEvent = fn;
   }
@@ -187,14 +187,23 @@ export class ChatService {
 
   /** A session left the live set (ended, dropped or deleted). */
   async sessionLeft(sessionId: string, owner: string | null): Promise<void> {
+    this.seen.delete(sessionId);
     if (!owner) return;
     await this.channels.sessionLeft(sessionId, owner);
     await this.direct.sessionChanged(sessionId, owner);
   }
 
-  /** A session reported: if it is back, its hidden conversations are shown again. */
+  /** The live sessions whose hidden conversations were already shown again, so a report (every few seconds) costs a lookup and not a scan of the conversations. */
+  private readonly seen = new Set<string>();
+
+  /**
+   * A session reported: the first time since it went live (or since the server started), its hidden conversations are shown again. Only a change signals
+   * the consoles, so a routine report never wakes them.
+   */
   async sessionSeen(sessionId: string, owner: string): Promise<void> {
-    await this.direct.sessionChanged(sessionId, owner);
+    if (this.seen.has(sessionId)) return;
+    await this.direct.sessionSeen(sessionId, owner);
+    this.seen.add(sessionId);
   }
 
   /** The hourly housekeeping: conversations against the live set, then retention for both channels and the hidden conversations. */
@@ -206,6 +215,7 @@ export class ChatService {
     const directMessages = await this.direct.purge(limits.graceHours * HOUR_MS);
     // A reading's record goes with its conversation, and by the channels' retention days.
     await this.adminReads.maintain(now - limits.retainDays * DAY_MS, await this.direct.threads());
+    this.core.forgetIdle();
     if (channelMessages || directMessages) {
       this.core.onEvent({ kind: 'purged', channelMessages, directMessages });
       this.core.signal({ scope: 'public', owner: null });

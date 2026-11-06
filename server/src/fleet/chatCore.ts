@@ -103,6 +103,12 @@ export class ChatCore {
     return null;
   }
 
+  /** Forgets the people and agents whose posts are all older than the rate window, so the map does not keep a key for every session that ever posted. */
+  forgetIdle(): void {
+    const now = this.host.now();
+    for (const [who, times] of this.recent) if (times.every((t) => now - t >= MINUTE)) this.recent.delete(who);
+  }
+
   /** Tells open consoles that a thread changed. `owner` and counts are for one person's badges; there is never text. */
   signal(s: ChatSignal): void {
     this.host.signal({ ...s, rev: ++this.rev });
