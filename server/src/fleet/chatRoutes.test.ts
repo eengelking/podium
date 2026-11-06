@@ -322,6 +322,21 @@ describe('addressing with @', () => {
     expect(on.body.message.mentions.map((m: { sessionId: string }) => m.sessionId).sort()).toEqual(['sess-dev', 'sess-tester']);
   });
 
+  it('does not deliver an @everyone that an Admin turned off while it was held', async () => {
+    const s = await world();
+    const a = await adminAgent(s);
+    await a.put('/api/admin/settings').set(HA).send({ features: { 'chat-everyone': true } });
+    await s.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true });
+    await say(s.edB, 'group', '@everyone stand by');
+    await a.put('/api/admin/settings').set(HA).send({ features: { 'chat-everyone': false } });
+    const resumed = await s.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: false });
+    expect(resumed.body.delivered).toBe(0);
+    const m = (await read(s.edB, 'group')).body.messages[0].mentions[0];
+    expect(m.state).toBe('not-delivered');
+    expect(m.why).toMatch(/turned off by an Admin/);
+    expect(await deliveriesFor(s, 'tester')).toEqual([]);
+  });
+
   it('lists the Admin flag in Admin > Settings, off by default', async () => {
     const s = await world();
     const a = await adminAgent(s);
@@ -559,6 +574,36 @@ describe('direct messages', () => {
     const page = await s.edB.get(`${CH}/dm/${x}/${y}/messages`);
     expect(page.body.messages.filter((m: { text: string }) => m.text === 'carry on, both of you')).toHaveLength(1);
     expect((await s.edB.get(CH)).body.directs[0].roundTrips.used).toBe(0);
+  });
+
+  it('does not let the person\'s message count as a round trip, nor reset the cap the owner has to approve past', async () => {
+    const s = await world();
+    const a = await adminAgent(s);
+    expect((await a.put('/api/admin/settings').set(HA).send({ peerMessaging: { roundTrips: 1 } })).status).toBe(200);
+    await linkedConversation(s);
+    await s.edB.put('/api/fleet/respond/peers/rights').set(H).send({ from: LINUX.id, to: MAC.id, level: 'send' });
+    const toTester = (text: string) => request(s.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', s.ed.token).send({ to: 'Tester@ci-runner-01', text });
+    const reply = await request(s.app).post('/api/fleet/sessions/sess-tester/peers/messages').set('X-Podium-Token', s.ed.token).send({ to: 'dev@ed-mbp', text: 'agent reply' });
+    expect(reply.status).toBe(202);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    expect(key.roundTrips).toMatchObject({ used: 1, cap: 1 });
+    const [x, y] = [key.a.sessionId, key.b.sessionId];
+    expect((await s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'a word from the person' })).status).toBe(202);
+    expect((await s.edB.get(CH)).body.directs[0].roundTrips).toMatchObject({ used: 1, cap: 1 });
+    // Still over the cap after the person spoke: the next agent message waits for the owner's approval.
+    const next = await toTester('one more');
+    expect(next.body).toMatchObject({ state: 'approval', approvalWhy: 'round-trips' });
+  });
+
+  it('keeps working when a conversation is deleted while a message in it is queued', async () => {
+    const s = await world();
+    await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'queued then deleted' });
+    const [d] = await deliveriesFor(s, 'tester');
+    const key = (await s.edB.get(CH)).body.directs[0];
+    expect((await s.edB.delete(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}`).set(H)).body.removed).toBe(1);
+    const took = await request(s.app).post(`/api/fleet/sessions/sess-tester/deliveries/${d!.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took' });
+    expect(took.status).toBe(200);
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
   });
 
   it('says which agent ended and that it will not receive the message, and refuses when all have ended', async () => {

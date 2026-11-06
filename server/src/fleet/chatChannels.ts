@@ -412,6 +412,7 @@ export class ChannelChat {
   private async release(channel: ChannelId, owner: string | null, only: string | null, byName: string): Promise<number> {
     let delivered = 0;
     const h = this.handle(channel, owner);
+    const everyoneOn = (await this.core.limits()).everyone;
     for (const { message, index } of await this.held(channel, owner)) {
       const m = message.mentions[index]!;
       const target = this.retarget(m);
@@ -420,6 +421,10 @@ export class ChannelChat {
         continue;
       }
       if (only !== null && nameKey(target.owner) !== only) continue;
+      if ((m.typed === 'group' || m.typed === 'everyone') && !everyoneOn) {
+        await h.setMention(message.id, index, { state: 'not-delivered', why: `@${m.typed} was turned off by an Admin while the message was held` });
+        continue;
+      }
       const flags = await this.bindingFlags(channel, owner, target.owner);
       if (flags.paused) continue;
       if (flags.disconnected) {
