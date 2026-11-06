@@ -2,7 +2,7 @@
 // opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
 // of the agent's state when pointed at or focused, the same colors as its icon.
 import type { MouseEvent, ReactNode } from "react";
-import { channelTag, dmName, dmTag, hasLink, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { channelTag, dmName, dmSub, dmTag, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, channelMenu, dmMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
@@ -101,7 +101,7 @@ export function ChatSidebar(p: SidebarProps) {
         <ChDm />
         <span className="stack">
           <span className="nm" title={name}>{name}</span>
-          <span className="sub">{hasLink(d) ? "Two agents, and you" : "You and one agent"}</span>
+          <span className="sub">{dmSub(d)}</span>
           <TagLine tag={dmTag(d)} />
         </span>
         {d.unread > 0 && <span className="unread" aria-label={`${d.unread} new`}>{d.unread}</span>}
@@ -133,6 +133,13 @@ export function ChatSidebar(p: SidebarProps) {
           <section className="ch-sec" aria-labelledby="sec-dm">
             <h2 id="sec-dm">Direct Messages</h2>
             <ul className="ch-list">
+              {(o.approvals ?? 0) > 0 && (
+                <li className="ch-pad">
+                  <a className="ch-notice" href="#/me/reporters">
+                    {o.approvals === 1 ? "1 message from another person waits" : `${o.approvals} messages from other people wait`} for your approval in My reporters.
+                  </a>
+                </li>
+              )}
               {o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Start one from People and agents.</li>}
             </ul>
           </section>

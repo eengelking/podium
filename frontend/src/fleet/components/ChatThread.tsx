@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   channelDelivery,
   dmDelivery,
+  crossLine,
   dmName,
   mentionChip,
   messageParts,
@@ -45,7 +46,7 @@ function Text({ text }: { text: string }) {
   );
 }
 
-function Message({ m, all, me, now, paused, owner }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string }) {
+function Message({ m, all, me, now, paused, owner, across }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string; across: boolean }) {
   const c = m.channel;
   const d = m.direct;
   const mine = c ? c.mine : d ? d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase() : false;
@@ -55,7 +56,7 @@ function Message({ m, all, me, now, paused, owner }: { m: ThreadMessage; all: Th
     const target = all.find((x) => x.id === c.replyTo)?.channel;
     re = target ? (target.mine ? "you" : target.authorName) : "an earlier message";
   }
-  const dl = c ? channelDelivery(c) : dmDelivery(d!, paused, owner);
+  const dl = c ? channelDelivery(c) : dmDelivery(d!, paused, owner, undefined, across);
   const text = (c ?? d)!.text;
   return (
     <li className={`txt${mine ? " mine" : ""}${re ? " reply" : ""}`} data-testid="chat-message">
@@ -146,7 +147,7 @@ export function ChatThread(p: ThreadProps) {
   const unreadable = t.error?.status === 403 && p.sel.kind === "dm";
   const dmHead = t.head;
   const fresh = p.sel.kind === "dm" ? o.agents.find((x) => x.sessionId === (p.sel as { b: string }).b)?.name : undefined;
-  const title = p.channel ? p.channel.name : p.direct ? dmName(p.direct) : dmHead?.a && dmHead.b ? dmName({ a: dmHead.a, b: dmHead.b }) : (fresh ?? "Direct message");
+  const title = p.channel ? p.channel.name : p.direct ? dmName(p.direct) : dmHead?.a && dmHead.b ? dmName({ a: dmHead.a, b: dmHead.b, cross: dmHead.cross }) : (fresh ?? "Direct message");
   const back = (
     <button type="button" className="btn sm ch-back" onClick={p.onBack}>
       Back to the list
@@ -170,12 +171,15 @@ export function ChatThread(p: ThreadProps) {
 
   const parties: Party[] = p.direct ? [p.direct.a, p.direct.b] : dmHead?.a && dmHead.b ? [dmHead.a, dmHead.b] : [];
   const agents = parties.filter((x) => x.kind === "agent");
+  const cross = (p.direct?.cross ?? dmHead?.cross) || null;
   // A conversation between two agents has the viewer in it as the third person; one with the person has them as a party.
   const person = parties.find((x) => x.kind === "person") ?? (o.me.person ? ({ name: o.me.name } as Party) : undefined);
   const machines = [...new Set(agents.map((x) => x.machine))];
   const tag = p.channel ? channelTag(p.channel) : p.direct ? dmTag(p.direct) : null;
   const scope =
-    p.sel.kind === "channel"
+    cross && agents[0]
+      ? crossLine(cross, agents[0].name)
+      : p.sel.kind === "channel"
       ? p.sel.id === "general"
         ? "Everyone signed in to this server can read and post here."
         : "Only you and your own orchestrators, subagents and forks can read and post here."
@@ -283,7 +287,7 @@ export function ChatThread(p: ThreadProps) {
             <ol className="feed" aria-label="Messages">
               {t.messages.length === 0 && <li className="empty">No messages yet. Write the first one below.</li>}
               {t.messages.map((m) => (
-                <Message key={m.id} m={m} all={t.messages} me={o.me.name} now={p.now} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
+                <Message key={m.id} m={m} all={t.messages} me={o.me.name} now={p.now} across={cross !== null} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
               ))}
             </ol>
           </>

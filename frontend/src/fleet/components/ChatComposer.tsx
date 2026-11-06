@@ -13,6 +13,8 @@ export interface ComposerProps {
   onDraft: (v: string) => void;
   /** Why the box is off, or null. It disables the box and says why under it. */
   off: string | null;
+  /** The one word for the box's placeholder while it is off ("Paused"); the reason is the note under it. */
+  offWord?: string | null;
   note: string;
   /** An error in words, shown above the box; the draft stays. */
   error: string | null;
@@ -121,13 +123,12 @@ export function ChatComposer(p: ComposerProps) {
           id={`${uid}-msg`}
           ref={box}
           rows={2}
-          role="combobox"
           aria-autocomplete="list"
-          aria-expanded={open}
+          aria-describedby={`${uid}-note`}
           aria-controls={listId}
           aria-activedescendant={open ? `${listId}-${active}` : undefined}
           disabled={p.off !== null}
-          placeholder={p.off !== null ? "Off" : p.channel ? "Write a message. Type @ to address someone." : "Write a message."}
+          placeholder={p.off !== null ? (p.offWord ?? "Off") : p.channel ? "Write a message. Type @ to address someone." : "Write a message."}
           value={p.draft}
           data-testid="chat-box"
           onChange={(e) => {
@@ -142,7 +143,13 @@ export function ChatComposer(p: ComposerProps) {
           Send
         </button>
       </div>
-      <div className={`note${p.off !== null ? " warn" : ""}`}>{p.off ?? p.note}</div>
+      <div className={`note${p.off !== null ? " warn" : ""}`} id={`${uid}-note`}>
+        {p.off ?? p.note}
+      </div>
+      {/* The list is not a combobox's popup, so how many matches there are is said here. */}
+      <div className="vh" role="status" aria-live="polite" data-testid="chat-matches">
+        {open ? `${items.length} ${items.length === 1 ? "person or agent" : "people and agents"}. Use the arrow keys.` : ""}
+      </div>
     </div>
   );
 }

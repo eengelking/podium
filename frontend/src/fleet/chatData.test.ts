@@ -4,6 +4,11 @@ import {
   addressMatches,
   channelDelivery,
   channelTag,
+  crossLine,
+  crossNote,
+  crossOff,
+  whoWord,
+  type Cross,
   dmDelivery,
   dmKey,
   dmName,
@@ -133,12 +138,14 @@ describe("the delivery line of a channel message", () => {
 
 describe("a mention's state chip", () => {
   const m = (state: ChannelMessage["mentions"][number]["state"], why: string | null = null) => ({ typed: "Tester@ci", sessionId: "s", state, why, stateAt: 1 });
-  it("shows the address and the state, and the server's reason when it gave one", () => {
+  it("shows the address and the state word only: the reason is on the delivery line, so it is not said twice", () => {
     expect(mentionChip(m("waiting"))).toEqual({ kind: "wait", state: "waiting", text: "Tester@ci waiting" });
     expect(mentionChip(m("working"))).toEqual({ kind: "run", state: "running", text: "Tester@ci working" });
     expect(mentionChip(m("done"))).toEqual({ kind: "done", state: "done", text: "Tester@ci done" });
-    expect(mentionChip(m("held", "My group is paused"))).toEqual({ kind: "wait", state: "waiting", text: "Tester@ci held: My group is paused" });
-    expect(mentionChip(m("not-delivered", "it refused")).text).toBe("Tester@ci not delivered: it refused");
+    expect(mentionChip(m("held", "My group is paused"))).toEqual({ kind: "wait", state: "waiting", text: "Tester@ci held" });
+    expect(mentionChip(m("not-delivered", "it refused")).text).toBe("Tester@ci not delivered");
+    expect(mentionChip(m("dropped", "it ended")).text).toBe("Tester@ci dropped");
+    expect(mentionChip(m("waiting", "later")).text).toBe("Tester@ci waiting");
   });
 });
 
@@ -198,5 +205,47 @@ describe("a message's time", () => {
     const noon = new Date(2026, 9, 12, 12, 0).getTime();
     expect(stamp(new Date(2026, 9, 12, 9, 5).getTime(), noon)).toBe("09:05");
     expect(stamp(new Date(2026, 9, 9, 13, 52).getTime(), noon)).toBe("Fri 13:52");
+  });
+});
+
+const cross = (over: Partial<Cross> = {}): Cross => ({ person: "Maya", owner: "Ed", link: "open", viewerIs: "sender", ...over });
+
+describe("a conversation across owners", () => {
+  it("names the two people and the agent in one line", () => {
+    expect(crossLine(cross(), "claude-dashboard")).toBe("Maya (a person using Chat) writes to Ed's agent claude-dashboard. Only Maya, Ed and an Admin can read this.");
+  });
+  it("names who paused a link, by the role the server gives", () => {
+    expect(whoWord(cross(), "sender")).toBe("Maya");
+    expect(whoWord(cross(), "owner")).toBe("Ed");
+    expect(whoWord(cross(), "admin")).toBe("an Admin");
+  });
+  it("turns the box off for a removed link, a paused one (with who and whether the viewer can resume) and a viewer who is not the sender", () => {
+    expect(crossOff(cross({ link: "removed" }))).toEqual({ word: "Link removed", why: "The link was removed, so nothing can be sent. Only Ed can open it again." });
+    expect(crossOff(cross({ link: "removed", viewerIs: "owner" }))?.why).toBe("The link was removed, so nothing can be sent. Choose Allow again in the menu to open it.");
+    expect(crossOff(cross({ link: "paused", pausedBy: "owner", canResume: false }))).toEqual({ word: "Paused", why: "Paused by Ed: messages are held. Only Ed can resume it." });
+    expect(crossOff(cross({ link: "paused", pausedBy: "sender", canResume: true }))?.why).toBe("Paused by Maya: messages are held. Resume the link from the menu to send.");
+    expect(crossOff(cross({ link: "paused" }))?.why).toBe("Paused: messages are held. Resume the link from the menu to send.");
+    expect(crossOff(cross({ link: "paused", pausedBy: "admin", canResume: false }))?.why).toBe("Paused by an Admin: messages are held. Only an Admin can resume it.");
+    expect(crossOff(cross({ viewerIs: "owner" }))).toEqual({ word: "Read only", why: "Only Maya writes in this conversation. You can pause or remove its link from the menu." });
+    expect(crossOff(cross({ viewerIs: "admin", link: "none" }))?.why).toBe("Only Maya writes in this conversation. An Admin can pause or remove its link from the menu.");
+    expect(crossOff(cross())).toBeNull();
+    expect(crossOff(cross({ link: "waiting" }))).toBeNull();
+  });
+  it("says in the note that a message waits for the owner, and nothing when the link is open", () => {
+    expect(crossNote(cross({ link: "waiting" }))).toBe("Waiting for Ed to approve your message. It is delivered once Ed allows it.");
+    expect(crossNote(cross())).toBeNull();
+    expect(crossNote(cross({ link: "waiting", viewerIs: "owner" }))).toBeNull();
+  });
+  it("tags the row by the link's state", () => {
+    const row = (link: Cross["link"]) => dmTag(dm(person, agent("b", "B"), { cross: cross({ link }) }))?.text ?? null;
+    expect(row("removed")).toBe("Link removed");
+    expect(row("paused")).toBe("Paused");
+    expect(row("waiting")).toBe("Waiting for approval");
+    expect(row("open")).toBeNull();
+  });
+  it("says Waiting for the owner, Declined and Dropped with the server's reason", () => {
+    expect(dmDelivery(dmsg({ state: "approval", waitingFor: "Ed" }), false, "Ed", () => "x", true).text).toBe("Waiting for Ed to approve it.");
+    expect(dmDelivery(dmsg({ state: "declined", reason: "Ed declined it." }), false, "Ed", () => "13:00", true).text).toBe("Declined at 13:00: Ed declined it. It was not delivered.");
+    expect(dmDelivery(dmsg({ state: "dropped", why: "link-removed", reason: "Ed removed the link." }), false, "Ed", () => "13:00", true).text).toBe("Dropped at 13:00: Ed removed the link. It was not delivered.");
   });
 });

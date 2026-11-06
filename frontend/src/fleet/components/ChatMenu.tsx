@@ -2,17 +2,19 @@
 // buttons, and an agent's. They open on right-click and on the "..." button, move with the arrow keys, close on Escape (the
 // caller puts the focus back) and offer only what the viewer may do, as the overview's `can` flags say.
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { hasLink, dmName, type ChatChannel, type DirectInfo } from "../chatData";
+import { hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
 import { ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
-export type MenuAct = "pause-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open";
+export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open";
 
 export interface MenuItem {
   act: MenuAct;
   label: string;
   icon: ReactNode;
   danger?: boolean;
+  /** Words in place of an action the viewer may not take: the item shows, says why and does nothing. */
+  disabled?: string;
   /** An item that goes to a page is a link. */
   href?: string;
 }
@@ -24,9 +26,26 @@ export interface MenuSpec {
   why?: string;
 }
 
+/**
+ * A conversation across owners (#1034): the person who wrote and the agent's owner may each pause, resume or remove the link; only the
+ * owner (and an Admin) opens it again after a removal. A pause by someone else shows Resume link with who paused it, and does nothing.
+ */
+function crossMenu(label: string, c: Cross): MenuSpec {
+  const items: MenuItem[] = [];
+  if (c.link === "paused") {
+    const by = c.pausedBy ? whoWord(c, c.pausedBy) : null;
+    items.push({ act: "pause-link", label: "Resume link", icon: <ChPlay />, ...(c.canResume === false ? { disabled: by ? `Paused by ${by}. Only ${by} can resume it.` : "Only the one who paused it can resume it." } : {}) });
+  } else if (c.link === "open") items.push({ act: "pause-link", label: "Pause link", icon: <ChPause /> });
+  if (c.link === "open" || c.link === "paused") items.push({ act: "remove-link", label: "Remove link…", icon: <ChTrash />, danger: true });
+  if (c.link === "removed" && c.viewerIs !== "sender") items.push({ act: "allow-link", label: "Allow again", icon: <ChPlay /> });
+  items.push({ act: "delete-dm", label: "Delete conversation…", icon: <ChTrash />, danger: true });
+  return { label, items };
+}
+
 /** Pause link and Remove link are the owner's, and only for a link between two agents that still has one. */
 export function dmMenu(d: DirectInfo, owns: boolean): MenuSpec {
   const label = `Actions for ${dmName(d)}`;
+  if (d.cross) return crossMenu(label, d.cross);
   if (!owns) return { label, items: [], why: `Only ${d.owner} can pause or remove this link. An Admin can pause all of a reporter's links in Admin > Reporters.` };
   const removed = hasLink(d) && !d.canSend.aToB && !d.canSend.bToA && d.state === "active";
   const paused = d.state === "paused" || d.paused;
@@ -63,9 +82,12 @@ export function agentMenu(name: string, sessionId: string, state: StateKind, wit
 export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void; onClose: (restoreFocus: boolean) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+  const noteOnly = props.spec.items.length === 0;
   useEffect(() => {
-    items()[0]?.focus();
-  }, []);
+    // A menu with no items is a note: it takes the focus itself so the keyboard can reach and close it.
+    if (noteOnly) ref.current?.focus();
+    else items()[0]?.focus();
+  }, [noteOnly]);
   const key = (e: KeyboardEvent) => {
     const all = items();
     const at = all.indexOf(document.activeElement as HTMLElement);
@@ -88,6 +110,14 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
       all[all.length - 1]!.focus();
     }
   };
+  if (noteOnly) {
+    return (
+      // A reason with nothing to choose is not a menu: a plain note that takes the focus and closes on Escape.
+      <div className="ch-menu ch-note" role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
+        {props.spec.why}
+      </div>
+    );
+  }
   return (
     // The keys belong to the menu's own items, which take the focus.
     <div className="ch-menu" role="menu" aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
@@ -98,9 +128,12 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
             {it.label}
           </a>
         ) : (
-          <button key={it.act} type="button" role="menuitem" data-act={it.act} className={it.danger ? "dng" : undefined} onClick={() => props.onPick(it.act)}>
+          <button key={it.act} type="button" role="menuitem" data-act={it.act} className={it.danger ? "dng" : undefined} aria-disabled={it.disabled ? true : undefined} onClick={() => !it.disabled && props.onPick(it.act)}>
             {it.icon}
-            {it.label}
+            <span>
+              {it.label}
+              {it.disabled && <span className="sub">{it.disabled}</span>}
+            </span>
           </button>
         ),
       )}

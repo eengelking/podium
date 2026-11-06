@@ -18,6 +18,24 @@ describe("useMyPeers", () => {
     expect(result.current.data).toBeNull();
   });
 
+  it("reads again when the console's chat signal moves, so a person's message to an agent shows at once (#1034)", async () => {
+    const read = vi.fn(async () => READ);
+    const api = { read } as unknown as PeersApi;
+    const { rerender } = renderHook(({ rev, on }) => useMyPeers(api, on, false, rev), { initialProps: { rev: 0, on: true } });
+    await act(async () => {});
+    expect(read).toHaveBeenCalledTimes(1);
+    rerender({ rev: 0, on: true });
+    expect(read).toHaveBeenCalledTimes(1);
+    rerender({ rev: 1, on: true });
+    await act(async () => {});
+    expect(read).toHaveBeenCalledTimes(2);
+    // Off (signed out or messaging off): the signal reads nothing.
+    rerender({ rev: 1, on: false });
+    rerender({ rev: 2, on: false });
+    await act(async () => {});
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   const levels = (d: PeersRead | null) => d!.rights.map((r) => `${r.from}>${r.to}:${r.level}`).sort();
 
   /** A save that waits until the test settles it. */
