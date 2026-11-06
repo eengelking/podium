@@ -46,11 +46,27 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The Traffic page (#1034).** Announced in 1.6, removed in 1.9; `#/traffic` opens Chat. See [Deprecations](docs/DEPRECATIONS.md#the-traffic-page).
 
+### Fixed
+
+- **A refused group, person, Admin log or ignore-rule time no longer makes PostgreSQL and SQLite hand out different ids (#1039).** `createGroup`, `createPerson`, `log` and `addIgnore` now refuse a time that is not a whole number before they write anything. Before, a failed insert used up an id on PostgreSQL and not on SQLite, so the next group got id 3 on one and 2 on the other. A contract case now runs the sequence on every adapter. No screen could send such a time, so nothing a person sees changes.
+- **A running Bash call now follows the text that introduced it in the Activity feed (#899).** The Claude Code reporter stamped a step's text when the step ended, after a tool call that started while the model was still writing, so the call's row sat before its own text and, with text after it, never read as running. The text now keeps the time its step began and is listed first, and a call that starts during the step is listed right after it, then settles in place when it ends. OpenCode already lists the text before the call, from reading its code (not confirmed in a live session).
+- **A long model name no longer hides the session's name on a wall card or runs off the card (#1028).** An OpenCode model such as `lmstudio-community/qwen3-coder-30b-a3b-instruct-mlx` used to take all the room in the card's first row, so the name had none and the chip was cut at the card's edge. The model chip now shrinks and ends in an ellipsis, as it does in the Agents table, with the full id as its title. The harness badge and effort meter keep their size, and a card with a short model name looks the same. The reporter was not at fault: the card and the orchestrator page read the same name.
+
 ### Not in this release
 
 - "Send selected messages to an agent" did not ship.
 - OpenCode's `steer` delivery was evaluated (#1033) and deferred: delivery stays `queue` on both harnesses.
 - An agent posting to and reading a channel is the route shapes only (a post, and a read by cursor capped near 30,000 characters a call); the finished feature is #1035.
+
+## [1.5.1] - 2026-11-05
+
+### Fixed
+
+- **The README no longer says Podium is for Claude Code only (#1026).** The opening, the reporter section and the documentation table now say that Podium works with Claude Code and OpenCode, with a table of the two harnesses and an install section for each, including how to install the OpenCode reporter. `docs/REPORTER.md` opens the same way.
+
+### Changed
+
+- **A release now checks that all documentation is current, the README first (#1026).** The `podium-release` skill adds a step to the gate that reads `README.md` and the other user-facing pages against the code and `[Unreleased]`, and adds the same check, with the README named in the verdict, to the Haiku release check.
 
 ## [1.5.0] - 2026-11-05
 
@@ -1141,7 +1157,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/eengelking/podium/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/eengelking/podium/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/eengelking/podium/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/eengelking/podium/compare/v1.3.0...v1.3.1
