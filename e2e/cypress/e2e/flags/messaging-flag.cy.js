@@ -7,10 +7,10 @@ describe('flags: orchestrator messaging', () => {
     cy.reportAgain('tester', { peers: true });
   });
 
-  it('on: shows Traffic in the bar and My reporters for a signed-in person', () => {
+  it('on: shows Chat in the bar and My reporters for a signed-in person', () => {
     cy.signIn('Ed');
     cy.openConsole('#/');
-    cy.get('#podium-top').contains('a.btn', 'Traffic');
+    cy.get('#podium-top').contains('a.btn', 'Chat');
     cy.get('#podium-top').contains('a, button', 'My reporters');
   });
 
@@ -28,25 +28,27 @@ describe('flags: orchestrator messaging', () => {
     cy.contains('.pm-note', 'has messaging off').should('not.exist');
   });
 
-  it('off: removes Traffic and My reporters, says so on their pages and stops the data', () => {
+  it('off: removes Chat and My reporters, says so on their pages and stops the data', () => {
     cy.setFlags({ 'peer-messaging': false });
     cy.signIn('Ed');
     cy.openConsole('#/');
-    cy.get('#podium-top').contains('a.btn', 'Traffic').should('not.exist');
+    cy.get('#podium-top').contains('a.btn', 'Chat').should('not.exist');
     cy.get('#podium-top').contains('a, button', 'My reporters').should('not.exist');
-    cy.visit('/#/traffic');
+    cy.visit('/#/chat');
     cy.contains('Orchestrator messaging is off');
+    // The server refuses Chat's read while the flag is off.
+    cy.request({ url: '/api/fleet/respond/chat', failOnStatusCode: false }).its('status').should('eq', 403);
     cy.request('/api/fleet/peers/traffic?range=live').then((res) => {
       expect(res.status).to.eq(200);
       expect(res.body).to.deep.eq({ enabled: false, conversations: [] });
     });
   });
 
-  it('on again: Traffic is back without a reload', () => {
+  it('on again: Chat is back without a reload', () => {
     cy.setFlags({ 'peer-messaging': false });
     cy.openConsole('#/');
-    cy.get('#podium-top').contains('a.btn', 'Traffic').should('not.exist');
+    cy.get('#podium-top').contains('a.btn', 'Chat').should('not.exist');
     cy.setFlags({ 'peer-messaging': true });
-    cy.get('#podium-top').contains('a.btn', 'Traffic', { timeout: 20000 });
+    cy.get('#podium-top').contains('a.btn', 'Chat', { timeout: 20000 });
   });
 });

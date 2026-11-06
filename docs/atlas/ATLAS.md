@@ -72,7 +72,7 @@ to do travels back in the reply to a report.
 | Server | Routers and identity | The routes for reports, hooks, state, stream and sessions, and the code that turns a certificate or token into an owner. |
 | Server | Guard chain | Middleware that runs first on the HTTP port: Host check, security headers, the reporter HTTP gate, request log and the failed-request limiter. |
 | Server | Admin API | A separate router for people, groups, reporters, settings, feature flags, certificates, usage reports and the Admin log. |
-| Server | Messaging service | Lets one person's orchestrators on different machines find and message each other, with rights, limits and an audit trail. |
+| Server | Messaging service | Lets one person's orchestrators on different machines find and message each other, with rights, limits and an audit trail. It also carries Chat (`fleet.chat`, `ChatService`): the General and My group channels in their own tables, the Direct Messages a person can add to, and a person writing to another person's agent once that agent's owner allows it. |
 | Server | CA and certificates | Podium is its own certificate authority: it issues, renews and revokes the serving and per-person certificates, and rotates its CA. |
 | Server | Live brokers | In-memory holders for the most sensitive live data: open asks, the live activity feed and pending diff requests. A restart forgets them. |
 | Server | Logging and outside calls | Structured, redacted log events, optional shipping to VictoriaLogs, and a once-a-day check for a newer release. |
@@ -82,9 +82,9 @@ to do travels back in the reply to a report.
 | Location | Item | Description |
 |---|---|---|
 | Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`; `postgres` is the other kind, and `postgresql://` is an alias for it; each kind declares its own default target, which `postgres` does not have, and a `label()` for the log and the health check: `host:port/dbname`, never a user or password) and loads it on demand. `/health` shows that label as `dbPath` and the kind as `dbKind`. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
-| Storage | SQLite adapter (the default) | One of two adapters, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the 30 numbered migrations, one lock per connection, and both database files. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). Migration 25 adds a `seq` column to `peer_messages` and `person_certificates`, an explicit insertion order that replaces SQLite's `rowid` on a tie. Migration 27 adds `reporter_name` to `reporters`, and a reporter's key carries it for any reporter but the Claude Code one (`podium-reporter-claudecode`, or the legacy `podium-reporter` read as the same, #967), so one machine can hold a row per reporter. Migration 28 adds `harness` and `cost_source` to `sessions`: the harness a session runs under (existing rows become `claude-code`) and `harness` when its cost is the harness's own figure, which ingest keeps as it came and never reprices. Migration 29 adds `capabilities_json`, `model_label` and `model_provider` to `sessions`: what a harness declares it can report, and its model's label and provider (empty until a report declares them). Migration 30 adds `model_label` and `model_provider` to `agents`, the same two for an agent (empty for every agent stored before it). |
-| Storage | PostgreSQL adapter | The other adapter, in `server/src/storage/postgres/`, chosen when `PODIUM_DB` is a `postgres://` (or `postgresql://`) address. It implements the same `Storage` interfaces over the `pg` driver, which only this folder imports, and passes the same contract suite. It keeps two schemas in one database, each on its own pool: `podium` (10 connections) and `podium_activity` (4 connections). Transactions run one at a time through `PgDb.tx`. A session advisory lock taken at startup keeps a second server off the database. Version 1 of each schema is a baseline and a later change is a new step: `podium` has four so far, `podium_activity` none. |
-| Storage | `podium.sqlite` | The SQLite adapter's main file, reached only through the adapter: WAL mode, with the live fleet, people and certificates, reporters, messaging, daily rollups, settings and the Admin log. |
+| Storage | SQLite adapter (the default) | One of two adapters, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the 32 numbered migrations, one lock per connection, and both database files. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). Migration 25 adds a `seq` column to `peer_messages` and `person_certificates`, an explicit insertion order that replaces SQLite's `rowid` on a tie. Migration 27 adds `reporter_name` to `reporters`, and a reporter's key carries it for any reporter but the Claude Code one (`podium-reporter-claudecode`, or the legacy `podium-reporter` read as the same, #967), so one machine can hold a row per reporter. Migration 28 adds `harness` and `cost_source` to `sessions`: the harness a session runs under (existing rows become `claude-code`) and `harness` when its cost is the harness's own figure, which ingest keeps as it came and never reprices. Migration 29 adds `capabilities_json`, `model_label` and `model_provider` to `sessions`: what a harness declares it can report, and its model's label and provider (empty until a report declares them). Migration 30 adds `model_label` and `model_provider` to `agents`, the same two for an agent (empty for every agent stored before it). Migration 31 is Chat (#1034): `author` and `hidden_at` on `peer_messages` (every earlier row is an agent's) and the tables `group_messages`, `public_messages` and `chat_read_state`. Migration 32 adds `paused_by` to `peer_rights`, who paused a person's link. |
+| Storage | PostgreSQL adapter | The other adapter, in `server/src/storage/postgres/`, chosen when `PODIUM_DB` is a `postgres://` (or `postgresql://`) address. It implements the same `Storage` interfaces over the `pg` driver, which only this folder imports, and passes the same contract suite. It keeps two schemas in one database, each on its own pool: `podium` (10 connections) and `podium_activity` (4 connections). Transactions run one at a time through `PgDb.tx`. A session advisory lock taken at startup keeps a second server off the database. Version 1 of each schema is a baseline and a later change is a new step: `podium` has seven so far (steps 7 and 8 are Chat), `podium_activity` none. |
+| Storage | `podium.sqlite` | The SQLite adapter's main file, reached only through the adapter: WAL mode, with the live fleet, people and certificates, reporters, messaging and Chat, daily rollups, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file, for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
 | Storage | PostgreSQL database | The PostgreSQL adapter's database, used instead of the two SQLite files: one database with two schemas, `podium` (fleet, people, reporters, messaging, settings; a pool of 10 connections) and `podium_activity` (Activity history and recordings; a pool of 4). A session advisory lock keeps a second server off it. |
 
@@ -97,7 +97,7 @@ to do travels back in the reply to a report.
 | Console | Orchestrator page | One orchestrator in detail: plan, changed files (their diffs loaded in the background), each agent's task and answer, failures and the live activity feed. |
 | Console | Respond modal | Lets a session's owner answer a question, approve a plan or a tool call, send a message, or run `/clear` and `/compact`. |
 | Console | Admin | The Admin pages, in four groups: people and access, server, reporting, and activity. |
-| Console | Reporters, Traffic, Replay | Rights between your orchestrators, a map of messages between machines, and a recorded session played back. |
+| Console | Reporters, Chat, Replay | Rights between your orchestrators, Chat (channels, Direct Messages, people and agents, at `#/chat`), and a recorded session played back. Traffic, the old map of messages, is deprecated and `#/traffic` opens Chat. |
 
 ## The reporter's hooks and timers
 
@@ -134,6 +134,7 @@ is logged and never passed on, so a bug in Podium cannot fail a tool call.
 | Location | Item | Description |
 |---|---|---|
 | Server | Sweeper | Removes a card after a `done` report (an 8 s linger) or after reports stop (stale at 15 s, dropped 60 s later). |
+| Server | Hourly retention | Prunes stored data, and runs Chat's upkeep: Direct Messages are hidden when every agent in them has left (and shown again if the same peers return), channel messages older than 30 days are purged, and hidden Direct Messages are purged after 24 hours. The limits are the Admin settings API's `chat` block. |
 
 ## Key functions
 
@@ -233,6 +234,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `purgeActivityHistory` | Removes stored activity past its retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `purgeRecordings` | Removes recordings past their retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `class SseHub` | The open browser streams, and broadcasts to them. In `server/src/fleet/sse.ts`. |
+| Server | `SseEventName` | The stream's event names, with chat. In `server/src/fleet/sse.ts`. |
 | Server | `requireToken` | Turns a token, the admin secret or open access into an owner. In `server/src/fleet/routes.ts`. |
 | Server | `certAuth` | Checks the client certificate on every request. In `server/src/tlsClientAuth.ts`. |
 | Server | `tokenMatches` | Compares a token in constant time. In `server/src/fleet/tokens.ts`. |
@@ -245,6 +247,12 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `pair` | The same-owner rule for messaging rights. In `server/src/storage/sqlite/peerRights.ts`. |
 | Server | `class PeerMessages` | Stores, checks and hands over messages. In `server/src/storage/sqlite/peerMessages.ts`. |
 | Server | `peerReplyFor` | The messaging items that ride a report's reply. In `server/src/fleet/peerRoutes.ts`. |
+| Server | `class ChatService` | Chat's overview, read state and hourly upkeep. In `server/src/fleet/chat.ts`. |
+| Server | `mountChatBrowserRoutes` | The Chat routes under /api/fleet/respond/chat. In `server/src/fleet/chatRoutes.ts`. |
+| Server | `mountChatAgentRoutes` | An agent's routes to a channel. In `server/src/fleet/chatAgentRoutes.ts`. |
+| Server | `class ChannelChat` | General and My group. In `server/src/fleet/chatChannels.ts`. |
+| Server | `class DirectChat` | Direct Messages, across-person writes, hide and purge. In `server/src/fleet/chatDirect.ts`. |
+| Server | `class ChatCore` | The shared limits, signal and store. In `server/src/fleet/chatCore.ts`. |
 | Server | `ensureTls` | Makes or reads the CA. In `server/src/tlsCa.ts`. |
 | Server | `issueServing` | The serving certificate. In `server/src/tlsCa.ts`. |
 | Server | `issuePersonCert` | A person's client certificate. In `server/src/tlsPeople.ts`. |
@@ -288,9 +296,11 @@ code. A function's line number is on the page, not here, because it moves.
 | Storage | `migrate` | Applies the steps not yet in schema_migrations. In `server/src/storage/postgres/schema.ts`. |
 | Storage | `class PgActivityConnection` | The Activity history and recordings on their own pool. In `server/src/storage/postgres/activity.ts`. |
 | Storage | `openDb` | Opens the main file, sets WAL and applies the migrations. In `server/src/storage/sqlite/db.ts`. |
+| Storage | `chatStoreOver` | The Chat tables over one connection. In `server/src/storage/sqlite/chat.ts`. |
 | Storage | `openActivityDb` | Opens the activity file, sets incremental vacuum and WAL, applies its steps. In `server/src/storage/sqlite/activityDb.ts`. |
 | Storage | `activityDbPath` | The activity file's path, beside the main one. In `server/src/storage/sqlite/activityDb.ts`. |
 | Storage | `migrate` | Applies the steps not yet in schema_migrations. In `server/src/storage/postgres/schema.ts`. |
+| Storage | `pgChat` | The Chat tables over PostgreSQL (steps 7 and 8). In `server/src/storage/postgres/chat.ts`. |
 
 ### Console
 
@@ -307,6 +317,8 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `readEvery` | How often the activity feed polls. In `frontend/src/fleet/useActivityFeed.ts`. |
 | Console | `class DiffPreloader` | Loads every changed file's diff in page memory, 2 at a time. In `frontend/src/fleet/diffPreload.ts`. |
 | Console | `RespondModal` | Answer a question, plan or permission prompt. In `frontend/src/fleet/components/Respond.tsx`. |
+| Console | `ChatPage` | Channels, Direct Messages and a thread. In `frontend/src/fleet/Chat.tsx`. |
+| Console | `useChatOverview` | Reads the overview again when the chat event moves. In `frontend/src/fleet/useChat.ts`. |
 | Console | `MyReportersPage` | Rights between your orchestrators. In `frontend/src/fleet/MyReporters.tsx`. |
 | Console | `TrafficPage` | The map of messages between machines. In `frontend/src/fleet/Traffic.tsx`. |
 | Console | `ReplayPage` | A recorded session played back. In `frontend/src/fleet/components/ReplayPage.tsx`. |
@@ -322,7 +334,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | A session reports in | Moves one session's state from a hook to a card on the wall. The heartbeat of the product. | A hook updates the in-memory model; a timer takes a snapshot; it posts to the server; the guards run; the credential becomes an owner; the report is validated and stored in one transaction; the reply carries instructions back; Fleet derives the view; it is pushed to every open browser; the wall repaints. |
 | Watching an agent live | Shows an agent's recent activity while someone looks. Capture is leased, not stored. | You open the agent's panel; the server takes out a lease; the next reply lists the loops to watch; the mod reads their tool calls and text; entries ride the next report; the panel fills, and closing it stops capture. |
 | Answering a waiting session | The one place Podium acts. It answers a question, plan or permission prompt. | The session stops at a prompt and the mod holds the hook open; it is reported as an open ask; the server holds it in memory for its owner; the owner signs in and answers; the answer waits for the next reply; the mod turns it into the held hook's result. |
-| One orchestrator messages another | Cross-machine messages between one person's orchestrators, with rights and an audit trail. | A session calls `podium_send`; the timer sends it; the server resolves the target and checks rights and limits; the message is stored as ready or awaiting approval; it is handed over when the target is idle; the mod frames it, submits it as a prompt and reports the result. |
+| One orchestrator messages another | Cross-machine messages between one person's orchestrators, with rights and an audit trail. | A session calls `podium_send`; the timer sends it; the server resolves the target and checks rights and limits; the message is stored as ready or awaiting approval; it is handed over when the target is idle; the mod frames it, submits it as a prompt and reports the result; in Chat the exchange is a Direct Message that the person who owns an agent can add to. |
 | Recording and replaying | Records a whole session and plays it back. The most sensitive feature has the most switches. | Three yeses start it (Admin switch, owner's choice, reporter option); the recorder redacts and numbers entries; batches go up every five seconds; the owner replays it; the sweeper purges it on schedule. |
 | Securing the reporter link | Mutual TLS, from creating a person to a revoked certificate. | An Admin creates a person; the server issues a certificate; the config file is shown once; the Claude Code mod starts the TLS helper (the OpenCode reporter runs the same client in its own process); the handshake needs a certificate; it is checked again on every request; it renews itself. |
 
@@ -340,7 +352,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Location | Item | Description |
 |---|---|---|
 | Server | Memory only: open asks and answers, the live activity feed, diff requests, the messaging directory, Admin sessions, the update notice | The most sensitive live data. Gone on restart, on purpose. |
-| Storage | `podium.sqlite` | The SQLite adapter's main file, in WAL mode. The app reaches it only through the `Storage` interface and the adapter, which owns it: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
+| Storage | `podium.sqlite` | The SQLite adapter's main file, in WAL mode. The app reaches it only through the `Storage` interface and the adapter, which owns it: the live fleet, people and certificates, reporters, messaging and Chat, daily rollups, plans and short text excerpts, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file: opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
 | Storage | PostgreSQL database | Used instead of the two files above when `PODIUM_DB` is a `postgres://` address: one database with two schemas, `podium` and `podium_activity`, holding the same tables as `podium.sqlite` and `activity.sqlite`. Text is `COLLATE "C"` and times are bigint milliseconds. Nothing is written to `podium_activity` unless an Admin turns on history or recording. The log and the health check show `host:port/dbname`, never the user or the password. |
 | Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder; a `postgres://` database has no folder, so `PODIUM_DATA_DIR` is required), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |

@@ -656,7 +656,7 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. A row has the actor, the channel or conversation
   and the short ids, and the server log has the same as `chat.*`. Opening, pausing, resuming or removing a person's link to another person's agent is `peer_person_link_opened`, `peer_person_link_paused`, `peer_person_link_resumed` or `peer_person_link_removed`. A change of the Chat limits is `chat_settings_changed`.
 - Message text is drawn as text nodes, never as HTML. A message's text, redacted before it is stored, is never in the state, the
-  stream, the Admin log or the server log. The stream's `chat` event carries counts only ([7.6](07-06-sse-stream.md)).
+  stream, the Admin log or the server log. The stream's `chat` event carries only a change counter and a coarse scope ([7.6](07-06-sse-stream.md)).
 
 **Redaction.** The text of a person's channel message or Direct Message has control characters removed, and anything that looks
 like a secret (the admin secret included) is replaced by `[redacted]`, before it is stored or delivered. A message over the
