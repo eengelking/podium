@@ -238,11 +238,11 @@ export function channelDelivery(m: Pick<ChannelMessage, "mine" | "mentions">): D
   const by = (...s: MentionState[]) => m.mentions.filter((x) => s.includes(x.state));
   const bad = by("not-delivered", "dropped");
   if (bad.length) {
-    const why = bad[0]!.why ? `: ${bad[0]!.why}` : "";
+    const why = bad[0]!.why ? `: ${plain(bad[0]!.why)}` : "";
     return { icon: "no", text: `Not delivered to ${list(bad.map((x) => nameOf(x.typed)))}${why}.`, wait: false };
   }
   const held = by("held");
-  if (held.length) return { icon: "pause", text: `Held: ${held[0]!.why ?? "the channel is paused"}. It goes when the channel resumes.`, wait: true };
+  if (held.length) return { icon: "pause", text: `Held: ${plain(held[0]!.why ?? "the channel is paused")}. It goes when the channel resumes.`, wait: true };
   const waiting = by("waiting");
   if (waiting.length) {
     const names = waiting.map((x) => nameOf(x.typed));

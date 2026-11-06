@@ -125,6 +125,7 @@ describe("the delivery line of a channel message", () => {
     });
     expect(channelDelivery(cm({ mentions: [m("held", "Tester@ci", "My group is paused")] }))).toEqual({ icon: "pause", text: "Held: My group is paused. It goes when the channel resumes.", wait: true });
     expect(channelDelivery(cm({ mentions: [m("not-delivered", "Tester@ci", "it refused")] }))).toEqual({ icon: "no", text: "Not delivered to Tester: it refused.", wait: false });
+    expect(channelDelivery(cm({ mentions: [m("not-delivered", "Tester@ci", "it refused.")] })).text).toBe("Not delivered to Tester: it refused.");
     expect(channelDelivery(cm({ mentions: [m("dropped", "Tester@ci", "the agent ended")] })).text).toBe("Not delivered to Tester: the agent ended.");
     expect(channelDelivery(cm({ mentions: [m("working", "Tester@ci")] })).text).toBe("Posted. Tester is working on it.");
   });
