@@ -107,7 +107,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .ch-st .s.done { color: var(--good-text); }
 .ch-st .s.wait { color: var(--warn-text); }
 .ch-quote { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--axis); color: var(--ink2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.podium .ch-pick { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 8px; border: 1px solid var(--axis); border-radius: 4px; background: transparent; color: var(--bg); }
+.podium .ch-pick { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin: 6px 0 0; border: 1px solid var(--axis); border-radius: 4px; background: transparent; color: var(--bg); }
 .podium .ch-pick[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); }
 .ch-pick svg { width: 11px; height: 11px; }
 .ch-pickbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--grid); background: var(--raised); font-size: 12px; }
@@ -564,7 +564,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       var body = document.createElement('span'); body.className = 'body';
       var who = document.createElement('span'); who.className = 'who' + (mi(m, x) ? ' me' : ''); who.textContent = mi(m, x) && !ro(x) ? 'You' : nm(m.f);
       if (m.re) { var re = document.createElement('span'); re.className = 're'; re.textContent = ' replying to ' + m.re; who.appendChild(re); }
-      var pk = ro(x) ? null : document.createElement('button'); if (pk) { pk.type = 'button'; pk.className = 'ch-pick'; pk.setAttribute('aria-pressed', String(picked)); pk.setAttribute('aria-label', 'Select the message from ' + (mi(m, x) ? 'you' : nm(m.f)) + ' at ' + m.t); pk.dataset.pick = key; pk.innerHTML = I.ok; who.appendChild(pk); }
+      var pk = ro(x) ? null : document.createElement('button'); if (pk) { pk.type = 'button'; pk.className = 'ch-pick'; pk.setAttribute('aria-pressed', String(picked)); pk.setAttribute('aria-label', 'Select the message from ' + (mi(m, x) ? 'you' : nm(m.f)) + ' at ' + m.t); pk.dataset.pick = key; pk.innerHTML = I.ok; at.appendChild(pk); }
       body.appendChild(who);
       addText(body, m.tx);
       if (m.quote) { var q = document.createElement('div'); q.className = 'ch-quote'; q.textContent = m.quote.join('\n'); body.appendChild(q); }
