@@ -73,7 +73,7 @@ What it is not:
 | podium-reporter, on each machine | With its `peers` option on, gives the orchestrator three tools (`podium_peers`, `podium_send`, `podium_request_access`), submits a received message under Podium's opening line, and shows the owner's requests as a toast that `/podium allow\|decline\|deliver <id>` answers |
 | My reporters (`#/me/reporters`) | The owner's page: their reporters, the requests waiting for them, their defaults and stricter limits, and the Grid or Board of who can message whom |
 | Admin | Turns the flag on and sets the limits (Admin > Settings). On Admin > Reporters > a reporter, sees the owner's rights, proposes a right and pauses every link of that reporter at once |
-| Chat (`#/chat`) | Where a person reads and joins the conversations between their orchestrators, and writes in the channels. It replaced Traffic, which is deprecated (`#/traffic` opens Chat) |
+| Chat (`#/chat`) | Where a person reads and joins the conversations between their orchestrators, and writes in the channels. It replaced Traffic, which is deprecated (`#/traffic` opens Chat). An Admin can read a person's group and Direct Messages there, and the person is always told |
 | Traffic (`#/traffic`), deprecated | A map and a table of who talks to whom. The owner and an Admin read the text; everyone else sees the counts. The owner pauses or removes a link there |
 
 A **reporter** is one machine plus one person's token. Rights belong to reporters, not to sessions, so they outlast
@@ -365,6 +365,7 @@ The full tour is in the user guide, [Traffic](user-guide/04-reading-the-console/
 | That two orchestrators talk, the counts and the states | `GET /api/fleet/peers/traffic` | Everyone who can read the console |
 | Rights, defaults and requests | The database. Closed requests go after the same period; rights and requests about a removed reporter go too | The owner, and an Admin |
 | Admin log rows | `peer_sent`, `peer_delivered`, `peer_approved`, `peer_declined`, `peer_dropped`, `peer_right_*`, `peer_access_requested`, `peer_defaults_changed`, `peer_limits_changed`: who, to whom and whose, never the text | Admin |
+| An Admin reading a person's group or Direct Message (Chat) | A row for each Admin and reading session, and for an Admin's pause, resume or remove all: who, which conversation and when, never text. The person sees a red banner while it lasts, a line in the conversation for good, and a callout in their reporter. The Admin log gets `chat_admin_read` and `chat_admin_browse` | The person and an Admin; the log, Admin |
 | Server log events | `peers.sent`, `peers.delivered` and so on, and `peers.refused` with its reason, never the text | Whoever reads the server's log |
 
 The text never goes in the fleet state, the event stream or a log. Podium's notices to an orchestrator are held in

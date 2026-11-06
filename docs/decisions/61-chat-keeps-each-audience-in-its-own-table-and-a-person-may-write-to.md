@@ -35,14 +35,19 @@ one owner.
   My reporters list; Allow delivers it and opens a link between that person and the agent's reporter, Decline drops it. Either person
   can pause or remove the link, or delete the conversation, at any time, and only whoever paused it (or an Admin) can resume it. The
   agent receives the text framed as written by that person, never as its owner's words. An Admin needs the owner's say-so too.
-- **An Admin can read a group and a Direct Message and can pause, disconnect and clear a group.** No alert is raised for a read. The
-  audit events record the action and never the text.
+- **An Admin can read a group and a Direct Message and can pause, disconnect and clear a group, and never in silence.** The
+  first version of this decision raised no alert for a read. That is reversed (#1034, PROJECT.md "An Admin Never Reads in Silence"): the people in
+  a conversation an Admin reads see a red banner that names every Admin reading, a permanent record line in the thread, and a callout in their
+  reporter, and the Admin log records each reading session. An Admin can also pause and resume any Direct Message link, and cannot remove a link,
+  allow, delete a conversation or send. An Admin's pause names the Admin and the owner cannot resume it. An Admin's pause, resume and clear are
+  recorded for good. The audit events record the action and never the text.
 - Delivery stays `queue` on both harnesses.
 
 ## Why
 
 - A separate table makes "no route returns another audience's text" something a test can check by reading which store a handler names, and not
   a property every query has to remember.
+- Telling a person while an Admin reads, and keeping a line they can see afterward, leaves the Admin able to read what they were entitled to and removes the one thing they could do unseen.
 - A hidden conversation that comes back means a restarted agent does not lose its history, and a purge after a grace period means a
   chat whose agents are gone does not stay for 30 days.
 - The owner's approval keeps the ownership rule of #347 (nothing reaches an agent without its owner) and the frame keeps the agent from
@@ -58,6 +63,7 @@ one owner.
 
 - Three stores and three read paths, each in both adapters, with a contract case for each.
 - A person's message to another person's agent waits for a human, so it is not a way to reach an agent quickly.
+- An Admin's reading is a row and a reporter callout for each visit, and an open thread pings every 15 seconds to keep it live; the record lines stay until the conversation is deleted or retention removes them.
 - The stream's `chat` event is sent to every open console, so it carries only a change counter and a coarse scope. Counts and approvals come from the Chat routes, which check who is asking.
 
 <!-- nav:start -->

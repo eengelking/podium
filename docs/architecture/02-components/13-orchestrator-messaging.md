@@ -146,10 +146,26 @@ messages treats a `person:` end as present. The reporter that took part is
 the owner's, and an Admin's `@` of another person's agent is asked of the owner as anyone's is.
 
 **The page.** `Chat.tsx` keeps what the page chose; `useChat` reads the overview and the open thread when the page opens and
-again whenever the `chat` signal moves `rev` (no interval, since a page that also polled would hide a signal that never came).
+again whenever the `chat` signal moves `rev` (no interval for data, since a page that also polled would hide a signal that never came; the one timer is an Admin's keep-alive ping, below).
 `chatData.ts` holds the API, the words and the pure helpers; the sidebar, thread, composer and menu are in `components/Chat*.tsx`.
 `usePanes` takes `chat` as a page of its own (`podium.collapsed.chat`, both panels collapsed at first), and `route.ts` sends
 `#/traffic` to `#/chat` (`redirectFor`). Message text is rendered as text nodes only.
+
+**An Admin reading (#1034).** An Admin never reads a person's content in silence (PROJECT.md). `AdminReads` (`chatAdminReads.ts`) is where it is kept:
+`note` runs whenever an Admin reads a My group or a Direct Message that is not theirs (the channel page, the conversation page and the ping routes
+all end in it), and writes one `chat_admin_reads` row for each Admin and reading session (a read less than 30 minutes after the last one is the same
+row; `touch` returns whether it started a new one). A new session writes `chat_admin_read` to the Admin log (`chatRoutes.ts`) and tells each live
+reporter session of the people in the thread; a reading that came back after more than 30 seconds raises the content-free `chat` signal for
+those people, so their page shows the red banner at once. A reading is live for 30 seconds after the last read (`LIVE_MS`), which `liveFor` reports as
+`adminReading` (`since`, `until`) on the overview, so a reading whose time passed is never shown. The Admin's page pings
+`POST …/reading` every 15 seconds while the thread is open (`KEEP_ALIVE_MS` in `Chat.tsx`). An Admin's pause, resume and remove all go through
+`stopped`, which writes the same table with a `kind` and tells the sessions; `forget` (Delete conversation) and `maintain` (retention) are the only
+things that delete records, and Remove all messages never calls them. `chat.browse` answers `?owner=` with names and counts only, so it notes no
+read. The sentence a reporter shows is built by `AdminNotices` (`chatAdminNotices.ts`): held in memory for 5 minutes, at most 8 for a session, and
+handed over in the reply to the session's report as `adminNotices` (`routes.ts`). `plugin/core/adminNotice.ts` remembers which ids it has shown;
+`handleAdminNotices` in the Claude Code hooks shows a 60-second toast and a transcript line, and the OpenCode reporter a toast, with no
+transcript line. Neither reaches the model or depends on the `peers` option. In the console `components/ChatAdmin.tsx` draws the picker, the
+banners, the red tags and the record lines, and the Admin's page hides People and agents while it reads.
 
 **Not in this release.** The agent's side of the channels is plumbing: the reporter-token routes in `chatAgentRoutes.ts` and the
 paged read capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000), and

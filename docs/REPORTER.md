@@ -408,6 +408,12 @@ nothing the server sends is taken.
   on a paused link says the message goes once the link is resumed. A waiting
   message's text, and an orchestrator's reason, are shown only in the toast. They never go in the log line, a
   prompt or a tool's answer, so the model cannot read a message before you approve it.
+- **When an Admin reads or stops a conversation.** If an Admin reads your Podium group or one of your Direct Messages, or
+  pauses or resumes a link or removes all the messages of your group, Podium sends your reporter one sentence about it, such as
+  "Root (an Admin) is reading your Podium group." On Claude Code it is a toast that stays up for a minute and a line in the
+  transcript. On OpenCode it is a toast only. It is for you alone: it is not a prompt or a turn, the model never reads it, and it
+  shows even when the `peers` option is off. A reporter from before this release shows nothing, and the console still tells you. An Admin
+  who signs in with their own name is named by it; the admin secret has no name and appears as "Admin secret".
 
 ## What leaves the session
 

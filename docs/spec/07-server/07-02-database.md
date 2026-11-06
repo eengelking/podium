@@ -244,6 +244,27 @@ Migration 32 (#1034) records who paused a link between a person and another pers
 resume it: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;` (`sender`, `owner` or `admin`; NULL when the link is not
 paused, and for a pause made before it was kept, which either owner may resume).
 
+Migrations 33 and 34 (#1034; PostgreSQL main steps 9 and 10) keep what an Admin does in a person's conversation, so the people in it can always
+see it (7.7). Migration 33 names the Admin who paused a link and adds one table; migration 34 adds what a record says:
+
+```sql
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TEXT;   -- the Admin's name while paused_by is 'admin'; NULL otherwise
+CREATE TABLE chat_admin_reads (   -- one row per Admin and thread and reading session; never any text
+  thread TEXT NOT NULL,           -- 'dm:<a>|<b>' for a conversation, 'group:<person>' for a group, 'public' for General (only an Admin's stops, never a reading)
+  admin_key TEXT NOT NULL,        -- the Admin's name, folded
+  admin TEXT NOT NULL,            -- the name as shown ("Admin secret" for the admin secret)
+  started_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
+ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused' or 'resumed'
+```
+
+A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds
+are one permanent row for each stop (an Admin's remove all messages, pause or resume), never a session. Delete conversation removes the thread's rows;
+Remove all messages does not. The hourly retention removes the rows last seen before the channels' retention days, and those of a conversation that
+no longer exists.
+
 - **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
   unchanged later. A direct message keeps its `dlv_` style id.

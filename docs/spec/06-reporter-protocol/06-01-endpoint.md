@@ -21,7 +21,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
     "watch": ["<agentId>" | "@orchestrator", …], "watchOutput": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
     "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[],
-    "recording": RecordingGrant }
+    "adminNotices": AdminNotice[], "recording": RecordingGrant }
   ```
 
   | Field | Meaning |
@@ -35,6 +35,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
   | `peers` | Whether this session's orchestrator takes part in orchestrator messaging now (#347, [7.7](../07-server/07-07-hardening.md#orchestrator-messaging-347)): authentication on, the Admin's `peer-messaging` flag on, the report made with a person's token (not the admin secret), and the report's `session.peers` true. The mod offers its tools only while it is true. |
   | `peerDeliveries` | Another orchestrator's messages for this one (`kind: "message"`) and Podium's own notices about this orchestrator's messages and requests (`kind: "notice"`), oldest first, at most 20. A message comes only while the session reports itself idle (`status: "waiting"`, `waitReason` not `permission`); a notice comes in any reply. Each takes a result through the peer result route ([7.1](../07-server/07-01-endpoints.md)), never responding's. Always empty while `peers` is false. |
   | `peerRequests` | The owner's open requests about this session's reporter (an Admin's proposal, an orchestrator's request for access, a message waiting for approval), at most 20, for the toast and `/podium allow\|decline\|deliver` ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)). Always empty while `peers` is false. |
+  | `adminNotices` | Callouts for the person when an Admin reads or stops one of their Podium conversations (#1034, [7.7](../07-server/07-07-hardening.md#chat-1034)): `{ id, at, text }`, oldest first, at most 8 for a session. `text` is one sentence that names the Admin and the conversation and never holds message text. The server holds a notice for 5 minutes and sends it in every reply for that time, so the mod shows each `id` once. It is for the person only: the mod never hands it to the model, and shows it whether or not `peers` is true. Absent while there is none, and from a server older than the release that adds it; an older mod ignores it. |
   | `recording` | The session's recording state (#353, [6.4](06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)): `{ state: "off" \| "recording" \| "stopped" \| "limit", consent: { admin, chosen, owner }, loops, limit: "session" \| "budget" \| null, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes }`. The mod captures only while `state` is `recording` and all three `consent` answers are true. `state` is `off` and `loops` empty whenever nothing is chosen or kept for this session, which is every reply while the Admin's `session-recording` flag is off or the server has no token. An older server sends no field, which a mod reads as `off`. |
 
 - `400 { "ok": false, "error": "…", "path": "…" }` for a body that fails validation. The mod drops that report

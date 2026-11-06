@@ -647,13 +647,25 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
 - Another person gets a `403` or nothing, never another person's rows. No group-facing or agent-facing route can return a
   `peer_messages` row, and a static test fails if one could. The admin secret, which has no person, can read General and name a
   person's group as an Admin does, and it has no counts of its own.
-- **An Admin reads, and is not alerted.** Reading a person's group or a Direct Message raises no alert to the person or anyone else. An Admin's actions are logged: an Admin can read, pause, disconnect and
-  clear a person's My group. The SPEC was silent on an Admin reading a group; this is the maintainer's rule (#1034).
+- **An Admin never reads in silence** (#1034). When an Admin reads a person's My group or a Direct Message, including a conversation
+  across owners, the people in it are told, and it stays on the conversation's record. This replaces the earlier rule that an Admin
+  read raised no alert. The person sees a red banner in the thread that names every Admin reading it (a tip lists each with the time
+  they started), a red "Admin reading" tag on the row, and, for good, a record line in the thread: "<Admin> (an Admin) read this conversation
+  on <day and time>.", one for each Admin and reading session, never any text. Each of the person's live reporter sessions shows a
+  callout too (see "Callouts" below), whether or not messaging is on for that reporter. An Admin who signs in with their own name is
+  named by it; the admin secret has no name, and is named "Admin secret". The Admin's open thread pings every 15 seconds to say it is
+  still read; a reading is live for 30 seconds after the last read or ping, and reads of one thread by one Admin less than 30 minutes
+  apart are one session. The Admin log records `chat_admin_read` once for each session. General is public and is never recorded.
+  An Admin can read, pause and resume any Direct Message link, and pause, resume, disconnect and remove all the messages of a
+  person's My group; General for everyone (pause, remove all) is the Admin's already. An Admin cannot remove a link, allow a message,
+  delete a conversation or send. An Admin's pause names the Admin and the owner cannot resume it; an Admin's pause, resume and remove all
+  each leave a record line ("<Admin> (an Admin) paused this link on ...") and a callout. Remove all messages does not delete the
+  Admin's records; Delete conversation, the retention days and the purge do.
   An Admin's `@` of another person's agent needs that agent's owner to approve it, as anyone's does.
 - **Audit events record the action and never the text.** For a channel: `group_sent`, `group_delivered`, `group_dropped`,
   `group_paused`, `group_resumed`, `group_disconnected`, `group_reconnected`, `group_cleared`, and the same with `general_`. For
   a Direct Message: `chat_sent` (a person's message), `chat_across_requested` and `chat_across_sent` (a person writing to another
-  person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. A row has the actor, the channel or conversation
+  person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. An Admin's reading is `chat_admin_read` (the Admin, the scope and the names of the people told) and an Admin's browsing of a person's list is `chat_admin_browse`. A row has the actor, the channel or conversation
   and the short ids, and the server log has the same as `chat.*`. Opening, pausing, resuming or removing a person's link to another person's agent is `peer_person_link_opened`, `peer_person_link_paused`, `peer_person_link_resumed` or `peer_person_link_removed`. A change of the Chat limits is `chat_settings_changed`.
 - Message text is drawn as text nodes, never as HTML. A message's text, redacted before it is stored, is never in the state, the
   stream, the Admin log or the server log. The stream's `chat` event carries only a change counter and a coarse scope ([7.6](07-06-sse-stream.md)).
@@ -665,6 +677,16 @@ Admin's `maxChars` is refused, not cut.
 **Rate and size.** One author's channel posts, and a person's messages to another person's agent, are limited to `perMinute`
 (6 by default) and `maxChars` (4,000 by default). An agent has at most 20 messages waiting at once. A message from a person does
 not reset the round trips between two agents; only the owner's approval does.
+
+**Reading a person's Chat.** An Admin chooses a person in the Chat picker, "Read a person's conversations". The overview for that person
+(`GET /api/fleet/respond/chat?owner=<name>`) holds names and counts only, never a message's text, so it records no read; the Admin log
+gets `chat_admin_browse` once for each Admin and person in 30 minutes. While the Admin reads, the page is read only and does not show the
+person's People and agents.
+
+**Callouts.** What the person's reporter shows is one sentence from Podium that names the Admin and the conversation, never any message
+text: "<Admin> (an Admin) is reading your Podium group.", or "... paused the link between A and B.". The reply to a reporter's
+report carries them as `adminNotices` ([6.1](../06-reporter-protocol/06-01-endpoint.md#responses)); the server holds each for 5 minutes, at
+most 8 for a session, and the reporter shows each id once. They are for the person only and are never sent to the model.
 
 **Stopping a session.** A channel's menu is the stop button for a runaway session. **Pause** holds messages and keeps access,
 **Disconnect** takes the agents' access away, and **Remove all messages** deletes the history. In My group the person and an Admin can
