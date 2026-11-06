@@ -18,7 +18,9 @@
    The thread reuses the Activity feed (.feed, .rd): one entry per message, text drawn as text, never as HTML.
    Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Classes that start with ch- are
    new: ch-split (sidebar and thread), ch-side (the sidebar and its sections), ch-row (a sidebar row), ch-menu (the context
-   menu), ch-thread (the thread), ch-composer (the message box), ch-read (the Admin's "Read a person's conversations" control) and ch-ro (the read-only banner). Example data only. */
+   menu), ch-thread (the thread), ch-composer (the message box), ch-read (the Admin's "Read a person's conversations" control) and ch-ro (the read-only banner).
+   Also new in this round: ch-nav.crit (the red banner: .banner.bad's tokens), .tag.crit (the red "Admin reading" and "Paused by an Admin" tag on a
+   sidebar row and the thread header) and ch-rec (the quiet record line "Root (an Admin) read this conversation on ..."). Example data only. */
 html, body { height: auto; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
 .demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
@@ -138,6 +140,17 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .adminv .ch-read .hint { max-width: none; margin: 0; }
 .ch-nav.ro { display: flex; gap: 8px; align-items: flex-start; margin: 10px 16px 0; }
 .ch-nav.ro svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+/* The red banner: the same tokens as .banner.bad in fleet.css (ink text on a crit tint), plus a crit border, an icon and words, never color alone. */
+.ch-nav.crit { color: var(--ink); background: color-mix(in srgb, var(--crit) 16%, var(--raised)); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); }
+.ch-nav.crit svg { color: var(--crit-text); }
+.ch-nav.crit b { font-weight: 650; }
+.ch-row .tag.crit, .ch-head .sub .tag.crit { color: var(--crit-text); font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; justify-self: start; }
+.ch-head .sub .tag { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.ch-head .sub .tag svg { width: 12px; height: 12px; flex: none; }
+.ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+/* The record line an Admin's reading leaves in the thread: not a message, so no checkbox, no delivery line, not selectable. */
+.ch-body .feed li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
+.ch-rec svg { width: 12px; height: 12px; flex: none; }
 .ch-blank { padding: 40px 24px; text-align: center; color: var(--ink2); }
 .ch-thread .ch-back { display: none; }
 .stage.narrow .ch-split { grid-template-columns: minmax(0, 1fr); }
@@ -156,12 +169,27 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <span class="grp" role="group" aria-label="Viewer">Viewer
     <button type="button" data-viewer="owner" aria-pressed="true">Ed, signed in</button>
     <button type="button" data-viewer="admin" aria-pressed="false">Admin</button>
-    <button type="button" data-viewer="other" aria-pressed="false">Another person</button>
+    <button type="button" data-viewer="other" aria-pressed="false">Maya (another person)</button>
   </span>
   <span class="grp" role="group" aria-label="Admin reads">Admin reads
     <button type="button" data-readas="" aria-pressed="true">Nobody</button>
     <button type="button" data-readas="Ed" aria-pressed="false">Ed</button>
     <button type="button" data-readas="Maya" aria-pressed="false">Maya</button>
+  </span>
+  <span class="grp" role="group" aria-label="An Admin is reading">An Admin is reading (what Ed and Maya see)
+    <button type="button" data-reading="" aria-pressed="true">Nothing</button>
+    <button type="button" data-reading="d1" aria-pressed="false">Ed's Direct Message</button>
+    <button type="button" data-reading="c-grp" aria-pressed="false">Ed's My group</button>
+    <button type="button" data-reading="d5" aria-pressed="false">Shared Ed and Maya</button>
+    <button type="button" data-stopread>Admin stops reading</button>
+  </span>
+  <span class="grp" role="group" aria-label="Record line">Record line
+    <button type="button" data-record="off" aria-pressed="true">Absent</button>
+    <button type="button" data-record="on" aria-pressed="false">Present</button>
+  </span>
+  <span class="grp" role="group" aria-label="Admin pause">Admin pause (Ed's d1)
+    <button type="button" data-adminpause="off" aria-pressed="true">Not paused</button>
+    <button type="button" data-adminpause="on" aria-pressed="false">Paused by an Admin</button>
   </span>
   <span class="grp" role="group" aria-label="Case">Case
     <button type="button" data-case="full" aria-pressed="true">Busy</button>
@@ -209,6 +237,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     msg: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
     dots: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>',
     lock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg>',
+    eye: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
     trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>'
   };
   // The app's state icons (components/Chips.tsx StateIcon): the same shapes, and the same colors as the session cards.
@@ -256,8 +285,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         { f: 'infra-notes', t: 'Mon 13:20', ds: ['pause', 'Held: Ed paused this link at 13:21. It goes when the link resumes.'], tx: 'Here are the unit files, in the branch issue/412-systemd-units.' }
       ] }
   ];
-  // Maya's conversations, for the Admin read. An item with no owner is Ed's.
+  // Maya's conversations, for the Admin read. An item with no owner is Ed's. d5 is shared by two people (owner Ed, also Maya): both read it, and both are told.
   DMS.push(
+    { id: 'd5', kind: 'people', a: 'Ed', b: 'Maya', also: 'Maya', mach: 'ed-mbp and maya-laptop', st: 'active', n: 2, unread: 0,
+      msgs: [
+        { f: 'Ed', t: 'Mon 11:10', ds: ['ok', 'Sent at 11:10.'], tx: 'Can you review the retention wording before Thursday?' },
+        { f: 'Maya', t: 'Mon 11:25', ds: ['ok', 'Sent at 11:25.'], tx: 'Yes, I will send comments tomorrow.' }
+      ] },
     { id: 'm1', owner: 'Maya', kind: 'me', a: 'Maya', b: 'docs-writer', mach: 'maya-laptop', st: 'active', n: 2, unread: 0,
       msgs: [
         { f: 'Maya', me: true, t: 'Mon 10:02', ds: ['ok', 'Delivered at 10:03, when docs-writer\'s turn ended.'], tx: 'Draft the upgrade notes for 0.15 from the CHANGELOG.' },
@@ -312,7 +346,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     { id: 'p7', owner: 'Maya', name: 'link-check', role: 'Orchestrator', st: 'done' }
   ];
 
-  var S = { viewer: 'owner', kase: 'full', sel: 'd1', menu: null, removing: false, clearing: false, deleting: false, pick: {}, nav: '', msgMenu: null, sendTo: false, errText: '', readAs: '', groupAt: false, keep: null, sendErr: false, pane: 'side', earlier: false, draft: '' };
+  var S = { viewer: 'owner', kase: 'full', sel: 'd1', menu: null, removing: false, clearing: false, deleting: false, pick: {}, nav: '', msgMenu: null, sendTo: false, errText: '', readAs: '', groupAt: false, readingId: '', record: false, stopping: false, keep: null, sendErr: false, pane: 'side', earlier: false, draft: '' };
 
   function esc(s) { var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
   function nm(id) { return S.kase === 'long' && LONG[id] ? LONG[id] : id; }
@@ -320,12 +354,21 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function item(id) { var a = all(); for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i]; return null; }
   // Which agents have ended or disconnected from Podium. A conversation goes away when every agent in it is gone.
   var GONE = {};
-  function agentsOf(d) { return d.kind === 'me' ? [d.b] : [d.a, d.b]; }
+  function agentsOf(d) { return d.kind === 'people' ? [] : d.kind === 'me' ? [d.b] : [d.a, d.b]; }
   function goneIn(d) { return agentsOf(d).filter(function (n) { return GONE[n]; }); }
-  function liveDms() { return DMS.filter(function (d) { return goneIn(d).length < agentsOf(d).length; }); }
+  function liveDms() { return DMS.filter(function (d) { return agentsOf(d).length === 0 || goneIn(d).length < agentsOf(d).length; }); }
   function isDm(x) { return x && x.kind !== 'general' && x.kind !== 'group'; }
-  function dmName(d) { return d.kind === 'me' ? nm(d.b) : nm(d.a) + ', ' + nm(d.b); }
+  function me() { return S.viewer === 'other' ? 'Maya' : 'Ed'; }
+  function dmName(d) { return d.kind === 'people' ? (S.viewer === 'other' ? d.a : d.b) : d.kind === 'me' ? nm(d.b) : nm(d.a) + ', ' + nm(d.b); }
+  function mi(m, x) { return x.also ? m.f === me() : !!m.me; }
+  // Who is told: an owner (and, in a shared conversation, the other person) while an Admin reads. General is public, so never.
+  function beingRead(x) { return !!x && x.kind !== 'general' && S.readingId === x.id && (S.viewer === 'owner' || S.viewer === 'other') && visible(x); }
+  function byAdmin(x) { return x.st === 'paused' && x.by === 'admin'; }
+  function adminTags(x) {
+    return (byAdmin(x) ? '<span class="tag crit">' + I.pause + '<span>Paused by an Admin</span></span>' : '') + (beingRead(x) ? '<span class="tag crit">' + I.eye + '<span>Admin reading</span></span>' : '');
+  }
   function stateTag(d) {
+    if (byAdmin(d)) return '';
     if (d.off) return '<span class="tag">' + I.pause + '<span>' + (S.viewer === 'admin' ? 'The agents are disconnected' : 'Your agents are disconnected') + '</span></span>';
     if (d.st === 'paused' && !isDm(d)) return '<span class="tag warn">' + I.pause + '<span>Paused' + (d.kind === 'general' && d.all ? ' for everyone' : '') + '</span></span>';
     if (isDm(d) && d.st === 'removed') return '<span class="tag">' + I.trash + '<span>Link removed</span></span>';
@@ -339,13 +382,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function ownerOf(x) { return x.owner || 'Ed'; }
   function visible(x) {
     if (x.kind === 'general') return true;
-    if (S.viewer === 'other') return false;
-    return ownerOf(x) === (S.viewer === 'admin' ? S.readAs : 'Ed');
+    if (S.viewer === 'other') return x.also === 'Maya';
+    return ownerOf(x) === (S.viewer === 'admin' ? S.readAs : 'Ed') || x.also === (S.viewer === 'admin' ? S.readAs : 'Ed');
   }
   // Reading someone's conversation as an Admin: read only, no message box.
   function ro(x) { return S.viewer === 'admin' && !!x && x.kind !== 'general'; }
   function gname(x) { return ro(x) && x.kind === 'group' ? ownerOf(x) + '\'s My group' : x.name; }
-  function readable() { var o = {}; DMS.concat(CHANNELS).forEach(function (x) { if (x.kind !== 'general') o[ownerOf(x)] = (o[ownerOf(x)] || 0) + (isDm(x) ? 1 : 0); }); return S.kase === 'empty' ? [] : Object.keys(o).map(function (k) { return [k, o[k]]; }); }
+  function readable() { var o = {}; DMS.concat(CHANNELS).forEach(function (x) { if (x.kind !== 'general') o[ownerOf(x)] = (o[ownerOf(x)] || 0) + (isDm(x) ? 1 : 0); if (x.also) o[x.also] = (o[x.also] || 0) + 1; }); return S.kase === 'empty' ? [] : Object.keys(o).map(function (k) { return [k, o[k]]; }); }
   function fixSel() {
     var x = item(S.sel);
     if (x && visible(x)) return;
@@ -369,11 +412,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   // A Direct Message's menu: the controls Traffic has today, on the row. Opens on right-click and on the "..." button.
   function menu(d) {
-    var owner = S.viewer === 'owner';
-    if (!owner) return '<div class="ch-menu" role="menu" aria-label="Actions for ' + esc(dmName(d)) + '"><div class="why">' + (S.viewer === 'admin' ? 'An Admin reads a Direct Message and cannot send in it. ' + esc(ownerOf(d)) + ' pauses or removes the link. An Admin can pause all of a reporter\'s links in Admin &gt; Reporters.' : 'Only Ed can pause or remove this link. An Admin can pause all of a reporter\'s links in Admin &gt; Reporters.') + '</div></div>';
-    var paused = d.st === 'paused', gone = d.st === 'removed';
+    var owner = S.viewer === 'owner' || (S.viewer === 'other' && !!d.also);
+    var paused = d.st === 'paused', gone = d.st === 'removed', lbl = esc(dmName(d));
+    // An Admin can stop a runaway conversation (Pause link, Resume link) but not remove the link or delete the conversation: those are the owner's.
+    if (S.viewer === 'admin') return '<div class="ch-menu" role="menu" aria-label="Actions for ' + lbl + '">' + (gone ? '' : '<button type="button" role="menuitem" data-act="pause" data-id="' + d.id + '">' + (paused ? I.play : I.pause) + (paused ? 'Resume link' : 'Pause link') + '</button>') +
+      '<div class="why">An Admin reads a Direct Message and cannot send in it. ' + esc(ownerOf(d)) + ' removes the link or deletes the conversation. An Admin can pause all of a reporter\'s links in Admin &gt; Reporters.</div></div>';
+    if (!owner) return '<div class="ch-menu" role="menu" aria-label="Actions for ' + lbl + '"><div class="why">Only Ed can pause or remove this link. An Admin can pause all of a reporter\'s links in Admin &gt; Reporters.</div></div>';
     return '<div class="ch-menu" role="menu" aria-label="Actions for ' + esc(dmName(d)) + '">' +
-      (gone ? '' : '<button type="button" role="menuitem" data-act="pause" data-id="' + d.id + '">' + (paused ? I.play : I.pause) + (paused ? 'Resume link' : 'Pause link') + '</button>' +
+      (gone ? '' : (byAdmin(d) ? '<div class="why">Paused by an Admin. Only an Admin can resume this link.</div>' : '<button type="button" role="menuitem" data-act="pause" data-id="' + d.id + '">' + (paused ? I.play : I.pause) + (paused ? 'Resume link' : 'Pause link') + '</button>') +
       '<button type="button" role="menuitem" class="dng" data-act="remove" data-id="' + d.id + '">' + I.trash + 'Remove link…</button>') +
       '<button type="button" role="menuitem" class="dng" data-act="ddel" data-id="' + d.id + '">' + I.trash + 'Delete conversation…</button></div>';
   }
@@ -385,7 +431,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var admin = S.viewer === 'admin', gen = c.kind === 'general', label = 'Actions for ' + gname(c);
     var mine = gen ? 'my agents in General' : admin ? 'every agent in ' + ownerOf(c) + '\'s group' : 'every agent in the group';
     var out = '<div class="ch-menu" role="menu" aria-label="' + esc(label) + '">';
-    out += '<button type="button" role="menuitem" data-act="cpause" data-id="' + c.id + '">' + (c.st === 'paused' && !c.all ? I.play : I.pause) + (c.st === 'paused' && !c.all ? 'Resume ' : 'Pause ') + mine + '</button>';
+    if (byAdmin(c) && !admin) out += '<div class="why">Paused by an Admin. Only an Admin can resume ' + mine + '.</div>';
+    else out += '<button type="button" role="menuitem" data-act="cpause" data-id="' + c.id + '">' + (c.st === 'paused' && !c.all ? I.play : I.pause) + (c.st === 'paused' && !c.all ? 'Resume ' : 'Pause ') + mine + '</button>';
     out += '<button type="button" role="menuitem" data-act="cdisc" data-id="' + c.id + '">' + I.pause + (c.off ? 'Reconnect ' : 'Disconnect ') + mine + '</button>';
     if (gen && admin) out += '<button type="button" role="menuitem" data-act="cpause-all" data-id="' + c.id + '">' + I.pause + (c.all ? 'Resume General for everyone' : 'Pause General for everyone') + '</button>';
     if (!gen || admin) out += '<button type="button" role="menuitem" class="dng" data-act="cclear" data-id="' + c.id + '">' + I.trash + 'Remove all messages…</button>';
@@ -405,14 +452,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var owner = canSee();
     function chRow(c) {
       return '<li class="ch-item' + (S.sel === c.id ? ' on' : '') + '" data-ctx="' + c.id + '"><button type="button" class="ch-row" data-open="' + c.id + '"' + (S.sel === c.id ? ' aria-current="true"' : '') + '>' +
-        (c.kind === 'general' ? I.hash : I.group) + '<span class="stack"><span class="nm">' + esc(gname(c)) + '</span><span class="sub">' + esc(ro(c) ? c.sub + ', read only' : c.sub) + '</span>' + stateTag(c) + '</span>' + (c.ment && !ro(c) ? '<span class="unread" aria-label="' + c.ment + ' mention of you">@ ' + c.ment + '</span>' : '') + '</button>' +
+        (c.kind === 'general' ? I.hash : I.group) + '<span class="stack"><span class="nm">' + esc(gname(c)) + '</span><span class="sub">' + esc(ro(c) ? c.sub + ', read only' : c.sub) + '</span><span class="tags">' + stateTag(c) + adminTags(c) + '</span></span>' + (c.ment && !ro(c) ? '<span class="unread" aria-label="' + c.ment + ' mention of you">@ ' + c.ment + '</span>' : '') + '</button>' +
         (S.viewer === 'other' && c.kind === 'group' ? '' : '<button type="button" class="ch-more" data-more="' + c.id + '" aria-haspopup="menu" aria-expanded="' + (S.menu === c.id) + '" aria-label="Actions for ' + esc(gname(c)) + '">' + I.dots + '</button>' + (S.menu === c.id ? chanMenu(c) : '')) + '</li>';
     }
     function dmRow(d) {
       var label = dmName(d);
       var un = d.unread && !ro(d) ? '<span class="unread" aria-label="' + d.unread + ' new">' + d.unread + '</span>' : '';
       return '<li class="ch-item' + (S.sel === d.id ? ' on' : '') + '" data-ctx="' + d.id + '"><button type="button" class="ch-row" data-open="' + d.id + '"' + (S.sel === d.id ? ' aria-current="true"' : '') + '>' +
-        I.dm + '<span class="stack"><span class="nm" title="' + esc(label) + '">' + esc(label) + '</span><span class="sub">' + esc(ro(d) ? (d.kind === 'me' ? ownerOf(d) + ' and one agent' : 'Two agents, and ' + ownerOf(d)) + ', read only' : d.kind === 'me' ? 'You and one agent' : 'Two agents, and you') + '</span>' + stateTag(d) + '</span>' + un + '</button>' +
+        I.dm + '<span class="stack"><span class="nm" title="' + esc(label) + '">' + esc(label) + '</span><span class="sub">' + esc(ro(d) ? (d.kind === 'me' ? ownerOf(d) + ' and one agent' : d.kind === 'people' ? ownerOf(d) + ' and ' + d.also : 'Two agents, and ' + ownerOf(d)) + ', read only' : d.kind === 'me' ? 'You and one agent' : d.kind === 'people' ? 'You and ' + dmName(d) : 'Two agents, and you') + '</span><span class="tags">' + stateTag(d) + adminTags(d) + '</span></span>' + un + '</button>' +
         '<button type="button" class="ch-more" data-more="' + d.id + '" aria-haspopup="menu" aria-expanded="' + (S.menu === d.id) + '" aria-label="Actions for ' + esc(label) + '">' + I.dots + '</button>' +
         (S.menu === d.id ? menu(d) : '') + '</li>';
     }
@@ -427,10 +474,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var adm = S.viewer === 'admin', who = readable();
     var readSec = !adm ? '' : '<section class="ch-sec" aria-labelledby="sec-rd"><h2 id="sec-rd">Read as an Admin</h2><div class="ch-read"><label for="read-as">Read a person\'s conversations</label>' +
       '<select class="field sm" id="read-as"><option value="">' + (who.length ? 'Choose a person…' : 'No one has a conversation yet') + '</option>' + who.map(function (w) { return '<option value="' + esc(w[0]) + '"' + (S.readAs === w[0] ? ' selected' : '') + '>' + esc(w[0]) + ', ' + w[1] + ' Direct Message' + (w[1] === 1 ? '' : 's') + '</option>'; }).join('') + '</select>' +
-      '<p class="hint">' + (S.readAs ? 'Showing ' + esc(S.readAs) + '\'s My group and Direct Messages. ' : 'Pick a person to see their My group and Direct Messages. ') + 'Read only. Podium records in the audit log that an Admin read it, never the text. The person is not alerted.</p></div></section>';
+      '<p class="hint">' + (S.readAs ? 'Showing ' + esc(S.readAs) + '\'s My group and Direct Messages. ' : 'Pick a person to see their My group and Direct Messages. ') + 'Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.</p></div></section>';
     return '<nav class="ch-side" aria-label="Chat">' + readSec +
       '<section class="ch-sec" aria-labelledby="sec-ch"><h2 id="sec-ch">Channels</h2><ul class="ch-list">' + CHANNELS.filter(visible).map(chRow).join('') + '</ul></section>' +
-      (owner && (!adm || S.readAs) ? '<section class="ch-sec" aria-labelledby="sec-dm"><h2 id="sec-dm">Direct Messages</h2><ul class="ch-list">' + dms + '</ul></section>' : '') +
+      ((owner || S.viewer === 'other') && (!adm || S.readAs) ? '<section class="ch-sec" aria-labelledby="sec-dm"><h2 id="sec-dm">Direct Messages</h2><ul class="ch-list">' + dms + '</ul></section>' : '') +
       (owner && !adm ? '<section class="ch-sec" aria-labelledby="sec-pe"><h2 id="sec-pe">People and agents</h2><ul class="ch-list">' + people + '</ul></section>' : '') +
       '</nav>';
   }
@@ -440,23 +487,24 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     if (!x) return '<div class="ch-thread">' + (S.viewer === 'admin' && !S.readAs ? '<div class="ch-blank"><b>Choose a person to read</b><p class="hint">Use Read a person\'s conversations in the list to open their My group and Direct Messages. General is open to you.</p></div>' : '<div class="ch-blank"><b>Pick a conversation</b><p class="hint">Channels and Direct Messages are on the left.</p></div>') + '</div>';
     var back = '<button type="button" class="btn sm ch-back" data-back>Back to the list</button>';
     // Anyone else sees General and nothing else; a Direct Message's text opens only for its owner and an Admin.
-    if (isDm(x) && !canSee()) {
+    if (isDm(x) && !canSee() && x.also !== me()) {
       return '<section class="ch-thread" aria-labelledby="th-h">' + back + '<div class="ch-head"><h2 id="th-h">Direct message</h2></div><div class="ch-blank"><b>Only Ed and an Admin can read this conversation.</b><p class="hint">Messages can hold source code and paths, so the text is not open to everyone who can see the console.</p></div></section>';
     }
     var title, sub, who = '', scopeExtra = '';
     if (isDm(x)) {
       title = '<span class="nm">' + esc(dmName(x)) + '</span>';
-      scopeExtra = ' It is removed when every agent session in it has ended.';
-      sub = '<span>' + esc(nm(x.mach.split(' and ')[0])) + (x.mach.indexOf(' and ') > 0 ? ' and ' + esc(nm(x.mach.split(' and ')[1])) : '') + '</span><span>' + x.n + ' messages</span>' + stateTag(x);
-      who = '<div class="ch-who" aria-label="In this conversation">' + (x.kind === 'me' ? [x.a, x.b] : [x.a, x.b, ownerOf(x)]).map(function (n) {
-        if (n === ownerOf(x)) return '<span class="m">' + mono(n) + esc(n) + (ro(x) ? '' : ' <span class="you">you</span>') + '</span>';
+      scopeExtra = x.kind === 'people' ? '' : ' It is removed when every agent session in it has ended.';
+      sub = '<span>' + esc(nm(x.mach.split(' and ')[0])) + (x.mach.indexOf(' and ') > 0 ? ' and ' + esc(nm(x.mach.split(' and ')[1])) : '') + '</span><span>' + x.n + ' messages</span>' + stateTag(x) + adminTags(x);
+      who = '<div class="ch-who" aria-label="In this conversation">' + (x.kind === 'people' ? [x.a, x.b] : x.kind === 'me' ? [x.a, x.b] : [x.a, x.b, ownerOf(x)]).map(function (n) {
+        if (n === ownerOf(x) || n === x.also) return '<span class="m">' + mono(n) + esc(n) + (ro(x) || n !== me() ? '' : ' <span class="you">you</span>') + '</span>';
         return '<span class="ch-chipwrap" data-ctx="h:' + esc(n) + '"><button type="button" class="m" data-more="h:' + esc(n) + '" aria-haspopup="menu" aria-expanded="' + (S.menu === 'h:' + n) + '" title="' + esc(nm(n)) + ', ' + esc(WORD[stateOf(n)].toLowerCase()) + '. Actions">' + si(stateOf(n)) + esc(nm(n)) + '</button>' + (S.menu === 'h:' + n ? agentMenu(n, false) : '') + '</span>';
       }).join('') + '</div>';
     } else {
-      title = '<span class="nm">' + esc(gname(x)) + '</span>'; sub = '<span>' + esc(x.sub) + '</span><span>' + x.n + ' messages</span>';
+      title = '<span class="nm">' + esc(gname(x)) + '</span>'; sub = '<span>' + esc(x.sub) + '</span><span>' + x.n + ' messages</span>' + stateTag(x) + adminTags(x);
     }
     var scope = x.kind === 'general' ? 'Everyone signed in to this server can read and post here.'
       : x.kind === 'group' ? (ro(x) ? 'Only ' + ownerOf(x) + ' and ' + ownerOf(x) + '\'s own orchestrators, subagents and forks can post here. You are reading it as an Admin.' : 'Only you and your own orchestrators, subagents and forks can read and post here.')
+      : x.kind === 'people' ? (ro(x) ? 'Only ' + ownerOf(x) + ', ' + x.also + ' and an Admin can read this.' : 'Only you, ' + dmName(x) + ' and an Admin can read this.')
       : (ro(x) ? 'Only ' + ownerOf(x) + ' and an Admin can read this.' : 'Only you and an Admin can read this. The two agents and you are the only ones in it.');
     var shown = S.earlier ? x.msgs.length + 2 : x.msgs.length;
     var pager = '<div class="ch-earlier"><span role="status">Showing ' + shown + ' of ' + x.n + '</span>' + (S.earlier ? '' : '<button type="button" class="btn sm" data-earlier>Earlier messages</button>') + '</div>';
@@ -470,15 +518,24 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       ? '<span class="grow">Send to ' + targets.map(function (a) { return '<button type="button" class="btn sm" data-sendto="' + esc(a.h) + '">' + esc(a.h) + '</button>'; }).join(' ') + '</span>'
       : '<span class="grow"><button type="button" class="btn sm" data-act="pick-send">Send to an agent…</button></span>') +
       '<button type="button" class="btn sm" data-act="pick-clear">Clear</button></div>' : '';
-    var composer = ro(x) ? '<div class="ch-composer"><div class="note" id="ro-why">Reading ' + esc(ownerOf(x)) + '\'s conversation as an Admin. You cannot send here.</div></div>' : pickbar + '<div class="ch-composer"><label for="msg">' + (isDm(x) ? (x.kind === 'me' ? 'Message ' + esc(nm(x.b)) : 'Add to this conversation') : 'Message ' + esc(x.name)) + '</label>' +
+    var composer = ro(x) ? '<div class="ch-composer"><div class="note" id="ro-why">You are reading as an Admin, so there is no message box.' + (byAdmin(x) ? ' The link is paused; you can resume it from its menu.' : '') + '</div></div>' : pickbar + '<div class="ch-composer"><label for="msg">' + (isDm(x) ? (x.kind === 'people' ? 'Message ' + esc(dmName(x)) : x.kind === 'me' ? 'Message ' + esc(nm(x.b)) : 'Add to this conversation') : 'Message ' + esc(x.name)) + '</label>' +
       (S.sendErr ? '<div class="errbox" role="alert">' + esc(S.errText || 'Could not send: the server did not answer. Nothing was sent. Try again.') + '</div>' : '') +
       '<div class="row"><ul class="ch-ac" id="ac" role="listbox" aria-label="People and agents" hidden></ul><textarea id="msg" rows="2" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="ac"' + (paused ? ' disabled' : '') + ' placeholder="' + (paused ? 'Paused' : 'Write a message. Type @ to address someone.') + '">' + esc(S.draft) + '</textarea><button type="button" class="btn pri" data-send' + (paused ? ' disabled' : '') + '>Send</button></div>' +
-      '<div class="note' + (paused ? ' warn' : '') + '">' + (paused ? (x.st === 'removed' ? 'This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.' : x.off ? 'Your agents are disconnected from this channel. Reconnect them from its menu to send.' : 'Paused: messages are held. Resume from the menu to send.') : (isDm(x) ? (goneIn(x).length ? goneIn(x).map(nm).join(' and ') + ' has ended and will not receive this. ' : '') + 'It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. ' : 'Secrets are replaced before a message leaves this machine. ') + 'Enter sends; Shift+Enter adds a line.') + '</div></div>';
+      '<div class="note' + (paused ? ' warn' : '') + '">' + (paused ? (byAdmin(x) ? 'Paused by an Admin: messages are held. Only an Admin can resume it.' : x.st === 'removed' ? 'This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.' : x.off ? 'Your agents are disconnected from this channel. Reconnect them from its menu to send.' : 'Paused: messages are held. Resume from the menu to send.') : (isDm(x) ? (goneIn(x).length ? goneIn(x).map(nm).join(' and ') + ' has ended and will not receive this. ' : '') + (x.kind === 'people' ? 'Only the two of you and an Admin can read it. Secrets are replaced before a message leaves this machine. ' : 'It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. ') : 'Secrets are replaced before a message leaves this machine. ') + 'Enter sends; Shift+Enter adds a line.') + '</div></div>';
     return '<section class="ch-thread" aria-labelledby="th-h">' + back +
-      '<div class="ch-head"><h2 id="th-h">' + title + '</h2><div class="sub">' + sub + '</div><div class="sub"><span>' + esc(scope + scopeExtra) + '</span></div>' + (x.trips != null && !ro(x) ? '<div class="sub"><span>Agents addressing each other: ' + x.trips + ' of 10 round trips. At 10, Ed approves the next one, so agents cannot keep going on their own.</span></div>' : '') + '</div>' + (ro(x) ? '<div class="ch-nav ro" role="status">' + I.lock + '<span>Reading ' + esc(ownerOf(x)) + '\'s conversation as an Admin. You cannot send here.</span></div>' : '') + (who || '<div></div>') +
+      '<div class="ch-head"><h2 id="th-h">' + title + '</h2><div class="sub">' + sub + '</div><div class="sub"><span>' + esc(scope + scopeExtra) + '</span></div>' + (x.trips != null && !ro(x) ? '<div class="sub"><span>Agents addressing each other: ' + x.trips + ' of 10 round trips. At 10, Ed approves the next one, so agents cannot keep going on their own.</span></div>' : '') + '</div>' + flags(x) + (who || '<div></div>') +
       '<div class="ch-alert">' + confirm + delBox + clearBox + '</div><div class="ch-body" tabindex="0" aria-label="Messages, oldest first">' + pager + '<ol class="feed" id="conv-feed"></ol></div>' + composer + '</section>';
   }
 
+  // The red banners at the top of a thread. A polite status line with an icon and words, in the critical tokens.
+  function flags(x) {
+    var out = '', paused = byAdmin(x), chan = !isDm(x);
+    if (ro(x)) out += '<div class="ch-nav ro crit" role="status">' + I.lock + '<span><b>Reading ' + esc(ownerOf(x)) + '\'s conversation as an Admin. You cannot send here.</b> ' + esc(ownerOf(x)) + (x.also ? ' and ' + esc(x.also) + ' are' : ' is') + ' told while you read, and a line stays in the conversation afterward.</span></div>';
+    if (beingRead(x)) out += '<div class="ch-nav ro crit" role="status">' + I.eye + '<span><b>Root (an Admin) is reading this conversation.</b> Only you' + (x.also ? ', ' + esc(dmName(x)) : '') + ' and Admins can read it. The notice clears about 30 seconds after Root stops.</span></div>';
+    if (paused) out += '<div class="ch-nav ro crit" role="status">' + I.pause + '<span>' + (S.viewer === 'admin' ? '<b>You paused ' + (chan ? 'every agent in this group' : 'this link') + '.</b> Messages are held until you resume it from its menu.' : '<b>Root (an Admin) paused ' + (chan ? 'every agent in this group' : 'this link') + '.</b> Messages are held and nothing is sent. Only an Admin can resume it.') + '</span></div>';
+    return out;
+  }
+  var RECORD = { d1: 1, d5: 1, 'c-grp': 1 };
   function addText(body, tx) {
     tx.split('[redacted]').forEach(function (part, i) {
       if (i > 0) { var r = document.createElement('span'); r.className = 'rd'; r.title = 'Replaced on the sending machine. The original never left it.'; r.textContent = '[redacted]'; body.appendChild(r); }
@@ -494,15 +551,20 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var x = item(S.sel);
     var rows = x.msgs.slice();
     if (S.earlier) rows = [{ f: x.msgs[0].f, t: 'Fri 10:02', ds: ['ok', 'Delivered at 10:02.'], tx: 'Earlier message, from before the week.' }, { f: x.msgs[0].f, t: 'Fri 09:48', ds: ['ok', 'Delivered at 09:48.'], tx: 'An older message still.' }].reverse().concat(rows);
+    // The record line sits in time order with the messages: after every message that was there before the Admin read, before any sent since.
+    if (S.record && RECORD[x.id] && x.kind !== 'general') { var at = rows.length; for (var q = 0; q < rows.length; q++) if (rows[q].late) { at = q; break; } rows.splice(at, 0, { rec: true }); }
     rows.forEach(function (m) {
+      if (m.rec) {
+        var rl = document.createElement('li'); rl.className = 'ch-rec'; rl.innerHTML = I.eye; var rt = document.createElement('span'); rt.textContent = 'Root (an Admin) read this conversation on Nov 6 at 14:20.'; rl.appendChild(rt); ol.appendChild(rl); return;
+      }
       var key = keyOf(m), picked = !!S.pick[key];
-      var li = document.createElement('li'); li.className = 'txt' + (m.me ? ' mine' : '') + (m.re ? ' reply' : '');
+      var li = document.createElement('li'); li.className = 'txt' + (mi(m, x) && !ro(x) ? ' mine' : '') + (m.re ? ' reply' : '');
       var at = document.createElement('span'); at.className = 'at'; at.textContent = m.t; li.appendChild(at);
       var k = document.createElement('span'); k.className = 'k'; k.setAttribute('role', 'img'); k.setAttribute('aria-label', 'Message'); k.title = 'Message'; k.innerHTML = I.msg; li.appendChild(k);
       var body = document.createElement('span'); body.className = 'body';
-      var who = document.createElement('span'); who.className = 'who' + (m.me ? ' me' : ''); who.textContent = m.me ? (ro(x) ? ownerOf(x) : 'You') : nm(m.f);
+      var who = document.createElement('span'); who.className = 'who' + (mi(m, x) ? ' me' : ''); who.textContent = mi(m, x) && !ro(x) ? 'You' : nm(m.f);
       if (m.re) { var re = document.createElement('span'); re.className = 're'; re.textContent = ' replying to ' + m.re; who.appendChild(re); }
-      var pk = ro(x) ? null : document.createElement('button'); if (pk) { pk.type = 'button'; pk.className = 'ch-pick'; pk.setAttribute('aria-pressed', String(picked)); pk.setAttribute('aria-label', 'Select the message from ' + (m.me ? 'you' : nm(m.f)) + ' at ' + m.t); pk.dataset.pick = key; pk.innerHTML = I.ok; who.appendChild(pk); }
+      var pk = ro(x) ? null : document.createElement('button'); if (pk) { pk.type = 'button'; pk.className = 'ch-pick'; pk.setAttribute('aria-pressed', String(picked)); pk.setAttribute('aria-label', 'Select the message from ' + (mi(m, x) ? 'you' : nm(m.f)) + ' at ' + m.t); pk.dataset.pick = key; pk.innerHTML = I.ok; who.appendChild(pk); }
       body.appendChild(who);
       addText(body, m.tx);
       if (m.quote) { var q = document.createElement('div'); q.className = 'ch-quote'; q.textContent = m.quote.join('\n'); body.appendChild(q); }
@@ -529,10 +591,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       '<li><b>General</b> is read and written by everyone signed in to this server.</li>' +
       '<li><b>My group</b> is you and your own orchestrators, subagents and forks. No one else sees it.</li>' +
       '<li><b>Direct Messages</b> are read only by you and an Admin. A conversation between two agents shows you as the third person in it, and you can add to it. Delete conversation removes one from your list. One also goes away on its own once every agent session in it has ended or disconnected from Podium.</li>' +
-      '<li>An <b>Admin</b> picks a person under <b>Read a person\'s conversations</b> to read their My group and Direct Messages. It is read only: an Admin cannot send in either, and can pause, disconnect or clear a group. Podium records in the audit log that an Admin read it, never the text, and the person is not alerted.</li>' +
+      '<li>An <b>Admin</b> picks a person under <b>Read a person\'s conversations</b> to read their My group and Direct Messages. It is read only: an Admin cannot send in either, and can pause, disconnect or clear a group. While an Admin reads, the person sees a red notice at the top of the thread and an <b>Admin reading</b> tag on its row, and afterward a line stays in the thread saying when. Podium records it in the audit log, never the text.</li>' +
       '<li>An agent only acts in a channel when it is <b>@-addressed</b>: <b>name@location</b> for one agent or person. <b>@group</b> and <b>@everyone</b> are off until an Admin turns them on. Each addressed agent posts a reply saying what it is doing and, when done, a report. Agents addressing each other stop at 10 round trips until its owner approves the next. What an agent may do is still set by its reporter\'s permissions.</li>' +
       '<li>The menu on a channel is the stop button for a runaway session: <b>Pause</b> holds messages and keeps access, <b>Disconnect</b> takes your agents\' access away, <b>Remove all messages</b> deletes the history. Anyone can stop their own agents in General. Only an Admin can pause General for everyone or remove its messages.</li>' +
-      '<li>Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions. Both are in the menu on each Direct Message.</li></ul></div></section>';
+      '<li>Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions. Both are in the menu on each Direct Message. An Admin can pause and resume a link, to stop a runaway conversation, but not remove it. Only an Admin resumes a link an Admin paused.</li></ul></div></section>';
   }
 
   function render() {
@@ -569,7 +631,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       if (a === 'goto') { S.menu = null; S.nav = 'In the app this opens the orchestration page for ' + nm(b.dataset.id) + ' (the fleet console, #/?open=' + b.dataset.id + '). The mockup stays here.'; render(); announce(S.nav); return; }
       if (a === 'person-msg') { S.menu = null; S.nav = ''; S.sel = 'd3'; S.pane = 'thread'; render(); announce('Starting a message with ' + nm(b.dataset.id) + '.'); return; }
       if (a === 'cclear-keep' || a === 'ddel-keep' || a === 'pick-send' || a === 'pick-clear') d = item(S.sel);
-      if (a === 'pause') { d.st = d.st === 'paused' ? 'active' : 'paused'; S.menu = null; announce(d.st === 'paused' ? 'Link paused.' : 'Link resumed.'); }
+      if (a === 'pause') { var adm0 = S.viewer === 'admin'; if (d.st === 'paused') { if (adm0 || d.by !== 'admin') { d.st = 'active'; d.by = null; } } else { d.st = 'paused'; d.by = adm0 ? 'admin' : null; } S.menu = null; syncPause(); announce(d.st === 'paused' ? 'Link paused.' : 'Link resumed.'); }
       if (a === 'remove') { S.sel = d.id; S.menu = null; S.removing = true; }
       if (a === 'pick-send') { S.sendTo = true; S.msgMenu = null; S.keep = document.querySelector('.ch-body').scrollTop; }
       if (a === 'pick-clear') { S.pick = {}; S.sendTo = false; S.msgMenu = null; S.keep = document.querySelector('.ch-body').scrollTop; }
@@ -577,8 +639,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       if (a === 'ddel') { S.sel = d.id; S.menu = null; S.deleting = true; }
       if (a === 'ddel-keep') S.deleting = false;
       if (a === 'ddel-go') { S.deleting = false; DMS.splice(DMS.indexOf(d), 1); S.sel = 'c-gen'; announce('Conversation deleted.'); }
-      if (a === 'cpause') { d.st = d.st === 'paused' && !d.all ? 'active' : 'paused'; d.all = false; S.menu = null; announce(d.st === 'paused' ? 'Paused.' : 'Resumed.'); }
-      if (a === 'cpause-all') { d.all = !d.all; d.st = d.all ? 'paused' : 'active'; S.menu = null; announce(d.all ? 'General is paused for everyone.' : 'General resumed.'); }
+      if (a === 'cpause') { var adm1 = S.viewer === 'admin'; d.st = d.st === 'paused' && !d.all ? 'active' : 'paused'; d.by = d.st === 'paused' && adm1 ? 'admin' : null; d.all = false; S.menu = null; announce(d.st === 'paused' ? 'Paused.' : 'Resumed.'); }
+      if (a === 'cpause-all') { d.all = !d.all; d.st = d.all ? 'paused' : 'active'; d.by = d.all ? 'admin' : null; S.menu = null; announce(d.all ? 'General is paused for everyone.' : 'General resumed.'); }
       if (a === 'cdisc') { d.off = !d.off; S.menu = null; announce(d.off ? 'Your agents are disconnected.' : 'Your agents are reconnected.'); }
       if (a === 'cclear') { S.sel = d.id; S.menu = null; S.clearing = true; }
       if (a === 'cclear-keep') S.clearing = false;
@@ -626,8 +688,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     each('[data-pick]', function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); var k = b.dataset.pick; if (S.pick[k]) delete S.pick[k]; else S.pick[k] = true; if (!Object.keys(S.pick).length) S.sendTo = false; S.msgMenu = null; S.keep = document.querySelector('.ch-body').scrollTop; render(); }); });
     each('[data-sendto]', function (b) { b.addEventListener('click', function () {
       var x = item(S.sel), keys = Object.keys(S.pick);
-      var quotes = x.msgs.filter(function (m) { return S.pick[keyOf(m)]; }).map(function (m) { return (m.me ? 'You' : nm(m.f)) + ' (' + m.t + '): ' + m.tx; });
-      x.msgs.push({ f: 'Ed', me: true, t: 'Mon 14:40', ds: ['queue', 'Waiting: it reaches ' + b.dataset.sendto + ' when its current turn ends.'], tx: '@' + b.dataset.sendto + ' please look at the ' + keys.length + ' message' + (keys.length > 1 ? 's' : '') + ' below and act on ' + (keys.length > 1 ? 'them' : 'it') + ', then report back here.', quote: quotes, st: [[b.dataset.sendto, 'waiting']] });
+      var quotes = x.msgs.filter(function (m) { return S.pick[keyOf(m)]; }).map(function (m) { return (mi(m, x) ? 'You' : nm(m.f)) + ' (' + m.t + '): ' + m.tx; });
+      x.msgs.push({ f: me(), me: true, late: true, t: 'Mon 14:40', ds: ['queue', 'Waiting: it reaches ' + b.dataset.sendto + ' when its current turn ends.'], tx: '@' + b.dataset.sendto + ' please look at the ' + keys.length + ' message' + (keys.length > 1 ? 's' : '') + ' below and act on ' + (keys.length > 1 ? 'them' : 'it') + ', then report back here.', quote: quotes, st: [[b.dataset.sendto, 'waiting']] });
       x.n += 1; S.pick = {}; S.sendTo = false; S.msgMenu = null; render(); announce('Sent to ' + b.dataset.sendto + '.');
     }); });
     each('[data-send]', function (b) { b.addEventListener('click', function () {
@@ -638,12 +700,18 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       var ment = t.value.match(/@[A-Za-z0-9._-]+@[A-Za-z0-9._-]+|@group\b|@everyone\b/g) || [];
       if (!S.groupAt && ment.some(function (m) { return m === '@group' || m === '@everyone'; })) { S.sendErr = true; S.errText = '@group and @everyone are off, so nothing was sent. An Admin turns them on in Admin > Settings. Address one agent as name@location instead.'; render(); return; }
       var agents = ment.map(function (m) { return m.slice(1); }).filter(function (h) { return ATS.some(function (a) { return a.h === h && a.agent; }); });
-      var mine = { f: 'Ed', me: true, t: 'Mon 14:20', ds: isDm(x) ? ['queue', 'Waiting: it reaches each agent when its current turn ends.'] : agents.length ? ['queue', 'Waiting: ' + agents.join(' and ') + ' get this when their current turn ends.'] : ['ok', ment.length ? 'Posted. ' + ment.map(function (m) { return m.slice(1).split('@')[0]; }).join(' and ') + ' was notified.' : 'Posted. No agent was addressed, so none will act on it.'], tx: t.value };
+      var mine = { f: me(), me: true, late: true, t: 'Mon 14:20', ds: x.kind === 'people' ? ['ok', 'Sent to ' + dmName(x) + '.'] : isDm(x) ? ['queue', 'Waiting: it reaches each agent when its current turn ends.'] : agents.length ? ['queue', 'Waiting: ' + agents.join(' and ') + ' get this when their current turn ends.'] : ['ok', ment.length ? 'Posted. ' + ment.map(function (m) { return m.slice(1).split('@')[0]; }).join(' and ') + ' was notified.' : 'Posted. No agent was addressed, so none will act on it.'], tx: t.value };
       if (!isDm(x) && agents.length) mine.st = agents.map(function (h) { return [h, 'waiting']; });
       x.msgs.push(mine);
       x.n += 1; t.value = ''; S.draft = ''; S.sendErr = false; S.errText = ''; render(); announce('Message sent.');
     }); });
     app.addEventListener('click', function (e) { if ((S.menu || S.msgMenu) && !e.target.closest('.ch-menu, .ch-more')) { S.menu = null; S.msgMenu = null; render(); } }, { once: true });
+  }
+  var demoStop = null;
+  function syncPause() { var on = DMS[0].st === 'paused' && DMS[0].by === 'admin'; press('data-adminpause', on ? 'on' : 'off'); }
+  function setReading(id) {
+    clearTimeout(demoStop); S.stopping = false; S.readingId = id; press('data-reading', id); render();
+    var x = id && item(id); if (x && beingRead(x)) announce('Root (an Admin) is reading ' + (isDm(x) ? 'the conversation ' + dmName(x) : gname(x)) + '.');
   }
   var root = document.documentElement;
   function press(attr, v) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === v)); }); }
@@ -652,6 +720,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     if (b.dataset.viewer) { S.viewer = b.dataset.viewer; S.menu = null; S.pick = {}; S.sendTo = false; S.msgMenu = null; S.removing = S.clearing = S.deleting = false; S.sel = S.viewer === 'owner' && !S.sel ? 'd1' : S.sel; fixSel(); press('data-viewer', S.viewer); render(); }
     if (b.dataset.readas !== undefined) { if (S.viewer !== 'admin') { S.viewer = 'admin'; press('data-viewer', 'admin'); } setRead(b.dataset.readas); }
     if (b.dataset['case']) { S.kase = b.dataset['case']; S.sendErr = false; press('data-case', S.kase); render(); }
+    if (b.dataset.reading !== undefined) setReading(b.dataset.reading);
+    if (b.dataset.stopread !== undefined && S.readingId && !S.stopping) {
+      // The app clears the notice about 30 seconds after the Admin stops; the demo waits 4 seconds.
+      S.stopping = true; announce('Root stopped reading. The notice clears in about 30 seconds.');
+      demoStop = setTimeout(function () { S.stopping = false; S.readingId = ''; S.record = true; press('data-reading', ''); press('data-record', 'on'); render(); announce('Root (an Admin) read this conversation on Nov 6 at 14:20.'); }, 4000);
+    }
+    if (b.dataset.record !== undefined) { S.record = b.dataset.record === 'on'; press('data-record', b.dataset.record); render(); }
+    if (b.dataset.adminpause !== undefined) { var on1 = b.dataset.adminpause === 'on'; DMS[0].st = on1 ? 'paused' : 'active'; DMS[0].by = on1 ? 'admin' : null; syncPause(); render(); }
     if (b.dataset.groupat) { S.groupAt = b.dataset.groupat === 'on'; press('data-groupat', b.dataset.groupat); render(); }
     if (b.dataset.end) {
       var names = b.dataset.end.split(','), on = b.getAttribute('aria-pressed') !== 'true';
