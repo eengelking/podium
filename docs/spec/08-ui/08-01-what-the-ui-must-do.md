@@ -1095,11 +1095,23 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
     the rights away and keeps the conversation until it expires or is deleted). On a conversation with another person's agent
     a menu item that is not the viewer's to use is disabled and a note says why ("Paused by Ed. Only Ed can resume it").
   - A channel, the stop button for a runaway session: **Pause** (hold messages, keep access), **Disconnect** (take the agents'
-    access away) and **Remove all messages…**. In *My group* the person and an Admin can do all three. In *General* any person can pause or
+    access away) and **Remove all messages…**. In *My group* the person and an Admin can do all three (an Admin's pause is the Admin's to lift). In *General* any person can pause or
     disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages.
   - An agent, in People and agents or among a thread's participants: **Open orchestration page**, which opens that orchestrator on
     the fleet console (`#/?open=<id>`), and **Message** where it applies.
   - A menu that only has something to say is a note (a popover with no choices).
+- **An Admin reading, and the person told** (#1034, [7.7](../07-server/07-07-hardening.md#chat-1034)). An Admin sees **Read as an Admin** at the top of
+  the sidebar: a picker, "Read a person's conversations", of everyone else who uses Chat. Choosing a person shows that person's My group and
+  Direct Messages, read only: the Admin has no composer, the sidebar has no unread counts and no People and agents, and a banner on the thread says
+  "Reading <person>'s conversation as an Admin. You cannot send here." and that the person is told while the Admin reads and a line stays afterward.
+  In a Direct Message the Admin's menu is Pause link and Resume link, and nothing else. For the people in the thread, while an Admin reads: a
+  red banner above the messages names every Admin reading (one, two, or the first two and a count) and says the notice clears about 30 seconds
+  after the last stops, with a tip, **Who is reading**, that lists each Admin with the time they started; a red **Admin reading** tag on the
+  row and the header; and, for good, a line among the messages ("Root (an Admin) read this conversation on Nov 6 at 14:20.") that is not a message,
+  so it has nothing to select and no delivery line. An Admin's pause shows a red **Paused by an Admin** tag and a banner that says only an Admin can
+  resume it; the owner's Resume link is disabled with that reason. An Admin's pause, resume and remove all leave a line too ("paused this link",
+  "resumed this link", "removed all messages"). The open thread of an Admin pings every 15 seconds so the notice stays up. Each is a status with an
+  icon and words, never color alone.
 - **A Direct Message expires and leaves the list when every agent session in it has ended or disconnected from Podium** ([7.5](../07-server/07-05-lifecycle-timers.md)).
   It comes back with its history if the same peers return within the grace period.
 - **Narrow.** At 760 px and narrower the sidebar and the thread are two screens, with **Back to the list** on the thread.

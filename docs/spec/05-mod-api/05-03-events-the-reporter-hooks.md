@@ -534,6 +534,13 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - A message that could not be delivered (the receiver ended first, the link was removed) is a log line in the
   sender's session that says so and that the message stays in Podium > Traffic.
 
+**A callout when an Admin reads or stops a conversation (#1034)**
+- When a reply carries `adminNotices` ([6.1](../06-reporter-protocol/06-01-endpoint.md#responses)), the mod shows each notice once, by its `id`, to the
+  person only: a `$.ui.toast` that stays up for 60 seconds ("Podium: <sentence>") and a `$.ui.log` line with the sentence.
+  The sentence names the Admin and the conversation ("Root (an Admin) is reading your Podium group.") and holds no message text.
+- It is not a prompt, a turn, a tool's answer or system text, so the model never reads it, and it is shown whether or not the
+  `peers` option is on. An older server sends none, and an older mod ignores the field.
+
 **The OS**
 - The report says the machine's OS and version (for example `macOS 26.1`, `Ubuntu 24.04`, `Windows 11`), so a
   person or an orchestrator can find a machine by its system.

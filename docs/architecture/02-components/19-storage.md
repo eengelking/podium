@@ -175,7 +175,7 @@ These are the rules the code now depends on. The type checker does not catch a b
 case is `contractChat.ts`. **No method of `ChatStoreApi` reads or returns a `peer_messages` row, and none ever will**; a Direct
 Message is the messaging store's (`PeerStoreApi.messages`), which gained `sendFromPerson`, `sendAcross`, `page` (a cursor read, newest
 page first), `deleteConversation`, `ownerConversations`, `hideConversation`, `showConversation` and `purgeHidden`, and
-`PeerStoreApi.rights` gained `personLink` and `setPersonLink` for a person's link to another person's agent. A page of a channel or a
+`PeerStoreApi.rights` gained `personLink` and `setPersonLink` for a person's link to another person's agent. `ChatStoreApi.adminReads` (`ChatAdminReadsApi`: `touch`, `mark`, `list`, `live`, `threads`, `forget`, `purge`) keeps an Admin's readings and stops, in `sqlite/chat.ts` and `postgres/chat.ts`. A page of a channel or a
 conversation orders by `created_at, seq` (`sent_at, seq` for a conversation) in both adapters and starts strictly before its cursor.
 The server's code that uses them is in `server/src/fleet/chat*.ts` ([Orchestrator messaging](13-orchestrator-messaging.md#chat-1034)),
 and `server/src/fleet/chatSeparation.test.ts` fails if the channel side names the direct side's store or the reverse, or if a Chat route is not listed with the one audience it serves.
@@ -201,9 +201,9 @@ contract.
   references across the two schemas, as nothing references across the two SQLite files.
 - **Migrations.** Each schema has a `schema_migrations` table, and a step is applied in a transaction of its own. The baseline
   is one step equal to the end state of SQLite's 25 migrations. A later change adds a step with the next number.
-  SQLite has 32 numbered migrations. Chat (#1034) added two, each mirrored by a PostgreSQL main step in the same PR: migration 31 is
+  SQLite has 34 numbered migrations, and the `podium` PostgreSQL schema has steps 1 to 10. Chat (#1034) added four, each mirrored by a PostgreSQL main step in the same PR: migration 31 is
   step 7 (`author` and `hidden_at` on `peer_messages`, the tables `group_messages`, `public_messages` and `chat_read_state`) and
-  migration 32 is step 8 (`peer_rights.paused_by`). The columns and indexes are the same in both ([SPEC 7.2](../../spec/07-server/07-02-database.md#what-chat-keeps-and-where-1034)),
+  migration 32 is step 8 (`peer_rights.paused_by`), migration 33 is step 9 (`peer_rights.paused_by_admin` and the table `chat_admin_reads`, an Admin's readings) and migration 34 is step 10 (`chat_admin_reads.kind`, which tells a reading from an Admin's pause, resume or remove all). The columns and indexes are the same in both ([SPEC 7.2](../../spec/07-server/07-02-database.md#what-chat-keeps-and-where-1034)),
   and `adapters.test.ts` fails if one has what the other lacks. An existing `peer_messages` row migrates as an agent's message
   (`author` defaults to `agent`), and `contractUpgrade.ts` has an upgrade case for it in each adapter.
   A migration that rewrites rows is covered by `contractUpgrade.ts` (#892): each adapter builds a database at the schema before it

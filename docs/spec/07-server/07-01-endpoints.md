@@ -344,19 +344,28 @@ the channels, the direct messages, and what an agent may do with its reporter's 
 - `GET /api/fleet/respond/chat`: what the page opens with, counts and names and never a message's text. `{ enabled: true,
   serverTime, me: { name, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
   channels, directs, agents, people, approvals }`. `channels` has General, and My group for a person: each `{ id: "general" |
-  "group", name, thread, unread, mentions, messages, paused, pausedForEveryone, disconnected, can: { pause,
-  pauseEveryone, disconnect, removeAll } }`. `directs` are the viewer's conversations that are not hidden (7.5), each with the
-  two sides, the unread count, the link between two people when there is one and the other states the page shows; a person
+  "group", name, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
+  adminReading, can: { pause, pauseEveryone, disconnect, removeAll } }`. `pausedByAdmin` is the Admin's name while an Admin's pause holds
+  the channel, and `adminReading` is the Admins reading it now, each `{ admin, since, until }` (My group only; empty when no one is, and never one
+  whose `until` has passed). `directs` are the viewer's conversations that are not hidden (7.5), each with the
+  two sides, the unread count, the link between two people when there is one, `pausedBy` (`sender`, `owner` or `admin`), `pausedByAdmin`, `adminReading` and the other states the page shows; a person
   who wrote to another person's agent sees that conversation too, and its owner does. `agents` are the person's own live
   agents with `address` (`name@machine`), `status`, `waitReason` and whether the reporter has `peers` on. `people` are the
   names of everyone who can sign in. `approvals` is how many messages from other people wait for this person as an agent's
   owner. The admin secret has no person: it gets General only and no counts.
+  `GET /api/fleet/respond/chat?owner=<name>` is an Admin's way to see one person's Chat: the same shape about that person, with names and
+  counts only and no text, and the counts are 0 because they are not the Admin's to see or clear. `403` for anyone who is not an Admin, `404`
+  for a name that is no one's, `400` for an empty one. It records no read; the Admin log gets `chat_admin_browse`, once for each Admin and person in 30 minutes.
 - `POST /api/fleet/respond/chat/read`: `{ thread, upTo }`. Marks a thread of the viewer's read up to a cursor and answers
   `{ ok: true, unread, mentions }`. `403` for a thread that is not the viewer's.
 - `GET /api/fleet/respond/chat/channels/:channel/messages?limit=&before=&owner=`: one page of a channel, newest page first,
   each page oldest first. `:channel` is `general` or `group` (`404` otherwise). `limit` is 1 to 100 (default 50). `before`
   is the `older` of the page after it. `owner` is for an Admin naming a person's group. `200 { ok: true, channel,
-  messages, older, total }`.
+  messages, older, total, adminReads }`. `adminReads` is the channel's record: each `{ admin, startedAt, lastSeenAt, kind }`, oldest first, where
+  `kind` is `read`, `cleared`, `paused` or `resumed`. An Admin's read of a person's group is recorded and the person is told before this answers
+  (7.7); General is never read-recorded, so its `adminReads` holds only an Admin's stops.
+- `POST /api/fleet/respond/chat/channels/group/reading`: `{ owner }`. An Admin's open group says it is still being read, which the page sends every
+  15 seconds. `200 { ok: true }`, content-free; `403` for anyone who is not an Admin, `400` for General (public, never recorded) and for the Admin's own group.
 - `POST /api/fleet/respond/chat/channels/:channel/messages`: `{ text, replyTo?, issue?, project?, milestone? }`. `201 { ok:
   true, message, warnings }`. The text is cleaned and secrets are replaced by `[redacted]` before it is stored. A message over
   `maxChars` is a `422`, over `perMinute` an author's posts a `429` with the seconds to wait, and an empty one a `400`; none is cut.
@@ -372,7 +381,10 @@ the channels, the direct messages, and what an agent may do with its reporter's 
   `name@location`). `200 { ok: true, addresses }`.
 - `GET /api/fleet/respond/chat/dm/:a/:b/messages?limit=&before=`: one page of a conversation between two ids (a session
   id, or `person:<name>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
-  owner, the person who wrote in one across owners, and an Admin may read it (`403` otherwise, `404` when there is none).
+  owner, the person who wrote in one across owners, and an Admin may read it (`403` otherwise, `404` when there is none). The answer also holds
+  `pausedBy`, `pausedByAdmin` and `adminReads` (the conversation's record, as for a channel). An Admin's read is recorded and the people in it told before it answers.
+- `POST /api/fleet/respond/chat/dm/:a/:b/reading`: an Admin's open conversation says it is still being read, every 15 seconds. `200 { ok: true }`;
+  `403` for anyone who is not an Admin and for a conversation that is the Admin's own, `404` when there is none.
 - `POST /api/fleet/respond/chat/dm/:a/:b/messages`: `{ text, to? }`. The person writes to one agent of a conversation, or
   to both when adding to a conversation between two (`to` names the agent ids; it defaults to every agent of the conversation).
   The text goes to each agent as a message of the console, through responding's delivery and the reporter's consent (the
@@ -382,7 +394,9 @@ the channels, the direct messages, and what an agent may do with its reporter's 
   waiting for one agent, and `403` for a person who is not the conversation's owner.
 - `PUT /api/fleet/respond/chat/dm/:a/:b/link`: `{ op }`, `pause`, `resume`, `remove` or `allow`, on a conversation between
   a person and another person's agent. Either person of it may pause or remove at any time; only the agent's owner may
-  `allow`; and only whoever paused a link, or an Admin, may resume it (`403` names who). `404` for a link between two of
+  `allow`; and only whoever paused a link, or an Admin, may resume it (`403` names who). An Admin may `pause` and `resume` any link, including one
+  between two of a person's own reporters, and may not `remove` or `allow` (`403`). An Admin's pause is kept with the Admin's name (`pausedByAdmin`), the
+  owner cannot resume it, and pausing again does not take it over. For anyone else, `404` for a link between two of
   one person's own reporters: those are changed on My reporters.
 - `DELETE /api/fleet/respond/chat/dm/:a/:b`: **Delete conversation**, its messages and its row. The link and its rights stay.
   Either person of a conversation across owners may.
@@ -410,7 +424,7 @@ receives from a channel begins "From Podium Chat, <channel>, <name> wrote:".
 It is held as a request in the agent owner's My reporters list (`fromPerson` above), and the sender sees "Waiting for <owner> to
 approve". At most 5 messages from one person wait at one owner, and a second while one waits is refused. Allow opens a link between
 that person and the agent's reporter and delivers; Decline drops the message with the reason. An Admin needs the owner's approval
-as well; an Admin's powers over another person's group are to read, pause, disconnect and clear it. Either person of the
+as well; an Admin's powers over another person's group are to read, pause, disconnect and clear it, and over a Direct Message to read it and pause and resume its link. Either person of the
 link can Pause, Remove it, or Delete the conversation at any time. The agent receives the text framed as written by that person,
 never as its owner's words ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)).
 The agent can answer that person with `podium_send` to `person:<name>` while the link is open or paused (the peers route above). The
