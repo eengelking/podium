@@ -138,6 +138,20 @@ describe('harness badge and neutral labels', () => {
     });
   });
 
+  // A long model name on a wall card (#1028) keeps the session's name on the card and ends the model chip in an ellipsis inside the card.
+  it('keeps the session name and the model chip inside a wall card with a long model name', () => {
+    const longId = 'lmstudio-community/qwen3-coder-30b-a3b-instruct-mlx';
+    cy.reportAgain('api', { id: CT, name: 'nimble-cactus', harness: 'opencode', model: longId, modelLabel: longId }, undefined, undefined, ocContext);
+    cy.openConsole('#/');
+    ct().find('.nm').should('contain.text', 'nimble-cactus').then(($nm) => expect($nm[0].getBoundingClientRect().width, 'the name has room').to.be.greaterThan(40));
+    ct().find('.mdl .chip.model').should('have.attr', 'title', longId).then(($chip) => {
+      const label = $chip[0].querySelector(':scope > span');
+      expect(label.scrollWidth, 'the label is wider than its box, so it is clipped').to.be.greaterThan(label.clientWidth);
+      expect(getComputedStyle(label).textOverflow).to.eq('ellipsis');
+      expect($chip[0].getBoundingClientRect().right, 'the chip ends inside the card').to.be.at.most($chip.closest('button.card.sc')[0].getBoundingClientRect().right);
+    });
+  });
+
   // The agent tree and the orchestrator panel follow what the session's harness declares (#944): a column it cannot report is absent, not zero.
   // The session is a copy of invoice (which has agents) reported by Acme with context and effort both declared false.
   const TR = 'e2e-s-acme-tree';

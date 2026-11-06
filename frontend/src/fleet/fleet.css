@@ -280,7 +280,11 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .card.sc .sd { flex: none; display: inline-flex; color: var(--muted); }
 .podium .card.sc .sd .si { width: 13px; height: 13px; }
 .podium .card.sc .sd .si-running { color: var(--good-text); }
-.podium .card.sc .mdl { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.podium .card.sc .mdl { flex: 0 1 auto; min-width: 0; max-width: 60%; display: inline-flex; align-items: center; gap: 8px; }
+/* A long model name (OpenCode sends provider/model, #1028) shrinks the model chip to an ellipsis instead of pushing the session's name out of the header or the chip past the card's edge. The badge and the meter keep their size. */
+.podium .card.sc .mdl > :not(.chip.model) { flex: none; }
+.podium .card.sc .mdl .chip.model { min-width: 0; overflow: hidden; }
+.podium .card.sc .mdl .chip.model > i { flex: none; }
 .podium .card.sc .path { margin-top: 0; }
 /* The session id: eight characters, copied whole on a click (#322, mockup/podium-session-name.html). On a card it shares the path line. */
 .podium .card.sc .pathrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
