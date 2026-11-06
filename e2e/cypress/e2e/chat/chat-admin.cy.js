@@ -90,6 +90,21 @@ describe('chat: an Admin reads a person\'s conversations', () => {
     cy.get('#th-h').should('have.text', 'My group');
   });
 
+  it('refuses an Admin\'s message into a person\'s My group, with no box to write in, and leaves the group as it was', () => {
+    const REFUSED = 'An Admin can read and stop a person\'s group but cannot write in it.';
+    asAdminReading();
+    cy.chatRow(GROUP).find('button.ch-row').click();
+    cy.tid('chat-box').should('not.exist');
+    cy.tid('chat-thread').find('[data-testid=chat-message]').its('length').then((before) => {
+      cy.request({ method: 'POST', url: `${API}/channels/group/messages?owner=Ed`, headers: H, body: { text: 'an Admin writes in Ed\'s group', owner: 'Ed' }, failOnStatusCode: false, log: false }).then((r) => {
+        expect(r.status).to.eq(403);
+        expect(r.body.error).to.eq(REFUSED);
+      });
+      cy.request({ url: `${API}/channels/group/messages?owner=Ed&limit=50`, log: false }).then((r) => expect(JSON.stringify(r.body)).not.to.contain('an Admin writes in Ed'));
+      cy.tid('chat-message').should('have.length', before);
+    });
+  });
+
   it('opens a person\'s Direct Message read only, shows its four messages, and leaves General the Admin\'s own', () => {
     asAdminReading();
     cy.chatRow(DM).find('button.ch-row').click();
@@ -177,7 +192,7 @@ describe('chat: an Admin pauses and stops what is a person\'s', () => {
     asAdminReading();
     cy.chatRow(DM).find('[data-testid=chat-tag-paused]').should('exist');
     cy.chatRow(DM).find('button.ch-row').click();
-    cy.tid('chat-admin-pause-banner').should('contain.text', 'paused this link.');
+    cy.tid('chat-admin-pause-banner').should('contain.text', 'You paused this link. Messages are held until you resume it from its menu.');
     openMenu(DM).find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Resume link']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Resume link').click();
     cy.tid('chat-admin-pause-banner').should('not.exist');
@@ -193,7 +208,7 @@ describe('chat: an Admin pauses and stops what is a person\'s', () => {
     asAdminReading();
     cy.chatRow(GROUP).find('button.ch-row').click();
     openMenu(GROUP).contains('[role=menuitem]', 'Pause every agent in Ed\'s group').click();
-    cy.tid('chat-admin-pause-banner').should('contain.text', 'paused every agent in this group.');
+    cy.tid('chat-admin-pause-banner').should('contain.text', 'You paused every agent in this group. Messages are held until you resume it from its menu.');
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     cy.chatRow(GROUP).find('[data-testid=chat-tag-paused]').should('contain.text', 'Paused by an Admin');
