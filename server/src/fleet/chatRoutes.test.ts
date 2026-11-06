@@ -1806,6 +1806,21 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     expect(await kinds(w.alexB, 'general')).toEqual(['Admin secret:paused', 'Admin secret:resumed']);
   });
 
+  it('records and announces an Admin\'s disconnect and reconnect of a group that is not theirs, once each, and leaves a person\'s own off the record', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const put = (b: ReturnType<typeof request.agent>, body: Record<string, unknown>) => b.put(`${CH}/channels/group/disconnect`).set(H).send(body);
+    expect((await put(admin, { owner: 'Ed', disconnected: true })).status).toBe(200);
+    expect((await noticesOf(w, 'dev')).map((n) => n.text)).toEqual(['Admin secret (an Admin) disconnected your Podium group.']);
+    expect((await put(admin, { owner: 'Ed', disconnected: false })).status).toBe(200);
+    expect((await noticesOf(w, 'dev')).map((n) => n.text).pop()).toBe('Admin secret (an Admin) reconnected your Podium group.');
+    expect(await kinds(w.edB, 'group', '')).toEqual(['Admin secret:disconnected', 'Admin secret:reconnected']);
+    // The person's own disconnect is the person's: no line.
+    await put(w.edB, { disconnected: true });
+    await put(w.edB, { disconnected: false });
+    expect(await kinds(w.edB, 'group')).toEqual(['Admin secret:disconnected', 'Admin secret:reconnected']);
+  });
+
   it('records an Admin\'s pause and resume of a link between a person\'s agents, tells both agents\' reporters, and leaves the people\'s own pauses off the record', async () => {
     const w = await world();
     await linkedConversation(w);

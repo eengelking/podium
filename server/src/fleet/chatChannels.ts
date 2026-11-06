@@ -556,6 +556,9 @@ export class ChannelChat {
     const scope = this.scopeKey(viewer, channel, owner, false);
     if ('ok' in scope) return scope;
     await this.store.settings.setFlags(scope.key, { disconnected });
+    // An Admin's disconnect of a group that is not theirs stays on the record, and the group's person is told (#1034).
+    const aboutGroup = channel === 'group' && scope.owner !== null && nameKey(scope.owner) !== nameKey(viewer.name);
+    if (viewer.admin && aboutGroup) await this.reads.stopped(viewer, this.threadOf(channel, owner), disconnected ? 'disconnected' : 'reconnected', this.stopTells(channel, owner, 'your Podium group'));
     this.core.onEvent({ kind: disconnected ? 'disconnected' : 'reconnected', channel, owner: scope.owner, by: viewer.actor, everyone: false, count: 0 });
     this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
     return { ok: true, ...(await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name))) };
