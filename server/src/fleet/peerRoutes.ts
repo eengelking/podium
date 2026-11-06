@@ -69,7 +69,7 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
   const sources = new AsyncLocalStorage<string>();
   const withSource = <T>(src: string, fn: () => T): T => sources.run(src, fn);
   const actorName = (a: Actor): string => (a.name === ADMIN_OWNER ? ADMIN_SECRET_ACTOR : a.name);
-  const pair = (m: MessageRow): string => `${m.author === 'person' ? `${m.fromName} (a person)` : `${m.fromName} on ${m.fromMachine}`} to ${m.toName} on ${m.toMachine}, ${m.owner}'s`;
+  const pair = (m: MessageRow): string => `${m.author === 'person' ? `${m.fromName} (a person)` : `${m.fromName} on ${m.fromMachine}`} to ${m.toSession.startsWith('person:') ? `${m.toName} (a person)` : `${m.toName} on ${m.toMachine}`}, ${m.owner}'s`;
   const short = (id: string): string => id.slice(0, 12);
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
     // Called from the peer service's synchronous events: the entry is queued now, in order, and the server-log line follows it.

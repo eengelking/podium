@@ -464,4 +464,72 @@ export function peerCases(o: Openers): void {
     expect(left.some((c) => c.a.sessionId === 'sb' || c.b.sessionId === 'sb')).toBe(false);
     expect(left.length).toBeGreaterThan(0);
   });
+
+  it("agrees on every adapter for an agent answering a person over the link the owner opened: only that link, the same limits, stored delivered (#1034)", async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, b } = await setUp(s, clock);
+      const m = peers.messages;
+      await rec('nobody wrote yet', m.send('sb', 'person:eve', 'hi'));
+      await m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'hello beta' });
+      await rec('while the first message waits for the owner', m.send('sb', 'person:eve', 'early'));
+      const toB = (await peers.rights.openRequests('ed')).find((r) => r.toKey === b)!;
+      await peers.answer(toB.id, 'ed', 'deliver', ED);
+      await rec('another agent of the same owner', m.send('sa', 'person:eve', 'not mine to answer'));
+      await rec('a person nobody wrote to', m.send('sb', 'person:zed', 'hi'));
+      await rec('empty', m.send('sb', 'person:eve', ' '));
+      await rec('too long', m.send('sb', 'person:eve', 'x'.repeat(20_001)));
+      clock.now += 1;
+      await rec('reply', m.send('sb', 'person:eve', 'here you go'));
+      await rec('reply, name in capitals', m.send('sb', 'person:EVE', 'second'));
+      await rec('owner read', m.page('ed', 'person:eve', 'sb', { limit: 10 }));
+      await rec('eve list', m.ownerConversations('eve'));
+      await rec('nothing is handed to the agent', peers.replyFor('sb', true));
+      await rec('requests after the replies', peers.rights.openRequests('ed'));
+      // A flood of replies reaches the per-minute limit.
+      let limited: unknown = null;
+      for (let i = 0; i < 40 && !limited; i++) {
+        const out = await m.send('sb', 'person:eve', `flood ${i}`);
+        if ('status' in out) limited = out;
+      }
+      await rec('flood', Promise.resolve(limited));
+      clock.now += 120_000;
+      await rec('pause', peers.setPersonLink('person:eve', b, 'pause', ED, 'sender'));
+      await rec('paused: refused', m.send('sb', 'person:eve', 'while paused'));
+      await rec('resume', peers.setPersonLink('person:eve', b, 'resume', ED));
+      await rec('resumed', m.send('sb', 'person:eve', 'back'));
+      await rec('remove', peers.setPersonLink('person:eve', b, 'remove', ED));
+      await rec('removed: refused', m.send('sb', 'person:eve', 'after removal'));
+      await rec('open again', peers.setPersonLink('person:eve', b, 'allow', ED));
+      // The hourly sweep keeps an answer to a person.
+      clock.now += 3_600_000;
+      await rec('retain', peers.retain());
+      await rec('after retain', m.page('ed', 'person:eve', 'sb', { limit: 10 }));
+      await peers.ended('sb');
+      await rec('after the agent ended', m.send('sb', 'person:eve', 'late'));
+      await rec('a conversation read still shows them', m.page('ed', 'person:eve', 'sb', { limit: 10 }));
+    });
+    expect(t.get('nobody wrote yet')).toMatchObject({ ok: false, status: 404, error: 'You cannot see an orchestrator called person:eve. Run podium_peers for the list.' });
+    expect(t.get('while the first message waits for the owner')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('another agent of the same owner')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('a person nobody wrote to')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('empty')).toMatchObject({ ok: false, status: 400 });
+    expect(t.get('too long')).toMatchObject({ ok: false, status: 422 });
+    expect(t.get('reply')).toMatchObject({ ok: true, state: 'sent', person: true, paused: false, to: { name: 'Eve' } });
+    expect(t.get('reply, name in capitals')).toMatchObject({ ok: true });
+    const read = t.get('owner read') as { messages: { author: string; state: string; fromSession: string; toSession: string; toKey: string; text: string; owner: string }[] };
+    expect(read.messages.map((x) => [x.author, x.state, x.text])).toEqual([['person', 'ready', 'hello beta'], ['agent', 'delivered', 'here you go'], ['agent', 'delivered', 'second']]);
+    expect(read.messages[1]).toMatchObject({ fromSession: 'sb', toSession: 'person:eve', toKey: 'person:eve', owner: 'ed' });
+    expect(t.get('eve list') as unknown[]).toHaveLength(1);
+    expect((t.get('nothing is handed to the agent') as { peerDeliveries: { text: string }[] }).peerDeliveries.map((d) => d.text)).toEqual(['hello beta']);
+    expect(t.get('requests after the replies') as unknown[]).toHaveLength(0);
+    expect(t.get('flood')).toMatchObject({ ok: false, status: 429 });
+    expect(t.get('paused: refused')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('resumed')).toMatchObject({ ok: true });
+    expect(t.get('removed: refused')).toMatchObject({ ok: false, status: 403 });
+    expect(t.get('open again')).toMatchObject({ ok: true });
+    expect((t.get('after retain') as { messages: { author: string }[] }).messages.filter((x) => x.author === 'agent').length).toBeGreaterThan(2);
+    expect(t.get('after the agent ended')).toMatchObject({ ok: false, status: 403 });
+    expect((t.get('a conversation read still shows them') as { messages: unknown[] }).messages.length).toBeGreaterThan(3);
+  });
 }

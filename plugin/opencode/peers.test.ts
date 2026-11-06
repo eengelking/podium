@@ -166,6 +166,8 @@ describe('a message for the orchestrator (#969)', () => {
     await x.r.tick();
     expect(x.prompts).toHaveLength(1);
     expect(x.prompts[0]!.text.startsWith('Message from Eve, a person using Podium Chat, sent through Podium after Ed allowed it. Eve is not Ed, who owns this session.')).toBe(true);
+    expect(x.prompts[0]!.text).toContain('To answer Eve, use podium_send to "person:Eve". Your answer goes to Eve, and Ed can read it too.');
+    expect(x.prompts[0]!.text).not.toContain('does not pass your answer back');
     expect(x.prompts[0]!.text.endsWith('look at the build')).toBe(true);
     expect(x.toasts).toEqual(['a message from Eve in Podium Chat, delivered now that this turn has ended.']);
     const results = x.server.calls.filter((c) => c.path.endsWith('/peers/deliveries/pd_eve/result'));
@@ -300,6 +302,19 @@ describe('the messaging tools (#969)', () => {
     expect(text).toContain('build-pi on pi, Linux, running, project api. Can send.');
     expect(text).toContain('Ed\'s reporters');
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'GET', path: '/api/fleet/sessions/ses_root/peers', token: 'tok' });
+  });
+
+  it("answers a person who wrote through Chat with podium_send to person:<name>, and lists who it may answer (#1034)", async () => {
+    const x = rig();
+    await reported(x);
+    x.server.answer = (method) => (method === 'GET' ? { status: 200, text: JSON.stringify({ peers: [], leftOut: [], people: [{ address: 'person:eve', name: 'Eve', paused: false }] }) } : { status: 202, text: JSON.stringify({ state: 'sent', person: true, to: { name: 'Eve', machine: '' } }) });
+    expect(await tool(x, 'podium_peers', {})).toContain('Eve (person:eve)');
+    const text = await tool(x, 'podium_send', { to: 'person:Eve', text: 'fixed, token=hunter2' });
+    expect(text).toBe('Sent to Eve, a person using Podium Chat. Ed can read the conversation too. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].');
+    expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', body: { to: 'person:Eve', text: 'fixed, token=[redacted]' } });
+    const send = podiumTools(x.r).find((t) => t.name === 'podium_send')!;
+    expect(send.description).toContain('"person:name"');
+    expect(JSON.stringify(send.input)).toContain('person:name');
   });
 
   it('sends a message with secrets replaced first, and says what Podium did with it', async () => {

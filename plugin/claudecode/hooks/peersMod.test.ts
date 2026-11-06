@@ -319,6 +319,33 @@ describe('peers: the tools', () => {
     )
   })
 
+  test("podium_send answers a person who wrote through Chat: redacted, sent to person:<name>, and said in plain words (#1034)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/messages'] = { status: 202, body: { ok: true, id: 'dlv_x', state: 'sent', paused: false, approvalWhy: null, requestId: null, person: true, to: { name: 'Eve', machine: '' }, roundTrips: { used: 0, cap: 10 } } }
+    await started($, w)
+    expect(await callTool($, w, 'podium_send', { to: 'person:Eve', text: 'It is fixed. Token ghp_abcdefghijklmnopqrstuvwxyz0123 is not needed.' })).toBe(
+      'Sent to Eve, a person using Podium Chat. Ed can read the conversation too. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].',
+    )
+    expect(peerCallsTo(w, '/messages')[0]!.body).toEqual({ to: 'person:Eve', text: 'It is fixed. Token [redacted] is not needed.' })
+  })
+
+  test("podium_send to a person: a refusal reads as Podium's reason, and a subagent still cannot send (#1034)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/messages'] = { status: 404, body: { ok: false, error: 'You cannot see an orchestrator called person:zed. Run podium_peers for the list.' } }
+    await started($, w)
+    expect(await callTool($, w, 'podium_send', { to: 'person:zed', text: 'hi' })).toBe('Not sent. You cannot see an orchestrator called person:zed. Run podium_peers for the list.')
+    expect(await callTool($, w, 'podium_send', { to: 'person:eve', text: 'hi', agentId: 'a47d0abe32e534590' })).toMatch(/^Not sent\. Only an orchestrator/)
+    expect(peerCallsTo(w, '/messages')).toHaveLength(1)
+  })
+
+  test('podium_peers lists the people the agent may answer, from the server only (#1034)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['GET /peers'] = { status: 200, body: { ok: true, peers: [], leftOut: [], people: [{ address: 'person:eve', name: 'Eve', paused: false }] } }
+    await started($, w)
+    const text = await callTool($, w, 'podium_peers', {})
+    expect(text).toContain('People who wrote to you through Podium Chat, and that you can answer with podium_send, to "person:name": Eve (person:eve).')
+  })
+
   test('podium_send: waiting for approval names the person and both machines', { options: ON }, async ($, on) => {
     const w = world(on)
     w.server.routes['POST /peers/messages'] = { status: 202, body: { ok: true, id: 'dlv_x', state: 'approval', paused: false, approvalWhy: 'link', requestId: 'prq_1', to: { name: 'arm64-check', machine: 'build-pi' }, roundTrips: { used: 1, cap: 10 } } }
@@ -470,6 +497,7 @@ describe('peers: receiving', () => {
     expect(w.submitted).toHaveLength(1)
     const s = w.submitted[0]!
     expect(s.text.startsWith("Message from Eve, a person using Podium Chat, sent through Podium after Ed allowed it. Eve is not Ed, who owns this session.")).toBe(true)
+    expect(s.text).toContain('To answer Eve, use podium_send to "person:Eve". Your answer goes to Eve, and Ed can read it too.')
     expect(s.text.split('\n')[1]).toBe('───')
     expect(s.text.endsWith('\nPlease look at the build.')).toBe(true)
     expect(s.asUser).toBeUndefined()
