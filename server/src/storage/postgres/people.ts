@@ -1,7 +1,7 @@
 // People, their tokens, groups and the admin log on PostgreSQL (#822): the SQLite store's logic over `PgDb`. A method that reads and
 // then writes is one transaction, which is what the SQLite lock gave it.
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
-import { PeopleError, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
+import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 import type { PeopleStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 
@@ -70,6 +70,7 @@ export class PgPeopleStore implements PeopleStoreApi {
     if (name.toLowerCase() === ADMIN_OWNER.toLowerCase()) throw new PeopleError('invalid', `${ADMIN_OWNER} is reserved for the admin secret`);
     // The Admin log's Who column shows this actor for the secret; a person of that name would be indistinguishable from it.
     if (name.toLowerCase() === ADMIN_SECRET_ACTOR.toLowerCase()) throw new PeopleError('invalid', `${ADMIN_SECRET_ACTOR} is reserved for the admin secret`);
+    checkTime(now, 'A creation time');
     return await this.db.tx(async () => {
       if (await this.findByName(name)) throw new PeopleError('duplicate', 'That name is already taken');
       if (groupId !== null && !(await this.db.get('SELECT 1 AS x FROM groups WHERE id = ?', [groupId]))) throw new PeopleError('not_found', 'That group does not exist');
@@ -209,6 +210,7 @@ export class PgPeopleStore implements PeopleStoreApi {
 
   async createGroup(rawName: string, now = Date.now()): Promise<{ id: number; name: string }> {
     const name = cleanName(rawName, GROUP_MAX, 'A group name');
+    checkTime(now, 'A group time');
     return await this.db.tx(async () => {
       if (await this.db.get('SELECT 1 AS x FROM groups WHERE name_lower = ?', [name.toLowerCase()])) throw new PeopleError('duplicate', 'That group already exists');
       const r = await this.db.get<{ id: number }>('INSERT INTO groups (name, name_lower, created_at) VALUES (?, ?, ?) RETURNING id', [name, name.toLowerCase(), now]);
@@ -278,6 +280,7 @@ export class PgPeopleStore implements PeopleStoreApi {
 
   /** Never pass a token or the admin secret in `detail`. */
   async log(kind: string, detail: string, source: string, now = Date.now(), actor: string | null = null): Promise<void> {
+    checkTime(now, 'A log time');
     await this.db.run('INSERT INTO admin_log (t, kind, detail, source, actor) VALUES (?, ?, ?, ?, ?)', [now, kind.slice(0, 40), detail.slice(0, 300), source.slice(0, 80), actor === null ? null : actor.slice(0, 80)]);
   }
 

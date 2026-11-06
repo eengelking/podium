@@ -2,7 +2,7 @@
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { keyOf, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -358,6 +358,7 @@ export class PgReporterStore implements ReporterStoreApi {
     if (!IGNORE_KINDS.includes(kind)) throw new Error('kind must be key, address or version');
     if (/^\*+$/.test(p)) throw new Error('pattern must name something besides *');
     if (p.length < 1 || p.length > MAX_PATTERN) throw new Error(`pattern must be 1 to ${MAX_PATTERN} characters`);
+    checkTime(now, 'A rule time');
     return this.db.tx(async () => {
       await this.db.run('INSERT INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [kind, p, now]);
       const rule = ruleOf((await this.db.get<{ id: number; kind: string; pattern: string; created_at: number }>('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?', [kind, p]))!);

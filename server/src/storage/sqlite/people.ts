@@ -2,7 +2,7 @@
 // A token is returned once, at creation or rotation, and never stored; see tokens.ts.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
-import { PeopleError, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
+import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 
 /** How long a machine stays in a person's list without reporting, and how many are kept (#379). */
 const MACHINE_MAX_AGE_MS = 30 * 86_400_000;
@@ -78,6 +78,7 @@ export class PeopleStore {
     if (name.toLowerCase() === ADMIN_OWNER.toLowerCase()) throw new PeopleError('invalid', `${ADMIN_OWNER} is reserved for the admin secret`);
     // The Admin log's Who column shows this actor for the secret; a person of that name would be indistinguishable from it.
     if (name.toLowerCase() === ADMIN_SECRET_ACTOR.toLowerCase()) throw new PeopleError('invalid', `${ADMIN_SECRET_ACTOR} is reserved for the admin secret`);
+    checkTime(now, 'A creation time');
     if (this.findByName(name)) throw new PeopleError('duplicate', 'That name is already taken');
     if (groupId !== null && !this.stmt('SELECT 1 AS x FROM groups WHERE id = ?').get(groupId)) {
       throw new PeopleError('not_found', 'That group does not exist');
@@ -232,6 +233,7 @@ export class PeopleStore {
 
   createGroup(rawName: string, now = Date.now()): { id: number; name: string } {
     const name = cleanName(rawName, GROUP_MAX, 'A group name');
+    checkTime(now, 'A group time');
     if (this.stmt('SELECT 1 AS x FROM groups WHERE name_lower = ?').get(name.toLowerCase())) {
       throw new PeopleError('duplicate', 'That group already exists');
     }
@@ -318,6 +320,7 @@ export class PeopleStore {
 
   /** Never pass a token or the admin secret in `detail`. */
   log(kind: string, detail: string, source: string, now = Date.now(), actor: string | null = null): void {
+    checkTime(now, 'A log time');
     this.stmt('INSERT INTO admin_log (t, kind, detail, source, actor) VALUES (?, ?, ?, ?, ?)').run(
       now,
       kind.slice(0, 40),

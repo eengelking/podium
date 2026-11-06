@@ -16,6 +16,14 @@ export class PeopleError extends Error {
   }
 }
 
+/**
+ * Refuses a time that is not a whole number a database column holds, before anything is written (#1039). Left to the database, one
+ * adapter's id counter can spend an id on the failed insert and another's does not, so the next row's id differs between them.
+ */
+export function checkTime(value: number, what: string): void {
+  if (!Number.isSafeInteger(value)) throw new PeopleError('invalid', `${what} must be a whole number`);
+}
+
 export const MAX_PAGE_SIZE = 100;
 
 export const DEFAULT_PAGE_SIZE = 50;
