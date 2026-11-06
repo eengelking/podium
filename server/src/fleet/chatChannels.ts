@@ -72,6 +72,9 @@ export interface ChannelState {
 
 type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump: string | null; deliver: LiveOrchestrator | null };
 
+/** The refusal when an Admin tries to write in a group that is not their own. */
+export const ADMIN_NO_WRITE = 'An Admin can read and stop a person\'s group but cannot write in it.';
+
 export class ChannelChat {
   constructor(
     private readonly core: ChatCore,
@@ -278,6 +281,8 @@ export class ChannelChat {
 
   /** A person posts. Returns the stored message and anything the person should hear about (a mention that could not be delivered). */
   async post(viewer: ChatViewer, channel: ChannelId, owner: string | null, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage; warnings: string[] } | Fail> {
+    // An Admin reads and stops a person's group and never writes in it (#1034); only its person writes there.
+    if (channel === 'group' && (owner === null || nameKey(owner) !== nameKey(viewer.name))) return fail(403, ADMIN_NO_WRITE);
     const limits = await this.core.limits();
     const checked = this.checkText(body.text, limits);
     if ('ok' in checked) return checked;

@@ -45,7 +45,8 @@ export interface AgentInfo {
 export interface Overview {
   enabled: true;
   serverTime: number;
-  me: { name: string; admin: boolean; person: boolean };
+  /** `actor` is the name the Admin is recorded under (their own, or "Admin secret"), the one a pause, a reading or a stop carries, so the page can tell which are theirs. */
+  me: { name: string; actor: string; admin: boolean; person: boolean };
   settings: { maxChars: number; perMinute: number; retainDays: number; graceHours: number; everyone: boolean };
   channels: ChannelInfo[];
   directs: DirectInfo[];
@@ -159,7 +160,7 @@ export class ChatService {
     return {
       enabled: true,
       serverTime: host.now(),
-      me: { name: viewer.name, admin: viewer.admin, person },
+      me: { name: viewer.name, actor: viewer.actor, admin: viewer.admin, person },
       settings: { maxChars: limits.maxChars, perMinute: limits.perMinute, retainDays: limits.retainDays, graceHours: limits.graceHours, everyone: limits.everyone },
       channels,
       directs,

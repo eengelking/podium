@@ -112,7 +112,7 @@ An Admin can read your My group and your Direct Messages, and you are always tol
 An Admin who signs in with their own name is named by it. The admin secret has no name to go by, so a reading with it is named "Admin secret".
 
 An Admin can also stop a conversation. They can **Pause link** or **Resume link** on any Direct Message, and **Pause**, **Resume**, **Disconnect**
-or **Remove all messages** on your My group. They cannot remove a link, allow a message, delete a conversation or write in one. When an Admin pauses,
+or **Remove all messages** on your My group. They cannot remove a link, allow a message, delete a conversation or write in a conversation or in your My group. When an Admin pauses,
 you see a red **Paused by an Admin** tag and a banner that names them, and you cannot resume it yourself; only an Admin can. An Admin's pause,
 resume and remove all each leave a line in the conversation and a callout in your terminal. Removing all messages does not remove those lines.
 

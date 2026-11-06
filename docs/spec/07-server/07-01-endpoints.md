@@ -342,7 +342,7 @@ the channels, the direct messages, and what an agent may do with its reporter's 
 `peer_messages` row, and no direct-message route returns a channel message.
 
 - `GET /api/fleet/respond/chat`: what the page opens with, counts and names and never a message's text. `{ enabled: true,
-  serverTime, me: { name, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
+  serverTime, me: { name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
   channels, directs, agents, people, approvals }`. `channels` has General, and My group for a person: each `{ id: "general" |
   "group", name, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
   adminReading, can: { pause, pauseEveryone, disconnect, removeAll } }`. `pausedByAdmin` is the Admin's name while an Admin's pause holds
@@ -370,6 +370,7 @@ the channels, the direct messages, and what an agent may do with its reporter's 
   true, message, warnings }`. The text is cleaned and secrets are replaced by `[redacted]` before it is stored. A message over
   `maxChars` is a `422`, over `perMinute` an author's posts a `429` with the seconds to wait, and an empty one a `400`; none is cut.
   Each `@` in the text is worked out as in "Addressing" below, and `warnings` names a mention that could not be delivered.
+  `owner` may name a group, but only to be refused: an Admin reads and stops a person's group and never writes in it, so a message into a group that is not the sender's own is a `403`.
 - `PUT /api/fleet/respond/chat/channels/:channel/pause`: `{ paused, everyone?, owner? }`. **Pause** holds messages for the agents
   and keeps their access; resuming delivers what was held, in order. `everyone` pauses General for every agent and is an Admin's
   (`403` otherwise). `200 { ok: true, delivered, paused, pausedForEveryone, disconnected }`.
@@ -424,7 +425,7 @@ receives from a channel begins "From Podium Chat, <channel>, <name> wrote:".
 It is held as a request in the agent owner's My reporters list (`fromPerson` above), and the sender sees "Waiting for <owner> to
 approve". At most 5 messages from one person wait at one owner, and a second while one waits is refused. Allow opens a link between
 that person and the agent's reporter and delivers; Decline drops the message with the reason. An Admin needs the owner's approval
-as well; an Admin's powers over another person's group are to read, pause, disconnect and clear it, and over a Direct Message to read it and pause and resume its link. Either person of the
+as well; an Admin's powers over another person's group are to read, pause, disconnect and clear it (never to write in it), and over a Direct Message to read it and pause and resume its link. Either person of the
 link can Pause, Remove it, or Delete the conversation at any time. The agent receives the text framed as written by that person,
 never as its owner's words ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)).
 The agent can answer that person with `podium_send` to `person:<name>` while the link is open or paused (the peers route above). The

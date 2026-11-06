@@ -182,6 +182,29 @@ describe('posting to a channel', () => {
     expect(cleared.body).toMatchObject({ ok: true, removed: 1 });
   });
 
+  it('lets an Admin read and stop another person\'s group but never write in it', async () => {
+    const s = await world();
+    await say(s.edB, 'group', 'for the admin');
+    const admins = (await s.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const rootB = await signedIn(s, 'Root', (await s.people.createPerson('Root', admins.id)).token);
+    const secretB = await signedIn(s, 'Admin', SECRET);
+    for (const b of [rootB, secretB]) {
+      const sent = await say(b, 'group', '@dev@ed-mbp admin writes', { owner: 'Ed' });
+      expect(sent.status).toBe(403);
+      expect(sent.body.error).toBe('An Admin can read and stop a person\'s group but cannot write in it.');
+      expect((await say(b, 'group', 'a reply', { owner: 'Ed', replyTo: 'x' })).status).toBe(403);
+    }
+    await s.fleet.flush();
+    await settle();
+    expect(texts(await read(s.edB, 'group'))).toEqual(['for the admin']);
+    expect((await logRows(s)).filter((r) => r.kind === 'group_sent')).toHaveLength(1);
+    expect(texts(await read(rootB, 'group', '?owner=Ed'))).toEqual(['for the admin']);
+    // An Administrator still writes in their own group and in General.
+    expect((await say(rootB, 'group', 'my own')).status).toBe(201);
+    expect((await say(rootB, 'general', 'hello all')).status).toBe(201);
+    expect((await rootB.put(`${CH}/channels/group/pause`).set(H).send({ owner: 'Ed', paused: true })).status).toBe(200);
+  });
+
   it('shows General to every signed-in person and to no one else', async () => {
     const s = await world();
     expect((await say(s.alexB, 'general', 'hello everyone')).status).toBe(201);
@@ -1884,8 +1907,8 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
       for (const t of TEXTS) expect(allText(res.body)).not.toContain(t);
       expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01', 'dev@ed-mbp']);
     }
-    expect(((await rootB.get(`${BROWSE}ed`)).body.me.name)).toBe('Root');
-    expect(((await secretB.get(`${BROWSE}ed`)).body.me.name)).toBe('Admin');
+    expect(((await rootB.get(`${BROWSE}ed`)).body.me)).toMatchObject({ name: 'Root', actor: 'Root' });
+    expect(((await secretB.get(`${BROWSE}ed`)).body.me)).toMatchObject({ name: 'Admin', actor: 'Admin secret' });
   });
 
   it('includes a cross-person conversation Ed takes part in, and counts it for both people', async () => {

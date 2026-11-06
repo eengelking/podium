@@ -76,7 +76,8 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   browser.post('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
-    const t = await target(req, res, undefined);
+    // An owner named in the body is the group the message is meant for: an Admin may name another person's, and is refused in `post`.
+    const t = await target(req, res, ((req.body ?? {}) as Record<string, unknown>).owner);
     if (!t) return;
     const out = await channels().post(t.v, t.channel, t.owner, (req.body ?? {}) as Record<string, unknown>);
     if (!out.ok) return void d.refuse(req, res, out);

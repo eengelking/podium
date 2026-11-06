@@ -1493,6 +1493,22 @@ describe("an Admin reading a person's conversations", () => {
     expect(p.chat.api.markRead).not.toHaveBeenCalled();
   });
 
+  it("tells the Admin who paused a group that they did, by the name the server records for them, and names any other Admin", async () => {
+    for (const [by, you] of [["Admin secret", true], ["Root", false]] as const) {
+      const w = adminWorld();
+      w.overview.me = { name: "Admin", actor: "Admin secret", admin: true, person: false };
+      w.owners!.Maya!.channels = [channelOf("general"), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [], paused: true, pausedByAdmin: by })];
+      page({ chat: fakeChat(w), me: ROOT });
+      await flush();
+      await pickPerson();
+      await open("c:group");
+      const banner = within(thread()).getByTestId("chat-admin-pause-banner");
+      if (you) expect(banner).toHaveTextContent("You paused every agent in this group. Messages are held until you resume it from its menu.");
+      else expect(banner).toHaveTextContent("Root (an Admin) paused every agent in this group.");
+      cleanup();
+    }
+  });
+
   it("reads another person's group by naming its owner", async () => {
     const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
     await flush();

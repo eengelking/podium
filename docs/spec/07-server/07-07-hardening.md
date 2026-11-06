@@ -658,7 +658,7 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   apart are one session. The Admin log records `chat_admin_read` once for each session. General is public and is never recorded.
   An Admin can read, pause and resume any Direct Message link, and pause, resume, disconnect and remove all the messages of a
   person's My group; General for everyone (pause, remove all) is the Admin's already. An Admin cannot remove a link, allow a message,
-  delete a conversation or send. An Admin's pause names the Admin and the owner cannot resume it; an Admin's pause, resume, disconnect, reconnect and remove all
+  delete a conversation, or write in a Direct Message or in a person's My group (`403`, "An Admin can read and stop a person's group but cannot write in it."). An Admin's pause names the Admin and the owner cannot resume it; an Admin's pause, resume, disconnect, reconnect and remove all
   each leave a record line ("<Admin> (an Admin) paused this link on ...") and a callout. Remove all messages does not delete the
   Admin's records; Delete conversation, the retention days and the purge do.
   An Admin's `@` of another person's agent needs that agent's owner to approve it, as anyone's does.

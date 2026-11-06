@@ -108,7 +108,8 @@ export interface ChatAgent {
 export interface ChatOverview {
   enabled: true;
   serverTime: number;
-  me: { name: string; admin: boolean; person: boolean };
+  /** The name the server records an Admin's pause, reading or stop under; absent from an older server. */
+  me: { name: string; actor?: string; admin: boolean; person: boolean };
   settings: { maxChars: number; perMinute: number; retainDays: number; graceHours: number; everyone: boolean };
   channels: ChatChannel[];
   directs: DirectInfo[];

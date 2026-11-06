@@ -286,7 +286,7 @@ export function ChatThread(p: ThreadProps) {
       )}
       {ro && <ReadOnlyBanner owner={cross ? cross.owner : ownerName} also={cross ? cross.person : null} />}
       <ReadingBanner readers={readers} also={also} now={p.now} />
-      {pause && <AdminPauseBanner name={pause.name} group={p.sel.kind === "channel"} you={ro && pause.name !== null && pause.name.toLowerCase() === o.me.name.toLowerCase()} />}
+      {pause && <AdminPauseBanner name={pause.name} group={p.sel.kind === "channel"} you={ro && pause.name !== null && pause.name.toLowerCase() === (o.me.actor ?? o.me.name).toLowerCase()} />}
       <div className="ch-alert">{p.alert}</div>
       <div
         className="ch-body"
