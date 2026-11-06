@@ -66,7 +66,7 @@ import { activityEntry, finishedCall, type BashResult } from './activityDetail.t
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { pinnedMachineName, readOsName, type HostIO } from '../../core/machineHost.ts';
 import { chooseMachineId, sharedMachineIdPath, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, machineInfo, newMachineId, platformRandom, type RandomSource, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
-import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
+import { MAIN_LOOP, RECORDING_LIMITS, type ActivityEntry, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
 import { isRecordingGrant } from '../../core/transport.ts';
 import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
 import { redactText } from '../../core/diffRedact.ts';
@@ -2093,6 +2093,19 @@ export const register: Register = (on, rawOptions) => {
     return next(e);
   }).catch(($, e, next) => next(e));
 
+  // A step in progress for a watched loop (#899): the tool calls that start before its text is complete wait here, so the feed lists
+  // the text first, as it happened, and the call right after it. The text keeps the time the step began.
+  const steps = new Map<string, { at: number; held: ActivityEntry[] }>();
+  const releaseStep = (key: string, agentId: string | undefined, text: string) => {
+    const st = steps.get(key);
+    if (!st) return;
+    steps.delete(key);
+    safe('turn.step.release', (r) => {
+      if (text) r.state = addActivity(r.state, agentId, { at: st.at, kind: 'text', text });
+      for (const entry of st.held) r.state = addActivity(r.state, agentId, entry);
+    });
+  };
+
   on('turn.step', async function* ($, e, next) {
     // A loop someone is watching, with the activityFeed option on (#118): read the text chunks as they pass and keep
     // the step's text as one entry. Every chunk is yielded on as it came, the same object, in order. Any other step
@@ -2103,11 +2116,13 @@ export const register: Register = (on, rawOptions) => {
     safe('turn.step.watch', (r) => {
       watching = opts.activityFeed && isWatched(r.state, e.agentId);
       recording = recorder.want(recLoop(e.agentId));
+      if (watching && !steps.has(loopKey(e.agentId))) steps.set(loopKey(e.agentId), { at: nowMs(), held: [] });
     });
     let res: Awaited<ReturnType<typeof next>['result']>;
     let text = '';
     let wrote = '';
     const thought = new Set<number>();
+    try {
     if (!watching && !recording) res = yield* next(e);
     else {
       const stream = next(e);
@@ -2136,11 +2151,14 @@ export const register: Register = (on, rawOptions) => {
     }
     safe('turn.step', (r) => {
       r.state = step(r.state, { agentId: e.agentId, model: e.model, effort: e.effort, usage: res?.usage ?? null, stopReason: res?.stopReason ?? null }, nowMs());
-      const said = text ? activityText(text) : '';
-      if (said) r.state = addActivity(r.state, e.agentId, { at: nowMs(), kind: 'text', text: said });
       recorder.said(recLoop(e.agentId), wrote, nowMs());
     });
+    releaseStep(loopKey(e.agentId), e.agentId, text ? activityText(text) : '');
     return res;
+    } finally {
+      // A step that ends in an error still lists the calls that started during it.
+      releaseStep(loopKey(e.agentId), e.agentId, '');
+    }
   }).catch(async function* ($, e, next) {
     return yield* next(e);
   });
@@ -2216,7 +2234,12 @@ export const register: Register = (on, rawOptions) => {
     const input = e as unknown as Record<string, unknown>;
     safe('tool.call', (r) => {
       r.state = toolStarted(r.state, e.agentId, tool, nowMs());
-      if (opts.activityFeed && isWatched(r.state, e.agentId)) r.state = addActivity(r.state, e.agentId, activityEntry(tool, input, e.tool_use_id, nowMs()));
+      if (opts.activityFeed && isWatched(r.state, e.agentId)) {
+        const entry = activityEntry(tool, input, e.tool_use_id, nowMs());
+        const st = steps.get(loopKey(e.agentId));
+        if (st) st.held.push(entry);
+        else r.state = addActivity(r.state, e.agentId, entry);
+      }
       if (tool === 'Agent' && e.tool_use_id) r.state = agentRequested(r.state, e.tool_use_id, input, nowMs());
       if (tool === 'Skill') r.skillCalls++;
       // The arguments as a PermissionRequest will carry them: the call's own, without the event's fields.
@@ -2254,7 +2277,11 @@ export const register: Register = (on, rawOptions) => {
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
         const withOutput = opts.activityOutput && isWatchedOutput(r.state, e.agentId);
-        r.state = finishActivity(r.state, e.agentId, e.tool_use_id, finishedCall((res ?? {}) as BashResult, withOutput));
+        const patch = finishedCall((res ?? {}) as BashResult, withOutput);
+        // A call that ended before its step did is still waiting for its place in the feed: it settles there.
+        const held = steps.get(loopKey(e.agentId))?.held.find((x) => x.id === e.tool_use_id);
+        if (held) Object.assign(held, patch);
+        else r.state = finishActivity(r.state, e.agentId, e.tool_use_id, patch);
       }
       recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
       if (e.tool_use_id) callSeqs.delete(e.tool_use_id);

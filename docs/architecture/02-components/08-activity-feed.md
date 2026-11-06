@@ -41,7 +41,10 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
 - `transport.ts` keeps the reply's `watch` list, and `flushOnce` hands it to `setWatched` in `state.ts` (an empty
   list when the option is off). A loop dropping off the list forgets its ring.
 - `tool.call` adds an entry (`activityCall` in `failures.ts`). A watched `turn.step` reads its text chunks as they
-  pass (`activityText`). Both go through `addActivity`, which does nothing for a loop that is not watched.
+  pass (`activityText`). Both go through `addActivity`, which does nothing for a loop that is not watched. A call that starts
+  while its step is still streaming waits in `steps` and is added right after the step's text, which is stamped with the time the
+  step began (#899), so the feed lists the text first and the call after it, and the server's rule that an entry never goes
+  back in time holds.
 - `report.ts` sends `session.activityFeed` always, and a loop's `activity` only when the option is on and the
   ring is not empty, within a 60,000-character budget per report.
 - Since #431 an entry may also carry a Bash call's `id`, whole `command` and, with the `activityOutput` option and the

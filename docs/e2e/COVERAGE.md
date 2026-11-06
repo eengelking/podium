@@ -133,7 +133,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Feature | Spec | Covered by |
 |---|---|---|
 | Address, header, charts, the twelve facts, copy and popups, status band, Plan and Files tabs, fold, agent tree sort | SPEC 8.1 Orchestrator page | `e2e/cypress/e2e/orchestrator/page.cy.js` |
-| Agent panel, failure and blowout boxes, Report dialogs, activity feed, expand, the event list | SPEC 8.1 Right panel | `e2e/cypress/e2e/orchestrator/agents.cy.js` |
+| Agent panel, failure and blowout boxes, Report dialogs, activity feed, expand, a Bash call shown running and ended in place (#899), the event list | SPEC 8.1 Right panel | `e2e/cypress/e2e/orchestrator/agents.cy.js` |
 | Plan order (#454) and paging, plan complete, Files paging, nested agents, Tools used and Show all, the event list's 12 more | SPEC 8.1 Plan section, Tools used | `e2e/cypress/e2e/orchestrator/plan-and-files.cy.js` |
 | File diff dialog: sides, stepping and its last file, binary, withheld, too large, cut, renamed (R mark and old name) and deleted files, wrap, preload (every file asked for before a click, none when off), one column when narrow, 504 and 429 (asked again on reopening), who may open it | SPEC 8.1 Files | `e2e/cypress/e2e/orchestrator/file-diff.cy.js` |
 
