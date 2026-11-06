@@ -53,6 +53,11 @@ export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
       case 'dm_deleted':
         row('chat_deleted', `Deleted a conversation, ${e.owner}'s: ${e.count} messages (${short(e.a)}, ${short(e.b)})`, actorName(e.by), { owner: e.owner, count: e.count });
         break;
+      case 'admin_read': {
+        const where = e.scope === 'group' ? `${e.owners.join(', ')}'s My group` : `a Direct Message of ${e.owners.join(' and ')}`;
+        row('chat_admin_read', `${e.by} read ${where}`, actorName(e.by), { scope: e.scope, thread: e.thread, owners: e.owners.join(','), by: e.by });
+        break;
+      }
       case 'purged':
         row('chat_purged', `Chat retention removed ${e.channelMessages} channel messages and ${e.directMessages} messages of hidden conversations`, 'sweeper', { channel_messages: e.channelMessages, direct_messages: e.directMessages });
         break;

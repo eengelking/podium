@@ -4,7 +4,7 @@ import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
-import { channelOf, type ChannelId, type ChatViewer, type Fail } from './chatTypes.js';
+import { channelOf, fail, type ChannelId, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** What Chat's browser routes share: the gate (messaging on, and a signed-in viewer) and how a refusal is answered. */
 export interface ChatBrowserDeps {
@@ -53,9 +53,26 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     const limit = limitOf(req.query.limit);
     if (limit === null) return void res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
     const before = typeof req.query.before === 'string' ? req.query.before : null;
+    // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded. General is public and never is.
+    const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
     const got = await channels().page(t.v, t.channel, t.owner, { before, limit });
     if ('status' in got) return void d.refuse(req, res, got);
-    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total });
+    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total, ...(t.channel === 'group' ? { adminReads } : {}) });
+  }));
+
+  /** An Admin's open group pings this every 15 seconds so its person keeps seeing that it is being read. Answers only `ok`. */
+  browser.post('/chat/channels/:channel/reading', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const channel = channelOf(String(req.params.channel));
+    if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
+    if (!v.admin) return void d.refuse(req, res, fail(403, 'Only an Admin reads a group that is not their own.'));
+    if (channel === 'general') return void res.status(400).json({ ok: false, error: 'General is public, so reading it is not recorded.' });
+    const scope = channels().scopeFor(v, channel, str(((req.body ?? {}) as Record<string, unknown>).owner));
+    if ('status' in scope) return void d.refuse(req, res, scope);
+    const out = await channels().reading(v, scope.owner);
+    if ('status' in out) return void d.refuse(req, res, out);
+    res.json({ ok: true });
   }));
 
   browser.post('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {

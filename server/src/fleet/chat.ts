@@ -3,11 +3,12 @@
 // retention purge). The two sides stay apart on purpose: see `chatChannels.ts` and `chatDirect.ts`.
 import { nameKey } from '../storage/rows.js';
 import type { ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
+import { AdminReads } from './chatAdminReads.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
 import type { MessageTrail } from './peerTypes.js';
-import { CHANNEL_NAMES, fail, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
+import { CHANNEL_NAMES, fail, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -20,8 +21,11 @@ export interface ChannelInfo {
   mentions: number;
   messages: number;
   paused: boolean;
+  pausedByAdmin: string | null;
   pausedForEveryone: boolean;
   disconnected: boolean;
+  /** The Admins reading this channel now (My group only; General is never read-recorded). Empty when no one is. */
+  adminReading: AdminReading[];
   can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean };
 }
 
@@ -54,11 +58,13 @@ export class ChatService {
   readonly core: ChatCore;
   readonly channels: ChannelChat;
   readonly direct: DirectChat;
+  readonly adminReads: AdminReads;
 
   constructor(host: ChatHost, store: ChatStoreApi) {
     this.core = new ChatCore(host, store);
-    this.channels = new ChannelChat(this.core);
-    this.direct = new DirectChat(this.core);
+    this.adminReads = new AdminReads(this.core);
+    this.channels = new ChannelChat(this.core, this.adminReads);
+    this.direct = new DirectChat(this.core, this.adminReads);
     // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
     this.core.across = (v, sessionId, text, opts) => this.direct.across(v, sessionId, text, opts);
     this.core.hearAcross((u) => void this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err)));
@@ -101,6 +107,7 @@ export class ChatService {
         mentions: c?.mentions ?? 0,
         messages: await this.channels.total(id, id === 'group' ? key : null),
         ...flags,
+        adminReading: [],
         can: id === 'group' ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: true } : { pause: person, pauseEveryone: viewer.admin, disconnect: person, removeAll: viewer.admin },
       };
     };
@@ -112,13 +119,19 @@ export class ChatService {
             : [];
         })
       : [];
+    const channels = [await channel('general'), ...(person ? [await channel('group')] : [])];
+    const directs = await this.direct.list(viewer);
+    // The Admins reading right now, named, for the people in the thread. A reading whose time has passed is never reported.
+    const live = await this.adminReads.liveFor([...(person ? [groupThread(viewer.name)] : []), ...directs.map((d) => d.thread)]);
+    for (const c of channels) if (c.id === 'group') c.adminReading = live.get(c.thread) ?? [];
+    for (const d of directs) d.adminReading = live.get(d.thread) ?? [];
     return {
       enabled: true,
       serverTime: host.now(),
       me: { name: viewer.name, admin: viewer.admin, person },
       settings: { maxChars: limits.maxChars, perMinute: limits.perMinute, retainDays: limits.retainDays, graceHours: limits.graceHours, everyone: limits.everyone },
-      channels: [await channel('general'), ...(person ? [await channel('group')] : [])],
-      directs: await this.direct.list(viewer),
+      channels,
+      directs,
       agents: agents.sort((a, b) => a.address.localeCompare(b.address)),
       people: (await this.core.persons()).map((p) => ({ name: p.name, you: p.key === key })),
       approvals: person ? await this.direct.approvalsFor(viewer.name) : 0,
@@ -157,6 +170,8 @@ export class ChatService {
     const now = this.core.host.now();
     const channelMessages = await this.channels.purge(now - limits.retainDays * DAY_MS);
     const directMessages = await this.direct.purge(limits.graceHours * HOUR_MS);
+    // A reading's record goes with its conversation, and by the channels' retention days.
+    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, await this.direct.threads());
     if (channelMessages || directMessages) {
       this.core.onEvent({ kind: 'purged', channelMessages, directMessages });
       this.core.signal({ scope: 'public', owner: null });

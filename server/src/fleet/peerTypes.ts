@@ -115,6 +115,8 @@ export interface RightRow {
   paused: boolean;
   /** Who paused a person's link (#1034): the person who writes, the agent's owner, or an Admin. Absent when the link is not paused, and for a pause made before it was kept. */
   pausedBy?: LinkPauser;
+  /** The name of the Admin who paused the link, while `pausedBy` is `admin`. */
+  pausedByAdmin?: string;
   setAt: number;
 }
 
@@ -126,6 +128,9 @@ export const LINK_PAUSERS: readonly LinkPauser[] = ['sender', 'owner', 'admin'];
 export interface EffectiveRight {
   level: PeerLevel;
   paused: boolean;
+  /** Who paused it, and the Admin's name when an Admin did; absent when it is not paused or the pauser is not known. */
+  pausedBy?: LinkPauser;
+  pausedByAdmin?: string;
 }
 
 /** The most messages one person may have waiting for one owner's approval (#1034), so a flood cannot fill an owner's list. */
@@ -388,6 +393,9 @@ export interface ConversationSummary {
   state: 'active' | 'waiting' | 'paused';
   /** Whether the link is paused, which `state` hides while a message also waits for approval (#417). */
   paused: boolean;
+  /** Who paused the link while it is paused, and the Admin's name when an Admin did (#1034). Absent otherwise. */
+  pausedBy?: LinkPauser;
+  pausedByAdmin?: string;
   /** Whether each direction can send now. */
   aToB: boolean;
   bToA: boolean;

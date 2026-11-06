@@ -5,6 +5,7 @@
 // each event goes to `trail` as a row, and the routes decide what to write (never the text).
 import { randomBytes } from 'node:crypto';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
+import { pausedByOf } from '../peerText.js';
 import {
   HELD_STATES,
   CROSS_PENDING_MAX,
@@ -543,6 +544,7 @@ export class PgPeerMessages {
       lastAt: last.sentAt,
       state,
       paused,
+      ...(paused ? pausedByOf(ab, ba) : {}),
       aToB: canSend(ab.level),
       bToA: canSend(ba.level),
       roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(named.owner)).roundTrips },

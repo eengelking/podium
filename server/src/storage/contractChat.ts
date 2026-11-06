@@ -179,6 +179,13 @@ export function chatCases(o: Openers): void {
       await rec('all flags', cs.allFlags());
       await rec('set flags (both off)', cs.setFlags('group:ed', { disconnected: false }));
       await rec('all flags (after)', cs.allFlags());
+      await rec('set flags (an Admin pauses)', cs.setFlags('group:eve', { paused: true, pausedByAdmin: 'Root' }));
+      await rec('flags (an Admin\'s pause)', cs.flags('group:eve'));
+      await rec('set flags (disconnect keeps the Admin)', cs.setFlags('group:eve', { disconnected: true }));
+      await rec('all flags (an Admin\'s pause)', cs.allFlags());
+      await rec('set flags (resume clears the Admin)', cs.setFlags('group:eve', { paused: false }));
+      await rec('set flags (a name with a bar)', cs.setFlags('group:eve', { paused: true, pausedByAdmin: 'a|b' }));
+      await rec('flags (a name with a bar)', cs.flags('group:eve'));
     });
     expect(t.get('get (defaults)')).toEqual({ retainDays: 30, graceHours: 24, maxChars: 4000, perMinute: 6 });
     expect(t.get('set')).toEqual({ ok: true, settings: { retainDays: 7, graceHours: 48, maxChars: 500, perMinute: 3 } });
@@ -191,6 +198,58 @@ export function chatCases(o: Openers): void {
     expect(t.get('set flags (resume)')).toEqual({ paused: false, disconnected: true });
     expect(t.get('all flags')).toEqual({ 'group:ed': { paused: false, disconnected: true }, 'public:global': { paused: true, disconnected: false } });
     expect(t.get('all flags (after)')).toEqual({ 'public:global': { paused: true, disconnected: false } });
+    expect(t.get('flags (an Admin\'s pause)')).toEqual({ paused: true, disconnected: false, pausedByAdmin: 'Root' });
+    expect(t.get('set flags (disconnect keeps the Admin)')).toEqual({ paused: true, disconnected: true, pausedByAdmin: 'Root' });
+    expect(t.get('set flags (resume clears the Admin)')).toEqual({ paused: false, disconnected: true });
+    expect(t.get('flags (a name with a bar)')).toEqual({ paused: true, disconnected: true, pausedByAdmin: 'a|b' });
+  });
+
+  it('agrees on every adapter for the Admin read records: one per reading session, the live window, forgetting a thread and retention', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await rec('list (none)', reads.list('group:ed'));
+      await rec('touch (first)', reads.touch('group:ed', 'Root', GAP));
+      clock.now += 10 * MIN;
+      await rec('touch (10 minutes on: the same session)', reads.touch('group:ed', 'root', GAP));
+      await rec('touch (another Admin)', reads.touch('group:ed', 'Zoe', GAP));
+      clock.now += 31 * MIN;
+      await rec('touch (another thread)', reads.touch('dm:a|b', 'Root', GAP));
+      await rec('touch (31 minutes after the last: a second session)', reads.touch('group:ed', 'Root', GAP));
+      await rec('list', reads.list('group:ed'));
+      await rec('live (just touched)', reads.live(['group:ed', 'dm:a|b'], clock.now - 30_000));
+      clock.now += 30_000;
+      await rec('live (30 seconds on)', reads.live(['group:ed', 'dm:a|b'], clock.now - 30_000));
+      await rec('live (no threads)', reads.live([], clock.now - 30_000));
+      await rec('threads', reads.threads('dm:'));
+      await rec('purge (nothing that old)', reads.purge(T0));
+      await rec('purge (the first session and the other Admin)', reads.purge(T0 + 11 * MIN));
+      await rec('list (after purge)', reads.list('group:ed'));
+      await rec('forget the thread', reads.forget('group:ed'));
+      await rec('forget (nothing left)', reads.forget('group:ed'));
+      await rec('list (after forget)', reads.list('group:ed'));
+      await rec('list (the other thread is kept)', reads.list('dm:a|b'));
+    });
+    expect(t.get('touch (first)')).toEqual({ record: { admin: 'Root', startedAt: T0, lastSeenAt: T0 }, started: true, previousSeenAt: null });
+    expect(t.get('touch (10 minutes on: the same session)')).toEqual({ record: { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 10 * MIN }, started: false, previousSeenAt: T0 });
+    expect((t.get('touch (31 minutes after the last: a second session)') as { started: boolean }).started).toBe(true);
+    expect(t.get('list')).toEqual([
+      { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 10 * MIN },
+      { admin: 'Zoe', startedAt: T0 + 10 * MIN, lastSeenAt: T0 + 10 * MIN },
+      { admin: 'Root', startedAt: T0 + 41 * MIN, lastSeenAt: T0 + 41 * MIN },
+    ]);
+    expect((t.get('live (just touched)') as { thread: string }[]).map((r) => r.thread)).toEqual(['dm:a|b', 'group:ed']);
+    expect(t.get('live (30 seconds on)')).toEqual([]);
+    expect(t.get('live (no threads)')).toEqual([]);
+    expect(t.get('threads')).toEqual(['dm:a|b']);
+    expect(t.get('purge (nothing that old)')).toBe(0);
+    expect(t.get('purge (the first session and the other Admin)')).toBe(2);
+    expect(t.get('forget the thread')).toBe(1);
+    expect(t.get('forget (nothing left)')).toBe(0);
+    expect(t.get('list (after forget)')).toEqual([]);
+    expect(t.get('list (the other thread is kept)')).toEqual([{ admin: 'Root', startedAt: T0 + 41 * MIN, lastSeenAt: T0 + 41 * MIN }]);
   });
 
   onEachAdapter(o, 'mints the server scope once and keeps it, and puts it in every channel message id', async (s) => {
