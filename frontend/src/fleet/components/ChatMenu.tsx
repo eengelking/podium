@@ -2,7 +2,7 @@
 // buttons, and an agent's. They open on right-click and on the "..." button, move with the arrow keys, close on Escape (the
 // caller puts the focus back) and offer only what the viewer may do, as the overview's `can` flags say.
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
+import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
 import { ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
@@ -34,7 +34,8 @@ function crossMenu(label: string, c: Cross): MenuSpec {
   const items: MenuItem[] = [];
   if (c.link === "paused") {
     const by = c.pausedBy ? whoWord(c, c.pausedBy) : null;
-    items.push({ act: "pause-link", label: "Resume link", icon: <ChPlay />, ...(c.canResume === false ? { disabled: by ? `Paused by ${by}. Only ${by} can resume it.` : "Only the one who paused it can resume it." } : {}) });
+    const byAdmin = c.pausedBy === "admin";
+    items.push({ act: "pause-link", label: "Resume link", icon: <ChPlay />, ...(c.canResume === false ? { disabled: byAdmin ? `Paused by ${by}. Only an Admin can resume this link.` : by ? `Paused by ${by}. Only ${by} can resume it.` : "Only the one who paused it can resume it." } : {}) });
   } else if (c.link === "open") items.push({ act: "pause-link", label: "Pause link", icon: <ChPause /> });
   if (c.link === "open" || c.link === "paused") items.push({ act: "remove-link", label: "Remove link…", icon: <ChTrash />, danger: true });
   if (c.link === "removed" && c.viewerIs !== "sender") items.push({ act: "allow-link", label: "Allow again", icon: <ChPlay /> });
@@ -42,16 +43,31 @@ function crossMenu(label: string, c: Cross): MenuSpec {
   return { label, items };
 }
 
+/**
+ * An Admin reading a person's Direct Message may stop a runaway conversation (Pause link, Resume link) and nothing else: removing the
+ * link and deleting the conversation are its people's. A link that is already removed has nothing to pause.
+ */
+function adminMenu(label: string, d: DirectInfo): MenuSpec {
+  const c = d.cross;
+  const removed = c ? c.link === "removed" : hasLink(d) && !d.canSend.aToB && !d.canSend.bToA && d.state === "active";
+  const paused = c ? c.link === "paused" : d.state === "paused" || d.paused;
+  const items: MenuItem[] = [];
+  if ((c || hasLink(d)) && !removed) items.push({ act: "pause-link", label: paused ? "Resume link" : "Pause link", icon: paused ? <ChPlay /> : <ChPause /> });
+  return { label, items, why: `An Admin reads a Direct Message and cannot send in it. ${d.owner} removes the link or deletes the conversation. An Admin can pause all of a reporter's links in Admin > Reporters.` };
+}
+
 /** Pause link and Remove link are the owner's, and only for a link between two agents that still has one. */
-export function dmMenu(d: DirectInfo, owns: boolean): MenuSpec {
+export function dmMenu(d: DirectInfo, owns: boolean, readOnly = false): MenuSpec {
   const label = `Actions for ${dmName(d)}`;
+  if (readOnly) return adminMenu(label, d);
   if (d.cross) return crossMenu(label, d.cross);
   if (!owns) return { label, items: [], why: `Only ${d.owner} can pause or remove this link. An Admin can pause all of a reporter's links in Admin > Reporters.` };
   const removed = hasLink(d) && !d.canSend.aToB && !d.canSend.bToA && d.state === "active";
   const paused = d.state === "paused" || d.paused;
   const items: MenuItem[] = [];
   if (hasLink(d) && !removed) {
-    items.push({ act: "pause-link", label: paused ? "Resume link" : "Pause link", icon: paused ? <ChPlay /> : <ChPause /> });
+    const held = adminPauseOf(d);
+    items.push({ act: "pause-link", label: paused ? "Resume link" : "Pause link", icon: paused ? <ChPlay /> : <ChPause />, ...(held ? { disabled: `Paused by ${adminWho(held.name)}. Only an Admin can resume this link.` } : {}) });
     items.push({ act: "remove-link", label: "Remove link…", icon: <ChTrash />, danger: true });
   }
   items.push({ act: "delete-dm", label: "Delete conversation…", icon: <ChTrash />, danger: true });
@@ -59,12 +75,14 @@ export function dmMenu(d: DirectInfo, owns: boolean): MenuSpec {
 }
 
 /** A channel's stop buttons. Pause holds and keeps access, Disconnect takes the agents' access away, Remove all deletes the history. */
-export function channelMenu(c: ChatChannel): MenuSpec {
+export function channelMenu(c: ChatChannel, reading?: { owner: string }): MenuSpec {
   const general = c.id === "general";
-  const mine = general ? "my agents in General" : "every agent in the group";
+  const mine = general ? "my agents in General" : reading ? `every agent in ${reading.owner}'s group` : "every agent in the group";
   const heldByMe = c.paused && !c.pausedForEveryone;
+  // An Admin's pause on a group is the Admin's to lift: its person sees the item and the reason, and nothing happens.
+  const held = !general && !reading && heldByMe && c.pausedByAdmin ? `Paused by ${adminWho(c.pausedByAdmin)}. Only an Admin can resume it.` : null;
   const items: MenuItem[] = [];
-  if (c.can.pause) items.push({ act: "pause", label: `${heldByMe ? "Resume" : "Pause"} ${mine}`, icon: heldByMe ? <ChPlay /> : <ChPause /> });
+  if (c.can.pause) items.push({ act: "pause", label: `${heldByMe ? "Resume" : "Pause"} ${mine}`, icon: heldByMe ? <ChPlay /> : <ChPause />, ...(held ? { disabled: held } : {}) });
   if (c.can.disconnect) items.push({ act: "disconnect", label: `${c.disconnected ? "Reconnect" : "Disconnect"} ${mine}`, icon: <ChPause /> });
   if (general && c.can.pauseEveryone) items.push({ act: "pause-all", label: c.pausedForEveryone ? "Resume General for everyone" : "Pause General for everyone", icon: <ChPause /> });
   if (c.can.removeAll) items.push({ act: "clear", label: "Remove all messages…", icon: <ChTrash />, danger: true });

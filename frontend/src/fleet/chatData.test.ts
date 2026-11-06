@@ -2,6 +2,14 @@
 import { describe, it, expect } from "vitest";
 import {
   addressMatches,
+  adminPauseOf,
+  adminWho,
+  liveReaders,
+  onDay,
+  readersLine,
+  readersStops,
+  readersTip,
+  recordLine,
   channelDelivery,
   channelTag,
   crossLine,
@@ -247,5 +255,63 @@ describe("a conversation across owners", () => {
     expect(dmDelivery(dmsg({ state: "approval", waitingFor: "Ed" }), false, "Ed", () => "x", true).text).toBe("Waiting for Ed to approve it.");
     expect(dmDelivery(dmsg({ state: "declined", reason: "Ed declined it." }), false, "Ed", () => "13:00", true).text).toBe("Declined at 13:00: Ed declined it. It was not delivered.");
     expect(dmDelivery(dmsg({ state: "dropped", why: "link-removed", reason: "Ed removed the link." }), false, "Ed", () => "13:00", true).text).toBe("Dropped at 13:00: Ed removed the link. It was not delivered.");
+  });
+});
+
+describe("an Admin reading (#1034)", () => {
+  const r = (admin: string, since: number, until: number) => ({ admin, since, until });
+  it("names an Admin, with a name or without", () => {
+    expect(adminWho("Root")).toBe("Root (an Admin)");
+    expect(adminWho(null)).toBe("an Admin");
+    expect(adminWho(undefined)).toBe("an Admin");
+  });
+  it("keeps only the readings whose time has not passed, by the server's clock", () => {
+    const l = [r("Root", 100, 500), r("Alex", 200, 400)];
+    expect(liveReaders(l, 450).map((x) => x.admin)).toEqual(["Root"]);
+    expect(liveReaders(l, 500)).toEqual([]);
+    expect(liveReaders(undefined, 0)).toEqual([]);
+  });
+  it("names the first two Admins inline and counts the rest", () => {
+    expect(readersLine([r("Root", 1, 9)])).toBe("Root (an Admin) is reading this conversation.");
+    expect(readersLine([r("Root", 1, 9), r("Alex", 1, 9)])).toBe("Root and Alex (Admins) are reading this conversation.");
+    expect(readersLine([r("Root", 1, 9), r("Alex", 1, 9), r("Sam", 1, 9)])).toBe("Root, Alex and 1 more Admin are reading this conversation.");
+    expect(readersLine([r("Root", 1, 9), r("Alex", 1, 9), r("Sam", 1, 9), r("Kim", 1, 9)])).toBe("Root, Alex and 2 more Admins are reading this conversation.");
+    expect(readersStops([r("Root", 1, 9)])).toBe("Root stops");
+    expect(readersStops([r("Root", 1, 9), r("Alex", 1, 9)])).toBe("the last of them stops");
+  });
+  it("lists every Admin with the time they started, in the tip", () => {
+    const at = (t: number) => `t${t}`;
+    expect(readersTip([r("Root", 1, 9), r("Alex", 2, 9), r("Sam", 3, 9)], at)).toBe("Reading now: Root since t1, Alex since t2, Sam since t3.");
+  });
+  it("writes the record line for each kind, a missing kind being a read", () => {
+    const t = new Date(2026, 10, 6, 14, 20).getTime();
+    const rec = (kind?: "read" | "cleared" | "paused" | "resumed") => recordLine({ admin: "Root", startedAt: t, lastSeenAt: t, ...(kind ? { kind } : {}) });
+    expect(onDay(t)).toBe("Nov 6 at 14:20");
+    expect(rec()).toBe("Root (an Admin) read this conversation on Nov 6 at 14:20.");
+    expect(rec("read")).toBe("Root (an Admin) read this conversation on Nov 6 at 14:20.");
+    expect(rec("cleared")).toBe("Root (an Admin) removed all messages on Nov 6 at 14:20.");
+    expect(rec("paused")).toBe("Root (an Admin) paused this link on Nov 6 at 14:20.");
+    expect(rec("resumed")).toBe("Root (an Admin) resumed this link on Nov 6 at 14:20.");
+  });
+  it("finds a pause an Admin made, in a channel, a plain Direct Message and a conversation across owners", () => {
+    expect(adminPauseOf({ paused: true, pausedByAdmin: "Root" })).toEqual({ name: "Root" });
+    expect(adminPauseOf({ paused: true, pausedByAdmin: null })).toBeNull();
+    expect(adminPauseOf({ paused: false, pausedByAdmin: "Root" })).toBeNull();
+    const d = dm(agent("a", "A"), agent("b", "B"), { state: "paused", paused: true, pausedBy: "admin", pausedByAdmin: "Root" });
+    expect(adminPauseOf(d)).toEqual({ name: "Root" });
+    expect(adminPauseOf(dm(agent("a", "A"), agent("b", "B"), { state: "paused", paused: true, pausedBy: "owner" }))).toBeNull();
+    const c: Cross = { person: "Maya", owner: "Ed", link: "paused", viewerIs: "owner", pausedBy: "admin", pausedByAdmin: "Root" };
+    expect(adminPauseOf(dm(person, agent("b", "B"), { cross: c }))).toEqual({ name: "Root" });
+    expect(adminPauseOf(dm(person, agent("b", "B"), { cross: { ...c, pausedBy: "owner" } }))).toBeNull();
+    expect(adminPauseOf(dm(person, agent("b", "B"), { cross: { ...c, pausedBy: "admin", pausedByAdmin: null } }))).toEqual({ name: null });
+  });
+  it("says an Admin held a message, not the owner, when an Admin paused the link", () => {
+    expect(dmDelivery(dmsg({ state: "queued" }), true, "Ed", () => "x", false, "Root (an Admin)").text).toBe("Held: Root (an Admin) paused this link. It goes when the link resumes.");
+    expect(dmDelivery(dmsg({ state: "queued" }), true, "Ed").text).toBe("Held: Ed paused this link. It goes when the link resumes.");
+  });
+  it("names the Admin who paused a link in the words the box and menu use", () => {
+    const c: Cross = { person: "Maya", owner: "Ed", link: "paused", viewerIs: "owner", pausedBy: "admin", pausedByAdmin: "Root", canResume: false };
+    expect(crossOff(c)?.why).toBe("Paused by Root (an Admin): messages are held. Only an Admin can resume it.");
+    expect(whoWord(c, "admin")).toBe("Root (an Admin)");
   });
 });

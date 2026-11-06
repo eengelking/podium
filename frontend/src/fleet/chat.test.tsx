@@ -9,7 +9,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
+import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -101,6 +101,10 @@ interface Fake {
   channels: Record<string, { messages: ChannelMessage[]; older?: string | null }>;
   dms: Record<string, { messages: DirectMessage[]; older?: string | null; total?: number }>;
   postError?: RespondError | Error;
+  /** What an Admin who picked a person is answered with, by that person's name. */
+  owners?: Record<string, Partial<ChatOverview>>;
+  /** What the thread reads answer as an Admin's record, by the thread's key. */
+  reads?: Record<string, AdminRead[]>;
 }
 
 function world(over: Partial<Fake> = {}): Fake {
@@ -153,7 +157,8 @@ function world(over: Partial<Fake> = {}): Fake {
 function fakeChat(w: Fake = world()) {
   const pageOf = (key: string, before: string | null): DirectPageRead => {
     const t = w.dms[key]!;
-    const d = w.overview.directs.find((x) => [x.a.sessionId, x.b.sessionId].sort().join("|") === key.split("|").sort().join("|"))!;
+    const all = [...w.overview.directs, ...Object.values(w.owners ?? {}).flatMap((o) => o.directs ?? [])];
+    const d = all.find((x) => [x.a.sessionId, x.b.sessionId].sort().join("|") === key.split("|").sort().join("|"))!;
     return {
       ok: true,
       thread: d.thread,
@@ -163,35 +168,40 @@ function fakeChat(w: Fake = world()) {
       older: before ? null : (t.older ?? null),
       total: t.total ?? t.messages.length,
       ended: d.ended,
-      owner: "Ed",
+      owner: d.owner,
       paused: d.paused,
       roundTrips: d.roundTrips,
       cross: d.cross ?? null,
+      pausedBy: d.pausedBy ?? null,
+      pausedByAdmin: d.pausedByAdmin ?? null,
+      ...(w.reads?.[key] ? { adminReads: structuredClone(w.reads[key]) } : {}),
     };
   };
   const api = {
-    overview: vi.fn(async () => structuredClone(w.overview)),
+    overview: vi.fn(async (owner?: string | null) => structuredClone(owner && w.owners?.[owner] ? { ...w.overview, ...w.owners[owner] } : w.overview)),
     markRead: vi.fn(async () => ({ ok: true as const, unread: 0, mentions: 0 })),
     addresses: vi.fn(async () => ({ ok: true as const, addresses: structuredClone(BOOK) })),
     channelMessages: vi.fn(async (channel: string) => {
       const c = w.channels[channel]!;
-      return { ok: true as const, channel: channel as "general", messages: structuredClone(c.messages), older: c.older ?? null, total: c.messages.length };
+      return { ok: true as const, channel: channel as "general", messages: structuredClone(c.messages), older: c.older ?? null, total: c.messages.length, ...(w.reads?.[channel] ? { adminReads: structuredClone(w.reads[channel]) } : {}) };
     }),
+    readingChannel: vi.fn(async (_channel: string, _owner: string) => ({ ok: true as const })),
+    readingDm: vi.fn(async (_a: string, _b: string, _owner: string) => ({ ok: true as const })),
     post: vi.fn(async (channel: string, text: string) => {
       if (w.postError) throw w.postError;
       const m = cmsg(`new-${w.channels[channel]!.messages.length}`, text);
       w.channels[channel]!.messages.push(m);
       return { ok: true as const, message: m, warnings: [] as string[] };
     }),
-    pause: vi.fn(async (channel: string, paused: boolean, everyone = false) => {
+    pause: vi.fn(async (channel: string, paused: boolean, everyone = false, _owner?: string | null) => {
       w.overview.channels = w.overview.channels.map((c) => (c.id === channel ? { ...c, paused, pausedForEveryone: everyone && paused } : c));
       return { ok: true as const };
     }),
-    disconnect: vi.fn(async (channel: string, disconnected: boolean) => {
+    disconnect: vi.fn(async (channel: string, disconnected: boolean, _owner?: string | null) => {
       w.overview.channels = w.overview.channels.map((c) => (c.id === channel ? { ...c, disconnected } : c));
       return { ok: true as const };
     }),
-    clear: vi.fn(async (channel: string) => {
+    clear: vi.fn(async (channel: string, _owner?: string | null) => {
       w.channels[channel]!.messages = [];
       w.overview.channels = w.overview.channels.map((c) => (c.id === channel ? { ...c, messages: 0 } : c));
       return { ok: true as const };
@@ -424,7 +434,7 @@ describe("the sidebar", () => {
     page({ chat: fakeChat(w), me: ROOT });
     await flush();
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Channels"]);
+    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels"]);
     expect(nav.getByText(/belong to a person/)).toBeInTheDocument();
   });
 });
@@ -1251,5 +1261,362 @@ describe("messages from other people waiting for the owner", () => {
     p.signal();
     await flush();
     expect(screen.getByRole("link", { name: /for your approval/ })).toHaveTextContent("3 messages from other people wait");
+  });
+});
+
+// ---- An Admin reading (#1034) --------------------------------------------------------------------------------------------------
+
+const live = (admin: string, since = T0 - 60_000, until = T0 + 30_000) => ({ admin, since, until });
+const ago = (ms: number) => T0 - ms;
+
+describe("the person an Admin reads, told in the console", () => {
+  const withReaders = (readers: ReturnType<typeof live>[], groupReaders: ReturnType<typeof live>[] = []) => {
+    const w = world();
+    w.overview.directs = [direct(DASH, TESTER, { adminReading: readers }), direct(ME, NOTES, { thread: "dm:person:ed|s-notes", messages: 2 })];
+    w.overview.channels = [channelOf("general"), channelOf("group", { adminReading: groupReaders })];
+    return fakeChat(w);
+  };
+
+  it("shows a red banner above the messages, naming the Admin, and an Admin reading tag on the row", async () => {
+    page({ chat: withReaders([live("Root")]) });
+    await flush();
+    expect(within(row("d:s-dash+s-tester")).getByText("Admin reading")).toBeInTheDocument();
+    expect(within(row("d:s-notes")).queryByText("Admin reading")).toBeNull();
+    await open("d:s-dash+s-tester");
+    const banner = within(thread()).getByTestId("chat-reading-banner");
+    expect(banner).toHaveAttribute("role", "status");
+    expect(banner).toHaveClass("crit");
+    expect(banner).toHaveTextContent("Root (an Admin) is reading this conversation.");
+    expect(banner).toHaveTextContent("Only you and Admins can read it. The notice clears about 30 seconds after Root stops.");
+    expect(within(row("c:general")).queryByText("Admin reading")).toBeNull();
+  });
+
+  it("names the first two Admins inline and the rest by count, and lists all of them with their start times in a tip", async () => {
+    page({ chat: withReaders([live("Root", T0 - 120_000), live("Alex", T0 - 60_000), live("Sam", T0 - 30_000), live("Kim", T0 - 10_000)]) });
+    await flush();
+    await open("d:s-dash+s-tester");
+    const banner = within(thread()).getByTestId("chat-reading-banner");
+    expect(banner).toHaveTextContent("Root, Alex and 2 more Admins are reading this conversation.");
+    expect(banner).toHaveTextContent("after the last of them stops");
+    const trigger = within(banner).getByText("Who is reading");
+    const tip = screen.getByRole("tooltip", { hidden: true });
+    expect(trigger.closest("[aria-describedby]")).toHaveAttribute("aria-describedby", tip.id);
+    expect(tip).toHaveTextContent("Reading now: Root since 14:28, Alex since 14:29, Sam since 14:29, Kim since 14:29.");
+    expect(tip).not.toBeVisible();
+    fireEvent.focus(trigger.closest("[aria-describedby]")!);
+    expect(tip).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(tip).not.toBeVisible();
+  });
+
+  it("tells a group's person the same, above My group", async () => {
+    page({ chat: withReaders([], [live("Root"), live("Alex")]) });
+    await flush();
+    expect(within(row("c:group")).getByText("Admin reading")).toBeInTheDocument();
+    await open("c:group");
+    expect(within(thread()).getByTestId("chat-reading-banner")).toHaveTextContent("Root and Alex (Admins) are reading this conversation.");
+  });
+
+  it("drops a reading once its time has passed, without waiting for the server", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    page({ chat: withReaders([live("Root", T0 - 5000, T0 + 4000)]) });
+    await flush();
+    expect(within(row("d:s-dash+s-tester")).getByText("Admin reading")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(within(row("d:s-dash+s-tester")).queryByText("Admin reading")).toBeNull();
+  });
+
+  it("puts a record line among the messages in time order, one for each thing an Admin did", async () => {
+    const w = world();
+    w.reads = {
+      "s-dash|s-tester": [
+        { admin: "Root", startedAt: ago(495_000), lastSeenAt: ago(480_000) },
+        { admin: "Root", startedAt: ago(485_000), lastSeenAt: ago(485_000), kind: "paused" },
+        { admin: "Alex", startedAt: ago(100_000), lastSeenAt: ago(90_000), kind: "resumed" },
+        { admin: "Alex", startedAt: ago(50_000), lastSeenAt: ago(50_000), kind: "cleared" },
+      ],
+    };
+    const msgs = w.dms["s-dash|s-tester"]!.messages;
+    [500_000, 490_000, 200_000].forEach((ms, i) => (msgs[i]!.sentAt = ago(ms)));
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("d:s-dash+s-tester");
+    const items = [...thread().querySelectorAll("ol.feed > li")].map((li) => (li.classList.contains("ch-rec") ? `rec:${li.textContent}` : `msg:${li.querySelector(".who")?.textContent}`));
+    expect(items).toEqual([
+      "msg:claude-dashboard",
+      "rec:Root (an Admin) read this conversation on Oct 12 at 14:21.",
+      "msg:Tester",
+      "rec:Root (an Admin) paused this link on Oct 12 at 14:21.",
+      "msg:You",
+      "rec:Alex (an Admin) resumed this link on Oct 12 at 14:28.",
+      "rec:Alex (an Admin) removed all messages on Oct 12 at 14:29.",
+    ]);
+    expect(thread().querySelectorAll(".ch-rec input, .ch-rec button")).toHaveLength(0);
+  });
+
+  it("holds a link an Admin paused: the tag, the banner and the box name the Admin, and the owner cannot resume it", async () => {
+    const w = world();
+    w.overview.directs = [direct(DASH, TESTER, { state: "paused", paused: true, pausedBy: "admin", pausedByAdmin: "Root" })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(within(row("d:s-dash+s-tester")).getByText("Paused by an Admin")).toBeInTheDocument();
+    await open("d:s-dash+s-tester");
+    expect(within(thread()).getByTestId("chat-admin-pause-banner")).toHaveTextContent("Root (an Admin) paused this link. Messages are held and nothing is sent. Only an Admin can resume it.");
+    fireEvent.click(screen.getByRole("button", { name: "Actions for claude-dashboard, Tester" }));
+    const item = screen.getByRole("menuitem", { name: /Resume link/ });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent("Paused by Root (an Admin). Only an Admin can resume this link.");
+  });
+
+  it("tells both people of a conversation across owners, each naming the other", async () => {
+    const w = world();
+    const across = direct(ME, agent("s-n", "maya-bot", "maya-mbp"), { owner: "Maya", cross: { person: "Ed", owner: "Maya", link: "open", viewerIs: "owner" }, adminReading: [live("Root")] });
+    w.overview.directs = [across];
+    w.dms["person:ed|s-n"] = { messages: [dmsg("c1", ME, agent("s-n", "maya-bot", "maya-mbp"), "Hello.")], total: 1 };
+    page({ chat: fakeChat(w), me: { ...ED, name: "Maya" } });
+    await flush();
+    await open("d:s-n");
+    expect(within(thread()).getByTestId("chat-reading-banner")).toHaveTextContent("Only you, Ed and Admins can read it.");
+  });
+
+  it("keeps a group's Resume item off for its person while an Admin's pause holds it", async () => {
+    const w = world();
+    w.overview.channels = [channelOf("general"), channelOf("group", { paused: true, pausedByAdmin: "Root" })];
+    const chat = fakeChat(w);
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for My group" }));
+    const item = screen.getByRole("menuitem", { name: /Resume every agent in the group/ });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(item);
+    await flush();
+    expect(chat.api.pause).not.toHaveBeenCalled();
+  });
+
+  it("holds a group an Admin paused", async () => {
+    const w = world();
+    w.overview.channels = [channelOf("general"), channelOf("group", { paused: true, pausedByAdmin: "Root" })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(within(row("c:group")).getByText("Paused by an Admin")).toBeInTheDocument();
+    await open("c:group");
+    expect(within(thread()).getByTestId("chat-admin-pause-banner")).toHaveTextContent("Root (an Admin) paused every agent in this group.");
+    expect(screen.getByTestId("chat-box")).toBeDisabled();
+    expect(thread()).toHaveTextContent("Paused by Root (an Admin): messages are held. Only an Admin can resume it.");
+  });
+});
+
+describe("an Admin reading a person's conversations", () => {
+  const MAYA_DM = direct(agent("m-1", "maya-api", "maya-mbp"), agent("m-2", "maya-ui", "maya-mbp"), { owner: "Maya", thread: "dm:m-1|m-2", unread: 5 });
+  const adminWorld = () => {
+    const w = world();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } })];
+    w.overview.directs = [];
+    w.overview.agents = [];
+    w.overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
+    w.owners = {
+      Maya: {
+        channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })],
+        directs: [MAYA_DM],
+      },
+    };
+    w.channels.group = { messages: [cmsg("q1", "run the tests", { mine: false, authorName: "Maya", authorRef: "Maya" })] };
+    w.dms["m-1|m-2"] = { messages: [dmsg("x1", agent("m-1", "maya-api", "maya-mbp"), agent("m-2", "maya-ui", "maya-mbp"), "Maya's agents talking.")], total: 1 };
+    return w;
+  };
+  const pickPerson = async (name = "Maya") => {
+    fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: name } });
+    await flush();
+  };
+
+  it("offers a picker of the other people and shows only General until one is chosen", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    const sel = screen.getByLabelText("Read a person's conversations") as HTMLSelectElement;
+    expect([...sel.options].map((o) => o.textContent)).toEqual(["Choose a person…", "Ed", "Maya"]);
+    const nav = within(screen.getByRole("navigation", { name: "Chat" }));
+    expect(nav.getByRole("heading", { name: "Read as an Admin" })).toBeInTheDocument();
+    expect(nav.queryByRole("heading", { name: "Direct Messages" })).toBeNull();
+    expect(row("c:general")).toBeInTheDocument();
+  });
+
+  it("never offers the picker to someone who is not an Admin", async () => {
+    page();
+    await flush();
+    expect(screen.queryByLabelText("Read a person's conversations")).toBeNull();
+  });
+
+  it("shows the chosen person's My group and Direct Messages as read only, with no People and agents", async () => {
+    const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    expect(p.chat.api.overview).toHaveBeenLastCalledWith("Maya");
+    const nav = within(screen.getByRole("navigation", { name: "Chat" }));
+    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels", "Direct Messages"]);
+    expect(row("c:group")).toHaveTextContent("read only");
+    expect(row("d:m-1+m-2")).toHaveTextContent("Two agents, and Maya, read only");
+    expect(row("d:m-1+m-2")).toHaveTextContent("maya-api, maya-ui");
+    expect(within(row("d:m-1+m-2")).queryByLabelText(/new/)).toBeNull();
+  });
+
+  it("opens a thread with a red banner, no message box and the reason, and records nothing as read", async () => {
+    const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("d:m-1+m-2");
+    const banner = within(thread()).getByTestId("chat-ro-banner");
+    expect(banner).toHaveClass("crit");
+    expect(banner).toHaveAttribute("role", "status");
+    expect(banner).toHaveTextContent("Reading Maya's conversation as an Admin. You cannot send here.");
+    expect(banner).toHaveTextContent("Maya is told while you read, and a line stays in the conversation afterward.");
+    expect(screen.queryByTestId("chat-box")).toBeNull();
+    expect(screen.getByTestId("chat-ro-note")).toHaveTextContent("You are reading as an Admin, so there is no message box.");
+    expect(thread().querySelectorAll(".ch-pick")).toHaveLength(0);
+    expect(p.chat.api.markRead).not.toHaveBeenCalled();
+    expect(p.chat.api.addresses).not.toHaveBeenCalled();
+  });
+
+  it("tells both people of a conversation across owners while an Admin reads it, and marks nothing read for an Admin who is a person", async () => {
+    const w = adminWorld();
+    w.overview.me = { name: "Root", admin: true, person: true };
+    w.owners!.Maya!.directs = [direct(agent("m-1", "maya-api", "maya-mbp"), { ...ME, sessionId: "person:ed" }, { owner: "Maya", thread: "dm:m-1|person:ed", unread: 3, cross: { person: "Ed", owner: "Maya", link: "open", viewerIs: "admin" } })];
+    w.dms["m-1|person:ed"] = { messages: [dmsg("x2", ME, agent("m-1", "maya-api", "maya-mbp"), "Hi Maya's agent.")], total: 1 };
+    const p = page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("d:m-1");
+    expect(within(thread()).getByTestId("chat-ro-banner")).toHaveTextContent("Reading Maya's conversation as an Admin. You cannot send here. Maya and Ed are told while you read");
+    expect(p.chat.api.markRead).not.toHaveBeenCalled();
+  });
+
+  it("reads another person's group by naming its owner", async () => {
+    const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("c:group");
+    expect(p.chat.api.channelMessages).toHaveBeenCalledWith("group", expect.objectContaining({ owner: "Maya" }));
+    expect(within(thread()).getByTestId("chat-ro-banner")).toBeInTheDocument();
+  });
+
+  it("gives a group menu Pause, Disconnect and Remove all messages, each naming the owner", async () => {
+    const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for My group" }));
+    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Pause every agent in Maya's group", "Disconnect every agent in Maya's group", "Remove all messages…"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Pause every agent/ }));
+    await flush();
+    expect(p.chat.api.pause).toHaveBeenCalledWith("group", true, false, "Maya");
+    fireEvent.click(screen.getByRole("button", { name: "Actions for My group" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Disconnect every agent/ }));
+    await flush();
+    expect(p.chat.api.disconnect).toHaveBeenCalledWith("group", true, "Maya");
+    fireEvent.click(screen.getByRole("button", { name: "Actions for My group" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove all messages…" }));
+    await flush();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove all messages" }));
+    await flush();
+    expect(p.chat.api.clear).toHaveBeenCalledWith("group", "Maya");
+  });
+
+  it("gives a Direct Message menu Pause link and nothing else, and pauses through Chat's link route", async () => {
+    const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for maya-api, maya-ui" }));
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Pause link"]);
+    expect(menu).toHaveTextContent("An Admin reads a Direct Message and cannot send in it. Maya removes the link or deletes the conversation.");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pause link" }));
+    await flush();
+    expect(p.chat.api.link).toHaveBeenCalledWith("m-1", "m-2", "pause");
+    expect(p.chat.api.pauseLink).not.toHaveBeenCalled();
+  });
+
+  it("offers Resume link on a link that is paused, whoever paused it", async () => {
+    const w = adminWorld();
+    w.owners!.Maya!.directs = [{ ...MAYA_DM, state: "paused", paused: true, pausedBy: "owner" }];
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    await pickPerson();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for maya-api, maya-ui" }));
+    expect(within(screen.getByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Resume link"]);
+  });
+
+  describe("keeping the reading alive", () => {
+    const hide = (v: "hidden" | "visible") => Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v });
+    afterEach(() => hide("visible"));
+
+    it("pings a group every 15 seconds while it is open, and stops when another thread opens", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+      await flush();
+      await pickPerson();
+      await open("c:group");
+      expect(p.chat.api.readingChannel).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(p.chat.api.readingChannel).toHaveBeenCalledTimes(1);
+      expect(p.chat.api.readingChannel).toHaveBeenCalledWith("group", "Maya");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(p.chat.api.readingChannel).toHaveBeenCalledTimes(2);
+      await open("c:general");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(45_000);
+      });
+      expect(p.chat.api.readingChannel).toHaveBeenCalledTimes(2);
+      expect(p.chat.api.readingDm).not.toHaveBeenCalled();
+    });
+
+    it("pings a Direct Message by its two ids, skips a hidden tab, and says nothing when a ping fails", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const chat = fakeChat(adminWorld());
+      chat.api.readingDm.mockRejectedValue(new RespondError(500, { error: "busy" }));
+      page({ chat, me: ROOT });
+      await flush();
+      await pickPerson();
+      await open("d:m-1+m-2");
+      hide("hidden");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(chat.api.readingDm).not.toHaveBeenCalled();
+      hide("visible");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(chat.api.readingDm).toHaveBeenCalledWith("m-1", "m-2", "Maya");
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("pings nothing for the Admin's own thread or for a person who is not an Admin", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const p = page();
+      await flush();
+      await open("c:group");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(p.chat.api.readingChannel).not.toHaveBeenCalled();
+    });
+  });
+
+  it("returns to the Admin's own view when the choice is cleared", async () => {
+    const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await pickPerson("");
+    expect(p.chat.api.overview).toHaveBeenLastCalledWith(null);
+    expect(screen.queryByTestId("chat-row-c:group")).toBeNull();
   });
 });
