@@ -7,7 +7,9 @@ import { randomBytes } from 'node:crypto';
 import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel, type PeerRequestKind } from '../../fleet/protocol.js';
 import {
   OWNER_DEFAULTS,
+  isPersonKey,
   refuse,
+  type PersonLinkOp,
   type AccessOutcome,
   type Actor,
   type AnswerOutcome,
@@ -245,6 +247,11 @@ export class PgPeerRights implements PeerRightsStoreApi {
   }
 
   async effective(from: string, to: string): Promise<EffectiveRight> {
+    // A person's link to another person's agent (#1034) has no Trust and no second owner: the row is the whole answer.
+    if (isPersonKey(from)) {
+      const link = await this.row(from, to);
+      return { level: link?.level ?? 'none', paused: link?.paused ?? false };
+    }
     const p = await this.pair(null, from, to);
     if (!p.ok) return { level: 'none', paused: false };
     const had = await this.row(from, to);
@@ -254,7 +261,35 @@ export class PgPeerRights implements PeerRightsStoreApi {
   /** Owners are compared with `nameKey` in JS, the way the SQLite store does, so one rule folds case on every adapter. */
   async rightsOf(owner: string): Promise<RightRow[]> {
     const key = nameKey(owner);
-    return (await this.db.all<DbRight>('SELECT * FROM peer_rights ORDER BY from_key, to_key')).filter((r) => nameKey(r.owner) === key).map(toRight);
+    // A person's link (#1034) is not one of the reporters' Grid, so it is left out; `personLink` reads it.
+    return (await this.db.all<DbRight>('SELECT * FROM peer_rights ORDER BY from_key, to_key')).filter((r) => nameKey(r.owner) === key && !isPersonKey(r.from_key)).map(toRight);
+  }
+
+  async personLink(personKey: string, toKey: string): Promise<RightRow | null> {
+    return isPersonKey(personKey) ? this.row(personKey, toKey) : null;
+  }
+
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal> {
+    return this.db.tx(async () => {
+      if (!isPersonKey(personKey) || personKey.length <= 'person:'.length) return refuse(400, 'a person link starts at a person');
+      const r = await this.reporters.get(toKey);
+      if (!r) return refuse(404, 'no such reporter');
+      if (!eligible(r)) return refuse(403, NO_ADMIN);
+      if (`person:${nameKey(r.owner)}` === personKey) return refuse(403, "a person's own agents need no link");
+      const had = await this.row(personKey, toKey);
+      let right: RightRow | null;
+      if (op === 'allow') right = await this.write(personKey, toKey, r.owner, 'send', false);
+      else if (op === 'remove') {
+        if (!had || had.level === 'none') return refuse(404, 'there is no link to remove');
+        // A `none` row is kept, so a removed link holds: the person's next message is refused, not asked about again.
+        right = await this.write(personKey, toKey, r.owner, 'none', false);
+      } else {
+        if (!had || had.level === 'none') return refuse(404, 'there is no link to pause');
+        right = await this.write(personKey, toKey, r.owner, had.level, op === 'pause');
+      }
+      await this.trail({ kind: 'person-link', op, owner: r.owner, person: personKey, toKey, actor });
+      return { ok: true as const, right };
+    });
   }
 
   setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal> {
@@ -456,7 +491,8 @@ export class PgPeerRights implements PeerRightsStoreApi {
         'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',
       );
       for (const { k } of keys) {
-        if (await this.reporters.get(k)) continue;
+        // A person's end of a link is not a reporter; it goes with the reporter on the other end.
+        if (isPersonKey(k) || (await this.reporters.get(k))) continue;
         n += await this.db.run('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?', [k, k]);
         await this.db.run('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?', [k, k]);
       }

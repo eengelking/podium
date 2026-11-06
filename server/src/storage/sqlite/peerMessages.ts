@@ -8,6 +8,8 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
 import {
   HELD_STATES,
+  CROSS_PENDING_MAX,
+  type AcrossInput,
   canSend,
   isIdle,
   linkKey,
@@ -337,7 +339,9 @@ export class PeerMessages implements PeerMessagesApi {
         )
       : [];
     for (const m of messages) {
-      out.push({ id: m.id, kind: 'message', at: m.sentAt, from: { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromSession && m.author === 'agent' ? { id: peerShortId(m.fromSession) } : {}) }, text: m.text });
+      // A person's text (#1034) is handed over as a person's, with this session's owner named, so the reporter frames it as not the owner's.
+      const from = m.author === 'person' ? { name: m.fromName, machine: m.fromMachine, owner: m.owner, person: true } : { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromSession ? { id: peerShortId(m.fromSession) } : {}) };
+      out.push({ id: m.id, kind: 'message', at: m.sentAt, from, text: m.text });
     }
     const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
     const now = this.now();
@@ -542,6 +546,49 @@ export class PeerMessages implements PeerMessagesApi {
     return this.row(id) as MessageRow;
   }
 
+  sendAcross(input: AcrossInput): MessageRow | Refusal {
+    const clean = cleanPeerText(input.text);
+    if (!clean.trim()) return refuse(400, 'The message is empty. Write the text to send.');
+    const person = nameKey(input.person);
+    const personKey = `person:${person}`;
+    const target = this.liveDir.get(input.toSession);
+    if (!target) {
+      // order-insensitive: only whether there is any row counts.
+      const known = this.stmt('SELECT COUNT(*) AS n FROM peer_messages WHERE to_session = ? OR from_session = ?').get(input.toSession, input.toSession) as { n: number };
+      return known.n > 0 ? refuse(409, 'That agent has ended, so Podium did not send the message. It would never be taken.') : refuse(404, 'There is no such agent.');
+    }
+    if (nameKey(target.owner) === person) return refuse(422, 'That agent is yours. Write to it from your own conversation with it.');
+    if (target.peers !== true || !this.onPersonReporter(target)) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
+    const limits = this.rights.limits(target.owner);
+    if (clean.length > limits.maxChars) {
+      const n = (v: number): string => v.toLocaleString('en-US');
+      return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)}. Send a shorter one.`);
+    }
+    const link = this.rights.personLink(personKey, target.reporterKey);
+    if (link?.level === 'none') return refuse(403, `${target.owner} removed the link between you and ${target.name}, so Podium did not send the message. ${target.owner} can open it again.`);
+    if (link?.paused) return refuse(409, `The link between you and ${target.name} is paused, so Podium did not send the message. It goes through once the link is resumed.`);
+    if (!link) {
+      // order-insensitive: only the counts of this person's waiting messages matter.
+      const waiting = this.rows(`SELECT * FROM peer_messages WHERE from_session = ? AND state = 'approval'`, personKey);
+      if (waiting.some((m) => m.toSession === input.toSession)) return refuse(409, `Your earlier message to ${target.name} still waits for ${target.owner} to approve it. Wait for the answer before you write again.`);
+      if (waiting.filter((m) => nameKey(m.owner) === nameKey(target.owner)).length >= CROSS_PENDING_MAX) {
+        return refuse(429, `You already have ${CROSS_PENDING_MAX} messages waiting for ${target.owner} to approve. Wait for answers before you write more.`);
+      }
+    }
+    const state: MessageState = link ? 'ready' : 'approval';
+    const id = newId();
+    const now = this.now();
+    this.stmt(
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
+    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanPeerText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now);
+    if (state === 'approval') {
+      this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
+    }
+    this.trail({ kind: 'sent', message: this.row(id) as MessageRow, state: state === 'approval' ? 'approval' : isIdle(target) ? 'sent' : 'turn', approvalWhy: state === 'approval' ? 'link' : null });
+    return this.row(id) as MessageRow;
+  }
+
   page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): MessagePage {
     const before = opts.before === undefined || opts.before === null ? null : decodeCursor(opts.before);
     const limit = pageSize(opts.limit);
@@ -569,9 +616,11 @@ export class PeerMessages implements PeerMessagesApi {
        FROM peer_messages ORDER BY sent_at, seq`,
     ).all() as unknown as DbMessage[];
     const key = nameKey(owner);
+    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<key>` is one of its two ends.
+    const me = `person:${key}`;
     const groups = new Map<string, DbMessage[]>();
     for (const r of all) {
-      if (nameKey(r.owner) !== key) continue;
+      if (nameKey(r.owner) !== key && r.from_session !== me && r.to_session !== me) continue;
       const pair = ordered(r.from_session, r.to_session).join('|');
       const g = groups.get(pair) ?? [];
       g.push(r);

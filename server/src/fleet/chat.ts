@@ -6,6 +6,7 @@ import type { ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
+import type { MessageTrail } from './peerTypes.js';
 import { CHANNEL_NAMES, fail, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
 
 const DAY_MS = 86_400_000;
@@ -45,6 +46,8 @@ export interface Overview {
   directs: DirectInfo[];
   agents: AgentInfo[];
   people: { name: string; you: boolean }[];
+  /** How many messages from other people wait for the viewer's approval as the owner of the agent they wrote to (#1034). Answered on My reporters. */
+  approvals: number;
 }
 
 export class ChatService {
@@ -56,6 +59,14 @@ export class ChatService {
     this.core = new ChatCore(host, store);
     this.channels = new ChannelChat(this.core);
     this.direct = new DirectChat(this.core);
+    // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
+    this.core.across = (v, sessionId, text, opts) => this.direct.across(v, sessionId, text, opts);
+    this.core.hearAcross((u) => void this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err)));
+  }
+
+  /** What became of a message between people, from the peer store's own trail: the mention the person wrote moves, and both sides' consoles are told. */
+  peerTrail(t: MessageTrail): void {
+    this.direct.peerTrail(t);
   }
 
   /** The Admin's Chat limits and the channels' flags. */
@@ -110,6 +121,7 @@ export class ChatService {
       directs: await this.direct.list(viewer),
       agents: agents.sort((a, b) => a.address.localeCompare(b.address)),
       people: (await this.core.persons()).map((p) => ({ name: p.name, you: p.key === key })),
+      approvals: person ? await this.direct.approvalsFor(viewer.name) : 0,
     };
   }
 

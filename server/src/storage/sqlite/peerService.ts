@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings } from './peerSettings.js';
-import { isIdle, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
+import { isIdle, isPersonKey, type PersonLinkOp, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 
@@ -36,6 +36,7 @@ export class PeerService {
       {
         effective: (from, to) => this.rights.effective(from, to),
         limits: (owner) => this.rights.limits(owner, this.settings.limits()),
+        personLink: (k, t) => this.rights.personLink(k, t),
         openMessageRequest: (input) => this.rights.openMessageRequest(input),
         closeMessageRequest: (id, outcome) => this.rights.closeMessageRequest(id, outcome),
       },
@@ -88,7 +89,8 @@ export class PeerService {
 
   /** A request as the owner's sessions and My reporters show it: machines by name, and a message's text for its approval. */
   requestView(r: PeerRequestRow): PeerRequest {
-    const machine = (key: string) => this.reporters.get(key)?.machine ?? key;
+    // A person's end of a link (#1034) is not a machine: it reads "Podium Chat".
+    const machine = (key: string) => (isPersonKey(key) ? 'Podium Chat' : (this.reporters.get(key)?.machine ?? key));
     const m = r.messageId ? this.messages.message(r.messageId) : null;
     return {
       id: r.id,
@@ -105,7 +107,7 @@ export class PeerService {
 
   /** A request as the owner's read lists it: `requestView`, plus both reporters by key and the message it is about. */
   ownerRequestView(r: PeerRequestRow): OwnerRequestView {
-    return { ...this.requestView(r), fromKey: r.fromKey, toKey: r.toKey, messageId: r.messageId };
+    return { ...this.requestView(r), fromKey: r.fromKey, toKey: r.toKey, messageId: r.messageId, fromPerson: isPersonKey(r.fromKey) };
   }
 
   /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
@@ -121,8 +123,11 @@ export class PeerService {
     const out = this.rights.answer(id, owner, answer, actor);
     if (!out.ok) return out;
     if ('message' in out) {
-      if (out.message.deliver) this.messages.approve(out.message.id, actor);
-      else this.messages.decline(out.message.id, actor);
+      if (out.message.deliver) {
+        this.messages.approve(out.message.id, actor);
+        // Allowing a person's first message opens the link, so what they write next goes through without asking again (#1034).
+        if (isPersonKey(out.request.fromKey)) this.rights.setPersonLink(out.request.fromKey, out.request.toKey, 'allow', actor);
+      } else this.messages.decline(out.message.id, actor);
       return out;
     }
     const r = out.request;
@@ -194,6 +199,13 @@ export class PeerService {
     return out;
   }
 
+  /** Opens, pauses, resumes or removes a person's link to another person's agent's reporter (#1034). A removal drops what still waits on it. */
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
+    const out = this.rights.setPersonLink(personKey, toKey, op, actor);
+    if (out.ok && op === 'remove') this.messages.linkRemoved(personKey, toKey);
+    return out;
+  }
+
   ended(sessionId: string): void {
     this.messages.ended(sessionId);
   }
@@ -215,7 +227,8 @@ export class PeerService {
     const cutoff = this.now() - this.settings.retainMs();
     const quiet = this.messages.retain(cutoff);
     const orphans = Number(
-      this.db.prepare('DELETE FROM peer_messages WHERE from_session NOT IN (SELECT id FROM sessions) OR to_session NOT IN (SELECT id FROM sessions)').run().changes,
+      // A person's end of a conversation (`person:<name>`, #1034) is not a session, so only a missing agent makes a message an orphan.
+      this.db.prepare("DELETE FROM peer_messages WHERE (from_session NOT LIKE 'person:%' AND from_session NOT IN (SELECT id FROM sessions)) OR to_session NOT IN (SELECT id FROM sessions)").run().changes,
     );
     return { messages: quiet + orphans, requests: this.rights.retain(cutoff) };
   }

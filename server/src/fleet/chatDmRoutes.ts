@@ -26,6 +26,15 @@ export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
     res.status(202).json(out);
   }));
 
+  /** Pause, Resume or Remove the link of a conversation across owners (and the owner opening it again): either person of it, at any time. */
+  browser.put('/chat/dm/:a/:b/link', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const out = await direct().link(v, req.params.a!, req.params.b!, ((req.body ?? {}) as Record<string, unknown>).op);
+    if ('status' in out) return void d.refuse(req, res, out);
+    res.json(out);
+  }));
+
   /** Delete conversation: its messages and its row. The link and its rights stay. */
   browser.delete('/chat/dm/:a/:b', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);

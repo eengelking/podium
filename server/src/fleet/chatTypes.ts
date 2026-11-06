@@ -43,6 +43,7 @@ export type ChatEvent =
   | { kind: 'sent' | 'delivered' | 'dropped'; channel: ChannelId; owner: string | null; by: string; messageId: string; sessionId: string | null; why?: string }
   | { kind: 'paused' | 'resumed' | 'disconnected' | 'reconnected' | 'cleared'; channel: ChannelId; owner: string | null; by: string; everyone: boolean; count: number }
   | { kind: 'dm_sent'; owner: string; by: string; messageId: string; sessionId: string }
+  | { kind: 'across'; owner: string; person: string; by: string; messageId: string; sessionId: string; approval: boolean }
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'purged'; channelMessages: number; directMessages: number };
 
@@ -53,6 +54,8 @@ export interface ChatSignal {
   owner: string | null;
   unread?: number;
   mentions?: number;
+  /** For the owner of an agent another person wrote to (#1034): how many such messages wait for the owner's approval. A count only. */
+  approvals?: number;
 }
 
 /** What the Chat service needs of the fleet. The fleet implements it. */

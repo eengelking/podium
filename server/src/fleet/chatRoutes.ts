@@ -47,6 +47,9 @@ export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
       case 'dm_sent':
         row('chat_sent', `A person sent a message in a direct message, ${e.owner}'s [${short(e.messageId)}] (${short(e.sessionId)})`, actorName(e.by), { owner: e.owner, message_id: short(e.messageId), session_id: e.sessionId });
         break;
+      case 'across':
+        row(e.approval ? 'chat_across_requested' : 'chat_across_sent', `${e.approval ? 'Asked' : 'Wrote to'} ${e.owner}'s agent for ${e.person} [${short(e.messageId)}] (${short(e.sessionId)})`, actorName(e.by), { owner: e.owner, person: e.person, message_id: short(e.messageId), session_id: e.sessionId, approval: e.approval });
+        break;
       case 'dm_deleted':
         row('chat_deleted', `Deleted a conversation, ${e.owner}'s: ${e.count} messages (${short(e.a)}, ${short(e.b)})`, actorName(e.by), { owner: e.owner, count: e.count });
         break;

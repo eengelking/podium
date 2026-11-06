@@ -1,7 +1,7 @@
 // The async storage interfaces (#313). Every method of the stores keeps its name, arguments and result, and returns a Promise.
 // Each interface is written out here and imports nothing from an adapter, so another database implements this file alone; an
 // adapter proves it does by being typed against these interfaces, and a signature that drifts is a compile error there.
-import type { Actor, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LeftOut, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListing, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
+import type { AcrossInput, Actor, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LeftOut, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListing, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
 import type { ModelPricesView, PeerAnswer, PeerLevel, PeerResult, RecordingAdminRow, RecordingBatch, RecordingGrant, RecordingLoopInfo, RecordingRow, RecordingSettings, RecordingState, RecordingView, Report, WallSettingsView } from '../fleet/protocol.js';
 import type { ActivityEntryView } from '../fleet/activity.js';
 import type { ActivityHistoryNote, ActivityHistoryPreview, ActivityHistorySettings, LastPurge, StoredActivityList, StoredDeleteBody, StoredDeleteResult, StoredFilter, StoredTotals } from '../fleet/activityHistoryTypes.js';
@@ -221,6 +221,8 @@ export interface PeerRightsStoreApi {
   setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   pauseLink(owner: string | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
   pauseReporter(key: string, paused: boolean, actor: Actor): Promise<{ ok: true; links: number } | Refusal>;
+  /** The link from a person (`person:<name>`) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
+  personLink(personKey: string, toKey: string): Promise<RightRow | null>;
   propose(from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; request: PeerRequestRow } | Refusal>;
   requestAccess(input: { owner: string; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
   openRequests(owner: string, about?: string): Promise<PeerRequestRow[]>;
@@ -255,6 +257,8 @@ export interface PeerStoreApi {
     conversation(a: string, b: string): Promise<MessageRow[]>;
     /** The person writes to one of their live agents, alone or into a conversation between two agents (#1034). Refused when the agent is not live (404 when unknown, 409 when it has ended). */
     sendFromPerson(input: PersonMessageInput): Promise<MessageRow | Refusal>;
+    /** A person writes to another person's agent (#1034): held for the owner's approval, or sent over an open link; refused over a removed or paused one. */
+    sendAcross(input: AcrossInput): Promise<MessageRow | Refusal>;
     /** One page of the owner's conversation, the newest page first. `before` is the `older` of the page after it; a page back starts strictly before it, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
     page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
@@ -274,6 +278,8 @@ export interface PeerStoreApi {
   answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
   answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
   removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
+  /** Opens, pauses, resumes or removes the link between a person and another person's agent's reporter (#1034). A removal also drops what still waits on it. The caller checks who may ask. */
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
   setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
   ownerView(owner: string, now: number): Promise<OwnerPeersView>;
@@ -290,8 +296,8 @@ export interface PeerStoreApi {
 /** Who wrote a channel message. */
 export type ChatAuthorKind = 'person' | 'orchestrator' | 'subagent' | 'reporter';
 
-/** Where a mentioned agent stands with a message: `waiting` to be taken, `working` on it, `done`, `not-delivered` (with a `why`), `held` while the channel is paused, or `dropped` (with a `why`) when it ended first. */
-export type MentionState = 'waiting' | 'working' | 'done' | 'not-delivered' | 'held' | 'dropped';
+/** Where a mentioned agent stands with a message: `approval` while the agent's owner (another person) has not yet said yes, `waiting` to be taken, `working` on it, `done`, `not-delivered` (with a `why`), `held` while the channel is paused, or `dropped` (with a `why`) when it ended first. */
+export type MentionState = 'waiting' | 'working' | 'done' | 'not-delivered' | 'held' | 'dropped' | 'approval';
 
 /** One `@` in a channel message. A stored mention keeps the session id, the peer key and the `name@location` as typed, so delivery can go to the session or to the one live session with that peer key. */
 export interface ChannelMention {

@@ -462,6 +462,21 @@ describe('peers: the tools', () => {
 })
 
 describe('peers: receiving', () => {
+  test("another person's text is framed as theirs, not its owner's, and the line says so (#1034)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.peerDeliveries.push(message({ id: 'dlv_eve', from: { name: 'Eve', machine: '', owner: 'Ed', person: true }, text: 'Please look at the build.' }))
+    await nextReply(w)
+    expect(w.submitted).toHaveLength(1)
+    const s = w.submitted[0]!
+    expect(s.text.startsWith("Message from Eve, a person using Podium Chat, sent through Podium after Ed allowed it. Eve is not Ed, who owns this session.")).toBe(true)
+    expect(s.text.split('\n')[1]).toBe('───')
+    expect(s.text.endsWith('\nPlease look at the build.')).toBe(true)
+    expect(s.asUser).toBeUndefined()
+    expect(w.logs).toContain('a message from Eve in Podium Chat, delivered now that this turn has ended.')
+    expect(peerResults(w)).toEqual([['dlv_eve', 'took']])
+  })
+
   test('a message starts a turn with Podium\'s frame, never as the person, and takes its result through the peer route', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)

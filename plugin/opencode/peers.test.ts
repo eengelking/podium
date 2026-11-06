@@ -157,6 +157,21 @@ describe('a message for the orchestrator (#969)', () => {
     expect(x.toasts).toEqual(['a message from build-pi on pi, delivered now that this turn has ended.']);
   });
 
+  it("frames another person's text as theirs, not its owner's, with no machine to name (#1034)", async () => {
+    const x = rig();
+    await reported(x);
+    x.server.deliveries = [message({ id: 'pd_eve', from: { name: 'Eve', machine: '', owner: 'Ed', person: true }, text: 'look at the build' })];
+    await x.r.tick();
+    await flushed();
+    await x.r.tick();
+    expect(x.prompts).toHaveLength(1);
+    expect(x.prompts[0]!.text.startsWith('Message from Eve, a person using Podium Chat, sent through Podium after Ed allowed it. Eve is not Ed, who owns this session.')).toBe(true);
+    expect(x.prompts[0]!.text.endsWith('look at the build')).toBe(true);
+    expect(x.toasts).toEqual(['a message from Eve in Podium Chat, delivered now that this turn has ended.']);
+    const results = x.server.calls.filter((c) => c.path.endsWith('/peers/deliveries/pd_eve/result'));
+    expect(results.map((c) => c.body.result)).toEqual(['took']);
+  });
+
   it('says queued first while a turn runs', async () => {
     const x = rig();
     x.r.handle(ev('session.execution.started', { sessionID: ROOT }));

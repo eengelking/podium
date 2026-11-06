@@ -8,7 +8,9 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel, type PeerRequestKind } from '../../fleet/protocol.js';
 import {
   OWNER_DEFAULTS,
+  isPersonKey,
   refuse,
+  type PersonLinkOp,
   type AccessOutcome,
   type Actor,
   type AnswerOutcome,
@@ -267,6 +269,11 @@ export class PeerRights implements PeerRightsApi {
   }
 
   effective(from: string, to: string): EffectiveRight {
+    // A person's link to another person's agent (#1034) has no Trust and no second owner: the row is the whole answer.
+    if (isPersonKey(from)) {
+      const link = this.row(from, to);
+      return { level: link?.level ?? 'none', paused: link?.paused ?? false };
+    }
     const p = this.pair(null, from, to);
     if (!p.ok) return { level: 'none', paused: false };
     const had = this.row(from, to);
@@ -276,7 +283,33 @@ export class PeerRights implements PeerRightsApi {
   /** Owners are compared with `nameKey` in JS: SQLite's lower() folds only ASCII, so `Émile` would never match `émile`. */
   rightsOf(owner: string): RightRow[] {
     const key = nameKey(owner);
-    return (this.stmt('SELECT * FROM peer_rights ORDER BY from_key, to_key').all() as unknown as DbRight[]).filter((r) => nameKey(r.owner) === key).map(toRight);
+    // A person's link (#1034) is not one of the reporters' Grid, so it is left out; `personLink` reads it.
+    return (this.stmt('SELECT * FROM peer_rights ORDER BY from_key, to_key').all() as unknown as DbRight[]).filter((r) => nameKey(r.owner) === key && !isPersonKey(r.from_key)).map(toRight);
+  }
+
+  personLink(personKey: string, toKey: string): RightRow | null {
+    return isPersonKey(personKey) ? this.row(personKey, toKey) : null;
+  }
+
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
+    if (!isPersonKey(personKey) || personKey.length <= 'person:'.length) return refuse(400, 'a person link starts at a person');
+    const r = this.reporters.get(toKey);
+    if (!r) return refuse(404, 'no such reporter');
+    if (!eligible(r)) return refuse(403, NO_ADMIN);
+    if (`person:${nameKey(r.owner)}` === personKey) return refuse(403, "a person's own agents need no link");
+    const had = this.row(personKey, toKey);
+    let right: RightRow | null;
+    if (op === 'allow') right = this.write(personKey, toKey, r.owner, 'send', false);
+    else if (op === 'remove') {
+      if (!had || had.level === 'none') return refuse(404, 'there is no link to remove');
+      // A `none` row is kept, so a removed link holds: the person's next message is refused, not asked about again.
+      right = this.write(personKey, toKey, r.owner, 'none', false);
+    } else {
+      if (!had || had.level === 'none') return refuse(404, 'there is no link to pause');
+      right = this.write(personKey, toKey, r.owner, had.level, op === 'pause');
+    }
+    this.trail({ kind: 'person-link', op, owner: r.owner, person: personKey, toKey, actor });
+    return { ok: true, right };
   }
 
   setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
@@ -461,7 +494,8 @@ export class PeerRights implements PeerRightsApi {
       'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',
     ).all() as unknown as { k: string }[];
     for (const { k } of keys) {
-      if (this.reporters.get(k)) continue;
+      // A person's end of a link is not a reporter; it goes with the reporter on the other end.
+      if (isPersonKey(k) || this.reporters.get(k)) continue;
       n += Number(this.stmt('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?').run(k, k).changes);
       this.stmt('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?').run(k, k);
     }
