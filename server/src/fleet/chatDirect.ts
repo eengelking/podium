@@ -382,14 +382,17 @@ export class DirectChat {
   private async count(m: MessageRow): Promise<void> {
     const owner = nameKey(m.owner);
     if (m.author === 'person' && isPersonId(m.fromSession) && m.fromSession === `person:${owner}`) return;
-    const mention = m.author === 'person';
-    await this.core.count(owner, dmThread(m.fromSession, m.toSession), 'dm', mention);
+    const thread = dmThread(m.fromSession, m.toSession);
+    await this.core.count(owner, thread, 'dm', m.author === 'person');
+    // An agent's answer to the person who wrote to it (#1034): one more unread for the person, and a mention, since it is addressed to them.
+    if (m.author === 'agent' && isPersonId(m.toSession)) await this.core.count(m.toSession.slice('person:'.length), thread, 'dm', true);
   }
 
   /** What the owner's answer, a drop or a delivery did to a person's message to another person's agent: the channel side moves the mention the person wrote. */
   peerTrail(t: MessageTrail): void {
     const m = t.message;
-    if (t.kind === 'sent') void this.count(m).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be counted', err));
+    // An agent's answer to a person is stored delivered, and counts like a new message (#1034).
+    if (t.kind === 'sent' || (t.kind === 'delivered' && m.author === 'agent' && isPersonId(m.toSession))) void this.count(m).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be counted', err));
     if (m.author !== 'person' || !isPersonId(m.fromSession) || nameKey(m.owner) === m.fromSession.slice('person:'.length)) return;
     const person = m.fromSession.slice('person:'.length);
     const update = (from: ('approval' | 'waiting')[], state: 'waiting' | 'working' | 'dropped', why: string | null) => this.core.tellAcross({ person, sessionId: m.toSession, from, state, why });

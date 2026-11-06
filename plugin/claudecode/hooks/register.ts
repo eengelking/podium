@@ -90,6 +90,7 @@ import {
   requestLine,
   requestToast,
   sendAnswer,
+  SEND_TO_DESCRIPTION,
   shortId,
   SUBAGENT_ACCESS,
   SUBAGENT_PEERS,
@@ -1510,7 +1511,7 @@ async function registerPeerTools($: Engine): Promise<void> {
       description: TOOL_DESCRIPTIONS.send,
       inputSchema: {
         type: 'object',
-        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine", or "name@machine#id" when podium_peers shows an id' }, text: { type: 'string', description: 'The message' } },
+        properties: { to: { type: 'string', description: SEND_TO_DESCRIPTION }, text: { type: 'string', description: 'The message' } },
         required: ['to', 'text'],
       },
     });

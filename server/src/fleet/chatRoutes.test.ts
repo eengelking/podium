@@ -1124,13 +1124,128 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect((await link(w.alexB, 'resume', L)).body).toMatchObject({ ok: true, link: 'open' });
   });
 
-  it('gives an agent no way to answer a person yet: person:<name> is not an address, and nothing is stored', async () => {
+  // ---- An agent answers the person who wrote to it (#1034) ----------------------------------------------------------------
+
+  const reply = (w: W, text: string, to = 'person:ed', session = 'sess-alex', token = w.alex.token) => request(w.app).post(`/api/fleet/sessions/${session}/peers/messages`).set('X-Podium-Token', token).send({ to, text });
+  const REPLY = 'The build is green now, Ed.';
+
+  it('lets the agent answer the person over the link its owner opened: stored delivered, in the same conversation, read by both owners and an Admin', async () => {
     const w = await world();
     await openLink(w);
-    const sent = await request(w.app).post('/api/fleet/sessions/sess-alex/peers/messages').set('X-Podium-Token', w.alex.token).send({ to: 'person:ed', text: 'here is the answer' });
-    expect(sent.status).toBe(404);
-    expect(sent.body.error).toMatch(/cannot see an orchestrator called person:ed/);
-    expect((await thread(w.edB, T)).body.messages.map((m: { text: string }) => m.text)).toEqual([FULL]);
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const sent = await reply(w, REPLY);
+    expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+    expect(sent.body).toMatchObject({ ok: true, person: true, to: { name: 'Ed' } });
+    await w.fleet.flush();
+    await settle();
+    for (const b of [w.edB, w.alexB, await signedIn(w, 'Admin', SECRET)]) {
+      const t = await thread(b, T);
+      expect(t.status).toBe(200);
+      expect(t.body.messages.map((m: { text: string; author: string; state: string }) => [m.author, m.state, m.text])).toEqual([['person', 'ready', FULL], ['agent', 'delivered', REPLY]]);
+      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-alex', name: 'review' }, to: [{ sessionId: 'person:ed', name: 'Ed', state: 'delivered' }] });
+      expect(t.body.cross).toMatchObject({ link: 'open' });
+    }
+    // The owner has nothing to approve for it, and the agent is handed only the person's own text, never its own answer back.
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    expect((await handed(w)).map((d) => d.text)).toEqual([FULL]);
+    // The audit log names the event and never the text; the stream carries no text.
+    expect(await logKinds(w)).toContain('peer_delivered');
+    expect(JSON.stringify(await logRows(w))).not.toContain(REPLY);
+    expect(sse.join('')).not.toContain(REPLY);
+    const chats = sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!));
+    expect(chats.find((d) => d.owner === 'ed' && d.unread === 1 && d.mentions === 1)).toBeTruthy();
+  });
+
+  it('counts the answer as one unread and a mention for the person, and one unread for the owner', async () => {
+    const w = await world();
+    await openLink(w);
+    await settle();
+    const before = { ed: await dmCounts(w.edB), alex: await dmCounts(w.alexB) };
+    expect((await reply(w, REPLY)).status).toBe(202);
+    await w.fleet.flush();
+    await settle();
+    const ed = await dmCounts(w.edB);
+    const alex = await dmCounts(w.alexB);
+    expect(ed[0]!.unread).toBe(before.ed[0]!.unread + 1);
+    expect(ed[0]!.mentions).toBe(before.ed[0]!.mentions + 1);
+    expect(alex[0]!.unread).toBe(before.alex[0]!.unread + 1);
+    expect(alex[0]!.mentions).toBe(before.alex[0]!.mentions);
+  });
+
+  it('never returns the answer from a channel, to a third person, or from the agent routes', async () => {
+    const w = await world();
+    await openLink(w);
+    await reply(w, REPLY);
+    const zed = await w.people.createPerson('Zed');
+    const zedB = await signedIn(w, 'Zed', zed.token);
+    expect((await thread(zedB, T)).status).toBe(403);
+    expect(JSON.stringify((await zedB.get(CH)).body)).not.toContain(REPLY);
+    for (const b of [w.edB, w.alexB, zedB]) {
+      for (const path of ['/channels/general/messages', '/channels/group/messages']) expect(JSON.stringify((await b.get(`${CH}${path}`)).body)).not.toContain(REPLY);
+      expect(JSON.stringify((await b.get('/api/fleet/respond/peers/conversations')).body ?? '')).not.toContain(REPLY);
+    }
+  });
+
+  it('refuses an answer to a person without a link, in the generic words, and names nothing of the owner\'s other agents', async () => {
+    const w = await world();
+    await post(w, w.alex.token, report('Alex', 'sess-secret', 'hidden-plan', BOX));
+    // Ed never wrote.
+    const none = await reply(w, REPLY);
+    expect(none.status).toBe(404);
+    expect(none.body.error).toBe('You cannot see an orchestrator called person:ed. Run podium_peers for the list.');
+    // Ed wrote and the owner has not allowed it yet: still no link.
+    await say(w.edB, 'general', FULL);
+    expect((await reply(w, REPLY)).status).toBe(404);
+    // A link to one agent is not a way for another agent of that owner to write.
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    const other = await reply(w, REPLY, 'person:ed', 'sess-secret');
+    expect(other.status).toBe(404);
+    expect(JSON.stringify(other.body)).not.toMatch(/hidden-plan|review/);
+    expect((await reply(w, REPLY, 'person:nobody')).status).toBe(404);
+    expect(((await thread(w.edB, T)).body.messages as unknown[]).length).toBe(1);
+  });
+
+  it('refuses an answer while the link is paused, and after it is removed, with the reason, and sends again once it is open', async () => {
+    const w = await world();
+    await openLink(w);
+    expect((await link(w.edB, 'pause')).body.link).toBe('paused');
+    const paused = await reply(w, REPLY);
+    expect(paused.status).toBe(409);
+    expect(paused.body.error).toMatch(/paused/);
+    expect((await link(w.edB, 'resume')).body.link).toBe('open');
+    expect((await reply(w, REPLY)).status).toBe(202);
+    expect((await link(w.alexB, 'remove', L)).body.link).toBe('removed');
+    const removed = await reply(w, 'again');
+    expect(removed.status).toBe(403);
+    expect(removed.body.error).toMatch(/removed/);
+    expect((await link(w.alexB, 'allow', L)).body.link).toBe('open');
+    expect((await reply(w, 'back')).status).toBe(202);
+    expect(((await thread(w.edB, T)).body.messages as { text: string }[]).map((m) => m.text)).toEqual([FULL, REPLY, 'back']);
+  });
+
+  it('limits how fast an agent can answer, and refuses an agent that has ended', async () => {
+    const w = await world();
+    await openLink(w);
+    let limited = 0;
+    for (let i = 0; i < 9; i++) if ((await reply(w, `flood ${i}`)).status === 429) limited++;
+    expect(limited).toBeGreaterThan(0);
+    await alexOne(w, { status: 'done', waitReason: null });
+    await w.fleet.flush();
+    const ended = await reply(w, 'late');
+    expect([403, 404]).toContain(ended.status);
+    // What it wrote before it ended is still there.
+    expect(((await thread(w.edB, T)).body.messages as unknown[]).length).toBeGreaterThan(1);
+  });
+
+  it('keeps an answer when the hourly sweep runs, and removes it with the conversation', async () => {
+    const w = await world();
+    await openLink(w);
+    await reply(w, REPLY);
+    await w.fleet.peers.retain();
+    expect(((await thread(w.edB, T)).body.messages as { text: string }[]).map((m) => m.text)).toContain(REPLY);
+    expect((await w.edB.delete(`${CH}${'/dm/person:ed/sess-alex'}`).set(H)).body).toMatchObject({ ok: true });
+    expect((await w.alexB.get(CH)).body.directs).toEqual([]);
   });
 
   // ---- An Admin's @ of another person's agent needs the owner too (#1034) ----------------------------------------------

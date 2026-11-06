@@ -1,7 +1,7 @@
 // The tools the reporter adds to OpenCode's model through `ctx.tool.transform` (#969): `plan`, and the three messaging tools. Each takes plain
 // JSON Schema for its input (a `ValueSchema` may be one) and answers with text. The descriptions are `core/peers.ts`'s, the same as Claude
 // Code's. A tool never throws: whatever goes wrong is its answer.
-import { TOOL_DESCRIPTIONS } from '../core/peers.ts';
+import { SEND_TO_DESCRIPTION, TOOL_DESCRIPTIONS } from '../core/peers.ts';
 import type { Reporter } from './reporter.ts';
 
 /** The names of the messaging tools: removed from the host when Podium stops saying the session takes part. */
@@ -35,7 +35,7 @@ export function podiumTools(reporter: Reporter): PodiumTool[] {
       description: TOOL_DESCRIPTIONS.send,
       input: {
         type: 'object',
-        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine", or "name@machine#id" when podium_peers shows an id' }, text: { type: 'string', description: 'The message' } },
+        properties: { to: { type: 'string', description: SEND_TO_DESCRIPTION }, text: { type: 'string', description: 'The message' } },
         required: ['to', 'text'],
       },
       execute: peerTool('podium_send'),

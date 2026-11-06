@@ -536,7 +536,7 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
 
     it('lists nothing for a session that cannot take part', async () => {
       const { s } = await setup();
-      expect(await s.list('s-none')).toEqual({ peers: [], leftOut: [] });
+      expect(await s.list('s-none')).toEqual({ peers: [], leftOut: [], people: [] });
     });
   });
 

@@ -19,6 +19,8 @@ import {
   type ConversationSummary,
   type DropWhy,
   type LeftOut,
+  type PeerListResult,
+  type PersonListing,
   type LiveOrchestrator,
   type MessageAuthor,
   type MessagePage,
@@ -35,7 +37,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
-import { MAX_NOTICES, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, type TripRow } from '../peerText.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
 const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;
@@ -194,9 +196,21 @@ export class PeerMessages implements PeerMessagesApi {
     return s && s.peers === true && this.onPersonReporter(s) ? s : null;
   }
 
-  list(sessionId: string): { peers: PeerListing[]; leftOut: LeftOut[] } {
+  /** The people who wrote to this agent through Chat and whose link is still there (#1034); one who has no link, or whose was removed, is not listed. */
+  private peopleOf(sender: LiveOrchestrator): PersonListing[] {
+    const rows = this.stmt(`SELECT from_session, from_name FROM peer_messages WHERE to_session = ? AND author = 'person' AND from_session LIKE 'person:%' ORDER BY sent_at, seq`).all(sender.sessionId) as unknown as { from_session: string; from_name: string }[];
+    const names = new Map(rows.map((r) => [r.from_session, r.from_name]));
+    const out: PersonListing[] = [];
+    for (const [address, name] of names) {
+      const link = this.rights.personLink(address, sender.reporterKey);
+      if (link && link.level !== 'none') out.push({ address, name, paused: link.paused });
+    }
+    return out.sort((a, b) => a.address.localeCompare(b.address));
+  }
+
+  list(sessionId: string): PeerListResult {
     const sender = this.sender(sessionId);
-    if (!sender) return { peers: [], leftOut: [] };
+    if (!sender) return { peers: [], leftOut: [], people: [] };
     const others = this.reachable(sender).filter((o) => o.sessionId !== sender.sessionId);
     const copies = new Map<string, number>();
     for (const o of others) copies.set(addressKey(o), (copies.get(addressKey(o)) ?? 0) + 1);
@@ -228,7 +242,7 @@ export class PeerMessages implements PeerMessagesApi {
       else if (this.rights.effective(sender.reporterKey, r.key).level === 'none') why = 'no right to see it';
       leftOut.push({ machine: r.machine, why });
     }
-    return { peers, leftOut };
+    return { peers, leftOut, people: this.peopleOf(sender) };
   }
 
   // ---- Sending -----------------------------------------------------------------------------------------------------
@@ -276,6 +290,31 @@ export class PeerMessages implements PeerMessagesApi {
     return rs.map((r) => ({ fromSession: r.from_session, state: r.state as MessageState, approved: r.approved === 1, author: r.author as MessageAuthor }));
   }
 
+  /**
+   * An agent answers a person who wrote to it through Chat (#1034), over the link its owner opened and no other. Stored as delivered in the same conversation:
+   * the person has no reporter to hand it to. Anything else, including a person who never wrote to this agent, is the generic "cannot see".
+   */
+  private replyToPerson(sender: LiveOrchestrator, address: string, clean: string, limits: { perMinute: number; roundTrips: number }): SendOutcome | Refusal {
+    const unseen = refuse(404, REPLY_WORDS.unseen(address));
+    const personKey = `person:${nameKey(address.slice('person:'.length))}`;
+    // The newest message the person wrote to this very session names them as they are shown.
+    const wrote = this.stmt(`SELECT from_name FROM peer_messages WHERE from_session = ? AND to_session = ? AND author = 'person' ORDER BY sent_at DESC, seq DESC LIMIT 1`).get(personKey, sender.sessionId) as { from_name: string } | undefined;
+    const link = this.rights.personLink(personKey, sender.reporterKey);
+    if (!wrote || !link) return unseen;
+    if (link.level === 'none') return refuse(403, REPLY_WORDS.removed(sender.owner, wrote.from_name));
+    if (link.paused) return refuse(409, REPLY_WORDS.paused(wrote.from_name));
+    const now = this.now();
+    const recent = (this.stmt(`SELECT COUNT(*) AS n FROM peer_messages WHERE from_session = ? AND to_session = ? AND author = 'agent' AND sent_at > ?`).get(sender.sessionId, personKey, now - RATE_WINDOW_MS) as { n: number }).n;
+    if (recent >= limits.perMinute) return refuse(429, REPLY_WORDS.rate(recent, wrote.from_name));
+    const id = newId();
+    this.stmt(
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
+    ).run(id, sender.owner, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.name, sender.machine, wrote.from_name, clean, now, now);
+    this.trail({ kind: 'delivered', message: this.row(id) as MessageRow });
+    return { ok: true, id, state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: wrote.from_name, machine: '' }, roundTrips: { used: 0, cap: limits.roundTrips }, person: true };
+  }
+
   send(fromSession: string, to: string, text: string): SendOutcome | Refusal {
     const sender = this.sender(fromSession);
     if (!sender) {
@@ -288,6 +327,7 @@ export class PeerMessages implements PeerMessagesApi {
       const n = (v: number): string => v.toLocaleString('en-US');
       return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)} on this link. Send a shorter one, or a file path instead of the file.`);
     }
+    if (/^person:/i.test(to.trim())) return this.replyToPerson(sender, to.trim(), clean, limits);
     const target = this.resolve(sender, to);
     if ('ok' in target) return target;
     const right = this.rights.effective(sender.reporterKey, target.reporterKey);

@@ -517,7 +517,7 @@ describe('PeerMessages: podium_peers', () => {
 
   it('lists nothing for a session that cannot take part', () => {
     const { s } = setup();
-    expect(s.list('s-none')).toEqual({ peers: [], leftOut: [] });
+    expect(s.list('s-none')).toEqual({ peers: [], leftOut: [], people: [] });
   });
 });
 

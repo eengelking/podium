@@ -57,3 +57,11 @@ export function decodeCursor(cursor: string): { at: number; seq: number } {
 
 /** A page size kept to a whole number from 1 to 500. */
 export const pageSize = (limit: number): number => Math.min(500, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 50)));
+
+/** What an agent is told when it answers a person who wrote to it through Chat (#1034). Shared by every adapter, so they refuse in the same words. */
+export const REPLY_WORDS = {
+  unseen: (address: string): string => `You cannot see an orchestrator called ${address}. Run podium_peers for the list.`,
+  removed: (owner: string, person: string): string => `${owner} removed the link between ${person} and this session, so Podium did not send the answer. ${owner} can open it again.`,
+  paused: (person: string): string => `The link between ${person} and this session is paused, so Podium did not send the answer. Try again once the link is resumed.`,
+  rate: (n: number, person: string): string => `There have been ${n} answers to ${person} in the last minute, the limit on this link. Wait a minute, then send again.`,
+};

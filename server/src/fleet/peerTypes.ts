@@ -334,6 +334,22 @@ export interface SendOutcome {
   to: { name: string; machine: string };
   /** Round trips in this conversation since the last approval, after this message, and the cap. */
   roundTrips: { used: number; cap: number };
+  /** Set when the message was an answer to a person who wrote to this agent through Chat (#1034): stored as delivered, with no orchestrator to hand it to. */
+  person?: true;
+}
+
+/** A person who wrote to this agent through Chat and whom it may answer with `podium_send` to `person:<name>` (#1034): the owner's link to them is open or paused. */
+export interface PersonListing {
+  address: string;
+  name: string;
+  paused: boolean;
+}
+
+/** What podium_peers answers: the orchestrators, the machines left out, and the people this agent may answer. */
+export interface PeerListResult {
+  peers: PeerListing[];
+  leftOut: LeftOut[];
+  people: PersonListing[];
 }
 
 /** One orchestrator in podium_peers' answer. */
@@ -417,7 +433,7 @@ export interface PeerMessagesApi {
   /** One stored message by id, with its text, or null. */
   message(id: string): MessageRow | null;
   /** What podium_peers answers for this orchestrator. */
-  list(sessionId: string): { peers: PeerListing[]; leftOut: LeftOut[] };
+  list(sessionId: string): PeerListResult;
   send(fromSession: string, to: string, text: string): SendOutcome | Refusal;
   /** The messages and notices for this orchestrator, oldest first, at most 20; messages only while `idle`. Marks messages handed. */
   deliveriesFor(sessionId: string, idle: boolean): PeerDelivery[];
