@@ -36,7 +36,7 @@ export function noting(adapter: ContractAdapter): ContractAdapter {
     ...adapter,
     available: () => adapter.available(),
     open: async () => note(await adapter.open()),
-    openUpgraded: async (rows, reporters, sessions, messages) => note(await adapter.openUpgraded(rows, reporters, sessions, messages)),
+    openUpgraded: async (rows, reporters, sessions, messages, rights) => note(await adapter.openUpgraded(rows, reporters, sessions, messages, rights)),
     schema: () => adapter.schema(),
     dispose: () => adapter.dispose(),
   };

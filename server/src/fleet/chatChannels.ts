@@ -267,8 +267,12 @@ export class ChannelChat {
       const o = p.deliver;
       if (o) {
         const flags = await this.bindingFlags(channel, owner, o.owner);
-        if (nameKey(o.owner) !== nameKey(viewer.name) && !viewer.admin) {
-          if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${o.name}'s person` };
+        // Another person's agent needs that person's say-so from everyone, an Administrator included (#1034). An Admin keeps read and stop powers only.
+        if (nameKey(o.owner) !== nameKey(viewer.name)) {
+          if (viewer.personId === null) {
+            input = { ...input, state: 'not-delivered', why: `The admin secret has no person name, so Podium cannot ask ${o.owner} for you. Sign in with your own name to message ${o.name}.` };
+            warnings.push(`${o.name}: ${input.why}`);
+          } else if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${o.name}'s person` };
           else if (flags.paused) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is paused for ${o.name}'s person, so Podium did not ask them` };
           else {
             across.push({ index: inputs.length, o });

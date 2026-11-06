@@ -49,7 +49,7 @@ export function peerStoreOver(db: PgDb, lookup: AsyncPeerReporterLookup, opts: P
     answer: (id, owner, answer, actor) => step(() => svc.answer(id, owner, answer, actor)),
     answerPaused: (id, owner, answer, actor) => step(() => svc.answerPaused(id, owner, answer, actor)),
     removeLink: (owner, a, b, actor) => step(() => svc.removeLink(owner, a, b, actor)),
-    setPersonLink: (personKey, toKey, op, actor) => step(() => svc.setPersonLink(personKey, toKey, op, actor)),
+    setPersonLink: (personKey, toKey, op, actor, pausedBy) => step(() => svc.setPersonLink(personKey, toKey, op, actor, pausedBy)),
     setDefaults: (owner, patch, actor) => step(() => svc.setDefaults(owner, patch, actor)),
     ownerView: (owner, now) => step(() => svc.ownerView(owner, now)),
     adminView: (key) => step(() => svc.adminView(key)),

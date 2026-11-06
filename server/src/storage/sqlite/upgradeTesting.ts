@@ -1,15 +1,15 @@
-// Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28) and peer messages an author (31),
-// holding the given requests and messages in the order given. Opening it as a storage then runs migrations 26 to 31 on rows that exist.
+// Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28) and peer messages an author (31), a person's link the one who paused it (32),
+// holding the given requests and messages in the order given. Opening it as a storage then runs migrations 26 to 32 on rows that exist.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
 import { openSqliteStorage } from './index.js';
-import type { LegacyMessage, LegacyReporter, LegacyRequest, LegacySession } from '../contractUpgrade.js';
+import type { LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
-export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = []): { storage: Storage; dir: string } {
+export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = []): { storage: Storage; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'podium-upgrade-'));
   const file = path.join(dir, 'podium.sqlite');
   const old = openDb(file, 25);
@@ -39,6 +39,8 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
      VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
   );
   for (const x of messages) insertMessage.run(x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq);
+  const insertRight = old.prepare('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, 0)');
+  for (const x of rights) insertRight.run(x.fromKey, x.toKey, x.owner, x.level, Number(x.paused));
   old.close();
   return { storage: openSqliteStorage(file, 0), dir };
 }

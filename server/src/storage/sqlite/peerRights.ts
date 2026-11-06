@@ -10,6 +10,7 @@ import {
   OWNER_DEFAULTS,
   isPersonKey,
   refuse,
+  type LinkPauser,
   type PersonLinkOp,
   type AccessOutcome,
   type Actor,
@@ -39,6 +40,7 @@ interface DbRight {
   owner: string;
   level: PeerLevel;
   paused: number;
+  paused_by: string | null;
   set_at: number;
 }
 
@@ -85,7 +87,7 @@ function cleanReason(s: string): string {
   return out.trim();
 }
 
-const toRight = (r: DbRight): RightRow => ({ from: r.from_key, to: r.to_key, owner: r.owner, level: r.level, paused: r.paused === 1, setAt: r.set_at });
+const toRight = (r: DbRight): RightRow => ({ from: r.from_key, to: r.to_key, owner: r.owner, level: r.level, paused: r.paused === 1, ...(r.paused === 1 && r.paused_by ? { pausedBy: r.paused_by as LinkPauser } : {}), setAt: r.set_at });
 
 const toRequest = (r: DbRequest): PeerRequestRow => ({
   id: r.id,
@@ -238,13 +240,14 @@ export class PeerRights implements PeerRightsApi {
     return r ? toRight(r) : null;
   }
 
-  private write(from: string, to: string, owner: string, level: PeerLevel, paused: boolean): RightRow {
+  private write(from: string, to: string, owner: string, level: PeerLevel, paused: boolean, pausedBy: LinkPauser | null = null): RightRow {
     const setAt = this.now();
+    const by = paused ? pausedBy : null;
     this.stmt(
-      `INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(from_key, to_key) DO UPDATE SET owner = excluded.owner, level = excluded.level, paused = excluded.paused, set_at = excluded.set_at`,
-    ).run(from, to, owner, level, Number(paused), setAt);
-    return { from, to, owner, level, paused, setAt };
+      `INSERT INTO peer_rights (from_key, to_key, owner, level, paused, paused_by, set_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(from_key, to_key) DO UPDATE SET owner = excluded.owner, level = excluded.level, paused = excluded.paused, paused_by = excluded.paused_by, set_at = excluded.set_at`,
+    ).run(from, to, owner, level, Number(paused), by, setAt);
+    return { from, to, owner, level, paused, ...(by ? { pausedBy: by } : {}), setAt };
   }
 
   private drop(from: string, to: string): void {
@@ -291,7 +294,7 @@ export class PeerRights implements PeerRightsApi {
     return isPersonKey(personKey) ? this.row(personKey, toKey) : null;
   }
 
-  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): { ok: true; right: RightRow | null } | Refusal {
     if (!isPersonKey(personKey) || personKey.length <= 'person:'.length) return refuse(400, 'a person link starts at a person');
     const r = this.reporters.get(toKey);
     if (!r) return refuse(404, 'no such reporter');
@@ -306,7 +309,7 @@ export class PeerRights implements PeerRightsApi {
       right = this.write(personKey, toKey, r.owner, 'none', false);
     } else {
       if (!had || had.level === 'none') return refuse(404, 'there is no link to pause');
-      right = this.write(personKey, toKey, r.owner, had.level, op === 'pause');
+      right = this.write(personKey, toKey, r.owner, had.level, op === 'pause', op === 'pause' ? (pausedBy ?? null) : null);
     }
     this.trail({ kind: 'person-link', op, owner: r.owner, person: personKey, toKey, actor });
     return { ok: true, right };

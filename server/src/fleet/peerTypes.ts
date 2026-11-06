@@ -113,8 +113,14 @@ export interface RightRow {
   owner: string;
   level: PeerLevel;
   paused: boolean;
+  /** Who paused a person's link (#1034): the person who writes, the agent's owner, or an Admin. Absent when the link is not paused, and for a pause made before it was kept. */
+  pausedBy?: LinkPauser;
   setAt: number;
 }
+
+/** Who paused a link between a person and another person's agent (#1034). Only they, or an Admin, can resume it. */
+export type LinkPauser = 'sender' | 'owner' | 'admin';
+export const LINK_PAUSERS: readonly LinkPauser[] = ['sender', 'owner', 'admin'];
 
 /** The right that applies now: `send` under Trust, else the stored level; `paused` from the stored row. */
 export interface EffectiveRight {
@@ -198,7 +204,8 @@ export interface PeerRightsApi {
    * release what goes over it, `remove` leaves a removed link. It never lets a person touch their own reporters, and it is refused (403) for a reporter
    * on the admin secret. Who may ask (the reporter's owner, the person, an Admin) is the caller's check.
    */
-  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): { ok: true; right: RightRow | null } | Refusal;
+  /** `pausedBy` is kept with a pause (#1034): who may resume it. */
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): { ok: true; right: RightRow | null } | Refusal;
 
   /** An Admin proposes a right; it applies only when the owner accepts it. No default accepts it. */
   propose(from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; request: PeerRequestRow } | Refusal;

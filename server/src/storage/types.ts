@@ -1,7 +1,7 @@
 // The async storage interfaces (#313). Every method of the stores keeps its name, arguments and result, and returns a Promise.
 // Each interface is written out here and imports nothing from an adapter, so another database implements this file alone; an
 // adapter proves it does by being typed against these interfaces, and a signature that drifts is a compile error there.
-import type { AcrossInput, Actor, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LeftOut, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListing, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
+import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LeftOut, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListing, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
 import type { ModelPricesView, PeerAnswer, PeerLevel, PeerResult, RecordingAdminRow, RecordingBatch, RecordingGrant, RecordingLoopInfo, RecordingRow, RecordingSettings, RecordingState, RecordingView, Report, WallSettingsView } from '../fleet/protocol.js';
 import type { ActivityEntryView } from '../fleet/activity.js';
 import type { ActivityHistoryNote, ActivityHistoryPreview, ActivityHistorySettings, LastPurge, StoredActivityList, StoredDeleteBody, StoredDeleteResult, StoredFilter, StoredTotals } from '../fleet/activityHistoryTypes.js';
@@ -279,7 +279,7 @@ export interface PeerStoreApi {
   answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
   removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
   /** Opens, pauses, resumes or removes the link between a person and another person's agent's reporter (#1034). A removal also drops what still waits on it. The caller checks who may ask. */
-  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
   setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
   ownerView(owner: string, now: number): Promise<OwnerPeersView>;

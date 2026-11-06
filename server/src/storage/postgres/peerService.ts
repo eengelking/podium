@@ -3,7 +3,7 @@
 import { PgPeerRights } from './peerRights.js';
 import { PgPeerMessages } from './peerMessages.js';
 import { PgPeerSettings } from './peerSettings.js';
-import { isIdle, isPersonKey, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
+import { isIdle, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
@@ -234,8 +234,8 @@ export class PgPeerService {
   }
 
   /** Opens, pauses, resumes or removes a person's link to another person's agent's reporter (#1034). A removal drops what still waits on it. */
-  async setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal> {
-    const out = await this.rights.setPersonLink(personKey, toKey, op, actor);
+  async setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal> {
+    const out = await this.rights.setPersonLink(personKey, toKey, op, actor, pausedBy);
     if (out.ok && op === 'remove') await this.messages.linkRemoved(personKey, toKey);
     return out;
   }

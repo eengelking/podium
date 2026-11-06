@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings } from './peerSettings.js';
-import { isIdle, isPersonKey, type PersonLinkOp, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
+import { isIdle, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 
@@ -200,8 +200,8 @@ export class PeerService {
   }
 
   /** Opens, pauses, resumes or removes a person's link to another person's agent's reporter (#1034). A removal drops what still waits on it. */
-  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
-    const out = this.rights.setPersonLink(personKey, toKey, op, actor);
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): { ok: true; right: RightRow | null } | Refusal {
+    const out = this.rights.setPersonLink(personKey, toKey, op, actor, pausedBy);
     if (out.ok && op === 'remove') this.messages.linkRemoved(personKey, toKey);
     return out;
   }

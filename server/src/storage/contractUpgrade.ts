@@ -35,6 +35,15 @@ export interface LegacyReporter {
   sessionIds?: string[];
 }
 
+/** A right between a person and another person's agent as an older database stores it, before it kept who paused it (#1034). */
+export interface LegacyRight {
+  fromKey: string;
+  toKey: string;
+  owner: string;
+  level: 'send' | 'none';
+  paused: boolean;
+}
+
 /** A session as an older database stores it, before a session named its harness (#851). */
 export interface LegacySession {
   id: string;
@@ -60,7 +69,7 @@ export interface LegacyMessage {
 
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[]): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -201,6 +210,25 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await peers.messages.purgeHidden(T0 + 1e9)).toBe(0);
       expect(await peers.messages.deleteConversation('ed', 's1', 's2')).toBe(3);
       expect(await peers.messages.conversation('s3', 's4')).toHaveLength(1);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('keeps a paused link between a person and another person\'s agent paused, with no pauser known, so either owner may resume it, when a database made before a link kept its pauser is upgraded (#1034)', async () => {
+    const reporter: LegacyReporter = { key: 'rk-a', kind: 'mod', machineId: 'ma', machineName: 'box-a', owner: 'ed', version: '1.0.0', firstSeenAt: T0, lastSeenAt: T0, sessionIds: ['sa'] };
+    const right = (paused: boolean): LegacyRight => ({ fromKey: 'person:eve', toKey: 'rk-a', owner: 'ed', level: 'send', paused });
+    const s = await o.openUpgraded([], [reporter], [], [], [right(true), { ...right(false), fromKey: 'person:zoe' }]);
+    try {
+      const peers = s.peers({ now: () => T0 + 20, flagOn: () => true, startedAt: T0 });
+      const paused = await peers.rights.personLink('person:eve', 'rk-a');
+      expect(paused).toMatchObject({ level: 'send', paused: true });
+      expect(paused).not.toHaveProperty('pausedBy');
+      expect(await peers.rights.personLink('person:zoe', 'rk-a')).toMatchObject({ level: 'send', paused: false });
+      // A pause made now keeps its pauser; a resume clears it.
+      expect(await peers.setPersonLink('person:zoe', 'rk-a', 'pause', ED, 'owner')).toMatchObject({ ok: true, right: { paused: true, pausedBy: 'owner' } });
+      expect(await peers.setPersonLink('person:eve', 'rk-a', 'resume', ED)).toMatchObject({ ok: true, right: { paused: false } });
+      expect(await peers.rights.personLink('person:zoe', 'rk-a')).toMatchObject({ paused: true, pausedBy: 'owner' });
     } finally {
       await s.close();
     }

@@ -947,7 +947,9 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatch(/paused/);
     expect(await handed(w)).toEqual([]);
-    expect((await link(w.alexB, 'resume', `${CH}/dm/person:ed/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
+    // Only the one who paused it can resume it.
+    expect((await link(w.alexB, 'resume', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(403);
+    expect((await link(w.edB, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
     expect((await handed(w)).map((d) => d.text)).toEqual([FULL]);
     // The owner pauses: the sender hears it.
     expect((await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).body.link).toBe('paused');
@@ -1045,5 +1047,158 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await alexOne(w, { peers: false });
     const off = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'hi' });
     expect(off.status).toBe(404);
+  });
+
+  // ---- Only the pauser can resume (#1034) ----------------------------------------------------------------------------
+
+  const L = `${CH}/dm/person:ed/sess-alex/link`;
+  const T = `${CH}/dm/person:ed/sess-alex/messages`;
+  const crossOf = async (b: ReturnType<typeof request.agent>) => (await thread(b, T)).body.cross as { link: string; pausedBy: string | null; canResume: boolean; viewerIs: string };
+  /** Ed has asked, and Alex allowed it: the link is open. */
+  async function openLink(w: W) {
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+  }
+
+  it('lets only the sender resume a link the sender paused, and says who paused it', async () => {
+    const w = await world();
+    await openLink(w);
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'open', pausedBy: null, canResume: false });
+    expect((await link(w.edB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused', pausedBy: 'sender', canResume: false, viewerIs: 'owner' });
+    expect(await crossOf(w.edB)).toMatchObject({ link: 'paused', pausedBy: 'sender', canResume: true, viewerIs: 'sender' });
+    const refused = await link(w.alexB, 'resume', L);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toMatch(/Ed paused/);
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused' });
+    expect((await w.alexB.get(CH)).body.directs[0].cross).toMatchObject({ pausedBy: 'sender', canResume: false });
+    expect((await w.edB.get(CH)).body.directs[0].cross).toMatchObject({ pausedBy: 'sender', canResume: true });
+    // The owner can still remove it, and a removed link has no pauser.
+    expect((await link(w.alexB, 'remove', L)).body).toMatchObject({ ok: true, link: 'removed' });
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'removed', pausedBy: null, canResume: false });
+  });
+
+  it('lets only the agent\'s owner resume a link the owner paused', async () => {
+    const w = await world();
+    await openLink(w);
+    expect((await link(w.alexB, 'pause', L)).body).toMatchObject({ ok: true, link: 'paused' });
+    expect(await crossOf(w.edB)).toMatchObject({ pausedBy: 'owner', canResume: false });
+    expect(await crossOf(w.alexB)).toMatchObject({ pausedBy: 'owner', canResume: true });
+    const refused = await link(w.edB, 'resume');
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toMatch(/Alex paused/);
+    // The sender can still remove the link, and cannot reopen it.
+    expect((await link(w.alexB, 'resume', L)).body).toMatchObject({ ok: true, link: 'open' });
+    expect(await crossOf(w.edB)).toMatchObject({ link: 'open', pausedBy: null });
+  });
+
+  it('lets an Admin pause and resume any link, and only an Admin resume one an Admin paused', async () => {
+    const w = await world();
+    await openLink(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await link(admin, 'pause', L)).body).toMatchObject({ ok: true, link: 'paused' });
+    expect(await crossOf(w.edB)).toMatchObject({ pausedBy: 'admin', canResume: false });
+    expect(await crossOf(w.alexB)).toMatchObject({ pausedBy: 'admin', canResume: false });
+    expect(await crossOf(admin)).toMatchObject({ pausedBy: 'admin', canResume: true, viewerIs: 'admin' });
+    for (const b of [w.edB, w.alexB]) {
+      const refused = await link(b, 'resume', L);
+      expect(refused.status).toBe(403);
+      expect(refused.body.error).toMatch(/Administrator/);
+    }
+    expect((await link(admin, 'resume', L)).body).toMatchObject({ ok: true, link: 'open' });
+    // An Admin can resume a pause either owner made.
+    await link(w.edB, 'pause');
+    expect((await link(admin, 'resume', L)).body).toMatchObject({ ok: true, link: 'open' });
+  });
+
+  it('lets either owner resume a pause whose pauser is not known (one made before the pauser was kept)', async () => {
+    const w = await world();
+    await openLink(w);
+    const body = (await thread(w.alexB, T)).body as { a: { kind: string; reporterKey: string }; b: { kind: string; reporterKey: string } };
+    const key = [body.a, body.b].find((p) => p.kind === 'agent')!.reporterKey;
+    // The store call with no pauser is what a row paused before this change looks like.
+    const paused = await w.fleet.peers.setPersonLink('person:ed', key, 'pause', { name: 'ed', admin: false });
+    expect(paused, JSON.stringify(paused)).toMatchObject({ ok: true });
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused', pausedBy: null, canResume: true });
+    expect(await crossOf(w.edB)).toMatchObject({ pausedBy: null, canResume: true });
+    expect((await link(w.alexB, 'resume', L)).body).toMatchObject({ ok: true, link: 'open' });
+  });
+
+  it('gives an agent no way to answer a person yet: person:<name> is not an address, and nothing is stored', async () => {
+    const w = await world();
+    await openLink(w);
+    const sent = await request(w.app).post('/api/fleet/sessions/sess-alex/peers/messages').set('X-Podium-Token', w.alex.token).send({ to: 'person:ed', text: 'here is the answer' });
+    expect(sent.status).toBe(404);
+    expect(sent.body.error).toMatch(/cannot see an orchestrator called person:ed/);
+    expect((await thread(w.edB, T)).body.messages.map((m: { text: string }) => m.text)).toEqual([FULL]);
+  });
+
+  // ---- An Admin's @ of another person's agent needs the owner too (#1034) ----------------------------------------------
+
+  it('holds an Administrator\'s @ of another person\'s agent for its owner, like anyone\'s', async () => {
+    const w = await world();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const res = await say(rootB, 'general', '@review@alex-box look at this');
+    expect(res.status).toBe(201);
+    expect(res.body.message.mentions[0]).toMatchObject({ state: 'approval', why: 'Waiting for Alex to approve' });
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+    expect(await handed(w)).toEqual([]);
+    // Their own agent is still theirs: no approval.
+    expect((await rootB.get(CH)).body.me).toMatchObject({ admin: true });
+  });
+
+  it('refuses an Admin on the admin secret an @ of another person\'s agent, in plain words', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const res = await say(admin, 'general', '@review@alex-box look at this');
+    expect(res.status).toBe(201);
+    expect(res.body.message.mentions[0]).toMatchObject({ state: 'not-delivered' });
+    expect(res.body.message.mentions[0].why).toMatch(/no person name/);
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    expect(await handed(w)).toEqual([]);
+  });
+
+  // ---- Counts of a Direct Message (#1034) --------------------------------------------------------------------------------
+
+  const dmCounts = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.directs as { thread: string; unread: number; mentions: number }[]).map((d) => ({ thread: d.thread, unread: d.unread, mentions: d.mentions }));
+
+  it('counts a person\'s message to another person\'s agent as unread and a mention for the owner, and not for the author', async () => {
+    const w = await world();
+    await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
+    await w.fleet.flush();
+    await settle();
+    const mineAlex = await dmCounts(w.alexB);
+    expect(mineAlex).toHaveLength(1);
+    expect(mineAlex[0]).toMatchObject({ unread: 1, mentions: 1 });
+    expect(await dmCounts(w.edB)).toMatchObject([{ unread: 0, mentions: 0 }]);
+    // A second message adds to it.
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'and again' });
+    await settle();
+    expect(await dmCounts(w.alexB)).toMatchObject([{ unread: 2, mentions: 2 }]);
+    // Marking the thread read clears it, for whoever reads it, and only for them.
+    const t = mineAlex[0]!.thread;
+    expect((await w.alexB.post(`${CH}/read`).set(H).send({ thread: t, upTo: null })).body).toMatchObject({ ok: true, unread: 0, mentions: 0 });
+    expect(await dmCounts(w.alexB)).toMatchObject([{ unread: 0, mentions: 0 }]);
+    expect((await w.edB.post(`${CH}/read`).set(H).send({ thread: t, upTo: null })).status).toBe(200);
+    const zed = await signedIn(w, 'Zed', (await w.people.createPerson('Zed')).token);
+    expect((await zed.post(`${CH}/read`).set(H).send({ thread: t, upTo: null })).status).toBe(403);
+  });
+
+  it('counts an agent-to-agent message as unread for the owner, with no mention, and never counts a person\'s own message against them', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    await w.fleet.flush();
+    await settle();
+    expect(await dmCounts(w.edB)).toMatchObject([{ unread: 1, mentions: 0 }]);
+    const own = await w.edB.post(`${CH}/dm/me/sess-dev/messages`).set(H).send({ text: 'hello dev' });
+    expect(own.status).toBe(202);
+    await settle();
+    const counts = await dmCounts(w.edB);
+    expect(counts).toHaveLength(2);
+    expect(counts.map((c) => [c.unread, c.mentions]).sort()).toEqual([[0, 0], [1, 0]]);
+    expect((await w.alexB.get(CH)).body.directs).toEqual([]);
   });
 });

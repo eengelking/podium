@@ -394,6 +394,12 @@ CREATE TABLE chat_read_state (
 );
 CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
   },
+  {
+    version: 32,
+    // Who paused a person's link to another person's agent (#1034): the person, the agent's owner or an Admin, so only they (or an Admin) can resume it.
+    // NULL means not paused, or paused before this was kept, which either owner may resume.
+    sql: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

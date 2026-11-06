@@ -3,7 +3,7 @@
 // delivery and the reporter's consent), and the same text is stored here with who wrote it. This file never reads or writes a channel: the audience of a
 // table is the table, and `chatSeparation.test.ts` holds this file to it.
 import { nameKey } from '../storage/rows.js';
-import { isPersonKey, type ConversationSummary, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
+import { isPersonKey, type ConversationSummary, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import { dmThread, fail, isPersonId, personId, type ChatViewer, type Fail } from './chatTypes.js';
@@ -49,6 +49,10 @@ export interface CrossInfo {
   link: 'waiting' | 'open' | 'paused' | 'removed' | 'none';
   /** Which of the two the viewer is: the person who wrote, the agent's owner, or an Admin reading. */
   viewerIs: 'sender' | 'owner' | 'admin';
+  /** Who paused the link while it is paused; null when it is not, or when the pauser is not known (a pause made before it was kept). */
+  pausedBy: LinkPauser | null;
+  /** Whether the viewer may resume it: whoever paused it, an Admin always, and either owner when the pauser is not known. */
+  canResume: boolean;
 }
 
 export interface DirectMessageView {
@@ -171,7 +175,9 @@ export class DirectChat {
     const row = await this.peerStore.rights.personLink(personEnd.sessionId, agentEnd.reporterKey);
     const link: CrossInfo['link'] = row === null ? (c.state === 'waiting' ? 'waiting' : 'none') : row.level === 'none' ? 'removed' : row.paused ? 'paused' : c.state === 'waiting' ? 'waiting' : 'open';
     const role = this.role(viewer, c);
-    return { person: personEnd.name, owner: c.owner, link, viewerIs: role === 'owner' ? 'owner' : role === 'sender' ? 'sender' : 'admin' };
+    const viewerIs = role === 'owner' ? 'owner' : role === 'sender' ? 'sender' : 'admin';
+    const pausedBy = link === 'paused' ? (row?.pausedBy ?? null) : null;
+    return { person: personEnd.name, owner: c.owner, link, viewerIs, pausedBy, canResume: link === 'paused' && (viewerIs === 'admin' || pausedBy === null || pausedBy === viewerIs) };
   }
 
   /** How the viewer stands to a conversation: the owner of its agent, the person who wrote to that agent, an Admin, or no one who may read it. */
@@ -223,7 +229,7 @@ export class DirectChat {
       const me = { sessionId: personId(viewer.name), name: viewer.name, machine: '', reporterKey: '' };
       const agent = { sessionId: o.sessionId, name: o.name, machine: o.machine, reporterKey: o.reporterKey };
       const [x, y] = me.sessionId <= agent.sessionId ? [me, agent] : [agent, me];
-      const cross: CrossInfo | null = fresh.own ? null : { person: viewer.name, owner: o.owner, link: 'none', viewerIs: 'sender' };
+      const cross: CrossInfo | null = fresh.own ? null : { person: viewer.name, owner: o.owner, link: 'none', viewerIs: 'sender', pausedBy: null, canResume: false };
       return { ok: true as const, thread: dmThread(a, b), a: this.party(x), b: this.party(y), messages: [] as DirectMessageView[], older: null, total: 0, ended: [] as string[], owner: nameKey(fresh.own ? viewer.name : o.owner), paused: false, roundTrips: { used: 0, cap: 0 }, cross };
     }
     if (!this.role(viewer, c)) return fail(403, 'Only the people in a conversation and an Admin can read it.');
@@ -358,15 +364,32 @@ export class DirectChat {
     if (op === 'allow' && role === 'sender') return fail(403, `Only ${cross.owner} can open the link again.`);
     const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId))!;
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId))!;
-    const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' });
+    // Only whoever paused a link can resume it, and an Admin (#1034). A pause whose pauser is not known may be resumed by either owner.
+    if (op === 'resume' && !cross.canResume && cross.link === 'paused') {
+      const who = cross.pausedBy === 'sender' ? cross.person : cross.pausedBy === 'owner' ? cross.owner : 'An Administrator';
+      return fail(403, cross.pausedBy === 'admin' ? 'An Administrator paused this link, so only an Administrator can resume it.' : `${who} paused this link, so only ${who} can resume it.`);
+    }
+    const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' }, op === 'pause' ? role : undefined);
     if (!out.ok) return fail(out.status, out.error);
     await this.tell(personEnd.name, c.owner);
     return { ok: true, link: (await this.crossOf(c, viewer))?.link ?? 'none' };
   }
 
+  /**
+   * A new message in a conversation is one more unread for each person who can read it and did not write it, and a mention for the one it is addressed to
+   * (the owner of the agent a person wrote to). A person's message to their own agent counts for no one: they wrote it.
+   */
+  private async count(m: MessageRow): Promise<void> {
+    const owner = nameKey(m.owner);
+    if (m.author === 'person' && isPersonId(m.fromSession) && m.fromSession === `person:${owner}`) return;
+    const mention = m.author === 'person';
+    await this.core.count(owner, dmThread(m.fromSession, m.toSession), 'dm', mention);
+  }
+
   /** What the owner's answer, a drop or a delivery did to a person's message to another person's agent: the channel side moves the mention the person wrote. */
   peerTrail(t: MessageTrail): void {
     const m = t.message;
+    if (t.kind === 'sent') void this.count(m).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be counted', err));
     if (m.author !== 'person' || !isPersonId(m.fromSession) || nameKey(m.owner) === m.fromSession.slice('person:'.length)) return;
     const person = m.fromSession.slice('person:'.length);
     const update = (from: ('approval' | 'waiting')[], state: 'waiting' | 'working' | 'dropped', why: string | null) => this.core.tellAcross({ person, sessionId: m.toSession, from, state, why });

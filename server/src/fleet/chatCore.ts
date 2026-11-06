@@ -104,6 +104,12 @@ export class ChatCore {
     this.host.signal({ ...s, rev: ++this.rev });
   }
 
+  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. */
+  async count(who: string, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
+    const row = await this.store.readState.bump(who, thread, mention);
+    this.signal({ scope, owner: who, unread: row.unread, mentions: row.mentions });
+  }
+
   /** Every person who can sign in, with the name as typed and folded. */
   async persons(): Promise<{ name: string; key: string }[]> {
     const out: { name: string; key: string }[] = [];
