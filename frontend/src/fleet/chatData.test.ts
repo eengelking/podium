@@ -1,6 +1,7 @@
 // Chat's words and small rules (#1034): the tags, the delivery lines, the `@` query and the message parts, without drawing.
 import { describe, it, expect } from "vitest";
 import {
+  type AdminReadKind,
   addressMatches,
   adminPauseOf,
   adminWho,
@@ -285,13 +286,15 @@ describe("an Admin reading (#1034)", () => {
   });
   it("writes the record line for each kind, a missing kind being a read", () => {
     const t = new Date(2026, 10, 6, 14, 20).getTime();
-    const rec = (kind?: "read" | "cleared" | "paused" | "resumed") => recordLine({ admin: "Root", startedAt: t, lastSeenAt: t, ...(kind ? { kind } : {}) });
+    const rec = (kind?: AdminReadKind) => recordLine({ admin: "Root", startedAt: t, lastSeenAt: t, ...(kind ? { kind } : {}) });
     expect(onDay(t)).toBe("Nov 6 at 14:20");
     expect(rec()).toBe("Root (an Admin) read this conversation on Nov 6 at 14:20.");
     expect(rec("read")).toBe("Root (an Admin) read this conversation on Nov 6 at 14:20.");
     expect(rec("cleared")).toBe("Root (an Admin) removed all messages on Nov 6 at 14:20.");
     expect(rec("paused")).toBe("Root (an Admin) paused this link on Nov 6 at 14:20.");
     expect(rec("resumed")).toBe("Root (an Admin) resumed this link on Nov 6 at 14:20.");
+    expect(rec("disconnected")).toBe("Root (an Admin) disconnected the agents in this group on Nov 6 at 14:20.");
+    expect(rec("reconnected")).toBe("Root (an Admin) reconnected the agents in this group on Nov 6 at 14:20.");
   });
   it("finds a pause an Admin made, in a channel, a plain Direct Message and a conversation across owners", () => {
     expect(adminPauseOf({ paused: true, pausedByAdmin: "Root" })).toEqual({ name: "Root" });

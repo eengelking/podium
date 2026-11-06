@@ -15,7 +15,7 @@ export interface AdminReading {
 }
 
 /** What an Admin did in a thread that stays in it as a record line. A record from a server that does not say is a read. */
-export type AdminReadKind = "read" | "cleared" | "paused" | "resumed";
+export type AdminReadKind = "read" | "cleared" | "paused" | "resumed" | "disconnected" | "reconnected";
 export interface AdminRead {
   admin: string;
   startedAt: number;
@@ -495,7 +495,8 @@ export function onDay(t: number): string {
 
 /** The quiet line an Admin's visit leaves among the messages. */
 export function recordLine(r: AdminRead): string {
-  const what = r.kind === "cleared" ? "removed all messages" : r.kind === "paused" ? "paused this link" : r.kind === "resumed" ? "resumed this link" : "read this conversation";
+  const WHAT: Record<string, string> = { cleared: "removed all messages", paused: "paused this link", resumed: "resumed this link", disconnected: "disconnected the agents in this group", reconnected: "reconnected the agents in this group" };
+  const what = (r.kind && WHAT[r.kind]) || "read this conversation";
   return `${adminWho(r.admin)} ${what} on ${onDay(r.startedAt)}.`;
 }
 
