@@ -14,6 +14,16 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-05
+
+### Fixed
+
+- **The README no longer says Podium is for Claude Code only (#1026).** The opening, the reporter section and the documentation table now say that Podium works with Claude Code and OpenCode, with a table of the two harnesses and an install section for each, including how to install the OpenCode reporter. `docs/REPORTER.md` opens the same way.
+
+### Changed
+
+- **A release now checks that all documentation is current, the README first (#1026).** The `podium-release` skill adds a step to the gate that reads `README.md` and the other user-facing pages against the code and `[Unreleased]`, and adds the same check, with the README named in the verdict, to the Haiku release check.
+
 ## [1.5.0] - 2026-11-05
 
 ### Added
@@ -1103,7 +1113,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/eengelking/podium/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/eengelking/podium/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/eengelking/podium/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/eengelking/podium/compare/v1.3.0...v1.3.1

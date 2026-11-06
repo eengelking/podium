@@ -1,14 +1,16 @@
 ---
 title: "The reporter mod"
-description: "Install and configure podium-reporter, the Claude Code mod that sends a session's data to Podium, and see exactly what leaves a session."
+description: "Install and configure podium-reporter, the Claude Code and OpenCode reporter that sends a session's data to Podium, and see exactly what leaves a session."
 group: Running it
 ---
 
 # The reporter mod
 
-`podium-reporter` is the Claude Code mod that sends a session's data to the Podium server. This page is for
-anyone installing or configuring it. It covers installing the mod, its options, exactly what leaves a
-session, and how to report sessions that were started without it. To run the server, see
+`podium-reporter` sends a session's data to the Podium server. It comes in two builds, a Claude Code mod and an
+[OpenCode plugin](#install-the-opencode-reporter), over one shared core. This page is for anyone installing or
+configuring either. It covers installing it, its options, exactly what leaves a session, and how to report sessions
+that were started without it. The sections from "Install the mod" on describe the Claude Code mod, and the
+OpenCode ones are named for OpenCode. To run the server, see
 [SERVER.md](SERVER.md).
 
 Contents:
