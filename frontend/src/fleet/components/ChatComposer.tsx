@@ -45,6 +45,11 @@ export function ChatComposer(p: ComposerProps) {
     }
   });
 
+  // A send clears the draft without a keystroke; the open @ range is over with it, so the next @ loads the addresses again.
+  useEffect(() => {
+    if (!p.draft) setRange(null);
+  }, [p.draft]);
+
   const track = (value: string, pos: number) => {
     const q = p.channel ? mentionQuery(value, pos) : null;
     if (!q) return void setRange(null);

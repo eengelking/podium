@@ -19,7 +19,7 @@ Contents:
 - [The page](#the-page)
 - [Channels](#channels)
 - [Direct Messages](#direct-messages)
-- [Addressing with @](#addressing-with-)
+- [Addressing with @](#addressing-with)
 - [Another person's agent](#another-persons-agent)
 - [Who can read what](#who-can-read-what)
 - [What is not here yet](#what-is-not-here-yet)

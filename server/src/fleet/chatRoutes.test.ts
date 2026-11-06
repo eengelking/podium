@@ -577,6 +577,9 @@ describe('direct messages', () => {
     const page = await s.edB.get(`${CH}/dm/${x}/${y}/messages`);
     expect(page.body.messages.filter((m: { text: string }) => m.text === 'carry on, both of you')).toHaveLength(1);
     expect((await s.edB.get(CH)).body.directs[0].roundTrips.used).toBe(0);
+    // The two stored rows are one message in the thread, so the total and the sidebar count what the thread shows (#1034).
+    expect(page.body.total).toBe(page.body.messages.length);
+    expect((await s.edB.get(CH)).body.directs[0].messages).toBe(page.body.messages.length);
   });
 
   it('does not let the person\'s message count as a round trip, nor reset the cap the owner has to approve past', async () => {

@@ -769,6 +769,22 @@ describe("the @ combobox", () => {
     expect(box()).not.toHaveAttribute("aria-activedescendant");
   });
 
+  it("loads the addresses again for the first @ after a send, so a flag an Admin turned on in between shows", async () => {
+    const p = page();
+    await flush();
+    await open("c:group");
+    type("@everyone stand up");
+    await flush();
+    expect(p.chat.api.addresses).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    expect(box().value).toBe("");
+    p.chat.api.addresses.mockClear();
+    type("@");
+    await flush();
+    expect(p.chat.api.addresses).toHaveBeenCalledTimes(1);
+  });
+
   it("lists @group and @everyone as off with the server's reason, and picking one does nothing", async () => {
     page();
     await flush();

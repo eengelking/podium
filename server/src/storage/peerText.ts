@@ -42,6 +42,36 @@ export function roundTripsUsed(rows: readonly TripRow[]): number {
   return Math.ceil(changes / 2);
 }
 
+/** The part of a message the thread's merge rule reads. */
+export interface ShownRow {
+  author: 'agent' | 'person';
+  text: string;
+  sentAt: number;
+  toSession: string;
+  fromName: string;
+}
+
+/** Window in which a person's identical text to the agents of one conversation shows as one message (the thread's merge rule, #1034). */
+export const MERGE_MS = 2000;
+
+/**
+ * How many messages the thread shows for a conversation's stored rows, in order: a person's text stored once per agent
+ * (same author, same text, within `MERGE_MS` of the one before) is one message, as `directMessages` shows it.
+ */
+export function shownCount(rows: readonly ShownRow[]): number {
+  let shown = 0;
+  let last: { row: ShownRow; to: Set<string> } | null = null;
+  for (const m of rows) {
+    if (m.author === 'person' && last && last.row.author === 'person' && last.row.text === m.text && Math.abs(m.sentAt - last.row.sentAt) <= MERGE_MS && last.row.fromName === m.fromName && !last.to.has(m.toSession)) {
+      last.to.add(m.toSession);
+      continue;
+    }
+    shown++;
+    last = { row: m, to: new Set([m.toSession]) };
+  }
+  return shown;
+}
+
 /** What a paging read throws for a cursor it did not give out (a person or a script made it up). */
 export const BAD_CURSOR = 'The cursor is not one this server gave out.';
 

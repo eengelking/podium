@@ -2,13 +2,12 @@
 // in it: they message one of their agents, or add to a conversation between two. A text goes to the agent as a message of the console (the existing
 // delivery and the reporter's consent), and the same text is stored here with who wrote it. This file never reads or writes a channel: the audience of a
 // table is the table, and `chatSeparation.test.ts` holds this file to it.
+import { MERGE_MS } from '../storage/peerText.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import { dmThread, fail, isPersonId, personId, type ChatViewer, type Fail } from './chatTypes.js';
-
-const MERGE_MS = 2000;
 
 export interface PartyView {
   sessionId: string;

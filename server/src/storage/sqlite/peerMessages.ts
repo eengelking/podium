@@ -37,7 +37,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
 const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;
@@ -519,7 +519,7 @@ export class PeerMessages implements PeerMessagesApi {
       a,
       b,
       owner: named.owner,
-      messages: g.length,
+      messages: shownCount(g),
       lastAt: last.sentAt,
       state,
       paused,

@@ -38,7 +38,7 @@ import {
 import { nameKey } from '../rows.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
 import type { PgDb } from './conn.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
@@ -539,7 +539,7 @@ export class PgPeerMessages {
       a,
       b,
       owner: named.owner,
-      messages: g.length,
+      messages: shownCount(g),
       lastAt: last.sentAt,
       state,
       paused,
