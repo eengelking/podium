@@ -159,6 +159,40 @@ export function chatCases(o: Openers): void {
     expect(t.get('list (another person, after forget)')).toEqual([]);
   });
 
+  it('agrees on every adapter for the chat settings and the pause and disconnect flags of a channel', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const cs = s.chat({ now: () => T0 }).settings;
+      await rec('get (defaults)', cs.get());
+      await rec('set', cs.set({ retainDays: 7, graceHours: 48, maxChars: 500, perMinute: 3 }));
+      await rec('set (partial)', cs.set({ retainDays: 14 }));
+      await rec('set (retainDays 0)', cs.set({ retainDays: 0 }));
+      await rec('set (maxChars too big)', cs.set({ maxChars: 1_000_000 }));
+      await rec('set (not a number)', cs.set({ perMinute: 'many' }));
+      await rec('set (unknown key)', cs.set({ nope: 1 }));
+      await rec('get (after)', cs.get());
+      await rec('flags (never set)', cs.flags('group:ed'));
+      await rec('set flags (pause)', cs.setFlags('group:ed', { paused: true }));
+      await rec('set flags (disconnect)', cs.setFlags('group:ed', { disconnected: true }));
+      await rec('set flags (resume)', cs.setFlags('group:ed', { paused: false }));
+      await rec('set flags (another channel)', cs.setFlags('public:global', { paused: true }));
+      await rec('flags (a channel)', cs.flags('group:ed'));
+      await rec('all flags', cs.allFlags());
+      await rec('set flags (both off)', cs.setFlags('group:ed', { disconnected: false }));
+      await rec('all flags (after)', cs.allFlags());
+    });
+    expect(t.get('get (defaults)')).toEqual({ retainDays: 30, graceHours: 24, maxChars: 4000, perMinute: 6 });
+    expect(t.get('set')).toEqual({ ok: true, settings: { retainDays: 7, graceHours: 48, maxChars: 500, perMinute: 3 } });
+    expect(t.get('set (partial)')).toEqual({ ok: true, settings: { retainDays: 14, graceHours: 48, maxChars: 500, perMinute: 3 } });
+    for (const k of ['set (retainDays 0)', 'set (maxChars too big)', 'set (not a number)', 'set (unknown key)']) expect(t.get(k), k).toMatchObject({ ok: false });
+    expect(t.get('get (after)')).toEqual({ retainDays: 14, graceHours: 48, maxChars: 500, perMinute: 3 });
+    expect(t.get('flags (never set)')).toEqual({ paused: false, disconnected: false });
+    expect(t.get('set flags (pause)')).toEqual({ paused: true, disconnected: false });
+    expect(t.get('set flags (disconnect)')).toEqual({ paused: true, disconnected: true });
+    expect(t.get('set flags (resume)')).toEqual({ paused: false, disconnected: true });
+    expect(t.get('all flags')).toEqual({ 'group:ed': { paused: false, disconnected: true }, 'public:global': { paused: true, disconnected: false } });
+    expect(t.get('all flags (after)')).toEqual({ 'public:global': { paused: true, disconnected: false } });
+  });
+
   onEachAdapter(o, 'mints the server scope once and keeps it, and puts it in every channel message id', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const scope = await chat.serverScope();

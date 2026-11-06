@@ -391,6 +391,32 @@ export interface ChatReadStateApi {
   forget(thread: string): Promise<number>;
 }
 
+/** The Admin's Chat settings: how long a channel keeps its messages, how long a hidden direct message is kept, the longest channel message and the posts per minute of one author. */
+export interface ChatSettings {
+  retainDays: number;
+  graceHours: number;
+  maxChars: number;
+  perMinute: number;
+}
+
+/** Whether a channel holds its messages (`paused`) or its agents have lost access to it (`disconnected`). */
+export interface ChannelFlags {
+  paused: boolean;
+  disconnected: boolean;
+}
+
+export interface ChatSettingsApi {
+  get(): Promise<ChatSettings>;
+  /** Validates the whole patch before it writes any of it; a key that is not a setting, or a value outside its range, is an error. */
+  set(patch: Record<string, unknown>): Promise<{ ok: true; settings: ChatSettings } | { ok: false; error: string }>;
+  /** The flags of one channel scope (`public:global`, `public:person:<name>` or `group:<owner>`); both off for a scope never set. */
+  flags(scope: string): Promise<ChannelFlags>;
+  /** Changes the named flags of a scope and returns the result; a scope with both off is forgotten. */
+  setFlags(scope: string, patch: Partial<ChannelFlags>): Promise<ChannelFlags>;
+  /** Every scope with a flag on, by scope. */
+  allFlags(): Promise<Record<string, ChannelFlags>>;
+}
+
 export interface ChatStoreOptions {
   now: () => number;
 }
@@ -404,6 +430,8 @@ export interface ChatStoreApi {
   /** General (`public_messages`): every signed-in user and reporter. */
   readonly public: ChannelStoreApi<[]>;
   readonly readState: ChatReadStateApi;
+  /** The Admin's limits and the channels' pause and disconnect flags, in `settings`. */
+  readonly settings: ChatSettingsApi;
 }
 
 /** The Admin's feature flags, one `settings` row each. */

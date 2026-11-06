@@ -6,7 +6,7 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
+  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
 import type { ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 
@@ -211,5 +211,12 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     count: () => step(() => pub.count(null)),
     purge: (olderThan) => step(() => pub.purge(olderThan)),
   };
-  return { serverScope: () => step(scope), group: groupApi, public: publicApi, readState };
+  const get = (key: string): string | undefined => (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
+  const settings = chatSettingsOver({
+    get: (key) => step(() => get(key)),
+    set: (key, value) => step(() => void db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value)),
+    del: (key) => step(() => void db.prepare('DELETE FROM settings WHERE key = ?').run(key)),
+    prefixed: (prefix) => step(() => db.prepare("SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key").all(prefix.length, prefix) as unknown as { key: string; value: string }[]),
+  });
+  return { serverScope: () => step(scope), group: groupApi, public: publicApi, readState, settings };
 }

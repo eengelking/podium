@@ -5,7 +5,7 @@
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
+  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
 import type { ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -199,5 +199,11 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     count: () => pub.count(null),
     purge: (olderThan) => pub.purge(olderThan),
   };
-  return { serverScope: () => scope(), group: groupApi, public: publicApi, readState };
+  const settings = chatSettingsOver({
+    get: async (key) => (await db.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key]))?.value,
+    set: async (key, value) => void (await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [key, value])),
+    del: async (key) => void (await db.run('DELETE FROM settings WHERE key = ?', [key])),
+    prefixed: (prefix) => db.all<{ key: string; value: string }>('SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key', [prefix.length, prefix]),
+  });
+  return { serverScope: () => scope(), group: groupApi, public: publicApi, readState, settings };
 }

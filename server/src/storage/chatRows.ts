@@ -3,7 +3,7 @@
 // conversation's text are kept in different tables and read by different methods on purpose.
 import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
-import type { ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, MentionState } from './types.js';
+import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState } from './types.js';
 
 export const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
 export const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped'];
@@ -99,3 +99,71 @@ export const emptyReadState = (person: string, thread: string): { person: string
   mentions: 0,
   updatedAt: 0,
 });
+
+/** What the Admin's Chat settings are until changed, and the whole numbers each takes. */
+export const CHAT_DEFAULTS: ChatSettings = { retainDays: 30, graceHours: 24, maxChars: 4000, perMinute: 6 };
+export const CHAT_RANGES: Record<keyof ChatSettings, { min: number; max: number }> = {
+  retainDays: { min: 1, max: 365 },
+  graceHours: { min: 1, max: 720 },
+  maxChars: { min: 1, max: 20_000 },
+  perMinute: { min: 1, max: 600 },
+};
+const SETTING_PREFIX = 'chat.';
+const FLAG_PREFIX = 'chat.flag.';
+const SCOPE_MAX = 200;
+
+/** The `settings` table as the Chat settings need it: one text value per key, read and written whole. */
+export interface ChatKv {
+  get(key: string): Promise<string | undefined>;
+  set(key: string, value: string): Promise<void>;
+  del(key: string): Promise<void>;
+  /** Every key that starts with `prefix`, with its value. */
+  prefixed(prefix: string): Promise<{ key: string; value: string }[]>;
+}
+
+const flagText = (f: ChannelFlags): string => `${f.paused ? 'p' : ''}${f.disconnected ? 'd' : ''}`;
+const flagsOf = (v: string | undefined): ChannelFlags => ({ paused: !!v?.includes('p'), disconnected: !!v?.includes('d') });
+
+/** The Chat settings over a key-value view of `settings`, the same for every adapter; each adapter lends only the reads and writes. */
+export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
+  const keys = Object.keys(CHAT_DEFAULTS) as (keyof ChatSettings)[];
+  const read = async (): Promise<ChatSettings> => {
+    const out = { ...CHAT_DEFAULTS };
+    for (const k of keys) {
+      const n = Number(await kv.get(SETTING_PREFIX + k));
+      const { min, max } = CHAT_RANGES[k];
+      if (Number.isInteger(n) && n >= min && n <= max) out[k] = n;
+    }
+    return out;
+  };
+  const checkScope = (scope: string): void => {
+    if (!scope || scope.length > SCOPE_MAX) throw new Error('The channel scope is empty or too long.');
+  };
+  return {
+    get: read,
+    async set(patch) {
+      for (const [k, v] of Object.entries(patch)) {
+        if (!keys.includes(k as keyof ChatSettings)) return { ok: false, error: `${k} is not a Chat setting` };
+        const { min, max } = CHAT_RANGES[k as keyof ChatSettings];
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) return { ok: false, error: `${k} must be a whole number from ${min} to ${max}` };
+      }
+      for (const [k, v] of Object.entries(patch)) await kv.set(SETTING_PREFIX + k, String(v));
+      return { ok: true, settings: await read() };
+    },
+    async flags(scope) {
+      checkScope(scope);
+      return flagsOf(await kv.get(FLAG_PREFIX + scope));
+    },
+    async setFlags(scope, patch) {
+      checkScope(scope);
+      const next = { ...flagsOf(await kv.get(FLAG_PREFIX + scope)), ...(patch.paused === undefined ? {} : { paused: patch.paused }), ...(patch.disconnected === undefined ? {} : { disconnected: patch.disconnected }) };
+      if (flagText(next)) await kv.set(FLAG_PREFIX + scope, flagText(next));
+      else await kv.del(FLAG_PREFIX + scope);
+      return next;
+    },
+    async allFlags() {
+      const rows = await kv.prefixed(FLAG_PREFIX);
+      return Object.fromEntries(rows.map((r) => [r.key.slice(FLAG_PREFIX.length), flagsOf(r.value)]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+    },
+  };
+}
