@@ -1835,3 +1835,123 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     expect(kindsOf).toEqual(['paused', 'resumed']);
   });
 });
+
+describe('an Admin browsing a person\'s Chat (#1034)', () => {
+  const BROWSE = `${CH}?owner=`;
+  const TEXTS = ['ed group secret text', 'agent hello', 'alex general line'];
+
+  async function browseWorld() {
+    const w = await world();
+    await linkedConversation(w);
+    await say(w.edB, 'group', TEXTS[0]!);
+    await say(w.alexB, 'general', TEXTS[2]!);
+    return w;
+  }
+  const allText = (b: unknown) => JSON.stringify(b);
+
+  it('gives a signed-in Administrator and the admin secret the same overview, about that person and with no message text', async () => {
+    const w = await browseWorld();
+    await say(w.edB, 'general', `@review@alex-box ${TEXTS[1]}`);
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const secretB = await signedIn(w, 'Admin', SECRET);
+    for (const b of [rootB, secretB]) {
+      const res = await b.get(`${BROWSE}ed`);
+      expect(res.status).toBe(200);
+      expect(res.body.me).toMatchObject({ admin: true });
+      expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general', 'group']);
+      expect(res.body.channels[1]).toMatchObject({ thread: 'group:ed', unread: 0, mentions: 0, messages: 1, can: { pause: true, disconnect: true, removeAll: true } });
+      expect(res.body.directs.length).toBeGreaterThan(0);
+      for (const d of res.body.directs) expect(d).toMatchObject({ unread: 0, mentions: 0 });
+      expect(res.body.people.map((p: { name: string; you: boolean; directs: number }) => [p.name, p.you]).sort()).toEqual([['Alex', false], ['Ed', false], ['Root', false]]);
+      expect(res.body.people.find((p: { name: string }) => p.name === 'Ed').directs).toBe(res.body.directs.length);
+      for (const t of TEXTS) expect(allText(res.body)).not.toContain(t);
+      expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01', 'dev@ed-mbp']);
+    }
+    expect(((await rootB.get(`${BROWSE}ed`)).body.me.name)).toBe('Root');
+    expect(((await secretB.get(`${BROWSE}ed`)).body.me.name)).toBe('Admin');
+  });
+
+  it('includes a cross-person conversation Ed takes part in, and counts it for both people', async () => {
+    const w = await browseWorld();
+    await say(w.edB, 'general', `@review@alex-box ${TEXTS[1]}`);
+    const a = await signedIn(w, 'Admin', SECRET);
+    const res = await a.get(`${BROWSE}Ed`);
+    expect(res.body.directs.some((d: { cross: unknown }) => d.cross !== null)).toBe(true);
+    const alex = await a.get(`${BROWSE}Alex`);
+    expect(alex.body.directs.some((d: { cross: unknown }) => d.cross !== null)).toBe(true);
+    expect(allText(alex.body)).not.toContain(TEXTS[1]!);
+  });
+
+  it('does not clear or reveal the person\'s unread counts', async () => {
+    const w = await browseWorld();
+    const before = (await w.edB.get(CH)).body;
+    const unread = before.channels.find((c: { id: string }) => c.id === 'general').unread;
+    expect(unread).toBeGreaterThan(0);
+    const a = await signedIn(w, 'Admin', SECRET);
+    const res = await a.get(`${BROWSE}Ed`);
+    expect(res.body.channels.find((c: { id: string }) => c.id === 'general')).toMatchObject({ unread: 0, mentions: 0 });
+    expect((await w.edB.get(CH)).body.channels.find((c: { id: string }) => c.id === 'general').unread).toBe(unread);
+  });
+
+  it('records no Admin read, tells no one in the person\'s group, and writes chat_admin_browse with who and whose', async () => {
+    const w = await browseWorld();
+    const a = await signedIn(w, 'Admin', SECRET);
+    await a.get(`${BROWSE}Ed`);
+    await a.get(`${BROWSE}Ed`);
+    await settle();
+    expect(await w.fleet.chat.core.store.adminReads.list('group:ed')).toEqual([]);
+    expect((await w.edB.get(CH)).body.channels.find((c: { id: string }) => c.id === 'group').adminReading).toEqual([]);
+    const rows = (await logRows(w)).filter((r) => r.kind === 'chat_admin_browse');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.actor).toBe('Admin secret');
+    expect(rows[0]!.detail).toContain('Ed');
+    for (const t of TEXTS) expect(JSON.stringify(rows)).not.toContain(t);
+    expect(await logKinds(w)).not.toContain('chat_admin_read');
+  });
+
+  it('names an Admin who is a signed-in person by their own name in the log', async () => {
+    const w = await browseWorld();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    await rootB.get(`${BROWSE}Ed`);
+    await settle();
+    expect((await logRows(w)).find((r) => r.kind === 'chat_admin_browse')!.actor).toBe('Root');
+  });
+
+  it('refuses everyone who is not an Admin, answers a missing person in words, and treats the Admin themself as the normal overview', async () => {
+    const w = await browseWorld();
+    const denied = await w.alexB.get(`${BROWSE}Ed`);
+    expect(denied.status).toBe(403);
+    expect((await w.edB.get(`${BROWSE}Ed`)).status).toBe(403);
+    expect(allText(denied.body)).not.toContain('ed group secret');
+    const a = await signedIn(w, 'Admin', SECRET);
+    const none = await a.get(`${BROWSE}Nobody`);
+    expect(none.status).toBe(404);
+    expect(none.body.error).toBe('There is no person named Nobody.');
+    expect((await a.get(`${BROWSE}`)).status).toBe(400);
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const own = await rootB.get(`${BROWSE}root`);
+    expect(own.body).toEqual((await rootB.get(CH)).body);
+    await settle();
+    expect(await logKinds(w)).not.toContain('chat_admin_browse');
+    expect((await request(w.app).get(`${BROWSE}Ed`)).status).toBe(403);
+  });
+
+  it('never shows a third person\'s Direct Messages in Ed\'s overview', async () => {
+    const w = await browseWorld();
+    const ALEX_PRIVATE = 'alex private note';
+    const sent = await w.alexB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: ALEX_PRIVATE });
+    expect(sent.status).toBeLessThan(300);
+    const a = await signedIn(w, 'Admin', SECRET);
+    expect((await a.get(`${BROWSE}Alex`)).body.directs.length).toBe(1);
+    const ed = await a.get(`${BROWSE}Ed`);
+    expect(ed.body.directs.some((d: { owner: string }) => d.owner === 'Alex')).toBe(false);
+    expect(ed.body.directs.every((d: { owner: string; a: { sessionId: string }; b: { sessionId: string } }) => d.owner === 'Ed' || d.a.sessionId === 'person:ed' || d.b.sessionId === 'person:ed')).toBe(true);
+    expect(allText(ed.body)).not.toContain(ALEX_PRIVATE);
+  });
+});

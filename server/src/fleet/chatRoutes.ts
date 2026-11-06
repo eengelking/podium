@@ -58,6 +58,9 @@ export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
         row('chat_admin_read', `${e.by} read ${where}`, actorName(e.by), { scope: e.scope, thread: e.thread, owners: e.owners.join(','), by: e.by });
         break;
       }
+      case 'admin_browse':
+        row('chat_admin_browse', `${e.by} browsed the list of ${e.person}'s conversations (names and counts only)`, actorName(e.by), { person: e.person, by: e.by });
+        break;
       case 'purged':
         row('chat_purged', `Chat retention removed ${e.channelMessages} channel messages and ${e.directMessages} messages of hidden conversations`, 'sweeper', { channel_messages: e.channelMessages, direct_messages: e.directMessages });
         break;
@@ -95,7 +98,13 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
   browser.get('/chat', asyncHandler(async (req, res) => {
     const v = await viewer(req, res);
     if (!v) return;
-    res.json(await fleet.chat.overview(v));
+    // `?owner=<name>`: an Admin browses that person's Chat (names and counts, never text).
+    const owner = req.query.owner;
+    if (owner === undefined) return void res.json(await fleet.chat.overview(v));
+    if (typeof owner !== 'string' || owner.trim() === '') return void refuse(req, res, { ok: false, status: 400, error: 'owner must be one person\'s name' });
+    const out = await fleet.chat.browse(v, owner.trim());
+    if ('status' in out) return void refuse(req, res, out);
+    res.json(out);
   }));
 
   browser.post('/chat/read', asyncHandler(async (req, res) => {

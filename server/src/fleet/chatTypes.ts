@@ -53,6 +53,7 @@ export type ChatEvent =
   | { kind: 'across'; owner: string; person: string; by: string; messageId: string; sessionId: string; approval: boolean }
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
+  | { kind: 'admin_browse'; by: string; person: string }
   | { kind: 'purged'; channelMessages: number; directMessages: number };
 
 /** What Chat tells the host changed. The stream sends only `rev` and `scope` of it; the rest is for the host and is never broadcast. */

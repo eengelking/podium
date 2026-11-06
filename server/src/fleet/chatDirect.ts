@@ -210,6 +210,18 @@ export class DirectChat {
     return Promise.all(mine.map(async (c) => ({ ...this.info(c, counts), cross: await this.crossOf(c, viewer) })));
   }
 
+  /** An Admin browsing `owner`'s conversations (#1034): the same list as that person's, with no unread or mention counts, seen as the Admin. Never any text. */
+  async listAbout(viewer: ChatViewer, owner: string): Promise<DirectInfo[]> {
+    if (!viewer.admin) return [];
+    const mine = await this.peers.ownerConversations(owner);
+    return Promise.all(mine.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));
+  }
+
+  /** How many conversations a person takes part in, hidden ones left out. */
+  async countOf(owner: string): Promise<number> {
+    return (await this.peers.ownerConversations(owner)).length;
+  }
+
   /** `me` is the viewer's own place in a conversation with one agent. */
   private ids(viewer: ChatViewer, a: string, b: string): [string, string] {
     const me = viewer.personId === null ? null : personId(viewer.name);
