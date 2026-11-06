@@ -9,7 +9,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, ChatApi, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
+import type { Address, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -166,6 +166,7 @@ function fakeChat(w: Fake = world()) {
       owner: "Ed",
       paused: d.paused,
       roundTrips: d.roundTrips,
+      cross: d.cross ?? null,
     };
   };
   const api = {
@@ -214,6 +215,11 @@ function fakeChat(w: Fake = world()) {
     pauseLink: vi.fn(async (a: string, b: string, paused: boolean) => {
       w.overview.directs = w.overview.directs.map((d) => (d.a.reporterKey === a && d.b.reporterKey === b ? { ...d, paused, state: paused ? ("paused" as const) : ("active" as const) } : d));
       return { ok: true as const };
+    }),
+    link: vi.fn(async (a: string, b: string, op: "pause" | "resume" | "remove" | "allow") => {
+      const link = ({ pause: "paused", resume: "open", remove: "removed", allow: "open" } as const)[op];
+      w.overview.directs = w.overview.directs.map((d) => (d.a.sessionId === a && d.b.sessionId === b && d.cross ? { ...d, cross: { ...d.cross, link } } : d));
+      return { ok: true as const, link };
     }),
     removeLink: vi.fn(async (a: string, b: string) => {
       w.overview.directs = w.overview.directs.map((d) => (d.a.reporterKey === a && d.b.reporterKey === b ? { ...d, canSend: { aToB: false, bToA: false } } : d));
@@ -299,6 +305,50 @@ describe("the page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await flush();
     expect(screen.getByRole("navigation", { name: "Chat" })).toBeInTheDocument();
+  });
+});
+
+describe("the panes, as the Board has them", () => {
+  const left = () => screen.getByRole("button", { name: /(Collapse|Expand) the left pane/ });
+  const right = () => screen.getByRole("button", { name: /(Collapse|Expand) the right pane/ });
+
+  it("keeps the orchestrator list and the Activity panel, collapsed at first, with their edge tabs beside the page", async () => {
+    const { container } = page();
+    await flush();
+    const cols = container.querySelector<HTMLElement>(".cols")!;
+    expect(cols).toContainElement(screen.getByTestId("chat-split"));
+    expect(container.querySelector(".rail")).not.toBeNull();
+    expect(container.querySelector(".side")).not.toBeNull();
+    expect(left()).toHaveClass("edge-tab", "edge-tab-shut");
+    expect(right()).toHaveClass("edge-tab", "edge-tab-shut");
+    expect(cols.style.getPropertyValue("--rail-w")).toBe("24px");
+    expect(cols.style.getPropertyValue("--side-w")).toBe("24px");
+    // Chat has no legend and no wall mode of its own.
+    expect(container.querySelector(".legend")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter wall mode" })).toBeNull();
+  });
+
+  it("remembers a pane the person opens for Chat only, and leaves the console's flags alone", async () => {
+    page();
+    await flush();
+    fireEvent.click(left());
+    expect(left()).not.toHaveClass("edge-tab-shut");
+    expect(JSON.parse(localStorage.getItem("podium.collapsed.chat")!)).toEqual({ left: false, right: true, top: false });
+    expect(localStorage.getItem("podium.collapsed")).toBeNull();
+    expect(localStorage.getItem("podium.collapsed.board")).toBeNull();
+    expect(localStorage.getItem("podium.collapsed.reporters")).toBeNull();
+  });
+
+  it("opens the list with [ and the Activity panel with ], and w does nothing", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
+    page();
+    await flush();
+    fireEvent.keyDown(document, { key: "[" });
+    expect(left()).not.toHaveClass("edge-tab-shut");
+    fireEvent.keyDown(document, { key: "]" });
+    expect(right()).not.toHaveClass("edge-tab-shut");
+    fireEvent.keyDown(document, { key: "w" });
+    expect(document.querySelector(".podium")).not.toHaveClass("wall-on");
   });
 });
 
@@ -445,8 +495,10 @@ describe("the thread", () => {
     expect(msgs[1]!).toHaveClass("reply");
     expect(within(msgs[0]!).getByText("Tester@ci-runner-01 waiting")).toBeInTheDocument();
     expect(within(msgs[0]!).getByText("Waiting: Tester gets this when its current turn ends.")).toBeInTheDocument();
-    expect(within(msgs[2]!).getByText("claude-dashboard@ed-mbp held: My group is paused")).toBeInTheDocument();
+    // The chip carries the state word; the reason is on the delivery line, once.
+    expect(within(msgs[2]!).getByText("claude-dashboard@ed-mbp held")).toBeInTheDocument();
     expect(within(msgs[2]!).getByText("Held: My group is paused. It goes when the channel resumes.")).toBeInTheDocument();
+    expect(msgs[2]!.textContent!.match(/My group is paused/g)).toHaveLength(1);
     expect(msgs[0]!.querySelector(".ch-mention")).toHaveTextContent("@Tester@ci-runner-01");
   });
 
@@ -455,11 +507,11 @@ describe("the thread", () => {
     page({ chat });
     await flush();
     await open("d:s-dash+s-tester");
-    expect(within(thread()).getByRole("status")).toHaveTextContent("Showing 3 of 6");
+    expect(within(thread()).getAllByRole("status")[0]!).toHaveTextContent("Showing 3 of 6");
     fireEvent.click(within(thread()).getByRole("button", { name: "Earlier messages" }));
     await flush();
     expect(chat.api.dmMessages).toHaveBeenLastCalledWith("s-dash", "s-tester", { before: "cur-1", limit: 50 });
-    expect(within(thread()).getByRole("status")).toHaveTextContent("Showing 4 of 6");
+    expect(within(thread()).getAllByRole("status")[0]!).toHaveTextContent("Showing 4 of 6");
     expect(within(thread()).getAllByTestId("chat-message")[0]).toHaveTextContent("An older message.");
     expect(within(thread()).queryByRole("button", { name: "Earlier messages" })).toBeNull();
   });
@@ -621,6 +673,21 @@ describe("the box", () => {
     expect(thread()).toHaveTextContent("This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.");
   });
 
+  it("says why it is off in its placeholder and ties the reason to the box, and is not a combobox", async () => {
+    const w = world();
+    w.overview.channels = [channelOf("general", { paused: true }), channelOf("group")];
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(box()).toBeDisabled();
+    expect(box()).toHaveAttribute("placeholder", "Paused");
+    const why = document.getElementById(box().getAttribute("aria-describedby")!)!;
+    expect(why).toHaveTextContent("Paused: messages are held. Resume from the menu to send.");
+    expect(box()).not.toHaveAttribute("role");
+    await open("c:group");
+    expect(box()).toHaveAttribute("placeholder", "Write a message. Type @ to address someone.");
+    expect(box()).toHaveAttribute("aria-describedby");
+  });
+
   it("is off when every agent of a conversation has ended, and says so", async () => {
     const w = world();
     w.overview.directs = [direct(DASH, TESTER, { ended: ["claude-dashboard", "Tester"] })];
@@ -658,8 +725,12 @@ describe("the @ combobox", () => {
       "@group",
       "@everyone",
     ]);
-    expect(box()).toHaveAttribute("aria-expanded", "true");
+    expect(box()).not.toHaveAttribute("aria-expanded");
+    expect(box()).toHaveAttribute("aria-controls", list.id);
+    expect(screen.getByTestId("chat-matches")).toHaveTextContent("7 people and agents. Use the arrow keys.");
+    expect(screen.getByTestId("chat-matches")).toHaveAttribute("role", "status");
     type("hi @tes");
+    expect(screen.getByTestId("chat-matches")).toHaveTextContent("2 people and agents. Use the arrow keys.");
     expect(within(list).getAllByRole("option").map((o) => o.querySelector(".h")!.textContent)).toEqual(["@Tester@ci-runner-01", "@Tester@build-pi"]);
     type("hi @my a");
     expect(within(list).getAllByRole("option").map((o) => o.querySelector(".h")!.textContent)).toEqual(["@My Agent@ed-mbp"]);
@@ -688,7 +759,8 @@ describe("the @ combobox", () => {
     type("@te");
     fireEvent.keyDown(box(), { key: "Escape" });
     expect(options()).toHaveLength(0);
-    expect(box()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("chat-matches")).toBeEmptyDOMElement();
+    expect(box()).not.toHaveAttribute("aria-activedescendant");
   });
 
   it("lists @group and @everyone as off with the server's reason, and picking one does nothing", async () => {
@@ -896,6 +968,23 @@ describe("the menus", () => {
     expect(within(thread()).queryAllByTestId("chat-message")).toHaveLength(0);
   });
 
+  it("shows a menu with only a reason as a note that takes the focus and closes on Escape", async () => {
+    const w = world();
+    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: false, disconnect: false, removeAll: false } }), channelOf("group")];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(more("General"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    const note = screen.getByRole("note", { name: "Actions for General" });
+    expect(note).toHaveTextContent("Only an Admin can pause General for everyone or remove its messages.");
+    expect(document.activeElement).toBe(note);
+    fireEvent.keyDown(note, { key: "Escape" });
+    expect(screen.queryByRole("note")).toBeNull();
+    await flush();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(document.activeElement).toBe(more("General"));
+  });
+
   it("gives an agent Message and Open orchestration page, which goes to the console with it open", async () => {
     page();
     await flush();
@@ -927,13 +1016,12 @@ describe("accessibility", () => {
     await flush();
     await open("d:s-dash+s-tester");
     fireEvent.click(screen.getByRole("button", { name: "Actions for claude-dashboard, Tester" }));
-    // The accepted mockup puts role="combobox" on the message box, a textarea; axe's best-practice rule does not allow that role on one, and a screen reader still announces the list (a known finding, to raise with the maintainer).
     const run = async () => {
       const r = await axe.run(container, {
         runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] },
         rules: { "color-contrast": { enabled: false }, "target-size": { enabled: false }, "scrollable-region-focusable": { enabled: false }, "link-in-text-block": { enabled: false }, region: { enabled: false } },
       });
-      return { violations: r.violations.filter((v) => !(v.id === "aria-allowed-role" && v.nodes.every((n) => n.target.join(" ").endsWith("-msg")))) };
+      return { violations: r.violations };
     };
     expect((await run()).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
@@ -941,5 +1029,195 @@ describe("accessibility", () => {
     fireEvent.change(box(), { target: { value: "@te" } });
     await flush();
     expect((await run()).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  });
+});
+
+// ---- A conversation across owners (#1034) -------------------------------------------------------------------------------
+
+const MAYA: Party = { sessionId: "person:maya", name: "Maya", machine: "", reporterKey: "", kind: "person", live: true, status: null };
+
+/** Ed's `claude-dashboard` and Maya, as the server lists it for Ed (the owner) or for Maya (the sender). */
+function crossWorld(viewer: "owner" | "sender" | "admin", cross: Partial<Cross> = {}, over: Partial<DirectInfo> = {}) {
+  const w = world();
+  const c: Cross = { person: "Maya", owner: "Ed", link: "open", viewerIs: viewer, ...cross };
+  const d = direct(MAYA, DASH, { thread: "dm:person:maya|s-dash", owner: "Ed", messages: 3, cross: c, state: c.link === "waiting" ? "waiting" : "active", ...over });
+  w.overview.directs = [d];
+  if (viewer === "sender") w.overview.me = { name: "Maya", admin: false, person: true };
+  w.dms = {
+    "person:maya|s-dash": {
+      messages: [
+        dmsg("x1", MAYA, DASH, "Can you check the build?", { state: "approval", waitingFor: "Ed", to: [{ sessionId: "s-dash", name: "claude-dashboard", machine: "ed-mbp", state: "approval", why: null }] }),
+        dmsg("x2", MAYA, DASH, "Also the lint.", { state: "declined", reason: "Ed declined it." }),
+        dmsg("x3", MAYA, DASH, "And the docs.", { state: "dropped", why: "link-removed", reason: "Ed removed the link." }),
+      ],
+    },
+  };
+  return fakeChat(w);
+}
+
+describe("a conversation across owners", () => {
+  const more = (name: string) => screen.getByRole("button", { name: `Actions for ${name}` });
+  const items = () => within(screen.getByRole("menu")).getAllByRole("menuitem");
+
+  it("says who the two people are and who may read, and the state of each message in words with the server's reason", async () => {
+    page({ chat: crossWorld("owner") });
+    await flush();
+    await open("d:s-dash");
+    expect(thread()).toHaveTextContent("Maya (a person using Chat) writes to Ed's agent claude-dashboard. Only Maya, Ed and an Admin can read this.");
+    const msgs = within(thread()).getAllByTestId("chat-message");
+    expect(msgs[0]).toHaveTextContent("Waiting for Ed to approve it.");
+    expect(msgs[1]).toHaveTextContent("Declined at");
+    expect(msgs[1]).toHaveTextContent("Ed declined it.");
+    expect(msgs[2]).toHaveTextContent("Dropped at");
+    expect(msgs[2]).toHaveTextContent("Ed removed the link.");
+    // The sender's name is Maya's, not "You", for the owner reading.
+    expect(msgs[0]!.querySelector(".who")).toHaveTextContent("Maya");
+  });
+
+  it("gives the agent's owner Pause link, Remove link and Delete conversation, and pauses through the link route", async () => {
+    const chat = crossWorld("owner");
+    page({ chat });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    expect(items().map((i) => i.textContent)).toEqual(["Pause link", "Remove link…", "Delete conversation…"]);
+    fireEvent.click(items()[0]!);
+    await flush();
+    expect(chat.api.link).toHaveBeenCalledWith("person:maya", "s-dash", "pause");
+    expect(chat.api.pauseLink).not.toHaveBeenCalled();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    expect(items()[0]).toHaveTextContent("Resume link");
+    fireEvent.click(items()[0]!);
+    await flush();
+    expect(chat.api.link).toHaveBeenLastCalledWith("person:maya", "s-dash", "resume");
+  });
+
+  it("shows Resume link disabled with who paused it when the viewer may not resume, and does nothing on a click", async () => {
+    const chat = crossWorld("sender", { link: "paused", pausedBy: "owner", canResume: false });
+    page({ chat });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    const resume = items()[0]!;
+    expect(resume).toHaveTextContent("Resume link");
+    expect(resume).toHaveAttribute("aria-disabled", "true");
+    expect(resume).toHaveTextContent("Paused by Ed");
+    fireEvent.click(resume);
+    await flush();
+    expect(chat.api.link).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("lets the person who paused it resume it when the server says canResume, and treats a missing canResume as yes", async () => {
+    const chat = crossWorld("sender", { link: "paused", pausedBy: "sender" });
+    page({ chat });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    expect(items()[0]).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(items()[0]!);
+    await flush();
+    expect(chat.api.link).toHaveBeenCalledWith("person:maya", "s-dash", "resume");
+  });
+
+  it("asks before it removes a link across owners, then removes it with the link route", async () => {
+    const chat = crossWorld("owner");
+    page({ chat });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    fireEvent.click(items()[1]!);
+    const box_ = screen.getByTestId("chat-confirm");
+    expect(box_).toHaveTextContent("Remove the link between Maya and claude-dashboard?");
+    expect(box_).toHaveTextContent("and only Ed can open it again.");
+    fireEvent.click(within(box_).getByRole("button", { name: "Remove link" }));
+    await flush();
+    expect(chat.api.link).toHaveBeenCalledWith("person:maya", "s-dash", "remove");
+    expect(chat.api.removeLink).not.toHaveBeenCalled();
+  });
+
+  it("offers Allow again to the owner and an Admin after a removal, and not to the person who wrote", async () => {
+    const chat = crossWorld("owner", { link: "removed" });
+    page({ chat });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    expect(items().map((i) => i.textContent)).toEqual(["Allow again", "Delete conversation…"]);
+    fireEvent.click(items()[0]!);
+    await flush();
+    expect(chat.api.link).toHaveBeenCalledWith("person:maya", "s-dash", "allow");
+    cleanup();
+    page({ chat: crossWorld("admin", { link: "removed" }) });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    expect(items()[0]).toHaveTextContent("Allow again");
+    cleanup();
+    page({ chat: crossWorld("sender", { link: "removed" }) });
+    await flush();
+    fireEvent.click(more("Maya, claude-dashboard"));
+    expect(items().map((i) => i.textContent)).toEqual(["Delete conversation…"]);
+  });
+
+  it("says in the message box why the person cannot write: removed, paused by whom, waiting for approval", async () => {
+    page({ chat: crossWorld("sender", { link: "removed" }) });
+    await flush();
+    await open("d:s-dash");
+    expect(box()).toBeDisabled();
+    expect(box()).toHaveAttribute("placeholder", "Link removed");
+    expect(thread()).toHaveTextContent("The link was removed, so nothing can be sent. Only Ed can open it again.");
+    cleanup();
+    page({ chat: crossWorld("sender", { link: "paused", pausedBy: "owner", canResume: false }) });
+    await flush();
+    await open("d:s-dash");
+    expect(box()).toBeDisabled();
+    expect(thread()).toHaveTextContent("Paused by Ed: messages are held. Only Ed can resume it.");
+    cleanup();
+    page({ chat: crossWorld("sender", { link: "waiting" }) });
+    await flush();
+    await open("d:s-dash");
+    expect(box()).not.toBeDisabled();
+    expect(thread()).toHaveTextContent("Waiting for Ed to approve your message. It is delivered once Ed allows it.");
+    cleanup();
+    page({ chat: crossWorld("owner") });
+    await flush();
+    await open("d:s-dash");
+    expect(box()).toBeDisabled();
+    expect(thread()).toHaveTextContent("Only Maya writes in this conversation. You can pause or remove its link from the menu.");
+  });
+
+  it("tags the row with the link's state", async () => {
+    page({ chat: crossWorld("owner", { link: "waiting" }) });
+    await flush();
+    expect(row("d:s-dash")).toHaveTextContent("Waiting for approval");
+  });
+});
+
+describe("messages from other people waiting for the owner", () => {
+  it("shows a notice row in Direct Messages that links to My reporters, with the count", async () => {
+    const w = world();
+    w.overview.approvals = 2;
+    page({ chat: fakeChat(w) });
+    await flush();
+    const link = screen.getByRole("link", { name: /for your approval/ });
+    expect(link).toHaveAttribute("href", "#/me/reporters");
+    expect(link).toHaveTextContent("2 messages from other people wait for your approval in My reporters.");
+  });
+
+  it("says it in the singular, and shows nothing when none wait", async () => {
+    const w = world();
+    w.overview.approvals = 1;
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(screen.getByRole("link", { name: /for your approval/ })).toHaveTextContent("1 message from another person waits for your approval in My reporters.");
+    cleanup();
+    page();
+    await flush();
+    expect(screen.queryByRole("link", { name: /for your approval/ })).toBeNull();
+  });
+
+  it("reads again on the chat signal, which carries the new count", async () => {
+    const w = world();
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    expect(screen.queryByRole("link", { name: /for your approval/ })).toBeNull();
+    w.overview.approvals = 3;
+    p.signal();
+    await flush();
+    expect(screen.getByRole("link", { name: /for your approval/ })).toHaveTextContent("3 messages from other people wait");
   });
 });

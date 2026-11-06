@@ -34,6 +34,9 @@ const PROPOSAL: PeerRequestView = { id: "prq_p", kind: "proposal", at: T0 - 300_
 const ACCESS: PeerRequestView = { id: "prq_a", kind: "access", at: T0 - 60_000, from: { machine: "ci-runner-01", name: "Tester" }, to: { machine: "build-pi", name: null }, fromKey: "k2", toKey: "k3", level: "ask", by: "Tester", reason: 'I need the arm64 build <img src=x onerror="alert(1)">', text: null, messageId: null };
 const MESSAGE: PeerRequestView = { id: "prq_m", kind: "message", at: T0 - 42_000, from: { machine: "ed-mbp", name: "claude-dashboard" }, to: { machine: "build-pi", name: "arm64-check" }, fromKey: "k1", toKey: "k3", level: null, by: "claude-dashboard", reason: null, text: "Run npm run test:mod. The token is [redacted].", messageId: "dlv_1" };
 
+/** A person's message to the owner's agent (#1034): `fromKey` is the person's, not a reporter's. */
+const PERSON: PeerRequestView = { id: "prq_x", kind: "message", at: T0 - 30_000, from: { machine: "Podium Chat", name: "Maya" }, to: { machine: "ed-mbp", name: "claude-dashboard" }, fromKey: "person:maya", toKey: "k1", level: null, by: "Maya", reason: null, text: 'Can you check the build? <img src=x onerror="alert(1)">', messageId: "dlv_9", fromPerson: true };
+
 function baseRead(): PeersRead {
   return {
     enabled: true,
@@ -363,6 +366,36 @@ describe("Waiting for you", () => {
     const message = within(region).getByRole("group", { name: "A message waiting for approval" });
     expect(message).toHaveTextContent("A message from claude-dashboard on ed-mbp to arm64-check on build-pi waits for your approval.");
     expect(within(message).getByRole("button", { name: "Deliver" })).toBeInTheDocument();
+  });
+
+  it("shows a person's message to the owner's agent as its own row, with the text, Allow and Decline, and no Grid cell", async () => {
+    const d = baseRead();
+    d.requests = [PERSON];
+    const { server } = page({ server: fakeServer(d) });
+    await flush();
+    const row = screen.getByRole("group", { name: "A person's message waiting for approval" });
+    expect(row).toHaveTextContent("Maya (a person using Chat) wants to send claude-dashboard a message");
+    // The text is a text node, never HTML.
+    expect(row).toHaveTextContent('Can you check the build? <img src=x onerror="alert(1)">');
+    expect(row.querySelector("img")).toBeNull();
+    expect(row).toHaveTextContent("Allow opens a link: Maya can message this agent until you pause or remove it.");
+    expect(within(row).queryByRole("button", { name: "Deliver" })).toBeNull();
+    // The person is not a reporter: the Grid has no column or row for them.
+    expect(screen.queryByLabelText(/Maya to /)).toBeNull();
+    expect(screen.queryByLabelText(/to Maya/)).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Allow" }));
+    await flush();
+    expect(server.api.answer).toHaveBeenCalledWith("prq_x", "deliver");
+  });
+
+  it("declines a person's message with the decline answer", async () => {
+    const d = baseRead();
+    d.requests = [PERSON];
+    const { server } = page({ server: fakeServer(d) });
+    await flush();
+    fireEvent.click(within(screen.getByRole("group", { name: "A person's message waiting for approval" })).getByRole("button", { name: "Decline" }));
+    await flush();
+    expect(server.api.answer).toHaveBeenCalledWith("prq_x", "decline");
   });
 
   it("says an access request changes nothing when the pair already has as much, since allowing never lowers a right (#414)", async () => {

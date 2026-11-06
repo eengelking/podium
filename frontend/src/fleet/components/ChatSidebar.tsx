@@ -133,6 +133,13 @@ export function ChatSidebar(p: SidebarProps) {
           <section className="ch-sec" aria-labelledby="sec-dm">
             <h2 id="sec-dm">Direct Messages</h2>
             <ul className="ch-list">
+              {(o.approvals ?? 0) > 0 && (
+                <li className="ch-pad">
+                  <a className="ch-notice" href="#/me/reporters">
+                    {o.approvals === 1 ? "1 message from another person waits" : `${o.approvals} messages from other people wait`} for your approval in My reporters.
+                  </a>
+                </li>
+              )}
               {o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Start one from People and agents.</li>}
             </ul>
           </section>

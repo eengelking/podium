@@ -34,6 +34,15 @@
 .podium .ch-menu button.dng { color: var(--crit-text); }
 .ch-menu svg { width: 14px; height: 14px; flex: none; }
 .ch-menu .why { padding: 6px 10px; font-size: 11px; color: var(--muted); }
+.ch-menu { max-width: min(320px, calc(100vw - 32px)); }
+.ch-menu .sub { display: block; font-size: 11px; color: var(--muted); white-space: normal; }
+.podium .ch-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
+.podium .ch-menu button[aria-disabled="true"]:hover { background: transparent; }
+/* A menu with nothing to choose is a note: it takes the focus, wraps, and closes on Escape. */
+.ch-menu.ch-note { width: max-content; padding: 8px 10px; font-size: 12px; color: var(--ink2); white-space: normal; }
+.ch-menu.ch-note:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+/* Messages from other people wait for the owner: a line in Direct Messages that goes to My reporters. */
+.podium a.ch-notice { display: block; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); color: var(--warn-text); font-size: 12px; }
 
 .ch-thread { min-width: 0; display: flex; flex-direction: column; }
 .ch-alert { padding: 10px 16px 0; }
@@ -71,7 +80,6 @@
 .ch-st .s svg { width: 12px; height: 12px; flex: none; }
 .ch-st .s.done { color: var(--good-text); }
 .ch-st .s.wait { color: var(--warn-text); }
-.ch-quote { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--axis); color: var(--ink2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ch-composer .row { position: relative; }
 .ch-ac { position: absolute; left: 0; right: 80px; bottom: 100%; z-index: 12; margin: 0 0 4px; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); max-height: 240px; overflow-y: auto; }
 .ch-ac[hidden] { display: none; }

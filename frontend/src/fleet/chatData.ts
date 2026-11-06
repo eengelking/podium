@@ -32,6 +32,22 @@ export interface Party {
   status: AgentStatus | null;
 }
 
+/** Who a role is, for the words: the person who writes, the agent's owner, an Admin reading. */
+export type CrossRole = "sender" | "owner" | "admin";
+
+/**
+ * A conversation between a person and another person's agent (#1034). `link` is where their link stands. `pausedBy` and `canResume`
+ * come from the server (step 2c): a missing `pausedBy` is unknown, a missing `canResume` means the viewer may resume.
+ */
+export interface Cross {
+  person: string;
+  owner: string;
+  link: "waiting" | "open" | "paused" | "removed" | "none";
+  viewerIs: CrossRole;
+  pausedBy?: CrossRole | null;
+  canResume?: boolean;
+}
+
 export interface DirectInfo {
   thread: string;
   a: Party;
@@ -48,6 +64,8 @@ export interface DirectInfo {
   unread: number;
   mentions: number;
   hiddenAt: number | null;
+  /** Set for a conversation with another person's agent; null or absent for any other. */
+  cross?: Cross | null;
 }
 
 export interface ChatAgent {
@@ -70,6 +88,8 @@ export interface ChatOverview {
   directs: DirectInfo[];
   agents: ChatAgent[];
   people: { name: string; you: boolean }[];
+  /** How many messages from other people wait for the viewer's approval as the owner of the agent they wrote to. */
+  approvals?: number;
 }
 
 export type MentionState = "waiting" | "working" | "done" | "not-delivered" | "held" | "dropped";
@@ -110,6 +130,10 @@ export interface DirectMessage {
   state: DirectState;
   stateAt: number;
   why: string | null;
+  /** The reason in words for a message that was declined or dropped. */
+  reason?: string | null;
+  /** The owner a person's message waits for while it waits for approval. */
+  waitingFor?: string | null;
   approved: boolean;
 }
 
@@ -133,6 +157,7 @@ export interface DirectPageRead {
   owner: string;
   paused: boolean;
   roundTrips: { used: number; cap: number };
+  cross?: Cross | null;
 }
 
 export interface Address {
@@ -170,7 +195,11 @@ export const chatApi = {
   /** A Direct Message's Pause link and Remove link, which were Traffic's: the same routes, by the two reporters' keys. */
   pauseLink: (a: string, b: string, paused: boolean) => call<{ ok: true }>("PUT", "/api/fleet/respond/peers/links", { a, b, paused }),
   removeLink: (a: string, b: string) => call<{ ok: true }>("DELETE", "/api/fleet/respond/peers/links", { a, b }),
+  /** Pause, resume, remove or open again the link of a conversation across owners (the two ids of the conversation, `person:<name>` included). */
+  link: (a: string, b: string, op: LinkOp) => call<{ ok: true; link: Cross["link"] }>("PUT", `${BASE}/dm/${enc(a)}/${enc(b)}/link`, { op }),
 };
+
+export type LinkOp = "pause" | "resume" | "remove" | "allow";
 
 export type ChatApi = typeof chatApi;
 
@@ -188,10 +217,11 @@ export function dmKey(d: Pick<DirectInfo, "a" | "b">): string {
     .join("+");
 }
 
-/** A conversation between the person and one agent is named by the agent; one between two agents by both. */
-export function dmName(d: Pick<DirectInfo, "a" | "b">): string {
+/** A conversation between the person and one agent is named by the agent; one between two agents by both; one across owners by the other person first. */
+export function dmName(d: Pick<DirectInfo, "a" | "b"> & { cross?: Cross | null }): string {
   const agents = [d.a, d.b].filter((p) => p.kind === "agent");
-  return agents.map((p) => p.name).join(", ");
+  // Across owners the other person is named first, so the row says whose conversation it is.
+  return [...(d.cross ? [d.cross.person] : []), ...agents.map((p) => p.name)].join(", ");
 }
 
 /** A conversation between two agents has a link to pause and remove; the person's own with one agent has none. */
@@ -212,13 +242,44 @@ export function channelTag(c: Pick<ChatChannel, "paused" | "pausedForEveryone" |
   return null;
 }
 
-export function dmTag(d: Pick<DirectInfo, "a" | "b" | "state" | "paused" | "canSend" | "ended">): Tag | null {
+export function dmTag(d: Pick<DirectInfo, "a" | "b" | "state" | "paused" | "canSend" | "ended"> & { cross?: Cross | null }): Tag | null {
+  if (d.cross) {
+    if (d.cross.link === "removed") return { icon: "trash", text: "Link removed" };
+    if (d.ended.length) return { icon: "pause", text: `${joinNames(d.ended)} ended` };
+    if (d.cross.link === "paused") return { icon: "pause", text: "Paused" };
+    if (d.cross.link === "waiting") return { icon: "clock", text: "Waiting for approval", warn: true };
+    return null;
+  }
   if (hasLink(d) && !d.canSend.aToB && !d.canSend.bToA && d.state === "active") return { icon: "trash", text: "Link removed" };
   if (d.ended.length) return { icon: "pause", text: `${joinNames(d.ended)} ended` };
   if (d.state === "waiting") return { icon: "clock", text: "Waiting for approval", warn: true };
   if (d.state === "paused" || d.paused) return { icon: "pause", text: "Paused" };
   return null;
 }
+
+// ---- Conversations across owners -------------------------------------------------------------------------------------------
+
+/** A role as the words name it: the person, the owner, or an Admin. */
+export const whoWord = (c: Pick<Cross, "person" | "owner">, who: CrossRole): string => (who === "sender" ? c.person : who === "owner" ? c.owner : "an Admin");
+
+/** The header line: who the two people are, and who may read. */
+export const crossLine = (c: Cross, agent: string): string => `${c.person} (a person using Chat) writes to ${c.owner}'s agent ${agent}. Only ${c.person}, ${c.owner} and an Admin can read this.`;
+
+/** Why the message box is off in a conversation across owners, with the one word for its placeholder; null when the viewer may write. */
+export function crossOff(c: Cross): { word: string; why: string } | null {
+  const mayWrite = c.viewerIs === "sender";
+  if (c.link === "removed") return { word: "Link removed", why: `The link was removed, so nothing can be sent. ${mayWrite ? `Only ${c.owner} can open it again.` : "Choose Allow again in the menu to open it."}` };
+  if (c.link === "paused") {
+    const by = c.pausedBy ? whoWord(c, c.pausedBy) : null;
+    const rest = c.canResume === false && by ? `Only ${by} can resume it.` : "Resume the link from the menu to send.";
+    return { word: "Paused", why: `Paused${by ? ` by ${by}` : ""}: messages are held. ${rest}` };
+  }
+  if (!mayWrite) return { word: "Read only", why: `Only ${c.person} writes in this conversation. ${c.viewerIs === "owner" ? "You" : "An Admin"} can pause or remove its link from the menu.` };
+  return null;
+}
+
+/** What the box says under it while a person's message waits for the owner. */
+export const crossNote = (c: Cross): string | null => (c.viewerIs === "sender" && c.link === "waiting" ? `Waiting for ${c.owner} to approve your message. It is delivered once ${c.owner} allows it.` : null);
 
 // ---- Delivery lines ----------------------------------------------------------------------------------------------------
 
@@ -263,37 +324,37 @@ export interface MentionChip {
   text: string;
 }
 
-/** One `@` of a message with where it stands, and the server's reason when it gave one (so a held mention reads right). */
+/** One `@` of a message with where it stands, by the state word only: the reason is on the message's delivery line, so it is not said twice. */
 export function mentionChip(m: Mention): MentionChip {
-  const why = m.why ? `: ${m.why}` : "";
   switch (m.state) {
     case "done":
       return { kind: "done", state: "done", text: `${m.typed} done` };
     case "working":
       return { kind: "run", state: "running", text: `${m.typed} working` };
     case "waiting":
-      return { kind: "wait", state: "waiting", text: `${m.typed} waiting${why}` };
+      return { kind: "wait", state: "waiting", text: `${m.typed} waiting` };
     case "held":
-      return { kind: "wait", state: "waiting", text: `${m.typed} held${why}` };
+      return { kind: "wait", state: "waiting", text: `${m.typed} held` };
     case "dropped":
-      return { kind: "bad", state: "waiting", text: `${m.typed} dropped${why}` };
+      return { kind: "bad", state: "waiting", text: `${m.typed} dropped` };
     default:
-      return { kind: "bad", state: "waiting", text: `${m.typed} not delivered${why}` };
+      return { kind: "bad", state: "waiting", text: `${m.typed} not delivered` };
   }
 }
 
 /** Where a Direct Message is, as an icon and words. `time` formats a time; the page passes the default. */
-export function dmDelivery(m: DirectMessage, linkPaused: boolean, owner: string, time: (t: number) => string = hm): Delivery {
+export function dmDelivery(m: DirectMessage, linkPaused: boolean, owner: string, time: (t: number) => string = hm, across = false): Delivery {
   const target = m.to[0];
   switch (m.state) {
     case "delivered":
       return { icon: "ok", text: `Delivered at ${time(m.stateAt)}${m.approved ? `, after ${owner} approved it` : ""}.`, wait: false };
     case "approval":
+      if (across) return { icon: "clock", text: `Waiting for ${m.waitingFor ?? owner} to approve it.`, wait: true };
       return { icon: "clock", text: `Waiting for ${owner} to approve it, in My reporters or in a session on ${target?.machine ?? "its machine"}.`, wait: true };
     case "declined":
-      return { icon: "no", text: `Declined at ${time(m.stateAt)}. It was not delivered.`, wait: false };
+      return { icon: "no", text: `Declined at ${time(m.stateAt)}${m.reason ? `: ${plain(m.reason)}` : ""}. It was not delivered.`, wait: false };
     case "dropped":
-      return { icon: "no", text: `Dropped at ${time(m.stateAt)}: ${PEER_DROP_WORDS[m.why ?? ""] ?? m.why ?? "the server let it go"}. It was not delivered.`, wait: false };
+      return { icon: "no", text: `Dropped at ${time(m.stateAt)}: ${m.reason ? plain(m.reason) : (PEER_DROP_WORDS[m.why ?? ""] ?? m.why ?? "the server let it go")}. It was not delivered.`, wait: false };
     default:
       if (linkPaused) return { icon: "pause", text: `Held: ${owner} paused this link. It goes when the link resumes.`, wait: true };
       if (m.state === "handed") return { icon: "queue", text: `Handed to ${target?.machine ?? "its machine"}. Waiting for it to say ${target?.name ?? "the agent"} took it.`, wait: true };

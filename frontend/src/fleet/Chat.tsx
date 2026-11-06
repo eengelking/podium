@@ -12,7 +12,7 @@ import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
 import type { MenuAct } from "./components/ChatMenu";
-import { dmKey, dmName, hasLink, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
+import { crossNote, crossOff, dmKey, dmName, hasLink, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
@@ -216,6 +216,19 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     }
     const d = o.directs.find((x) => dmKey(x) === id);
     if (!d) return;
+    if (d.cross) {
+      // Across owners the link is between a person and an agent, so it is changed through Chat's own route, by the conversation's two ids.
+      openDm(d);
+      const c = d.cross;
+      if (a === "pause-link") {
+        const paused = c.link === "paused";
+        void act(() => api.link(d.a.sessionId, d.b.sessionId, paused ? "resume" : "pause"), paused ? "Link resumed." : "Link paused.", (w) => `Could not ${paused ? "resume" : "pause"} the link: ${w}. The link is still ${paused ? "paused" : "active"}. Try again.`);
+      } else if (a === "allow-link") {
+        void act(() => api.link(d.a.sessionId, d.b.sessionId, "allow"), `Link opened. ${c.person} can message the agent again.`, (w) => `Could not open the link again: ${w}. Nothing changed. Try again.`);
+      } else if (a === "remove-link") setConfirm("remove-link");
+      else if (a === "delete-dm") setConfirm("delete-dm");
+      return;
+    }
     if (a === "pause-link") {
       const paused = d.state === "paused" || d.paused;
       openDm(d);
@@ -237,6 +250,24 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   const confirmBox = () => {
     if (!confirm) return null;
+    if (confirm === "remove-link" && direct?.cross) {
+      const c = direct.cross;
+      const agent = [direct.a, direct.b].find((x) => x.kind === "agent")!;
+      return (
+        <div className="confirm" role="alertdialog" aria-label="Remove link" data-testid="chat-confirm">
+          Remove the link between {c.person} and {agent.name}? {c.person} can no longer message it, a message still waiting is dropped, and only {c.owner} can open it again.
+          <button type="button" className="btn sm" ref={keepBtn} onClick={keep}>
+            Keep it
+          </button>
+          <button type="button" className="btn sm dng" disabled={busy} onClick={() => {
+            setConfirm(null);
+            void act(() => api.link(direct.a.sessionId, direct.b.sessionId, "remove"), "Link removed. The conversation stays until you delete it or it expires.", (w) => `Could not remove the link: ${w}. Nothing changed. Try again.`);
+          }}>
+            Remove link
+          </button>
+        </div>
+      );
+    }
     if (confirm === "remove-link" && direct) {
       const [x, y] = [direct.a, direct.b];
       return (
@@ -303,17 +334,25 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const parties = direct ? [direct.a, direct.b] : head?.a && head.b ? [head.a, head.b] : [];
   const agentParties = parties.filter((x) => x.kind === "agent");
   const dmPaused = direct ? direct.state === "paused" || direct.paused : (head?.paused ?? false);
+  const cross = (direct?.cross ?? head?.cross) || null;
   const dmRemoved = !!direct && hasLink(direct) && !direct.canSend.aToB && !direct.canSend.bToA && direct.state === "active";
   let off: string | null = null;
+  let offWord: string | null = null;
+  const stop = (word: string, why: string) => {
+    off = why;
+    offWord = word;
+  };
   if (channel) {
-    if (channel.disconnected) off = "Your agents are disconnected from this channel. Reconnect them from its menu to send.";
-    else if (channel.pausedForEveryone) off = "Paused for everyone by an Admin: messages are held until it resumes.";
-    else if (channel.paused) off = "Paused: messages are held. Resume from the menu to send.";
+    if (channel.disconnected) stop("Disconnected", "Your agents are disconnected from this channel. Reconnect them from its menu to send.");
+    else if (channel.pausedForEveryone) stop("Paused", "Paused for everyone by an Admin: messages are held until it resumes.");
+    else if (channel.paused) stop("Paused", "Paused: messages are held. Resume from the menu to send.");
   } else if (sel.kind === "dm") {
-    if (!o.me.person) off = "Only the person who owns a conversation can add to it.";
-    else if (dmRemoved) off = "This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.";
-    else if (dmPaused) off = "Paused: messages are held. Resume from the menu to send.";
-    else if (agentParties.length > 0 && ended.length >= agentParties.length) off = `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended, so it will not receive this.`;
+    const across = cross ? crossOff(cross) : null;
+    if (!o.me.person) stop("Read only", "Only the person who owns a conversation can add to it.");
+    else if (across) stop(across.word, across.why);
+    else if (dmRemoved) stop("Link removed", "This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.");
+    else if (dmPaused) stop("Paused", "Paused: messages are held. Resume from the menu to send.");
+    else if (agentParties.length > 0 && ended.length >= agentParties.length) stop("Ended", `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended, so it will not receive this.`);
   }
   const draft = drafts[key] ?? "";
   const onSend = async () => {
@@ -341,7 +380,9 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   };
 
   const label = channel ? `Message ${channel.name}` : agentParties.length === 1 ? `Message ${agentParties[0]!.name}` : "Add to this conversation";
+  const waitNote = cross ? crossNote(cross) : null;
   const note =
+    waitNote ??
     (sel.kind === "dm" ? (ended.length ? `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended and will not receive this. ` : "") + "It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. " : "Secrets are replaced before a message leaves this machine. ") + "Enter sends; Shift+Enter adds a line.";
   const stateOf = (a: Address) => {
     const agent = o.agents.find((x) => x.sessionId === a.sessionId);
@@ -400,6 +441,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
               draft={draft}
               onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
               off={thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
+              offWord={thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
               note={note}
               error={sendErr}
               sending={sending}

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
-import { PAGE_SIZE, plain, type Address, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
+import { PAGE_SIZE, plain, type Address, type Cross, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
 import { ReadGate } from "./readGate";
 
 export interface OverviewRead {
@@ -67,6 +67,7 @@ export interface ThreadHead {
   paused?: boolean;
   ended?: string[];
   roundTrips?: { used: number; cap: number };
+  cross?: Cross | null;
 }
 
 export interface ThreadRead {
@@ -136,7 +137,7 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number): Thr
       }
       if ("a" in r) {
         const d = r as DirectPageRead;
-        setHead({ a: d.a, b: d.b, owner: d.owner, paused: d.paused, ended: d.ended, roundTrips: d.roundTrips });
+        setHead({ a: d.a, b: d.b, owner: d.owner, paused: d.paused, ended: d.ended, roundTrips: d.roundTrips, cross: d.cross ?? null });
       } else setHead(null);
       setError(null);
       setLoaded(true);

@@ -403,7 +403,17 @@ function Request({ r, model, now, busy, onAnswer }: { r: PeerRequestView; model:
   let lead: React.ReactNode;
   let hint: React.ReactNode;
   let yes: { how: "allow" | "deliver"; label: string };
-  if (r.kind === "message") {
+  if (r.kind === "message" && r.fromPerson) {
+    // A person using Chat, not a reporter: no Grid cell, and Allow opens a link for them (#1034).
+    const person = r.from.name ?? "A person";
+    lead = (
+      <>
+        <b>{person}</b> (a person using Chat) wants to send <b>{r.to.name ?? "an orchestrator"}</b> a message.
+      </>
+    );
+    hint = `Sent ${when}. Allow opens a link: ${person} can message this agent until you pause or remove it. Decline delivers nothing.`;
+    yes = { how: "deliver", label: "Allow" };
+  } else if (r.kind === "message") {
     lead = (
       <>
         A message from <b>{r.from.name ?? "an orchestrator"}</b> on <b>{r.from.machine}</b> to <b>{r.to.name ?? "an orchestrator"}</b> on <b>{r.to.machine}</b> waits for your approval.
@@ -443,7 +453,7 @@ function Request({ r, model, now, busy, onAnswer }: { r: PeerRequestView; model:
   }
   const quote = r.kind === "message" ? r.text : r.kind === "access" ? r.reason : null;
   return (
-    <div className="confirm" role="group" aria-label={r.kind === "message" ? "A message waiting for approval" : r.kind === "access" ? "A request for access" : "A change an Admin proposes"}>
+    <div className="confirm" role="group" aria-label={r.kind === "message" ? (r.fromPerson ? "A person's message waiting for approval" : "A message waiting for approval") : r.kind === "access" ? "A request for access" : "A change an Admin proposes"}>
       <div className="q">
         <span>{lead}</span>
         <span className="hint">{hint}</span>
