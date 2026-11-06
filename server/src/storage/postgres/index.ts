@@ -10,6 +10,7 @@ import { pgFleet } from './fleet.js';
 import { pgPeople } from './people.js';
 import { pgReporters } from './reporters.js';
 import { pgPeers } from './peers.js';
+import { pgChat } from './chat.js';
 import { pgFeatureFlags } from './featureFlags.js';
 import { pgWallSettings } from './wallSettings.js';
 import { pgModelPrices } from './modelPrices.js';
@@ -63,6 +64,7 @@ export async function openPostgresStorage(target: string, now: number = Date.now
     recordingSettings: pgRecordingSettings(main),
     activityHistorySettings: (authOn) => pgActivityHistorySettings(main, authOn),
     peers: (opts) => pgPeers(main, opts),
+    chat: (opts) => pgChat(main, opts),
     tlsSettings: pgTlsSettings(main),
     personCerts: pgPersonCerts(main),
     tx: (fn) => main.tx(fn),

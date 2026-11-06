@@ -196,6 +196,35 @@ ALTER TABLE agents ADD COLUMN model_label TXT;
 ALTER TABLE agents ADD COLUMN model_provider TXT;
 `),
   },
+  {
+    version: 7,
+    // The Chat page (#1034), as SQLite migration 31 makes it. A direct message records who wrote it (every message stored before this was an agent's) and
+    // when every agent in its conversation had left (hidden_at). Group and General messages are tables of their own, one per audience, with the same row
+    // shape; a direct message is never copied into either. A person's unread and mention counts are kept per thread.
+    sql: typed(`
+ALTER TABLE peer_messages ADD COLUMN author TXT NOT NULL DEFAULT 'agent';
+ALTER TABLE peer_messages ADD COLUMN hidden_at INT;
+CREATE INDEX peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TXT PRIMARY KEY, owner TXT NOT NULL, group_id TXT NOT NULL, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL,
+  text TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL, issue TXT, project TXT, milestone TXT, reply_to TXT,
+  mentions_json TXT NOT NULL DEFAULT '[]', seq INT NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (
+  id TXT PRIMARY KEY, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL,
+  text TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL, issue TXT, project TXT, milestone TXT, reply_to TXT,
+  mentions_json TXT NOT NULL DEFAULT '[]', seq INT NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (
+  person TXT NOT NULL, thread TXT NOT NULL, last_read TXT, unread INT NOT NULL DEFAULT 0, mentions INT NOT NULL DEFAULT 0,
+  updated_at INT NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

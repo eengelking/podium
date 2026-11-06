@@ -1,15 +1,15 @@
-// Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28),
-// holding the given requests in the order given. Opening it as a storage then runs migrations 26 to 29 on rows that exist.
+// Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28) and peer messages an author (31),
+// holding the given requests and messages in the order given. Opening it as a storage then runs migrations 26 to 31 on rows that exist.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
 import { openSqliteStorage } from './index.js';
-import type { LegacyReporter, LegacyRequest, LegacySession } from '../contractUpgrade.js';
+import type { LegacyMessage, LegacyReporter, LegacyRequest, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
-export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = []): { storage: Storage; dir: string } {
+export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = []): { storage: Storage; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'podium-upgrade-'));
   const file = path.join(dir, 'podium.sqlite');
   const old = openDb(file, 25);
@@ -34,6 +34,11 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     insertSession.run(x.id, x.name, x.startedAt, x.startedAt, x.model, x.costUsd);
     if (x.agent) insertAgent.run(x.id, x.agent, x.startedAt);
   }
+  const insertMessage = old.prepare(
+    `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
+     VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
+  );
+  for (const x of messages) insertMessage.run(x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq);
   old.close();
   return { storage: openSqliteStorage(file, 0), dir };
 }

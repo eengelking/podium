@@ -55,7 +55,7 @@ export function peerStoreOver(db: DatabaseSync, lock: AsyncLock, opts: PeerStore
     rights: bound(svc.rights, lock, ['effective', 'rightsOf', 'defaults', 'limits', 'setRight', 'pauseLink', 'pauseReporter', 'propose', 'requestAccess', 'openRequests']),
     messages: {
       live: (sessionId) => svc.messages.live(sessionId),
-      ...bound(svc.messages, lock, ['list', 'send', 'result', 'conversations', 'conversation']),
+      ...bound(svc.messages, lock, ['list', 'send', 'result', 'conversations', 'conversation', 'sendFromPerson', 'page', 'deleteConversation', 'ownerConversations', 'hideConversation', 'showConversation', 'purgeHidden']),
     },
     note: (sessionId, reporterKey, owner, report) => step(() => svc.note(sessionId, reporterKey, owner, report)),
     replyFor: (sessionId, allowed) => step(() => svc.replyFor(sessionId, allowed)),

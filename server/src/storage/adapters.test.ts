@@ -41,7 +41,7 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
   differentialCases({ adapters: running });
 
   describe('upgrade contract', () => {
-    for (const a of running) describe(a.name, () => upgradeCases({ openUpgraded: (rows, reporters, sessions) => a.openUpgraded(rows, reporters, sessions) }));
+    for (const a of running) describe(a.name, () => upgradeCases({ openUpgraded: (rows, reporters, sessions, messages) => a.openUpgraded(rows, reporters, sessions, messages) }));
   });
 
   // A table, column or index in one adapter's schema and not in another's is a database change made in one adapter only.

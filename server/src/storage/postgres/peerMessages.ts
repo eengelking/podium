@@ -18,8 +18,12 @@ import {
   type EffectiveRight,
   type LeftOut,
   type LiveOrchestrator,
+  type MessageAuthor,
+  type MessagePage,
   type MessageRow,
   type MessageState,
+  type OwnerConversation,
+  type PersonMessageInput,
   type MessageTrail,
   type PeerListing,
   type PeerRequestRow,
@@ -29,7 +33,7 @@ import {
 import { nameKey } from '../rows.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
-import { MAX_NOTICES, cleanPeerText, roundTripsUsed, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, type TripRow } from '../peerText.js';
 import type { PgDb } from './conn.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
@@ -55,6 +59,9 @@ interface DbMessage {
   state_at: number;
   why: string | null;
   approved: number;
+  author: string;
+  hidden_at?: number | null;
+  seq?: number;
 }
 
 interface Notice {
@@ -86,6 +93,7 @@ const toRow = (r: DbMessage): MessageRow => ({
   stateAt: r.state_at,
   why: r.why as DropWhy | null,
   approved: r.approved === 1,
+  author: r.author as MessageAuthor,
 });
 
 /** Why a held message was let go, as its sender's notice says it. `messaging-off` tells no one, so it has no words. */
@@ -103,7 +111,7 @@ function dropReason(m: MessageRow, why: Exclude<DropWhy, 'messaging-off'>): stri
 }
 
 const HELD_SQL = HELD_STATES.map((s) => `'${s}'`).join(', ');
-const TRIP_COLS = 'from_session, state, approved';
+const TRIP_COLS = 'from_session, state, approved, author';
 const PAIR_WHERE = '(from_session = ? AND to_session = ?) OR (from_session = ? AND to_session = ?)';
 
 
@@ -257,11 +265,11 @@ export class PgPeerMessages {
   }
 
   private async tripRows(a: string, b: string): Promise<TripRow[]> {
-    const rs = await this.db.all<{ from_session: string; state: string; approved: number }>(
+    const rs = await this.db.all<{ from_session: string; state: string; approved: number; author: string }>(
       `SELECT ${TRIP_COLS} FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`,
       [a, b, b, a],
     );
-    return rs.map((r) => ({ fromSession: r.from_session, state: r.state as MessageState, approved: r.approved === 1 }));
+    return rs.map((r) => ({ fromSession: r.from_session, state: r.state as MessageState, approved: r.approved === 1, author: r.author as MessageAuthor }));
   }
 
   send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal> {
@@ -333,7 +341,7 @@ export class PgPeerMessages {
         }
       }
       for (const m of messages) {
-        out.push({ id: m.id, kind: 'message', at: m.sentAt, from: { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromSession ? { id: peerShortId(m.fromSession) } : {}) }, text: m.text });
+        out.push({ id: m.id, kind: 'message', at: m.sentAt, from: { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromSession && m.author === 'agent' ? { id: peerShortId(m.fromSession) } : {}) }, text: m.text });
       }
       const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
       const now = this.now();
@@ -400,7 +408,7 @@ export class PgPeerMessages {
     const row = await this.setState(m.id, 'dropped', why);
     await this.trail({ kind: 'dropped', message: row, why });
     await this.rights.closeMessageRequest(m.id, 'dropped');
-    if (why !== 'messaging-off') this.notice(row.fromSession, `Your message to ${row.toName} on ${row.toMachine} was not delivered: ${dropReason(row, why)}. It stays in Podium > Traffic.`);
+    if (why !== 'messaging-off' && row.author === 'agent') this.notice(row.fromSession, `Your message to ${row.toName} on ${row.toMachine} was not delivered: ${dropReason(row, why)}. It stays in Podium > Traffic.`);
   }
 
   ended(sessionId: string): Promise<void> {
@@ -445,7 +453,7 @@ export class PgPeerMessages {
   async conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]> {
     // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
     const all = await this.rows(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author
        FROM peer_messages ORDER BY sent_at, seq`,
     );
     const owner = filter.owner === undefined ? null : nameKey(filter.owner);
@@ -470,8 +478,10 @@ export class PgPeerMessages {
   /** One conversation's summary, from its messages in order. The names are the newest message's. */
   private async summary(g: MessageRow[]): Promise<ConversationSummary> {
     const last = g.at(-1) as MessageRow;
-    const from = { sessionId: last.fromSession, name: last.fromName, machine: last.fromMachine, reporterKey: last.fromKey };
-    const to = { sessionId: last.toSession, name: last.toName, machine: last.toMachine, reporterKey: last.toKey };
+    // The names are the newest message an agent wrote; a person's message in a conversation between two agents carries the person's name.
+    const named = [...g].reverse().find((m) => m.author === 'agent') ?? last;
+    const from = { sessionId: named.fromSession, name: named.fromName, machine: named.fromMachine, reporterKey: named.fromKey };
+    const to = { sessionId: named.toSession, name: named.toName, machine: named.toMachine, reporterKey: named.toKey };
     const [a, b] = from.sessionId <= to.sessionId ? [from, to] : [to, from];
     const ab = await this.rights.effective(a.reporterKey, b.reporterKey);
     const ba = await this.rights.effective(b.reporterKey, a.reporterKey);
@@ -480,17 +490,17 @@ export class PgPeerMessages {
     if (g.some((m) => m.state === 'approval')) state = 'waiting';
     else if (paused) state = 'paused';
     return {
-      link: last.link,
+      link: named.link,
       a,
       b,
-      owner: last.owner,
+      owner: named.owner,
       messages: g.length,
       lastAt: last.sentAt,
       state,
       paused,
       aToB: canSend(ab.level),
       bToA: canSend(ba.level),
-      roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(last.owner)).roundTrips },
+      roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(named.owner)).roundTrips },
     };
   }
 
@@ -501,5 +511,113 @@ export class PgPeerMessages {
   /** Deletes messages on links whose newest message is older than `cutoff`. Returns how many. */
   retain(cutoff: number): Promise<number> {
     return this.db.run('DELETE FROM peer_messages WHERE link IN (SELECT link FROM peer_messages GROUP BY link HAVING MAX(sent_at) < ?)', [cutoff]);
+  }
+
+  // ---- The Chat page (#1034) ---------------------------------------------------------------------------------------
+
+  /** Whether the pair has messages and every one of them is the owner's. A conversation belongs to one owner; this is the guard that keeps another owner's read, delete or hide from reaching it. */
+  private async ownsPair(owner: string, a: string, b: string): Promise<boolean> {
+    // order-insensitive: a set of owners, compared as a whole.
+    const owners = await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM peer_messages WHERE ${PAIR_WHERE}`, [a, b, b, a]);
+    return owners.length > 0 && owners.every((r) => nameKey(r.owner) === nameKey(owner));
+  }
+
+  async sendFromPerson(input: PersonMessageInput): Promise<MessageRow | Refusal> {
+    const clean = cleanPeerText(input.text);
+    if (!clean.trim()) return refuse(400, 'The message is empty. Write the text to send.');
+    const owner = nameKey(input.owner);
+    const target = this.liveDir.get(input.toSession);
+    if (!target) {
+      // order-insensitive: only whether there is any row counts.
+      const known = await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages WHERE to_session = ? OR from_session = ?', [input.toSession, input.toSession]);
+      return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not queue the message. It would never be taken.') : refuse(404, 'There is no such agent.');
+    }
+    if (nameKey(target.owner) !== owner) return refuse(404, 'There is no such agent.');
+    if (target.peers !== true) return refuse(403, `${target.name} is not taking part in orchestrator messaging. It needs the peers option on in podium-reporter on its machine.`);
+    const limits = await this.rights.limits(target.owner);
+    if (clean.length > limits.maxChars) {
+      const n = (v: number): string => v.toLocaleString('en-US');
+      return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)}. Send a shorter one.`);
+    }
+    let fromSession = `person:${owner}`;
+    let fromKey = '';
+    let link = linkKey(fromSession, target.reporterKey);
+    if (input.withSession) {
+      if (!(await this.ownsPair(input.owner, input.toSession, input.withSession))) return refuse(404, 'There is no such conversation.');
+      const newest = await this.db.get<{ link: string; from_session: string; from_key: string; to_key: string }>(
+        `SELECT link, from_session, from_key, to_key FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at DESC, seq DESC LIMIT 1`,
+        [input.toSession, input.withSession, input.withSession, input.toSession],
+      );
+      if (!newest) return refuse(404, 'There is no such conversation.');
+      fromSession = input.withSession;
+      fromKey = newest.from_session === input.withSession ? newest.from_key : newest.to_key;
+      link = newest.link;
+    }
+    const id = newId();
+    const now = this.now();
+    // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
+    await this.db.run(
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, 'ready', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
+      [id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanPeerText(input.person).trim() || input.person, target.name, target.machine, clean, now, now],
+    );
+    return (await this.row(id)) as MessageRow;
+  }
+
+  async page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage> {
+    const before = opts.before === undefined || opts.before === null ? null : decodeCursor(opts.before);
+    const limit = pageSize(opts.limit);
+    if (!(await this.ownsPair(owner, a, b))) return { messages: [], older: null };
+    const newestFirst = before
+      ? await this.db.all<DbMessage>(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND (sent_at < ? OR (sent_at = ? AND seq < ?)) ORDER BY sent_at DESC, seq DESC LIMIT ?`, [a, b, b, a, before.at, before.at, before.seq, limit + 1])
+      : await this.db.all<DbMessage>(`SELECT * FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at DESC, seq DESC LIMIT ?`, [a, b, b, a, limit + 1]);
+    // The extra row only says there is an older page; the cursor names the oldest row kept, and a page back starts strictly before it.
+    const kept = newestFirst.slice(0, limit).reverse();
+    const oldest = kept[0];
+    return { messages: kept.map(toRow), older: newestFirst.length > limit && oldest ? encodeCursor(oldest.sent_at, oldest.seq as number) : null };
+  }
+
+  async deleteConversation(owner: string, a: string, b: string): Promise<number> {
+    if (!(await this.ownsPair(owner, a, b))) return 0;
+    for (const m of await this.rows(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, [a, b, b, a])) await this.rights.closeMessageRequest(m.id, 'dropped');
+    return this.db.run(`DELETE FROM peer_messages WHERE ${PAIR_WHERE}`, [a, b, b, a]);
+  }
+
+  async ownerConversations(owner: string, opts: { includeHidden?: boolean } = {}): Promise<OwnerConversation[]> {
+    const all = await this.db.all<DbMessage>(
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, hidden_at
+       FROM peer_messages ORDER BY sent_at, seq`,
+    );
+    const key = nameKey(owner);
+    const groups = new Map<string, DbMessage[]>();
+    for (const r of all) {
+      if (nameKey(r.owner) !== key) continue;
+      const pair = ordered(r.from_session, r.to_session).join('|');
+      const g = groups.get(pair) ?? [];
+      g.push(r);
+      groups.set(pair, g);
+    }
+    const out: OwnerConversation[] = [];
+    for (const g of groups.values()) {
+      const hiddenAt = g.every((r) => r.hidden_at != null) ? Math.max(...g.map((r) => r.hidden_at as number)) : null;
+      if (hiddenAt !== null && !opts.includeHidden) continue;
+      out.push({ ...(await this.summary(g.map(toRow))), hiddenAt });
+    }
+    return out.sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+  }
+
+  async hideConversation(owner: string, a: string, b: string): Promise<number> {
+    if (!(await this.ownsPair(owner, a, b))) return 0;
+    return this.db.run(`UPDATE peer_messages SET hidden_at = ? WHERE hidden_at IS NULL AND (${PAIR_WHERE})`, [this.now(), a, b, b, a]);
+  }
+
+  async showConversation(owner: string, a: string, b: string): Promise<number> {
+    if (!(await this.ownsPair(owner, a, b))) return 0;
+    return this.db.run(`UPDATE peer_messages SET hidden_at = NULL WHERE hidden_at IS NOT NULL AND (${PAIR_WHERE})`, [a, b, b, a]);
+  }
+
+  async purgeHidden(olderThan: number): Promise<number> {
+    for (const m of await this.rows(`SELECT * FROM peer_messages WHERE hidden_at IS NOT NULL AND hidden_at < ? AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, [olderThan])) await this.rights.closeMessageRequest(m.id, 'dropped');
+    return this.db.run('DELETE FROM peer_messages WHERE hidden_at IS NOT NULL AND hidden_at < ?', [olderThan]);
   }
 }

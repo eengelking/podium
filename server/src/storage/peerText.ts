@@ -9,6 +9,8 @@ export interface TripRow {
   fromSession: string;
   state: MessageState;
   approved: boolean;
+  /** A person's message is no half round trip and approves nothing (#1034). Absent means an agent's. */
+  author?: 'agent' | 'person';
 }
 
 /**
@@ -30,7 +32,7 @@ export function cleanPeerText(raw: string): string {
  * a round trip, rounded up.
  */
 export function roundTripsUsed(rows: readonly TripRow[]): number {
-  const kept = rows.filter((r) => r.state !== 'declined' && r.state !== 'dropped');
+  const kept = rows.filter((r) => r.state !== 'declined' && r.state !== 'dropped' && r.author !== 'person');
   let start = 0;
   kept.forEach((r, i) => {
     if (r.approved) start = i;
@@ -39,3 +41,19 @@ export function roundTripsUsed(rows: readonly TripRow[]): number {
   for (let i = start + 1; i < kept.length; i++) if (kept[i].fromSession !== kept[i - 1].fromSession) changes++;
   return Math.ceil(changes / 2);
 }
+
+/** What a paging read throws for a cursor it did not give out (a person or a script made it up). */
+export const BAD_CURSOR = 'The cursor is not one this server gave out.';
+
+/** A paging cursor: the time and insertion number of the oldest row of the page, as `<ms>.<seq>`. A page back starts strictly before it, so the row itself need not exist any more. */
+export const encodeCursor = (at: number, seq: number): string => `${at}.${seq}`;
+
+/** The time and insertion number a cursor names; throws `BAD_CURSOR` for any other text. */
+export function decodeCursor(cursor: string): { at: number; seq: number } {
+  const m = /^(\d{1,16})\.(\d{1,16})$/.exec(cursor);
+  if (!m) throw new Error(BAD_CURSOR);
+  return { at: Number(m[1]), seq: Number(m[2]) };
+}
+
+/** A page size kept to a whole number from 1 to 500. */
+export const pageSize = (limit: number): number => Math.min(500, Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 50)));

@@ -4,20 +4,20 @@ import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { openPostgresStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyReporter, LegacyRequest, LegacySession } from '../contractUpgrade.js';
+import type { LegacyMessage, LegacyReporter, LegacyRequest, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions), td };
+    return { storage: await build(td, rows, reporters, sessions, messages), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[]): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[]): Promise<Storage> {
   const old = new PgDb({ connectionString: td.url, schema: MAIN_SCHEMA, max: 2, name: 'test' });
   try {
     await migrate(old, MAIN_SCHEMA, MAIN_STEPS.slice(0, 1));
@@ -43,6 +43,13 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
       if (x.agent) {
         await old.run(`INSERT INTO agents (session_id, id, kind, type, description, status, started_at) VALUES (?, ?, 'subagent', 'Explore', 'look', 'done', ?)`, [x.id, x.agent, x.startedAt]);
       }
+    }
+    for (const x of messages) {
+      await old.run(
+        `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
+         VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
+        [x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq],
+      );
     }
   } finally {
     await old.close();

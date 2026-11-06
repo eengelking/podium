@@ -12,6 +12,7 @@ import { session } from './contract.js';
 const T0 = 1_800_000_000_000;
 const ED: Actor = { name: 'ed', admin: false };
 const ADMIN: Actor = { name: 'Admin', admin: true };
+const DAY = 86_400_000;
 const SERVER_LIMITS = { roundTrips: 10, perMinute: 6, maxChars: 20_000 };
 
 const seen = (id: string, name: string, owner: string, sessionId: string): ReporterSeen => ({
@@ -23,7 +24,7 @@ const done = (name: string, machine: string): Report =>
   ({ session: { name, status: 'done', waitReason: null, peers: true, repoName: null, projectRoot: '~/dev' }, machine: { name: machine, os: 'macOS' } }) as unknown as Report;
 
 /** Three reporters of `ed` (each with a waiting orchestrator), one of another owner and one that reports with the admin secret. */
-async function setUp(s: Storage, clock: { now: number }): Promise<{ peers: PeerStoreApi; a: string; b: string; c: string; eve: string }> {
+export async function setUp(s: Storage, clock: { now: number }): Promise<{ peers: PeerStoreApi; a: string; b: string; c: string; eve: string }> {
   const peers = s.peers({ now: () => clock.now, flagOn: () => true, startedAt: T0 });
   const a = await s.reporters.record(seen('a', 'box-a', 'ed', 'sa'), T0);
   const b = await s.reporters.record(seen('b', 'box-b', 'ed', 'sb'), T0);
@@ -210,5 +211,130 @@ export function peerCases(o: Openers): void {
       await rec('conversation (after drop all)', (await peers.messages.conversation('sa', 'sb')));
     });
     expect(t.has('owner view')).toBe(true);
+  });
+
+  it('agrees on every adapter for who wrote a message, the pages of a conversation, a person adding to it, hiding it and deleting it (#1034)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      // The first two share a moment, so the insertion number decides their order.
+      await rec('send 1', m.send('sa', 'beta@box-b', 'one'));
+      await rec('send 2', m.send('sb', 'alpha@box-a', 'two'));
+      clock.now += 5;
+      await rec('send 3', m.send('sa', 'beta@box-b', 'three'));
+      await rec('person adds to it', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: 'from ed' }));
+      await rec('person to one agent', m.sendFromPerson({ owner: 'Ed', person: 'Ed', toSession: 'sb', text: 'just you' }));
+      await rec('person: nobody by that id', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'nope', text: 'hi' }));
+      await rec('person: another owner\'s agent', m.sendFromPerson({ owner: 'eve', person: 'Eve', toSession: 'sb', text: 'hi' }));
+      await rec('person: empty', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: '  ' }));
+      await rec('person: too long', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'x'.repeat(20_001) }));
+      await rec('person: no conversation with that agent', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sc', text: 'hi' }));
+      const p1 = await rec('page 1', m.page('ed', 'sa', 'sb', { limit: 2 }));
+      await rec('page 2', m.page('ed', 'sa', 'sb', { before: p1.older, limit: 2 }));
+      await rec('page (everything, the pair the other way)', m.page('ed', 'sb', 'sa', { limit: 50 }));
+      await rec('page with the person alone', m.page('ed', 'person:ed', 'sb', { limit: 50 }));
+      await rec('page (another owner)', m.page('eve', 'sa', 'sb', { limit: 50 }));
+      await rec('page (bad cursor)', m.page('ed', 'sa', 'sb', { before: 'junk', limit: 2 }));
+      await rec('conversation', m.conversation('sa', 'sb'));
+      await rec('deliveries to beta', m.conversation('sb', 'sa'));
+      await rec('owner conversations', m.ownerConversations('ed'));
+      await rec('owner conversations (another owner)', m.ownerConversations('eve'));
+      // The agents leave: the conversation is hidden and kept, not deleted.
+      await peers.ended('sa');
+      await peers.ended('sb');
+      await rec('person: the agent has ended', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'anyone?' }));
+      clock.now += 10;
+      await rec('hide (another owner)', m.hideConversation('eve', 'sa', 'sb'));
+      await rec('hide', m.hideConversation('ed', 'sa', 'sb'));
+      await rec('hide again', m.hideConversation('ed', 'sa', 'sb'));
+      await rec('owner conversations (hidden left out)', m.ownerConversations('ed'));
+      await rec('owner conversations (hidden included)', m.ownerConversations('ed', { includeHidden: true }));
+      await rec('page (hidden, still readable)', m.page('ed', 'sa', 'sb', { limit: 1 }));
+      await rec('purge (not yet old enough)', m.purgeHidden(clock.now - 10));
+      await rec('show', m.showConversation('ed', 'sa', 'sb'));
+      await rec('owner conversations (shown)', m.ownerConversations('ed'));
+      await rec('purge (nothing hidden)', m.purgeHidden(clock.now + DAY));
+      clock.now += 100;
+      await m.hideConversation('ed', 'sa', 'sb');
+      await rec('purge (a day on)', m.purgeHidden(clock.now + 1));
+      await rec('conversation (purged)', m.conversation('sa', 'sb'));
+      await rec('owner conversations (purged)', m.ownerConversations('ed', { includeHidden: true }));
+    });
+    const everything = t.get('page (everything, the pair the other way)') as { messages: { text: string; author: string; fromName: string }[]; older: string | null };
+    expect(everything.messages.map((x) => [x.text, x.author])).toEqual([['one', 'agent'], ['two', 'agent'], ['three', 'agent'], ['from ed', 'person']]);
+    expect(everything.older).toBeNull();
+    expect((t.get('page 1') as { messages: { text: string }[] }).messages.map((x) => x.text)).toEqual(['three', 'from ed']);
+    expect((t.get('page 2') as { messages: { text: string }[] }).messages.map((x) => x.text)).toEqual(['one', 'two']);
+    expect((t.get('page with the person alone') as { messages: { text: string }[] }).messages.map((x) => x.text)).toEqual(['just you']);
+    expect((t.get('page (another owner)') as { messages: unknown[] }).messages).toEqual([]);
+    expect(t.get('page (bad cursor)')).toEqual({ threw: 'The cursor is not one this server gave out.' });
+    expect(t.get('person: nobody by that id')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('person: another owner\'s agent')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('person: empty')).toMatchObject({ ok: false, status: 400 });
+    expect(t.get('person: too long')).toMatchObject({ ok: false, status: 422 });
+    expect(t.get('person: no conversation with that agent')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('person: the agent has ended')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('person adds to it')).toMatchObject({ author: 'person', fromName: 'Ed', toSession: 'sb', fromSession: 'sa', state: 'ready', approved: false });
+    expect(t.get('person to one agent')).toMatchObject({ author: 'person', fromName: 'Ed', toSession: 'sb', fromSession: 'person:ed' });
+    expect((t.get('owner conversations') as unknown[]).length).toBe(2);
+    expect(t.get('owner conversations (another owner)')).toEqual([]);
+    expect(t.get('hide (another owner)')).toBe(0);
+    expect(t.get('hide')).toBe(4);
+    expect(t.get('hide again')).toBe(0);
+    expect((t.get('owner conversations (hidden left out)') as { a: { sessionId: string } }[]).map((c) => c.a.sessionId)).toEqual(['person:ed']);
+    expect((t.get('owner conversations (hidden included)') as { hiddenAt: number | null }[]).map((c) => c.hiddenAt).sort()).toEqual([T0 + 15, null]);
+    expect(t.get('purge (not yet old enough)')).toBe(0);
+    expect(t.get('show')).toBe(4);
+    expect((t.get('owner conversations (shown)') as { hiddenAt: number | null }[]).map((c) => c.hiddenAt)).toEqual([null, null]);
+    expect(t.get('purge (nothing hidden)')).toBe(0);
+    expect(t.get('purge (a day on)')).toBe(4);
+    expect(t.get('conversation (purged)')).toEqual([]);
+    expect((t.get('owner conversations (purged)') as { a: { sessionId: string } }[]).map((c) => c.a.sessionId)).toEqual(['person:ed']);
+  });
+
+  it('does not count a person\'s message as a round trip, nor let it reset the cap', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      await m.send('sa', 'beta@box-b', 'one');
+      await rec('after one', m.conversations({ owner: 'ed' }));
+      await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', withSession: 'sb', text: 'from ed' });
+      await rec('after the person', m.conversations({ owner: 'ed' }));
+      await m.send('sb', 'alpha@box-a', 'two');
+      await rec('after the answer', m.conversations({ owner: 'ed' }));
+    });
+    const trips = (label: string): number => (t.get(label) as { roundTrips: { used: number } }[])[0]!.roundTrips.used;
+    expect([trips('after one'), trips('after the person'), trips('after the answer')]).toEqual([0, 0, 1]);
+  });
+
+  it('deletes one conversation\'s messages and no other, and a page cursor outlives the deletion (#1034)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b, c } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a], [a, c], [c, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      for (const text of ['one', 'two', 'three']) {
+        await m.send('sa', 'beta@box-b', text);
+        clock.now += 1;
+      }
+      await m.send('sa', 'gamma@box-c', 'to gamma');
+      const p1 = await rec('page 1', m.page('ed', 'sa', 'sb', { limit: 2 }));
+      await rec('delete (another owner)', m.deleteConversation('eve', 'sa', 'sb'));
+      await rec('delete', m.deleteConversation('ed', 'sb', 'sa'));
+      await rec('page 2 after the delete', m.page('ed', 'sa', 'sb', { before: p1.older, limit: 2 }));
+      await rec('delete again', m.deleteConversation('ed', 'sa', 'sb'));
+      await rec('the other conversation', m.conversation('sa', 'sc'));
+      await rec('conversations', m.ownerConversations('ed'));
+    });
+    expect(t.get('delete (another owner)')).toBe(0);
+    expect(t.get('delete')).toBe(3);
+    expect(t.get('page 2 after the delete')).toEqual({ messages: [], older: null });
+    expect(t.get('delete again')).toBe(0);
+    expect((t.get('the other conversation') as { text: string }[]).map((x) => x.text)).toEqual(['to gamma']);
+    expect((t.get('conversations') as unknown[]).length).toBe(1);
   });
 }

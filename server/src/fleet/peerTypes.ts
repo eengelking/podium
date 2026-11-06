@@ -235,6 +235,9 @@ export const HELD_STATES: readonly MessageState[] = ['approval', 'ready', 'hande
 /** Why the server let go of a held message. Each is said to its sender in a notice and written to the logs. */
 export type DropWhy = 'receiver-ended' | 'session-deleted' | 'link-removed' | 'messaging-off' | 'refused';
 
+/** Who wrote a message: an agent (an orchestrator, over podium_send) or the owning person (from the Chat page, #1034). Every message stored before this was an agent's. */
+export type MessageAuthor = 'agent' | 'person';
+
 export interface MessageRow {
   id: string;
   owner: string;
@@ -254,6 +257,29 @@ export interface MessageRow {
   why: DropWhy | null;
   /** The owner approved this one (a link with approval, or past the round-trip cap); round trips count from the last such message. */
   approved: boolean;
+  /**
+   * Who wrote it. A person's message has `fromName` the person's name and no machine; its `fromSession` is the other agent of the conversation when the
+   * person added to a conversation between two agents, and `person:<owner, folded>` when it is the person with one agent (a conversation of their own).
+   */
+  author: MessageAuthor;
+}
+
+/** One page of a conversation, oldest first within the page. `older` is the cursor for the page before it, or null when this one starts the conversation. */
+export interface MessagePage {
+  messages: MessageRow[];
+  older: string | null;
+}
+
+/** What the person writes in the Chat page to one of their agents (#1034). */
+export interface PersonMessageInput {
+  owner: string;
+  /** The name the message shows. */
+  person: string;
+  /** The agent that gets it. */
+  toSession: string;
+  /** The other agent of the conversation the person is adding to; absent for the person's own conversation with `toSession`. */
+  withSession?: string;
+  text: string;
 }
 
 /** What podium_send answers when a message was taken. `paused` says the link is paused, so it waits for a resume too. */
@@ -314,6 +340,11 @@ export interface ConversationSummary {
   roundTrips: { used: number; cap: number };
 }
 
+/** A conversation as the Chat page lists it: `hiddenAt` is when every agent in it had left, or null while it is shown. */
+export interface OwnerConversation extends ConversationSummary {
+  hiddenAt: number | null;
+}
+
 /** A log line's worth of a message event: never the text. */
 export type MessageTrail =
   | { kind: 'sent'; message: MessageRow; state: SendOutcome['state']; approvalWhy: SendOutcome['approvalWhy'] }
@@ -372,4 +403,18 @@ export interface PeerMessagesApi {
   conversation(a: string, b: string): MessageRow[];
   /** Deletes messages on links whose newest message is older than `cutoff`. Returns how many. */
   retain(cutoff: number): number;
+  /** The person writes to one of their live agents (#1034); see `PersonMessageInput`. Stored `ready`, so the agent's next delivery carries it. */
+  sendFromPerson(input: PersonMessageInput): MessageRow | Refusal;
+  /** One page of the owner's conversation, the newest page first; `before` is the `older` of the page after it. A cursor that was not given out throws. */
+  page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): MessagePage;
+  /** Deletes the owner's messages of one conversation. Returns how many. */
+  deleteConversation(owner: string, a: string, b: string): number;
+  /** The owner's conversations, newest first, hidden ones only when `includeHidden`. */
+  ownerConversations(owner: string, opts?: { includeHidden?: boolean }): OwnerConversation[];
+  /** Hides the owner's conversation (every agent in it has left), keeping its messages. Returns how many it marked; 0 when it is hidden already. */
+  hideConversation(owner: string, a: string, b: string): number;
+  /** Shows a hidden conversation again (the same peers are back). Returns how many it cleared. */
+  showConversation(owner: string, a: string, b: string): number;
+  /** Deletes the messages of conversations hidden before `olderThan`. Returns how many. */
+  purgeHidden(olderThan: number): number;
 }

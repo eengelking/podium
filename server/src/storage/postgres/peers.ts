@@ -42,7 +42,7 @@ export function peerStoreOver(db: PgDb, lookup: AsyncPeerReporterLookup, opts: P
     rights: stepped(svc.rights, ['effective', 'rightsOf', 'defaults', 'limits', 'setRight', 'pauseLink', 'pauseReporter', 'propose', 'requestAccess', 'openRequests']),
     messages: {
       live: (sessionId) => svc.messages.live(sessionId),
-      ...stepped(svc.messages, ['list', 'send', 'result', 'conversations', 'conversation']),
+      ...stepped(svc.messages, ['list', 'send', 'result', 'conversations', 'conversation', 'sendFromPerson', 'page', 'deleteConversation', 'ownerConversations', 'hideConversation', 'showConversation', 'purgeHidden']),
     },
     note: (sessionId, reporterKey, owner, report) => step(() => svc.note(sessionId, reporterKey, owner, report)),
     replyFor: (sessionId, allowed) => step(() => svc.replyFor(sessionId, allowed)),

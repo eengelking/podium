@@ -31,8 +31,8 @@ export function postgresContractAdapter(): ContractAdapter {
       const td = await createTestDatabase();
       return track(td, await openPostgresStorage(target(td), 0));
     },
-    openUpgraded: async (rows, reporters, sessions) => {
-      const { storage, td } = await openUpgradedPostgres(rows, reporters, sessions);
+    openUpgraded: async (rows, reporters, sessions, messages) => {
+      const { storage, td } = await openUpgradedPostgres(rows, reporters, sessions, messages);
       return track(td, storage);
     },
     schema: async () => {

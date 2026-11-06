@@ -365,6 +365,35 @@ ALTER TABLE sessions ADD COLUMN model_provider TEXT;`,
     sql: `ALTER TABLE agents ADD COLUMN model_label TEXT;
 ALTER TABLE agents ADD COLUMN model_provider TEXT;`,
   },
+  {
+    version: 31,
+    // The Chat page (#1034). A direct message records who wrote it, an agent or the owning person (every message stored before this was an agent's), and
+    // when every agent in its conversation had left (hidden_at), so the conversation is kept for a grace period and comes back if the same peers return.
+    // Group and General messages are tables of their own, one per audience, with the same row shape (the group's also carries its owner and group); a
+    // direct message is never copied into either. A person's unread and mention counts are kept per thread.
+    sql: `
+ALTER TABLE peer_messages ADD COLUMN author TEXT NOT NULL DEFAULT 'agent';
+ALTER TABLE peer_messages ADD COLUMN hidden_at INTEGER;
+CREATE INDEX IF NOT EXISTS peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, group_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (
+  person TEXT NOT NULL, thread TEXT NOT NULL, last_read TEXT, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
