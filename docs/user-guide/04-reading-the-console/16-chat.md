@@ -58,7 +58,8 @@ and a limit per minute.
 A Direct Message is a conversation between two of your agents, or between you and one agent. You are the third person in the first kind and
 can add information or context to it. A message you write goes to the agent as a message of the console, so the Admin's responding switches and the
 reporter's settings apply: the reporter's respond level must be **questions** or higher with the activity feed and `peers` on. A message to an
-agent waits, shown as **Waiting**, until the agent's turn ends; the page does not promise an immediate reply.
+agent waits, shown as **Waiting**, until the agent's turn ends; the page does not promise an immediate reply. When you write to your own agent, it is told it can answer
+in this thread, and its answer appears here as well as in the terminal.
 
 The menu on a conversation has **Pause link** (or **Resume link**), **Remove link…** and **Delete conversation…**. Pause link holds
 every message and keeps the rights. Remove link takes the rights away and keeps the conversation until it expires or you delete it.

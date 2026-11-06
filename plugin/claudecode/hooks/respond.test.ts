@@ -625,6 +625,16 @@ describe('respond: messages and commands', () => {
     expect(results(w)).toEqual([['dlv_m1', 'took']])
   })
 
+  test("the owner's own Chat message ends with where to answer, and nothing else does (#1034)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.deliveries.push(by('message', null, { id: 'dlv_c1', text: 'Is the build green?', chat: true }))
+    w.server.deliveries.push(by('message', null, { id: 'dlv_c2', text: 'A console message.' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    expect(w.submitted).toEqual(['Is the build green?\n\nTo answer in the Chat thread, use podium_send to "person:Ed".', 'A console message.'])
+  })
+
   test('a result the server answers 404 to is dropped, not sent again (#329)', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)

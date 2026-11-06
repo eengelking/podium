@@ -139,7 +139,7 @@ the sender cannot see (`REPLY_WORDS.unseen` in `peerText.ts`, which both adapter
 other agents. A removed link is a `403`, a paused one a `409` (refused and not held), and the per-minute limit a `429`, counted over
 the agent's answers to that person. The answer is stored at once as an `agent` message, `delivered`, with `to_session` `person:<key>`, and
 the `delivered` trail runs, which is how `peer_delivered` reaches the Admin log and how `DirectChat.peerTrail` adds one unread and a mention for the person and one
-unread for the owner and sends the content-free `chat` signal. `podium_peers` lists the people it may answer (`people`). The route
+unread for the owner (one count when the person is the owner) and sends the content-free `chat` signal. When the person is the agent's own owner, `replyToPerson` needs no link, only a stored message from `person:<owner>` to the session; the owner's Chat message is delivered through the console path with `chat: true` on the `Delivery`, and `plugin/core/peers.ts` (`withChatHint`) ends it with the address to answer to, for Claude Code and OpenCode alike. `podium_peers` lists the people it may answer (`people`). The route
 answers `202` with `person: true`, and `plugin/core/peers.ts` words it for the agent, so Claude Code and OpenCode share it; each has a test. A
 Podium reporter from before this change keeps the old frame and has no such address, and fails safe. The hourly sweep that drops orphan
 messages treats a `person:` end as present. The reporter that took part is

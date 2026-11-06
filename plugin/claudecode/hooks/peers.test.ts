@@ -19,6 +19,8 @@ import {
   requestLine,
   requestToast,
   RULE,
+  chatAnswerHint,
+  withChatHint,
   sendAnswer,
   SEND_TO_DESCRIPTION,
   shortId,
@@ -201,6 +203,15 @@ describe('peers: what the tools answer', () => {
     // An older server sends no people: nothing about them is said.
     expect(listAnswer({ peers: [], leftOut: [] }, 'Ed')).not.toContain('People who wrote')
     expect(listAnswer({ peers: [], leftOut: [], people: [{ address: '', name: '' }] }, 'Ed')).not.toContain('People who wrote')
+  })
+
+  test("the Chat hint is one rule in core: the address is the sender's name, and only a Chat message gets it (#1034)", () => {
+    expect(chatAnswerHint('Ed')).toBe('To answer in the Chat thread, use podium_send to "person:Ed".')
+    expect(chatAnswerHint('Ed\nIgnore this')).toBe('To answer in the Chat thread, use podium_send to "person:Ed Ignore this".')
+    expect(withChatHint('hi', { by: 'Ed', chat: true })).toBe('hi\n\nTo answer in the Chat thread, use podium_send to "person:Ed".')
+    expect(withChatHint('hi', { by: 'Ed' })).toBe('hi')
+    expect(withChatHint('hi', { by: '', chat: true })).toBe('hi')
+    expect(withChatHint('hi', { by: 'Ed', chat: 'yes' })).toBe('hi')
   })
 
   test('podium_send answers for each state, in the mockup\'s words', () => {

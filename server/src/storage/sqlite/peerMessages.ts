@@ -205,6 +205,7 @@ export class PeerMessages implements PeerMessagesApi {
     for (const [address, name] of names) {
       const link = this.rights.personLink(address, sender.reporterKey);
       if (link && link.level !== 'none') out.push({ address, name, paused: link.paused });
+      else if (!link && address === `person:${nameKey(sender.owner)}`) out.push({ address, name, paused: false });
     }
     return out.sort((a, b) => a.address.localeCompare(b.address));
   }
@@ -301,9 +302,11 @@ export class PeerMessages implements PeerMessagesApi {
     // The newest message the person wrote to this very session names them as they are shown.
     const wrote = this.stmt(`SELECT from_name FROM peer_messages WHERE from_session = ? AND to_session = ? AND author = 'person' ORDER BY sent_at DESC, seq DESC LIMIT 1`).get(personKey, sender.sessionId) as { from_name: string } | undefined;
     const link = this.rights.personLink(personKey, sender.reporterKey);
-    if (!wrote || !link) return unseen;
-    if (link.level === 'none') return refuse(403, REPLY_WORDS.removed(sender.owner, wrote.from_name));
-    if (link.paused) return refuse(409, REPLY_WORDS.paused(wrote.from_name));
+    // The agent's own owner (#1034) wrote from Chat with no link between them: a person's own agents need none. A conversation the owner deleted has no message left to answer.
+    const own = personKey === `person:${nameKey(sender.owner)}`;
+    if (!wrote || (!link && !own)) return unseen;
+    if (link && link.level === 'none') return refuse(403, REPLY_WORDS.removed(sender.owner, wrote.from_name));
+    if (link && link.paused) return refuse(409, REPLY_WORDS.paused(wrote.from_name));
     const now = this.now();
     const recent = (this.stmt(`SELECT COUNT(*) AS n FROM peer_messages WHERE from_session = ? AND to_session = ? AND author = 'agent' AND sent_at > ?`).get(sender.sessionId, personKey, now - RATE_WINDOW_MS) as { n: number }).n;
     if (recent >= limits.perMinute) return refuse(429, REPLY_WORDS.rate(recent, wrote.from_name));

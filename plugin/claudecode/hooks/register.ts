@@ -90,6 +90,7 @@ import {
   requestLine,
   requestToast,
   sendAnswer,
+  withChatHint,
   SEND_TO_DESCRIPTION,
   shortId,
   SUBAGENT_ACCESS,
@@ -1376,7 +1377,8 @@ async function submitMessage($: Engine, sid: string, d: Delivery): Promise<void>
   sentFromPodium.push(text);
   if (sentFromPodium.length > 20) sentFromPodium.shift();
   try {
-    await $.prompt.submit({ text });
+    // The owner's own Chat message ends with where to answer, so the answer lands in the thread (#1034). The recording still keeps the bare text.
+    await $.prompt.submit({ text: withChatHint(text, d) });
     transcriptLine($, answeredLine(d, nowMs()));
     queueResult(sid, d.id, 'took');
   } catch (err) {

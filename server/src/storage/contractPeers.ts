@@ -548,4 +548,56 @@ export function peerCases(o: Openers): void {
     expect(t.get('after the agent ended')).toMatchObject({ ok: false, status: 403 });
     expect((t.get('a conversation read still shows them') as { messages: unknown[] }).messages.length).toBeGreaterThan(3);
   });
+
+  it("agrees on every adapter for an agent answering its own owner's Chat message: only an agent holding one, the same limits, stored delivered in the same conversation (#1034)", async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      await rec('owner never wrote', m.send('sb', 'person:ed', 'early'));
+      await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'status of the build?' });
+      await rec('another agent of the owner', m.send('sa', 'person:ed', 'not mine to answer'));
+      await rec('a person nobody wrote to', m.send('sb', 'person:eve', 'hi'));
+      await rec('empty', m.send('sb', 'person:ed', ' '));
+      await rec('too long', m.send('sb', 'person:ed', 'x'.repeat(20_001)));
+      clock.now += 1;
+      await rec('reply', m.send('sb', 'person:ed', 'green'));
+      await rec('reply, name in capitals', m.send('sb', 'person:ED', 'still green'));
+      await rec('owner read', m.page('ed', 'person:ed', 'sb', { limit: 10 }));
+      await rec('ed list', m.ownerConversations('ed'));
+      await rec('the agent lists the owner', m.list('sb'));
+      await rec('requests after the replies', peers.rights.openRequests('ed'));
+      let limited: unknown = null;
+      for (let i = 0; i < 40 && !limited; i++) {
+        const out = await m.send('sb', 'person:ed', `flood ${i}`);
+        if ('status' in out) limited = out;
+      }
+      await rec('flood', Promise.resolve(limited));
+      clock.now += 120_000;
+      clock.now += 3_600_000;
+      await rec('retain', m.page('ed', 'person:ed', 'sb', { limit: 10 }));
+      await rec('deleted', m.deleteConversation('ed', 'person:ed', 'sb'));
+      await rec('reply after the conversation was deleted', m.send('sb', 'person:ed', 'late'));
+      await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'again' });
+      await peers.ended('sb');
+      await rec('after the agent ended', m.send('sb', 'person:ed', 'late'));
+    });
+    expect(t.get('owner never wrote')).toMatchObject({ ok: false, status: 404, error: 'You cannot see an orchestrator called person:ed. Run podium_peers for the list.' });
+    expect(t.get('another agent of the owner')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('a person nobody wrote to')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('empty')).toMatchObject({ ok: false, status: 400 });
+    expect(t.get('too long')).toMatchObject({ ok: false, status: 422 });
+    expect(t.get('reply')).toMatchObject({ ok: true, state: 'sent', person: true, paused: false, to: { name: 'Ed' } });
+    expect(t.get('reply, name in capitals')).toMatchObject({ ok: true });
+    const read = t.get('owner read') as { messages: { author: string; state: string; fromSession: string; toSession: string; toKey: string; text: string; owner: string }[] };
+    expect(read.messages.map((x) => [x.author, x.state, x.text])).toEqual([['person', 'ready', 'status of the build?'], ['agent', 'delivered', 'green'], ['agent', 'delivered', 'still green']]);
+    expect(read.messages[1]).toMatchObject({ fromSession: 'sb', toSession: 'person:ed', toKey: 'person:ed', owner: 'ed' });
+    expect(t.get('ed list') as unknown[]).toHaveLength(1);
+    expect((t.get('the agent lists the owner') as { people: { address: string; name: string; paused: boolean }[] }).people).toEqual([{ address: 'person:ed', name: 'Ed', paused: false }]);
+    expect(t.get('requests after the replies')).toEqual([]);
+    expect(t.get('flood')).toMatchObject({ ok: false, status: 429 });
+    expect(t.get('retain') as { messages: unknown[] }).toHaveProperty('messages');
+    expect(t.get('reply after the conversation was deleted')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('after the agent ended')).toMatchObject({ ok: false });
+  });
 }

@@ -342,12 +342,13 @@ export class DirectChat {
     for (const sid of live) {
       const o = this.liveOf(sid)!;
       if (nameKey(o.owner) !== owner) return fail(404, 'There is no such conversation.');
-      const sent = this.core.deliver(sid, viewer.name, o.name, text);
+      const other = agents.find((x) => x !== sid);
+      // The person's own conversation with this one agent: it may answer in the thread. A word added to a conversation between two agents has no such thread to answer in.
+      const sent = this.core.deliver(sid, viewer.name, o.name, text, !other);
       if (!sent.ok) {
         errors.push({ sessionId: sid, name: o.name, status: sent.status, error: sent.error });
         continue;
       }
-      const other = agents.find((x) => x !== sid);
       const row = await this.peers.sendFromPerson({ owner: viewer.name, person: viewer.name, toSession: sid, ...(other ? { withSession: other } : {}), text });
       if ('ok' in row) {
         this.core.host.respond.discard(sent.delivery.id, viewer.name, true);
@@ -466,9 +467,11 @@ export class DirectChat {
     const owner = nameKey(m.owner);
     if (m.author === 'person' && isPersonId(m.fromSession) && m.fromSession === `person:${owner}`) return;
     const thread = dmThread(m.fromSession, m.toSession);
-    await this.core.count(owner, thread, 'dm', m.author === 'person');
-    // An agent's answer to the person who wrote to it (#1034): one more unread for the person, and a mention, since it is addressed to them.
-    if (m.author === 'agent' && isPersonId(m.toSession)) await this.core.count(m.toSession.slice('person:'.length), thread, 'dm', true);
+    // An agent's answer to the person who wrote to it (#1034): one more unread for the person, and a mention, since it is addressed to them. When that person
+    // is the agent's own owner there is one reader, so one count, and it is the mention.
+    const toPerson = m.author === 'agent' && isPersonId(m.toSession) ? m.toSession.slice('person:'.length) : null;
+    if (toPerson !== owner) await this.core.count(owner, thread, 'dm', m.author === 'person');
+    if (toPerson !== null) await this.core.count(toPerson, thread, 'dm', true);
   }
 
   /** What the owner's answer, a drop or a delivery did to a person's message to another person's agent: the channel side moves the mention the person wrote. */

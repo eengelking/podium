@@ -118,6 +118,20 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
     expect(t.endsWith('hello')).toBe(true);
     expect(framedMessage({ by: 'Ed' }).endsWith('\n\n')).toBe(true);
   });
+
+  it("ends the owner's own Chat message with where to answer, and no other message (#1034)", () => {
+    const t = framedMessage({ by: 'Ed', text: 'is it green?', chat: true });
+    expect(t).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nis it green?\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
+    expect(framedMessage({ by: 'Ed', text: 'is it green?' })).not.toContain('Chat thread');
+  });
+
+  it("hands the model the Chat hint for a message from the owner's Chat, through the reporter (#1034)", async () => {
+    const { host, calls } = fakeHost();
+    const { r } = rig(host, true, true, podium({ deliveries: [D({ id: 'm1', kind: 'message', text: 'is it green?', chat: true })] }));
+    await r.tick();
+    await r.tick();
+    expect(calls.find((c) => c.startsWith('prompt'))).toContain('To answer in the Chat thread, use podium_send to "person:Ed".');
+  });
 });
 
 describe('host: answering inside OpenCode', () => {
