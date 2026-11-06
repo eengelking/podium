@@ -178,23 +178,33 @@ describe("the top bar", () => {
     expect(screen.getByText("Traffic", { selector: ".pill" })).toBeInTheDocument();
   });
 
-  it("has Traffic after History on the fleet page, which is not the Traffic page, while messaging is on", async () => {
+  it("says Traffic is retired and points to Chat, whose link replaces Traffic's in the bar (#1034)", async () => {
+    page();
+    await flush();
+    const note = screen.getByTestId("traffic-deprecated");
+    expect(note).toHaveTextContent("Traffic is retired.");
+    expect(within(note).getByRole("link", { name: "Open Chat" })).toHaveAttribute("href", "#/chat");
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("href", "#/chat");
+  });
+
+  it("has Chat after History on the fleet page, in Traffic's place, while messaging is on", async () => {
     page({ on: false });
     await flush();
-    const traffic = screen.getByRole("link", { name: "Traffic" });
-    expect(traffic).toHaveAttribute("href", "#/traffic");
+    const chat = screen.getByRole("link", { name: "Chat" });
+    expect(chat).toHaveAttribute("href", "#/chat");
+    expect(screen.queryByRole("link", { name: "Traffic" })).toBeNull();
     const history = screen.getByRole("link", { name: "History" });
-    expect(history.compareDocumentPosition(traffic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(history.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows the link on the fleet page, not as current, and not at all while messaging is off", async () => {
     page({ on: false });
     await flush();
-    expect(screen.getByRole("link", { name: "Traffic" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
     cleanup();
     page({ on: false, peersFlag: false });
     await flush();
-    expect(screen.queryByRole("link", { name: "Traffic" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
   it("offers no Wall mode, and the wall's keys do nothing here", async () => {

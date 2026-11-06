@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fleetHash, openIn, routeFor, replayHash, replayIn } from "./route";
+import { fleetHash, openIn, redirectFor, routeFor, replayHash, replayIn } from "./route";
 
 describe("routeFor", () => {
   it("opens the history view for #/history, with or without a query", () => {
@@ -22,6 +22,15 @@ describe("routeFor", () => {
   it("opens Traffic for #/traffic only (#417)", () => {
     expect(routeFor("#/traffic")).toBe("traffic");
     expect(routeFor("#/traffic-x")).toBe("fleet");
+  });
+
+  it("opens Chat for #/chat only (#1034), and sends the retired #/traffic there", () => {
+    expect(routeFor("#/chat")).toBe("chat");
+    expect(routeFor("#/chat-x")).toBe("fleet");
+    expect(redirectFor("#/traffic")).toBe("#/chat");
+    expect(redirectFor("#/chat")).toBeNull();
+    expect(redirectFor("#/traffic-x")).toBeNull();
+    expect(redirectFor("")).toBeNull();
   });
 
   it("opens Admin for #/admin", () => {

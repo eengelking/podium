@@ -1,0 +1,114 @@
+/* Chat (#1034, mockup/podium-chat.html). Colors come from tokens.css; the ch- classes are new. */
+.ch-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
+.ch-sec { padding: 4px 0 8px; }
+.ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ch-list { list-style: none; margin: 0; padding: 0; }
+.ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
+.ch-item:hover { background: var(--hover); }
+.ch-item.on { background: var(--sel); }
+/* People and agents: the hover (and keyboard focus) highlight takes the color of the agent's state, the same colors as its icon. */
+.ch-item.hl-running:hover, .ch-item.hl-running:focus-within { background: color-mix(in srgb, var(--good-text) 16%, transparent); }
+.ch-item.hl-waiting:hover, .ch-item.hl-waiting:focus-within { background: color-mix(in srgb, var(--warn) 20%, transparent); }
+.ch-item.hl-deleg:hover, .ch-item.hl-deleg:focus-within, .ch-item.hl-bg:hover, .ch-item.hl-bg:focus-within { background: color-mix(in srgb, var(--deleg-text) 16%, transparent); }
+.ch-item.hl-stale:hover, .ch-item.hl-stale:focus-within { background: color-mix(in srgb, var(--serious) 18%, transparent); }
+.ch-item.hl-done:hover, .ch-item.hl-done:focus-within { background: color-mix(in srgb, var(--ink2) 14%, transparent); }
+.podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 20px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.podium .ch-item.on .ch-row { font-weight: 600; }
+.podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 0; }
+.ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
+.ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-row .tag { font-size: 11px; font-weight: 500; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.ch-row .tag svg { width: 12px; height: 12px; flex: none; }
+.ch-row .tag.warn { color: var(--warn-text); }
+.ch-row .unread { flex: none; min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 650; text-align: center; }
+.podium .ch-more { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.podium .ch-more:hover { background: var(--hover); border-color: var(--border); }
+.ch-more svg { width: 16px; height: 16px; }
+.ch-menu { position: absolute; right: 8px; top: 100%; z-index: 10; min-width: 190px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); }
+.podium .ch-menu button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.podium .ch-menu button:hover, .podium .ch-menu button:focus-visible { background: var(--hover); outline: none; }
+.podium .ch-menu button:focus-visible { box-shadow: inset 0 0 0 2px var(--sonnet); }
+.podium .ch-menu button.dng { color: var(--crit-text); }
+.ch-menu svg { width: 14px; height: 14px; flex: none; }
+.ch-menu .why { padding: 6px 10px; font-size: 11px; color: var(--muted); }
+
+.ch-thread { min-width: 0; display: flex; flex-direction: column; }
+.ch-alert { padding: 10px 16px 0; }
+.ch-alert:empty { display: none; }
+.ch-head { padding: 12px 16px 8px; border-bottom: 1px solid var(--grid); }
+.ch-head h2 { margin: 0; font-size: 15px; font-weight: 650; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ch-head h2 .nm { overflow-wrap: anywhere; }
+.ch-head .sub { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 12px; }
+.ch-who { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px 0; }
+.ch-who .m { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; color: var(--ink2); }
+.ch-who .m svg { width: 12px; height: 12px; }
+.ch-body { flex: 1; min-height: 0; overflow-y: auto; max-height: 520px; padding: 8px 16px; }
+.ch-earlier { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 0 12px; color: var(--muted); font-size: 12px; }
+.ch-body .feed { height: auto; max-height: none; }
+.ch-body .feed .body { white-space: pre-wrap; color: var(--ink); overflow-wrap: anywhere; }
+.ch-body .feed .who { display: block; font-weight: 600; color: var(--ink); white-space: normal; }
+.ch-body .feed .ds { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; margin-top: 2px; white-space: normal; }
+.ch-body .feed .ds svg { width: 12px; height: 12px; flex: none; }
+.ch-body .feed .ds.wait { color: var(--warn-text); }
+.ch-body .feed li.mine .body { border-left: 2px solid var(--sonnet); padding-left: 8px; }
+.ch-composer { display: grid; gap: 6px; padding: 10px 16px 12px; border-top: 1px solid var(--grid); }
+.ch-composer label { font-size: 12px; color: var(--ink2); }
+.ch-composer .row { display: flex; gap: 8px; align-items: flex-end; }
+.ch-composer textarea { flex: 1; min-height: 44px; resize: vertical; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+.ch-composer textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.ch-composer textarea:disabled { color: var(--muted); }
+.ch-composer .note { font-size: 12px; color: var(--muted); }
+.ch-composer .note.warn { color: var(--warn); }
+.ch-body .feed li { position: relative; }
+.ch-mention { display: inline-block; padding: 0 5px; border-radius: 4px; background: var(--sel); color: var(--ink); font-weight: 600; }
+.ch-body .feed li.reply .body { border-left: 2px solid var(--axis); padding-left: 8px; margin-left: 14px; }
+.ch-body .feed .who .re { font-weight: 400; color: var(--muted); }
+.ch-st { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.ch-st .s { display: inline-flex; gap: 4px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; font-size: 11.5px; color: var(--ink2); }
+.ch-st .s svg { width: 12px; height: 12px; flex: none; }
+.ch-st .s.done { color: var(--good-text); }
+.ch-st .s.wait { color: var(--warn-text); }
+.ch-quote { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--axis); color: var(--ink2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ch-composer .row { position: relative; }
+.ch-ac { position: absolute; left: 0; right: 80px; bottom: 100%; z-index: 12; margin: 0 0 4px; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); max-height: 240px; overflow-y: auto; }
+.ch-ac[hidden] { display: none; }
+.ch-ac li { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.ch-ac li[aria-selected="true"] { background: var(--sel); }
+.ch-ac li[aria-disabled="true"] { color: var(--muted); cursor: default; }
+.ch-ac .ic0 { display: inline-flex; align-items: center; min-width: 18px; }
+.ch-ac .h { font-weight: 600; }
+.ch-ac .r { font-size: 11px; color: var(--muted); }
+.ch-ac .off { flex-basis: 100%; font-size: 11px; color: var(--warn-text); }
+.podium .ch-split .si { width: 16px; height: 16px; flex: none; }
+.podium .ch-split .si-running { color: var(--good-text); }
+.podium .ch-split .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .ch-split .si-bg, .podium .ch-split .si-deleg { color: var(--deleg-text); }
+.podium .ch-split .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.podium .ch-split .si-done { color: var(--ink2); }
+.ch-st .s .si { width: 12px; height: 12px; }
+.ch-chipwrap { position: relative; display: inline-flex; }
+.podium .ch-chipwrap .m { cursor: pointer; background: transparent; color: var(--ink2); }
+.podium .ch-chipwrap .m:hover { background: var(--hover); }
+.ch-chipwrap .ch-menu { top: calc(100% + 4px); left: 0; right: auto; min-width: 220px; white-space: nowrap; }
+.ch-nav { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12px; color: var(--ink2); }
+.ch-blank { padding: 40px 24px; text-align: center; color: var(--ink2); }
+.ch-thread .ch-back { display: none; }
+.ch-body .feed li { grid-template-columns: 74px 16px minmax(0, 1fr); }
+.ch-body .feed li .at { white-space: nowrap; }
+.ch-body .feed .ch-st .s.bad { color: var(--crit-text); }
+.ch-ac .ic0:empty { display: none; }
+/* Narrow: the list and the thread are two screens, with "Back to the list" on the thread (data-pane says which one shows). */
+@media (max-width: 760px) {
+  .ch-split { grid-template-columns: minmax(0, 1fr); }
+  .ch-side { border-right: 0; max-height: none; }
+  .ch-split[data-pane="side"] .ch-thread { display: none; }
+  .ch-split[data-pane="thread"] .ch-side { display: none; }
+  .ch-thread .ch-back { display: inline-flex; justify-self: start; margin: 8px 16px 0; }
+}
+.podium .ch-menu a[role="menuitem"] { display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+.podium .ch-menu a[role="menuitem"]:hover, .podium .ch-menu a[role="menuitem"]:focus-visible { background: var(--hover); outline: none; }
+.podium .ch-menu a[role="menuitem"]:focus-visible { box-shadow: inset 0 0 0 2px var(--sonnet); }
+.ch-pad { padding: 6px 20px; }

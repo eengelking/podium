@@ -1,0 +1,153 @@
+// Chat's sidebar (#1034, mockup/podium-chat.html): Channels, Direct Messages, and People and agents. One row is a button that
+// opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
+// of the agent's state when pointed at or focused, the same colors as its icon.
+import type { MouseEvent, ReactNode } from "react";
+import { channelTag, dmName, dmTag, hasLink, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import type { SessionView } from "../types";
+import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
+import { ChatMenu, agentMenu, channelMenu, dmMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
+import { StateIcon, stateKind, type StateKind } from "./Chips";
+
+export const STATE_WORD: Record<StateKind, string> = {
+  running: "running",
+  waiting: "waiting for you",
+  deleg: "delegating",
+  bg: "idle on background work",
+  stale: "heartbeat lost",
+  done: "done",
+};
+
+/** The state an agent shows: the wall's own (delegating, idle on background work, heartbeat lost) when the console has the session, else its plain status. */
+export function agentState(sessions: Record<string, SessionView>, sessionId: string, status: AgentStatus | null, live = true): StateKind {
+  const s = sessions[sessionId];
+  if (s) return stateKind(s);
+  if (!live) return "done";
+  return status === "waiting" ? "waiting" : status === "running" ? "running" : status === "done" ? "done" : "stale";
+}
+
+function TagLine({ tag }: { tag: Tag | null }) {
+  if (!tag) return null;
+  return (
+    <span className={`tag${tag.warn ? " warn" : ""}`}>
+      <TagGlyph icon={tag.icon} />
+      <span>{tag.text}</span>
+    </span>
+  );
+}
+
+export interface SidebarProps {
+  overview: ChatOverview;
+  sessions: Record<string, SessionView>;
+  /** The selected row's key: `c:general`, `c:group`, or `d:<agents>`. */
+  selected: string | null;
+  menu: string | null;
+  onMenu: (key: string | null, by: "button" | "context") => void;
+  onClose: (restoreFocus: boolean) => void;
+  onPick: (key: string, act: MenuAct) => void;
+  onChannel: (id: "general" | "group") => void;
+  onDm: (d: DirectInfo) => void;
+  onAgent: (a: ChatAgent) => void;
+}
+
+export function ChatSidebar(p: SidebarProps) {
+  const { overview: o } = p;
+  const person = o.me.person;
+  const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean }) => {
+    const on = p.selected === key;
+    const ctx = (e: MouseEvent) => {
+      if (!spec) return;
+      e.preventDefault();
+      p.onMenu(key, "context");
+    };
+    return (
+      <li key={key} className={`ch-item${on ? " on" : ""}${opts.cls ? ` ${opts.cls}` : ""}`} onContextMenu={ctx} data-testid={`chat-row-${key}`}>
+        <button type="button" className="ch-row" onClick={opts.open} aria-current={on ? "true" : undefined} title={opts.title}>
+          {content}
+        </button>
+        {spec && (
+          <button type="button" className="ch-more" data-more={key} aria-haspopup="menu" aria-expanded={p.menu === key} aria-label={opts.aria} onClick={(e) => {
+            e.stopPropagation();
+            p.onMenu(p.menu === key ? null : key, "button");
+          }}>
+            <ChDots />
+          </button>
+        )}
+        {spec && p.menu === key && <ChatMenu spec={spec} onPick={(act) => p.onPick(key, act)} onClose={p.onClose} />}
+      </li>
+    );
+  };
+
+  const channelRow = (c: ChatChannel) => {
+    const sub = c.id === "general" ? "Everyone signed in to this server" : `You and your ${o.agents.length} orchestrator${o.agents.length === 1 ? "" : "s"} and subagents`;
+    const badge = c.mentions > 0 ? <span className="unread" aria-label={`${c.mentions} mention${c.mentions === 1 ? "" : "s"} of you`}>@ {c.mentions}</span> : c.unread > 0 ? <span className="unread" aria-label={`${c.unread} new`}>{c.unread}</span> : null;
+    return row(`c:${c.id}`, channelMenu(c).items.length || channelMenu(c).why ? channelMenu(c) : null, (
+      <>
+        {c.id === "general" ? <ChHash /> : <ChGroup />}
+        <span className="stack">
+          <span className="nm">{c.name}</span>
+          <span className="sub">{sub}</span>
+          <TagLine tag={channelTag(c)} />
+        </span>
+        {badge}
+      </>
+    ), { open: () => p.onChannel(c.id), aria: `Actions for ${c.name}` });
+  };
+
+  const dmRow = (d: DirectInfo) => {
+    const name = dmName(d);
+    const key = `d:${[d.a, d.b].filter((x) => x.kind === "agent").map((x) => x.sessionId).sort().join("+")}`;
+    return row(key, dmMenu(d, true), (
+      <>
+        <ChDm />
+        <span className="stack">
+          <span className="nm" title={name}>{name}</span>
+          <span className="sub">{hasLink(d) ? "Two agents, and you" : "You and one agent"}</span>
+          <TagLine tag={dmTag(d)} />
+        </span>
+        {d.unread > 0 && <span className="unread" aria-label={`${d.unread} new`}>{d.unread}</span>}
+      </>
+    ), { open: () => p.onDm(d), aria: `Actions for ${name}` });
+  };
+
+  const agentRow = (a: ChatAgent) => {
+    const kind = agentState(p.sessions, a.sessionId, a.status);
+    return row(`a:${a.sessionId}`, agentMenu(a.name, a.sessionId, kind, true), (
+      <>
+        <StateIcon kind={kind} />
+        <span className="stack">
+          <span className="nm" title={a.address}>{a.name}</span>
+          <span className="sub">Orchestrator on {a.machine}, {STATE_WORD[kind]}</span>
+        </span>
+      </>
+    ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, cls: `hl-${kind}`, title: `Message ${a.name}` });
+  };
+
+  return (
+    <nav className="ch-side" aria-label="Chat">
+      <section className="ch-sec" aria-labelledby="sec-ch">
+        <h2 id="sec-ch">Channels</h2>
+        <ul className="ch-list">{o.channels.map(channelRow)}</ul>
+      </section>
+      {person ? (
+        <>
+          <section className="ch-sec" aria-labelledby="sec-dm">
+            <h2 id="sec-dm">Direct Messages</h2>
+            <ul className="ch-list">
+              {o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Start one from People and agents.</li>}
+            </ul>
+          </section>
+          <section className="ch-sec" aria-labelledby="sec-pe">
+            <h2 id="sec-pe">People and agents</h2>
+            <ul className="ch-list">
+              {o.agents.length ? o.agents.map(agentRow) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
+            </ul>
+          </section>
+        </>
+      ) : (
+        <section className="ch-sec" aria-label="Direct Messages">
+          <p className="hint ch-pad">Direct Messages and People and agents belong to a person. Sign in with a person's name to message your own agents.</p>
+        </section>
+      )}
+    </nav>
+  );
+}
