@@ -586,8 +586,8 @@ export class PeerMessages implements PeerMessagesApi {
     const now = this.now();
     this.stmt(
       `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, 'ready', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanPeerText(input.person).trim() || input.person, target.name, target.machine, clean, now, now);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
+    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanPeerText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now);
     return this.row(id) as MessageRow;
   }
 

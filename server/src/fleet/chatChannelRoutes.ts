@@ -53,10 +53,11 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     const limit = limitOf(req.query.limit);
     if (limit === null) return void res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
     const before = typeof req.query.before === 'string' ? req.query.before : null;
-    // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded. General is public and never is.
-    const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
+    // The request is checked first (the cursor is, by reading the page), so a refused read records nothing and tells no one.
     const got = await channels().page(t.v, t.channel, t.owner, { before, limit });
     if ('status' in got) return void d.refuse(req, res, got);
+    // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded; if recording fails the read fails. General is public and never is.
+    const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
     res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total, adminReads });
   }));
 

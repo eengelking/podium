@@ -549,6 +549,22 @@ export function peerCases(o: Openers): void {
     expect((t.get('a conversation read still shows them') as { messages: unknown[] }).messages.length).toBeGreaterThan(3);
   });
 
+  it("agrees on every adapter that a person's message stored as already delivered is never handed over by the peer path (#1034)", async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      await rec('stored delivered', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'through the console', state: 'queued' }));
+      await rec('idle agent reports: nothing handed over', peers.replyFor('sb', true));
+      await rec('stored ready', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'for the peer path' }));
+      await rec('idle agent reports: the ready one is handed over', peers.replyFor('sb', true));
+    });
+    expect(t.get('stored delivered')).toMatchObject({ state: 'queued', text: 'through the console' });
+    expect((t.get('idle agent reports: nothing handed over') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect(t.get('stored ready')).toMatchObject({ state: 'ready' });
+    expect((t.get('idle agent reports: the ready one is handed over') as { peerDeliveries: { text: string }[] }).peerDeliveries.map((d) => d.text)).toEqual(['for the peer path']);
+  });
+
   it("agrees on every adapter for an agent answering its own owner's Chat message: only an agent holding one, the same limits, stored delivered in the same conversation (#1034)", async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };

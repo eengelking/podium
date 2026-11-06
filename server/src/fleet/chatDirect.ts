@@ -260,14 +260,14 @@ export class DirectChat {
     }
     const role = this.role(viewer, c);
     if (!role) return fail(403, 'Only the people in a conversation and an Admin can read it.');
-    // An Admin's read is recorded before it is answered, so no conversation is read without a record, and its people are told.
-    if (role === 'admin') await this.reads.note(viewer, this.subject(c));
     let page;
     try {
       page = await this.peers.page(c.owner, a, b, opts);
     } catch (err) {
       return fail(400, (err as Error).message);
     }
+    // An Admin's read is recorded before it is answered, so no conversation is read without a record, and its people are told. A refused read (above) records nothing.
+    if (role === 'admin') await this.reads.note(viewer, this.subject(c));
     const info = this.info({ ...c, hiddenAt: null }, new Map());
     return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads: await this.reads.list(info.thread), roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
   }
@@ -349,17 +349,16 @@ export class DirectChat {
         errors.push({ sessionId: sid, name: o.name, status: sent.status, error: sent.error });
         continue;
       }
-      const row = await this.peers.sendFromPerson({ owner: viewer.name, person: viewer.name, toSession: sid, ...(other ? { withSession: other } : {}), text });
+      const row = await this.peers.sendFromPerson({ owner: viewer.name, person: viewer.name, toSession: sid, ...(other ? { withSession: other } : {}), text, state: 'queued' });
       if ('ok' in row) {
         this.core.host.respond.discard(sent.delivery.id, viewer.name, true);
         errors.push({ sessionId: sid, name: o.name, status: (row as Refusal).status, error: (row as Refusal).error });
         continue;
       }
-      // Stored as queued, so the peer path (which hands a ready message to an idle orchestrator) does not hand it a second time.
-      await this.peers.result(sid, row.id, 'queued');
+      // Stored as queued from the start (no window in which a report could see it ready), so the peer path does not hand it a second time.
       this.core.watch(sent.delivery.id, (out) => this.followed(sid, row.id, out));
       this.core.onEvent({ kind: 'dm_sent', owner, by: viewer.actor, messageId: row.id, sessionId: sid });
-      stored.push({ ...row, state: 'queued' });
+      stored.push(row);
     }
     if (!stored.length) {
       const first = errors[0]!;

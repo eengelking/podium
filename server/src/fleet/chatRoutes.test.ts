@@ -2,7 +2,7 @@
 // their delivery, pausing and disconnecting a channel, the direct messages a person adds to, how a conversation hides and returns, retention,
 // the content-free stream signal and the audit rows. The privacy rule (a direct message's text is never returned with a channel's) is held here
 // with two people, and by `chatSeparation.test.ts` against the route table.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
@@ -515,6 +515,22 @@ describe('pausing, disconnecting and removing a channel', () => {
 });
 
 describe('direct messages', () => {
+  it('does not let a report that arrives right after the message is stored hand it to the agent a second time', async () => {
+    const s = await world();
+    const messages = s.fleet.peers.messages;
+    const real = messages.sendFromPerson.bind(messages);
+    let during: { peerDeliveries?: unknown[] } | null = null;
+    vi.spyOn(messages, 'sendFromPerson').mockImplementation(async (input) => {
+      const out = await real(input);
+      during = (await tester(s)).body;
+      return out;
+    });
+    const res = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'once only' });
+    expect(res.status).toBe(202);
+    expect(during).not.toBeNull();
+    expect(during!.peerDeliveries ?? []).toEqual([]);
+  });
+
   it('sends the person\'s message to one agent as a message of the console, stores it, and follows it to Delivered', async () => {
     const s = await world();
     const res = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'please run the suite' });
@@ -1441,6 +1457,33 @@ describe('an Admin reading a conversation (#1034)', () => {
     await read(rootB, 'group');
     await read(rootB, 'group', '?owner=Root');
     expect(await store(w).list('group:root')).toEqual([]);
+  });
+
+  it('records nothing and tells no one for an Admin read that was refused (a bad cursor, a bad limit), in a group and in a conversation', async () => {
+    const w = await world();
+    await say(w.edB, 'group', 'for the admin');
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const notices = async () => ((await tester(w)).body.adminNotices ?? []).length + ((await dev(w, { status: 'running', waitReason: null })).body.adminNotices ?? []).length;
+    expect((await read(admin, 'group', '?owner=Ed&before=garbage')).status).toBe(400);
+    expect((await read(admin, 'group', '?owner=Ed&limit=0')).status).toBe(400);
+    expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages?before=garbage`)).status).toBe(400);
+    expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages?limit=0`)).status).toBe(400);
+    await settle();
+    expect(await store(w).list('group:ed')).toEqual([]);
+    expect(await store(w).threads('dm:')).toEqual([]);
+    expect(await groupLive(w.edB)).toEqual([]);
+    expect(await dmLive(w.edB)).toEqual([[]]);
+    expect(await notices()).toBe(0);
+    expect(await logKinds(w)).not.toContain('chat_admin_read');
+    // A good read still records.
+    expect((await read(admin, 'group', '?owner=Ed')).status).toBe(200);
+    expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages`)).status).toBe(200);
+    await settle();
+    expect(await store(w).list('group:ed')).toHaveLength(1);
+    expect(await store(w).threads('dm:')).toHaveLength(1);
+    expect(await notices()).toBeGreaterThan(0);
+    expect((await logKinds(w)).filter((k) => k === 'chat_admin_read')).toHaveLength(2);
   });
 
   it('never records General, nor a person reading their own group, nor a person who may not read another\'s', async () => {

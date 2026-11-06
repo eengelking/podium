@@ -314,6 +314,8 @@ export interface PersonMessageInput {
   /** The other agent of the conversation the person is adding to; absent for the person's own conversation with `toSession`. */
   withSession?: string;
   text: string;
+  /** `queued` when the caller already handed the text to the agent through the console path, so the peer path never hands it again; absent stores it `ready`. */
+  state?: 'queued';
 }
 
 /** What a person writes to another person's agent (#1034). It is held for the agent's owner unless the owner has opened a link to the person. */
