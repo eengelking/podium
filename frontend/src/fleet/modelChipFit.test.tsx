@@ -55,3 +55,24 @@ describe("the model chip with a long name (#975)", () => {
     expect(rule(".podium .trow.no-eff.no-ctx")).toMatch(/min-width:\s*calc\(734px /);
   });
 });
+
+// A long model name on a wall card keeps the session's name visible and stays inside the card (#1028).
+describe("the model chip on a wall card with a long name (#1028)", () => {
+  it("lets the model group shrink and caps its width, so it cannot push the session name out", () => {
+    const mdl = rule(".podium .card.sc .mdl");
+    expect(mdl).not.toMatch(/flex:\s*none/);
+    expect(mdl).toMatch(/min-width:\s*0/);
+    expect(mdl).toMatch(/max-width:\s*\d+%/);
+  });
+
+  it("clips the chip's label in the card header with an ellipsis, as the Agents table does", () => {
+    const chip = rule(".podium .card.sc .mdl .chip.model");
+    expect(chip).toMatch(/min-width:\s*0/);
+    expect(chip).toMatch(/overflow:\s*hidden/);
+    expect(rule(".podium .card.sc .mdl .chip.model > i")).toMatch(/flex:\s*none/);
+  });
+
+  it("keeps the harness badge and effort meter at full size", () => {
+    expect(rule(".podium .card.sc .mdl > :not(.chip.model)")).toMatch(/flex:\s*none/);
+  });
+});
