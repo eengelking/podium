@@ -495,7 +495,7 @@ export class RespondStore {
   }
 
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */
-  message(sessionId: string, by: string, body: unknown): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
+  message(sessionId: string, by: string, body: unknown, chat = false): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
     const accepts = this.info(sessionId)?.accepts ?? [];
     const parsed = parseMessage(body, accepts, this.sessions.get(sessionId)?.commands ?? null);
     if (!parsed.ok) return { ok: false, err: parsed.err };
@@ -503,7 +503,7 @@ export class RespondStore {
     if (s.messages.filter((m) => m.result === null).length >= RESPOND_LIMITS.deliveries) {
       return { ok: false, err: { status: 429, error: `at most ${RESPOND_LIMITS.deliveries} messages can wait for one session` } };
     }
-    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields };
+    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}) };
     s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
     this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text: feedText(delivery, null), by, note: null }, delivery);
     return { ok: true, delivery };

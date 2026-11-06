@@ -55,6 +55,17 @@ function replyAddress(from: PeerParty): string {
   return `${oneLine(from.name)}@${oneLine(from.machine)}${id ? `#${id}` : ''}`;
 }
 
+/** The last line of the owner's own Chat message to this agent (#1034): where its answer goes so the thread shows it. One rule for every harness. */
+export const CHAT_HINT_START = 'To answer in the Chat thread, use podium_send to "person:';
+export function chatAnswerHint(by: string): string {
+  return `${CHAT_HINT_START}${oneLine(by)}".`;
+}
+
+/** `text` with the Chat hint after it when the delivery is the owner's own Chat message; the text of anything else is returned as it is. */
+export function withChatHint(text: string, d: { chat?: unknown; by: string }): string {
+  return d.chat === true && oneLine(d.by) ? `${text}\n\n${chatAnswerHint(d.by)}` : text;
+}
+
 /** Where an answer to a person goes: `person:name`, the way the server folds it. */
 function personAddress(from: PeerParty): string {
   return `person:${oneLine(from.name)}`;

@@ -1993,3 +1993,90 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     expect(allText(ed.body)).not.toContain(ALEX_PRIVATE);
   });
 });
+
+describe("an agent answering its own owner's Chat message (#1034)", () => {
+  const TT = `${CH}/dm/me/sess-tester/messages`;
+  const ASK = 'what is the state of the build?';
+  const ANSWER = 'The build is green.';
+  const reply = (w: W, text: string, to = 'person:ed', session = 'sess-tester', token = w.ed.token) => request(w.app).post(`/api/fleet/sessions/${session}/peers/messages`).set('X-Podium-Token', token).send({ to, text });
+  const asked = async (w: W) => {
+    expect((await w.edB.post(TT).set(H).send({ text: ASK })).status).toBe(202);
+    await w.fleet.flush();
+  };
+  const dmCounts = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.directs as { thread: string; unread: number; mentions: number }[]).map((d) => ({ thread: d.thread, unread: d.unread, mentions: d.mentions }));
+
+  it('stores the answer in the same conversation as delivered, read by the owner and an Admin, with the content-free chat event', async () => {
+    const w = await world();
+    await asked(w);
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const before = await dmCounts(w.edB);
+    const sent = await reply(w, ANSWER);
+    expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+    expect(sent.body).toMatchObject({ ok: true, person: true, to: { name: 'Ed' } });
+    await w.fleet.flush();
+    await settle();
+    for (const b of [w.edB, await signedIn(w, 'Admin', SECRET)]) {
+      const t = await b.get(TT.replace('/dm/me/', '/dm/person:ed/'));
+      expect(t.status).toBe(200);
+      expect(t.body.messages.map((m: { author: string; text: string }) => [m.author, m.text])).toEqual([['person', ASK], ['agent', ANSWER]]);
+      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-tester' }, to: [{ sessionId: 'person:ed', state: 'delivered' }] });
+    }
+    const after = await dmCounts(w.edB);
+    expect(after[0]!.unread).toBe(before[0]!.unread + 1);
+    expect(after[0]!.mentions).toBe(before[0]!.mentions + 1);
+    expect(sse.join('')).not.toContain(ANSWER);
+    expect(sse.join('')).toContain('event: chat');
+    // Nothing to approve, nothing handed to any reporter: only the person's own text went out, by the console path.
+    expect(((await tester(w)).body.peerDeliveries ?? []).map((d: { text: string }) => d.text)).not.toContain(ANSWER);
+    expect(JSON.stringify(await logRows(w))).not.toContain(ANSWER);
+  });
+
+  it("marks the delivery of the owner's own Chat message so the reporter adds where to answer, and no other console message", async () => {
+    const w = await world();
+    await w.edB.post(TT).set(H).send({ text: ASK });
+    expect(await deliveriesFor(w, 'tester')).toEqual([expect.objectContaining({ kind: 'message', text: ASK, chat: true })]);
+    const w2 = await world();
+    // The wall's own message box is not the Chat thread: no hint, because an answer there would find no message to answer.
+    expect((await w2.edB.post('/api/fleet/respond/sessions/sess-tester/messages').set(H).send({ text: 'from the wall' })).status).toBe(202);
+    expect(await deliveriesFor(w2, 'tester')).toEqual([expect.not.objectContaining({ chat: true })]);
+  });
+
+  it('never returns the answer from a channel, to another person, or from the agent routes', async () => {
+    const w = await world();
+    await asked(w);
+    await reply(w, ANSWER);
+    for (const b of [w.edB, w.alexB]) {
+      for (const path of ['/channels/general/messages', '/channels/group/messages']) expect(JSON.stringify((await b.get(`${CH}${path}`)).body)).not.toContain(ANSWER);
+      expect(JSON.stringify((await b.get('/api/fleet/respond/peers/conversations')).body ?? '')).not.toContain(ANSWER);
+    }
+    expect((await w.alexB.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(403);
+  });
+
+  it('refuses an answer from an agent the owner never wrote to, to another person, and after the conversation is removed, in the generic words', async () => {
+    const w = await world();
+    await dev(w, { status: 'running', waitReason: null });
+    const none = await reply(w, ANSWER);
+    expect(none.status).toBe(404);
+    expect(none.body.error).toBe('You cannot see an orchestrator called person:ed. Run podium_peers for the list.');
+    await asked(w);
+    // The owner wrote to Tester only: another agent of theirs holds no such message.
+    expect((await reply(w, ANSWER, 'person:ed', 'sess-dev')).status).toBe(404);
+    expect((await reply(w, ANSWER, 'person:alex')).status).toBe(404);
+    expect((await reply(w, ' ')).status).toBe(400);
+    expect((await reply(w, ANSWER)).status).toBe(202);
+    expect((await w.edB.delete(`${CH}/dm/person:ed/sess-tester`).set(H)).body).toMatchObject({ ok: true });
+    expect((await reply(w, 'late')).status).toBe(404);
+  });
+
+  it('limits how fast an agent can answer, and lists the owner for podium_peers only once the owner wrote', async () => {
+    const w = await world();
+    const peers = () => request(w.app).get('/api/fleet/sessions/sess-tester/peers').set('X-Podium-Token', w.ed.token);
+    expect((await peers()).body.people).toEqual([]);
+    await asked(w);
+    expect((await peers()).body.people).toEqual([{ address: 'person:ed', name: 'Ed', paused: false }]);
+    let limited = 0;
+    for (let i = 0; i < 40; i++) if ((await reply(w, `flood ${i}`)).status === 429) limited++;
+    expect(limited).toBeGreaterThan(0);
+  });
+});

@@ -265,6 +265,11 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   `403` with the reason, and a paused link is a `409` with the reason: the answer is refused, not held. The messages per minute on the
   link is a `429`, an empty text or one over the longest message is refused as for any send, and an agent that has ended is a `403`.
   There is no cap on answers beyond the per-minute limit, and a person's messages never count towards or reset the round-trip cap.
+  The same address answers the agent's own owner: `person:<owner>` is allowed when this session holds a stored message from that owner
+  (one they wrote from Chat to this agent), needs no link, and is stored in the same conversation (`dm/me/<session>`), read by the owner and
+  an Admin. The owner's one reader gets one unread and a mention. If the owner deleted the conversation there is no message to answer
+  and the generic `404` follows. The owner's own Chat message reaches the agent as a delivery with `chat: true`, and the reporter ends the
+  text with `To answer in the Chat thread, use podium_send to "person:<owner>".` (older reporters ignore the field).
 - `400` for a body that is not `to` and `text` strings, or an empty text. `404` for a `to` that is not one of the owner's
   live orchestrators this one can see (whoever else it may be). `409` when two orchestrators answer to that address.
   `422` to itself, or over the longest message. `403` with a right to see only. `429` over the messages per minute on

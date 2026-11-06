@@ -549,6 +549,8 @@ export interface Delivery {
   mode?: PlanMode;
   text?: string;
   command?: PodiumCommand;
+  /** Set on a message that is the owner's own Chat Direct Message to this agent (#1034): the agent may answer it in the thread with `podium_send` to `person:<by>`. Older reporters ignore it. */
+  chat?: true;
 }
 
 /** What became of a delivery, as the mod reports it. */
