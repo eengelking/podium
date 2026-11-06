@@ -14,6 +14,43 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **Chat: a page for a person, their orchestrators and subagents (#1034).** `#/chat` has a sidebar with **Channels** (*General*, read and written by everyone signed in, and *My group*, a person and their own agents), **Direct Messages** (every open conversation between two agents, or between the person and one agent) and **People and agents**, and a thread with the newest message at the bottom and **Earlier messages** paging back 50 at a time. Enter sends and Shift+Enter adds a line. The person is a peer in a Direct Message: they can add to a conversation between two agents or message one agent, delivered through the console's message route and the reporter's consent, and stored with the person as author. A Direct Message has Pause link, Remove link and **Delete conversation** in a menu that opens on right-click and on a **...** button. Each channel's menu has **Pause**, **Disconnect** and **Remove all messages** (the stop button for a runaway session): in My group the person and an Admin can do all three; in General a person can pause or disconnect their own agents and only an Admin can pause General for everyone or remove its messages. An agent's menu has **Open orchestration page** and **Message**. Unread and mention counts are kept on the server, and the `chat` event on `GET /api/fleet/stream` carries counts and never text. Routes are under `/api/fleet/respond/chat` ([SPEC 7.1](docs/spec/07-server/07-01-endpoints.md#routes-for-chat-1034)).
+- **`@` addressing and per-agent state.** Typing `@` opens a list of what `name@location` can mean, narrowed as more is typed. An addressed agent is delivered the message when its turn ends and shows Waiting, then Working, Done, Held (the channel is paused), Not delivered or Dropped, with why. A person who is addressed gets a mention count. `@group` and `@everyone` are refused until an Admin turns on the new feature flag **Address @group and @everyone in Chat** (`chat-everyone`, off by default). Agents addressing each other keep the existing round-trip limit, and a person's message does not reset it.
+- **A person may write to another person's agent, with its owner's approval.** The message is held as a request in the owner's My reporters list and shown to the sender as "Waiting for <owner> to approve". Allow opens a link between the person and the agent's reporter and delivers the text framed as written by that person, never as its owner's words; Decline drops it with the reason. Either person can Pause link, Remove link or Delete conversation at any time, and only whoever paused a link, or an Admin, can resume it. The conversation is readable by both owners and an Admin. An Admin's `@` of another person's agent needs the owner's approval too. At most 5 messages from one person wait at one owner. A notice row in the sidebar says how many wait for the viewer's approval.
+- **An agent can answer a person who wrote to it.** `podium_send` to `person:<name>` works for an agent whose owner opened or paused that person's link and which holds a stored message from them; `podium_peers` lists those people. A removed link is refused with a `403`, a paused one with a `409` (refused, not held), the messages per minute with a `429`, and any other `person:` address is the generic "cannot see" `404`. The answer is stored in `peer_messages` as the agent's, readable by both owners and an Admin. The person frame now tells the agent how to answer; a reporter from before this release keeps the old frame and fails safe. Claude Code and OpenCode share it through `plugin/core/`.
+- **Storage for Chat in both adapters.** SQLite migrations 31 and 32 and PostgreSQL main steps 7 and 8: `peer_messages.author` and `hidden_at` (every earlier row is an agent's), the tables `group_messages`, `public_messages` and `chat_read_state`, and `peer_rights.paused_by`. A channel message's id is `grp_` or `pub_`, the server's scope and 24 hex digits. The group and General tables are separate from `peer_messages`, which is never copied into or returned with them, and a static test fails if a group-facing or agent-facing route could return a conversation's text. A contract case and an upgrade case run on each adapter.
+- **Chat settings.** `chat` in the Admin settings API holds how many days a channel keeps its messages (30), how many hours a hidden Direct Message is kept (24), the longest channel message (4,000 characters) and the posts a minute for one author (6). Admin > Settings has no boxes for them in this release. Admin log rows record the actions and never the text: `group_*`, `general_*`, `chat_sent`, `chat_across_requested`, `chat_across_sent`, `chat_deleted`, `chat_purged`, `chat_settings_changed` and `peer_person_link_*`.
+- Standards: the Chat sidebar and its rows, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: the context menu with a "..." button, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: the `@` address picker, a listbox with a match-count status line, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: mention chips, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: per-agent state chips, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: "Earlier messages" paging in a thread, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: participant chips, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: the state-colored hover on People and agents rows, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: the sidebar notice row (`a.ch-notice`), approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- Standards: the note-only popover and the disabled menu item, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+
+### Changed
+
+- **Chat replaces Traffic in the top bar, and `#/traffic` opens Chat.** The Traffic page still works until it is removed, and shows a note that links to Chat.
+- **A Direct Message whose agents have all left is hidden, then deleted.** It leaves the list when every agent session in it has ended or disconnected, its messages are kept for a grace period (24 hours by default) and then purged by the hourly run, and it comes back with its history if the same peers reappear. This replaces "kept 30 days after the last message" for that case; a quiet conversation with a live agent is still removed by the messaging retention. SPEC 7.5 and 7.7 changed with it.
+- **A person's message in Chat is stored.** Responding keeps nothing, but a message the owner writes to an agent in a Direct Message is kept in `peer_messages` as the person's, so the conversation can be read back. SPEC 7.2 and 7.7 say so, and add who can read each of General, My group and a Direct Message (an Admin reads without an alert).
+- **Chat opens with the rail and the Activity panel collapsed, as the Board does**, and keeps its own collapsed flags (`podium.collapsed.chat`). My reporters no longer says no messages cross people.
+- **The hourly sweep no longer drops a person's message, or an agent's answer to one, as an orphan.**
+
+### Deprecated
+
+- **The Traffic page (#1034).** Announced in 1.6, removed in 1.9; `#/traffic` opens Chat. See [Deprecations](docs/DEPRECATIONS.md#the-traffic-page).
+
+### Not in this release
+
+- "Send selected messages to an agent" did not ship.
+- OpenCode's `steer` delivery was evaluated (#1033) and deferred: delivery stays `queue` on both harnesses.
+- An agent posting to and reading a channel is the route shapes only (a post, and a read by cursor capped near 30,000 characters a call); the finished feature is #1035.
+
 ## [1.5.0] - 2026-11-05
 
 ### Added

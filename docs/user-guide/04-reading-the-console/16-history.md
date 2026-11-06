@@ -17,5 +17,5 @@ History is the page for looking back at sessions that have ended.
 <!-- nav:start -->
 ---
 
-Previous: [Traffic](15-traffic.md) · Up: [Reading the console](README.md) · Next: [What the numbers mean](17-what-the-numbers-mean.md)
+Previous: [Chat](16-chat.md) · Up: [Reading the console](README.md) · Next: [What the numbers mean](17-what-the-numbers-mean.md)
 <!-- nav:end -->

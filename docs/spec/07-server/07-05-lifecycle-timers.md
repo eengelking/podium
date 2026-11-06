@@ -36,6 +36,28 @@ A stale session that reports again immediately returns to its stored status. A d
 - Claude Code's background daemon runs such sessions (a parked twin of an interactive window, and a pool of
   pre-warmed spares), and each one loads the reporter.
 
+**Chat (#1034).** Chat has its own timers, run by the hourly retention and by what happens to a session. They are set in
+Admin > Settings > Chat ([7.2](07-02-database.md#what-chat-keeps-and-where-1034)).
+
+| Condition | Result | Default |
+|---|---|---|
+| Every agent session in a Direct Message has left the live set (ended, dropped or deleted) | The conversation is **hidden**: it leaves the list, and its messages are kept (`hidden_at` set) | at once |
+| A hidden conversation for `graceHours` | Its messages are purged by the hourly run, and the conversation is gone | 24 hours (1 to 720) |
+| One of the same peers reports again within that time | The conversation is shown again, with its history | n/a |
+| A channel message older than `retainDays` | Deleted by the hourly run, in General and in every group | 30 days (1 to 365) |
+| The server starts, and every hour | Every owner's conversations are checked against the live set, so what changed while the server was down is hidden or shown | hourly |
+
+- This replaces "kept until 30 days after the last message" for a conversation whose agents have all left. Before this, such a
+  conversation stayed on the list until the Admin's messaging retention ended it, and it was deleted with its sessions. Now
+  it leaves the list when the last agent leaves and is deleted a grace period later. Messaging's own retention
+  ([7.7](07-07-hardening.md#orchestrator-messaging-347)) still removes a conversation that has been quiet for that many days.
+- While only some agents of a conversation have left, the conversation stays, the row names which have ended, and a message to
+  an ended agent is refused with "has ended, so Podium did not queue the message".
+- A conversation is hidden for the person who owns it; hiding it changes nothing about the link or the rights.
+- The hourly run writes one `chat_purged` entry to the Admin log when it removes something, with counts and never text.
+- A held message (a channel that is paused) waits until the channel resumes. If the agent it was for ends first, it is marked
+  Dropped with the reason.
+
 <!-- nav:start -->
 ---
 

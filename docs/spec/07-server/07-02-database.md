@@ -111,7 +111,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off, #206, #319, #347, #353, #431); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off, #206, #319, #347, #353, #431); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here; chat_scope, `chat.*` and `chat.flag.*`: Chat's server scope, limits and channel flags ([What Chat keeps](#what-chat-keeps-and-where-1034), #1034)
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -206,9 +206,73 @@ CREATE TABLE peer_messages (id TEXT PRIMARY KEY, owner TEXT, link TEXT, from_key
   notices; the messages, rights and requests survive it.
 - A message's text is never in the state, the stream, the Admin log or the server log.
 
+## What Chat keeps, and where (#1034)
+
+Chat has three tables, one for each audience, so that a missed filter can never send one audience's text to another. A
+conversation between agents, or between a person and one agent, is `peer_messages` above. The group channel is
+`group_messages` and General is `public_messages`. **`peer_messages` is never copied into, merged with or returned together with the
+other two**: each has its own read and write path in the storage interface, and a test holds the server's code to it.
+
+Migration 31 (PostgreSQL main step 7; migration 32 is PostgreSQL main step 8) adds the following. Both adapters carry the same
+columns, indexes and rows.
+
+```sql
+ALTER TABLE peer_messages ADD COLUMN author TEXT NOT NULL DEFAULT 'agent';  -- 'agent' (an orchestrator, over podium_send) or 'person' (the owner, from Chat). Every earlier row is an agent's
+ALTER TABLE peer_messages ADD COLUMN hidden_at INTEGER;                    -- when every agent session in the conversation had left the live set; NULL while it shows
+CREATE INDEX peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, group_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (   -- the same row as group_messages, without owner and group_id: the table is the audience
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (   -- one person's counts in one thread, kept on the server so the stream can carry counts and no text
+  person TEXT NOT NULL, thread TEXT NOT NULL, last_read TEXT, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
+```
+
+Migration 32 (#1034) records who paused a link between a person and another person's agent, so only they (or an Admin) can
+resume it: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;` (`sender`, `owner` or `admin`; NULL when the link is not
+paused, and for a pause made before it was kept, which either owner may resume).
+
+- **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
+  the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
+  unchanged later. A direct message keeps its `dlv_` style id.
+- **Author.** `author_kind` is `person`, `orchestrator`, `subagent` or `reporter`; `author_ref` is the person's name, the session id
+  or the reporter key. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
+  column: the table is the audience. `peer_messages.author` is how a person is a peer in a direct message: a person's message
+  has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<name, folded>` in
+  `from_session` or `to_session`, and in `from_key` or `to_key` for the link. An agent's answer to such a person is an `agent` message with `to_session`
+  and `to_key` `person:<key>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
+  `person:` end as a missing session, so neither a person's message nor an answer to one is dropped as an orphan.
+- **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt }` ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
+- **Order.** A page orders by `created_at, seq` in both adapters (`seq` is the insertion number, so a tie is decided the same
+  way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
+- **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md).
+- **Settings rows**, all in `settings`: `chat.retainDays` (days a channel keeps its messages, default 30, 1 to 365),
+  `chat.graceHours` (hours a hidden conversation is kept, default 24, 1 to 720), `chat.maxChars` (the longest channel message, or
+  message to another person's agent, default 4,000, 1 to 20,000) and `chat.perMinute` (posts a minute for one author, default 6, 1
+  to 600). A value outside its range is ignored on read and refused on write. `chat.flag.<scope>` holds a channel's flags as
+  letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<name>`
+  (General, one person's agents) or `group:<owner>`. A scope with neither flag has no row. The flag `feature.chat-everyone`
+  is '0' or '1' like the other features, and is off by default.
+- A message's text is never in the state, the stream, the Admin log or the server log.
+
 ## What responding keeps, and where (#206)
 
-Only two things reach the database: the `cleared_from` link above and the Admin's `feature.respond` setting.
+Only two things reach the database: the `cleared_from` link above and the Admin's `feature.respond` setting. A message a person
+writes to an agent from Chat is the exception, and is not responding's: it is stored as Chat's, in `peer_messages` (above),
+because the person is a peer in a Direct Message and can read the conversation afterwards. Responding's own answers and commands
+are still kept nowhere.
 Each answer is also written to `admin_log` ([7.7](07-07-hardening.md)) with who sent it, the session and the kind of
 answer, never its text.
 
@@ -250,6 +314,9 @@ The sweeper runs this hourly:
 - Sessions ended more than 30 days ago are deleted with their rows.
 - Admin log rows older than 90 days are deleted, except that the newest 100 rows are always kept, so a quiet
   server keeps some history (#303).
+- Chat (#1034): a channel message older than the Admin's `retainDays` (30 days unless the Admin sets another) is deleted from
+  General and every group, and the messages of a Direct Message hidden for longer than `graceHours` (24 unless set) are
+  deleted ([7.5](07-05-lifecycle-timers.md)). A Direct Message with a live agent is still removed by the messaging rule below.
 - Orchestrator messages on a link whose newest message is older than the Admin's period (30 days unless the Admin
   sets another) are deleted, as are the messages of a session the server no longer holds and closed requests past the
   same period. Rights and requests about a reporter that has been removed go too. Deleting a session deletes its

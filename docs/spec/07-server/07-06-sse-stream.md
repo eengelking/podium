@@ -17,6 +17,7 @@ order: 6
 | `activity` | one `ActivityView` | new event |
 | `removed` | `{ sessionId, reason: 'done'\|'dropped'\|'deleted' }` | leaves the live set |
 | `wall` | `{ notices, showBackgroundSessions, cardTitleMachine }` | when an Admin setting or a closed notice changes the wall's notices (8.1) |
+| `chat` | `{ rev, scope: 'public'\|'group'\|'dm', owner, unread?, mentions?, approvals? }` | a Chat thread changed. It carries no text: `scope` says which kind of thread, `owner` the person (folded) whose counts changed (null when the change is everyone's), and the counts. `approvals` is how many messages from other people wait for the owner to approve. A console reads its own person's counts and asks the Chat routes for anything else (#1034) |
 | `tick` | `{ serverTime, kpis }` | every 2 s (also serves as keepalive; the client treats 6 s of silence as disconnected) |
 
 The registry removes a client on `close`/`error`, and a write that throws never crashes the process. Supports 100 simultaneous clients. Send `retry: 2000`.
