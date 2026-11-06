@@ -7,6 +7,22 @@ import { PEER_DROP_WORDS } from "../../../plugin/core/protocol";
 
 export type AgentStatus = "running" | "waiting" | "done";
 
+/** An Admin who is reading a thread now (#1034): since when, and until when it counts as live if the Admin reads no more. Server clock, epoch ms. */
+export interface AdminReading {
+  admin: string;
+  since: number;
+  until: number;
+}
+
+/** What an Admin did in a thread that stays in it as a record line. A record from a server that does not say is a read. */
+export type AdminReadKind = "read" | "cleared" | "paused" | "resumed";
+export interface AdminRead {
+  admin: string;
+  startedAt: number;
+  lastSeenAt: number;
+  kind?: AdminReadKind;
+}
+
 /** A channel as the overview lists it. `can` says what the viewer may do to it; the page offers nothing else. */
 export interface ChatChannel {
   id: "general" | "group";
@@ -18,6 +34,10 @@ export interface ChatChannel {
   paused: boolean;
   pausedForEveryone: boolean;
   disconnected: boolean;
+  /** The Admin who paused it, while an Admin's pause holds it; null or absent otherwise. */
+  pausedByAdmin?: string | null;
+  /** The Admins reading it now (My group only). Hide an entry once its `until` has passed. */
+  adminReading?: AdminReading[];
   can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean };
 }
 
@@ -45,6 +65,8 @@ export interface Cross {
   link: "waiting" | "open" | "paused" | "removed" | "none";
   viewerIs: CrossRole;
   pausedBy?: CrossRole | null;
+  /** The Admin's name while `pausedBy` is `admin`. */
+  pausedByAdmin?: string | null;
   canResume?: boolean;
 }
 
@@ -57,6 +79,10 @@ export interface DirectInfo {
   lastAt: number;
   state: "active" | "waiting" | "paused";
   paused: boolean;
+  /** Who paused the link, and the Admin's name when it was an Admin. */
+  pausedBy?: CrossRole | null;
+  pausedByAdmin?: string | null;
+  adminReading?: AdminReading[];
   canSend: { aToB: boolean; bToA: boolean };
   roundTrips: { used: number; cap: number };
   /** The names of agents that left while others did not. */
@@ -143,6 +169,8 @@ export interface ChannelPageRead {
   messages: ChannelMessage[];
   older: string | null;
   total: number;
+  /** Who read this thread (My group only), oldest first. */
+  adminReads?: AdminRead[];
 }
 
 export interface DirectPageRead {
@@ -158,6 +186,9 @@ export interface DirectPageRead {
   paused: boolean;
   roundTrips: { used: number; cap: number };
   cross?: Cross | null;
+  pausedBy?: CrossRole | null;
+  pausedByAdmin?: string | null;
+  adminReads?: AdminRead[];
 }
 
 export interface Address {
@@ -173,22 +204,27 @@ export const PAGE_SIZE = 50;
 
 const BASE = "/api/fleet/respond/chat";
 const enc = encodeURIComponent;
-const qs = (o: { before?: string | null; limit?: number }) => {
+const qs = (o: { before?: string | null; limit?: number; owner?: string | null }) => {
   const q = new URLSearchParams();
+  if (o.owner) q.set("owner", o.owner);
   if (o.before) q.set("before", o.before);
   q.set("limit", String(o.limit ?? PAGE_SIZE));
   return `?${q}`;
 };
 
 export const chatApi = {
-  overview: () => call<ChatOverview>("GET", BASE),
+  /** An Admin names the person whose conversations to read with `owner`; the server answers that person's My group and Direct Messages. */
+  overview: (owner?: string | null) => call<ChatOverview>("GET", owner ? `${BASE}?owner=${enc(owner)}` : BASE),
   markRead: (thread: string, upTo: string | null) => call<{ ok: true; unread: number; mentions: number }>("POST", `${BASE}/read`, { thread, upTo }),
   addresses: (channel: "general" | "group") => call<{ ok: true; addresses: Address[] }>("GET", `${BASE}/addresses?channel=${channel}`),
-  channelMessages: (channel: string, o: { before?: string | null; limit?: number } = {}) => call<ChannelPageRead>("GET", `${BASE}/channels/${enc(channel)}/messages${qs(o)}`),
+  channelMessages: (channel: string, o: { before?: string | null; limit?: number; owner?: string | null } = {}) => call<ChannelPageRead>("GET", `${BASE}/channels/${enc(channel)}/messages${qs(o)}`),
   post: (channel: string, text: string) => call<{ ok: true; message: ChannelMessage; warnings: string[] }>("POST", `${BASE}/channels/${enc(channel)}/messages`, { text }),
-  pause: (channel: string, paused: boolean, everyone = false) => call<{ ok: true }>("PUT", `${BASE}/channels/${enc(channel)}/pause`, { paused, ...(everyone ? { everyone: true } : {}) }),
-  disconnect: (channel: string, disconnected: boolean) => call<{ ok: true }>("PUT", `${BASE}/channels/${enc(channel)}/disconnect`, { disconnected }),
-  clear: (channel: string) => call<{ ok: true }>("DELETE", `${BASE}/channels/${enc(channel)}/messages`, {}),
+  pause: (channel: string, paused: boolean, everyone = false, owner?: string | null) => call<{ ok: true }>("PUT", `${BASE}/channels/${enc(channel)}/pause`, { paused, ...(everyone ? { everyone: true } : {}), ...(owner ? { owner } : {}) }),
+  disconnect: (channel: string, disconnected: boolean, owner?: string | null) => call<{ ok: true }>("PUT", `${BASE}/channels/${enc(channel)}/disconnect`, { disconnected, ...(owner ? { owner } : {}) }),
+  clear: (channel: string, owner?: string | null) => call<{ ok: true }>("DELETE", `${BASE}/channels/${enc(channel)}/messages`, owner ? { owner } : {}),
+  /** An Admin's open thread says it is still being read, so its people keep seeing it. The group names its person; a Direct Message does not need to. */
+  readingChannel: (channel: string, owner: string) => call<{ ok: true }>("POST", `${BASE}/channels/${enc(channel)}/reading`, { owner }),
+  readingDm: (a: string, b: string, owner: string) => call<{ ok: true }>("POST", `${BASE}/dm/${enc(a)}/${enc(b)}/reading`, { owner }),
   dmMessages: (a: string, b: string, o: { before?: string | null; limit?: number } = {}) => call<DirectPageRead>("GET", `${BASE}/dm/${enc(a)}/${enc(b)}/messages${qs(o)}`),
   sendDm: (a: string, b: string, text: string) => call<{ ok: true; message: DirectMessage; skipped: { name: string; why: string }[]; errors: { name: string; error: string }[] }>("POST", `${BASE}/dm/${enc(a)}/${enc(b)}/messages`, { text }),
   deleteDm: (a: string, b: string) => call<{ ok: true; removed: number }>("DELETE", `${BASE}/dm/${enc(a)}/${enc(b)}`),
@@ -228,8 +264,10 @@ export function dmName(d: Pick<DirectInfo, "a" | "b"> & { cross?: Cross | null }
 export const hasLink = (d: Pick<DirectInfo, "a" | "b">): boolean => d.a.kind === "agent" && d.b.kind === "agent";
 
 /** The line under a Direct Message's name: who is in it, from the viewer's side. */
-export function dmSub(d: Pick<DirectInfo, "a" | "b"> & { cross?: Cross | null }): string {
+export function dmSub(d: Pick<DirectInfo, "a" | "b"> & { cross?: Cross | null; owner?: string }, readOnly = false): string {
   const c = d.cross;
+  // An Admin reading a person's conversation sees it from the owner's side.
+  if (readOnly) return `${c ? `${c.person} and ${c.owner}'s agent` : hasLink(d) ? `Two agents, and ${d.owner}` : `${d.owner} and one agent`}, read only`;
   if (!c) return hasLink(d) ? "Two agents, and you" : "You and one agent";
   if (c.viewerIs === "sender") return `You and ${c.owner}'s agent`;
   return `${c.person} and ${c.viewerIs === "owner" ? "your" : `${c.owner}'s`} agent`;
@@ -244,16 +282,19 @@ export interface Tag {
 
 const joinNames = (names: string[]) => names.join(" and ");
 
-export function channelTag(c: Pick<ChatChannel, "paused" | "pausedForEveryone" | "disconnected">): Tag | null {
+export function channelTag(c: Pick<ChatChannel, "paused" | "pausedForEveryone" | "disconnected" | "pausedByAdmin">): Tag | null {
   if (c.disconnected) return { icon: "pause", text: "Your agents are disconnected" };
+  // A pause an Admin made has its own red tag.
+  if (c.paused && !c.pausedForEveryone && c.pausedByAdmin) return null;
   if (c.paused) return { icon: "pause", text: c.pausedForEveryone ? "Paused for everyone" : "Paused", warn: true };
   return null;
 }
 
-export function dmTag(d: Pick<DirectInfo, "a" | "b" | "state" | "paused" | "canSend" | "ended"> & { cross?: Cross | null }): Tag | null {
+export function dmTag(d: Pick<DirectInfo, "a" | "b" | "state" | "paused" | "canSend" | "ended"> & { cross?: Cross | null; pausedBy?: CrossRole | null; pausedByAdmin?: string | null }): Tag | null {
   if (d.cross) {
     if (d.cross.link === "removed") return { icon: "trash", text: "Link removed" };
     if (d.ended.length) return { icon: "pause", text: `${joinNames(d.ended)} ended` };
+    if (adminPauseOf(d)) return null;
     if (d.cross.link === "paused") return { icon: "pause", text: "Paused" };
     if (d.cross.link === "waiting") return { icon: "clock", text: "Waiting for approval", warn: true };
     return null;
@@ -261,6 +302,7 @@ export function dmTag(d: Pick<DirectInfo, "a" | "b" | "state" | "paused" | "canS
   if (hasLink(d) && !d.canSend.aToB && !d.canSend.bToA && d.state === "active") return { icon: "trash", text: "Link removed" };
   if (d.ended.length) return { icon: "pause", text: `${joinNames(d.ended)} ended` };
   if (d.state === "waiting") return { icon: "clock", text: "Waiting for approval", warn: true };
+  if (adminPauseOf(d)) return null;
   if (d.state === "paused" || d.paused) return { icon: "pause", text: "Paused" };
   return null;
 }
@@ -268,7 +310,7 @@ export function dmTag(d: Pick<DirectInfo, "a" | "b" | "state" | "paused" | "canS
 // ---- Conversations across owners -------------------------------------------------------------------------------------------
 
 /** A role as the words name it: the person, the owner, or an Admin. */
-export const whoWord = (c: Pick<Cross, "person" | "owner">, who: CrossRole): string => (who === "sender" ? c.person : who === "owner" ? c.owner : "an Admin");
+export const whoWord = (c: Pick<Cross, "person" | "owner"> & { pausedByAdmin?: string | null }, who: CrossRole): string => (who === "sender" ? c.person : who === "owner" ? c.owner : adminWho(c.pausedByAdmin));
 
 /** The header line: who the two people are, and who may read. */
 export const crossLine = (c: Cross, agent: string): string => `${c.person} (a person using Chat) writes to ${c.owner}'s agent ${agent}. Only ${c.person}, ${c.owner} and an Admin can read this.`;
@@ -279,7 +321,7 @@ export function crossOff(c: Cross): { word: string; why: string } | null {
   if (c.link === "removed") return { word: "Link removed", why: `The link was removed, so nothing can be sent. ${mayWrite ? `Only ${c.owner} can open it again.` : "Choose Allow again in the menu to open it."}` };
   if (c.link === "paused") {
     const by = c.pausedBy ? whoWord(c, c.pausedBy) : null;
-    const rest = c.canResume === false && by ? `Only ${by} can resume it.` : "Resume the link from the menu to send.";
+    const rest = c.canResume === false && by ? `Only ${c.pausedBy === "admin" ? "an Admin" : by} can resume it.` : "Resume the link from the menu to send.";
     return { word: "Paused", why: `Paused${by ? ` by ${by}` : ""}: messages are held. ${rest}` };
   }
   if (!mayWrite) return { word: "Read only", why: `Only ${c.person} writes in this conversation. ${c.viewerIs === "owner" ? "You" : "An Admin"} can pause or remove its link from the menu.` };
@@ -351,7 +393,7 @@ export function mentionChip(m: Mention): MentionChip {
 }
 
 /** Where a Direct Message is, as an icon and words. `time` formats a time; the page passes the default. */
-export function dmDelivery(m: DirectMessage, linkPaused: boolean, owner: string, time: (t: number) => string = hm, across = false): Delivery {
+export function dmDelivery(m: DirectMessage, linkPaused: boolean, owner: string, time: (t: number) => string = hm, across = false, heldBy?: string): Delivery {
   const target = m.to[0];
   switch (m.state) {
     case "delivered":
@@ -364,7 +406,7 @@ export function dmDelivery(m: DirectMessage, linkPaused: boolean, owner: string,
     case "dropped":
       return { icon: "no", text: `Dropped at ${time(m.stateAt)}: ${m.reason ? plain(m.reason) : (PEER_DROP_WORDS[m.why ?? ""] ?? m.why ?? "the server let it go")}. It was not delivered.`, wait: false };
     default:
-      if (linkPaused) return { icon: "pause", text: `Held: ${owner} paused this link. It goes when the link resumes.`, wait: true };
+      if (linkPaused) return { icon: "pause", text: `Held: ${heldBy ?? owner} paused this link. It goes when the link resumes.`, wait: true };
       if (m.state === "handed") return { icon: "queue", text: `Handed to ${target?.machine ?? "its machine"}. Waiting for it to say ${target?.name ?? "the agent"} took it.`, wait: true };
       return { icon: "queue", text: `Waiting: ${list(m.to.map((t) => t.name))} ${m.to.length > 1 ? "are" : "is"} working. It gets this when its turn ends.`, wait: true };
   }
@@ -417,4 +459,50 @@ export function stamp(t: number, now: number): string {
   const n = new Date(now);
   const same = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
   return same ? hm(t) : `${DAYS[d.getDay()]} ${hm(t)}`;
+}
+
+// ---- An Admin reading (#1034) ---------------------------------------------------------------------------------------------------
+
+/** An Admin as the words name them: with the name when it is known. */
+export const adminWho = (name: string | null | undefined): string => (name ? `${name} (an Admin)` : "an Admin");
+
+/** The readings still live by the server's clock; the page does not wait for the server to say one ended. */
+export const liveReaders = (l: readonly AdminReading[] | undefined, serverNow: number): AdminReading[] => (l ?? []).filter((r) => r.until > serverNow);
+
+const more = (n: number) => `${n} more Admin${n === 1 ? "" : "s"}`;
+
+/** The banner's bold line: the first two Admins by name, the rest counted. */
+export function readersLine(l: readonly AdminReading[]): string {
+  const names = l.map((r) => r.admin);
+  if (names.length <= 1) return `${adminWho(names[0])} is reading this conversation.`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} (Admins) are reading this conversation.`;
+  return `${names[0]}, ${names[1]} and ${more(names.length - 2)} are reading this conversation.`;
+}
+
+/** Who has to stop for the notice to clear. */
+export const readersStops = (l: readonly AdminReading[]): string => (l.length === 1 ? `${l[0]!.admin} stops` : "the last of them stops");
+
+/** The tip's text: every Admin reading, with when they started. `at` formats a time. */
+export const readersTip = (l: readonly AdminReading[], at: (t: number) => string): string => `Reading now: ${l.map((r) => `${r.admin} since ${at(r.since)}`).join(", ")}.`;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** "Nov 6 at 14:20", in local time. */
+export function onDay(t: number): string {
+  const d = new Date(t);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()} at ${hm(t)}`;
+}
+
+/** The quiet line an Admin's visit leaves among the messages. */
+export function recordLine(r: AdminRead): string {
+  const what = r.kind === "cleared" ? "removed all messages" : r.kind === "paused" ? "paused this link" : r.kind === "resumed" ? "resumed this link" : "read this conversation";
+  return `${adminWho(r.admin)} ${what} on ${onDay(r.startedAt)}.`;
+}
+
+/** The Admin who holds a pause on a channel, plain Direct Message or conversation across owners; null when no Admin does. */
+export function adminPauseOf(x: { paused?: boolean; pausedByAdmin?: string | null; pausedBy?: CrossRole | null; state?: string; cross?: Cross | null }): { name: string | null } | null {
+  if (x.cross) return x.cross.link === "paused" && x.cross.pausedBy === "admin" ? { name: x.cross.pausedByAdmin ?? null } : null;
+  if (!(x.paused || x.state === "paused")) return null;
+  if (x.pausedBy !== undefined && x.pausedBy !== "admin") return null;
+  return x.pausedByAdmin || x.pausedBy === "admin" ? { name: x.pausedByAdmin ?? null } : null;
 }

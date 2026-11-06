@@ -12,13 +12,16 @@ import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
 import type { MenuAct } from "./components/ChatMenu";
-import { crossNote, crossOff, dmKey, dmName, hasLink, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
+import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
 import type { RespondMe, SessionView } from "./types";
 
 type Confirm = "remove-link" | "delete-dm" | "clear";
+
+/** How often an Admin's open thread says it is still being read. */
+const KEEP_ALIVE_MS = 15_000;
 
 const GENERAL: Selection = { kind: "channel", id: "general" };
 
@@ -77,7 +80,10 @@ function Rules() {
             A conversation with another person's agent is read by that person, the agent's owner and an Admin. The owner approves the first message in My reporters, and either person can pause or remove the link; only the owner opens it again.
           </li>
           <li>
-            Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions. Both are in the menu on each Direct Message.
+            An <b>Admin</b> picks a person under <b>Read a person&apos;s conversations</b> to read their My group and Direct Messages. It is read only: an Admin cannot send in either, and can pause, disconnect or clear a group. While an Admin reads, the person sees a red notice at the top of the thread and an <b>Admin reading</b> tag on its row, and afterward a line stays in the thread saying when. Podium records it in the audit log, never the text.
+          </li>
+          <li>
+            Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions. Both are in the menu on each Direct Message. An Admin can pause and resume a link, to stop a runaway conversation, but not remove it. Only an Admin resumes a link an Admin paused.
           </li>
         </ul>
       </div>
@@ -87,8 +93,12 @@ function Rules() {
 
 function ChatBody(props: { me: RespondMe | null; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number }) {
   const { api, sessions, rev } = props;
-  const overview = useChatOverview(api, true, rev);
+  // An Admin reads a person's conversations by choosing the person: the overview and the open thread are then that person's.
+  const [readAs, setReadAs] = useState<string | null>(null);
+  const overview = useChatOverview(api, true, rev, readAs);
   const o = overview.data;
+  const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
+  const serverNow = props.now + overview.skew;
   const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
   const [menu, setMenu] = useState<{ key: string } | null>(null);
@@ -109,7 +119,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const key = selKey(sel)!;
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
   const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? null) : null;
-  const thread = useThread(api, o ? sel : null, rev);
+  const thread = useThread(api, o ? sel : null, rev, ro ? readAs : null);
   const addrs = useAddresses(api, sel.kind === "channel" ? sel.id : null);
 
   const refresh = useCallback(async () => {
@@ -141,12 +151,32 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const newest = thread.messages[thread.messages.length - 1]?.id ?? null;
   const name = channel?.thread ?? direct?.thread ?? null;
   useEffect(() => {
-    if (!o?.me.person || !thread.loaded || !name || !newest || unread === 0) return;
+    if (ro || !o?.me.person || !thread.loaded || !name || !newest || unread === 0) return;
     const mark = `${name}|${newest}|${unread}`;
     if (marked.current === mark) return;
     marked.current = mark;
     void api.markRead(name, newest).catch(() => {});
-  }, [api, o?.me.person, thread.loaded, name, newest, unread]);
+  }, [api, ro, o?.me.person, thread.loaded, name, newest, unread]);
+
+  // An Admin's open thread says every 15 seconds that it is still being read, so its people keep seeing it. It stops with the thread, and
+  // while the tab is hidden. A ping that fails shows nothing: the next one tries again.
+  const reading = ro && thread.loaded && !thread.error && readAs !== null && !(sel.kind === "channel" && sel.id === "general");
+  const selId = sel.kind === "channel" ? sel.id : `${sel.a}|${sel.b}`;
+  useEffect(() => {
+    if (!reading || !readAs) return;
+    const ping = () => {
+      if (document.visibilityState === "hidden") return;
+      const sent = sel.kind === "channel" ? api.readingChannel(sel.id, readAs) : api.readingDm(sel.a, sel.b, readAs);
+      sent.catch(() => {});
+    };
+    const timer = setInterval(ping, KEEP_ALIVE_MS);
+    document.addEventListener("visibilitychange", ping);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", ping);
+    };
+    // The thread is named by selId; `sel` itself is a new object on every render.
+  }, [api, reading, readAs, selId]);
 
   const closeMenu = (restore: boolean) => {
     const k = menu?.key;
@@ -175,11 +205,21 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     );
   }
 
+  const own = (c: ChatChannel): boolean => ro && c.id === "group";
   const owns = (d: DirectInfo) => o.me.person && d.owner.toLowerCase() === o.me.name.toLowerCase();
   const startAgent = (a: ChatAgent) => {
     const existing = o.directs.find((d) => dmKey(d) === a.sessionId);
     if (existing) return select({ kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: a.sessionId });
     select({ kind: "dm", a: "me", b: a.sessionId, key: a.sessionId, fresh: true });
+  };
+  const chooseReader = (name: string | null) => {
+    setReadAs(name);
+    setPicked(null);
+    setMenu(null);
+    setConfirm(null);
+    setActionErr(null);
+    setPane("side");
+    setSaid(name ? `Reading ${name}'s conversations as an Admin. Read only.` : "Back to your own conversations.");
   };
   const openDm = (d: DirectInfo) => select({ kind: "dm", a: d.a.sessionId, b: d.b.sessionId, key: dmKey(d) });
 
@@ -212,13 +252,21 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
       if (a === "clear") {
         select({ kind: "channel", id: c.id });
         setConfirm("clear");
-      } else if (a === "pause") void act(() => api.pause(c.id, !(c.paused && !c.pausedForEveryone)), c.paused && !c.pausedForEveryone ? "Resumed." : "Paused.", (w) => `Could not ${c.paused ? "resume" : "pause"} ${c.name}: ${w}. Nothing changed. Try again.`);
+      } else if (a === "pause") void act(() => (own(c) ? api.pause(c.id, !(c.paused && !c.pausedForEveryone), false, readAs) : api.pause(c.id, !(c.paused && !c.pausedForEveryone))), c.paused && !c.pausedForEveryone ? "Resumed." : "Paused.", (w) => `Could not ${c.paused ? "resume" : "pause"} ${c.name}: ${w}. Nothing changed. Try again.`);
       else if (a === "pause-all") void act(() => api.pause(c.id, !c.pausedForEveryone, true), c.pausedForEveryone ? "General resumed." : "General is paused for everyone.", (w) => `Could not change General: ${w}. Nothing changed. Try again.`);
-      else if (a === "disconnect") void act(() => api.disconnect(c.id, !c.disconnected), c.disconnected ? "Your agents are reconnected." : "Your agents are disconnected.", (w) => `Could not ${c.disconnected ? "reconnect" : "disconnect"} your agents: ${w}. Nothing changed. Try again.`);
+      else if (a === "disconnect") void act(() => (own(c) ? api.disconnect(c.id, !c.disconnected, readAs) : api.disconnect(c.id, !c.disconnected)), c.disconnected ? "Your agents are reconnected." : "Your agents are disconnected.", (w) => `Could not ${c.disconnected ? "reconnect" : "disconnect"} your agents: ${w}. Nothing changed. Try again.`);
       return;
     }
     const d = o.directs.find((x) => dmKey(x) === id);
     if (!d) return;
+    if (ro) {
+      // An Admin pauses or resumes any link through Chat's own route, by the conversation's two ids. Nothing else is an Admin's.
+      if (a !== "pause-link") return;
+      const paused = d.cross ? d.cross.link === "paused" : d.state === "paused" || d.paused;
+      openDm(d);
+      void act(() => api.link(d.a.sessionId, d.b.sessionId, paused ? "resume" : "pause"), paused ? "Link resumed." : "Link paused.", (w) => `Could not ${paused ? "resume" : "pause"} the link: ${w}. The link is still ${paused ? "paused" : "active"}. Try again.`);
+      return;
+    }
     if (d.cross) {
       // Across owners the link is between a person and an agent, so it is changed through Chat's own route, by the conversation's two ids.
       openDm(d);
@@ -321,7 +369,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           </button>
           <button type="button" className="btn sm dng" disabled={busy} onClick={() => {
             setConfirm(null);
-            void act(() => api.clear(channel.id), "All messages removed.", (w) => `Could not remove the messages: ${w}. Nothing changed. Try again.`);
+            void act(() => (own(channel) ? api.clear(channel.id, readAs) : api.clear(channel.id)), "All messages removed.", (w) => `Could not remove the messages: ${w}. Nothing changed. Try again.`);
           }}>
             Remove all messages
           </button>
@@ -345,18 +393,23 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     off = why;
     offWord = word;
   };
+  const heldBy = channel ? (channel.id === "group" && channel.paused ? adminPauseOf({ paused: true, pausedByAdmin: channel.pausedByAdmin }) : null) : adminPauseOf({ ...(direct ?? {}), paused: dmPaused, pausedBy: head?.pausedBy ?? direct?.pausedBy, pausedByAdmin: head?.pausedByAdmin ?? direct?.pausedByAdmin, cross });
+  const heldWords = heldBy ? `Paused by ${adminWho(heldBy.name)}: messages are held. Only an Admin can resume it.` : null;
   if (channel) {
     if (channel.disconnected) stop("Disconnected", "Your agents are disconnected from this channel. Reconnect them from its menu to send.");
     else if (channel.pausedForEveryone) stop("Paused", "Paused for everyone by an Admin: messages are held until it resumes.");
+    else if (heldWords) stop("Paused", heldWords);
     else if (channel.paused) stop("Paused", "Paused: messages are held. Resume from the menu to send.");
   } else if (sel.kind === "dm") {
     const across = cross ? crossOff(cross) : null;
     if (!o.me.person) stop("Read only", "Only the person who owns a conversation can add to it.");
     else if (across) stop(across.word, across.why);
     else if (dmRemoved) stop("Link removed", "This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.");
+    else if (heldWords) stop("Paused", heldWords);
     else if (dmPaused) stop("Paused", "Paused: messages are held. Resume from the menu to send.");
     else if (agentParties.length > 0 && ended.length >= agentParties.length) stop("Ended", `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended, so it will not receive this.`);
   }
+  const roThread = ro && !(sel.kind === "channel" && sel.id === "general");
   const draft = drafts[key] ?? "";
   const onSend = async () => {
     const text = draft.trim();
@@ -422,6 +475,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onChannel={(id) => select({ kind: "channel", id })}
           onDm={openDm}
           onAgent={startAgent}
+          readAs={ro ? readAs : null}
+          picked={readAs}
+          onReadAs={chooseReader}
+          serverNow={serverNow}
         />
         <ChatThread
           sel={sel}
@@ -438,7 +495,16 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onClose={closeMenu}
           onPick={pick}
           onBack={() => setPane("side")}
+          readAs={ro ? readAs : null}
+          serverNow={serverNow}
           composer={
+            roThread ? (
+              <div className="ch-composer">
+                <div className="note" id="ro-why" data-testid="chat-ro-note">
+                  You are reading as an Admin, so there is no message box.{heldBy ? " The link is paused; you can resume it from its menu." : ""}
+                </div>
+              </div>
+            ) : (
             <ChatComposer
               label={label}
               draft={draft}
@@ -454,6 +520,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
               loadAddresses={addrs.load}
               stateOf={stateOf}
             />
+            )
           }
         />
       </div>

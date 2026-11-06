@@ -81,6 +81,19 @@ export const ChTrash = () => (
   </Ic>
 );
 
+export const ChEye = () => (
+  <Ic>
+    <path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z" />
+    <circle cx="8" cy="8" r="2" />
+  </Ic>
+);
+export const ChLock = () => (
+  <Ic>
+    <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+    <path d="M5.5 7V5a2.5 2.5 0 015 0v2" />
+  </Ic>
+);
+
 export function DeliveryGlyph({ icon }: { icon: DeliveryIcon }) {
   return icon === "ok" ? <ChOk /> : icon === "queue" ? <ChQueue /> : icon === "clock" ? <ChClock /> : icon === "pause" ? <ChPause /> : <ChNo />;
 }

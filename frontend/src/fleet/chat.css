@@ -120,3 +120,23 @@
 .podium .ch-menu a[role="menuitem"]:hover, .podium .ch-menu a[role="menuitem"]:focus-visible { background: var(--hover); outline: none; }
 .podium .ch-menu a[role="menuitem"]:focus-visible { box-shadow: inset 0 0 0 2px var(--sonnet); }
 .ch-pad { padding: 6px 20px; }
+
+/* An Admin reading (#1034, mockup/podium-chat.html): the picker, the red banner and tags, and the record line. The red is the critical tokens, with an icon and words, never color alone. */
+.ch-read { display: grid; gap: 6px; padding: 4px 20px 8px; }
+.ch-read label { font-size: 12px; color: var(--ink2); }
+.adminv .ch-read select.field { width: 100%; min-width: 0; }
+.adminv .ch-read .hint { max-width: none; margin: 0; }
+.ch-nav.ro { display: flex; gap: 8px; align-items: flex-start; margin: 10px 16px 0; }
+.ch-nav.ro svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+/* The red banner: the same tokens as .banner.bad in fleet.css (ink text on a crit tint), plus a crit border, an icon and words, never color alone. */
+.ch-nav.crit { color: var(--ink); background: color-mix(in srgb, var(--crit) 16%, var(--raised)); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); }
+.ch-nav.crit svg { color: var(--crit-text); }
+.ch-nav.crit b { font-weight: 650; }
+.ch-row .tag.crit, .ch-head .sub .tag.crit { color: var(--crit-text); font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; justify-self: start; }
+.ch-head .sub .tag { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.ch-head .sub .tag svg { width: 12px; height: 12px; flex: none; }
+.ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+/* The record line an Admin's reading leaves in the thread: not a message, so no checkbox, no delivery line, not selectable. */
+.ch-body .feed li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
+.ch-rec svg { width: 12px; height: 12px; flex: none; }
+.podium .ch-nav .tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; white-space: nowrap; }

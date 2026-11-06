@@ -3,7 +3,10 @@
 // reader's place when something is selected or a menu opens; it goes to the newest message on opening a thread and after a send.
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import {
+  adminPauseOf,
+  adminWho,
   channelDelivery,
+  liveReaders,
   dmDelivery,
   crossLine,
   dmName,
@@ -11,18 +14,34 @@ import {
   messageParts,
   stamp,
   type ChatChannel,
+  type AdminRead,
   type ChatOverview,
   type DirectInfo,
   type Party,
 } from "../chatData";
 import type { Selection, ThreadMessage, ThreadRead } from "../useChat";
 import type { SessionView } from "../types";
+import { AdminPauseBanner, AdminTags, ReadOnlyBanner, ReadingBanner, RecordLine } from "./ChatAdmin";
 import { ChMsg, ChNo, ChClock, DeliveryGlyph, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, type MenuAct } from "./ChatMenu";
 import { agentState, STATE_WORD } from "./ChatSidebar";
 import { StateIcon } from "./Chips";
 import { Monogram, YouTag } from "./People";
 import { channelTag, dmTag } from "../chatData";
+
+/** The messages and the Admin's records in time order: a record comes after every message sent before it. Earlier pages not loaded hide the records older than the oldest message shown. */
+function recordsAmong(messages: ThreadMessage[], reads: AdminRead[], hasEarlier: boolean): ({ m: ThreadMessage; rec?: undefined } | { rec: AdminRead; m?: undefined })[] {
+  const first = messages[0]?.at ?? 0;
+  const recs = reads.filter((r) => !hasEarlier || r.startedAt >= first).sort((a, b) => a.startedAt - b.startedAt);
+  const out: ({ m: ThreadMessage; rec?: undefined } | { rec: AdminRead; m?: undefined })[] = [];
+  let i = 0;
+  for (const m of messages) {
+    while (i < recs.length && recs[i]!.startedAt < m.at) out.push({ rec: recs[i++]! });
+    out.push({ m });
+  }
+  while (i < recs.length) out.push({ rec: recs[i++]! });
+  return out;
+}
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
@@ -46,7 +65,7 @@ function Text({ text }: { text: string }) {
   );
 }
 
-function Message({ m, all, me, now, paused, owner, across }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string; across: boolean }) {
+function Message({ m, all, me, now, paused, owner, across, heldBy }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string; across: boolean; heldBy?: string }) {
   const c = m.channel;
   const d = m.direct;
   const mine = c ? c.mine : d ? d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase() : false;
@@ -56,7 +75,7 @@ function Message({ m, all, me, now, paused, owner, across }: { m: ThreadMessage;
     const target = all.find((x) => x.id === c.replyTo)?.channel;
     re = target ? (target.mine ? "you" : target.authorName) : "an earlier message";
   }
-  const dl = c ? channelDelivery(c) : dmDelivery(d!, paused, owner, undefined, across);
+  const dl = c ? channelDelivery(c) : dmDelivery(d!, paused, owner, undefined, across, heldBy);
   const text = (c ?? d)!.text;
   return (
     <li className={`txt${mine ? " mine" : ""}${re ? " reply" : ""}`} data-testid="chat-message">
@@ -113,6 +132,10 @@ export interface ThreadProps {
   onClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
   onBack: () => void;
+  /** The person an Admin reads, or null. The thread is read only while it is set. */
+  readAs: string | null;
+  /** The server's clock now, for hiding a reading whose time has passed. */
+  serverNow: number;
 }
 
 export function ChatThread(p: ThreadProps) {
@@ -172,12 +195,19 @@ export function ChatThread(p: ThreadProps) {
   const parties: Party[] = p.direct ? [p.direct.a, p.direct.b] : dmHead?.a && dmHead.b ? [dmHead.a, dmHead.b] : [];
   const agents = parties.filter((x) => x.kind === "agent");
   const cross = (p.direct?.cross ?? dmHead?.cross) || null;
+  const ro = p.readAs !== null && !(p.sel.kind === "channel" && p.sel.id === "general");
+  const ownerName = dmHead?.owner ?? p.direct?.owner ?? p.readAs ?? o.me.name;
   // A conversation between two agents has the viewer in it as the third person; one with the person has them as a party.
-  const person = parties.find((x) => x.kind === "person") ?? (o.me.person ? ({ name: o.me.name } as Party) : undefined);
+  const person = parties.find((x) => x.kind === "person") ?? (ro ? ({ name: ownerName } as Party) : o.me.person ? ({ name: o.me.name } as Party) : undefined);
   const machines = [...new Set(agents.map((x) => x.machine))];
   const tag = p.channel ? channelTag(p.channel) : p.direct ? dmTag(p.direct) : null;
-  const scope =
-    cross && agents[0]
+  const scope = ro
+    ? cross && agents[0]
+      ? `Only ${cross.person}, ${cross.owner} and an Admin can read this.`
+      : p.sel.kind === "channel"
+      ? `Only ${p.readAs} and ${p.readAs}'s own orchestrators, subagents and forks can post here. You are reading it as an Admin.`
+      : `Only ${ownerName} and an Admin can read this.`
+    : cross && agents[0]
       ? crossLine(cross, agents[0].name)
       : p.sel.kind === "channel"
       ? p.sel.id === "general"
@@ -190,8 +220,15 @@ export function ChatThread(p: ThreadProps) {
     p.sel.kind === "channel"
       ? p.sel.id === "general"
         ? "Everyone signed in to this server"
+        : ro
+        ? `${p.readAs}'s own orchestrators and subagents`
         : `You and your ${plural(o.agents.length, "orchestrator")} and subagents`
       : machines.join(" and ");
+  // What an Admin did or is doing here: the people in the thread are told, and an Admin's pause shows to all.
+  const readers = ro ? [] : liveReaders(p.channel?.adminReading ?? p.direct?.adminReading, p.serverNow);
+  const pause = p.channel ? (p.channel.id === "group" && p.channel.paused ? adminPauseOf({ paused: true, pausedByAdmin: p.channel.pausedByAdmin }) : null) : adminPauseOf({ ...(p.direct ?? {}), ...(dmHead ? { paused: dmHead.paused || p.direct?.paused, pausedBy: dmHead.pausedBy ?? p.direct?.pausedBy, pausedByAdmin: dmHead.pausedByAdmin ?? p.direct?.pausedByAdmin } : {}), cross: dmHead?.cross ?? p.direct?.cross ?? null });
+  const also = cross ? (cross.viewerIs === "sender" ? cross.owner : cross.person) : null;
+  const items = recordsAmong(t.messages, t.reads, t.older !== null);
 
   return (
     <section className="ch-thread" aria-labelledby="th-h" data-testid="chat-thread">
@@ -208,6 +245,7 @@ export function ChatThread(p: ThreadProps) {
               <TagGlyph icon={tag.icon} /> {tag.text}
             </span>
           )}
+          <AdminTags readers={readers} pause={pause} />
         </div>
         <div className="sub">
           <span>{scope}</span>
@@ -246,6 +284,9 @@ export function ChatThread(p: ThreadProps) {
           )}
         </div>
       )}
+      {ro && <ReadOnlyBanner owner={cross ? cross.owner : ownerName} also={cross ? cross.person : null} />}
+      <ReadingBanner readers={readers} also={also} now={p.now} />
+      {pause && <AdminPauseBanner name={pause.name} group={p.sel.kind === "channel"} you={ro && pause.name !== null && pause.name.toLowerCase() === o.me.name.toLowerCase()} />}
       <div className="ch-alert">{p.alert}</div>
       <div
         className="ch-body"
@@ -286,9 +327,13 @@ export function ChatThread(p: ThreadProps) {
             </div>
             <ol className="feed" aria-label="Messages">
               {t.messages.length === 0 && <li className="empty">No messages yet. Write the first one below.</li>}
-              {t.messages.map((m) => (
-                <Message key={m.id} m={m} all={t.messages} me={o.me.name} now={p.now} across={cross !== null} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
-              ))}
+              {items.map((it) =>
+                it.rec ? (
+                  <RecordLine key={`rec-${it.rec.admin}-${it.rec.startedAt}-${it.rec.kind ?? "read"}`} r={it.rec} />
+                ) : (
+                  <Message key={it.m.id} m={it.m} all={t.messages} me={o.me.name} now={p.now} across={cross !== null} heldBy={pause ? adminWho(pause.name) : undefined} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
+                ),
+              )}
             </ol>
           </>
         )}

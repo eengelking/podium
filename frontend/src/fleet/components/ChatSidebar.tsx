@@ -2,8 +2,9 @@
 // opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
 // of the agent's state when pointed at or focused, the same colors as its icon.
 import type { MouseEvent, ReactNode } from "react";
-import { channelTag, dmName, dmSub, dmTag, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { adminPauseOf, channelTag, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
+import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, channelMenu, dmMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
 import { StateIcon, stateKind, type StateKind } from "./Chips";
@@ -35,6 +36,17 @@ function TagLine({ tag }: { tag: Tag | null }) {
   );
 }
 
+/** A row's tags: the plain state, then the red ones an Admin's reading or pause adds. Nothing when there is none. */
+function Tags({ tag, admin }: { tag: Tag | null; admin: ReactNode }) {
+  if (!tag && !admin) return null;
+  return (
+    <span className="tags">
+      <TagLine tag={tag} />
+      {admin}
+    </span>
+  );
+}
+
 export interface SidebarProps {
   overview: ChatOverview;
   sessions: Record<string, SessionView>;
@@ -47,6 +59,13 @@ export interface SidebarProps {
   onChannel: (id: "general" | "group") => void;
   onDm: (d: DirectInfo) => void;
   onAgent: (a: ChatAgent) => void;
+  /** The person an Admin is reading, or null. While set the sidebar is read only: no unread counts, no People and agents. */
+  readAs: string | null;
+  /** What the picker is set to, which can run ahead of `readAs` while the person's list is read. */
+  picked: string | null;
+  onReadAs: (name: string | null) => void;
+  /** The server's clock now, for hiding a reading whose time has passed. */
+  serverNow: number;
 }
 
 export function ChatSidebar(p: SidebarProps) {
@@ -78,15 +97,19 @@ export function ChatSidebar(p: SidebarProps) {
   };
 
   const channelRow = (c: ChatChannel) => {
-    const sub = c.id === "general" ? "Everyone signed in to this server" : `You and your ${o.agents.length} orchestrator${o.agents.length === 1 ? "" : "s"} and subagents`;
-    const badge = c.mentions > 0 ? <span className="unread" aria-label={`${c.mentions} mention${c.mentions === 1 ? "" : "s"} of you`}>@ {c.mentions}</span> : c.unread > 0 ? <span className="unread" aria-label={`${c.unread} new`}>{c.unread}</span> : null;
-    return row(`c:${c.id}`, channelMenu(c).items.length || channelMenu(c).why ? channelMenu(c) : null, (
+    const ro = p.readAs !== null && c.id === "group";
+    const sub = c.id === "general" ? "Everyone signed in to this server" : ro ? `${p.readAs}'s own orchestrators and subagents, read only` : `You and your ${o.agents.length} orchestrator${o.agents.length === 1 ? "" : "s"} and subagents`;
+    const readers = ro ? [] : liveReaders(c.adminReading, p.serverNow);
+    const pause = c.id === "group" && c.paused && c.pausedByAdmin ? adminPauseOf({ paused: true, pausedByAdmin: c.pausedByAdmin }) : null;
+    const badge = ro ? null : c.mentions > 0 ? <span className="unread" aria-label={`${c.mentions} mention${c.mentions === 1 ? "" : "s"} of you`}>@ {c.mentions}</span> : c.unread > 0 ? <span className="unread" aria-label={`${c.unread} new`}>{c.unread}</span> : null;
+    const menu = channelMenu(c, ro && p.readAs ? { owner: p.readAs } : undefined);
+    return row(`c:${c.id}`, menu.items.length || menu.why ? menu : null, (
       <>
         {c.id === "general" ? <ChHash /> : <ChGroup />}
         <span className="stack">
           <span className="nm">{c.name}</span>
           <span className="sub">{sub}</span>
-          <TagLine tag={channelTag(c)} />
+          <Tags tag={channelTag(c)} admin={<AdminTags readers={readers} pause={pause} />} />
         </span>
         {badge}
       </>
@@ -96,15 +119,17 @@ export function ChatSidebar(p: SidebarProps) {
   const dmRow = (d: DirectInfo) => {
     const name = dmName(d);
     const key = `d:${[d.a, d.b].filter((x) => x.kind === "agent").map((x) => x.sessionId).sort().join("+")}`;
-    return row(key, dmMenu(d, true), (
+    const ro = p.readAs !== null;
+    const readers = ro ? [] : liveReaders(d.adminReading, p.serverNow);
+    return row(key, dmMenu(d, true, ro), (
       <>
         <ChDm />
         <span className="stack">
           <span className="nm" title={name}>{name}</span>
-          <span className="sub">{dmSub(d)}</span>
-          <TagLine tag={dmTag(d)} />
+          <span className="sub">{dmSub(d, ro)}</span>
+          <Tags tag={dmTag(d)} admin={<AdminTags readers={readers} pause={adminPauseOf(d)} />} />
         </span>
-        {d.unread > 0 && <span className="unread" aria-label={`${d.unread} new`}>{d.unread}</span>}
+        {!ro && d.unread > 0 && <span className="unread" aria-label={`${d.unread} new`}>{d.unread}</span>}
       </>
     ), { open: () => p.onDm(d), aria: `Actions for ${name}` });
   };
@@ -122,13 +147,20 @@ export function ChatSidebar(p: SidebarProps) {
     ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, cls: `hl-${kind}`, title: `Message ${a.name}` });
   };
 
+  const reading = p.readAs !== null;
   return (
     <nav className="ch-side" aria-label="Chat">
+      {o.me.admin && <ReadPicker people={o.people.filter((x) => !x.you).map((x) => x.name)} value={p.picked} onChange={p.onReadAs} />}
       <section className="ch-sec" aria-labelledby="sec-ch">
         <h2 id="sec-ch">Channels</h2>
         <ul className="ch-list">{o.channels.map(channelRow)}</ul>
       </section>
-      {person ? (
+      {reading ? (
+        <section className="ch-sec" aria-labelledby="sec-dm">
+          <h2 id="sec-dm">Direct Messages</h2>
+          <ul className="ch-list">{o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">{p.readAs} has no Direct Messages.</li>}</ul>
+        </section>
+      ) : person ? (
         <>
           <section className="ch-sec" aria-labelledby="sec-dm">
             <h2 id="sec-dm">Direct Messages</h2>
