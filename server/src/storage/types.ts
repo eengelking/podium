@@ -426,10 +426,18 @@ export interface ChatSettingsApi {
 }
 
 /** One reading session of an Admin in a thread that is not theirs (#1034): who, when it began and when the Admin last read it. Never any text. */
+/**
+ * What an Admin record says: `read` (an Admin read the thread), or one of the Admin's stops that stay on the record for good (#1034): `cleared` (removed all
+ * messages), `paused` and `resumed` (a link or a group). Only `read` has a session and a live window; the others are one moment (`lastSeenAt` equals `startedAt`).
+ */
+export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed';
+export const ADMIN_READ_KINDS: readonly AdminReadKind[] = ['read', 'cleared', 'paused', 'resumed'];
+
 export interface AdminReadRow {
   admin: string;
   startedAt: number;
   lastSeenAt: number;
+  kind: AdminReadKind;
 }
 
 /** The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text. */
@@ -439,13 +447,18 @@ export interface ChatAdminReadsApi {
    * `lastSeenAt`; a longer gap starts a new record. `previousSeenAt` is the session's last read before this one, or null when it began now.
    */
   touch(thread: string, admin: string, gapMs: number): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
-  /** The thread's records, oldest first. */
+  /**
+   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session. Two records of one Admin
+   * in the same millisecond are kept apart by moving the later one on by a millisecond.
+   */
+  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>): Promise<AdminReadRow>;
+  /** The thread's records of every kind, oldest first. */
   list(thread: string): Promise<AdminReadRow[]>;
-  /** The records of these threads last read after `since`, by thread, then oldest first. */
+  /** The reading records (never a stop) of these threads last read after `since`, by thread, then oldest first. */
   live(threads: string[], since: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** Every thread that has a record and starts with `prefix`, by name. */
   threads(prefix: string): Promise<string[]>;
-  /** The thread is gone: removes its records. Returns how many. */
+  /** The thread is gone (a conversation deleted): removes its records of every kind. Remove all messages does not call this. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Removes the records last read before `olderThan`. Returns how many. */
   purge(olderThan: number): Promise<number>;

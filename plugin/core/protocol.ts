@@ -646,6 +646,17 @@ export interface PeerRequest {
   text: string | null;
 }
 
+/**
+ * A callout for this session's person (#1034): an Admin started reading, or paused, resumed or removed all messages of, one of their Podium conversations.
+ * One content-free sentence naming the Admin, never any message text. The server hands the same one over for a few minutes; `id` lets the mod show it once.
+ * It is for the person only: a mod shows it as a toast and a transcript line and never submits it to the model. Not gated by the `peers` option.
+ */
+export interface AdminNotice {
+  id: string;
+  at: number;
+  text: string;
+}
+
 /** The reply to an accepted report. Older servers send only some of it. */
 export interface ReportReply {
   ok: true;
@@ -676,6 +687,8 @@ export interface ReportReply {
   peerDeliveries?: PeerDelivery[];
   /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
   peerRequests?: PeerRequest[];
+  /** Callouts for the person, present only while there is one (#1034). Absent from a server older than the release that adds it; an older reporter ignores it. */
+  adminNotices?: AdminNotice[];
   /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
   recording?: RecordingGrant;
 }

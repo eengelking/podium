@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { PeerDelivery, PeerRequest, Report } from '../core/protocol.ts';
+import type { AdminNotice, PeerDelivery, PeerRequest, Report } from '../core/protocol.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
@@ -22,15 +22,16 @@ interface Server {
   /** What the next call to a /peers route answers. */
   answer: (method: string, path: string) => { status: number; text: string } | Promise<{ status: number; text: string }> | 'throw';
   reports: Report[];
+  adminNotices: AdminNotice[];
 }
 
 function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { prompt?: ((s: string, id: string, text: string) => Promise<void>) | null; peerCallMs?: number; log?: (line: string) => void } = {}) {
-  const server: Server = { peers: true, deliveries: [], requests: [], calls: [], reports: [], answer: () => ({ status: 200, text: '{"peers":[],"leftOut":[]}' }) };
+  const server: Server = { peers: true, deliveries: [], requests: [], calls: [], reports: [], adminNotices: [], answer: () => ({ status: 200, text: '{"peers":[],"leftOut":[]}' }) };
   const fetch: FetchLike = async (url, init) => {
     const path = url.replace('http://podium.test', '');
     if (path === '/api/fleet/report') {
       server.reports.push(JSON.parse(init.body!) as Report);
-      const body = { peers: server.peers, peerDeliveries: server.deliveries, peerRequests: server.requests };
+      const body = { peers: server.peers, peerDeliveries: server.deliveries, peerRequests: server.requests, ...(server.adminNotices.length ? { adminNotices: server.adminNotices } : {}) };
       server.deliveries = [];
       return { status: 200, ok: true, text: JSON.stringify(body) };
     }
@@ -410,4 +411,27 @@ describe('the plan tool (#969)', () => {
     expect(await plan(x, { title: 'x' }, KID)).toContain('Only the orchestrator');
     expect(await plan(x, { title: 'x' }, 'ses_unknown')).toContain('Only the orchestrator');
   });
+});
+
+describe('the callout an Admin\'s reading shows the person (#1034)', () => {
+  const CALL: AdminNotice = { id: 'an-1', at: 1, text: 'Root (an Admin) is reading your Podium conversation with Tester.' };
+  for (const [name, env] of [['off', {}], ['on', { PODIUM_PEERS: 'true' }]] as const) {
+    it(`is a toast for the person, once, with the peers option ${name}, and nothing is submitted to the model`, async () => {
+      const x = rig(env);
+      x.server.adminNotices = [CALL];
+      await reported(x);
+      await x.r.tick();
+      await flushed();
+      expect(x.toasts.filter((t) => t.includes('Root (an Admin)'))).toEqual(['Podium: Root (an Admin) is reading your Podium conversation with Tester.']);
+      // The server hands it over again for minutes: shown once. A new id is shown.
+      await reported(x);
+      await x.r.tick();
+      expect(x.toasts.filter((t) => t.includes('Root (an Admin)'))).toHaveLength(1);
+      x.server.adminNotices = [CALL, { ...CALL, id: 'an-2', text: 'Root (an Admin) paused the link between dev and Tester.' }];
+      await reported(x);
+      await x.r.tick();
+      expect(x.toasts.filter((t) => t.includes('Root (an Admin)'))).toHaveLength(2);
+      expect(x.prompts).toEqual([]);
+    });
+  }
 });

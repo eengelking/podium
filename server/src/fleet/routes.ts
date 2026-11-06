@@ -12,6 +12,7 @@ import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi } from '../storag
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
+import type { AdminNotice } from './chatAdminNotices.js';
 import { mountRespondRoutes, replyFor, type RespondAccess } from './respondRoutes.js';
 import { mountChatAgentRoutes, mountChatBrowserRoutes } from './chatRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
@@ -136,6 +137,12 @@ function intParam(v: unknown): number | null | 'bad' {
 
 /** The route a request matched, as `/api/fleet/report`. */
 const routeName = (req: Request): string => `${req.baseUrl}${(req.route as { path?: string } | undefined)?.path ?? req.path}`;
+
+/** The callouts for this session's person when an Admin read or stopped their conversation (#1034): present only while there is one. Older reporters ignore the field. */
+function adminNoticesOf(fleet: Fleet, sessionId: string): { adminNotices?: AdminNotice[] } {
+  const adminNotices = fleet.chat.adminNoticesFor(sessionId);
+  return adminNotices.length ? { adminNotices } : {};
+}
 
 export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): Router {
   const logger = opts.logger ?? (opts.log ? loggerFromLine(opts.log) : createLogger({ secrets: opts.token ? [opts.token] : [] }));
@@ -281,7 +288,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...adminNoticesOf(fleet, out.sessionId), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof HarnessConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {

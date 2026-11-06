@@ -413,6 +413,12 @@ CREATE TABLE chat_admin_reads (
 );
 CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);`,
   },
+  {
+    version: 34,
+    // What an Admin record says (#1034): a reading (every record before this one), or one of the Admin's stops that stay on the record for good: removed all
+    // messages, paused, resumed. The rows already there are readings, which the default says.
+    sql: `ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

@@ -8,6 +8,7 @@ import { nameKey } from '../storage/rows.js';
 import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '../storage/types.js';
 import type { Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
+import { AdminNotices } from './chatAdminNotices.js';
 import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail } from './chatTypes.js';
 
 const MINUTE = 60_000;
@@ -52,6 +53,8 @@ const DROP_WHY: Record<string, string> = {
 export class ChatCore {
   /** Replaced by the routes, so an event reaches the Admin log and the server log. */
   onEvent: (e: ChatEvent) => void = () => {};
+  /** What an Admin's reading or stopping tells the person's reporter sessions (#1034); the report reply carries it, to the person only. */
+  readonly notices: AdminNotices;
   /** Replaced by the routes: the names of everyone who can sign in, for the counts a post changes for all of them. */
   people: Pick<PeopleStoreApi, 'list'> | null = null;
   /** Replaced by the Chat service: hands a person's @ of another person's agent to the direct-message side. */
@@ -65,6 +68,7 @@ export class ChatCore {
     readonly host: ChatHost,
     readonly store: ChatStoreApi,
   ) {
+    this.notices = new AdminNotices(host.now);
     host.respond.watch((t) => this.onTrail(t));
   }
 

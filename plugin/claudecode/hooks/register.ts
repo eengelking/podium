@@ -97,6 +97,7 @@ import {
   SUBAGENT_SEND,
   TOOL_DESCRIPTIONS,
 } from '../../core/peers.ts';
+import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeLine, adminNoticeToast } from '../../core/adminNotice.ts';
 import { connectionLine, messagingLine, optionProblem, messagingOffReason, nonBooleanOptions, type MessagingFacts } from './messagingStatus.ts';
 import {
   answeredLine,
@@ -354,6 +355,8 @@ let peerCalls: PeerCall[] = [];
 let peerToolsRegistered = false;
 /** Requests seen in this load, by id, oldest first: each is toasted once. */
 let peerKnown = new Map<string, PeerRequest>();
+/** The callouts an Admin's reading earned, shown already (#1034). */
+let adminNoticesSeen = new AdminNoticeSeen();
 /** The ids the last reply listed as open. */
 let peerOpen: string[] = [];
 
@@ -574,6 +577,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     toastOnce($, r, true);
     handleDeliveries($, r);
     handleDiffs($, r);
+    handleAdminNotices($, r);
     handlePeers($, r);
     messagesLine($, r);
     takeRecording($, r.transport.recording);
@@ -1422,6 +1426,24 @@ function queuePeerResult(sessionId: string, deliveryId: string, result: PeerResu
   queueOut({ path: peerPath(sessionId, `/deliveries/${encodeURIComponent(deliveryId)}/result`), body: { result, at: nowMs() } });
 }
 
+/**
+ * An Admin read, paused, resumed or removed the messages of one of this person's Podium conversations (#1034): a toast and a transcript line, each once.
+ * For the person only. It is not a prompt, a turn, a tool's answer or system text, so the model never reads it, and it does not depend on the messaging
+ * option: the person is told whether or not their agents take part in messaging.
+ */
+function handleAdminNotices($: Engine, r: Runtime): void {
+  const list = r.transport.adminNotices;
+  r.transport.adminNotices = [];
+  for (const n of adminNoticesSeen.fresh(list)) {
+    try {
+      $.ui.toast(adminNoticeToast(n), { timeoutMs: ADMIN_NOTICE_TOAST_MS });
+    } catch {
+      // no toasts on this host
+    }
+    transcriptLine($, adminNoticeLine(n));
+  }
+}
+
 /** The reply's messaging fields. Unless the mod takes part, nothing in them is taken, whatever the reply says. */
 function handlePeers($: Engine, r: Runtime): void {
   const deliveries = r.transport.peerDeliveries;
@@ -2064,6 +2086,7 @@ export const register: Register = (on, rawOptions) => {
   peerCalls = [];
   peerToolsRegistered = false;
   peerKnown = new Map();
+  adminNoticesSeen = new AdminNoticeSeen();
   peerOpen = [];
 
   on('session.start', async ($, e, next) => {

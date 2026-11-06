@@ -57,7 +57,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
     const got = await channels().page(t.v, t.channel, t.owner, { before, limit });
     if ('status' in got) return void d.refuse(req, res, got);
-    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total, ...(t.channel === 'group' ? { adminReads } : {}) });
+    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total, adminReads });
   }));
 
   /** An Admin's open group pings this every 15 seconds so its person keeps seeing that it is being read. Answers only `ok`. */

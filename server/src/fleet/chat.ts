@@ -4,6 +4,7 @@
 import { nameKey } from '../storage/rows.js';
 import type { ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { AdminReads } from './chatAdminReads.js';
+import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
@@ -81,6 +82,11 @@ export class ChatService {
   }
 
   /** Replaced by the routes, so a Chat event reaches the Admin log and the server log. */
+  /** The callouts a session's next report reply carries for its person: an Admin read or stopped their conversation. Empty for most. Content-free. */
+  adminNoticesFor(sessionId: string): AdminNotice[] {
+    return this.core.notices.for(sessionId);
+  }
+
   set onEvent(fn: (e: ChatEvent) => void) {
     this.core.onEvent = fn;
   }

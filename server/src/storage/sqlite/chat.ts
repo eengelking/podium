@@ -8,7 +8,7 @@ import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
   CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
-import type { AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
 const PUBLIC_COLS = 'id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
@@ -167,9 +167,10 @@ interface DbAdminRead {
   admin: string;
   started_at: number;
   last_seen_at: number;
+  kind: AdminReadKind;
 }
 
-const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at });
+const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
 
 /** The records of an Admin reading a thread that is not theirs (`chat_admin_reads`): who, which thread and when. Never any text. */
 class AdminReads {
@@ -181,27 +182,37 @@ class AdminReads {
   touch(thread: string, admin: string, gapMs: number): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
     const now = this.now();
     const key = nameKey(admin);
-    const last = this.db.prepare('SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread = ? AND admin_key = ? ORDER BY last_seen_at DESC, started_at DESC LIMIT 1').get(thread, key) as unknown as DbAdminRead | undefined;
+    const last = this.db.prepare("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND kind = 'read' ORDER BY last_seen_at DESC, started_at DESC LIMIT 1").get(thread, key) as unknown as DbAdminRead | undefined;
     if (last && now - last.last_seen_at <= gapMs) {
       const seen = Math.max(now, last.last_seen_at);
-      this.db.prepare('UPDATE chat_admin_reads SET last_seen_at = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(seen, thread, key, last.started_at);
-      return { record: { admin: last.admin, startedAt: last.started_at, lastSeenAt: seen }, started: false, previousSeenAt: last.last_seen_at };
+      this.db.prepare("UPDATE chat_admin_reads SET last_seen_at = ? WHERE thread = ? AND admin_key = ? AND started_at = ? AND kind = 'read'").run(seen, thread, key, last.started_at);
+      return { record: { admin: last.admin, startedAt: last.started_at, lastSeenAt: seen, kind: 'read' }, started: false, previousSeenAt: last.last_seen_at };
     }
-    this.db
-      .prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(thread, admin_key, started_at) DO UPDATE SET last_seen_at = excluded.last_seen_at')
-      .run(thread, key, admin, now, now);
-    return { record: { admin, startedAt: now, lastSeenAt: now }, started: true, previousSeenAt: null };
+    const row = this.insert(thread, key, admin, now, 'read');
+    return { record: row, started: true, previousSeenAt: null };
+  }
+
+  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>): AdminReadRow {
+    return this.insert(thread, nameKey(admin), admin, this.now(), kind);
+  }
+
+  /** One record at `at`, or the first free millisecond after it, since (thread, admin, time) is the key. */
+  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind): AdminReadRow {
+    let t = at;
+    while (this.db.prepare('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').get(thread, key, t)) t++;
+    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind) VALUES (?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind);
+    return { admin, startedAt: t, lastSeenAt: t, kind };
   }
 
   list(thread: string): AdminReadRow[] {
-    return (this.db.prepare('SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key').all(thread) as unknown as DbAdminRead[]).map(toRead);
+    return (this.db.prepare('SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key, kind').all(thread) as unknown as DbAdminRead[]).map(toRead);
   }
 
   live(threads: string[], since: number): (AdminReadRow & { thread: string })[] {
     if (!threads.length) return [];
     const marks = threads.map(() => '?').join(', ');
     const rows = this.db
-      .prepare(`SELECT thread, admin, started_at, last_seen_at FROM chat_admin_reads WHERE thread IN (${marks}) AND last_seen_at > ? ORDER BY thread, started_at, admin_key`)
+      .prepare(`SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread IN (${marks}) AND kind = 'read' AND last_seen_at > ? ORDER BY thread, started_at, admin_key`)
       .all(...threads, since) as unknown as DbAdminRead[];
     return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
@@ -255,6 +266,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
   };
   const adminReads: ChatAdminReadsApi = {
     touch: (thread, admin, gapMs) => step(() => reads.touch(thread, admin, gapMs)),
+    mark: (thread, admin, kind) => step(() => reads.mark(thread, admin, kind)),
     list: (thread) => step(() => reads.list(thread)),
     live: (threads, since) => step(() => reads.live(threads, since)),
     threads: (prefix) => step(() => reads.threads(prefix)),

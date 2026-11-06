@@ -6,6 +6,7 @@ import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
 import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
+import { AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
@@ -141,6 +142,8 @@ export class Reporter {
   /** Answering from Podium (#858); null when the person has not allowed it or the host cannot do it. */
   private readonly answering: Answering | null;
   private readonly responder: Responder;
+  /** The callouts an Admin's reading earned that were shown already (#1034); a notice the server keeps handing over is shown once. */
+  private readonly adminSeen = new AdminNoticeSeen();
   /** Orchestrator messaging (#347); null unless the person allowed it (`PODIUM_PEERS`) and the host can submit a prompt. */
   private readonly peers: Peers | null;
   /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
@@ -331,6 +334,17 @@ export class Reporter {
     setWatched(root, o.activityFeed ? t.watch : []);
     setWatchedOutput(root, o.activityFeed && o.activityOutput ? t.watchOutput.filter((id) => root.watched.includes(id)) : []);
     this.takeRecording(root, t.recording);
+    this.takeAdminNotices(t);
+  }
+
+  /**
+   * An Admin read, paused, resumed or removed the messages of one of this person's Podium conversations (#1034): a toast, each once. It is for the person
+   * only, never a prompt, a turn or a tool's answer, so the model does not read it, and it does not depend on the messaging option.
+   */
+  private takeAdminNotices(t: Transport): void {
+    const list = t.adminNotices;
+    t.adminNotices = [];
+    for (const n of this.adminSeen.fresh(list)) this.deps.notify?.(adminNoticeToast(n));
   }
 
   /** Takes the server's grant for the recording and tells the owner what changed. Capture needs the owner's option on as well; with it off nothing is captured. */

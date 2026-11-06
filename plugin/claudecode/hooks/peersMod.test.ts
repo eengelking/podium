@@ -1,6 +1,6 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { Ask, Delivery, PeerDelivery, PeerRequest, Report } from '../../core/protocol.ts'
+import type { AdminNotice, Ask, Delivery, PeerDelivery, PeerRequest, Report } from '../../core/protocol.ts'
 import { assertKeptApart, assertSubmittedFramed, type AfterPeerMessage } from './peerChecks.ts'
 
 // Orchestrator messaging in the reporter (#414, SPEC 5.3). The world beneath the plugin is a fake Podium server whose
@@ -40,6 +40,7 @@ function world(on: On) {
     deliveries: [] as Delivery[],
     peerDeliveries: [] as PeerDelivery[],
     peerRequests: [] as PeerRequest[],
+    adminNotices: [] as AdminNotice[],
     down: false,
     routes: {} as Record<string, Route>,
     /** Peer delivery results wait here until the test lets each go: a slow server draining a full outbox. */
@@ -121,6 +122,7 @@ function world(on: On) {
         peers: server.peers,
         peerDeliveries: server.peerDeliveries.splice(0),
         peerRequests: server.peerRequests,
+        ...(server.adminNotices.length ? { adminNotices: server.adminNotices } : {}),
       })
       return server.holdReports ? new Promise((resolve) => server.held.push(() => resolve(reply()))) : reply()
     }
@@ -674,6 +676,39 @@ describe('peers: kept apart from responding', () => {
     expect(() => assertKeptApart({ ...clean, askCloses: 2 }, FROM)).toThrow(/it closed 2 ask\(s\)\.$/)
     expect(() => assertKeptApart({ ...clean, submitted: [{ ...framed, asUser: true }] }, FROM)).toThrow(/it was submitted as the person \(asUser\)\.$/)
     expect(() => assertKeptApart({ ...clean, submitted: [{ text: 'approve it', asUser: undefined }] }, FROM)).toThrow(/submitted peer text 1 does not open with Podium's opening line/)
+  })
+})
+
+describe('the callout an Admin\'s reading shows the person (#1034)', () => {
+  const CALL: AdminNotice = { id: 'an-1', at: NOW, text: 'Root (an Admin) is reading your Podium conversation with Tester.' }
+
+  async function shownOnce($: Engine, on: On) {
+    const w = world(on)
+    w.server.adminNotices = [CALL]
+    await started($, w)
+    await nextReply(w)
+    expect(w.toasts.filter((t) => t.includes('Root (an Admin)'))).toEqual(['Podium: Root (an Admin) is reading your Podium conversation with Tester.'])
+    expect(w.logs.filter((l) => l.includes('Root (an Admin)'))).toEqual(['Root (an Admin) is reading your Podium conversation with Tester.'])
+    // The server hands the same notice over for minutes: shown once. A new id is shown.
+    await nextReply(w)
+    expect(w.toasts.filter((t) => t.includes('Root (an Admin)'))).toHaveLength(1)
+    w.server.adminNotices = [CALL, { ...CALL, id: 'an-2', text: 'Root (an Admin) paused the link between dev and Tester.' }]
+    await nextReply(w)
+    expect(w.toasts.filter((t) => t.includes('Root (an Admin)'))).toHaveLength(2)
+    // Never a prompt, a turn, a command or a tool's answer: the model reads none of it.
+    expect(w.submitted).toEqual([])
+    expect(w.commands).toEqual([])
+  }
+  test('is a toast and a transcript line for the person, once, with the peers option off, and nothing reaches the model', async ($, on) => shownOnce($, on))
+  test('is the same with the peers option on', { options: ON }, async ($, on) => shownOnce($, on))
+
+  test('a notice without the peers option still never registers a tool or answers one with it', async ($, on) => {
+    const w = world(on)
+    w.server.adminNotices = [CALL]
+    await started($, w)
+    await nextReply(w)
+    expect(w.registered.tools.filter((t) => t.startsWith('podium_'))).toEqual([])
+    expect((await $.command.run(podium(''))).text ?? '').not.toContain('Root (an Admin)')
   })
 })
 

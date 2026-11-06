@@ -1326,7 +1326,7 @@ describe('an Admin reading a conversation (#1034)', () => {
   const MIN = 60_000;
   const AB = `${CH}/dm/sess-dev/sess-tester`;
   const ping = (b: ReturnType<typeof request.agent>, path: string, body: Record<string, unknown> = {}) => b.post(path).set(H).send(body);
-  const reads = (b: ReturnType<typeof request.agent>, q = '?owner=Ed') => read(b, 'group', q).then((r) => r.body.adminReads as { admin: string; startedAt: number; lastSeenAt: number }[]);
+  const reads = (b: ReturnType<typeof request.agent>, q = '?owner=Ed') => read(b, 'group', q).then((r) => r.body.adminReads as { admin: string; startedAt: number; lastSeenAt: number; kind: string }[]);
   const groupLive = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.channels as { id: string; adminReading: unknown }[]).find((c) => c.id === 'group')!.adminReading;
   const dmLive = async (b: ReturnType<typeof request.agent>) => ((await b.get(CH)).body.directs as { adminReading: unknown[] }[]).map((d) => d.adminReading);
   const store = (w: W) => w.fleet.chat.core.store.adminReads;
@@ -1348,7 +1348,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect(texts(await read(admin, 'group', '?owner=Ed'))).toEqual(['for the admin']);
     const start = w.now();
     expect(await groupLive(w.edB)).toEqual([{ admin: 'Admin secret', since: start, until: start + 30_000 }]);
-    expect(await reads(w.edB, '')).toEqual([{ admin: 'Admin secret', startedAt: start, lastSeenAt: start }]);
+    expect(await reads(w.edB, '')).toEqual([{ admin: 'Admin secret', startedAt: start, lastSeenAt: start, kind: 'read' }]);
     // The Admin reads the record too; another person sees nothing of Ed's group.
     expect(await reads(admin)).toHaveLength(1);
     expect(await groupLive(w.alexB)).toEqual([]);
@@ -1367,13 +1367,13 @@ describe('an Admin reading a conversation (#1034)', () => {
     await read(admin, 'group', '?owner=Ed');
     w.tick(29 * MIN);
     await read(admin, 'group', '?owner=Ed');
-    expect(await reads(w.edB, '')).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 + 58 * MIN }]);
+    expect(await reads(w.edB, '')).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 + 58 * MIN, kind: 'read' }]);
     w.tick(31 * MIN);
     const ed = await signedIn(w, 'Ed', w.ed.token);
     await read(admin, 'group', '?owner=Ed');
     expect(await reads(ed, '')).toEqual([
-      { admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 + 58 * MIN },
-      { admin: 'Admin secret', startedAt: t0 + 89 * MIN, lastSeenAt: t0 + 89 * MIN },
+      { admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 + 58 * MIN, kind: 'read' },
+      { admin: 'Admin secret', startedAt: t0 + 89 * MIN, lastSeenAt: t0 + 89 * MIN, kind: 'read' },
     ]);
   });
 
@@ -1434,7 +1434,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     const t0 = w.now();
     expect(await dmLive(w.edB)).toEqual([[{ admin: 'Admin secret', since: t0, until: t0 + 30_000 }]]);
     const thread = (await w.edB.get(`${AB}/messages`)).body;
-    expect(thread.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 }]);
+    expect(thread.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0, kind: 'read' }]);
     expect(await dmLive(w.alexB)).toEqual([]);
     expect((await w.alexB.get(`${AB}/messages`)).status).toBe(403);
   });
@@ -1448,7 +1448,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     const live = { admin: 'Admin secret', since: t0, until: t0 + 30_000 };
     expect(await dmLive(w.edB)).toEqual([[live]]);
     expect(await dmLive(w.alexB)).toEqual([[live]]);
-    expect((await w.edB.get(`${CROSS}/messages`)).body.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0 }]);
+    expect((await w.edB.get(`${CROSS}/messages`)).body.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0, kind: 'read' }]);
     expect((await w.alexB.get(`${CROSS}/messages`)).body.adminReads).toHaveLength(1);
     expect(await dmLive(zed)).toEqual([]);
     expect(JSON.stringify((await zed.get(CH)).body)).not.toContain('Admin secret');
@@ -1544,12 +1544,11 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect(await store(w).threads('dm:')).toHaveLength(1);
     expect((await w.edB.delete(CROSS).set(H)).status).toBe(200);
     expect(await store(w).threads('dm:')).toEqual([]);
-    // Remove all messages.
+    // Remove all messages by the person does not erase the evidence of who read them (#1034).
     expect(await reads(w.edB, '')).toHaveLength(1);
     expect((await w.edB.delete(`${CH}/channels/group/messages`).set(H).send({})).status).toBe(200);
-    expect(await store(w).threads('')).toEqual([]);
-    // Retention: a reading older than the Admin's days goes with the hourly job.
-    await read(admin, 'group', '?owner=Ed');
+    expect(await reads(w.edB, '')).toMatchObject([{ admin: 'Admin secret', kind: 'read' }]);
+    // Retention: a record older than the Admin's days goes with the hourly job.
     w.tick(29 * 86_400_000);
     await w.fleet.retain();
     expect(await store(w).threads('')).toHaveLength(1);
@@ -1693,4 +1692,146 @@ describe('an Admin reading a conversation (#1034)', () => {
     const reqs = ((await w.alexB.get('/api/fleet/respond/peers')).body.requests ?? []) as { id: string }[];
     expect((await w.alexB.post(`/api/fleet/respond/peers/requests/${reqs[0]!.id}`).set(H).send({ answer: 'deliver' })).status).toBe(200);
   }
+});
+
+describe('the callout an Admin\'s reading or stopping shows the person in podium-reporter (#1034)', () => {
+  const AB = `${CH}/dm/sess-dev/sess-tester`;
+  const CROSS = `${CH}/dm/person:ed/sess-alex`;
+  const SECRET_TEXT = 'a private line about the build';
+  const noticesOf = async (w: W, who: 'dev' | 'tester' | 'alex') => {
+    const r = who === 'dev' ? await dev(w, { status: 'running', waitReason: null }) : who === 'tester' ? await tester(w) : await alexOne(w);
+    return (r.body.adminNotices ?? []) as { id: string; at: number; text: string }[];
+  };
+  const kinds = async (b: ReturnType<typeof request.agent>, channel: string, q = '') => ((await read(b, channel, q)).body.adminReads as { admin: string; kind: string }[]).map((r) => `${r.admin}:${r.kind}`);
+  const linkOp = (b: ReturnType<typeof request.agent>, op: string, path = `${AB}/link`) => b.put(path).set(H).send({ op });
+
+  it('tells every reporter session of the person when an Admin starts reading their group, once, and no one else\'s', async () => {
+    const w = await world();
+    await say(w.edB, 'group', SECRET_TEXT);
+    expect(await noticesOf(w, 'dev')).toEqual([]);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await read(admin, 'group', '?owner=Ed');
+    const dn = await noticesOf(w, 'dev');
+    expect(dn).toHaveLength(1);
+    expect(dn[0]!.text).toBe('Admin secret (an Admin) is reading your Podium group.');
+    expect(await noticesOf(w, 'tester')).toHaveLength(1);
+    expect(await noticesOf(w, 'alex')).toEqual([]);
+    // The same reading session, and its keep-alive pings, add nothing; the id stays so the reporter shows it once.
+    w.tick(15_000);
+    await admin.post(`${CH}/channels/group/reading`).set(H).send({ owner: 'Ed' });
+    await read(admin, 'group', '?owner=Ed');
+    expect((await noticesOf(w, 'dev')).map((n) => n.id)).toEqual(dn.map((n) => n.id));
+    // A callout carries no message text, and lapses after a few minutes.
+    expect(JSON.stringify(await noticesOf(w, 'dev'))).not.toContain(SECRET_TEXT);
+    w.tick(6 * 60_000);
+    expect(await noticesOf(w, 'dev')).toEqual([]);
+  });
+
+  it('says nothing to the reporter when a person, or an Admin, reads their own group', async () => {
+    const w = await world();
+    await read(w.edB, 'group');
+    await read(w.edB, 'group', '?owner=Ed');
+    expect(await noticesOf(w, 'dev')).toEqual([]);
+  });
+
+  it('names the other end in the callout of a conversation between a person\'s agents, and tells only the agent\'s reporter across owners', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await admin.get(`${AB}/messages`);
+    expect((await noticesOf(w, 'dev')).map((n) => n.text)).toEqual(['Admin secret (an Admin) is reading your Podium conversation with Tester.']);
+    expect((await noticesOf(w, 'tester')).map((n) => n.text)).toEqual(['Admin secret (an Admin) is reading your Podium conversation with dev.']);
+    const x = await world();
+    await say(x.edB, 'general', '@review@alex-box ' + SECRET_TEXT);
+    const adminX = await signedIn(x, 'Admin', SECRET);
+    await adminX.get(`${CROSS}/messages`);
+    expect((await noticesOf(x, 'alex')).map((n) => n.text)).toEqual(['Admin secret (an Admin) is reading your Podium conversation with Ed.']);
+    expect(await noticesOf(x, 'dev')).toEqual([]);
+    expect(await noticesOf(x, 'tester')).toEqual([]);
+  });
+
+  it('uses the Admin\'s own name when the Admin is a person', async () => {
+    const w = await world();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const rootB = await signedIn(w, 'Root', (await w.people.createPerson('Root', admins.id)).token);
+    await read(rootB, 'group', '?owner=Ed');
+    expect((await noticesOf(w, 'dev'))[0]!.text).toBe('Root (an Admin) is reading your Podium group.');
+  });
+
+  it('keeps an Admin\'s Remove all messages on the record for good, tells the person, and leaves a person\'s own removal unrecorded', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await say(w.edB, 'group', SECRET_TEXT);
+    await read(admin, 'group', '?owner=Ed');
+    expect((await admin.delete(`${CH}/channels/group/messages`).set(H).send({ owner: 'Ed' })).status).toBe(200);
+    expect(await kinds(w.edB, 'group')).toEqual(['Admin secret:read', 'Admin secret:cleared']);
+    expect((await noticesOf(w, 'dev')).map((n) => n.text)).toEqual(['Admin secret (an Admin) is reading your Podium group.', 'Admin secret (an Admin) removed all messages in your Podium group.']);
+    // The person removing their own does not add a line, and keeps the Admin's.
+    await say(w.edB, 'group', 'again');
+    expect((await w.edB.delete(`${CH}/channels/group/messages`).set(H).send({})).status).toBe(200);
+    expect(await kinds(w.edB, 'group')).toEqual(['Admin secret:read', 'Admin secret:cleared']);
+  });
+
+  it('keeps an Admin\'s Remove all messages of General on the record, shown on General, and tells every session', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await say(w.edB, 'general', 'hello all');
+    expect(await kinds(w.edB, 'general')).toEqual([]);
+    expect((await admin.delete(`${CH}/channels/general/messages`).set(H).send({})).status).toBe(200);
+    expect(await kinds(w.alexB, 'general')).toEqual(['Admin secret:cleared']);
+    for (const who of ['dev', 'alex'] as const) expect((await noticesOf(w, who)).map((n) => n.text)).toEqual(['Admin secret (an Admin) removed all messages in General.']);
+    // The record is not erased by a person's removal in their own group, nor by the next clear; each is its own line.
+    expect((await admin.delete(`${CH}/channels/general/messages`).set(H).send({})).status).toBe(200);
+    expect(await kinds(w.edB, 'general')).toEqual(['Admin secret:cleared', 'Admin secret:cleared']);
+  });
+
+  it('records and announces an Admin\'s pause and resume of a group and of General for everyone, once each', async () => {
+    const w = await world();
+    const admin = await signedIn(w, 'Admin', SECRET);
+    const put = (b: ReturnType<typeof request.agent>, ch: string, body: Record<string, unknown>) => b.put(`${CH}/channels/${ch}/pause`).set(H).send(body);
+    expect((await put(admin, 'group', { owner: 'Ed', paused: true })).status).toBe(200);
+    await put(admin, 'group', { owner: 'Ed', paused: true });
+    expect((await noticesOf(w, 'dev')).map((n) => n.text)).toEqual(['Admin secret (an Admin) paused your Podium group.']);
+    expect((await put(admin, 'group', { owner: 'Ed', paused: false })).status).toBe(200);
+    expect(await kinds(w.edB, 'group', '')).toEqual(['Admin secret:paused', 'Admin secret:resumed']);
+    // The person's own pause is the person's: no line.
+    await put(w.edB, 'group', { paused: true });
+    await put(w.edB, 'group', { paused: false });
+    expect(await kinds(w.edB, 'group')).toEqual(['Admin secret:paused', 'Admin secret:resumed']);
+    // General for everyone.
+    expect((await put(admin, 'general', { paused: true, everyone: true })).status).toBe(200);
+    expect(await kinds(w.alexB, 'general')).toEqual(['Admin secret:paused']);
+    expect((await noticesOf(w, 'alex')).map((n) => n.text).pop()).toBe('Admin secret (an Admin) paused General for everyone.');
+    await put(admin, 'general', { paused: false, everyone: true });
+    expect(await kinds(w.alexB, 'general')).toEqual(['Admin secret:paused', 'Admin secret:resumed']);
+  });
+
+  it('records an Admin\'s pause and resume of a link between a person\'s agents, tells both agents\' reporters, and leaves the people\'s own pauses off the record', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await linkOp(admin, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    for (const who of ['dev', 'tester'] as const) expect((await noticesOf(w, who)).map((n) => n.text)).toEqual(['Admin secret (an Admin) paused the link between dev and Tester.']);
+    expect((await linkOp(admin, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
+    const thread = (await w.edB.get(`${AB}/messages`)).body;
+    expect(thread.adminReads.map((r: { admin: string; kind: string }) => r.kind)).toEqual(['paused', 'resumed']);
+    const mac = thread;
+    await w.edB.put('/api/fleet/respond/peers/links').set(H).send({ a: mac.a.reporterKey, b: mac.b.reporterKey, paused: true });
+    expect(((await w.edB.get(`${AB}/messages`)).body.adminReads as unknown[]).length).toBe(2);
+  });
+
+  it('records an Admin\'s pause and resume of a link across owners, and tells the agent\'s reporter only', async () => {
+    const w = await world();
+    await say(w.edB, 'general', '@review@alex-box ' + SECRET_TEXT);
+    const reqs = ((await w.alexB.get('/api/fleet/respond/peers')).body.requests ?? []) as { id: string }[];
+    await w.alexB.post(`/api/fleet/respond/peers/requests/${reqs[0]!.id}`).set(H).send({ answer: 'deliver' });
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await linkOp(admin, 'pause', `${CROSS}/link`);
+    expect((await noticesOf(w, 'alex')).map((n) => n.text)).toEqual(['Admin secret (an Admin) paused the link between Ed and review.']);
+    expect(await noticesOf(w, 'dev')).toEqual([]);
+    await linkOp(admin, 'pause', `${CROSS}/link`);
+    await linkOp(admin, 'resume', `${CROSS}/link`);
+    const kindsOf = ((await w.edB.get(`${CROSS}/messages`)).body.adminReads as { kind: string }[]).map((r) => r.kind);
+    expect(kindsOf).toEqual(['paused', 'resumed']);
+  });
 });

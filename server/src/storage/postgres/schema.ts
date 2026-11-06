@@ -243,6 +243,12 @@ CREATE TABLE chat_admin_reads (
 CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
 `),
   },
+  {
+    version: 10,
+    // What an Admin record says (#1034), as SQLite migration 34 keeps it: a reading (every record before this one), or one of the Admin's stops that stay on
+    // the record for good: removed all messages, paused, resumed.
+    sql: typed(`ALTER TABLE chat_admin_reads ADD COLUMN kind TXT NOT NULL DEFAULT 'read';`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

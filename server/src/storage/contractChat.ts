@@ -227,18 +227,29 @@ export function chatCases(o: Openers): void {
       await rec('purge (nothing that old)', reads.purge(T0));
       await rec('purge (the first session and the other Admin)', reads.purge(T0 + 11 * MIN));
       await rec('list (after purge)', reads.list('group:ed'));
+      // An Admin's stop stays on the record: it is a line of its own, never a session or live, and it shares a millisecond with a read without losing either.
+      await rec('mark (cleared)', reads.mark('group:ed', 'Zoe', 'cleared'));
+      await rec('mark (paused, the same moment)', reads.mark('group:ed', 'zoe', 'paused'));
+      await rec('mark (resumed, the same moment)', reads.mark('group:ed', 'zoe', 'resumed'));
+      await rec('touch (a read the same moment as a stop)', reads.touch('group:ed', 'Zoe', GAP));
+      await rec('list (with stops)', reads.list('group:ed'));
+      await rec('live (a stop is never live)', reads.live(['group:ed'], clock.now - 30_000));
+      await rec('threads (a stop only)', (async () => { await reads.mark('public', 'Root', 'paused'); return reads.threads('public'); })());
+      await rec('purge (a stop is retained by its time like a read)', reads.purge(clock.now + 10));
+      await rec('list (after the stops are purged)', reads.list('group:ed'));
+      await rec('touch (the other thread again, so forgetting keeps it)', reads.touch('dm:a|b', 'Root', GAP));
       await rec('forget the thread', reads.forget('group:ed'));
       await rec('forget (nothing left)', reads.forget('group:ed'));
       await rec('list (after forget)', reads.list('group:ed'));
       await rec('list (the other thread is kept)', reads.list('dm:a|b'));
     });
-    expect(t.get('touch (first)')).toEqual({ record: { admin: 'Root', startedAt: T0, lastSeenAt: T0 }, started: true, previousSeenAt: null });
-    expect(t.get('touch (10 minutes on: the same session)')).toEqual({ record: { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 10 * MIN }, started: false, previousSeenAt: T0 });
+    expect(t.get('touch (first)')).toEqual({ record: { admin: 'Root', startedAt: T0, lastSeenAt: T0, kind: 'read' }, started: true, previousSeenAt: null });
+    expect(t.get('touch (10 minutes on: the same session)')).toEqual({ record: { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 10 * MIN, kind: 'read' }, started: false, previousSeenAt: T0 });
     expect((t.get('touch (31 minutes after the last: a second session)') as { started: boolean }).started).toBe(true);
     expect(t.get('list')).toEqual([
-      { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 10 * MIN },
-      { admin: 'Zoe', startedAt: T0 + 10 * MIN, lastSeenAt: T0 + 10 * MIN },
-      { admin: 'Root', startedAt: T0 + 41 * MIN, lastSeenAt: T0 + 41 * MIN },
+      { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 10 * MIN, kind: 'read' },
+      { admin: 'Zoe', startedAt: T0 + 10 * MIN, lastSeenAt: T0 + 10 * MIN, kind: 'read' },
+      { admin: 'Root', startedAt: T0 + 41 * MIN, lastSeenAt: T0 + 41 * MIN, kind: 'read' },
     ]);
     expect((t.get('live (just touched)') as { thread: string }[]).map((r) => r.thread)).toEqual(['dm:a|b', 'group:ed']);
     expect(t.get('live (30 seconds on)')).toEqual([]);
@@ -246,10 +257,20 @@ export function chatCases(o: Openers): void {
     expect(t.get('threads')).toEqual(['dm:a|b']);
     expect(t.get('purge (nothing that old)')).toBe(0);
     expect(t.get('purge (the first session and the other Admin)')).toBe(2);
-    expect(t.get('forget the thread')).toBe(1);
+    const at = T0 + 41 * MIN + 30_000;
+    expect(t.get('mark (cleared)')).toEqual({ admin: 'Zoe', startedAt: at, lastSeenAt: at, kind: 'cleared' });
+    expect(t.get('mark (paused, the same moment)')).toEqual({ admin: 'zoe', startedAt: at + 1, lastSeenAt: at + 1, kind: 'paused' });
+    expect(t.get('mark (resumed, the same moment)')).toEqual({ admin: 'zoe', startedAt: at + 2, lastSeenAt: at + 2, kind: 'resumed' });
+    expect(t.get('touch (a read the same moment as a stop)')).toMatchObject({ started: true, record: { kind: 'read', startedAt: at + 3 } });
+    expect((t.get('list (with stops)') as { kind: string }[]).map((r) => r.kind)).toEqual(['read', 'cleared', 'paused', 'resumed', 'read']);
+    expect(t.get('live (a stop is never live)')).toMatchObject([{ kind: 'read' }]);
+    expect(t.get('threads (a stop only)')).toEqual(['public']);
+    expect(t.get('purge (a stop is retained by its time like a read)')).toBe(7);
+    expect(t.get('list (after the stops are purged)')).toEqual([]);
+    expect(t.get('forget the thread')).toBe(0);
     expect(t.get('forget (nothing left)')).toBe(0);
     expect(t.get('list (after forget)')).toEqual([]);
-    expect(t.get('list (the other thread is kept)')).toEqual([{ admin: 'Root', startedAt: T0 + 41 * MIN, lastSeenAt: T0 + 41 * MIN }]);
+    expect(t.get('list (the other thread is kept)')).toEqual([{ admin: 'Root', startedAt: at, lastSeenAt: at, kind: 'read' }]);
   });
 
   onEachAdapter(o, 'mints the server scope once and keeps it, and puts it in every channel message id', async (s) => {
