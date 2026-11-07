@@ -214,8 +214,8 @@ describe('chat: what the server refuses', () => {
     cy.request({ method: 'POST', url: `${API}/dm/me/${INVOICE}/messages`, headers: H, body: { text: 'Are you there now?' }, failOnStatusCode: false, log: false }).its('status').should('eq', 202);
   });
 
-  it('refuses a person\'s message to an agent whose reporter does not declare adminNotices, and takes it once it does', () => {
-    cy.reportAgain('arm', {}, undefined, undefined, { capabilities: { commands: ['clear', 'compact'] } });
+  it('refuses a person\'s message to an agent whose reporter declares adminNotices off, takes it once it declares it on, and keeps the declaration over a report that carries none', () => {
+    cy.reportAgain('arm', {}, undefined, undefined, { capabilities: { commands: ['clear', 'compact'], adminNotices: false } });
     cy.signIn('Alex');
     cy.request({ method: 'POST', url: `${API}/dm/me/${ARM}/messages`, headers: H, body: { text: 'Hello?' }, failOnStatusCode: false, log: false }).then((r) => {
       expect(r.status).to.eq(422);
@@ -223,6 +223,13 @@ describe('chat: what the server refuses', () => {
     });
     cy.reportAgain('arm', {}, undefined, undefined, { capabilities: { commands: ['clear', 'compact'], adminNotices: true } });
     cy.request({ method: 'POST', url: `${API}/dm/me/${ARM}/messages`, headers: H, body: { text: 'Hello again?' }, failOnStatusCode: false, log: false }).its('status').should('eq', 202);
+    // A report with no declaration at all keeps the last one (sticky, like the command list).
+    cy.reportAgain('arm', {}, undefined, undefined, { capabilities: { commands: ['clear', 'compact'] } });
+    cy.request({ method: 'POST', url: `${API}/dm/me/${ARM}/messages`, headers: H, body: { text: 'Still there?' }, failOnStatusCode: false, log: false }).then((r) => {
+      // Not the 422 about an old reporter: the declaration held, and the refusal is the one for the earlier message still waiting on its owner.
+      expect(r.status).to.eq(409);
+      expect(r.body.error).to.contain('still waits for Ed to approve it');
+    });
   });
 
   it('refuses a message to your own agent over Chat\'s limit, and the box shows why', () => {
