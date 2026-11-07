@@ -622,10 +622,16 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const withPeerSource = <T>(req: Request, fn: () => T): T => (peers ? peers.withSource(sourceOf(req), fn) : fn());
 
   // An Admin's stop on a person's links is told to the person in their reporter session (`opts.toldLinkStop`) and written to the Admin log, with who and whose and
-  // never any text (#1077). A failure to tell is logged, not hidden, and does not undo the stop.
-  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; machine: string }, what: string, kind: string): Promise<void> => {
-    const told = ref.owner && opts.toldLinkStop ? opts.toldLinkStop(actor.name, ref.owner, what) : 0;
-    await audit(req, kind, `${actor.name} ${what.replace(/\byour\b/g, `${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
+  // never any text (#1077). `what` gives the words after the Admin's name, for the person ("your reporter") or the log ("Ed's reporter"). The stop is already
+  // done, so a failure to tell is logged, not raised, and the Admin log line still records how many sessions were told.
+  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; machine: string }, what: (whose: string) => string, kind: string): Promise<void> => {
+    let told = 0;
+    try {
+      told = ref.owner && opts.toldLinkStop ? opts.toldLinkStop(actor.name, ref.owner, what('your')) : 0;
+    } catch (err) {
+      opts.logger?.warn('admin.link_stop_not_told', `podium: an Admin's link stop could not be told to the person: ${(err as Error).message}`, { reporter: ref.machine });
+    }
+    await audit(req, kind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
   };
 
   router.get('/reporters/:key/peers', asyncHandler(async (req, res) => {
@@ -655,7 +661,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const out = await withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
     if (!out.ok) return void peerFail(res, out);
     // The person is told once for the whole bulk change, in the session and in the Admin log, by the Admin's name (#1077).
-    if (mine) await linkStopTold(req, actor, mine, `${paused ? 'paused' : 'resumed'} all messaging links of your reporter ${mine.machine}`, paused ? 'peer_links_paused' : 'peer_links_resumed');
+    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'peer_links_paused' : 'peer_links_resumed');
     res.json(out);
   }));
 
@@ -665,7 +671,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const [a, b] = [(await peers.adminView(req.params.key))?.reporter, (await peers.adminView(req.params.other))?.reporter];
     const out = await withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
     if (!out.ok) return void peerFail(res, out);
-    if (a) await linkStopTold(req, actor, a, `removed the messaging link between your reporters ${a.machine} and ${b?.machine ?? 'another of yours'}`, 'peer_link_removed');
+    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'peer_link_removed');
     res.json(out);
   }));
 

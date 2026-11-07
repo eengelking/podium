@@ -383,16 +383,27 @@ describe("the conversation, for its owner", () => {
     await flush();
     expect(within(panel()).getByText("Paused by an Admin")).toBeInTheDocument();
     expect(panel()).toHaveTextContent("Root paused this link. Only an Admin can resume it.");
-    expect(within(panel()).getByRole("button", { name: "Resume link" })).toBeDisabled();
-    expect(within(panel()).getByRole("button", { name: "Resume link" })).toHaveAccessibleDescription("Ask Root to resume it.");
+    // aria-disabled keeps the button focusable, so the reason is read to a keyboard user, and a press does nothing.
+    const resume = within(panel()).getByRole("button", { name: "Resume link" });
+    expect(resume).toHaveAttribute("aria-disabled", "true");
+    expect(resume).toHaveAccessibleDescription("Ask Root to resume it.");
+    fireEvent.click(resume);
+    await flush();
     expect(traffic.api.pause).not.toHaveBeenCalled();
+  });
+
+  it("still says an Admin paused the link when the Admin's name is not known (#1077)", async () => {
+    page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", setAt: 1 }] });
+    await flush();
+    expect(panel()).toHaveTextContent("An Admin paused this link. Only an Admin can resume it.");
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toHaveAccessibleDescription("Ask an Admin to resume it.");
   });
 
   it("offers Resume when the owner paused the link, and says nothing of an Admin (#1077)", async () => {
     page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "owner", setAt: 1 }] });
     await flush();
     expect(within(panel()).queryByText("Paused by an Admin")).toBeNull();
-    expect(within(panel()).getByRole("button", { name: "Resume link" })).toBeEnabled();
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("pauses and resumes the link through the owner's route", async () => {

@@ -8,6 +8,7 @@ import "./chat.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
+import { rightsModel } from "./peers";
 import { stateKind, type StateKind } from "./components/Chips";
 import { ChPause } from "./components/ChatIcons";
 import { IconCheck, IconX } from "./components/Icons";
@@ -347,15 +348,14 @@ function LinkTable({ links, selected, onSelect, now }: { links: TrafficLink[]; s
   );
 }
 
-/** Whether the owner's own read says the link between two reporters is paused, either way. */
-/** The Admin who holds the pause on the link between two reporters, from the owner's own read; null when no Admin does (#1077). */
+/** The Admin who holds the pause on the link between two reporters, from the owner's own read, either way; null when no Admin does (#1077). */
 function adminPauseOf(peers: MyPeers, l: TrafficLink): { name: string | null } | null {
-  const a = l.a.reporterKey;
-  const b = l.b.reporterKey;
-  const held = (peers.data?.rights ?? []).find((r) => r.paused && r.pausedBy === "admin" && ((r.from === a && r.to === b) || (r.from === b && r.to === a)));
-  return held ? { name: held.pausedByAdmin ?? null } : null;
+  if (!peers.data) return null;
+  const m = rightsModel(peers.data);
+  return m.adminPause(l.a.reporterKey, l.b.reporterKey) ?? m.adminPause(l.b.reporterKey, l.a.reporterKey);
 }
 
+/** Whether the owner's own read says the link between two reporters is paused, either way. */
 function pausedByRights(peers: MyPeers, l: TrafficLink): boolean {
   const a = l.a.reporterKey;
   const b = l.b.reporterKey;
@@ -464,7 +464,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
       {manage ? (
         <div className="acts">
           {/* Not disabled while saving, which would drop the focus: a press while busy waits for the first. */}
-          <button type="button" className="btn sm" disabled={heldByAdmin !== null} aria-describedby={heldByAdmin ? "link-admin-why" : undefined} aria-busy={busy || undefined} onClick={() => !busy && void togglePause()}>
+          <button type="button" className="btn sm" aria-disabled={heldByAdmin !== null || undefined} aria-describedby={heldByAdmin ? "link-admin-why" : undefined} aria-busy={busy || undefined} onClick={() => !busy && !heldByAdmin && void togglePause()}>
             {paused ? "Resume link" : "Pause link"}
           </button>
           <button type="button" className="btn sm dng" ref={removeBtn} aria-busy={busy || undefined} aria-expanded={removing} aria-controls={removing ? "conv-remove" : undefined} onClick={() => !busy && setRemoving(true)}>

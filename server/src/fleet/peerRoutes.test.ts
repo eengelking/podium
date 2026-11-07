@@ -21,7 +21,7 @@ afterEach(() => {
   for (const c of closers.splice(0)) c();
 });
 
-async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
+async function setup(opts: { secret?: string | null; flag?: boolean; toldThrows?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
   let clock = 1_800_000_000_000;
   const now = () => clock;
@@ -36,7 +36,7 @@ async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const logger = createLogger({ format: 'json', level: 'debug', write: (l) => lines.push(l) });
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters, lockout, respondBridge, logger }));
-  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, toldLinkStop: (a, o, w) => fleet.chat.toldLinkStop(a, o, w), lockout, respondBridge, now, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, toldLinkStop: (a, o, w) => { if (opts.toldThrows) throw new Error('no session store'); return fleet.chat.toldLinkStop(a, o, w); }, lockout, respondBridge, now, log: () => {} }));
   await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) await fleet.features.setFeature(PEER_MESSAGING, true);
@@ -581,6 +581,17 @@ describe('the Admin’s side (#412)', () => {
     expect(await notices(s.ed.token, edDev())).toContain(`${SECRET_ACTOR} (an Admin) removed the messaging link between your reporters ${MAC.name} and ${LINUX.name}.`);
     // The Admin log has a line for each, naming the Admin and never any text.
     expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_links_paused', 'peer_links_resumed', 'peer_link_removed']));
+    // The log line names the owner, not "your", and never holds text.
+    const rows = (await s.people.listLog({ page: 1, pageSize: 100 })).rows;
+    expect(rows.find((r) => r.kind === 'peer_links_paused')?.detail).toBe(`${SECRET_ACTOR} paused all messaging links of Ed's reporter ${MAC.name}`);
+  });
+
+  it('keeps the stop and still writes the Admin log line when the person cannot be told (#1077)', async () => {
+    const s = await linked('send', { toldThrows: true });
+    const admin = await adminAgent(s);
+    expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: true })).status).toBe(200);
+    expect((await send(s, 'paused by the Admin')).body.paused).toBe(true);
+    expect(await logKinds(s)).toContain('peer_links_paused');
   });
 
   it('reads the conversations and their text', async () => {
