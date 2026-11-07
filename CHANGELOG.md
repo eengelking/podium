@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/PATTERNS.md` lists the development patterns the code follows, and `podium-patterns-check` applies it (#912).** Each entry says what the pattern is, where it applies, why, one place in the code and the check that holds it. `.claude/PROJECT.md` now says to read the patterns that apply before implementing, to name them in the PR body, and that a pattern changes only through a DECISIONS entry, the maintainer's approval, a full update of its uses and a full test pass. Six places the code departs from a candidate pattern are filed as #1052 to #1057.
+
 ### Changed
 
 - **`dist/` is left out of CodeQL and SonarCloud analysis (#1022).** The built reporter holds nothing `plugin/` does not, and `plugin/` is scanned, so each release's rebuild reported the same alert again at a new path. `dist` is now in the CodeQL `paths-ignore` and `dist/**` in `sonar.exclusions`; `plugin:dist:check` still fails a PR into `main` whose `dist/` is not a clean build. DECISIONS 60, PROJECT.md and the architecture page say so. No open alert was under `dist/`.
