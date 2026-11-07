@@ -1,0 +1,166 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Chat: Stop reading as an Admin (#1066)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1066: an Admin who picked a person to read can put the Admin view down from Chat. Example data only. It defines no
+   tokens of its own: colors and fonts come from tokens.css through the app's stylesheets. Every class in the page already exists in
+   the app (.ch-sec, .ch-read, .field, .btn, .hint, .note, .ch-split, .ch-side, .ch-thread, .ch-composer). The only rules below are
+   the demo bar and the page frame, which are not part of the app.
+   Why: reading as a person is the Admin privilege in Chat. Today the only way out is to choose the "Choose a person…" placeholder in
+   the picker, which nothing says. A visible Stop reading button, shown only while reading, calls the same choice (nobody), so the
+   person's red notice ends, the read-only thread and the Admin's pause / disconnect / clear on that person's group go, and the Admin
+   is still signed in. It is a normal .btn (not .pri): the view already has its primary action elsewhere, and this one puts something down. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
+.stage .podium .adminv .apage { overflow: visible; }
+.stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+.sc { margin: 0 0 28px; }
+.sc > h2 { margin: 0 0 4px; font-size: 15px; font-weight: 650; }
+.sc > p { margin: 0 0 10px; color: var(--ink2); max-width: 78ch; }
+.sc > h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 650; color: var(--ink2); }
+.sc .ch-thread { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-height: 0; }
+.sc .ch-split { min-height: 0; }
+.sc .ch-side { max-height: none; }
+@media (max-width: 760px) { .sc .ch-split { grid-template-columns: minmax(0, 1fr); } .sc .ch-side { border-right: 0; } }
+/* Placement only: the Stop reading button sits on its own line under the picker, and beside the read-only note in the thread. */
+.ch-read .btn { justify-self: start; }
+.ch-composer .note.with-btn { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+/* Placement only: the label is left and the (i) is right. The (i) is the shared Tip (.tip with its .tipbox) around the info icon the toolbar already draws. */
+.rd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rd-i { display: inline-flex; color: var(--muted); cursor: help; }
+.rd-i:hover, .rd-i:focus-visible { color: var(--ink); }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Stop reading as an Admin (#1066)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+  <span class="grp" role="group" aria-label="Note">Note
+    <button type="button" data-pin="1" aria-pressed="false">Show the note open</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app"><div class="adminv" aria-label="Chat"><div class="apage"><div class="apage-in">
+
+<section class="sc" aria-labelledby="s1">
+  <h2 id="s1">1. Today: after Root picks Dana, nothing says how to stop</h2>
+  <p>The picker is the only control, and the way out is to choose the first line, "Choose a person…", again. Nothing on the page says so. The hint is the same whether or not it is the way out.</p>
+  <div class="ch-split">
+    <nav class="ch-side" aria-label="Conversations">
+      <section class="ch-sec" aria-labelledby="sec-rd0"><h2 id="sec-rd0">Read as an Admin</h2>
+        <div class="ch-read">
+          <div class="rd-head"><label for="read-as0">Read a person&apos;s conversations</label><span class="tip rd-i" tabindex="0" aria-label="About reading as an Admin" aria-describedby="rd-tip1"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.2"/></svg><span id="rd-tip1" role="tooltip" class="tipbox" hidden>Pick a person to see their My group and Direct Messages. Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.</span></span></div>
+          <select class="field sm" id="read-as0"><option>Dana</option></select>
+          <p class="hint">Showing <bdi>Dana</bdi>&apos;s My group and Direct Messages. Read only.</p>
+        </div>
+      </section>
+    </nav>
+    <section class="ch-thread" aria-label="Dana's My group"><div class="ch-blank"><b>Reading Dana&apos;s conversations</b><p class="hint">Read only.</p></div></section>
+  </div>
+</section>
+
+<section class="sc" aria-labelledby="s2">
+  <h2 id="s2">2. Proposed: Stop reading, while reading</h2>
+  <p>A <b>Stop reading</b> button sits under the picker, and again beside the read-only line where the message box would be, so it is next to what is being read. Pressing it does what choosing nobody does now: Dana&apos;s red notice ends and leaves its quiet record line, the thread and the Admin-only menu items (pause, disconnect, clear on Dana&apos;s group) are gone, the status line says "Back to your own conversations.", and Root stays signed in as an Admin.</p>
+  <div class="ch-split">
+    <nav class="ch-side" aria-label="Conversations">
+      <section class="ch-sec" aria-labelledby="sec-rd1"><h2 id="sec-rd1">Read as an Admin</h2>
+        <div class="ch-read">
+          <div class="rd-head"><label for="read-as1">Read a person&apos;s conversations</label><span class="tip rd-i" tabindex="0" aria-label="About reading as an Admin" aria-describedby="rd-tip2"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.2"/></svg><span id="rd-tip2" role="tooltip" class="tipbox" hidden>Pick a person to see their My group and Direct Messages. Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.</span></span></div>
+          <select class="field sm" id="read-as1"><option>Dana</option></select>
+          <button type="button" class="btn sm" data-testid="chat-stop-reading">Stop reading</button>
+          <p class="hint">Showing <bdi>Dana</bdi>&apos;s My group and Direct Messages. Read only.</p>
+        </div>
+      </section>
+    </nav>
+    <section class="ch-thread" aria-label="Dana's My group">
+      <div class="ch-blank"><b>Dana&apos;s My group</b><p class="hint">Messages shown here are Dana&apos;s.</p></div>
+      <div class="ch-composer">
+        <div class="note with-btn" id="ro-why"><span>You are reading as an Admin, so there is no message box.</span><button type="button" class="btn sm">Stop reading</button></div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="sc" aria-labelledby="s3">
+  <h2 id="s3">3. Proposed: not reading, or not an Admin</h2>
+  <p>With nobody picked there is nothing to stop, so no button is shown. A person who is not an Admin does not see the "Read as an Admin" section at all, as now.</p>
+  <div class="ch-split">
+    <nav class="ch-side" aria-label="Conversations">
+      <section class="ch-sec" aria-labelledby="sec-rd2"><h2 id="sec-rd2">Read as an Admin</h2>
+        <div class="ch-read">
+          <div class="rd-head"><label for="read-as2">Read a person&apos;s conversations</label><span class="tip rd-i" tabindex="0" aria-label="About reading as an Admin" aria-describedby="rd-tip3"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M8 7.2v4M8 4.8v.2"/></svg><span id="rd-tip3" role="tooltip" class="tipbox" hidden>Pick a person to see their My group and Direct Messages. Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.</span></span></div>
+          <select class="field sm" id="read-as2"><option>Choose a person…</option><option>Dana</option></select>
+          
+        </div>
+      </section>
+    </nav>
+    <section class="ch-thread" aria-label="General"><div class="ch-blank"><b>General</b><p class="hint">Your own conversations.</p></div></section>
+  </div>
+</section>
+
+</div></div></div></div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  function press(attr, val) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1280px');
+      st.classList.toggle('narrow', b.dataset.w === 'narrow');
+      press('data-w', b.dataset.w);
+    }
+  });
+  // The (i) behaves as Tip.tsx does: opens on hover and focus, closes on blur, mouse leave and Escape, placed under the trigger and kept inside the viewport.
+  var GUT = 8, pinned = false;
+  function place(t) {
+    var box = t.querySelector('.tipbox'), r = t.getBoundingClientRect();
+    box.hidden = false; box.style.visibility = 'hidden';
+    var b = box.getBoundingClientRect(), below = r.bottom + 6;
+    var top = below + b.height > innerHeight - GUT && r.top - 6 - b.height >= GUT ? r.top - 6 - b.height : below;
+    box.style.top = top + 'px'; box.style.left = Math.max(GUT, Math.min(r.right - b.width, innerWidth - b.width - GUT)) + 'px'; box.style.visibility = '';
+  }
+  function show(t) { place(t); }
+  function hide(t) { if (!pinned) t.querySelector('.tipbox').hidden = true; }
+  Array.prototype.forEach.call(document.querySelectorAll('.rd-i'), function (t) {
+    t.addEventListener('mouseenter', function () { show(t); });
+    t.addEventListener('focus', function () { show(t); });
+    t.addEventListener('mouseleave', function () { if (document.activeElement !== t) hide(t); });
+    t.addEventListener('blur', function () { hide(t); });
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { pinned = false; press('data-pin', '0'); Array.prototype.forEach.call(document.querySelectorAll('.tipbox'), function (x) { x.hidden = true; }); } });
+  document.querySelector('[data-pin]').addEventListener('click', function () {
+    pinned = !pinned; press('data-pin', pinned ? '1' : '0');
+    var t = document.querySelectorAll('.rd-i')[1];
+    if (pinned) { t.scrollIntoView({ block: 'center' }); place(t); } else t.querySelector('.tipbox').hidden = true;
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

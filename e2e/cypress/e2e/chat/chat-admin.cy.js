@@ -79,6 +79,26 @@ describe('chat: an Admin reads a person\'s conversations', () => {
     cy.tid('chat-read-as').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.include('Ed'));
   });
 
+  it('lets the Admin stop reading in place, from the picker and from the thread (#1066)', () => {
+    cy.signIn('Admin');
+    cy.openConsole('#/chat');
+    cy.tid('chat-stop-reading').should('not.exist');
+    cy.get('[aria-label="About reading as an Admin"]').focus().invoke('attr', 'aria-describedby').then((id) => cy.get(`#${id}`).should('be.visible').and('contain.text', 'never the text'));
+    cy.tid('chat-read-as').select('Ed');
+    cy.tid('chat-stop-reading').should('be.visible').and('have.text', 'Stop reading');
+    cy.chatRow(GROUP).find('button.ch-row').click();
+    cy.tid('chat-ro-banner').should('exist');
+    cy.tid('chat-stop-reading-thread').click();
+    cy.tid('chat-ro-banner').should('not.exist');
+    cy.tid('chat-stop-reading').should('not.exist');
+    cy.tid('chat-read-as').should('have.value', '');
+    cy.chatRow(DM).should('not.exist');
+    cy.tid('chat-read-as').select('Ed');
+    cy.tid('chat-stop-reading').click();
+    cy.tid('chat-stop-reading').should('not.exist');
+    cy.tid('chat-read-as').should('have.value', '');
+  });
+
   it('opens a person\'s My group read only: red banner, no message box, the reason, and their messages', () => {
     asAdminReading();
     cy.chatRow(GROUP).should('contain.text', 'read only');

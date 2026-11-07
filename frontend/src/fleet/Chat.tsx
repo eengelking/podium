@@ -243,6 +243,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setActionErr(null);
     setPane("side");
     setSaid(name ? `Reading ${name}'s conversations as an Admin. Read only.` : "Back to your own conversations.");
+    if (!name) setTimeout(() => document.getElementById("read-as")?.focus(), 0);
   };
   const openDm = (d: DirectInfo) => select({ kind: "dm", a: d.a.sessionId, b: d.b.sessionId, key: dmKey(d) });
 
@@ -528,8 +529,11 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           composer={
             roThread ? (
               <div className="ch-composer">
-                <div className="note" id="ro-why" data-testid="chat-ro-note">
-                  You are reading as an Admin, so there is no message box.{heldBy ? " The link is paused; you can resume it from its menu." : ""}
+                <div className="note with-btn" id="ro-why" data-testid="chat-ro-note">
+                  <span>You are reading as an Admin, so there is no message box.{heldBy ? " The link is paused; you can resume it from its menu." : ""}</span>
+                  <button type="button" className="btn sm" data-testid="chat-stop-reading-thread" onClick={() => chooseReader(null)}>
+                    Stop reading
+                  </button>
                 </div>
               </div>
             ) : (
