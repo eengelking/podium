@@ -337,6 +337,7 @@ describe("side menu", () => {
       "Certificates",
       "Data",
       "Stored activity",
+      "About",
       "Usage",
       expect.stringMatching(/^Spend/),
       "People and groups",

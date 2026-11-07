@@ -26,6 +26,7 @@ Admin is for the person who runs the server.
 - [Stored activity](11-stored-activity.md): Filter the stored Activity history by session, owner or age and delete what you no longer need.
 - [Reporting](12-reporting.md): Report who used Podium, what it cost and what went wrong for a period you pick.
 - [Admin log](13-admin-log.md): Read who made each change in Admin, and where it came from.
+- [About](14-about.md): See which Podium server, libraries, database and reporter versions are running, and copy them to share.
 <!-- entries:end -->
 
 <!-- nav:start -->

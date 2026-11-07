@@ -13,7 +13,7 @@ import type { ReportQueries } from './reportQueries.js';
 import type {
   AdminPeersView, ActivityHistoryOpts, AgentRow, BlowoutRow, CostOf, EventRow, ForgetSetting, GroupListRow, IgnoreKind, IgnoreRule, IgnoreTarget, LogRow, Paged,
   PeerReply, PeerServerSettings, PersonListRow, PersonRow, PurgeRecordingsResult, RecordingMeta, RecordingTotals, RecordingsOpts, RemoveResult, ReporterDetail, ReporterList,
-  ReporterSeen, ReporterState, RetentionPolicy, SampleRow, SessionRow, SessionSpend, StoredState, OwnerPeersView, PageIn, PurgeResult, SessionMeta, RecordingTrail,
+  ReporterSeen, ReporterState, ReporterVersionCount, RetentionPolicy, SampleRow, SessionRow, SessionSpend, StoredState, OwnerPeersView, PageIn, PurgeResult, SessionMeta, RecordingTrail, StorageInfo,
 } from './rows.js';
 import type { PeerLimits } from './settings.js';
 
@@ -58,6 +58,8 @@ export interface FleetStoreApi {
   /** `groupOfOwner` for many owners at once (#906): a key for every owner asked. */
   groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>>;
   distinctReporterVersions(): Promise<string[]>;
+  /** What the database says about itself: its engine and version, the schema version Podium reached and its size (null when it cannot be told) (#862). */
+  engineInfo(): Promise<StorageInfo>;
   upsertAgent(row: AgentRow): Promise<void>;
   getAgents(sessionId: string): Promise<AgentRow[]>;
   /** The agents of one session with these ids (#952), ordered as `getAgents` orders them within one statement (a long list of ids is split); an id with no agent is left out. */
@@ -170,6 +172,11 @@ export interface ReporterStoreApi {
   hasAny(): Promise<boolean>;
   /** Keeps a short, memory-only list of refused reports by source address, for the detail view. The reason is one of the server's own fixed phrases. */
   rejected(source: string | null, reason: string, now: number): Promise<void>;
+  /**
+   * How many reporters run each version, among the mod reporters heard from at or after `since` (a hooks-only sender has no version and is left out),
+   * one row per reporter name as stored and version, ordered by name then version as text (#862). The caller sorts the versions as numbers.
+   */
+  versionCounts(since: number): Promise<ReporterVersionCount[]>;
   list(opts: { page?: number; pageSize?: number; q?: string; state?: string; sort?: string; dir?: number; admin?: boolean }, now: number): Promise<ReporterList>;
   /** Every key a filtered view holds, not one page of it: what "select all in this filter" removes. */
   keys(opts: { q?: string; state?: string; admin?: boolean }, now: number): Promise<string[]>;

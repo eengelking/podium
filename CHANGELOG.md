@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **Admin has an About page that shows what the server and its reporters are running (#862).** It sits last in the Server group. It shows the Podium version and, for a build that is not a tagged release, the build; whether the server runs in a container or stand-alone; when it started and its uptime; the system; the versions of Node.js and Express and of the React and TypeScript the console was built with; and the database: the adapter, the database's own version, the schema version and its size. Below that, one row for each reporter and version heard from in the last hour, with how many machines run it, the range this server reads, and the existing flag for a version outside it, or an empty state when none is connected. Copy details puts all of it on the clipboard as plain text. Nothing is collected from a machine for it. `GET /api/admin/about` answers it, through two new storage methods, `engineInfo()` and `versionCounts()`, written in the SQLite and PostgreSQL adapters with a case in the storage contract. The container image now sets `PODIUM_RUNTIME=container`.
+
 ### Fixed
 
 - **A Claude Code Edit permission dialog is now announced to Podium and can be answered from it (#1044).** The reporter paired a permission request with its tool call by comparing their arguments as text, and Edit lists `replace_all` first in the call and last in the request, so the two never matched: the card showed `waiting` but no `permission` ask was opened. The arguments are now compared with their keys in one order (tried live on Edit; Write and NotebookEdit use the same pairing). OpenCode takes its asks from the request OpenCode raises, with no such pairing, so it was not affected (read from the code).

@@ -71,7 +71,7 @@ to do travels back in the reply to a report.
 | Server | State and stream | `GET /state` for the first paint and `GET /stream`, a server-sent-events feed of changes. |
 | Server | Routers and identity | The routes for reports, hooks, state, stream and sessions, and the code that turns a certificate or token into an owner. |
 | Server | Guard chain | Middleware that runs first on the HTTP port: Host check, security headers, the reporter HTTP gate, request log and the failed-request limiter. |
-| Server | Admin API | A separate router for people, groups, reporters, settings, feature flags, certificates, usage reports and the Admin log. |
+| Server | Admin API | A separate router for people, groups, reporters, settings, feature flags, certificates, usage reports, the Admin log and a read-only About page (`GET /api/admin/about`: versions, runtime, database engine, reporters in use). |
 | Server | Messaging service | Lets one person's orchestrators on different machines find and message each other, with rights, limits and an audit trail. |
 | Server | CA and certificates | Podium is its own certificate authority: it issues, renews and revokes the serving and per-person certificates, and rotates its CA. |
 | Server | Live brokers | In-memory holders for the most sensitive live data: open asks, the live activity feed and pending diff requests. A restart forgets them. |
@@ -239,6 +239,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `reporterHttpGate` | Refuses plain-HTTP reporters once an Admin turns them off. In `server/src/tlsHttp.ts`. |
 | Server | `securityHeaders` | Security headers and the Content-Security-Policy. In `server/src/securityHeaders.ts`. |
 | Server | `createAdminRouter` | The Admin API with its own sign-in and log. In `server/src/admin/adminRouter.ts`. |
+| Server | `buildAbout` | The read-only About page: runtime, versions, the database engine and the reporters in use. In `server/src/admin/about.ts`. |
 | Server | `class Lockout` | Locks an address out after five wrong tries. In `server/src/fleet/lockout.ts`. |
 | Server | `class PeerService` | Finds live orchestrators and carries messages. In `server/src/storage/sqlite/peerService.ts`. |
 | Server | `class PeerRights` | Who may message whom, and the limits. In `server/src/storage/sqlite/peerRights.ts`. |

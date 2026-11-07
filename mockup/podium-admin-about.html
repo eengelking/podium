@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Podium Admin - About (mockup 862)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #862: Admin > Server > About, shown inside the real Admin page (top bar, side menu, page). Every piece is the
+   app's own markup and classes (copied from docs/standards/components.html#admin-shell and #admin-reporters): .top, .adminv
+   .shell .nav .navbtn, .page-h, .asec, .panel, .ptab, .compat, .kb-blank, .rail-foot. Colors come from tokens.css through
+   fleet.css; this file defines no tokens and no new component. Only the mockup's own controls (.mk-*) and the iframe that
+   shows the page at a real 400 px or 1440 px width, so the page's own media queries apply, are drawn here. */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.mk-bar { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-bar b { color: var(--ink); }
+.mk-bar button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-bar button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.mk-stage { padding: 16px; overflow: auto; }
+.mk-stage iframe { display: block; margin: 0 auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); height: 780px; max-width: none; }
+.mk-notes { padding: 0 16px 24px; max-width: 900px; margin: 0 auto; color: var(--ink2); font-size: 12.5px; }
+.mk-notes li { margin: 4px 0; }
+body.in-frame .mk-bar, body.in-frame .mk-stage, body.in-frame .mk-notes { display: none; }
+body:not(.in-frame) .app { display: none; }
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+.app > .adminv { flex: 1; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="mk-bar" role="toolbar" aria-label="Mockup controls">
+  <b>Theme</b>
+  <span><button type="button" data-theme-set="dark" aria-pressed="true">Dark</button> <button type="button" data-theme-set="light" aria-pressed="false">Light</button></span>
+  <b>Width</b>
+  <span><button type="button" data-width="1440" aria-pressed="true">1440 px</button> <button type="button" data-width="400" aria-pressed="false">400 px</button></span>
+  <b>Reporters</b>
+  <span><button type="button" data-state="mixed" aria-pressed="true">Two versions</button> <button type="button" data-state="one" aria-pressed="false">One version</button> <button type="button" data-state="none" aria-pressed="false">None connected</button></span>
+  <b>Build</b>
+  <span><button type="button" data-build="dev" aria-pressed="true">Nightly</button> <button type="button" data-build="tag" aria-pressed="false">Tagged release</button></span>
+</div>
+<div class="mk-stage"><iframe id="mk-frame" title="Admin About page" width="1440"></iframe></div>
+<ul class="mk-notes">
+  <li><b>Where:</b> a new page, <b>About</b>, last in the Server group of the Admin side menu. It is read-only, with no buttons. On a narrow screen the menu is the strip the other pages already use.</li>
+  <li><b>Already there:</b> the side menu's footer shows <code>Podium v1.6.0</code> and, for a non-release build, <code>Dev: &lt;build&gt;</code>. About repeats the server's version and build next to the reporters' so the two can be compared in one place; it does not replace the footer.</li>
+  <li><b>Server, Built with, Database:</b> three small tables of what the server already holds or reads from itself. Build is a row only when it is not a tagged release. Running as says container or stand-alone. Engine version is the database's own (SQLite or PostgreSQL, whichever adapter is in use). Nothing is collected from a reporter's machine.</li>
+  <li><b>Copy details:</b> one default button at the right of the page header, where a report puts Export. It is not the primary button: the page has no action that finishes it. It copies everything on the page as plain text for a bug report or a chat (below). It follows the app's copy pattern: the label reads Copied with a check for 1.6 seconds, and nothing changes if the clipboard refuses. Click it to see.
+<pre class="mono" style="margin:8px 0 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);overflow:auto;font-size:12px">Podium 1.6.0 (nightly 2026-11-06 · 430d135)
+Running as: container (Podman) · started Nov 6, 9:12 AM · Linux arm64
+Node.js v24.11.0 · Express 5.3.0 · React 19.3.1 · TypeScript 7.0.2
+Database: SQLite 3.50.4 · schema 52 · 412 MB
+Reporters (8 machines):
+  Claude Code reporter 1.6.0 x5
+  Claude Code reporter 1.3.2 x2 (outdated; server reads 0.2 to 1.5)
+  OpenCode reporter 1.5.0 x1</pre></li>
+  <li><b>Proposed beyond the request:</b> Started and uptime, System (OS and architecture), Schema version and Database size, and a "This server reads" column on reporters (the supported range, so a flag is explained in place). Each is easy to drop.</li>
+  <li><b>Reporters:</b> one row per reporter name and version, with how many machines run it, newest version first. The version cell is the existing <code>.compat</code> cell from Admin &gt; Reporters, so an outdated or newer version reads the same way here (the symbol, the word and the color, never color alone). Whether a newer release exists stays with #499.</li>
+  <li><b>None connected:</b> the existing empty state (<code>.kb-blank</code>) says so and where to start.</li>
+  <li>Try Light and 400 px with the buttons above; the page is drawn in a frame of that real width, so its own narrow layout applies.</li>
+</ul>
+
+<div class="app podium" id="app">
+  <header class="top" id="podium-top"><a class="logo" href="#" aria-label="Podium, fleet"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"></path></svg>Podium</a><span class="pill">Admin</span><span class="spacer"></span><a class="btn" href="#">Fleet</a></header>
+  <div class="adminv" aria-label="Admin"><div class="shell">
+    <nav class="nav" aria-label="Admin sections"><div class="navin"><div class="ngroup" role="group" aria-label="People and access"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.5" r="2.5"></circle><path d="M1.5 13.5c.4-2.4 2.2-3.8 4.5-3.8s4.1 1.4 4.5 3.8"></path><path d="M11 3.4a2.4 2.4 0 0 1 0 4.4M12.6 10c1.2.5 1.9 1.6 2.1 3.2"></path></svg><span class="gt">People and access</span></span><button type="button" class="navbtn">People</button><button type="button" class="navbtn">Groups</button><button type="button" class="navbtn">Reporters</button></div><div class="ngroup" role="group" aria-label="Server"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="4.5" rx="1"></rect><rect x="2" y="9" width="12" height="4.5" rx="1"></rect><path d="M4.5 4.75h.01M4.5 11.25h.01"></path></svg><span class="gt">Server</span></span><button type="button" class="navbtn">Settings</button><button type="button" class="navbtn">Model prices</button><button type="button" class="navbtn">Security</button><button type="button" class="navbtn">Certificates</button><button type="button" class="navbtn">Data</button><button type="button" class="navbtn">Stored activity</button><button type="button" class="navbtn" aria-current="page">About</button></div><div class="ngroup" role="group" aria-label="Reporting"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"></path></svg><span class="gt">Reporting</span></span><button type="button" class="navbtn">Usage</button><button type="button" class="navbtn">Spend</button><button type="button" class="navbtn">People and groups</button><button type="button" class="navbtn">Sessions</button><button type="button" class="navbtn">Failures</button><button type="button" class="navbtn">Admin activity</button></div><div class="ngroup" role="group" aria-label="Activity"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"></path></svg><span class="gt">Activity</span></span><button type="button" class="navbtn">Admin log</button></div><div class="navfoot"><button type="button" class="btn">Lock Admin</button><span class="hint">Locks after 10 minutes without activity.</span></div></div>
+      <footer class="rail-foot"><span><a href="#">Theme credits</a> · <a href="#">License</a></span><span data-dev>Dev: <span class="mono">nightly 2026-11-06 · 430d135</span></span><span>Podium v1.6.0</span><span>© 2026 Ed Engelking</span></footer>
+    </nav>
+    <div class="apage"><div class="apage-in">
+      <div class="page-h"><div><h1>About</h1><p class="lead">What software this server and its reporters are running.</p></div><button type="button" class="btn" id="copy-all" style="display:inline-flex;align-items:center;gap:6px"><span aria-live="polite">Copy details</span><span id="copy-ic"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2"></rect><path d="M10.5 5.5V3.7a1.2 1.2 0 0 0-1.2-1.2H3.7a1.2 1.2 0 0 0-1.2 1.2v5.6a1.2 1.2 0 0 0 1.2 1.2h1.8"></path></svg></span></button></div>
+      <section class="asec" aria-labelledby="about-server-h"><div class="asec-h"><div><h2 id="about-server-h">Podium server</h2><p class="hint">Read from the running server. Nothing is collected from a machine for this page.</p></div></div>
+        <div class="panel"><div class="tw2" tabindex="0" aria-label="Podium server"><table class="ptab"><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Version</td><td class="mono">1.6.0</td></tr><tr data-dev><td>Build</td><td class="mono">nightly 2026-11-06 · 430d135</td></tr><tr><td>Running as</td><td class="mono">Container (Podman)</td></tr><tr><td>Started</td><td class="mono">Nov 6, 9:12 AM · up 3 days 4 h</td></tr><tr><td>System</td><td class="mono">Linux arm64</td></tr></tbody></table></div></div>
+      </section>
+      <section class="asec" aria-labelledby="about-stack-h"><div class="asec-h"><div><h2 id="about-stack-h">Built with</h2><p class="hint">The runtimes and libraries this server and the console are made of.</p></div></div>
+        <div class="panel"><div class="tw2" tabindex="0" aria-label="Runtime and libraries"><table class="ptab"><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Node.js</td><td class="mono">v24.11.0</td></tr><tr><td>Express</td><td class="mono">5.3.0</td></tr><tr><td>React</td><td class="mono">19.3.1</td></tr><tr><td>TypeScript</td><td class="mono">7.0.2</td></tr></tbody></table></div></div>
+      </section>
+      <section class="asec" aria-labelledby="about-db-h"><div class="asec-h"><div><h2 id="about-db-h">Database</h2><p class="hint">The storage adapter in use and the database behind it.</p></div></div>
+        <div class="panel"><div class="tw2" tabindex="0" aria-label="Database"><table class="ptab"><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Adapter</td><td class="mono">SQLite</td></tr><tr><td>Engine version</td><td class="mono">3.50.4</td></tr><tr><td>Schema version</td><td class="mono">52</td></tr><tr><td>Size</td><td class="mono">412 MB</td></tr></tbody></table></div></div>
+      </section>
+      <section class="asec" aria-labelledby="about-rep-h"><div class="asec-h"><div><h2 id="about-rep-h">Reporters</h2><p class="hint">The version each connected machine runs. A flagged version is outside the range this server reads.</p></div></div>
+        <div class="panel" id="rep-table"><div class="tw2" tabindex="0" aria-label="Reporter versions"><table class="ptab"><thead><tr><th>Reporter</th><th>Version</th><th>This server reads</th><th class="n">Machines</th></tr></thead><tbody id="rep-rows">
+          <tr data-r="a"><td>Claude Code reporter</td><td><span class="compat ok" title="Supported"><span class="mono">1.6.0</span></span></td><td class="mono">0.2 to 1.5</td><td class="n mono">5</td></tr>
+          <tr data-r="a"><td>Claude Code reporter</td><td><span class="compat outdated" title="This version is older than the server reads. Update the podium-reporter mod."><span aria-hidden="true">⚠ </span><span class="mono">1.3.2</span>&nbsp;outdated</span></td><td class="mono">0.2 to 1.5</td><td class="n mono">2</td></tr>
+          <tr data-r="a"><td>OpenCode reporter</td><td><span class="compat ok" title="Supported"><span class="mono">1.5.0</span></span></td><td class="mono">1.4 to 1.5</td><td class="n mono">1</td></tr>
+          <tr data-r="b" hidden><td>Claude Code reporter</td><td><span class="compat ok" title="Supported"><span class="mono">1.6.0</span></span></td><td class="mono">0.2 to 1.5</td><td class="n mono">3</td></tr>
+        </tbody></table></div></div>
+        <div id="rep-empty" hidden><div class="kb-blank"><b>No reporter is connected</b><p class="hint">Install podium-reporter on a machine and its version shows here. Admin &gt; Reporters lists every reporter this server has heard from.</p></div></div>
+      </section>
+    </div></div>
+  </div></div>
+</div>
+<script>
+const inFrame = location.hash.startsWith('#frame');
+const root = document.documentElement;
+function theme(t) { root.setAttribute('data-theme', t); }
+function apply(s) {
+  document.querySelectorAll('#rep-rows tr').forEach(tr => tr.hidden = !(s.state === 'mixed' ? tr.dataset.r === 'a' : s.state === 'one' ? tr.dataset.r === 'b' : false));
+  document.getElementById('rep-table').hidden = s.state === 'none';
+  document.getElementById('rep-empty').hidden = s.state !== 'none';
+  document.querySelectorAll('[data-dev]').forEach(e => e.hidden = s.build !== 'dev');
+}
+if (inFrame) {
+  document.body.classList.add('in-frame');
+  const ic = {copy: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2"></rect><path d="M10.5 5.5V3.7a1.2 1.2 0 0 0-1.2-1.2H3.7a1.2 1.2 0 0 0-1.2 1.2v5.6a1.2 1.2 0 0 0 1.2 1.2h1.8"></path></svg>', chk: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"></path></svg>'};
+  const btn = document.getElementById('copy-all');
+  btn.onclick = () => {
+    const lbl = btn.firstElementChild, i = document.getElementById('copy-ic');
+    lbl.textContent = 'Copied'; i.innerHTML = ic.chk;
+    setTimeout(() => { lbl.textContent = 'Copy details'; i.innerHTML = ic.copy; }, 1600);
+  };
+
+  const q = new URLSearchParams(location.hash.slice(7));
+  theme(q.get('t') || 'dark'); apply({ state: q.get('s') || 'mixed', build: q.get('b') || 'dev' });
+} else {
+  theme('dark');
+  const cur = { t: 'dark', w: '1440', s: 'mixed', b: 'dev' };
+  const f = document.getElementById('mk-frame');
+  const show = () => { theme(cur.t); f.width = cur.w; f.src = location.href.split('#')[0] + '#frame:' + new URLSearchParams({ t: cur.t, s: cur.s, b: cur.b }); };
+  const press = (sel, el) => document.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', String(b === el)));
+  [['data-theme-set', 't'], ['data-width', 'w'], ['data-state', 's'], ['data-build', 'b']].forEach(([attr, key]) => document.querySelectorAll('[' + attr + ']').forEach(b => b.onclick = () => {
+    cur[key] = b.getAttribute(attr); press('[' + attr + ']', b); show(); f.contentWindow && f.contentWindow.location.reload();
+  }));
+  show();
+}
+</script>
+</body>
+</html>

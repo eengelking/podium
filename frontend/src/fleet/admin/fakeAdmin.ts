@@ -184,6 +184,20 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     people: Array.from({ length: opts.people ?? 0 }, (_, i): P => ({ id: i + 1, name: `person-${String(i).padStart(3, "0")}`, groupId: null, revokedAt: null })),
     groups: [] as { id: number; name: string; builtIn?: boolean }[],
     calls: [] as string[],
+    /** True makes GET /about fail with a 500. */
+    aboutFails: false,
+    /** What GET /about answers (#862). */
+    about: {
+      server: { version: "1.1.0", build: null as string | null, runtime: "standalone", startedAt: 1_000_000, system: "darwin arm64" },
+      stack: { node: "24.11.0", express: "5.3.0" },
+      database: { engine: "SQLite", version: "3.50.4", schemaVersion: 52, sizeBytes: 432_013_312 as number | null },
+      reporters: [
+        { reporterName: "podium-reporter-claudecode", version: "1.5.0", machines: 5, compat: "ok", support: { min: "0.2.0", max: "1.5.0" } },
+        { reporterName: "podium-reporter-claudecode", version: "1.3.2", machines: 2, compat: "outdated", support: { min: "0.2.0", max: "1.5.0" } },
+        { reporterName: "podium-reporter-opencode", version: "1.5.0", machines: 1, compat: "ok", support: { min: "1.4.0", max: "1.5.0" } },
+      ] as unknown[],
+      serverTime: 1_000_000 + 3 * 86_400_000 + 4 * 3_600_000,
+    },
     expire: false,
     notices: { "background-sessions": true } as Record<string, boolean>,
     features: { "activity-feed": true } as Record<string, boolean>,
@@ -341,6 +355,10 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       if (act[2] !== "certificate/revoke") who.revokedAt = 5;
       if (act[2] !== "revoke") who.certificate = { notAfter: who.certificate?.notAfter ?? "2027-01-19T00:00:00.000Z", revoked: true };
       return json(200, { ok: true });
+    }
+    if (path === "/about" && method === "GET") {
+      if (state.aboutFails) return json(500, { ok: false, error: "HTTP 500" });
+      return json(200, state.about);
     }
     if (path === "/reporters" && method === "GET") {
       const st = url.searchParams.get("state") ?? "";

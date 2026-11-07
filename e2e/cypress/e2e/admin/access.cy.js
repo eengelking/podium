@@ -60,7 +60,7 @@ describe('admin: access', () => {
   it('groups the menu in four, marks the current page, and puts Lock Admin and the footer at the bottom', () => {
     cy.openAdmin();
     cy.get('nav[aria-label="Admin sections"] [role=group]').then(($g) => expect([...$g].map((g) => g.getAttribute('aria-label'))).to.deep.eq(['People and access', 'Server', 'Reporting', 'Activity']));
-    cy.get('nav[aria-label="Admin sections"] button.navbtn').then(($b) => expect([...$b].map((b) => b.childNodes[0].textContent)).to.deep.eq(['People', 'Groups', 'Reporters', 'Settings', 'Model prices', 'Security', 'Certificates', 'Data', 'Stored activity', 'Usage', 'Spend', 'People and groups', 'Sessions', 'Failures', 'Admin activity', 'Admin log']));
+    cy.get('nav[aria-label="Admin sections"] button.navbtn').then(($b) => expect([...$b].map((b) => b.childNodes[0].textContent)).to.deep.eq(['People', 'Groups', 'Reporters', 'Settings', 'Model prices', 'Security', 'Certificates', 'Data', 'Stored activity', 'About', 'Usage', 'Spend', 'People and groups', 'Sessions', 'Failures', 'Admin activity', 'Admin log']));
     cy.get('nav [aria-current=page]').should('have.text', 'People2');
     cy.contains('Locks after 10 minutes without activity.');
     cy.contains('Podium v');

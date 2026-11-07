@@ -2,7 +2,7 @@
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -254,6 +254,15 @@ export class PgReporterStore implements ReporterStoreApi {
     const filter = state ? ' WHERE q.state = :state' : '';
     if (state) params.state = state;
     return { sub, params, filter, base };
+  }
+
+  async versionCounts(since: number): Promise<ReporterVersionCount[]> {
+    const rows = await this.db.all<{ name: string; version: string; machines: number | string }>(
+      `SELECT reporter_name AS name, reporter_version AS version, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version ORDER BY reporter_name, reporter_version`,
+      { since },
+    );
+    return rows.map((r) => ({ reporterName: r.name, version: r.version, machines: Number(r.machines) }));
   }
 
   async list(opts: { page?: number; pageSize?: number; q?: string; state?: string; sort?: string; dir?: number; admin?: boolean }, now: number): Promise<ReporterList> {

@@ -155,6 +155,21 @@ export interface ReporterRow {
   peers: boolean | null;
 }
 
+/** How many reporters of one name run one version, among those heard from since a time (#862). */
+export interface ReporterVersionCount {
+  reporterName: string;
+  version: string;
+  machines: number;
+}
+
+/** What a database says about itself (#862): the engine's name and version, the schema version Podium reached, and the size when it can be told. */
+export interface StorageInfo {
+  engine: string;
+  version: string;
+  schemaVersion: number;
+  sizeBytes: number | null;
+}
+
 export interface ReporterList extends Paged<ReporterRow> {
   /** When this server started: what "not since restart" is counted from. */
   serverStartedAt: number;
