@@ -339,6 +339,9 @@ body.podium-resizing .podium .cols { transition: none; }
 /* focus view */
 .podium .fh { display: flex; flex-wrap: wrap; align-items: stretch; gap: 14px 24px; padding: 14px 16px; }
 .podium .fh .id { flex: 1; min-width: min(280px, 100%); display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+/* The name and the Chat with Agent button in one row (#1067). It wraps, so the button drops under a long name or a narrow page. */
+.podium .fh .nm-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.podium .fh .nm-row h1 { min-width: 0; }
 .podium .fh h1 { margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; display: flex; gap: 10px; align-items: center; overflow-wrap: anywhere; }
 .podium .fh h1 .sd { flex: none; display: inline-flex; color: var(--muted); }
 .podium .fh h1 .sd .si { width: 20px; height: 20px; }
