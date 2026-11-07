@@ -223,6 +223,30 @@ describe('session recording', () => {
   });
 });
 
+// An Admin's stop of a person's recording is told to the person (#1078): a quiet record line on their Chat overview, once. The callout in the terminal is the reporter's (docs/e2e/COVERAGE.md).
+describe('session recording: an Admin stops it and the person is told', () => {
+  before(() => cy.resetServer({ seedArgs: '--recording' }));
+
+  it('shows Ed, once, that an Admin stopped the recording of his session, and no one else', () => {
+    // Through Admin > Settings > Recordings, which is the Admin's own way to stop it; the stop from the session's page is a gap (see the report of #1078).
+    cy.openAdmin('Settings');
+    cy.contains('tr', 'invoice-v2').contains('button', 'Stop').click();
+    cy.contains('button', 'Stop recording').click();
+    cy.contains('Stopped the recording of invoice-v2. What was recorded is kept.');
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-gone-record').should('not.exist');
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-gone-record').should('have.length', 1).first().invoke('text').should('match', /^Admin.* \(an Admin\) stopped a recording of one of your sessions on [A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2}.*\.$/);
+    // Shown once: the next load does not have it.
+    cy.reload();
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-gone-record').should('not.exist');
+  });
+});
+
 // Turning the flag off drops what the server holds for recordings, so this runs on a server of its own.
 describe('session recording: the Admin flag', () => {
   before(() => cy.resetServer({ seedArgs: '--recording' }));
