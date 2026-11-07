@@ -62,18 +62,19 @@ export class AdminReads {
 
   /**
    * `viewer`, an Admin, read (or pinged) a thread that is not theirs. Records it first (a failure stops the read, so nothing is read without a record), writes
-   * `chat_admin_read` to the Admin log once per session, and tells the people in it on the stream at every read and ping, so their console keeps the Admin
-   * on screen for as long as the Admin reads. The record is owed to the people in the thread until they have seen it. Their reporter sessions are told
-   * from the record whenever a session reports (`noticesFor`), not once here.
+   * `chat_admin_read` to the Admin log once per session, and tells the people in it on the stream when a reading starts or comes back, and at every ping (`ping`),
+   * so their console keeps the Admin on screen for as long as the Admin reads. A plain read after the start does not signal: the Admin's own console reads again
+   * on a signal, so a signal on every read would make it read, and signal, without end (#1051). The record is owed to the people in the thread until they have
+   * seen it. Their reporter sessions are told from the record whenever a session reports (`noticesFor`), not once here.
    */
-  async note(viewer: ChatViewer, s: ReadSubject): Promise<void> {
+  async note(viewer: ChatViewer, s: ReadSubject, ping = false): Promise<void> {
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, s.owners);
     this.known.set(s.thread, { subject: s, at: this.core.host.now() });
     if (got.started) {
       if (s.scope === 'list') this.core.onEvent({ kind: 'admin_browse', by: viewer.actor, person: s.person ?? s.owners[0] ?? '' });
       else this.core.onEvent({ kind: 'admin_read', by: viewer.actor, scope: s.scope, thread: s.thread, owners: s.owners });
     }
-    for (const owner of new Set(s.owners)) this.core.signal({ scope: s.scope === 'dm' ? 'dm' : 'group', owner });
+    if (got.started || ping) for (const owner of new Set(s.owners)) this.core.signal({ scope: s.scope === 'dm' ? 'dm' : 'group', owner });
   }
 
   /** A thread's subject, from memory or the conversation; null when it has none (the conversation is gone, or the thread is not one that is read-recorded). */

@@ -1925,11 +1925,21 @@ describe('an Admin reading a conversation (#1034)', () => {
     await read(admin, 'group', '?owner=Ed');
     const first = chats().length;
     expect(first).toBeGreaterThan(0);
-    // Every read and ping signals, not only the start of a session, so the person's tag stays up for as long as the Admin reads (#1051).
+    // A plain read after the start does not signal: the Admin's own console reads again on a signal, so a signal on every read would make it read forever (#1051).
+    // The start of a read, and every ping, do signal, so the person's tag stays up for as long as the Admin reads.
     await read(admin, 'group', '?owner=Ed');
-    expect(chats().length).toBeGreaterThan(first);
+    expect(chats().length).toBe(first);
     await admin.get(`${AB}/messages`);
-    expect(chats().length).toBeGreaterThan(first);
+    const afterDm = chats().length;
+    expect(afterDm).toBeGreaterThan(first);
+    await admin.get(`${AB}/messages`);
+    expect(chats().length).toBe(afterDm);
+    // A browse of a person's list is a read too: it signals when it starts and not on the Admin's next read of the same list.
+    await admin.get(`${CH}?owner=Ed`);
+    const afterBrowse = chats().length;
+    expect(afterBrowse).toBeGreaterThan(afterDm);
+    await admin.get(`${CH}?owner=Ed`);
+    expect(chats().length).toBe(afterBrowse);
     // A ping 15 seconds on, and one after the reading went stale, each tell the person's console again.
     let before = chats().length;
     w.tick(15_000);

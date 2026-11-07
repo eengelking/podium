@@ -211,7 +211,7 @@ export class ChannelChat {
   async reading(viewer: ChatViewer, owner: string | null): Promise<{ ok: true } | Fail> {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a group that is not their own.');
     if (owner === null || nameKey(owner) === nameKey(viewer.name)) return fail(400, 'That group is yours, so reading it is not recorded.');
-    await this.reads.note(viewer, this.groupSubject(owner));
+    await this.reads.note(viewer, this.groupSubject(owner), true);
     return { ok: true };
   }
 

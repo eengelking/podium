@@ -324,7 +324,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) return fail(404, 'There is no such conversation.');
     if (this.role(viewer, c) !== 'admin') return fail(403, 'That conversation is yours, so reading it is not recorded.');
-    await this.reads.note(viewer, this.subject(c));
+    await this.reads.note(viewer, this.subject(c), true);
     return { ok: true };
   }
 
