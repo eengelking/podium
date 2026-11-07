@@ -88,14 +88,17 @@ describe('scrub of common secret shapes (#155)', () => {
   });
 
   it('reads text stored whole in linear time: 60,000 characters of dotted words, and a secret in a long text (#1051)', () => {
+    // The old unbounded pattern took about 3.5 s here on a fast machine and several times that on a CI runner; the linear scan takes about 0.15 s on a fast
+    // machine and about 0.5 s on a CI runner. 2 s tells the two apart without failing on a slow or busy machine. The routes also refuse such a text by its
+    // length before they scan it.
+    const LIMIT_MS = 2000;
     const started = performance.now();
     const out = scrubStored('a.'.repeat(30_000), [], true);
-    // Seconds before the key prefix was bounded; the routes also refuse such a text by its length before they scan it.
-    expect(performance.now() - started).toBeLessThan(300);
+    expect(performance.now() - started).toBeLessThan(LIMIT_MS);
     expect(out).toHaveLength(60_000);
     const dashed = performance.now();
     scrubStored('a-'.repeat(30_000), [], true);
-    expect(performance.now() - dashed).toBeLessThan(300);
+    expect(performance.now() - dashed).toBeLessThan(LIMIT_MS);
     // Past the window the patterns read, a secret is still found in every window, and a word is not cut.
     const long = `${'word '.repeat(5000)}password=hunter2 ${'word '.repeat(5000)}token: "tail-secret-value-123"`;
     const scrubbed = scrubStored(long, [], true);

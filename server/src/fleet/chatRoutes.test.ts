@@ -622,7 +622,8 @@ describe('direct messages', () => {
     for (const [name, send] of [['own', own], ['across', across], ['channel', channel]] as const) {
       const [res, ms] = await timed(() => send(slow));
       expect([name, res.status]).toEqual([name, 422]);
-      expect(ms).toBeLessThan(50);
+      // Scanning this text took about 3.7 s before the checks moved ahead of it; a refusal by length takes a few ms. 500 ms tells them apart on a slow runner too.
+      expect(ms).toBeLessThan(500);
     }
     // Chat's own limit applies to a message to ones own agent too.
     const long = await own('x'.repeat(5000));
