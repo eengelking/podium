@@ -23,5 +23,5 @@ newest 100 are kept however old they are. The page says how long entries are kep
 <!-- nav:start -->
 ---
 
-Previous: [Reporting](12-reporting.md) · Up: [Admin](README.md)
+Previous: [Reporting](12-reporting.md) · Up: [Admin](README.md) · Next: [About](14-about.md)
 <!-- nav:end -->

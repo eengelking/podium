@@ -1,7 +1,7 @@
 // The fleet store on PostgreSQL (#822): sessions, agents, events, blowouts, samples and spend, and the report and rollup queries. It is
 // the SQLite `FleetDb` over `PgDb`: the same SQL where PostgreSQL allows it, the same spend and cost arithmetic in code. A method that
 // reads and then writes is one transaction, which is what the SQLite lock gave it.
-import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, ADMIN_LOG_KEEP } from '../rows.js';
+import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
 import type { FleetStore, FleetStoreApi } from '../types.js';
 import type { PgDb, Param, Params } from './conn.js';
 import { PgReportQueries } from './reportQueries.js';
@@ -241,6 +241,13 @@ export class PgFleetStore implements FleetStoreApi {
 
   async distinctReporterVersions(): Promise<string[]> {
     return (await this.db.all<{ v: string }>('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v')).map((r) => r.v);
+  }
+
+  async engineInfo(): Promise<StorageInfo> {
+    const r = await this.db.get<{ version: string; schema: string | number | null; size: string | number | null }>(
+      'SELECT current_setting(\'server_version\') AS version, (SELECT MAX(version) FROM schema_migrations) AS schema, pg_database_size(current_database()) AS size',
+    );
+    return { engine: 'PostgreSQL', version: r?.version ?? '', schemaVersion: Number(r?.schema ?? 0), sizeBytes: r?.size == null ? null : Number(r.size) };
   }
 
   // ---- agents ---------------------------------------------------------------------------------

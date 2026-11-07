@@ -620,6 +620,15 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
       `{ activityHistory: { policy, n, unit, capGb } }`. `policy` is `default`, `after`, `end` or `all`; `unit` is
       `hours`, `days`, `weeks` or `months`; `n` is 1 to 3650 and `capGb` is null or 1 to 1000. A keep policy is a 400
       while the server runs without a token. A change is written to the Admin log as `activity_history_changed`.
+  - `GET about` (#862): what the server and its reporters are running, read from what the server already holds.
+    `{ server: { version, build, runtime, startedAt, system }, stack: { node, express }, database: { engine, version,
+    schemaVersion, sizeBytes }, reporters, serverTime }`. `runtime` is `container` (`PODIUM_RUNTIME=container`, which the
+    image sets, or the container engine's marker file) or `standalone`. `sizeBytes` is null when the database cannot say.
+    `reporters` has a row for each reporter name and version heard from in the last hour, mod reporters only, with
+    `machines`, `compat` and `support` (the range the server reads for that reporter, or null), newest version first
+    within a reporter; the legacy reporter name counts as the Claude Code reporter. It carries no token, address or
+    machine name. The page also shows the React and TypeScript versions the console was built with, which only its
+    bundle knows. The server and its storage adapters answer `engineInfo()` and `versionCounts(since)` for it.
   - The Activity history (#432, [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)):
     - `POST activity-history/preview` (`{ settings }`): what saving those settings would do now without doing it.
       For a keep policy, `{ entries, bytes, sessions, stopsCapturing: false }` is an estimate of what the purge would

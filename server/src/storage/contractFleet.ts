@@ -31,6 +31,17 @@ const seen = (id: string, name: string | null, over: Partial<ReporterSeen> = {})
 });
 
 export function fleetCases(o: Openers): void {
+  it('agrees on every adapter on the shape of what the database says about itself: its engine, version, schema version and size (#862)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const i = await s.fleet.engineInfo();
+      await rec('engine is a name', typeof i.engine === 'string' && i.engine.length > 0);
+      await rec('version is text', typeof i.version === 'string' && /^\d/.test(i.version));
+      await rec('schema version is a whole number above 0', Number.isInteger(i.schemaVersion) && i.schemaVersion > 0);
+      await rec('size is a number or unknown', i.sizeBytes === null || (Number.isInteger(i.sizeBytes) && i.sizeBytes >= 0));
+    });
+    for (const k of [...t.keys()]) expect(t.get(k)).toBe(true);
+  });
+
   it('agrees on every adapter for the spend queries: totals, the split by owner, ties in the order, and the group of an owner', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
@@ -421,6 +432,32 @@ export function peopleCases(o: Openers): void {
 }
 
 export function reporterCases(o: Openers): void {
+  it('agrees on every adapter for the reporter versions heard from since a time: one count per reporter name and version, hooks-only and silent ones left out (#862)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const r = s.reporters;
+      await r.record(seen('a1', 'one', { version: '1.6.0' }), T0 + 100);
+      await r.record(seen('a2', 'two', { version: '1.6.0' }), T0 + 101);
+      await r.record(seen('a3', 'three', { version: '1.3.2' }), T0 + 102);
+      await r.record(seen('a4', 'four', { version: '1.5.0', reporterName: 'podium-reporter-opencode' }), T0 + 103);
+      await r.record(seen('a5', 'five', { version: '1.10.0' }), T0 + 104);
+      await r.record(seen('a6', 'six', { version: '1.9.0' }), T0 + 105);
+      await r.record(seen('h1', null, { kind: 'hooks', version: 'hooks', credential: null, os: null, peers: null }), T0 + 106);
+      await r.record(seen('old', 'old', { version: '0.9.0' }), T0 + 1);
+      await rec('heard since T0 + 50', r.versionCounts(T0 + 50));
+      await rec('heard since the start', r.versionCounts(0));
+      await rec('heard since the future', r.versionCounts(T0 + 10_000));
+    });
+    expect(t.get('heard since T0 + 50')).toEqual([
+      { reporterName: 'podium-reporter-claudecode', version: '1.10.0', machines: 1 },
+      { reporterName: 'podium-reporter-claudecode', version: '1.3.2', machines: 1 },
+      { reporterName: 'podium-reporter-claudecode', version: '1.6.0', machines: 2 },
+      { reporterName: 'podium-reporter-claudecode', version: '1.9.0', machines: 1 },
+      { reporterName: 'podium-reporter-opencode', version: '1.5.0', machines: 1 },
+    ]);
+    expect((t.get('heard since the start') as { version: string }[]).map((v) => v.version)).toContain('0.9.0');
+    expect(t.get('heard since the future')).toEqual([]);
+  });
+
   it('agrees on every adapter for the keys a sender is known by, the filtered key list, removing, and the refused-report list', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const r = s.reporters;

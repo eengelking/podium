@@ -29,9 +29,10 @@ import { makeReportsClient } from "./reportsApi";
 import { SettingsTab } from "./SettingsTab";
 import { SpendPage } from "./SpendPage";
 import { StoredActivityTab } from "./StoredActivityTab";
+import { AboutTab } from "./AboutTab";
 
 type Status = "checking" | "locked" | "open" | "disabled";
-type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept" | "stored";
+type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept" | "stored" | "about";
 const PAGES: Record<TabId, { name: string; lead: string }> = {
   people: { name: "People", lead: "Each person gets a token that only works with their own name. A report is accepted when the two match." },
   groups: { name: "Groups", lead: "Arrange people into groups. The fleet wall shows a band per group." },
@@ -49,16 +50,19 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
   activity: { name: REPORT_CONFIGS.activity.title, lead: REPORT_CONFIGS.activity.lead },
   kept: { name: "Data", lead: "What Podium stores, for how long, and what you can remove. Reports read this, never the live stream alone." },
   stored: { name: "Stored activity", lead: "The Activity history Podium has kept, by session. Delete what you no longer need, in bulk." },
+  about: { name: "About", lead: "What software this server and its reporters are running." },
 };
 /** The side menu: pages in groups, in the order they are listed. */
 const NAV: { name: string; icon: GroupIconName; ids: TabId[] }[] = [
   { name: "People and access", icon: "access", ids: ["people", "groups", "reporters"] },
-  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "certs", "kept", "stored"] },
+  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "certs", "kept", "stored", "about"] },
   { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "failures", "activity"] },
   { name: "Activity", icon: "activity", ids: ["log"] },
 ];
 /** Reporting pages draw their own header, which carries Export (#484). */
 const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "failures", "activity"]);
+/** Pages that draw their own header, because it carries an action: the reports' Export (#484) and About's Copy details (#862). */
+const OWN_HEADER: ReadonlySet<TabId> = new Set([...REPORT_TABS, "about"]);
 
 type GroupIconName = "access" | "server" | "reporting" | "activity";
 /** Outline glyphs that lead a menu group's heading; on the narrow strip they stand in for the heading. */
@@ -267,7 +271,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
               <div className="apage" ref={pageRef}>
                 <div className="apage-in">
                   {created && <OnceBox c={created} onDone={() => setCreated(null)} />}
-                  {!REPORT_TABS.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
+                  {!OWN_HEADER.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
                   {tab === "people" && <PeopleTab api={api} base={base} {...paging.people} onPaging={onPeoplePaging} onCreated={setCreated} onCount={onCountPeople} onLocked={onLocked} />}
                   {tab === "groups" && <GroupsTab api={api} {...paging.groups} onPaging={onGroupPaging} onCount={onCountGroups} onLocked={onLocked} />}
                   {tab === "reporters" && <ReportersTab api={api} paging={paging.reporters} onPaging={onReportersPaging} onCount={onCountReporters} onLocked={onLocked} fleetOptions={fleetOptions} />}
@@ -283,6 +287,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "activity" && <ReportPage cfg={REPORT_CONFIGS.activity} client={client} onLocked={onLocked} />}
                   {tab === "kept" && <DataPage api={api} onLocked={onLocked} onGo={setTab} onCountStored={onCountStored} />}
                   {tab === "stored" && <StoredActivityTab api={api} onGo={setTab} onCount={onCountStored} onLocked={onLocked} />}
+                  {tab === "about" && <AboutTab api={api} onLocked={onLocked} />}
                   {tab === "log" && <LogTab api={api} {...paging.log} onPaging={onLogPaging} onCount={onCountLog} onLocked={onLocked} />}
                 </div>
                 <AdminFoot version={version} build={build} className="afoot-narrow" />

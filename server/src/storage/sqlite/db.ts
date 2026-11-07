@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, ADMIN_LOG_KEEP } from '../rows.js';
+import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 
@@ -709,6 +709,14 @@ export class FleetDb {
         v: string;
       }[]
     ).map((r) => r.v);
+  }
+
+  engineInfo(): StorageInfo {
+    const version = (this.db.prepare('SELECT sqlite_version() AS v').get() as { v: string }).v;
+    const schema = (this.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get() as { v: number | null }).v ?? 0;
+    const pages = (this.db.prepare('PRAGMA page_count').get() as { page_count: number }).page_count;
+    const size = (this.db.prepare('PRAGMA page_size').get() as { page_size: number }).page_size;
+    return { engine: 'SQLite', version, schemaVersion: schema, sizeBytes: pages * size };
   }
 
   // ---- agents ---------------------------------------------------------------------------------

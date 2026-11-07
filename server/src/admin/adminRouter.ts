@@ -12,6 +12,7 @@ import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
 import { serverBuild } from '../fleet/build.js';
 import { serverVersion } from '../fleet/compat.js';
+import { buildAbout } from './about.js';
 import type { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from '../fleet/liveSettings.js';
 import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
@@ -38,7 +39,7 @@ export interface AdminRouterOptions {
   /** The admin secret. null when the server runs without authentication: Admin is then switched off. */
   secret: string | null;
   /** The storage's transaction, for the Admin changes that read, decide and write (revoking the last Administrator, say) as one step. */
-  storage: Pick<Storage, 'tx'>;
+  storage: Pick<Storage, 'tx'> & Partial<Pick<Storage, 'fleet'>>;
   people: PeopleStoreApi;
   /** The wall's notice switches. Without it the Settings tab has nothing to change. */
   wall?: LiveWallSettings;
@@ -524,6 +525,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   const reporterKey = (v: string): string | null => (v.length >= 1 && v.length <= 150 ? v : null);
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+
+  // What the server and its reporters are running (#862). Read-only, and it carries no token, address or machine name.
+  router.get('/about', asyncHandler(async (_req, res) => {
+    if (!reporters || !storage.fleet) return void res.status(404).json({ ok: false, error: 'not available' });
+    res.json(await buildAbout({ fleet: storage.fleet, reporters, now: now(), env: process.env, uptimeMs: process.uptime() * 1000 }));
+  }));
 
   router.get('/reporters', asyncHandler(async (req, res) => {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
