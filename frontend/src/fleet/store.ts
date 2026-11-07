@@ -32,6 +32,8 @@ export interface FleetState {
   features: Record<string, boolean>;
   /** Counts the server's content-free `chat` signals and every snapshot (so a reconnect too): Chat reads again whenever it changes (#1034). */
   chatRev: number;
+  /** Counts the server's content-free `reads` signals and every snapshot: the person reads again who is reading their sessions (#1073, #1074). */
+  readsRev: number;
 }
 
 export type FleetAction =
@@ -41,6 +43,7 @@ export type FleetAction =
   | { type: "removed"; sessionId: string; reason: RemovedReason; at: number }
   | { type: "wall"; wall: WallSettingsView }
   | { type: "chat" }
+  | { type: "reads" }
   | { type: "tick"; serverTime: number; kpis: Kpis }
   | { type: "disconnected"; at: number }
   | { type: "error"; message: string }
@@ -61,6 +64,7 @@ export const initialState: FleetState = {
   wall: { notices: {}, showBackgroundSessions: false, cardTitleMachine: false },
   features: {},
   chatRev: 0,
+  readsRev: 0,
 };
 
 function capEvents(list: ActivityView[]): ActivityView[] {
@@ -93,6 +97,7 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
         ...state,
         ...live(),
         chatRev: state.chatRev + 1,
+        readsRev: state.readsRev + 1,
         serverTime: action.body.serverTime,
         config: action.body.config ?? state.config,
         sessions,
@@ -139,6 +144,8 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
     }
     case "chat":
       return { ...state, chatRev: state.chatRev + 1 };
+    case "reads":
+      return { ...state, readsRev: state.readsRev + 1 };
     case "wall":
       return { ...state, ...live(), wall: action.wall };
     case "tick":

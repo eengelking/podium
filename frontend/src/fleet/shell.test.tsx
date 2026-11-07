@@ -399,6 +399,18 @@ describe("useFleet", () => {
     expect(result.current.chatRev).toBe(before + 1);
   });
 
+  it("counts the stream's content-free reads event, for the owner's notice of an Admin's read to be read again (#1073, #1074)", async () => {
+    vi.useFakeTimers();
+    const fetchState = vi.fn().mockResolvedValue(makeState());
+    const { result } = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const before = result.current.readsRev;
+    act(() => FakeSource.last!.emit("reads", { rev: 1 }));
+    expect(result.current.readsRev).toBe(before + 1);
+  });
+
   it("reopens a stream the browser closed on error", () => {
     vi.useFakeTimers();
     FakeSource.opened = 0;

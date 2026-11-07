@@ -1,5 +1,6 @@
 // The Podium fleet console: top bar, the orchestrator rail, the wall or one orchestrator's page, and
 // the activity / agent panel. Data comes from useFleet; everything here is presentation state.
+import { SessionReadsProvider } from "./sessionReads";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./fleet.css";
 import { mixedHarnesses } from "./harness";
@@ -142,18 +143,20 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
   return (
     <ActivityOutputFlag.Provider value={props.state.features["activity-output"] === true}>
       <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
-        <FleetViewBody
-          state={props.state}
-          updateEvery={props.updateEvery}
-          onUpdateEvery={props.onUpdateEvery}
-          board={props.board}
-          myReporters={props.myReporters}
-          peersApi={props.peersApi}
-          traffic={props.traffic}
-          trafficApi={props.trafficApi}
-          chat={props.chat}
-          chatApi={props.chatApi}
-        />
+        <SessionReadsProvider rev={props.state.readsRev}>
+          <FleetViewBody
+            state={props.state}
+            updateEvery={props.updateEvery}
+            onUpdateEvery={props.onUpdateEvery}
+            board={props.board}
+            myReporters={props.myReporters}
+            peersApi={props.peersApi}
+            traffic={props.traffic}
+            trafficApi={props.trafficApi}
+            chat={props.chat}
+            chatApi={props.chatApi}
+          />
+        </SessionReadsProvider>
       </RespondProvider>
     </ActivityOutputFlag.Provider>
   );

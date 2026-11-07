@@ -3,7 +3,8 @@
 // A record holds who, which thread and when, never any text. General is public and is never recorded.
 import type { AdminReadKind, AdminReadRow, ChatAdminReadsApi } from '../storage/types.js';
 import { NOTICE_TTL_MS, type AdminNotice } from './chatAdminNotices.js';
-import { nameKey } from '../storage/rows.js';
+import { ADMIN_OWNER, nameKey } from '../storage/rows.js';
+import { LOOP_ID, parseSessionThread, readNeedsLoop, sessionPhrase, sessionSubject, sessionThreadPrefix, type ParsedSessionThread, type SessionReadKind } from './sessionReads.js';
 import type { ChatCore } from './chatCore.js';
 import type { AdminReading, ChatViewer } from './chatTypes.js';
 
@@ -29,7 +30,7 @@ export interface Told {
  * to be read after the Admin's name: `is reading your Podium group`. It names the conversation, so a person with several open knows which.
  */
 export interface ReadSubject {
-  scope: 'group' | 'dm' | 'list';
+  scope: 'group' | 'dm' | 'list' | 'session';
   thread: string;
   /** The people in the thread, folded: the group's person, or the owner and the person of a conversation. Each is told, in every live reporter session. */
   owners: string[];
@@ -68,6 +69,7 @@ export class AdminReads {
    * seen it. Their reporter sessions are told from the record whenever a session reports (`noticesFor`), not once here.
    */
   async note(viewer: ChatViewer, s: ReadSubject, ping = false): Promise<void> {
+    if (s.scope === 'session') throw new Error('a session read is noted with noteSession');
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, s.owners);
     this.known.set(s.thread, { subject: s, at: this.core.host.now() });
     if (got.started) {
@@ -86,6 +88,12 @@ export class AdminReads {
     if (thread.startsWith('group:')) subject = { scope: 'group', thread, owners: [thread.slice('group:'.length)], phrase: 'is reading your Podium group' };
     else if (thread.startsWith('list:')) subject = { scope: 'list', thread, owners: [thread.slice('list:'.length)], phrase: LIST_PHRASE };
     else if (thread.startsWith('dm:')) subject = await this.resolve(thread);
+    else {
+      // A session read (an ask, stored Activity): whose it is comes from the stored session, so a session peer messaging does not know is still told.
+      const parsed = parseSessionThread(thread);
+      const row = parsed ? await this.core.host.sessionOf(parsed.sessionId) : null;
+      if (parsed && row && row.owner !== null && row.owner !== ADMIN_OWNER) subject = { scope: 'session', thread, owners: [nameKey(row.owner)], phrase: sessionPhrase(parsed.kind, row.name) };
+    }
     if (subject) this.known.set(thread, { subject, at: now });
     else this.known.delete(thread);
     return subject;
@@ -99,15 +107,80 @@ export class AdminReads {
   async noticesFor(sessionId: string): Promise<AdminNotice[]> {
     const live = this.core.host.peers.messages.live(sessionId);
     const held = this.core.notices.for(sessionId);
-    if (!live) return held;
-    const person = nameKey(live.owner);
+    // A session read is told to a session peer messaging does not know too (the stored session's owner); a chat thread needs the live peer.
+    const owner = live?.owner ?? (await this.core.host.sessionOf(sessionId))?.owner ?? null;
+    if (owner === null) return held;
+    const person = nameKey(owner);
     const out: AdminNotice[] = [];
     for (const r of await this.store.recent(this.core.host.now() - NOTICE_TTL_MS)) {
       const subject = await this.subjectOf(r.thread);
       if (!subject || !subject.owners.includes(person)) continue;
+      if (!live && subject.scope !== 'session') continue;
       out.push({ id: `rd-${r.startedAt.toString(36)}-${codeOf(`${r.thread}|${nameKey(r.admin)}`)}`, at: r.startedAt, text: `${this.whoIs(r.admin)} ${subject.phrase}.` });
     }
     return [...out.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)), ...held];
+  }
+
+  /**
+   * `viewer`, an Admin, opened or paged content of a session that belongs to someone else (#1073, #1074): `kind` says what (an ask, or one loop's stored Activity,
+   * which needs `loop`). Records it first, like `note`, so nothing is read without a record: a failure here stops the read. A read of the Admin's own session,
+   * of a session nobody owns or the shared Admin name owns, or by a viewer who is not an Admin, tells no one and records nothing. Reads of one thread by
+   * one Admin less than 30 minutes apart are one record; `ping` keeps a read that stays open live. The Admin log line is the route's own, so this writes none.
+   * Returns whether a person is told and whether the read just began or was pinged, so the route can wake that person's console.
+   */
+  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null }, loop?: string, ping = false): Promise<{ told: boolean; changed: boolean }> {
+    const none = { told: false, changed: false };
+    if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return none;
+    if (readNeedsLoop(kind) && !(loop && LOOP_ID.test(loop))) throw new Error(`a ${kind} read needs a loop id`);
+    const s = sessionSubject(kind, { id: session.id, name: session.name, owner: session.owner }, loop);
+    const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, [s.owner]);
+    this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], phrase: s.phrase }, at: this.core.host.now() });
+    return { told: true, changed: got.started || ping };
+  }
+
+  /**
+   * The Admins reading `person`'s own sessions now (those whose last read was in the last 30 seconds), by kind and then session id. Content-free, and only the
+   * person's own sessions, so what a person's console reads names nobody else's. An Admin reading several loops of one session is one reader of it.
+   */
+  async sessionReadersOf(person: string): Promise<Record<string, Record<string, AdminReading[]>>> {
+    const key = nameKey(person);
+    const out: Record<string, Record<string, AdminReading[]>> = {};
+    for (const r of await this.store.recent(this.core.host.now() - LIVE_MS)) {
+      const parsed = parseSessionThread(r.thread);
+      if (!parsed) continue;
+      const subject = await this.subjectOf(r.thread);
+      if (!subject || !subject.owners.includes(key)) continue;
+      const bySession = (out[parsed.kind] ??= {});
+      const list = (bySession[parsed.sessionId] ??= []);
+      const mine = list.find((x) => nameKey(x.admin) === nameKey(r.admin));
+      const until = r.lastSeenAt + LIVE_MS;
+      if (!mine) list.push({ admin: r.admin, since: r.startedAt, until });
+      else {
+        mine.since = Math.min(mine.since, r.startedAt);
+        mine.until = Math.max(mine.until, until);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The records of `kind` reads of one session (every loop), oldest first, and the Admins reading it now. `owner` is the person opening them: what is owed to
+   * them there is seen. Never any text; the records name the Admin and the time.
+   */
+  async sessionRecordsOf(kind: SessionReadKind, sessionId: string, owner: string): Promise<{ records: AdminReadRow[]; reading: AdminReading[] }> {
+    const prefix = sessionThreadPrefix(kind, sessionId);
+    const threads = (await this.store.threads(prefix)).filter((t) => {
+      const p: ParsedSessionThread | null = parseSessionThread(t);
+      return p !== null && p.kind === kind && p.sessionId === sessionId;
+    });
+    const records: AdminReadRow[] = [];
+    for (const t of threads) {
+      records.push(...(await this.store.list(t)));
+      await this.store.seen(t, owner);
+    }
+    records.sort((a, b) => a.startedAt - b.startedAt || a.admin.localeCompare(b.admin));
+    const live = await this.sessionReadersOf(owner);
+    return { records, reading: live[kind]?.[sessionId] ?? [] };
   }
 
   /** How a callout names an Admin. */
