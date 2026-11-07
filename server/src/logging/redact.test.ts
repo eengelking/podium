@@ -104,6 +104,29 @@ describe('scrub of common secret shapes (#155)', () => {
     expect(scrubbed.split(' word').length).toBe(long.split(' word').length);
   });
 
+  it('finds a secret assignment that straddles a window cut, at every offset (#1051)', () => {
+    const cases = ['password= hunter2', 'password=hunter2', 'password = hunter2', '"token": "hunter2 and more"', 'api_key=hunter2hunter2'];
+    for (const secret of cases) {
+      for (let d = -30; d <= 30; d++) {
+        // A space near the cut (the old cut point), then the secret across the 8000th character.
+        const spaced = `${'x'.repeat(7960 + d)} ${secret} ${'y'.repeat(3000)}`;
+        expect(scrubStored(spaced, [], true), `${secret} at ${d}`).not.toContain('hunter2');
+        // No whitespace in the last 500 characters of the window: the old cut fell inside a token.
+        const bare = `${'w '.repeat(50)}${','.repeat(7800 + d)}${secret} ${','.repeat(2000)}`;
+        expect(scrubStored(bare, [], true), `${secret} bare at ${d}`).not.toContain('hunter2');
+      }
+    }
+  });
+
+  it('finds a long secret value that runs past any lookahead, and leaves text around it whole (#1051)', () => {
+    const value = 'v'.repeat(30_000);
+    const text = `${'word '.repeat(1500)}secret=${value} end ${'word '.repeat(2000)}`;
+    const out = scrubStored(text, [], true);
+    expect(out).not.toContain('vvvv');
+    expect(out).toContain('secret=[redacted] end ');
+    expect(out.split(' word').length).toBe(text.split(' word').length);
+  });
+
   it('is applied to the logger message and event, not only to fields', () => {
     const local: string[] = [];
     const logger = createLogger({ format: 'json', secrets: [], write: (l) => local.push(l), ship: () => {} });

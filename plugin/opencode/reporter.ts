@@ -5,7 +5,7 @@ import { excerpt, explainPrompt } from '../core/failures.ts';
 import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
-import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
+import type { AdminNotice, DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
 import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
@@ -153,6 +153,8 @@ export class Reporter {
   private readonly adminSeen = new AdminNoticeSeen();
   /** When each callout that waits for the TUI part's word was last offered to it. */
   private readonly adminOffered = new Map<string, number>();
+  /** Callouts the server handed over while no TUI part was attached, kept until one is: the server's list of them is in memory and each reply replaces the last. */
+  private readonly adminHeld = new Map<string, AdminNotice>();
   /** Orchestrator messaging (#347); null unless the person allowed it (`PODIUM_PEERS`) and the host can submit a prompt. */
   private readonly peers: Peers | null;
   /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
@@ -354,10 +356,16 @@ export class Reporter {
    * was shown, and held while none is attached (the server hands it over for minutes, so it is shown when a TUI part comes). Without one it is shown once.
    */
   private takeAdminNotices(t: Transport): void {
-    const list = t.adminNotices;
-    t.adminNotices = [];
     const confirms = !!this.deps.attached;
-    if (confirms && !this.deps.attached!()) return;
+    if (confirms && !this.deps.attached!()) {
+      // Held, not dropped: none that was shown (or is held already) is added again, and the oldest go past 50.
+      for (const n of t.adminNotices) if (!this.adminSeen.has(n.id)) this.adminHeld.set(n.id, n);
+      for (const id of this.adminHeld.keys()) if (this.adminHeld.size <= 50) break; else this.adminHeld.delete(id);
+      return;
+    }
+    const list = [...new Map([...this.adminHeld, ...t.adminNotices.map((n): [string, AdminNotice] => [n.id, n])]).values()];
+    this.adminHeld.clear();
+    t.adminNotices = [];
     const now = this.deps.now();
     for (const n of list) {
       if (this.adminSeen.has(n.id)) continue;

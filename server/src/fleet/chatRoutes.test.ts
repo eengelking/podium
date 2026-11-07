@@ -1220,21 +1220,36 @@ describe('a person writing to another person\'s agent (#1034)', () => {
 
   it('refuses a person\'s text to an agent whose reporter does not declare adminNotices, which cannot show the Admin callout (#1051)', async () => {
     const w = await world();
-    const old = report('Alex', 'sess-alex', 'review', BOX);
+    // A session that never declared it (a new session id: a declaration is kept across a report without it).
+    const old = report('Alex', 'sess-old', 'older', BOX);
     delete old.adminNotices;
     expect((await post(w, w.alex.token, old)).status).toBe(200);
-    const sent = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED });
+    const sent = await w.edB.post(`${CH}/dm/me/sess-old/messages`).set(H).send({ text: MSG_FROM_ED });
     expect(sent.status).toBe(422);
     expect(sent.body.error).toMatch(/podium-reporter/);
     expect(await requestsOf(w.alexB)).toEqual([]);
     // A version number says nothing: a reporter that declares the key is taken, whatever its version or build.
     old.adminNotices = false;
     expect((await post(w, w.alex.token, old)).status).toBe(200);
-    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBe(422);
+    expect((await w.edB.post(`${CH}/dm/me/sess-old/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBe(422);
     old.adminNotices = true;
     old.reporter = { ...old.reporter, version: '0.1.0' };
     expect((await post(w, w.alex.token, old)).status).toBe(200);
+    expect((await w.edB.post(`${CH}/dm/me/sess-old/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBeLessThan(300);
+  });
+
+  it('keeps an agent\'s adminNotices declaration across a report that does not carry it, and refuses once it declares false (#1051)', async () => {
+    const w = await world();
+    const declared = report('Alex', 'sess-alex', 'review', BOX);
+    declared.adminNotices = true;
+    expect((await post(w, w.alex.token, declared)).status).toBe(200);
+    const lighter = { ...declared };
+    delete lighter.adminNotices;
+    expect((await post(w, w.alex.token, lighter)).status).toBe(200);
     expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBeLessThan(300);
+    lighter.adminNotices = false;
+    expect((await post(w, w.alex.token, lighter)).status).toBe(200);
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBe(422);
   });
 
   it('shows the owner a request in My reporters, and the sender "Waiting for Alex to approve"', async () => {
@@ -2069,6 +2084,33 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await admin.get(`${CH}?owner=Alex`)).body.goneReads).toEqual([]);
   });
 
+  it('marks a gone conversation\'s records seen only when the overview showed all of them: the rest show on the next load, none lost (#1051)', async () => {
+    const w = await crossWorld();
+    const store = w.fleet.chat.core.store.adminReads;
+    // Thread B is the newest (its records are made last), thread A has the older ones.
+    for (let i = 0; i < 20; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', 'cleared', ['ed']);
+    for (let i = 0; i < 5; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', 'cleared', ['ed']);
+    const ed = w.edB;
+    const first = (await ed.get(CH)).body.goneReads;
+    const second = (await ed.get(CH)).body.goneReads;
+    const third = (await ed.get(CH)).body.goneReads;
+    expect(first.length + second.length).toBe(25);
+    expect(first.length).toBeLessThanOrEqual(25);
+    expect(second.length).toBeGreaterThan(0);
+    expect(third).toEqual([]);
+  });
+
+  it('keeps making progress when every gone thread has records beyond the cap, and loses none (#1051)', async () => {
+    const w = await crossWorld();
+    const store = w.fleet.chat.core.store.adminReads;
+    for (let i = 0; i < 15; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', 'cleared', ['ed']);
+    for (let i = 0; i < 10; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', 'cleared', ['ed']);
+    const ed = w.edB;
+    let total = 0;
+    for (let load = 0; load < 5; load++) total += (await ed.get(CH)).body.goneReads.length;
+    expect(total).toBe(25);
+  });
+
   it('deletes the seen records of a hidden conversation when its grace period ends, and keeps an unseen one (#1051)', async () => {
     const w = await world();
     await linkedConversation(w);
@@ -2582,6 +2624,16 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     await settle();
     expect((await logRows(w)).filter((r) => r.kind === 'chat_admin_browse')).toHaveLength(1);
     for (const t of TEXTS) expect(JSON.stringify(await logRows(w))).not.toContain(t);
+  });
+
+  it('shows every unseen record of a look at a person\'s list, even past the 20 it normally carries, and 20 once they are seen (#1051)', async () => {
+    const w = await browseWorld();
+    const store = w.fleet.chat.core.store.adminReads;
+    for (let i = 0; i < 25; i++) await store.mark('list:ed', 'Admin', 'paused', ['ed']);
+    const ed = await signedIn(w, 'Ed', w.ed.token);
+    const first = (await ed.get(CH)).body.listReads as { startedAt: number }[];
+    expect(new Set(first.map((r) => r.startedAt))).toEqual(new Set((await store.list('list:ed')).map((r) => r.startedAt)));
+    expect((await ed.get(CH)).body.listReads).toHaveLength(20);
   });
 
   it('keeps the record of a look at a person\'s list until that person has loaded their overview', async () => {

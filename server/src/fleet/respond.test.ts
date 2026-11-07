@@ -60,6 +60,27 @@ describe('RespondStore', () => {
     expect(s.detail(sid, 'toolu_q', 'Ed', 5)).toMatchObject({ ask: QUESTION, state: 'open', delivery: null, closed: null, lastSeenAt: 5 });
   });
 
+  it('keeps the adminNotices declaration across a report that does not carry it, and drops it only for an explicit false (#1051)', () => {
+    const { s, sid } = store(ALL, (r) => {
+      r.adminNotices = true;
+    });
+    expect(s.adminNotices(sid)).toBe(true);
+    const lighter = fixtureReport();
+    lighter.session.respond = { level: 'everything', accepts: ALL, limits: [] };
+    delete lighter.adminNotices;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(true);
+    lighter.adminNotices = false;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(false);
+    delete lighter.adminNotices;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(false);
+    lighter.adminNotices = true;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(true);
+  });
+
   it('takes the first answer only, and refuses a later one with who answered and when', () => {
     const { s, sid, feed } = store();
     s.announce(sid, QUESTION);

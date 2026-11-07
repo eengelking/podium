@@ -74,10 +74,13 @@ export interface GoneRead {
   with: string;
 }
 
-/** How many records of a look at the person's list the overview carries. */
+/** How many records of a look at the person's list the overview carries (more when the person has not seen older ones). */
 const LIST_RECORDS = 20;
-/** How many records of a deleted conversation the overview carries. */
+/** How many records of deleted conversations the overview carries (a thread is shown whole or not at all, so the first can exceed it). */
 const GONE_RECORDS = 20;
+
+/** One record of a thread, for matching an unseen record to the thread's list. */
+const readKey = (r: { admin: string; startedAt: number; kind: string }): string => `${r.startedAt}|${r.admin}|${r.kind}`;
 
 /** What `upTo` of a mark-read may be: a paging cursor or a message id. */
 const CURSOR_SHAPE = /^[A-Za-z0-9._:-]{1,64}$/;
@@ -189,7 +192,7 @@ export class ChatService {
     }
     // Who looked at the person's own list, and who is looking now. An Admin browsing sees neither: it is the person's to see. Loading it is seeing it.
     const listReading = list && !browsing ? (live.get(list) ?? []) : [];
-    const listReads = list && !browsing ? (await this.adminReads.list(list)).slice(-LIST_RECORDS) : [];
+    const listReads = list && !browsing ? await this.listReadsOf(list, viewer.name) : [];
     if (list && !browsing && viewer.personId !== null) await this.adminReads.seen(list, viewer.name);
     const goneReads = list && !browsing && viewer.personId !== null ? await this.goneReadsOf(viewer.name) : [];
     return {
@@ -213,11 +216,33 @@ export class ChatService {
   /** The person's unseen records of conversations that are gone, named and marked seen: loading the overview with them on it is seeing them. */
   private async goneReadsOf(name: string): Promise<GoneRead[]> {
     const exist = await this.direct.threads();
-    const gone = (await this.adminReads.unseenFor(name)).filter((r) => r.thread.startsWith('dm:') && !exist.has(r.thread)).slice(0, GONE_RECORDS);
+    const unseen = (await this.adminReads.unseenFor(name)).filter((r) => r.thread.startsWith('dm:') && !exist.has(r.thread));
+    // "Seen" is marked per thread, so a thread is shown whole or not at all: whole threads, newest first, while they fit in GONE_RECORDS (the
+    // first is always whole, however long). A thread left for the next load stays unseen, so a record the person was not shown is never lost.
+    const byThread = new Map<string, typeof unseen>();
+    for (const r of unseen) byThread.set(r.thread, [...(byThread.get(r.thread) ?? []), r]);
+    const shown: typeof unseen = [];
+    const marked: string[] = [];
+    for (const [thread, records] of byThread) {
+      if (shown.length > 0 && shown.length + records.length > GONE_RECORDS) continue;
+      shown.push(...records);
+      marked.push(thread);
+    }
     const out: GoneRead[] = [];
-    for (const r of gone) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: await this.partyNames(r.thread, name) });
-    for (const thread of new Set(gone.map((r) => r.thread))) await this.adminReads.seen(thread, name);
+    for (const r of shown) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: await this.partyNames(r.thread, name) });
+    for (const thread of marked) await this.adminReads.seen(thread, name);
     return out;
+  }
+
+  /**
+   * The records of a look at the person's list to show, oldest first: the newest LIST_RECORDS, and from the oldest unseen one when that is older. "Seen" is
+   * marked for the whole list thread, so a record the person was not shown must never be cut off while the thread is marked (#1051).
+   */
+  private async listReadsOf(list: string, name: string): Promise<AdminReadRow[]> {
+    const records = await this.adminReads.list(list);
+    const unseen = new Set((await this.adminReads.unseenFor(name)).filter((r) => r.thread === list).map(readKey));
+    const first = records.findIndex((r) => unseen.has(readKey(r)));
+    return records.slice(Math.max(0, first < 0 ? records.length - LIST_RECORDS : Math.min(first, records.length - LIST_RECORDS)));
   }
 
   /** The other end of a conversation that is gone, for `name`: the ends that are not theirs, or both when both are (two of their own agents). */

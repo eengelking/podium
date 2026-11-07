@@ -517,6 +517,29 @@ describe('the callout an Admin\'s reading shows the person (#1034)', () => {
     expect(x.toasts).toHaveLength(2);
   });
 
+  it('keeps a notice the server handed over once while no TUI part was attached, and shows it once when one attaches (#1051)', async () => {
+    const tui = { on: false };
+    const x = rig({}, { attached: () => tui.on });
+    x.server.adminNotices = [CALL];
+    await reported(x);
+    await x.r.tick();
+    await flushed();
+    expect(x.toasts).toEqual([]);
+    // The server no longer hands it over (an Admin's stop is kept there for minutes only), and a report goes by while still detached.
+    x.server.adminNotices = [];
+    await reported(x);
+    await x.r.tick();
+    expect(x.toasts).toEqual([]);
+    tui.on = true;
+    await reported(x);
+    await x.r.tick();
+    expect(x.toasts.filter((t) => t.includes('Root (an Admin)'))).toEqual(['Podium: Root (an Admin) is reading your Podium conversation with Tester.']);
+    x.r.adminShown('an-1');
+    await reported(x);
+    await x.r.tick();
+    expect(x.toasts).toHaveLength(1);
+  });
+
   it('is offered again when the TUI part that was told is gone before it shows it: attached holds for 90 s after the last attach, and the toast went nowhere (#1051)', async () => {
     const x = rig({}, { attached: () => true });
     x.server.adminNotices = [CALL];

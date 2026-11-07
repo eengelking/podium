@@ -68,18 +68,28 @@ function credentialShaped(tok: string): boolean {
   return /\d/.test(tok) || /[._~+/=-]/.test(tok) || /[A-Z]/.test(tok.slice(1));
 }
 
+/** One pattern pass: the regex and what a match becomes. A match is the exec result (`m[0]` whole, `m[1]`… groups). */
+type Pass = readonly [RegExp, (m: readonly string[]) => string];
+
+/** The passes of `scrubPatterns`, in order. */
+const PASSES: readonly Pass[] = [
+  [URL_USERINFO, (m) => `${m[1]}${REDACTED}@`],
+  [KEY_FORMATS, () => REDACTED],
+  [AUTH_SCHEME, (m) => (credentialShaped(m[3]) ? `${m[1]}${m[2]}${REDACTED}` : m[0])],
+  [
+    SECRET_ASSIGNMENT,
+    (m) => {
+      const bare = m[3].replace(/^["']|["']$/g, '');
+      return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}`;
+    },
+  ],
+];
+
 /** Replace common secret shapes with `[redacted]`. Conservative: ordinary text, ids, paths and numbers pass. */
 function scrubPatterns(value: string): string {
-  return value
-    .replace(URL_USERINFO, `$1${REDACTED}@`)
-    .replace(KEY_FORMATS, REDACTED)
-    .replace(AUTH_SCHEME, (m, scheme: string, space: string, tok: string) =>
-      credentialShaped(tok) ? `${scheme}${space}${REDACTED}` : m,
-    )
-    .replace(SECRET_ASSIGNMENT, (m, key: string, sep: string, val: string) => {
-      const bare = val.replace(/^["']|["']$/g, '');
-      return HARMLESS_VALUE.test(bare) ? m : `${key}${sep}${REDACTED}`;
-    });
+  let out = value;
+  for (const [re, fn] of PASSES) out = out.replace(re, (...a) => fn(a as string[]));
+  return out;
 }
 
 export function scrub(value: string, secrets: readonly string[]): string {
@@ -111,24 +121,55 @@ export function scrubStored(value: string, secrets: readonly string[], patterns:
 /** How much of a stored text the patterns read at once. */
 const STORED_WINDOW = 8000;
 
+/** How far past a window a match may reach before the window is widened (doubling), see `replaceWindowed`. */
+const STORED_LOOKAHEAD = 500;
+
 /**
- * `scrubPatterns` over a long text, one window at a time, so no single pass reads more than STORED_WINDOW characters. A window ends at the last line
- * break (else the last space) in its final 500 characters, so a `key=value` that has no whitespace inside it is never cut in two.
+ * One pass over a long text, a window at a time, so no regex run reads more than about STORED_WINDOW + the lookahead characters. A window
+ * accepts only matches that START in its first STORED_WINDOW characters, and the next window starts where the last accepted match ended
+ * (or at STORED_WINDOW), so a match is never split between two windows. A match that reaches the end of the slice may be cut short, so the
+ * slice is widened (the lookahead doubles, which keeps the total linear) until the match ends inside it. Same result as one pass over the whole text.
  */
-function scrubPatternsWindowed(value: string): string {
-  if (value.length <= STORED_WINDOW) return scrubPatterns(value);
-  const parts: string[] = [];
+function replaceWindowed(value: string, [re, fn]: Pass): string {
+  if (value.length <= STORED_WINDOW) return value.replace(re, (...a) => fn(a as string[]));
+  let out = '';
   for (let at = 0; at < value.length; ) {
-    let end = Math.min(at + STORED_WINDOW, value.length);
-    if (end < value.length) {
-      const tail = value.slice(end - 500, end);
-      const cut = Math.max(tail.lastIndexOf('\n'), tail.lastIndexOf(' '));
-      if (cut >= 0) end = end - 500 + cut + 1;
+    let look = STORED_LOOKAHEAD;
+    for (;;) {
+      const end = Math.min(at + STORED_WINDOW + look, value.length);
+      const final = end === value.length;
+      const s = value.slice(at, end);
+      let acc = '';
+      let used = 0;
+      let widen = false;
+      re.lastIndex = 0;
+      for (let m = re.exec(s); m; m = re.exec(s)) {
+        if (!final && m.index >= STORED_WINDOW) break;
+        if (!final && m.index + m[0].length >= s.length) {
+          widen = true;
+          break;
+        }
+        acc += s.slice(used, m.index) + fn(m);
+        used = m.index + m[0].length;
+      }
+      if (widen) {
+        look *= 2;
+        continue;
+      }
+      const next = final ? s.length : Math.max(STORED_WINDOW, used);
+      out += acc + s.slice(used, next);
+      at += next;
+      break;
     }
-    parts.push(scrubPatterns(value.slice(at, end)));
-    at = end;
   }
-  return parts.join('');
+  return out;
+}
+
+/** `scrubPatterns` over a long text, pass by pass in windows that never split a match (#1051). */
+function scrubPatternsWindowed(value: string): string {
+  let out = value;
+  for (const pass of PASSES) out = replaceWindowed(out, pass);
+  return out;
 }
 
 /** True for a field name the logger refuses whatever its value. */

@@ -186,7 +186,7 @@ export class ChatCore {
 /** The words for a person when the console's message path refuses a text. */
 function answerWords(err: AnswerError, name: string, text: string): string {
   // A command the reporter does not take is said in the respond route's words, not as a reporter that takes no messages (#1051).
-  if (err.status === 422 && err.kind === 'command') return err.message ?? `This session's reporter does not take /${(/^\s*\/(\w+)/.exec(text) as RegExpExecArray)[1]} from Podium. Send it in the terminal.`;
+  if (err.status === 422 && err.kind === 'command') return err.message ?? `This session's reporter does not take /${/^\s*\/(\w+)/.exec(text)?.[1] ?? 'that command'} from Podium. Send it in the terminal.`;
   if (err.status === 429) return `${name} already has 20 messages waiting. Wait until it has taken some, then send again.`;
   if (err.status === 422) return `${name}'s reporter does not take messages from Podium. Turn on its respond option on that machine.`;
   return err.error;
