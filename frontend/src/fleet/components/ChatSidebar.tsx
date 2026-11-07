@@ -2,7 +2,7 @@
 // opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
 // of the agent's state when pointed at or focused, the same colors as its icon.
 import type { MouseEvent, ReactNode } from "react";
-import { adminPauseOf, channelTag, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { adminPauseOf, channelTag, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
@@ -118,14 +118,14 @@ export function ChatSidebar(p: SidebarProps) {
 
   const dmRow = (d: DirectInfo) => {
     const name = dmName(d);
-    const key = `d:${[d.a, d.b].filter((x) => x.kind === "agent").map((x) => x.sessionId).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join("+")}`;
+    const key = `d:${dmKey(d)}`;
     const ro = p.readAs !== null;
     const readers = ro ? [] : liveReaders(d.adminReading, p.serverNow);
     return row(key, dmMenu(d, true, ro), (
       <>
         <ChDm />
         <span className="stack">
-          <span className="nm" title={name}>{name}</span>
+          <span className="nm" title={name}><bdi>{name}</bdi></span>
           <span className="sub">{dmSub(d, ro)}</span>
           <Tags tag={dmTag(d)} admin={<AdminTags readers={readers} pause={adminPauseOf(d)} />} />
         </span>
@@ -140,8 +140,8 @@ export function ChatSidebar(p: SidebarProps) {
       <>
         <StateIcon kind={kind} />
         <span className="stack">
-          <span className="nm" title={a.address}>{a.name}</span>
-          <span className="sub">Orchestrator on {a.machine}, {STATE_WORD[kind]}</span>
+          <span className="nm" title={a.address}><bdi>{a.name}</bdi></span>
+          <span className="sub">Orchestrator on <bdi>{a.machine}</bdi>, {STATE_WORD[kind]}</span>
         </span>
       </>
     ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, cls: `hl-${kind}`, title: `Message ${a.name}` });

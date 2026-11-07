@@ -249,13 +249,17 @@ export const plain = (s: string): string => {
 
 // ---- Direct Messages ---------------------------------------------------------------------------------------------------
 
-/** The agents of a conversation, sorted and joined: the same for one you have not started yet and one that is stored. */
-export function dmKey(d: Pick<DirectInfo, "a" | "b">): string {
-  return [d.a, d.b]
-    .filter((p) => p.kind === "agent")
-    .map((p) => p.sessionId)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    .join("+");
+/**
+ * A conversation's row key: the server's own `thread` value (dm:<a>|<b>). The ends alone are not enough, because the person's own
+ * conversation with an agent and another person's with the same agent share the agent (#1051).
+ */
+export function dmKey(d: Pick<DirectInfo, "thread">): string {
+  return d.thread;
+}
+
+/** The viewer's own conversation with one agent (no other person in it), or undefined: a new message to that agent opens it. */
+export function ownDmWith(directs: readonly DirectInfo[], sessionId: string): DirectInfo | undefined {
+  return directs.find((d) => !d.cross && d.a.kind !== d.b.kind && [d.a, d.b].some((p) => p.kind === "agent" && p.sessionId === sessionId));
 }
 
 /** A conversation between the person and one agent is named by the agent; one between two agents by both; one across owners by the other person first. */
@@ -335,6 +339,32 @@ export function crossOff(c: Cross): { word: string; why: string } | null {
 
 /** What the box says under it while a person's message waits for the owner. */
 export const crossNote = (c: Cross): string | null => (c.viewerIs === "sender" && c.link === "waiting" ? `Waiting for ${c.owner} to approve your message. It is delivered once ${c.owner} allows it.` : null);
+
+// ---- Who wrote a channel message (#1051) --------------------------------------------------------------------------------
+
+export interface AuthorMarks {
+  /** The chip that says an orchestrator or subagent wrote it, not a person: "orchestrator on <machine>". */
+  chip: string;
+  /** The warning chips: a name that is a person's, or that says it is an Admin. */
+  warns: { text: string; title: string }[];
+}
+
+export const AUTHOR_CHIP_TITLE = "Written by an orchestrator, not a person";
+
+/**
+ * What a channel message says about its author beyond the name. A person's message has none. An agent's has the chip, so an agent
+ * cannot look like a person, and a warning when its name is a person's on this server or claims to be an Admin. `machine` is where
+ * the author runs, or null when the page does not know it (the chip then says only what wrote it).
+ */
+export function authorMarks(m: Pick<ChannelMessage, "authorKind" | "authorName">, people: readonly string[], machine: string | null): AuthorMarks | null {
+  if (m.authorKind === "person") return null;
+  const what = m.authorKind === "subagent" ? "subagent" : "orchestrator";
+  const warns: AuthorMarks["warns"] = [];
+  const name = m.authorName.trim().toLowerCase();
+  if (people.some((p) => p.trim().toLowerCase() === name)) warns.push({ text: "Same name as a person", title: "This orchestrator's name is the name of a person on this server." });
+  if (name.includes("(an admin)")) warns.push({ text: "Name says Admin", title: "This orchestrator's name says it is an Admin. Only a person signed in as an Admin is one." });
+  return { chip: machine ? `${what} on ${machine}` : what, warns };
+}
 
 // ---- Delivery lines ----------------------------------------------------------------------------------------------------
 

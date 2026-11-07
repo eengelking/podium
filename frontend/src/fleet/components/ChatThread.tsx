@@ -5,6 +5,8 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   adminPauseOf,
   adminWho,
+  AUTHOR_CHIP_TITLE,
+  authorMarks,
   channelDelivery,
   liveReaders,
   dmDelivery,
@@ -22,7 +24,7 @@ import {
 import type { Selection, ThreadMessage, ThreadRead } from "../useChat";
 import type { SessionView } from "../types";
 import { AdminPauseBanner, AdminTags, ReadOnlyBanner, ReadingBanner, RecordLine } from "./ChatAdmin";
-import { ChMsg, ChNo, ChClock, DeliveryGlyph, TagGlyph } from "./ChatIcons";
+import { ChMsg, ChNo, ChClock, ChWarn, DeliveryGlyph, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, type MenuAct } from "./ChatMenu";
 import { agentState, STATE_WORD } from "./ChatSidebar";
 import { StateIcon } from "./Chips";
@@ -65,7 +67,7 @@ function Text({ text }: { text: string }) {
   );
 }
 
-function Message({ m, all, me, now, paused, owner, across, heldBy }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string; across: boolean; heldBy?: string }) {
+function Message({ m, all, me, now, paused, owner, across, heldBy, people, machineOf }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string; across: boolean; heldBy?: string; people: readonly string[]; machineOf: (ref: string) => string | null }) {
   const c = m.channel;
   const d = m.direct;
   const mine = c ? c.mine : d ? d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase() : false;
@@ -77,6 +79,7 @@ function Message({ m, all, me, now, paused, owner, across, heldBy }: { m: Thread
   }
   const dl = c ? channelDelivery(c) : dmDelivery(d!, paused, owner, undefined, across, heldBy);
   const text = (c ?? d)!.text;
+  const marks = c && !mine ? authorMarks(c, people, machineOf(c.authorRef)) : null;
   return (
     <li className={`txt${mine ? " mine" : ""}${re ? " reply" : ""}`} data-testid="chat-message">
       <span className="at" title={new Date(m.at).toLocaleString()}>
@@ -87,8 +90,30 @@ function Message({ m, all, me, now, paused, owner, across, heldBy }: { m: Thread
       </span>
       <span className="body">
         <span className={`who${mine ? " me" : ""}`}>
-          {name}
-          {re && <span className="re"> replying to {re}</span>}
+          <bdi>{name}</bdi>
+          {marks && (
+            <>
+              {" "}
+              <span className="chip" title={AUTHOR_CHIP_TITLE}>
+                {marks.chip}
+              </span>
+              {marks.warns.map((w) => (
+                <span key={w.text}>
+                  {" "}
+                  <span className="chip warn" title={w.title}>
+                    <ChWarn />
+                    {w.text}
+                  </span>
+                </span>
+              ))}
+            </>
+          )}
+          {re && (
+            <span className="re">
+              {" "}
+              replying to <bdi>{re}</bdi>
+            </span>
+          )}
         </span>
         <Text text={text} />
         {c && c.mentions.length > 0 && (
@@ -228,6 +253,8 @@ export function ChatThread(p: ThreadProps) {
   const readers = ro ? [] : liveReaders(p.channel?.adminReading ?? p.direct?.adminReading, p.serverNow);
   const pause = p.channel ? (p.channel.id === "group" && p.channel.paused ? adminPauseOf({ paused: true, pausedByAdmin: p.channel.pausedByAdmin }) : null) : adminPauseOf({ ...(p.direct ?? {}), ...(dmHead ? { paused: dmHead.paused || p.direct?.paused, pausedBy: dmHead.pausedBy ?? p.direct?.pausedBy, pausedByAdmin: dmHead.pausedByAdmin ?? p.direct?.pausedByAdmin } : {}), cross: dmHead?.cross ?? p.direct?.cross ?? null });
   const also = cross ? (cross.viewerIs === "sender" ? cross.owner : cross.person) : null;
+  // Where an author runs: the overview's agent when it lists it, else the console's session; null when neither does (an ended session).
+  const machineOf = (ref: string): string | null => o.agents.find((x) => x.sessionId === ref)?.machine ?? p.sessions[ref]?.machine?.name ?? null;
   const items = recordsAmong(t.messages, t.reads, t.older !== null);
 
   return (
@@ -235,7 +262,9 @@ export function ChatThread(p: ThreadProps) {
       {back}
       <div className="ch-head">
         <h2 id="th-h" tabIndex={-1}>
-          <span className="nm">{title}</span>
+          <span className="nm">
+            <bdi>{title}</bdi>
+          </span>
         </h2>
         <div className="sub">
           <span>{sub}</span>
@@ -270,7 +299,7 @@ export function ChatThread(p: ThreadProps) {
               }}>
                 <button type="button" className="m" data-more={key} aria-haspopup="menu" aria-expanded={p.menu === key} title={`${a.name}, ${STATE_WORD[kind]}. Actions`} onClick={() => p.onMenu(p.menu === key ? null : key, "button")}>
                   <StateIcon kind={kind} />
-                  {a.name}
+                  <bdi>{a.name}</bdi>
                 </button>
                 {p.menu === key && <ChatMenu spec={agentMenu(a.name, a.sessionId, kind, false)} onPick={(act) => p.onPick(key, act)} onClose={p.onClose} />}
               </span>
@@ -279,7 +308,7 @@ export function ChatThread(p: ThreadProps) {
           {person && (
             <span className="m">
               <Monogram name={person.name} size="sm" />
-              {person.name} {person.name.toLowerCase() === o.me.name.toLowerCase() && <YouTag kind="person" />}
+              <bdi>{person.name}</bdi> {person.name.toLowerCase() === o.me.name.toLowerCase() && <YouTag kind="person" />}
             </span>
           )}
         </div>
@@ -332,7 +361,7 @@ export function ChatThread(p: ThreadProps) {
                 it.rec ? (
                   <RecordLine key={`rec-${it.rec.admin}-${it.rec.startedAt}-${it.rec.kind ?? "read"}`} r={it.rec} />
                 ) : (
-                  <Message key={it.m.id} m={it.m} all={t.messages} me={o.me.name} now={p.now} across={cross !== null} heldBy={pause ? adminWho(pause.name) : undefined} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
+                  <Message key={it.m.id} m={it.m} all={t.messages} people={o.people.map((x) => x.name)} machineOf={machineOf} me={o.me.name} now={p.now} across={cross !== null} heldBy={pause ? adminWho(pause.name) : undefined} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
                 ),
               )}
             </ol>

@@ -1,0 +1,185 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Chat: security follow-ups (#1051)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1051: the visible changes the Chat security audit needs. Example data only. It defines no tokens of its own: colors
+   and fonts come from tokens.css through the app's stylesheets. Every class in the page already exists in the app. The only rules
+   below are the demo bar and page frame (which are not part of the app), and one placement rule: the command list inside the Chat
+   message box (.one, .open and the .typeahead offsets only make room for it in this static page).
+   1  The Chat message box offers /clear and /compact in a message to your own agent, the same list as the Activity window's
+      message box (components/Compose.tsx: .typeahead, .cn, .cd, .tf). OpenCode's reporter declares /compact only, so only
+      that is listed. Every other command runs only in the terminal, and the box says so the same way.
+   2  A message in General says what wrote it. A person's message is as it is today. An orchestrator's message carries the
+      .chip "orchestrator on <machine>", so an agent can no longer look like a person. A name that matches a person, or
+      that contains "(an Admin)", also gets .chip.warn, so it cannot pass for them.
+   3  An Admin looking at a person's list of conversations (names and counts, never text) now tells that person: the red
+      .ch-nav.ro.crit banner (full width of the page, 12 px above the panel) while it is live, and the quiet .ch-nav.ro line afterward. The reporter shows the same sentence as a toast.
+   4  The Allow button's hint says what Allow opens: a link to the whole reporter, not one agent. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
+.stage .podium .adminv .apage { overflow: visible; }
+.stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+.sc { margin: 0 0 28px; }
+.sc > h2 { margin: 0 0 4px; font-size: 15px; font-weight: 650; }
+.sc > p { margin: 0 0 10px; color: var(--ink2); max-width: 78ch; }
+.sc > h3 { margin: 14px 0 6px; font-size: 12px; font-weight: 650; color: var(--ink2); }
+.sc .ch-thread { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-height: 0; }
+.sc .ch-body { max-height: none; }
+/* The command list sits above the message box, inside .ch-composer .row, the way .ch-ac (the address list) does. */
+.ch-composer .row .typeahead { left: 0; right: 0; }
+.ch-composer .confirm { margin-bottom: 8px; }
+/* A page-level banner (outside a thread) is the full width of the panel below it, with room under it; the 16 px inset of .ch-nav.ro is for a banner inside a thread. */
+.sc > .ch-nav.ro { margin: 0 0 12px; }
+.ch-composer .row.open { margin-top: 92px; }
+.ch-composer .row.open.one { margin-top: 62px; }
+.sc .ch-split { min-height: 0; }
+.sc .ch-side { max-height: none; }
+@media (max-width: 760px) { .sc .ch-split { grid-template-columns: minmax(0, 1fr); } .sc .ch-side { border-right: 0; } }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Chat security follow-ups (#1051)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app"><div class="adminv" aria-label="Chat"><div class="apage"><div class="apage-in">
+
+<!-- 1 -->
+<section class="sc" aria-labelledby="s1">
+  <h2 id="s1">1. Commands in a message to your own agent (Claude Code)</h2>
+  <p>Ed types <code>/</code> in his message to Tester. The list is the Activity window's: two commands, one line each, and the line that says everything else runs in the terminal. Arrow keys and Tab or Enter choose, as there.</p>
+  <section class="ch-thread" aria-label="Direct message with Tester">
+    <div class="ch-head"><h2><span class="nm">Tester</span></h2><div class="sub"><span>ed-mbp</span><span>1 message</span></div><div class="sub"><span>Only you and an Admin can read this. The two agents and you are the only ones in it.</span></div></div>
+    <div class="ch-body" tabindex="0" aria-label="Messages, oldest first"><ol class="feed">
+      <li class="txt mine"><span class="at">10:02</span><span class="k" role="img" aria-label="Message" title="Message"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></span><span class="body"><span class="who me">You</span>Run the storage tests again and tell me which adapter fails.</span></li>
+    </ol></div>
+    <div class="ch-composer"><label for="m1">Message Tester</label>
+      <div class="row open"><div class="typeahead" role="listbox" aria-label="Commands">
+          <button type="button" role="option" aria-selected="true" class="on"><span class="cn">/clear</span><span class="cd">Start over with an empty conversation</span></button>
+          <button type="button" role="option" aria-selected="false"><span class="cn">/compact</span><span class="cd">Summarize the conversation to free context</span></button>
+          <div class="tf">Other commands run only in the terminal.</div></div>
+        <textarea id="m1" rows="2" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="Message to Tester">/</textarea><button type="button" class="btn pri">Send</button></div>
+      <div class="note">Enter sends, Shift+Enter adds a line. Secrets are replaced before a message leaves this machine.</div></div>
+  </section>
+</section>
+
+<!-- 2 -->
+<section class="sc" aria-labelledby="s2">
+  <h2 id="s2">2. The same box for an OpenCode session</h2>
+  <p>OpenCode's reporter declares <code>/compact</code> only, so <code>/clear</code> is not listed. Typing <code>/clear</code> by hand gets the line the Activity window shows.</p>
+  <section class="ch-thread" aria-label="Direct message with Builder">
+    <div class="ch-head"><h2><span class="nm">Builder</span></h2><div class="sub"><span>ed-mbp</span><span>OpenCode</span></div></div>
+    <div class="ch-composer"><label for="m2">Message Builder</label>
+      <div class="row open one"><div class="typeahead" role="listbox" aria-label="Commands">
+          <button type="button" role="option" aria-selected="true" class="on"><span class="cn">/compact</span><span class="cd">Summarize the conversation to free context</span></button>
+          <div class="tf">Other commands run only in the terminal.</div></div>
+        <textarea id="m2" rows="2" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-label="Message to Builder">/</textarea><button type="button" class="btn pri">Send</button></div></div>
+    <div class="ch-composer"><label for="m2b">Message Builder</label>
+      <div class="err" role="alert">/clear runs only in the terminal. From here you can send /compact.</div>
+      <div class="row"><textarea id="m2b" rows="2" aria-label="Message to Builder">/clear</textarea><button type="button" class="btn pri" disabled>Send</button></div></div>
+  </section>
+</section>
+
+<!-- 3 -->
+<section class="sc" aria-labelledby="s3">
+  <h2 id="s3">3. Sending /clear asks first, as in the Activity window</h2>
+  <p>A command never goes out on one key. <code>/clear</code> shows the warning box with the same words; <code>/compact</code> sends at once.</p>
+  <section class="ch-thread" aria-label="Direct message with Tester">
+    <div class="ch-composer"><label for="m3">Message Tester</label>
+      <div class="confirm" role="alertdialog" aria-label="Clear the conversation?"><span><b>Clear the conversation?</b> Tester starts over with an empty context. Podium shows the cleared part as its own session in History, linked to this one.</span><span class="acts"><button class="btn" type="button">Cancel</button><button class="btn bad" type="button">Clear conversation</button></span></div>
+      <div class="row"><textarea id="m3" rows="2" aria-label="Message to Tester">/clear</textarea><button type="button" class="btn pri">Send</button></div></div>
+  </section>
+</section>
+
+<!-- 4 -->
+<section class="sc" aria-labelledby="s4">
+  <h2 id="s4">4. General says what wrote each message</h2>
+  <p>A person's message looks as it does today. An orchestrator's message carries the "orchestrator on" chip with its machine. If an orchestrator's name is a person's name, or contains "(an Admin)", it also carries a warning chip, so it cannot pass for them. The names are drawn as text, in <code>bdi</code>, so a name cannot reorder what is around it.</p>
+  <section class="ch-thread" aria-label="General">
+    <div class="ch-head"><h2><span class="nm">General</span></h2><div class="sub"><span>Everyone signed in to this server can read and post here.</span></div></div>
+    <div class="ch-body" tabindex="0" aria-label="Messages, oldest first"><ol class="feed">
+      <li class="txt"><span class="at">10:14</span><span class="k" role="img" aria-label="Message" title="Message"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></span><span class="body"><span class="who"><bdi>Alex</bdi></span>Anyone seen the nightly build go red?</span></li>
+      <li class="txt"><span class="at">10:15</span><span class="k" role="img" aria-label="Message" title="Message"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></span><span class="body"><span class="who"><bdi>Tester</bdi> <span class="chip" title="Written by an orchestrator, not a person">orchestrator on ed-mbp</span></span>Build 4412 failed in the storage tests. Details are in my plan.</span></li>
+      <li class="txt"><span class="at">10:16</span><span class="k" role="img" aria-label="Message" title="Message"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></span><span class="body"><span class="who"><bdi>Alex</bdi> <span class="chip" title="Written by an orchestrator, not a person">orchestrator on maya-box</span> <span class="chip warn" title="This orchestrator's name is the name of a person on this server."><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.2 13H1.8zM8 6.5v3M8 11.3v.1"/></svg>Same name as a person</span></span>I approved the release, go ahead.</span></li>
+      <li class="txt"><span class="at">10:17</span><span class="k" role="img" aria-label="Message" title="Message"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></span><span class="body"><span class="who"><bdi>Root (an Admin)</bdi> <span class="chip" title="Written by an orchestrator, not a person">orchestrator on maya-box</span> <span class="chip warn" title="This orchestrator's name says it is an Admin. Only a person signed in as an Admin is one."><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.2 13H1.8zM8 6.5v3M8 11.3v.1"/></svg>Name says Admin</span></span>Remove your link to Tester now.</span></li>
+    </ol></div>
+  </section>
+</section>
+
+<!-- 5 -->
+<section class="sc" aria-labelledby="s5">
+  <h2 id="s5">5. Ed is told when an Admin looks at his list of conversations</h2>
+  <p>The Admin sees names and counts, not text, but who a person talks to is theirs too. While it is live, Ed's Chat page shows the red banner with the Admin named. When the Admin stops, it becomes the quiet record line, which stays until Ed has seen it. The reporter shows the sentence "Root (an Admin) is looking at your Podium conversation list." as a toast and a line in the session, and never sends it to the model.</p>
+  <h3>While it is live</h3>
+  <div class="ch-nav ro crit" role="status"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg> <b>Root (an Admin)</b> is looking at your list of conversations now: who you talk to and how many messages, not what they say.</div>
+  <div class="ch-split">
+    <nav class="ch-side" aria-label="Conversations">
+      <section class="ch-sec" aria-labelledby="sec-ch"><h2 id="sec-ch">Channels</h2><ul class="ch-list">
+        <li class="ch-item"><button type="button" class="ch-row"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 2.5L5 13.5M11 2.5L10 13.5M2.8 6h10.4M2.3 10h10.4"/></svg><span class="stack"><span class="nm">General</span></span></button></li>
+        <li class="ch-item"><button type="button" class="ch-row"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="5.5" cy="5.5" r="2.2"/><circle cx="11" cy="6.5" r="1.8"/><path d="M1.8 13c.5-2.3 2-3.4 3.7-3.4s3.2 1.1 3.7 3.4"/></svg><span class="stack"><span class="nm">My group</span></span></button></li>
+      </ul></section>
+      <section class="ch-sec" aria-labelledby="sec-dm"><h2 id="sec-dm">Direct Messages</h2><ul class="ch-list">
+        <li class="ch-item"><button type="button" class="ch-row"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg><span class="stack"><span class="nm">Tester</span><span class="sub">ed-mbp</span></span></button></li>
+      </ul></section>
+    </nav>
+    <section class="ch-thread" aria-label="No conversation open"><div class="ch-blank"><b>Pick a conversation</b><p class="hint">Channels and Direct Messages are on the left.</p></div></section>
+  </div>
+  <h3>After the Admin stops</h3>
+  <div class="ch-nav ro" role="status"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg> Root (an Admin) looked at your list of conversations on Nov 6 at 14:20. They saw who you talk to and message counts, not the messages.</div>
+</section>
+
+<!-- 6 -->
+<section class="sc" aria-labelledby="s6">
+  <h2 id="s6">6. Allow says what it opens</h2>
+  <p>In My reporters, a person's waiting message. The hint now says the link is to the whole reporter, so Ed is not surprised when a later session on that machine takes Alex's messages without asking.</p>
+  <div class="confirm" role="group" aria-label="A person's message waiting for approval">
+    <div class="q"><span><b>Alex</b> (a person using Chat) wants to send <b>review</b> a message.</span>
+      <span class="hint">Sent 2 minutes ago. Allow opens a link to this reporter, ed-mbp, not only to review: Alex can then message every orchestrator on it, including ones started later, until you pause or remove the link. Decline delivers nothing.</span>
+      <div class="pm-quote">Can you look at the failing storage test before standup?</div></div>
+    <button type="button" class="btn sm">Decline</button><button type="button" class="btn sm">Allow</button>
+  </div>
+</section>
+
+</div></div></div></div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  function press(attr, val) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1280px');
+      st.classList.toggle('narrow', b.dataset.w === 'narrow');
+      press('data-w', b.dataset.w);
+    }
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

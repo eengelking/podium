@@ -1,6 +1,7 @@
-import { useState, type KeyboardEvent } from "react";
-import { ASK_WORD, COMMANDS, type CantReason } from "../respond";
+import type { KeyboardEvent } from "react";
+import { ASK_WORD, type CantReason } from "../respond";
 import type { AskKind } from "../types";
+import { ClearConfirm, CommandList, useSlashCommands } from "./SlashCommands";
 
 // The message box at the bottom of the Activity modal (#206, mockup/podium-respond.html section 3, "Its turn ended"):
 // a new message, a message in place of an open ask's answer, or /clear (after a confirmation) and /compact.
@@ -61,12 +62,8 @@ export function Compose(props: {
   /** False when the reporter takes no typed reply in place of a question's answer (the `no-reply-in-place` limit). */
   canReply?: boolean;
 }) {
-  const [ta, setTa] = useState(0);
   const val = props.draft;
-  const slash = val.startsWith("/") ? (val.split(/\s/)[0] ?? "") : null;
-  const offered = props.commands ? COMMANDS.filter((c) => props.commands!.includes(c.name.slice(1))) : COMMANDS;
-  const known = slash !== null && offered.some((c) => c.name === slash);
-  const matches = slash !== null && !val.includes(" ") && !known ? offered.filter((c) => c.name.startsWith(slash)) : [];
+  const { ta, resetTa, slash, offered, known, matches, choose, onListKey, problem } = useSlashCommands(val, props.onDraft, props.commands);
   const pending = props.pending;
   // A slash command never closes the question, so only a typed reply is held back.
   const noReply = pending === "question" && props.canReply === false && !known;
@@ -74,36 +71,17 @@ export function Compose(props: {
   let extra = null;
   if (props.confirmClear) {
     extra = (
-      <div className="confirm" role="alertdialog" aria-label="Clear the conversation?">
-        <span>
-          <b>Clear the conversation?</b> {props.name} starts over with an empty context. Podium shows the cleared part as its own session in History, linked to this one.
-        </span>
-        <span className="acts">
-          <button className="btn" type="button" onClick={() => props.onConfirmClear(false)}>
-            Cancel
-          </button>
-          <button
-            className="btn bad"
-            type="button"
-            autoFocus
-            onClick={() => {
-              props.onConfirmClear(false);
-              props.onSend("/clear");
-            }}
-          >
-            Clear conversation
-          </button>
-        </span>
-      </div>
+      <ClearConfirm
+        name={props.name}
+        onCancel={() => props.onConfirmClear(false)}
+        onClear={() => {
+          props.onConfirmClear(false);
+          props.onSend("/clear");
+        }}
+      />
     );
-  } else if (slash && !known && val.length > 1 && !matches.length) {
-    extra = <div className="err">{slash} runs only in the terminal. From here you can send {offered.map((c) => c.name).join(" and ") || "no commands"}.</div>;
-  } else if (known && val.trim() !== slash) {
-    extra = (
-      <div className="err">
-        {slash} takes nothing after it from here. Send {slash} on its own, or use the terminal.
-      </div>
-    );
+  } else if (problem) {
+    extra = <div className="err">{problem}</div>;
   } else if (noReply) {
     extra = <div className="warnline">This reporter can't take a reply in place of this question. Answer it above, or in the terminal.</div>;
   } else if (pending && val.trim() && !slash) {
@@ -121,21 +99,8 @@ export function Compose(props: {
     if (text.startsWith("/") && !offered.some((c) => c.name === text)) return;
     props.onSend(text);
   };
-  const choose = (name: string) => {
-    props.onDraft(name);
-    setTa(0);
-  };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-      e.preventDefault();
-      setTa((n) => (n + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
-      return;
-    }
-    if (matches.length && (e.key === "Tab" || e.key === "Enter")) {
-      e.preventDefault();
-      choose(matches[Math.min(ta, matches.length - 1)]!.name);
-      return;
-    }
+    if (onListKey(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -144,17 +109,7 @@ export function Compose(props: {
   const placeholder = noReply ? "Answer the question above" : pending ? (pending === "question" ? "Chat about this instead of answering" : "Reply instead, for example: hold off, I want to look first") : `Message ${props.name}, or type / for a command`;
   return (
     <div className="compose">
-      {matches.length > 0 && !props.confirmClear && (
-        <div className="typeahead" role="listbox" aria-label="Commands">
-          {matches.map((m, i) => (
-            <button key={m.name} type="button" role="option" aria-selected={i === ta} className={i === ta ? "on" : ""} onClick={() => choose(m.name)}>
-              <span className="cn">{m.name}</span>
-              <span className="cd">{m.desc}</span>
-            </button>
-          ))}
-          <div className="tf">Other commands run only in the terminal.</div>
-        </div>
-      )}
+      {matches.length > 0 && !props.confirmClear && <CommandList matches={matches} active={ta} onChoose={choose} />}
       {extra}
       {props.error && (
         <div className="err" role="alert">
@@ -170,7 +125,7 @@ export function Compose(props: {
           data-keeps-tab={matches.length ? "" : undefined}
           onChange={(e) => {
             props.onDraft(e.target.value);
-            setTa(0);
+            resetTa();
           }}
           onKeyDown={onKey}
         />

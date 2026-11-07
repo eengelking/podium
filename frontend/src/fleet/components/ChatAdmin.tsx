@@ -103,7 +103,13 @@ export function ReadPicker({ people, value, onChange }: { people: string[]; valu
           ))}
         </select>
         <p className="hint">
-          {value ? `Showing ${value}'s My group and Direct Messages. ` : "Pick a person to see their My group and Direct Messages. "}
+          {value ? (
+            <>
+              Showing <bdi>{value}</bdi>&apos;s My group and Direct Messages.{" "}
+            </>
+          ) : (
+            "Pick a person to see their My group and Direct Messages. "
+          )}
           Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.
         </p>
       </div>

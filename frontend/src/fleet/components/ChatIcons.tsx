@@ -100,3 +100,10 @@ export function DeliveryGlyph({ icon }: { icon: DeliveryIcon }) {
 export function TagGlyph({ icon }: { icon: TagIcon }) {
   return icon === "pause" ? <ChPause /> : icon === "clock" ? <ChClock /> : <ChTrash />;
 }
+
+/** The warning triangle on a chip that says an author's name is not what it seems (#1051). */
+export const ChWarn = () => (
+  <svg width={10} height={10} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable={false}>
+    <path d="M8 2.2L14.2 13H1.8zM8 6.5v3M8 11.3v.1" />
+  </svg>
+);

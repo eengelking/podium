@@ -12,7 +12,7 @@ import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
 import type { MenuAct } from "./components/ChatMenu";
-import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
+import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
@@ -97,12 +97,17 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [readAs, setReadAs] = useState<string | null>(null);
   const overview = useChatOverview(api, true, rev, readAs);
   const o = overview.data;
+  // The data on hand belongs to the person last read; until the chosen person's own list lands, none of it is drawn (#1051).
+  const stale = !!o && overview.owner !== readAs;
   const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
-  const serverNow = props.now + overview.skew;
+  // A reading is hidden when its time has passed and a read has landed since, never on the clock alone (#1051).
+  const serverNow = Math.min(props.now + overview.skew, overview.readAt || Number.MAX_SAFE_INTEGER);
   const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
   const [menu, setMenu] = useState<{ key: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
+  // /clear in a message to the person's own agent asks first (#1051); the question belongs to the open conversation.
+  const [clearAsk, setClearAsk] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [said, setSaid] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -118,8 +123,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   if (o && picked?.kind === "dm" && !picked.fresh && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
   const key = selKey(sel)!;
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
-  const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? null) : null;
-  const thread = useThread(api, o ? sel : null, rev, ro ? readAs : null);
+  // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
+  const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
+  const rowKey = direct ? `d:${dmKey(direct)}` : key;
+  const thread = useThread(api, o && !stale ? sel : null, rev, ro ? readAs : null);
   const addrs = useAddresses(api, sel.kind === "channel" ? sel.id : null);
 
   const refresh = useCallback(async () => {
@@ -131,6 +138,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setPane("thread");
     setMenu(null);
     setConfirm(null);
+    setClearAsk(false);
     setActionErr(null);
     setSendErr(null);
     focusHeading.current = true;
@@ -192,13 +200,24 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     return () => document.removeEventListener("mousedown", away);
   }, [menu]);
 
-  if (!o) {
+  if (!o || stale) {
     return overview.loadError ? (
       <div className="errbox" role="alert">
         Could not load Chat: {overview.loadError}. It reads again when something changes.{" "}
         <button type="button" className="btn sm" onClick={() => void overview.reload()}>
           Try again
         </button>
+        {readAs !== null && (
+          <>
+            {" "}
+            <button type="button" className="btn sm" onClick={() => {
+                setReadAs(null);
+                setPicked(null);
+              }}>
+              Back to your own conversations
+            </button>
+          </>
+        )}
       </div>
     ) : (
       <div className="hint">Loading…</div>
@@ -208,8 +227,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const own = (c: ChatChannel): boolean => ro && c.id === "group";
   const owns = (d: DirectInfo) => o.me.person && d.owner.toLowerCase() === o.me.name.toLowerCase();
   const startAgent = (a: ChatAgent) => {
-    const existing = o.directs.find((d) => dmKey(d) === a.sessionId);
-    if (existing) return select({ kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: a.sessionId });
+    const existing = ownDmWith(o.directs, a.sessionId);
+    if (existing) return select({ kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: dmKey(existing) });
     select({ kind: "dm", a: "me", b: a.sessionId, key: a.sessionId, fresh: true });
   };
   const chooseReader = (name: string | null) => {
@@ -217,6 +236,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setPicked(null);
     setMenu(null);
     setConfirm(null);
+    setClearAsk(false);
     setActionErr(null);
     setPane("side");
     setSaid(name ? `Reading ${name}'s conversations as an Admin. Read only.` : "Back to your own conversations.");
@@ -295,7 +315,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   const keep = () => {
     setConfirm(null);
-    const k = key;
+    const k = rowKey;
     setTimeout(() => [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === k)?.focus(), 0);
   };
 
@@ -411,8 +431,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   }
   const roThread = ro && !(sel.kind === "channel" && sel.id === "general");
   const draft = drafts[key] ?? "";
-  const onSend = async () => {
-    const text = draft.trim();
+  // `/clear` and `/compact` are commands only in a message to the person's own agent: one agent and the person, no other person.
+  const ownAgent = sel.kind === "dm" && !ro && o.me.person && !cross && parties.length === 2 && agentParties.length === 1 ? agentParties[0]! : null;
+  const onSend = async (override?: string) => {
+    const text = (override ?? draft).trim();
     if (!text) return;
     setSending(true);
     setSendErr(null);
@@ -425,7 +447,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         const bad = [...r.errors.map((e) => `${e.name}: ${e.error}`), ...r.skipped.map((s) => s.why)];
         if (bad.length) setSendErr(`Sent, but ${bad.join(" ")}`);
       }
-      setDrafts((cur) => ({ ...cur, [key]: "" }));
+      if (override === undefined) setDrafts((cur) => ({ ...cur, [key]: "" }));
+      else setDrafts((cur) => (cur[key] === override ? { ...cur, [key]: "" } : cur));
       setSent((n) => n + 1);
       setSaid("Message sent.");
       await refresh();
@@ -467,7 +490,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         <ChatSidebar
           overview={o}
           sessions={sessions}
-          selected={key}
+          selected={rowKey}
           menu={menu?.key ?? null}
           onMenu={(k) => setMenu(k ? { key: k } : null)}
           onClose={closeMenu}
@@ -519,6 +542,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
               addresses={addrs.list}
               loadAddresses={addrs.load}
               stateOf={stateOf}
+              commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
             />
             )
           }

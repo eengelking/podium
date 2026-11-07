@@ -15,7 +15,25 @@ export interface OverviewRead {
   loadError: string | null;
   /** The server's clock minus the browser's at the last read. */
   skew: number;
+  /** The server's clock at the last read that landed (epoch ms; 0 before the first). A reading is not hidden until a read at or after its end. */
+  readAt: number;
   reload: () => Promise<void>;
+}
+
+/** How long before the earliest reading ends the overview is read again, and how long after it a last read confirms it ended. */
+const READ_LEAD_MS = 5000;
+const READ_AFTER_MS = 500;
+/** How long to wait before trying again when a read after a reading's end has not landed. */
+const READ_RETRY_MS = 2000;
+
+/** The earliest end among the Admin readings the last read has not yet seen end, or null when there is none. */
+function earliestEnd(d: ChatOverview | null, readAt: number): number | null {
+  if (!d) return null;
+  let best: number | null = null;
+  for (const r of [...d.channels.flatMap((c) => c.adminReading ?? []), ...d.directs.flatMap((x) => x.adminReading ?? [])]) {
+    if (r.until > readAt && (best === null || r.until < best)) best = r.until;
+  }
+  return best;
 }
 
 export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: string | null = null): OverviewRead {
@@ -23,6 +41,8 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
   const [dataOwner, setDataOwner] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [skew, setSkew] = useState(0);
+  const [readAt, setReadAt] = useState(0);
+  const [tries, setTries] = useState(0);
   const [gate] = useState(() => new ReadGate());
   const reload = useCallback(async () => {
     const at = gate.fresh();
@@ -31,12 +51,16 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
       if (!gate.land(at)) return;
       setData(d);
       setDataOwner(owner);
-      if (typeof d.serverTime === "number") setSkew(d.serverTime - Date.now());
+      if (typeof d.serverTime === "number") {
+        setSkew(d.serverTime - Date.now());
+        setReadAt(d.serverTime);
+      }
       setLoadError(null);
     } catch (err) {
       if (!gate.land(at)) return;
       setLoadError(plain(failReason(err)));
     }
+    setTries((n) => n + 1);
   }, [api, gate, owner]);
   useEffect(() => {
     if (!on) {
@@ -48,7 +72,18 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
     return () => gate.drop();
     // rev moving is the signal: read again.
   }, [on, rev, reload, gate]);
-  return { data, owner: dataOwner, loadError, skew, reload };
+  // An Admin's read is kept alive by pings that move `rev`, but a page cannot rely on one arriving: it reads again just before the
+  // earliest reading ends (the Admin's pings have extended it by then) and once after (so an ended one is dropped on a read, not a guess).
+  // A read that fails is tried again, because nothing is hidden before a read has confirmed it ended (#1051).
+  useEffect(() => {
+    const end = on ? earliestEnd(data, readAt) : null;
+    if (end === null) return;
+    const ahead = end - (Date.now() + skew);
+    const delay = ahead > READ_LEAD_MS + READ_AFTER_MS ? ahead - READ_LEAD_MS : ahead > 0 ? ahead + READ_AFTER_MS : READ_RETRY_MS;
+    const timer = setTimeout(() => void reload(), delay);
+    return () => clearTimeout(timer);
+  }, [on, data, readAt, skew, tries, reload]);
+  return { data, owner: dataOwner, loadError, skew, readAt, reload };
 }
 
 /** What the open thread is, whichever store it comes from: the channel's id, or a Direct Message's two ids. */

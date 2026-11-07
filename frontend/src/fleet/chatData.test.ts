@@ -98,9 +98,13 @@ const dmsg = (over: Partial<DirectMessage> = {}): DirectMessage => ({
 });
 
 describe("a Direct Message's key and name", () => {
-  it("is the agents in it, so a new message with one agent and the stored conversation are the same row", () => {
-    expect(dmKey(dm(person, agent("s2", "infra")))).toBe("s2");
-    expect(dmKey(dm(agent("s9", "b"), agent("s1", "a")))).toBe("s1+s9");
+  it("is the server's thread value, so an own conversation and another person's with the same agent are different rows (#1051)", () => {
+    const own = dm(person, agent("s2", "infra"), { thread: "dm:person:ed|s2" });
+    const maya = dm({ ...person, sessionId: "person:maya", name: "Maya" }, agent("s2", "infra"), { thread: "dm:person:maya|s2" });
+    expect(dmKey(own)).toBe("dm:person:ed|s2");
+    expect(dmKey(maya)).toBe("dm:person:maya|s2");
+    expect(dmKey(own)).not.toBe(dmKey(maya));
+    expect(dmKey(dm(agent("s9", "b"), agent("s1", "a"), { thread: "dm:s1|s9" }))).toBe("dm:s1|s9");
   });
   it("names an agent's conversation with you by the agent and two agents by both", () => {
     expect(dmName(dm(person, agent("s2", "infra-notes")))).toBe("infra-notes");

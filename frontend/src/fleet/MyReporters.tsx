@@ -411,7 +411,7 @@ function Request({ r, model, now, busy, onAnswer }: { r: PeerRequestView; model:
         <b>{person}</b> (a person using Chat) wants to send <b>{r.to.name ?? "an orchestrator"}</b> a message.
       </>
     );
-    hint = `Sent ${when}. Allow opens a link: ${person} can message this agent until you pause or remove it. Decline delivers nothing.`;
+    hint = `Sent ${when}. Allow opens a link to this reporter, ${r.to.machine}, not only to ${r.to.name ?? "this agent"}: ${person} can then message every orchestrator on it, including ones started later, until you pause or remove the link. Decline delivers nothing.`;
     yes = { how: "deliver", label: "Allow" };
   } else if (r.kind === "message") {
     lead = (
