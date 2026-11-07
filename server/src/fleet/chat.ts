@@ -9,7 +9,7 @@ import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
 import type { MessageTrail } from './peerTypes.js';
-import { CHANNEL_NAMES, fail, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
+import { CHANNEL_NAMES, fail, isPersonId, personId, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -59,10 +59,25 @@ export interface Overview {
   listReading: AdminReading[];
   /** The latest records of an Admin looking at this person's list, oldest first. Empty for an Admin who browses. */
   listReads: AdminReadRow[];
+  /**
+   * The person's unseen Admin records of a conversation that no longer exists (#1051), newest first, at most GONE_RECORDS: there is no thread left to show them
+   * on, so the overview does. `with` names the other party. Never any text; empty for an Admin who browses. Loading the overview marks them seen.
+   */
+  goneReads: GoneRead[];
+}
+
+/** One Admin record of a deleted conversation, as the person's overview shows it. */
+export interface GoneRead {
+  admin: string;
+  startedAt: number;
+  kind: AdminReadRow['kind'];
+  with: string;
 }
 
 /** How many records of a look at the person's list the overview carries. */
 const LIST_RECORDS = 20;
+/** How many records of a deleted conversation the overview carries. */
+const GONE_RECORDS = 20;
 
 /** What `upTo` of a mark-read may be: a paging cursor or a message id. */
 const CURSOR_SHAPE = /^[A-Za-z0-9._:-]{1,64}$/;
@@ -176,6 +191,7 @@ export class ChatService {
     const listReading = list && !browsing ? (live.get(list) ?? []) : [];
     const listReads = list && !browsing ? (await this.adminReads.list(list)).slice(-LIST_RECORDS) : [];
     if (list && !browsing && viewer.personId !== null) await this.adminReads.seen(list, viewer.name);
+    const goneReads = list && !browsing && viewer.personId !== null ? await this.goneReadsOf(viewer.name) : [];
     return {
       enabled: true,
       serverTime: host.now(),
@@ -190,7 +206,33 @@ export class ChatService {
       approvals: person && !browsing ? await this.direct.approvalsFor(viewer.name) : 0,
       listReading,
       listReads,
+      goneReads,
     };
+  }
+
+  /** The person's unseen records of conversations that are gone, named and marked seen: loading the overview with them on it is seeing them. */
+  private async goneReadsOf(name: string): Promise<GoneRead[]> {
+    const exist = await this.direct.threads();
+    const gone = (await this.adminReads.unseenFor(name)).filter((r) => r.thread.startsWith('dm:') && !exist.has(r.thread)).slice(0, GONE_RECORDS);
+    const out: GoneRead[] = [];
+    for (const r of gone) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: await this.partyNames(r.thread, name) });
+    for (const thread of new Set(gone.map((r) => r.thread))) await this.adminReads.seen(thread, name);
+    return out;
+  }
+
+  /** The other end of a conversation that is gone, for `name`: the ends that are not theirs, or both when both are (two of their own agents). */
+  private async partyNames(thread: string, name: string): Promise<string> {
+    const key = nameKey(name);
+    const persons = await this.core.persons();
+    const ends = await Promise.all(
+      thread.slice('dm:'.length).split('|').map(async (id) => {
+        if (isPersonId(id)) return { mine: id === personId(name), name: persons.find((p) => p.key === id.slice('person:'.length))?.name ?? id.slice('person:'.length) };
+        const s = await this.core.host.sessionOf(id);
+        return { mine: !!s?.owner && nameKey(s.owner) === key, name: s?.name ?? 'an agent' };
+      }),
+    );
+    const others = ends.filter((e) => !e.mine);
+    return (others.length ? others : ends).map((e) => e.name).join(' and ');
   }
 
   /** The person read up to `upTo` in a thread of theirs. */

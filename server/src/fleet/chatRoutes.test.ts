@@ -63,8 +63,8 @@ function report(userName: string, sid: string, name: string, machine: { name: st
   r.session = { ...r.session, id: sid, name, status: 'waiting', waitReason: 'input', peers: true, respond: { level: 'everything', accepts: [...ACCEPTS], limits: [] }, ...over };
   r.userName = userName;
   r.machine = { ...machine, os: 'macOS 27.0.1' };
-  // The first release with the Chat person frame and the Admin callout (CHAT_REPORTER_SINCE); a reporter older than it is refused as a person's target (#1051).
-  r.reporter = { ...r.reporter, version: '1.6.0' };
+  // A reporter that shows the Admin callout declares it; one that does not is refused as a person's target (#1051).
+  r.adminNotices = true;
   return r;
 }
 const post = (s: S, token: string, r: Report) => request(s.app).post('/api/fleet/report').set('X-Podium-Token', token).send(r);
@@ -1186,17 +1186,21 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBeLessThan(300);
   });
 
-  it('refuses a person\'s text to an agent on a reporter older than the Chat release, which cannot show the Admin callout (#1051)', async () => {
+  it('refuses a person\'s text to an agent whose reporter does not declare adminNotices, which cannot show the Admin callout (#1051)', async () => {
     const w = await world();
     const old = report('Alex', 'sess-alex', 'review', BOX);
-    old.reporter = { ...old.reporter, version: '1.5.1' };
+    delete old.adminNotices;
     expect((await post(w, w.alex.token, old)).status).toBe(200);
     const sent = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED });
     expect(sent.status).toBe(422);
     expect(sent.body.error).toMatch(/podium-reporter/);
     expect(await requestsOf(w.alexB)).toEqual([]);
-    // A dev build carries its commit, and is the code under test, so it counts as current.
-    old.reporter = { ...old.reporter, build: 'abc1234' };
+    // A version number says nothing: a reporter that declares the key is taken, whatever its version or build.
+    old.adminNotices = false;
+    expect((await post(w, w.alex.token, old)).status).toBe(200);
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBe(422);
+    old.adminNotices = true;
+    old.reporter = { ...old.reporter, version: '0.1.0' };
     expect((await post(w, w.alex.token, old)).status).toBe(200);
     expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBeLessThan(300);
   });
@@ -1992,6 +1996,35 @@ describe('an Admin reading a conversation (#1034)', () => {
     w.tick(2 * 86_400_000);
     await w.fleet.retain();
     expect(await store(w).threads('')).toEqual(['dm:person:ed|sess-alex', 'dm:sess-dev|sess-tester']);
+  });
+
+  it('shows a person, on their overview, the unseen record of a conversation an Admin read and that has since been deleted, once, and no one else (#1051)', async () => {
+    const w = await crossWorld();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await admin.get(`${CROSS}/messages`);
+    const crossAt = w.now();
+    w.tick(1000);
+    await admin.get(`${AB}/messages`);
+    const abAt = w.now();
+    expect((await w.edB.get(`${CROSS}/messages`)).status).toBe(200);
+    // While the conversations exist, nothing is on the shelf: a record shows on its thread.
+    expect((await w.edB.get(CH)).body.goneReads).toEqual([]);
+    expect((await w.edB.delete(AB).set(H)).status).toBe(200);
+    expect((await w.edB.delete(CROSS).set(H)).status).toBe(200);
+    // Alex was owed the reading of CROSS and has not seen it; Ed was owed AB and has not.
+    const alexSees = (await w.alexB.get(CH)).body;
+    expect(alexSees.goneReads).toEqual([{ admin: 'Admin secret', startedAt: crossAt, kind: 'read', with: 'Ed' }]);
+    expect((await w.alexB.get(CH)).body.goneReads).toEqual([]);
+    // Ed has seen CROSS's, so only AB's is his: both ends are his own agents.
+    const edSees = (await w.edB.get(CH)).body;
+    expect(edSees.goneReads).toEqual([{ admin: 'Admin secret', startedAt: abAt, kind: 'read', with: 'dev and Tester' }]);
+    expect((await w.edB.get(CH)).body.goneReads).toEqual([]);
+    for (const t of ['agent hello', MSG]) expect(JSON.stringify([alexSees, edSees])).not.toContain(t);
+    // An Admin who browses a person's overview, and the Admin's own, see none of it.
+    await w.alexB.get(CH);
+    expect((await admin.get(CH)).body.goneReads).toEqual([]);
+    expect((await admin.get(`${CH}?owner=Alex`)).body.goneReads).toEqual([]);
   });
 
   it('deletes the seen records of a hidden conversation when its grace period ends, and keeps an unseen one (#1051)', async () => {

@@ -182,6 +182,11 @@ interface DbOwed {
   seen: string;
 }
 
+interface DbOwedLists {
+  people: string;
+  seen: string;
+}
+
 const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
 
 /** The records of an Admin reading a thread that is not theirs (`chat_admin_reads`): who, which thread and when. Never any text. */
@@ -253,6 +258,12 @@ class AdminReads {
     return n;
   }
 
+  unseenFor(person: string): (AdminReadRow & { thread: string })[] {
+    const who = nameKey(person);
+    const rows = this.db.prepare('SELECT thread, admin, started_at, last_seen_at, kind, people, seen FROM chat_admin_reads ORDER BY started_at DESC, thread, admin_key, kind').all() as unknown as (DbAdminRead & DbOwedLists)[];
+    return rows.filter((r) => keyList(r.people).includes(who) && !keyList(r.seen).includes(who)).map((r) => ({ thread: r.thread, ...toRead(r) }));
+  }
+
   /** Deletes the rows of `rows` that nobody is still owed a look at. */
   private drop(rows: DbOwed[]): number {
     let n = 0;
@@ -314,6 +325,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     live: (threads, since) => step(() => reads.live(threads, since)),
     recent: (since) => step(() => reads.recent(since)),
     threads: (prefix) => step(() => reads.threads(prefix)),
+    unseenFor: (person) => step(() => reads.unseenFor(person)),
     seen: (thread, person) => step(() => reads.seen(thread, person)),
     forget: (thread) => step(() => reads.forget(thread)),
     purge: (olderThan) => step(() => reads.purge(olderThan)),

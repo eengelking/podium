@@ -85,6 +85,8 @@ interface SessionEntry {
   info: RespondInfo | null;
   /** The slash commands the reporter declared (#940); null while it has sent no capabilities block, which leaves every command Podium knows open. An empty list is a declaration: the session takes none. */
   commands: string[] | null;
+  /** The last report declared `adminNotices` as an explicit true (#1051); anything else, and a session that has not reported since the server started, is false. */
+  adminNotices: boolean;
   asks: Map<string, AskEntry>;
   messages: DeliveryEntry[];
 }
@@ -247,7 +249,7 @@ export class RespondStore {
   private entry(sessionId: string): SessionEntry {
     let s = this.sessions.get(sessionId);
     if (!s) {
-      s = { info: null, commands: null, asks: new Map(), messages: [] };
+      s = { info: null, commands: null, adminNotices: false, asks: new Map(), messages: [] };
       this.sessions.set(sessionId, s);
     }
     return s;
@@ -256,6 +258,11 @@ export class RespondStore {
   /** Report.session.respond as last reported; null when no report since the server started has said. */
   info(sessionId: string): RespondInfo | null {
     return this.sessions.get(sessionId)?.info ?? null;
+  }
+
+  /** Whether the session's reporter declared `adminNotices` in its last report: it shows its person the Admin callout and frames a person's text (#1051). */
+  adminNotices(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.adminNotices === true;
   }
 
   /**
@@ -267,6 +274,7 @@ export class RespondStore {
     const sid = report.session.id;
     if (report.session.respond) this.entry(sid).info = report.session.respond;
     else if (this.sessions.has(sid)) this.entry(sid).info = null;
+    this.entry(sid).adminNotices = report.adminNotices === true;
     if (report.capabilities) this.entry(sid).commands = report.capabilities.commands;
     if (report.session.status === 'done') {
       this.endSession(sid);

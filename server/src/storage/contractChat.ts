@@ -326,6 +326,69 @@ export function chatCases(o: Openers): void {
     expect(t.get('threads (after)')).toEqual(['group:zed', 'list:ed']);
   });
 
+  it('lists the records a person has not seen, newest first, and stops listing a thread\'s once the person has seen it (#1051)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await reads.touch('dm:a|b', 'Root', GAP, ['Ed', 'eve']);
+      clock.now += MIN;
+      await reads.mark('dm:a|b', 'Zoe', 'cleared', ['ed']);
+      clock.now += MIN;
+      await reads.touch('group:ed', 'Root', GAP, ['ed']);
+      await reads.touch('dm:c|d', 'Root', GAP, ['zed']);
+      await reads.mark('public', 'Root', 'paused');
+      await reads.touch('dm:old|older', 'Root', GAP);
+      const brief = (l: { thread: string; admin: string; kind: string; startedAt: number }[]) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}:${r.startedAt - T0}`);
+      await rec('Ed, folded', reads.unseenFor('ED').then(brief));
+      await rec('Eve', reads.unseenFor('Eve').then(brief));
+      await rec('nobody', reads.unseenFor('nobody').then(brief));
+      await rec('seen (Ed, the conversation)', reads.seen('dm:a|b', 'ed'));
+      await rec('Ed after seeing it', reads.unseenFor('ed').then(brief));
+      await rec('Eve after Ed saw it', reads.unseenFor('eve').then(brief));
+    });
+    expect(t.get('Ed, folded')).toEqual([`group:ed:Root:read:${2 * MIN}`, `dm:a|b:Zoe:cleared:${MIN}`, 'dm:a|b:Root:read:0']);
+    expect(t.get('Eve')).toEqual(['dm:a|b:Root:read:0']);
+    expect(t.get('nobody')).toEqual([]);
+    expect(t.get('seen (Ed, the conversation)')).toBe(2);
+    expect(t.get('Ed after seeing it')).toEqual([`group:ed:Root:read:${2 * MIN}`]);
+    expect(t.get('Eve after Ed saw it')).toEqual(['dm:a|b:Root:read:0']);
+  });
+
+  it('removes the Admin records owed only to a deleted person, keeps those owed to others too, and leaves a record that names nobody (#1051)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      const ed = (await s.people.createPerson('Ed', null, T0)).person;
+      await s.people.createPerson('Eve', null, T0);
+      await reads.touch('group:ed', 'Root', GAP, ['Ed']);
+      await reads.touch('list:ed', 'Root', GAP, ['ed']);
+      await reads.mark('dm:ed-only', 'Root', 'paused', ['ED']);
+      await reads.touch('dm:a|b', 'Root', GAP, ['ed', 'eve']);
+      await reads.mark('dm:a|b', 'Zoe', 'cleared', ['eve', 'Ed']);
+      await reads.touch('group:eve', 'Root', GAP, ['eve']);
+      // Made before people were kept, or about General: it names nobody and goes by retention alone.
+      await reads.touch('dm:none', 'Root', GAP);
+      await reads.mark('public', 'Root', 'paused');
+      await rec('delete Ed', s.people.deleteMany([ed.id]).then((r) => r.length));
+      await rec('threads', reads.threads(''));
+      await rec('Ed is owed none', reads.unseenFor('ed').then((l) => l.length));
+      await rec('Eve is owed', reads.unseenFor('eve').then((l) => l.map((r) => `${r.thread}:${r.kind}`)));
+      await rec('Eve has seen the conversation', reads.seen('dm:a|b', 'eve'));
+      await rec('purge (nobody is owed the shared ones now)', reads.purge(clock.now + MIN));
+      await rec('threads (after)', reads.threads(''));
+    });
+    expect(t.get('delete Ed')).toBe(1);
+    expect(t.get('threads')).toEqual(['dm:a|b', 'dm:none', 'group:eve', 'public']);
+    expect(t.get('Ed is owed none')).toBe(0);
+    expect(t.get('Eve is owed')).toEqual(['dm:a|b:read', 'dm:a|b:cleared', 'group:eve:read']);
+    expect(t.get('Eve has seen the conversation')).toBe(2);
+    expect(t.get('threads (after)')).toEqual(['group:eve']);
+  });
+
   onEachAdapter(o, 'mints the server scope once and keeps it, and puts it in every channel message id', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const scope = await chat.serverScope();

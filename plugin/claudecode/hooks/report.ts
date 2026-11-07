@@ -143,6 +143,8 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
   const report = withinDetailBudget(withinActivityBudget({
     v: 1,
     sentAt: meta.now,
+    // A v1 report has no capabilities block, so Claude Code declares this one itself: it shows the Admin callout as a toast and a transcript line (#1051).
+    adminNotices: true,
     reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
     session: {

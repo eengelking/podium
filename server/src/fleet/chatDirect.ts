@@ -6,7 +6,6 @@ import { MERGE_MS } from '../storage/peerText.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
-import { showsAdminCallout } from './compat.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
@@ -437,8 +436,8 @@ export class DirectChat {
 
   /**
    * Whether the agent can be written to by a person who is not its owner (#1051): its reporter takes messages from Podium (the Admin's respond switches, the
-   * respond level at questions or higher and the activity feed on, which is what a Direct Message to your own agent needs), and it is recent enough to show the
-   * Admin callout and frame a person's text. Said before the owner is asked, so a message that could never be taken waits for no one.
+   * respond level at questions or higher and the activity feed on, which is what a Direct Message to your own agent needs), and it declares the `adminNotices`
+   * capability, which means it shows the Admin callout and frames a person's text. Said before the owner is asked, so a message that could never be taken waits for no one.
    */
   private async acrossTarget(sessionId: string): Promise<Fail | null> {
     const o = this.peers.live(sessionId);
@@ -447,8 +446,7 @@ export class DirectChat {
     if (!this.core.host.respond.info(sessionId)?.accepts.includes('message')) {
       return fail(422, `${o.name} does not take messages from Podium: its owner has its respond level off, or its activity feed off, in podium-reporter on its machine. ${o.owner} can turn them on.`);
     }
-    const r = await this.core.host.reporterOf(sessionId);
-    if (!showsAdminCallout(r?.version, r?.build)) {
+    if (!this.core.host.respond.adminNotices(sessionId)) {
       return fail(422, `${o.name} runs a podium-reporter that is too old to show its person who is reading, or to mark your text as a person's. ${o.owner} can update podium-reporter on ${o.machine}.`);
     }
     return null;

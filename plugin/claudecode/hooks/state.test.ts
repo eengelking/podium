@@ -5,7 +5,7 @@ import { MAIN_LOOP } from '../../core/protocol.ts'
 import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
 
 // The key sets of docs/fixtures/report.sample.json, so a built Report has the shared fixture's shape.
-const REPORT_KEYS = ['agents', 'events', 'reporter', 'sentAt', 'session', 'v']
+const REPORT_KEYS = ['adminNotices', 'agents', 'events', 'reporter', 'sentAt', 'session', 'v']
 const SESSION_KEYS = ['activityFeed', 'activityOutput', 'attached', 'blowouts', 'context', 'costUsd', 'cwd', 'effort', 'endReason', 'fileDiff', 'fileDiffPreload', 'files', 'git', 'id', 'loop', 'model', 'name', 'peers', 'plan', 'projectRoot', 'rateLimits', 'repoName', 'resumeId', 'sessionRecording', 'startedAt', 'status', 'tokens', 'usageByModel', 'waitNote', 'waitReason']
 const AGENT_KEYS = ['answerExcerpt', 'blowouts', 'context', 'costUsdEst', 'description', 'effort', 'effortSource', 'endedAt', 'failure', 'id', 'kind', 'lastTool', 'model', 'name', 'parentId', 'promptExcerpt', 'skills', 'startedAt', 'status', 'steps', 'tokens', 'toolCalls', 'toolCounts', 'type', 'usageByModel']
 const FAILURE_KEYS = ['at', 'call', 'class', 'evidence', 'exitCode', 'explanation', 'outputTail', 'retriedAs', 'tool']
@@ -388,6 +388,12 @@ describe('full prompt and answer text (opt-in)', () => {
     expect('promptText' in sent).toBe(false)
     expect('answerText' in sent).toBe(false)
     expect(sent.promptExcerpt).toBe('Find calls.')
+  })
+
+  test('a report declares adminNotices, because the reporter shows the Admin callout as a toast and a transcript line (#1051)', () => {
+    const s = newSession({ id: 's', cwd: '/w', startedAt: T0 })
+    const meta = { version: '0.10.0', engineVersion: null, hostSurface: null, now: T0, storedName: null, optionName: null }
+    expect(buildReport(s, [], meta).adminNotices).toBe(true)
   })
 
   test('one report carries at most 120,000 characters of full text; the rest waits for the next', () => {

@@ -480,6 +480,11 @@ export interface ChatAdminReadsApi {
   threads(prefix: string): Promise<string[]>;
   /** `person` (names compared folded) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
   seen(thread: string, person: string): Promise<number>;
+  /**
+   * Every record `person` (names compared folded) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
+   * The caller decides which of them it can show on a thread and which can only be shown on the person's overview (#1051).
+   */
+  unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]>;
   /** The thread is gone (a conversation deleted): removes its records that nobody is still owed a look at. Remove all messages does not call this. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Removes the records last read before `olderThan` that nobody is still owed a look at. Returns how many. */

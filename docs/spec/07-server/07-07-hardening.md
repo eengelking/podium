@@ -727,7 +727,7 @@ orchestrator on that reporter, now and later, takes their messages without askin
 intended). Either of them can Pause link, Remove link or Delete conversation at any time, and only whoever paused it, or an Admin,
 can resume it; Allow never lifts a pause (`409`). The person's text reaches another person's agent only when that agent's reporter can take
 it: the Admin's responding switches are on, the reporter's respond level is `questions` or higher with its activity feed on, and `peers` is on,
-and the reporter is at 1.6.0 or later, because an older one cannot show its person the Admin callout or mark the text as a person's. Otherwise it
+and the reporter declares the `adminNotices` capability (6.2), because one that does not cannot show its person the Admin callout or mark the text as a person's. Otherwise it
 is refused up front (`403` or `422`, with the reason) and nothing waits for the owner. The text reaches the agent as written by that person and never as its owner's words: "Message from <person>, a person
 using Podium Chat, sent through Podium after <owner> allowed it. <person> is not <owner>, who owns this session ...". The
 conversation is readable by both owners and an Admin. The agent can answer that person with `podium_send` to `person:<name>`, but only while this session holds a stored message from them

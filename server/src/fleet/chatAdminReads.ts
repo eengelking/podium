@@ -144,6 +144,11 @@ export class AdminReads {
     for (const t of tells) this.tell(t.sessionId, `${this.who(viewer)} ${verb} ${t.about}.`);
   }
 
+  /** The records `person` is owed and has not seen, of every thread, newest first. */
+  unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]> {
+    return this.store.unseenFor(person);
+  }
+
   /** The thread's records, oldest first. */
   list(thread: string): Promise<AdminReadRecord[]> {
     return this.store.list(thread);

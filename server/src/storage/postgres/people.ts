@@ -2,6 +2,7 @@
 // then writes is one transaction, which is what the SQLite lock gave it.
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 import { stripFormat } from '../peerText.js';
+import { withoutPerson } from '../chatRows.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 import type { PeopleStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -164,6 +165,14 @@ export class PgPeopleStore implements PeopleStoreApi {
     await this.db.run('DELETE FROM peer_owner_settings WHERE owner_lower = ?', [key]);
     await this.db.run('DELETE FROM group_messages WHERE owner = ?', [key]);
     await this.db.run('DELETE FROM chat_read_state WHERE person = ?', [key]);
+    // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
+    const reads = await this.db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads ORDER BY thread, started_at, admin_key');
+    for (const r of reads) {
+      const out = withoutPerson(r, key);
+      if (out === 'none') continue;
+      if (out === 'drop') await this.db.run('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?', [r.thread, r.admin_key, r.started_at]);
+      else await this.db.run('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [out.people, out.seen, r.thread, r.admin_key, r.started_at]);
+    }
   }
 
   touch(personId: number, address: string | null, now: number, machine?: { name: string; id: string } | null): Promise<void> {

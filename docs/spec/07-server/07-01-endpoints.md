@@ -443,8 +443,8 @@ link can Pause, Remove it, or Delete the conversation at any time. The agent rec
 never as its owner's words ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)).
 The agent can answer that person with `podium_send` to `person:<name>` while the link is open (the peers route above); a paused link is a `409` and a removed one a `403`. The
 answer is stored in `peer_messages` as the agent's, in the same conversation, so it is read by both owners and an Admin, and it adds one
-unread and one mention for the person and one unread for the owner. A reporter older than 1.6.0 cannot frame the text as a person's or show its
-person the Admin callout, so a person's message to that agent is refused up front, before the owner is asked.
+unread and one mention for the person and one unread for the owner. A reporter that does not declare the `adminNotices` capability (6.2) cannot frame the text as a person's or show its
+person the Admin callout, so a person's message to that agent is refused up front, before the owner is asked. Any build that declares it is taken, whatever its version.
 
 **Not in this release.** Sending selected messages to an agent did not ship. Delivery is `queue` on both harnesses
 (an agent takes a message when its turn ends); OpenCode's `steer` was evaluated (#1033) and deferred.

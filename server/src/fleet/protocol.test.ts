@@ -107,6 +107,36 @@ describe('protocol', () => {
       expect(r.report.capabilities?.commands).toEqual(['/clear', '/compact']);
     });
 
+    it('reads the adminNotices capability as declared, and an omitted one as not declared (#1051)', () => {
+      const f = v2();
+      f.capabilities = { adminNotices: true, commands: [] };
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(r.error);
+      expect(r.report.capabilities).toEqual({ adminNotices: true, commands: [] });
+      expect(r.report.adminNotices).toBe(true);
+      const none = validateReport(v2());
+      if (!none.ok) throw new Error(none.error);
+      expect(none.report.adminNotices).toBeUndefined();
+      const bad = v2();
+      bad.capabilities = { adminNotices: 'yes', commands: [] };
+      expect(validateReport(bad)).toMatchObject({ ok: false, path: '$.capabilities.adminNotices' });
+    });
+
+    it('reads adminNotices from a v1 report, which has no capabilities block, and refuses a value that is not a boolean (#1051)', () => {
+      const f = loadFixture() as Record<string, any>;
+      f.adminNotices = true;
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(r.error);
+      expect(r.report.adminNotices).toBe(true);
+      expect(r.report.capabilities).toBeUndefined();
+      f.adminNotices = 'yes';
+      expect(validateReport(f)).toMatchObject({ ok: false, path: '$.adminNotices' });
+      delete f.adminNotices;
+      const none = validateReport(f);
+      if (!none.ok) throw new Error(none.error);
+      expect(none.report.adminNotices).toBeUndefined();
+    });
+
     it('treats an omitted capability as not supported and keeps null as null', () => {
       const f = v2();
       f.capabilities = {};

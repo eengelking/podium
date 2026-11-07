@@ -244,6 +244,12 @@ class PgAdminReads {
     return n;
   }
 
+  async unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]> {
+    const who = nameKey(person);
+    const rows = await this.db.all<DbAdminRead & { people: string; seen: string }>('SELECT thread, admin, started_at, last_seen_at, kind, people, seen FROM chat_admin_reads ORDER BY started_at DESC, thread, admin_key, kind');
+    return rows.filter((r) => keyList(r.people).includes(who) && !keyList(r.seen).includes(who)).map((r) => ({ thread: r.thread, ...toRead(r) }));
+  }
+
   /** Deletes the rows of `rows` that nobody is still owed a look at. */
   private async drop(rows: DbOwed[]): Promise<number> {
     let n = 0;
@@ -301,6 +307,7 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     live: (threads, since) => reads.live(threads, since),
     recent: (since) => reads.recent(since),
     threads: (prefix) => reads.threads(prefix),
+    unseenFor: (person) => reads.unseenFor(person),
     seen: (thread, person) => db.tx(() => reads.seen(thread, person)),
     forget: (thread) => db.tx(() => reads.forget(thread)),
     purge: (olderThan) => db.tx(() => reads.purge(olderThan)),

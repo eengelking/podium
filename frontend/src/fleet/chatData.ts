@@ -121,6 +121,17 @@ export interface ChatOverview {
   listReading?: AdminReading[];
   /** The latest records of an Admin looking at the list, oldest first. */
   listReads?: AdminRead[];
+  /** The person's unseen records of a conversation that has since been deleted, newest first (#1051). Sent once: the server marks them seen. */
+  goneReads?: GoneRead[];
+}
+
+/** An Admin record of a conversation that no longer exists, for the person's overview. Never any text. */
+export interface GoneRead {
+  admin: string;
+  startedAt: number;
+  kind: AdminReadKind;
+  /** The other party's name. */
+  with: string;
 }
 
 export type MentionState = "waiting" | "working" | "done" | "not-delivered" | "held" | "dropped";
@@ -534,6 +545,27 @@ export function listReadersLine(l: readonly AdminReading[]): string {
 
 /** The rest of that banner: what the Admin sees of the list, and what they do not. */
 export const LIST_READING_REST = "looking at your list of conversations now: who you talk to and how many messages, not what they say.";
+
+/** What an Admin did in a conversation that has since been deleted, in the words after their name. */
+const GONE_WHAT: Record<AdminReadKind, string> = {
+  read: "read",
+  cleared: "removed all messages in",
+  paused: "paused",
+  resumed: "resumed",
+  disconnected: "disconnected the agents in",
+  reconnected: "reconnected the agents in",
+};
+
+/** The parts of the quiet line for a record of a deleted conversation: the Admin, what they did, the other party and when. The page puts the names in <bdi>. */
+export const goneRecordParts = (r: GoneRead): { admin: string; what: string; with: string; when: string } => ({ admin: adminWho(r.admin), what: GONE_WHAT[r.kind] ?? GONE_WHAT.read, with: r.with, when: onDay(r.startedAt) });
+
+/** Adds the records a read brought to those the page already shows, newest first, at most 20, so they stay while the page is open though the server sends each once. */
+export function mergeGone(shown: readonly GoneRead[], incoming: readonly GoneRead[]): GoneRead[] {
+  const key = (r: GoneRead) => `${r.admin}|${r.startedAt}|${r.kind}|${r.with}`;
+  const seen = new Set(shown.map(key));
+  const added = incoming.filter((r) => !seen.has(key(r)));
+  return added.length ? [...shown, ...added].sort((a, b) => b.startedAt - a.startedAt).slice(0, 20) : (shown as GoneRead[]);
+}
 
 /** The quiet line a look at the person's list leaves afterward. */
 export const listRecordLine = (r: AdminRead): string => `${adminWho(r.admin)} looked at your list of conversations on ${onDay(r.startedAt)}. They saw who you talk to and message counts, not the messages.`;

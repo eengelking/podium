@@ -272,12 +272,14 @@ A row made before migration 35 owes nobody, so retention treats it as before. Ge
 A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds
 are one row for each stop (an Admin's remove all messages, pause or resume), never a session. A look at a person's list of conversations is a reading of the
 thread `list:<person>`. A row is protected until every person in `people` is in `seen`; after that it goes by retention. A person has seen a row when Podium sent it to their console: they loaded the
-group or conversation it is about, or, for a look at their list, their own overview. The row of a conversation they can no longer open is never seen, so it
-stays. Until then neither the hourly retention (which removes rows last seen before the channels' retention days, and those of a conversation that no
+group or conversation it is about, or, for a look at their list, their own overview. The row of a conversation they can no longer open is not seen on a thread,
+so their own overview lists it (`goneReads`: the newest 20, with the Admin, the time, what it was and the other party's name, never any text) and marks it seen
+when it loads, after which it goes by retention. Until then neither the hourly retention (which removes rows last seen before the channels' retention days, and those of a conversation that no
 longer exists), the purge of a hidden conversation, nor Delete conversation removes it; once it is seen, they do. Remove all messages never removes
 any. An Admin's stop is recorded before it happens, so a stop that cannot be recorded does not happen. Deleting a person removes their group, read counts,
-Direct Messages (the ones they own and the ones with their `person:<name>` end), links, requests and owner defaults; sessions, spend, the Admin log and
-General keep their name as text.
+Direct Messages (the ones they own and the ones with their `person:<name>` end), links, requests and owner defaults, and the Admin records owed only to them (they
+can never be seen); a record owed to others as well stays for them, without the deleted person. A record that names nobody is not theirs. Sessions, spend, the
+Admin log and General keep their name as text.
 
 - **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried

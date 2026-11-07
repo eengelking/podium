@@ -285,9 +285,9 @@ export class Fleet {
       respondFlagsOn: () => this.respondFlagsOn(),
       featureOn: (id) => this.features.featureOn(id),
       isLive: (id) => this.live.has(id),
-      reporterOf: async (id) => {
+      sessionOf: async (id) => {
         const row = await this.db.getSession(id);
-        return row ? { version: row.reporter_version, build: row.reporter_build ?? null } : null;
+        return row ? { name: row.name, owner: row.owner } : null;
       },
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),

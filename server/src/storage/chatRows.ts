@@ -191,6 +191,19 @@ export function keyList(raw: string | null | undefined): string[] {
 /** The list as the column keeps it: folded, without repeats, in order. */
 export const keyText = (names: readonly string[]): string => JSON.stringify([...new Set(names.map(nameKey))]);
 
+/**
+ * What deleting the person `key` does to an Admin record (#1051): `drop` when only they were owed it (it can never be seen), `keep` with the people and the
+ * seen list without them when others are owed it too, and `none` for a record that does not name them (including one that names nobody, which goes by
+ * retention alone).
+ */
+export function withoutPerson(r: { people: string; seen: string }, key: string): 'none' | 'drop' | { people: string; seen: string } {
+  const people = keyList(r.people);
+  if (!people.includes(key)) return 'none';
+  const rest = people.filter((p) => p !== key);
+  if (!rest.length) return 'drop';
+  return { people: keyText(rest), seen: keyText(keyList(r.seen).filter((p) => p !== key)) };
+}
+
 /** Whether an Admin record is still owed to someone: a person it names has not seen it (#1051). */
 export const stillOwed = (r: { people: string; seen: string }): boolean => {
   const seen = new Set(keyList(r.seen));

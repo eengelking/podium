@@ -1167,6 +1167,9 @@ export function validateReport(body: unknown): ValidateResult {
     };
     if (harness) report.harness = harness;
     if (capabilities) report.capabilities = capabilities;
+    // Declared by v2 in its capabilities and by v1 on its own, and only an explicit boolean counts (#1051).
+    const adminNotices = version === 2 ? capabilities?.adminNotices : o.adminNotices === undefined ? undefined : bool(o.adminNotices, '$.adminNotices');
+    if (adminNotices !== undefined) report.adminNotices = adminNotices;
     const build = parseBuild(r.build);
     if (build !== null) report.reporter.build = build;
     const userName = strOrNull(o.userName, '$.userName', LIMITS.name);

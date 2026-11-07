@@ -1,7 +1,7 @@
 // What an Admin's reading looks like in Chat (#1034, mockup/podium-chat.html): the picker an Admin chooses a person with, the red
 // tags and banners the person sees while an Admin reads or after one paused, the record line a visit leaves among the messages,
 // and the banner the Admin sees. Every word is a text node, and every banner is a polite status with an icon and words, never color alone.
-import { adminWho, listReadersLine, listRecordLine, LIST_READING_REST, onDay, readersLine, readersStops, readersTip, recordLine, stamp, type AdminRead, type AdminReading } from "../chatData";
+import { adminWho, goneRecordParts, listReadersLine, listRecordLine, LIST_READING_REST, onDay, readersLine, readersStops, readersTip, recordLine, stamp, type AdminRead, type AdminReading, type GoneRead } from "../chatData";
 import { ChEye, ChLock, ChPause } from "./ChatIcons";
 import { Tip } from "./Tip";
 
@@ -67,6 +67,28 @@ export function ListRecordLines({ reads, max = 3 }: { reads: AdminRead[]; max?: 
           <span>{listRecordLine(r)}</span>
         </div>
       ))}
+    </>
+  );
+}
+
+/**
+ * The quiet lines for the records of a conversation that has since been deleted (#1051): there is no thread left to show them on, so the top of the list does.
+ * Newest first as sent. Names are text nodes inside <bdi>, so a name cannot bend the sentence.
+ */
+export function GoneRecordLines({ reads }: { reads: readonly GoneRead[] }) {
+  return (
+    <>
+      {reads.map((r) => {
+        const p = goneRecordParts(r);
+        return (
+          <div key={`${r.admin}|${r.startedAt}|${r.kind}|${r.with}`} className="ch-nav ro" role="status" data-testid="chat-gone-record">
+            <ChEye />
+            <span>
+              <bdi>{p.admin}</bdi> {p.what} your conversation with <bdi>{p.with}</bdi> on {p.when}. That conversation has since been deleted.
+            </span>
+          </div>
+        );
+      })}
     </>
   );
 }

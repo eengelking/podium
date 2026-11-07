@@ -11,9 +11,9 @@ import { ChatComposer } from "./components/ChatComposer";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
-import { ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
+import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct } from "./components/ChatMenu";
-import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
+import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, mergeGone, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo, type GoneRead } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
@@ -103,6 +103,12 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
   // A reading is hidden when its time has passed and a read has landed since, never on the clock alone (#1051).
   const serverNow = Math.min(props.now + overview.skew, overview.readAt || Number.MAX_SAFE_INTEGER);
+  // The records of a conversation that has since been deleted come once, and the server marks them seen; they stay while this page is open (#1051).
+  const [gone, setGone] = useState<GoneRead[]>([]);
+  const incomingGone = o && !stale ? o.goneReads : undefined;
+  useEffect(() => {
+    if (incomingGone?.length) setGone((cur) => mergeGone(cur, incomingGone));
+  }, [incomingGone]);
   const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
   const [menu, setMenu] = useState<{ key: string } | null>(null);
@@ -488,6 +494,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         </div>
       )}
       {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
+      {!ro && <GoneRecordLines reads={gone} />}
       <div className="ch-split" data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}

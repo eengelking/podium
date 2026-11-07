@@ -9,7 +9,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
+import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -1632,6 +1632,67 @@ describe("the person an Admin reads, told in the console", () => {
       });
       expect(reads).toBeGreaterThan(1);
       expect(screen.getByTestId("chat-list-reading-banner")).toBeInTheDocument();
+    });
+  });
+
+  describe("the records of a conversation that has since been deleted (#1051)", () => {
+    const gone = (over: Partial<GoneRead> = {}): GoneRead => ({ admin: "Root", startedAt: new Date(2026, 10, 5, 9, 12).getTime(), kind: "read", with: "Tester", ...over });
+    const goneWorld = (goneReads: GoneRead[]) => {
+      const w = world();
+      w.overview.goneReads = goneReads;
+      return fakeChat(w);
+    };
+
+    it("shows each as a quiet line at the top of the list, with the words of the mockup, names in bdi", async () => {
+      page({ chat: goneWorld([gone(), gone({ admin: "Alex", startedAt: new Date(2026, 9, 30, 11, 5).getTime(), with: "Review (Alex's agent)" })]) });
+      await flush();
+      const lines = screen.getAllByTestId("chat-gone-record");
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toHaveClass("ch-nav", "ro");
+      expect(lines[0]).not.toHaveClass("crit");
+      expect(lines[0]).toHaveAttribute("role", "status");
+      expect(lines[0]).toHaveTextContent("Root (an Admin) read your conversation with Tester on Nov 5 at 09:12. That conversation has since been deleted.");
+      expect(lines[1]).toHaveTextContent("Alex (an Admin) read your conversation with Review (Alex's agent) on Oct 30 at 11:05. That conversation has since been deleted.");
+      expect([...lines[0]!.querySelectorAll("bdi")].map((b) => b.textContent)).toEqual(["Root (an Admin)", "Tester"]);
+      expect(lines[0]!.compareDocumentPosition(screen.getByTestId("chat-split")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("says what an Admin did when it was not a read, and shows nothing when the server sends none", async () => {
+      page({ chat: goneWorld([gone({ kind: "cleared" }), gone({ kind: "paused", with: "Notes" })]) });
+      await flush();
+      const lines = screen.getAllByTestId("chat-gone-record");
+      expect(lines[0]).toHaveTextContent("Root (an Admin) removed all messages in your conversation with Tester on Nov 5 at 09:12. That conversation has since been deleted.");
+      expect(lines[1]).toHaveTextContent("Root (an Admin) paused your conversation with Notes on Nov 5 at 09:12. That conversation has since been deleted.");
+      cleanup();
+      page({ chat: fakeChat(world()) });
+      await flush();
+      expect(screen.queryByTestId("chat-gone-record")).toBeNull();
+    });
+
+    it("draws a name as text, never as markup", async () => {
+      const name = '<img src=x onerror="alert(1)">';
+      page({ chat: goneWorld([gone({ admin: name, with: name })]) });
+      await flush();
+      expect(document.querySelector("img[src='x']")).toBeNull();
+      expect(screen.getByTestId("chat-gone-record")).toHaveTextContent(`${name} (an Admin) read your conversation with ${name}`);
+    });
+
+    it("keeps the lines for as long as the page stays open, though the server sends each only once", async () => {
+      const chat = goneWorld([gone()]);
+      const real = chat.api.overview.getMockImplementation()!;
+      let reads = 0;
+      chat.api.overview.mockImplementation(async (owner?: string | null) => {
+        const o = await real(owner);
+        reads++;
+        if (reads > 1) o.goneReads = [];
+        return o;
+      });
+      const p = page({ chat });
+      await flush();
+      p.signal();
+      await flush();
+      expect(reads).toBeGreaterThan(1);
+      expect(screen.getAllByTestId("chat-gone-record")).toHaveLength(1);
     });
   });
 
