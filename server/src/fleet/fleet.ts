@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -20,7 +20,7 @@ import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { ChatService } from './chat.js';
-import type { ChatHost, ChatSignal } from './chatTypes.js';
+import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
 import { silentLogger, type Logger } from '../logging/logger.js';
@@ -881,7 +881,7 @@ export class Fleet {
     const row = await this.db.getSession(id);
     if (check) {
       if (!row) return 'unknown';
-      if (check.asOwner !== undefined && row.owner && row.owner.toLowerCase() !== check.asOwner.toLowerCase()) return 'forbidden';
+      if (check.asOwner !== undefined && row.owner && nameKey(row.owner) !== nameKey(check.asOwner)) return 'forbidden';
     }
     const owner = row?.owner ?? null;
     const wasLive = this.live.delete(id);
@@ -895,7 +895,7 @@ export class Fleet {
     this.diffs.drop(id);
     this.respond.dropSession(id);
     // `person:<name>` is how Chat names a person's end, never a session; deleting by it would wipe that person's conversations (#1051).
-    if (!/^person:/i.test(id)) await this.peers.deleted([id]);
+    if (!isPersonId(id.toLowerCase())) await this.peers.deleted([id]);
     await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);

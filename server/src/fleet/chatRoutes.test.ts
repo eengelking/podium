@@ -680,6 +680,38 @@ describe('direct messages', () => {
     expect(res.body.error).toMatch(/does not take messages from Podium/);
   });
 
+  it('says a reporter does not take a command, and to send it in the terminal, when a message to the agent is /clear (#1051)', async () => {
+    const s = await world();
+    const send = (text: string, to = 'sess-tester') => s.edB.post(`${CH}/dm/me/${to}/messages`).set(H).send({ text });
+    // The reporter takes commands but only /compact (OpenCode): /clear is refused in the words of the respond route, and /compact goes.
+    const base = report('Ed', 'sess-oc', 'Opencoder', LINUX);
+    const r: Report = { ...base, v: 2, reporter: { ...base.reporter, name: 'podium-reporter-opencode' }, harness: { id: 'opencode', name: 'OpenCode', version: '1', surface: 'tui' }, capabilities: { commands: ['compact'], adminNotices: true } };
+    expect((await post(s, s.ed.token, r)).status).toBe(200);
+    const clear = await send('/clear', 'sess-oc');
+    expect(clear.status).toBe(422);
+    expect(clear.body.error).toBe("This session's reporter does not take /clear from Podium. Send it in the terminal.");
+    expect((await send('/compact', 'sess-oc')).status).toBe(202);
+    // A reporter that takes no commands at all says the same.
+    await tester(s, { respond: { level: 'questions', accepts: ['message'], limits: [] } });
+    const none = await send('/clear');
+    expect(none.status).toBe(422);
+    expect(none.body.error).toBe("This session's reporter does not take /clear from Podium. Send it in the terminal.");
+  });
+
+  it('lets an owner delete their session whatever the case or spacing of their name, and leaves a person: id alone, in any case (#1051)', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const before = (await w.edB.get(CH)).body.directs.length;
+    expect(before).toBeGreaterThan(0);
+    // `person:<name>` is no session in any case, and deleting by it wipes no one's conversations.
+    expect(await w.fleet.deleteSessionAs('PERSON:ed', 'Ed')).toBe('unknown');
+    expect(await w.fleet.deleteSessionAs('person:ed', undefined)).toBe('unknown');
+    expect((await w.edB.get(CH)).body.directs).toHaveLength(before);
+    // Owner names are compared folded, as everywhere else: spaces collapsed, case ignored.
+    expect(await w.fleet.deleteSessionAs('sess-alex', '  ED ')).toBe('forbidden');
+    expect(await w.fleet.deleteSessionAs('sess-tester', '  ED ')).toBe('deleted');
+  });
+
   it('lets the person add to a conversation between two agents, reaching both, shown once; the round trips are unchanged', async () => {
     const s = await world();
     await linkedConversation(s);

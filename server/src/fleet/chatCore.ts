@@ -157,7 +157,7 @@ export class ChatCore {
   deliver(sessionId: string, by: string, name: string, text: string, chat = false, channel: string | null = null): { ok: true; delivery: Delivery } | Fail {
     if (!this.host.respondFlagsOn()) return fail(403, 'Responding is off, so Podium cannot hand a message to an agent. An Admin turns it on in Admin > Settings.');
     const out = this.host.respond.message(sessionId, by, { text }, chat, channel);
-    if (!out.ok) return fail(out.err.status === 429 ? 429 : out.err.status, answerWords(out.err, name));
+    if (!out.ok) return fail(out.err.status === 429 ? 429 : out.err.status, answerWords(out.err, name, text));
     return { ok: true, delivery: out.delivery };
   }
 
@@ -184,7 +184,9 @@ export class ChatCore {
 }
 
 /** The words for a person when the console's message path refuses a text. */
-function answerWords(err: AnswerError, name: string): string {
+function answerWords(err: AnswerError, name: string, text: string): string {
+  // A command the reporter does not take is said in the respond route's words, not as a reporter that takes no messages (#1051).
+  if (err.status === 422 && err.kind === 'command') return err.message ?? `This session's reporter does not take /${(/^\s*\/(\w+)/.exec(text) as RegExpExecArray)[1]} from Podium. Send it in the terminal.`;
   if (err.status === 429) return `${name} already has 20 messages waiting. Wait until it has taken some, then send again.`;
   if (err.status === 422) return `${name}'s reporter does not take messages from Podium. Turn on its respond option on that machine.`;
   return err.error;
