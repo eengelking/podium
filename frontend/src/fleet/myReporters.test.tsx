@@ -787,6 +787,23 @@ describe("Defaults: the owner's stricter limits (#436)", () => {
 });
 
 describe("the Grid", () => {
+  it("says whose pause it is under the Paused mark when an Admin holds it, and says nothing for the owner's own (#1077)", async () => {
+    const d = baseRead();
+    d.rights = [
+      { from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", pausedByAdmin: "Root", setAt: 1 },
+      { from: "k2", to: "k1", owner: "Ed", level: "send", paused: true, pausedBy: "admin", setAt: 1 },
+      { from: "k1", to: "k1", owner: "Ed", level: "send", paused: true, pausedBy: "owner", setAt: 1 },
+    ];
+    page({ server: fakeServer(d) });
+    await flush();
+    const td = (from: string, to: string) => cell(from, to).closest("td") as HTMLElement;
+    expect(td("ed-mbp", "ci-runner-01")).toHaveTextContent("Paused");
+    expect(td("ed-mbp", "ci-runner-01")).toHaveTextContent("by Root, an Admin");
+    expect(td("ci-runner-01", "ed-mbp")).toHaveTextContent("by an Admin");
+    expect(td("ed-mbp", "ed-mbp")).toHaveTextContent("Paused");
+    expect(td("ed-mbp", "ed-mbp")).not.toHaveTextContent("an Admin");
+  });
+
   it("has a select named A to B for every pair, says why a pair with messaging off has none, and marks the diagonal", async () => {
     page();
     await flush();

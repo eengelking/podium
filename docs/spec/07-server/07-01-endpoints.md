@@ -671,7 +671,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     `POST reporters/:key/peers/propose`
     (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`; `409` for a level at or below
     the stored right, since a proposal only raises one), `PUT reporters/:key/peers/pause`
-    (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once).
+    (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once). Pause all links records the Admin as the pauser of each link it pauses (`pausedBy` `admin`, `pausedByAdmin` the Admin's name), so only an Admin resumes it. A pause, resume or removal is never quiet: every live reporter session of the person gets one `adminNotices` callout naming the Admin, once for a bulk change, and the Admin log gets `peer_links_paused`, `peer_links_resumed` or `peer_link_removed` with who and whose reporter, never text.
   - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner.
   - `GET log`.
 - Lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return

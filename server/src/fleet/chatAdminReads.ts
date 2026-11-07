@@ -124,6 +124,16 @@ export class AdminReads {
     this.core.notices.push(sessionId, text);
   }
 
+  /**
+   * An Admin paused, resumed or removed links of `owner`'s reporters (#1077): every live session of that person is told once, in the words after the Admin's
+   * name (`paused all messaging links of your reporter box-a`). Content-free, and for the person only. A bulk stop is one call, so a person is not told per link.
+   */
+  toldLinkStop(admin: string, owner: string, what: string): number {
+    const ids = this.sessionsOf(owner);
+    for (const id of ids) this.tell(id, `${this.whoIs(admin)} ${what}.`);
+    return ids.length;
+  }
+
   /** The live reporter sessions of `owner` (folded), or of everyone when it is null. */
   sessionsOf(owner: string | null): string[] {
     const out: string[] = [];

@@ -100,15 +100,19 @@ export function ProposedTag({ level, waitingFor }: { level: PeerLevel; waitingFo
 }
 
 /** A paused link: a pause mark and the word. */
-export function PausedTag() {
+export function PausedTag({ by }: { by?: { name: string | null } | null }) {
   return (
-    <span className="pm-state paused">
-      <svg {...svg} strokeWidth={1.6}>
-        <circle cx="8" cy="8" r="6" />
-        <path d="M6.5 5.5v5M9.5 5.5v5" />
-      </svg>
-      <span>Paused</span>
-    </span>
+    <>
+      <span className="pm-state paused">
+        <svg {...svg} strokeWidth={1.6}>
+          <circle cx="8" cy="8" r="6" />
+          <path d="M6.5 5.5v5M9.5 5.5v5" />
+        </svg>
+        <span>Paused</span>
+      </span>
+      {/* An Admin's pause says whose it is (#1077), so the owner knows whom to ask. The name is a text node. */}
+      {by && <span className="hint">{by.name ? `by ${by.name}, an Admin` : "by an Admin"}</span>}
+    </>
   );
 }
 
@@ -243,7 +247,7 @@ export function RightsGrid({ model, waitingFor, shown, onSet, showLive = true, d
               {levelOptions("", disabledFor(disabledLevels, a, b))}
             </select>
             {self && <span className="hint cellnote">Between orchestrators on this machine</span>}
-            {model.paused(a, b) && <PausedTag />}
+            {model.paused(a, b) && <PausedTag by={model.adminPause(a, b)} />}
             {proposed && <ProposedTag level={proposed} waitingFor={waitingFor} />}
           </>
         )}
@@ -358,7 +362,7 @@ export function RightsBoard({ model, waitingFor, shown, onSet, of, onOf, showLiv
         >
           {levelOptions("Move to: ", disabledFor(disabledLevels, me.key, r.key))}
         </select>
-        {model.paused(me.key, r.key) && <PausedTag />}
+        {model.paused(me.key, r.key) && <PausedTag by={model.adminPause(me.key, r.key)} />}
         {proposed && <ProposedTag level={proposed} waitingFor={waitingFor} />}
         {!self && (
           <div className="backl">

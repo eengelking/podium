@@ -8,7 +8,9 @@ import "./chat.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
+import { rightsModel } from "./peers";
 import { stateKind, type StateKind } from "./components/Chips";
+import { ChPause } from "./components/ChatIcons";
 import { IconCheck, IconX } from "./components/Icons";
 import { TrafficLegend, TrafficMap, type NodeState } from "./components/TrafficMap";
 import {
@@ -346,6 +348,13 @@ function LinkTable({ links, selected, onSelect, now }: { links: TrafficLink[]; s
   );
 }
 
+/** The Admin who holds the pause on the link between two reporters, from the owner's own read, either way; null when no Admin does (#1077). */
+function adminPauseOf(peers: MyPeers, l: TrafficLink): { name: string | null } | null {
+  if (!peers.data) return null;
+  const m = rightsModel(peers.data);
+  return m.adminPause(l.a.reporterKey, l.b.reporterKey) ?? m.adminPause(l.b.reporterKey, l.a.reporterKey);
+}
+
 /** Whether the owner's own read says the link between two reporters is paused, either way. */
 function pausedByRights(peers: MyPeers, l: TrafficLink): boolean {
   const a = l.a.reporterKey;
@@ -366,6 +375,8 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
   // `paused` from the server, which `state` hides while a message also waits for approval; the owner's own read can be
   // newer after a Pause link.
   const paused = link.paused || link.state === "paused" || pausedByRights(p.peers, link);
+  // An Admin's pause is lifted only by an Admin (#1034), so the owner is told whose it is and is not offered a Resume that would be refused (#1077).
+  const heldByAdmin = paused ? adminPauseOf(p.peers, link) : null;
   const [x, y] = ordered(link);
   const ways = waysOf(link);
   const one = ways === "aToB" || ways === "bToA";
@@ -420,7 +431,18 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
         <span>{whereWords(link)}</span>
         <span>{plural(link.messages, "message")}</span>
         <StateTag link={link} paused={paused} />
+        {heldByAdmin && (
+          <span className="tag crit" data-testid="link-tag-paused-admin">
+            <ChPause />
+            <span>Paused by an Admin</span>
+          </span>
+        )}
       </div>
+      {heldByAdmin && (
+        <div className="sub">
+          <span>{heldByAdmin.name ? `${heldByAdmin.name} paused this link. Only an Admin can resume it.` : "An Admin paused this link. Only an Admin can resume it."}</span>
+        </div>
+      )}
     </>
   );
 
@@ -442,7 +464,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
       {manage ? (
         <div className="acts">
           {/* Not disabled while saving, which would drop the focus: a press while busy waits for the first. */}
-          <button type="button" className="btn sm" aria-busy={busy || undefined} onClick={() => !busy && void togglePause()}>
+          <button type="button" className="btn sm" aria-disabled={heldByAdmin !== null || undefined} aria-describedby={heldByAdmin ? "link-admin-why" : undefined} aria-busy={busy || undefined} onClick={() => !busy && !heldByAdmin && void togglePause()}>
             {paused ? "Resume link" : "Pause link"}
           </button>
           <button type="button" className="btn sm dng" ref={removeBtn} aria-busy={busy || undefined} aria-expanded={removing} aria-controls={removing ? "conv-remove" : undefined} onClick={() => !busy && setRemoving(true)}>
@@ -451,6 +473,11 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
           <a className="btn sm" href="#/me/reporters">
             Open My reporters
           </a>
+          {heldByAdmin && (
+            <span className="hint" id="link-admin-why">
+              {heldByAdmin.name ? `Ask ${heldByAdmin.name} to resume it.` : "Ask an Admin to resume it."}
+            </span>
+          )}
         </div>
       ) : (
         <p className="hint">
