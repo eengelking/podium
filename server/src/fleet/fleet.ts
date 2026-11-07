@@ -20,6 +20,7 @@ import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { ChatService } from './chat.js';
+import { AdminActs } from './adminActs.js';
 import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
@@ -155,6 +156,8 @@ export class Fleet {
   readonly peers: PeerStoreApi;
   /** Chat (#1034): the channels, the direct messages a person adds to, and their counts. */
   readonly chat: ChatService;
+  /** Tells a person when an Admin stops or deletes their recording, stored activity, session, access or reporter (#1078). */
+  readonly adminActs: AdminActs;
   /** The daily check for a newer Podium release (#499); the wall's update notice reads its answer. */
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
@@ -296,6 +299,13 @@ export class Fleet {
       warn: (what, err) => this.logger.warn('chat.failed', `podium: ${what}: ${(err as Error).message}`, { reason: (err as Error).message }),
     };
     this.chat = new ChatService(host, storage.chat({ now }));
+    const reads = this.chat.adminReads;
+    this.adminActs = new AdminActs({
+      mark: (thread, admin, kind, people) => reads.record(thread, admin, kind, people),
+      tell: (sessionId, text) => reads.tell(sessionId, text),
+      sessionsOf: (owner) => reads.sessionsOf(owner),
+      sessionOf: (id) => host.sessionOf(id),
+    });
     this.wall = new LiveWallSettings(storage.wallSettings, () => {
       this.settingsEpoch++;
       void this.broadcastWall();
@@ -882,18 +892,20 @@ export class Fleet {
    * nothing, and lets only the session's owner delete it. `asOwner` is the caller's name, or undefined for the admin
    * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's.
    */
-  deleteSessionAs(id: string, asOwner: string | undefined): Promise<'deleted' | 'unknown' | 'forbidden'> {
-    return this.serial.run(id, () => this.deleteNow(id, { asOwner }));
+  deleteSessionAs(id: string, asOwner: string | undefined, byAdmin?: string): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    return this.serial.run(id, () => this.deleteNow(id, { asOwner, byAdmin }));
   }
 
   /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwner` must own it. */
-  private async deleteNow(id: string, check: { asOwner: string | undefined } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
+  private async deleteNow(id: string, check: { asOwner: string | undefined; byAdmin?: string } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
     const row = await this.db.getSession(id);
     if (check) {
       if (!row) return 'unknown';
       if (check.asOwner !== undefined && row.owner && nameKey(row.owner) !== nameKey(check.asOwner)) return 'forbidden';
     }
     const owner = row?.owner ?? null;
+    // An Admin deleting a person's session tells the person first, so a failure to record it stops the delete (#1078).
+    if (check?.byAdmin !== undefined) await this.adminActs.onSession(check.byAdmin, 'session_deleted', id);
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);

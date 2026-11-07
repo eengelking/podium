@@ -130,6 +130,28 @@ describe('scrub of common secret shapes (#155)', () => {
     expect(out.split(' word').length).toBe(text.split(' word').length);
   });
 
+  it('redacts a long quoted value whose closing quote is past the lookahead, at every offset around a window cut (#1064)', () => {
+    const value = 'h'.repeat(2000);
+    for (const quote of ['"', "'"]) {
+      for (let d = -40; d <= 40; d++) {
+        const text = `${'x'.repeat(7980 + d)} password=${quote}${value}${quote} ${'y'.repeat(3000)}`;
+        const wide = `${'x'.repeat(7980 + d)} "password": ${quote}${value}${quote} ${'y'.repeat(3000)}`;
+        for (const t of [text, wide]) {
+          const out = scrubStored(t, [], true);
+          expect(out.includes('hhhh'), `${quote} at ${d}`).toBe(false);
+          expect(out.includes('[redacted] yyy'), `${quote} at ${d}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('leaves a quote that never closes as one pass would, and stays fast (#1064)', () => {
+    const text = `${'x'.repeat(7990)} password="${'h'.repeat(60000)}`;
+    const t0 = Date.now();
+    expect(scrubStored(text, [], true)).toBe(text);
+    expect(Date.now() - t0).toBeLessThan(5000);
+  });
+
   it('is applied to the logger message and event, not only to fields', () => {
     const local: string[] = [];
     const logger = createLogger({ format: 'json', secrets: [], write: (l) => local.push(l), ship: () => {} });

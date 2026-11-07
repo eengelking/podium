@@ -230,6 +230,8 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     }
     if (out.changed) {
       await audit(req, got.v, got.row, 'recording_stopped', `${got.v.name} stopped the recording`, { by: got.v.name });
+      // An Admin stopping a person's recording from the session's page tells the owner, as the Admin page does (#1078). The owner stopping their own tells no one.
+      await fleet.adminActs.onSession(got.v.name, 'recording_stopped', got.row.id);
       fleet.recordingChanged(got.row.id);
     }
     res.json({ ok: true, grant: out.grant });
@@ -245,6 +247,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     try {
       const out = await fleet.recordings.removeMany([got.row.id]);
       await audit(req, got.v, got.row, 'recording_deleted', `${got.v.name} deleted the recording (${out.entries} entries, ${sizeText(out.bytes)})`, { entries: out.entries, bytes: out.bytes });
+      await fleet.adminActs.onSession(got.v.name, 'recording_deleted', got.row.id);
       fleet.recordingChanged(got.row.id);
       res.json({ ok: true, entries: out.entries, bytes: out.bytes });
     } catch {

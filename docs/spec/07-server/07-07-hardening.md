@@ -726,6 +726,16 @@ every time a session reports, for every Admin who read a thread of that person i
 whenever it began, so a restart of the server or a session that started late loses none; the reporter shows each id once. An Admin's stop is held by
 the server for 5 minutes, at most 8 for a session. They are for the person only and are never sent to the model.
 
+**An Admin's stop or delete of a person's things (#1078).** An Admin who stops a recording, deletes a recording or stored activity, deletes a session
+with the admin secret, revokes a person's token or certificate, deletes a person, or removes one of a person's reporters tells that person, as a read does.
+Each act writes a record on the person's `act:<name>` thread (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
+`access_revoked`, `reporter_removed`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
+callout to every live reporter session of that person ("<Admin> (an Admin) stopped the recording of your session <name>."), through `adminNotices` as above. A
+server with no sign-in has no Admin to name and tells no one; a session or reporter with no owner, or on the admin secret, has no person to tell; an Admin
+acting on their own things tells no one. Revoking or deleting a person is told after it succeeds, because a refusal (the last Administrator) must not leave a
+false notice: the person's token is then dead, so the callout cannot reach a session that already reports with it, and a deleted person has no overview to
+show a record on, so for those two the Admin log is the lasting record.
+
 **Stopping a session.** A channel's menu is the stop button for a runaway session. **Pause** holds messages and keeps access,
 **Disconnect** takes the agents' access away, and **Remove all messages** deletes the history. In My group the person and an Admin can
 do all three. In General any person can pause or disconnect their own agents, and only an Admin can pause General for everyone or

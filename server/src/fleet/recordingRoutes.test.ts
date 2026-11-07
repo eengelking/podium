@@ -559,6 +559,20 @@ describe('POST …/stop and DELETE …', () => {
     expect(page.entries[1].by).toBe('Ed');
   });
 
+  it('tells the owner when an Administrator stops or deletes the recording from the session page, and the owner doing it tells no one (#1078)', async () => {
+    const { a, app, boss, fleet, ed } = await chosen();
+    await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
+    const told = vi.spyOn(fleet.adminActs, 'onSession');
+    const b = await signedIn(app, 'Boss', boss.token);
+    expect((await b.post(`${BASE}/stop`).set(H)).status).toBe(200);
+    expect((await b.delete(BASE).set(H)).status).toBe(200);
+    expect(told.mock.calls.map((c) => [c[0], c[1]])).toEqual([['Boss', 'recording_stopped'], ['Boss', 'recording_deleted']]);
+    // The owner's own stop is passed to the same call and is dropped there, since the Admin and the owner are one name.
+    told.mockClear();
+    await a.post(`${BASE}/stop`).set(H);
+    expect(await fleet.chat.adminReads.unseenFor('Boss')).toEqual([]);
+  });
+
   it('stop is 404 when there is no recording', async () => {
     const s = await setup();
     await send(s.app, s.ed.token, report());

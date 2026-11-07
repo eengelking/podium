@@ -1,7 +1,7 @@
 // What an Admin's reading looks like in Chat (#1034, mockup/podium-chat.html): the picker an Admin chooses a person with, the red
 // tags and banners the person sees while an Admin reads or after one paused, the record line a visit leaves among the messages,
 // and the banner the Admin sees. Every word is a text node, and every banner is a polite status with an icon and words, never color alone.
-import { adminWho, goneRecordParts, listReadersLine, listRecordLine, LIST_READING_REST, onDay, readersLine, readersStops, readersTip, recordLine, stamp, type AdminRead, type AdminReading, type GoneRead } from "../chatData";
+import { adminWho, goneRecordParts, isActRecord, listReadersLine, listRecordLine, LIST_READING_REST, onDay, readersLine, readersStops, readersTip, recordLine, stamp, type AdminRead, type AdminReading, type GoneRead } from "../chatData";
 import { ChEye, ChLock, ChPause } from "./ChatIcons";
 import { Tip } from "./Tip";
 
@@ -83,9 +83,15 @@ export function GoneRecordLines({ reads }: { reads: readonly GoneRead[] }) {
         return (
           <div key={`${r.admin}|${r.startedAt}|${r.kind}|${r.with}`} className="ch-nav ro" role="status" data-testid="chat-gone-record">
             <ChEye />
-            <span>
-              <bdi>{p.admin}</bdi> {p.what} your conversation with <bdi>{p.with}</bdi> on {p.when}. That conversation has since been deleted.
-            </span>
+            {isActRecord(r) ? (
+              <span>
+                <bdi>{p.admin}</bdi> {p.what} on {p.when}.
+              </span>
+            ) : (
+              <span>
+                <bdi>{p.admin}</bdi> {p.what} your conversation with <bdi>{p.with}</bdi> on {p.when}. That conversation has since been deleted.
+              </span>
+            )}
           </div>
         );
       })}

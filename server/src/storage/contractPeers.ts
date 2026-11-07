@@ -63,14 +63,19 @@ export function peerCases(o: Openers): void {
       await rec('owner pauses it again', r.pauseLink('ed', a, b, true, ED));
       await rec('effective (still the Admin\'s)', r.effective(b, a));
       await rec('owner resumes (refused)', r.pauseLink('ed', a, b, false, ED));
-      await rec('owner resumes the reporter (the Admin\'s pause stays)', r.pauseReporter(a, false, ADMIN));
+      await rec('owner resumes the reporter (the Admin\'s pause stays)', r.pauseReporter(a, false, ED));
       await rec('effective (after the reporter resume)', r.effective(a, b));
       await rec('admin resumes the link', r.pauseLink(null, a, b, false, { name: 'Root', admin: true }));
       await rec('effective (resumed)', r.effective(a, b));
       await rec('pause reporter', r.pauseReporter(a, true, ADMIN));
+      await rec('effective (the Admin\'s bulk pause)', r.effective(a, b));
+      await rec('effective (the Admin\'s bulk pause, the reporter itself)', r.effective(a, a));
       await rec('pause reporter (not admin)', r.pauseReporter(a, true, ED));
       await rec('rights (paused)', r.rightsOf('ed'));
+      await rec('owner resumes the reporter (the bulk pause stays)', r.pauseReporter(a, false, ED));
+      await rec('effective (after the owner\'s resume of the bulk pause)', r.effective(a, b));
       await rec('resume reporter', r.pauseReporter(a, false, ADMIN));
+      await rec('effective (after the Admin\'s bulk resume)', r.effective(a, b));
       await rec('propose', r.propose(b, c, 'see', ADMIN));
       await rec('propose (not admin)', r.propose(b, c, 'see', ED));
       await rec('propose none', r.propose(b, c, 'none', ADMIN));
@@ -88,6 +93,11 @@ export function peerCases(o: Openers): void {
     expect(t.get('owner resumes (refused)')).toMatchObject({ ok: false, status: 403 });
     expect(t.get('effective (after the reporter resume)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Root' });
     expect(t.get('effective (resumed)')).toEqual({ level: 'send', paused: false });
+    // A bulk pause is the Admin's, named, like a pause of one link (#1077); only an Admin lifts it.
+    expect(t.get('effective (the Admin\'s bulk pause)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Admin' });
+    expect(t.get('effective (the Admin\'s bulk pause, the reporter itself)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Admin' });
+    expect(t.get('effective (after the owner\'s resume of the bulk pause)')).toMatchObject({ paused: true, pausedBy: 'admin', pausedByAdmin: 'Admin' });
+    expect(t.get('effective (after the Admin\'s bulk resume)')).toEqual({ level: 'send', paused: false });
   });
 
   it('agrees on every adapter for owner defaults and limits, and for requests for access in the order they were opened', async () => {

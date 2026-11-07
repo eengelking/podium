@@ -1669,6 +1669,18 @@ describe("the person an Admin reads, told in the console", () => {
       expect(screen.queryByTestId("chat-gone-record")).toBeNull();
     });
 
+    it("words an Admin's stop or delete of the person's own things without a conversation (#1078)", async () => {
+      page({ chat: goneWorld([gone({ kind: "recording_stopped", with: "" }), gone({ kind: "access_revoked", with: "" }), gone({ kind: "reporter_removed", with: "" })]) });
+      await flush();
+      const lines = screen.getAllByTestId("chat-gone-record");
+      expect(lines.map((l) => l.textContent)).toEqual([
+        "Root (an Admin) stopped a recording of one of your sessions on Nov 5 at 09:12.",
+        "Root (an Admin) revoked your Podium access on Nov 5 at 09:12.",
+        "Root (an Admin) removed one of your reporters from the Reporters list on Nov 5 at 09:12.",
+      ]);
+      expect([...lines[0]!.querySelectorAll("bdi")].map((b) => b.textContent)).toEqual(["Root (an Admin)"]);
+    });
+
     it("draws a name as text, never as markup", async () => {
       const name = '<img src=x onerror="alert(1)">';
       page({ chat: goneWorld([gone({ admin: name, with: name })]) });

@@ -244,6 +244,15 @@ export function chatCases(o: Openers): void {
       await rec('purge (a stop is retained by its time like a read)', reads.purge(clock.now + 10));
       await rec('list (after the stops are purged)', reads.list('group:ed'));
       await rec('mark (disconnected and reconnected)', (async () => { await reads.mark('group:fay', 'Root', 'disconnected'); await reads.mark('group:fay', 'root', 'reconnected'); const l = await reads.list('group:fay'); await reads.forget('group:fay'); return l.map((r) => r.kind); })());
+      await rec('mark (an Admin act on a person\'s things, owed to them, seen once)', (async () => {
+        await reads.mark('act:ed', 'Root', 'recording_stopped', ['ed']);
+        await reads.mark('act:ed', 'Root', 'reporter_removed', ['ed']);
+        const owed = (await reads.unseenFor('Ed')).filter((r) => r.thread === 'act:ed').map((r) => r.kind);
+        await reads.seen('act:ed', 'ed');
+        const after = (await reads.unseenFor('Ed')).filter((r) => r.thread === 'act:ed').length;
+        await reads.forget('act:ed');
+        return { owed, after, left: (await reads.list('act:ed')).length };
+      })());
       await rec('touch (the other thread again, so forgetting keeps it)', reads.touch('dm:a|b', 'Root', GAP));
       await rec('forget the thread', reads.forget('group:ed'));
       await rec('forget (nothing left)', reads.forget('group:ed'));
@@ -275,6 +284,7 @@ export function chatCases(o: Openers): void {
     expect(t.get('purge (a stop is retained by its time like a read)')).toBe(7);
     expect(t.get('list (after the stops are purged)')).toEqual([]);
     expect(t.get('mark (disconnected and reconnected)')).toEqual(['disconnected', 'reconnected']);
+    expect(t.get("mark (an Admin act on a person's things, owed to them, seen once)")).toEqual({ owed: ['reporter_removed', 'recording_stopped'], after: 0, left: 0 });
     expect(t.get('forget the thread')).toBe(0);
     expect(t.get('forget (nothing left)')).toBe(0);
     expect(t.get('list (after forget)')).toEqual([]);

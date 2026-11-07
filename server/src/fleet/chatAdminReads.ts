@@ -174,6 +174,16 @@ export class AdminReads {
     this.core.notices.push(sessionId, text);
   }
 
+  /**
+   * An Admin paused, resumed or removed links of `owner`'s reporters (#1077): every live session of that person is told once, in the words after the Admin's
+   * name (`paused all messaging links of your reporter box-a`). Content-free, and for the person only. A bulk stop is one call, so a person is not told per link.
+   */
+  toldLinkStop(admin: string, owner: string, what: string): number {
+    const ids = this.sessionsOf(owner);
+    for (const id of ids) this.tell(id, `${this.whoIs(admin)} ${what}.`);
+    return ids.length;
+  }
+
   /** The live reporter sessions of `owner` (folded), or of everyone when it is null. */
   sessionsOf(owner: string | null): string[] {
     const out: string[] = [];
@@ -193,6 +203,11 @@ export class AdminReads {
     await this.store.mark(thread, viewer.actor, kind, people);
     const verb = kind === 'cleared' ? 'removed all messages in' : kind;
     for (const t of tells) this.tell(t.sessionId, `${this.who(viewer)} ${verb} ${t.about}.`);
+  }
+
+  /** Records an Admin's act on a person's things (#1078) on `thread`, owed to `people` until they have seen it. */
+  record(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[]): Promise<AdminReadRow> {
+    return this.store.mark(thread, admin, kind, people);
   }
 
   /** The records `person` is owed and has not seen, of every thread, newest first. */
