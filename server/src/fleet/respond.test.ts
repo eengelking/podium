@@ -401,10 +401,10 @@ async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn
   return { app, fleet, people, ed, alex };
 }
 
-/** A report from a reporter that responds at every level, carrying `asks`. */
+/** A report from a reporter that responds at every level, carrying `asks`. A reporter that responds has its activityFeed option on (it takes nothing from Podium without it), and Podium's entries in the feed need it (#1051). */
 function report(userName: string, id = 'sess-ed', asks: Ask[] = []): Report {
   const r = fixtureReport();
-  r.session = { ...r.session, id, status: 'waiting', respond: { level: 'everything', accepts: ALL, limits: [] }, asks };
+  r.session = { ...r.session, id, status: 'waiting', activityFeed: true, respond: { level: 'everything', accepts: ALL, limits: [] }, asks };
   r.userName = userName;
   return r;
 }

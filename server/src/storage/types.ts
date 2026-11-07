@@ -258,6 +258,8 @@ export interface PeerStoreApi {
     /** The live directory is memory, so this answers at once. */
     live(sessionId: string): LiveOrchestrator | null;
     list(sessionId: string): Promise<PeerListResult>;
+    /** One stored message by id, with its text, or null. */
+    message(id: string): Promise<MessageRow | null>;
     send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal>;
     result(sessionId: string, id: string, result: PeerResult): Promise<'new' | 'repeat' | 'unknown'>;
     conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
@@ -402,6 +404,8 @@ export interface ChatReadStateApi {
   markRead(person: string, thread: string, upTo: string | null): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
   forget(thread: string): Promise<number>;
+  /** Every thread, for any person, that starts with `prefix`, once each, by thread. Used to forget the rows of conversations that no longer exist (#1051). */
+  threads(prefix: string): Promise<string[]>;
 }
 
 /** The Admin's Chat settings: how long a channel keeps its messages, how long a hidden direct message is kept, the longest channel message and the posts per minute of one author. */

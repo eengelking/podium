@@ -145,10 +145,16 @@ export function chatCases(o: Openers): void {
       await rec('get (read)', rs.get('ed', 'public'));
       await rec('list (after)', rs.list('ed'));
       await rec('list (another person)', rs.list('eve'));
+      await rec('threads that start with dm:', rs.threads('dm:'));
+      await rec('threads that start with group:', rs.threads('group:'));
+      await rec('threads that start with nothing there', rs.threads('zz'));
       await rec('forget the thread', rs.forget('public'));
       await rec('list (after forget)', rs.list('ed'));
       await rec('list (another person, after forget)', rs.list('eve'));
     });
+    expect(t.get('threads that start with dm:')).toEqual(['dm:a|b']);
+    expect(t.get('threads that start with group:')).toEqual(['group:g1']);
+    expect(t.get('threads that start with nothing there')).toEqual([]);
     expect(t.get('get (never seen)')).toEqual({ person: 'ed', thread: 'public', lastRead: null, unread: 0, mentions: 0, updatedAt: 0 });
     expect(t.get('bump (a mention)')).toEqual({ person: 'ed', thread: 'public', lastRead: null, unread: 3, mentions: 1, updatedAt: T0 + 1 });
     expect((t.get('list') as { thread: string }[]).map((r) => r.thread)).toEqual(['group:g1', 'public']);
@@ -286,6 +292,43 @@ export function chatCases(o: Openers): void {
     expect(g.id).toMatch(new RegExp(`^grp_${scope}_[0-9a-f]{24}$`));
     expect(p.id).toMatch(new RegExp(`^pub_${scope}_[0-9a-f]{24}$`));
     expect(new Set([g.id, (await chat.group.post(G, input('z'))).id]).size).toBe(2);
+  });
+
+  it('forgets a deleted person\'s Chat data, so a new person of the same name inherits none of it, and leaves everyone else\'s (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b, eve } = await setUp(s, clock);
+      const chat = s.chat({ now: () => clock.now });
+      const ed = (await s.people.createPerson('Ed', null, T0)).person;
+      await s.people.createPerson('Eve', null, T0);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      await peers.messages.send('sa', 'beta@box-b', 'agent to agent');
+      await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'from the person' });
+      await peers.setPersonLink('person:ed', eve, 'allow', ED);
+      await chat.group.post(G, input('ED GROUP'));
+      await chat.group.post({ owner: 'eve', groupId: 'g1' }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
+      await chat.readState.bump('ed', 'group:ed', true);
+      await chat.readState.bump('eve', 'group:eve', false);
+      await rec('before: person link', peers.rights.personLink('person:ed', eve));
+      await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
+      await rec('group (Ed)', chat.group.page(G, { limit: 10 }).then(texts));
+      await rec('group (Eve)', chat.group.page({ owner: 'eve', groupId: 'g1' }, { limit: 10 }).then(texts));
+      await rec('read state (Ed)', chat.readState.list('ed'));
+      await rec('read state (Eve)', chat.readState.list('eve').then((l) => l.length));
+      await rec('person link', peers.rights.personLink('person:ed', eve));
+      await rec('agent conversation', peers.messages.conversation('sa', 'sb'));
+      await rec('person conversation', peers.messages.conversation('person:ed', 'sb'));
+      await rec('Ed conversations', peers.messages.ownerConversations('ed'));
+    });
+    expect(t.get('before: person link')).not.toBeNull();
+    expect(t.get('group (Ed)')).toEqual([]);
+    expect(t.get('group (Eve)')).toEqual(['EVE GROUP']);
+    expect(t.get('read state (Ed)')).toEqual([]);
+    expect(t.get('read state (Eve)')).toBe(1);
+    expect(t.get('person link')).toBeNull();
+    expect(t.get('agent conversation')).toEqual([]);
+    expect(t.get('person conversation')).toEqual([]);
+    expect(t.get('Ed conversations')).toEqual([]);
   });
 
   // The hard rule of the Chat page: three tables, one per audience, so a missed filter cannot leak one audience's text to another.

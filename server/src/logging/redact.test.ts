@@ -1,7 +1,7 @@
 // What the logger refuses to carry (#140): tokens, the admin secret, prompt, answer and activity text.
 import { describe, it, expect } from 'vitest';
 import { createLogger } from './logger.js';
-import { cleanFields, scrub } from './redact.js';
+import { cleanFields, scrub, scrubStored } from './redact.js';
 import { newPersonToken } from '../fleet/tokens.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -85,6 +85,23 @@ describe('scrub of common secret shapes (#155)', () => {
     expect(performance.now() - started).toBeLessThan(1000);
     expect(out).not.toContain('hunter2');
     expect(out.length).toBeLessThanOrEqual(500);
+  });
+
+  it('reads text stored whole in linear time: 60,000 characters of dotted words, and a secret in a long text (#1051)', () => {
+    const started = performance.now();
+    const out = scrubStored('a.'.repeat(30_000), [], true);
+    // Seconds before the key prefix was bounded; the routes also refuse such a text by its length before they scan it.
+    expect(performance.now() - started).toBeLessThan(300);
+    expect(out).toHaveLength(60_000);
+    const dashed = performance.now();
+    scrubStored('a-'.repeat(30_000), [], true);
+    expect(performance.now() - dashed).toBeLessThan(300);
+    // Past the window the patterns read, a secret is still found in every window, and a word is not cut.
+    const long = `${'word '.repeat(5000)}password=hunter2 ${'word '.repeat(5000)}token: "tail-secret-value-123"`;
+    const scrubbed = scrubStored(long, [], true);
+    expect(scrubbed).not.toContain('hunter2');
+    expect(scrubbed).toContain('password=[redacted]');
+    expect(scrubbed.split(' word').length).toBe(long.split(' word').length);
   });
 
   it('is applied to the logger message and event, not only to fields', () => {

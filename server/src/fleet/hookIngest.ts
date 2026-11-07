@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import type { AgentRow, SessionRow } from '../storage/rows.js';
 import { agentView } from './derive.js';
 import { CLAUDE_REPORTER_NAME } from './reporterNames.js';
-import { backgroundSummary, type ActivityEvent, type AgentReport, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Report, type SessionReport } from './protocol.js';
+import { backgroundSummary, badSessionId, type ActivityEvent, type AgentReport, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Report, type SessionReport } from './protocol.js';
 
 export const HOOKS_REPORTER_VERSION = 'hooks';
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -105,6 +105,8 @@ export function hookToReport(payload: unknown, stored: { session?: SessionRow; a
   if (!event) return { ok: false, error: 'missing hook_event_name', path: '$.hook_event_name' };
   const sid = str(payload.session_id);
   if (!sid) return { ok: false, error: 'missing session_id', path: '$.session_id' };
+  const badId = badSessionId(sid);
+  if (badId) return { ok: false, error: badId, path: '$.session_id' };
   // A session the mod reports must not be overwritten by a reduced hook view of itself (that would blank
   // its cost, plan and tokens and flip it to the reduced display). The mod's reports are the truth.
   if (stored.session?.reporter_version && stored.session.reporter_version !== HOOKS_REPORTER_VERSION) {

@@ -535,7 +535,7 @@ describe('what the server does on its own is logged', () => {
   it('a message Podium delivers to a recorded loop is marked on the mod entry that carries it, and not stored twice', async () => {
     const { fleet, app, ed } = await chosen();
     await fleet.features.setFeature('respond', true);
-    await send(app, ed.token, report(true, { respond: ACCEPTS }));
+    await send(app, ed.token, report(true, { respond: ACCEPTS, activityFeed: true }));
     expect(fleet.respond.message(SID, 'Boss', { text: `${BODY} please also update the guide` }).ok).toBe(true);
     await fleet.flush(); // the Podium entry's write is queued
     expect((await fleet.recordings.page(SID, null, 10, null)).entries).toEqual([]);
@@ -584,7 +584,7 @@ describe('what the server does on its own is logged', () => {
   it('a failing write of such a prompt is logged and does not refuse the message', async () => {
     const { fleet, lines, app, ed } = await chosen();
     await fleet.features.setFeature('respond', true);
-    await send(app, ed.token, report(true, { respond: ACCEPTS }));
+    await send(app, ed.token, report(true, { respond: ACCEPTS, activityFeed: true }));
     vi.spyOn(fleet.recordings, 'notePodiumPrompt').mockImplementation(() => {
       throw new Error('file is locked');
     });

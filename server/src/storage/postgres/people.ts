@@ -1,6 +1,7 @@
 // People, their tokens, groups and the admin log on PostgreSQL (#822): the SQLite store's logic over `PgDb`. A method that reads and
 // then writes is one transaction, which is what the SQLite lock gave it.
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
+import { stripFormat } from '../peerText.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 import type { PeopleStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -22,9 +23,10 @@ export function clampPage(p: Partial<PageIn>): PageIn {
 }
 
 function cleanName(raw: string, max: number, what: string): string {
-  const name = raw.trim().replace(/ +/g, ' ');
+  // Format characters draw nothing, so they are dropped (#1051); the line separators U+0085, U+2028 and U+2029 are refused with the control characters.
+  const name = stripFormat(raw).trim().replace(/ +/g, ' ');
   // eslint-disable-next-line no-control-regex
-  if (name.length < 1 || name.length > max || /[\u0000-\u001f\u007f]/.test(name)) {
+  if (name.length < 1 || name.length > max || /[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(name)) {
     throw new PeopleError('invalid', `${what} must be 1 to ${max} characters, with no control characters`);
   }
   return name;
@@ -140,9 +142,28 @@ export class PgPeopleStore implements PeopleStoreApi {
       if (adminsId !== null && goingAdmins.length > 0 && goingAdmins.length >= (await this.activeAdministrators(adminsId))) {
         throw new PeopleError('invalid', `That would remove the last person in ${ADMINISTRATORS_GROUP}. Add or move another person into it first.`);
       }
-      for (const p of found) await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
+      for (const p of found) {
+        await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
+        await this.forgetChat(p.name);
+      }
       return found;
     });
+  }
+
+  /** Everything Chat and the peer stores keep under a deleted person's name (#1051); the same set as the SQLite adapter's `forgetChat`. */
+  private async forgetChat(name: string): Promise<void> {
+    const key = nameKey(name);
+    const pk = `person:${key}`;
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
+      const owners = (await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`)).map((r) => r.owner).filter((o) => nameKey(o) === key);
+      for (const o of owners) await this.db.run(`DELETE FROM ${table} WHERE owner = ?`, [o]);
+    }
+    await this.db.run('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?', [pk, pk]);
+    await this.db.run('DELETE FROM peer_rights WHERE from_key = ?', [pk]);
+    await this.db.run('DELETE FROM peer_requests WHERE from_key = ?', [pk]);
+    await this.db.run('DELETE FROM peer_owner_settings WHERE owner_lower = ?', [key]);
+    await this.db.run('DELETE FROM group_messages WHERE owner = ?', [key]);
+    await this.db.run('DELETE FROM chat_read_state WHERE person = ?', [key]);
   }
 
   touch(personId: number, address: string | null, now: number, machine?: { name: string; id: string } | null): Promise<void> {

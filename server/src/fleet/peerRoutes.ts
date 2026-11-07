@@ -18,6 +18,7 @@ import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, 
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
+import { isPersonId } from './chatTypes.js';
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -226,6 +227,15 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!m) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
+    // The session that sent or asked, and the one a message went to, may not answer: an agent that approves its own request
+    // (or one that was written to, approving the writer) is no check by the owner (#1051). A third session of the owner may.
+    const open = (await fleet.peers.rights.openRequests(m.o.owner)).find((r) => r.id === req.params.requestId);
+    if (open) {
+      const msg = open.messageId ? await fleet.peers.messages.message(open.messageId) : null;
+      if (open.fromSession === m.row.id || msg?.fromSession === m.row.id || msg?.toSession === m.row.id) {
+        return void refuse(req, res, 403, 'the session this request is about cannot answer it: answer it in the console, or in another of your sessions');
+      }
+    }
     const { out, paused } = await withSource(sourceOf(req), () => fleet.peers.answerPaused(req.params.requestId!, m.o.owner, answer as PeerAnswer, { name: m.person.name, admin: false }));
     if (!out.ok) return void refuse(req, res, out.status, out.error);
     // The level the right now has, which raise() can make higher than the request's, so /podium allow names it (#414).
@@ -244,12 +254,16 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     res.json({ ok: true });
   }));
 
-  /** Traffic's open read (8.1): which orchestrators talk, and how much, for anyone who can read the console. Never the text. */
+  /**
+   * Traffic's open read (8.1): which orchestrators talk, and how much, for anyone who can read the console. Never the text. A conversation with a person at
+   * one end is that person's Chat, which is not for anyone who can read the console, so it is left out (#1051).
+   */
   router.get('/peers/traffic', asyncHandler(async (req, res) => {
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
     if (!enabled()) return void res.json({ enabled: false, conversations: [] });
-    res.json({ enabled: true, conversations: await fleet.peers.messages.conversations(range), retainDays: (await fleet.peers.settings.get()).retainDays, serverTime: now() });
+    const conversations = (await fleet.peers.messages.conversations(range)).filter((c) => !isPersonId(c.a.sessionId) && !isPersonId(c.b.sessionId));
+    res.json({ enabled: true, conversations, retainDays: (await fleet.peers.settings.get()).retainDays, serverTime: now() });
   }));
 }
 

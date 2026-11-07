@@ -160,6 +160,10 @@ class ReadState {
   forget(thread: string): number {
     return Number(this.db.prepare('DELETE FROM chat_read_state WHERE thread = ?').run(thread).changes);
   }
+
+  threads(prefix: string): string[] {
+    return (this.db.prepare('SELECT DISTINCT thread FROM chat_read_state WHERE substr(thread, 1, ?) = ? ORDER BY thread').all(prefix.length, prefix) as unknown as { thread: string }[]).map((r) => r.thread);
+  }
 }
 
 interface DbAdminRead {
@@ -263,6 +267,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     bump: (person, thread, mention) => step(() => state.bump(person, thread, mention)),
     markRead: (person, thread, upTo) => step(() => state.markRead(person, thread, upTo)),
     forget: (thread) => step(() => state.forget(thread)),
+    threads: (prefix) => step(() => state.threads(prefix)),
   };
   const adminReads: ChatAdminReadsApi = {
     touch: (thread, admin, gapMs) => step(() => reads.touch(thread, admin, gapMs)),

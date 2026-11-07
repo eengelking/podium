@@ -261,7 +261,7 @@ export class PgPeerService {
     return this.db.tx(async () => {
       const cutoff = this.now() - (await this.settings.retainMs());
       const quiet = await this.messages.retain(cutoff);
-      const orphans = await this.db.run('DELETE FROM peer_messages WHERE (from_session NOT LIKE \'person:%\' AND from_session NOT IN (SELECT id FROM sessions)) OR (to_session NOT LIKE \'person:%\' AND to_session NOT IN (SELECT id FROM sessions))');
+      const orphans = await this.db.run('DELETE FROM peer_messages WHERE (substr(from_session, 1, 7) <> \'person:\' AND from_session NOT IN (SELECT id FROM sessions)) OR (substr(to_session, 1, 7) <> \'person:\' AND to_session NOT IN (SELECT id FROM sessions))');
       return { messages: quiet + orphans, requests: await this.rights.retain(cutoff) };
     });
   }

@@ -445,8 +445,14 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   }));
 
   router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
-    if (!(await fleet.deleteSession(req.params.id))) {
+    const id = identityOf(res);
+    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.name : undefined);
+    if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (out === 'forbidden') {
+      res.status(403).json({ ok: false, error: 'that session belongs to someone else', path: '$.id' });
       return;
     }
     res.json({ ok: true });

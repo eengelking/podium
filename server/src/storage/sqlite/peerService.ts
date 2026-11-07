@@ -228,7 +228,7 @@ export class PeerService {
     const quiet = this.messages.retain(cutoff);
     const orphans = Number(
       // A person's end of a conversation (`person:<name>`, #1034) is not a session, so only a missing agent makes a message an orphan.
-      this.db.prepare("DELETE FROM peer_messages WHERE (from_session NOT LIKE 'person:%' AND from_session NOT IN (SELECT id FROM sessions)) OR (to_session NOT LIKE 'person:%' AND to_session NOT IN (SELECT id FROM sessions))").run().changes,
+      this.db.prepare("DELETE FROM peer_messages WHERE (substr(from_session, 1, 7) <> 'person:' AND from_session NOT IN (SELECT id FROM sessions)) OR (substr(to_session, 1, 7) <> 'person:' AND to_session NOT IN (SELECT id FROM sessions))").run().changes,
     );
     return { messages: quiet + orphans, requests: this.rights.retain(cutoff) };
   }

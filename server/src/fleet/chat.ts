@@ -57,6 +57,9 @@ export interface Overview {
   approvals: number;
 }
 
+/** What `upTo` of a mark-read may be: a paging cursor or a message id. */
+const CURSOR_SHAPE = /^[A-Za-z0-9._:-]{1,64}$/;
+
 export class ChatService {
   readonly core: ChatCore;
   readonly channels: ChannelChat;
@@ -176,6 +179,8 @@ export class ChatService {
   async markRead(viewer: ChatViewer, thread: unknown, upTo: unknown): Promise<{ ok: true; unread: number; mentions: number } | Fail> {
     if (viewer.personId === null) return fail(403, 'The admin secret has no unread counts of its own.');
     if (typeof thread !== 'string' || (upTo !== null && upTo !== undefined && typeof upTo !== 'string')) return fail(400, 'thread must be a string and upTo a string or null.');
+    // What was read up to is a cursor (`<ms>.<seq>`) or a message id: short, and made of letters, digits and . : _ - only (#1051).
+    if (typeof upTo === 'string' && !CURSOR_SHAPE.test(upTo)) return fail(400, 'upTo must be the cursor or id of a message, at most 64 characters.');
     const mine = thread === publicThread || thread === groupThread(viewer.name) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
     const row = await this.core.store.readState.markRead(viewer.name, thread, upTo ?? null);
@@ -214,7 +219,10 @@ export class ChatService {
     const channelMessages = await this.channels.purge(now - limits.retainDays * DAY_MS);
     const directMessages = await this.direct.purge(limits.graceHours * HOUR_MS);
     // A reading's record goes with its conversation, and by the channels' retention days.
-    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, await this.direct.threads());
+    const threads = await this.direct.threads();
+    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, threads);
+    // The counts of a conversation that is gone (its hidden grace period ended, or its session was deleted) go with it (#1051).
+    for (const thread of await this.core.store.readState.threads('dm:')) if (!threads.has(thread)) await this.core.store.readState.forget(thread);
     this.core.forgetIdle();
     if (channelMessages || directMessages) {
       this.core.onEvent({ kind: 'purged', channelMessages, directMessages });

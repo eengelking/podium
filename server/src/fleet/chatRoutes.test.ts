@@ -62,6 +62,8 @@ function report(userName: string, sid: string, name: string, machine: { name: st
   r.session = { ...r.session, id: sid, name, status: 'waiting', waitReason: 'input', peers: true, respond: { level: 'everything', accepts: [...ACCEPTS], limits: [] }, ...over };
   r.userName = userName;
   r.machine = { ...machine, os: 'macOS 27.0.1' };
+  // The first release with the Chat person frame and the Admin callout (CHAT_REPORTER_SINCE); a reporter older than it is refused as a person's target (#1051).
+  r.reporter = { ...r.reporter, version: '1.6.0' };
   return r;
 }
 const post = (s: S, token: string, r: Report) => request(s.app).post('/api/fleet/report').set('X-Podium-Token', token).send(r);
@@ -220,6 +222,23 @@ describe('posting to a channel', () => {
     expect(res.body.message.text).toContain('[redacted]');
     expect(JSON.stringify((await read(s.alexB, 'general')).body)).not.toContain('hunter2');
     expect(JSON.stringify((await read(s.alexB, 'general')).body)).not.toContain(s.ed.token);
+  });
+
+  it('cuts, cleans and redacts the issue, project and milestone of a post, and refuses a reply to a message that is not there (#1051)', async () => {
+    const s = await world();
+    const long = await say(s.edB, 'general', 'tagged', { issue: `#${'9'.repeat(1000)}`, project: 'sk-abcdefghijklmnopqrstuvwxyz123456 podium', milestone: 'v1\u202E.0\u200B\nline two' });
+    expect(long.status).toBe(201);
+    expect(long.body.message.issue).toHaveLength(200);
+    expect(long.body.message.project).toBe('[redacted] podium');
+    expect(long.body.message.milestone).toBe('v1.0 line two');
+    expect((await say(s.edB, 'general', 'plain', { issue: '   ', project: 42 })).body.message).toMatchObject({ issue: null, project: null, milestone: null });
+    const dangling = await say(s.edB, 'general', 'a reply to nothing', { replyTo: 'no-such-message' });
+    expect(dangling.status).toBe(404);
+    expect((await say(s.edB, 'general', 'a reply to nothing', { replyTo: 'x'.repeat(5000) })).status).toBe(404);
+    expect(texts(await read(s.edB, 'general'))).toEqual(['tagged', 'plain']);
+    const reply = await say(s.edB, 'general', 'a real reply', { replyTo: long.body.message.id });
+    expect(reply.status).toBe(201);
+    expect(reply.body.message.replyTo).toBe(long.body.message.id);
   });
 
   it('refuses an empty message, a message over the Admin\'s length, and a post over the rate', async () => {
@@ -396,6 +415,16 @@ describe('addressing with @', () => {
     expect((await s.edB.post(`${CH}/read`).set(H).send({ thread: 'group:alex', upTo: null })).status).toBe(403);
   });
 
+  it('takes only a cursor or an id for what was read up to, and nothing else (#1051)', async () => {
+    const s = await world();
+    const mark = (upTo: unknown) => s.edB.post(`${CH}/read`).set(H).send({ thread: 'public', upTo });
+    expect((await mark(null)).status).toBe(200);
+    expect((await mark('1800000000005.7')).status).toBe(200);
+    expect((await mark('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f')).status).toBe(200);
+    for (const bad of ['x'.repeat(65), 'x'.repeat(5000), 'a b', '<script>', 'a\nb', 7]) expect([String(bad).slice(0, 12), (await mark(bad)).status]).toEqual([String(bad).slice(0, 12), 400]);
+    expect((await s.fleet.chat.core.store.readState.get('ed', 'public')).lastRead).toBe('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f');
+  });
+
   it('lists what @ can address, with @group and @everyone disabled and the reason while off', async () => {
     const s = await world();
     const res = await s.edB.get(`${CH}/addresses?channel=group&q=t`);
@@ -422,6 +451,19 @@ describe('pausing, disconnecting and removing a channel', () => {
     const got = await deliveriesFor(s, 'tester');
     expect(got.map((d) => d.text)).toEqual([expect.stringContaining('first'), expect.stringContaining('second')]);
     expect((await read(s.edB, 'group')).body.messages.map((m: { mentions: { state: string }[] }) => m.mentions[0]!.state)).toEqual(['waiting', 'waiting']);
+  });
+
+  it('hands a released mention to the agent as its author\'s, not as the Admin\'s who resumed the channel (#1051)', async () => {
+    const s = await world();
+    const admin = await signedIn(s, 'Admin', SECRET);
+    expect((await admin.put(`${CH}/channels/general/pause`).set(H).send({ paused: true, everyone: true })).status).toBe(200);
+    expect((await say(s.edB, 'general', '@dev@ed-mbp held text')).body.message.mentions[0].state).toBe('held');
+    const resumed = await admin.put(`${CH}/channels/general/pause`).set(H).send({ paused: false, everyone: true });
+    expect(resumed.body).toMatchObject({ ok: true, delivered: 1 });
+    const got = (await dev(s, { status: 'waiting', waitReason: 'input' })).body.deliveries as { by: string; text: string }[];
+    expect(got).toHaveLength(1);
+    expect(got[0]!.text).toContain('held text');
+    expect(got[0]!.by).toBe('Ed');
   });
 
   it('marks a held mention dropped, with the reason, when the agent ends before the resume', async () => {
@@ -565,6 +607,39 @@ describe('direct messages', () => {
     expect(page.body.messages[0].text).toContain('[redacted]');
   });
 
+  it('checks the length and the rate of a message before it scans it, on every path a person writes by (#1051)', async () => {
+    const s = await world();
+    const slow = 'a.'.repeat(30_000);
+    const own = (text: string) => s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text });
+    const across = (text: string) => s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text });
+    const channel = (text: string) => say(s.edB, 'general', text);
+    const timed = async <T,>(go: () => Promise<T>): Promise<[T, number]> => {
+      const t0 = performance.now();
+      const out = await go();
+      return [out, performance.now() - t0];
+    };
+    for (const [name, send] of [['own', own], ['across', across], ['channel', channel]] as const) {
+      const [res, ms] = await timed(() => send(slow));
+      expect([name, res.status]).toEqual([name, 422]);
+      expect(ms).toBeLessThan(50);
+    }
+    // Chat's own limit applies to a message to ones own agent too.
+    const long = await own('x'.repeat(5000));
+    expect(long.status).toBe(422);
+    expect(long.body.error).toMatch(/5,000 characters.*4,000/);
+    expect((await s.edB.get(`${CH}/dm/me/sess-tester/messages`)).body.total ?? 0).toBe(0);
+    // ... and so does the per-minute limit, shared with the person's other writes.
+    const a = await adminAgent(s);
+    expect((await a.put('/api/admin/settings').set(HA).send({ chat: { maxChars: 4000, perMinute: 2 } })).status).toBe(200);
+    expect((await own('one')).status).toBe(202);
+    expect((await own('two')).status).toBe(202);
+    const third = await own('three');
+    expect(third.status).toBe(429);
+    expect(third.body.error).toMatch(/2 messages a minute/);
+    s.tick(61_000);
+    expect((await own('four')).status).toBe(202);
+  });
+
   it('refuses a send to an agent that has ended, and queues nothing', async () => {
     const s = await world();
     await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'first' });
@@ -587,6 +662,8 @@ describe('direct messages', () => {
 
   it('shows a clear error and stores nothing at 20 waiting messages', async () => {
     const s = await world();
+    // A message to ones own agent counts against the person's per-minute limit (#1051), so the limit is raised to reach the cap on waiting messages.
+    expect(((await (await adminAgent(s)).put('/api/admin/settings').set(HA).send({ chat: { maxChars: 4000, perMinute: 60 } }))).status).toBe(200);
     for (let i = 0; i < 20; i++) expect((await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: `m${i}` })).status).toBe(202);
     const over = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'm20' });
     expect(over.status).toBe(429);
@@ -700,9 +777,13 @@ describe('direct messages', () => {
     // A sign-in ends after 12 idle hours, so the person signs in again.
     const again = await signedIn(s, 'Ed', s.ed.token);
     expect((await again.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).body.messages).toHaveLength(1);
+    const readState = s.fleet.chat.core.store.readState;
+    expect((await readState.list('ed')).map((r) => r.thread)).toEqual([key.thread]);
     s.tick(2 * 3_600_000);
     await s.fleet.retain();
     expect((await again.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).status).toBe(404);
+    // The counts of a conversation that is gone go with it (#1051).
+    expect(await readState.list('ed')).toEqual([]);
   });
 
   it('deletes a conversation on request, keeps the link, and writes chat_deleted without the text', async () => {
@@ -722,19 +803,52 @@ describe('direct messages', () => {
     expect((await s.alexB.delete(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}`).set(H)).status).toBe(404);
   });
 
-  it('keeps a conversation from another person: 403 where the existing rule says 403, and no text anywhere else', async () => {
+  it('keeps a conversation from another person: 404 for a third person, 403 for an Admin\'s write, and no text anywhere else', async () => {
     const s = await world();
     await linkedConversation(s);
     const key = (await s.edB.get(CH)).body.directs[0];
     const url = `${CH}/dm/${key.a.sessionId}/${key.b.sessionId}`;
-    expect((await s.alexB.get(`${url}/messages`)).status).toBe(403);
-    expect((await s.alexB.post(`${url}/messages`).set(H).send({ text: 'let me in' })).status).toBe(403);
+    expect((await s.alexB.get(`${url}/messages`)).status).toBe(404);
+    expect((await s.alexB.post(`${url}/messages`).set(H).send({ text: 'let me in' })).status).toBe(404);
     expect((await s.alexB.get(CH)).body.directs).toEqual([]);
     expect(JSON.stringify((await s.alexB.get(CH)).body)).not.toContain('agent hello');
     const admin = await signedIn(s, 'Admin', SECRET);
     expect((await admin.get(`${url}/messages`)).status).toBe(200);
     expect((await admin.post(`${url}/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
     expect((await s.edB.get(`${CH}/dm/sess-dev/sess-unknown/messages`)).status).toBe(404);
+  });
+
+  it('leaves a person\'s conversations out of Traffic\'s open read (#1051)', async () => {
+    const s = await world();
+    expect((await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'a person asks an agent' })).status).toBe(202);
+    expect((await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'own agent' })).status).toBe(202);
+    await linkedConversation(s);
+    for (const range of ['live', '24h', '30d']) {
+      const open = await request(s.app).get(`/api/fleet/peers/traffic?range=${range}`);
+      expect(open.status).toBe(200);
+      expect(JSON.stringify(open.body)).not.toContain('person:');
+    }
+    const all = (await request(s.app).get('/api/fleet/peers/traffic?range=30d')).body.conversations as { a: { sessionId: string }; b: { sessionId: string } }[];
+    expect(all).toHaveLength(1);
+    expect([all[0]!.a.sessionId, all[0]!.b.sessionId].sort()).toEqual(['sess-dev', 'sess-tester']);
+  });
+
+  it('answers a person who is not in a conversation in the same words as for one that does not exist, on read, send, link and delete (#1051)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    const real = `${CH}/dm/${key.a.sessionId}/${key.b.sessionId}`;
+    const missing = `${CH}/dm/sess-dev/sess-unknown`;
+    const calls = (b: typeof s.alexB, base: string) => [
+      b.get(`${base}/messages`),
+      b.post(`${base}/messages`).set(H).send({ text: 'hi' }),
+      b.put(`${base}/link`).set(H).send({ op: 'pause' }),
+      b.delete(base).set(H),
+    ];
+    const heard = async (base: string) => (await Promise.all(calls(s.alexB, base))).map((r) => [r.status, r.body.error]);
+    const unknown = await heard(missing);
+    expect(unknown.every(([status]) => status === 404)).toBe(true);
+    expect(await heard(real)).toEqual(unknown);
   });
 
   it('never returns a direct message\'s text from a channel, address, overview, stream or agent route', async () => {
@@ -984,6 +1098,18 @@ describe('the reporter-token routes for agents', () => {
     expect(await deliveriesFor(s, 'tester')).toEqual([]);
   });
 
+  it('does not let an agent call itself into a channel: a mention in its own message never opens the read, and a reply does not make it count (#1051)', async () => {
+    const s = await world();
+    expect((await say(s.edB, 'general', 'ED GENERAL LINE')).status).toBe(201);
+    expect((await agentRead(s, 'sess-dev', 'general')).status).toBe(403);
+    const mine = await agentPost(s, 'sess-dev', 'general', { text: '@dev@ed-mbp note to self' });
+    expect(mine.status).toBe(201);
+    expect((await agentPost(s, 'sess-dev', 'general', { text: 'done', replyTo: mine.body.id })).status).toBe(201);
+    const shown = (await read(s.edB, 'general')).body.messages.find((m: { id: string }) => m.id === mine.body.id);
+    expect(shown.mentions[0].state).toBe('not-delivered');
+    expect(await agentRead(s, 'sess-dev', 'general')).toMatchObject({ status: 403, body: { error: 'You were not called into this channel in the last hour.' } });
+  });
+
   it('reads about 30,000 characters a call, newest first by page, with a cursor that gets the rest', async () => {
     const s = await world();
     const a = await adminAgent(s);
@@ -1017,6 +1143,41 @@ describe('a person writing to another person\'s agent (#1034)', () => {
   /** Alex's agent reports idle and says what it was handed, as the mod does. */
   const handed = async (w: W) => ((await alexOne(w)).body.peerDeliveries ?? []) as { id: string; kind: string; text: string; from: { name: string; machine: string; owner: string; person?: boolean } }[];
   const took = (w: W, id: string, result: 'took' | 'queued') => request(w.app).post(`/api/fleet/sessions/sess-alex/peers/deliveries/${id}/result`).set('X-Podium-Token', w.alex.token).send({ result });
+
+  it('refuses a person\'s text to an agent whose respond level is off, from Chat and from a channel, and asks the owner nothing (#1051)', async () => {
+    const w = await world();
+    expect((await alexOne(w, { respond: { level: 'off', accepts: [], limits: [] } })).status).toBe(200);
+    const sent = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED });
+    expect(sent.status).toBe(422);
+    expect(sent.body.error).toMatch(/respond/i);
+    await say(w.edB, 'general', FULL);
+    expect(await mention(w)).toMatchObject({ state: 'not-delivered' });
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    expect((await thread(w.edB)).body.messages ?? []).toEqual([]);
+  });
+
+  it('takes a person\'s text again once the agent\'s respond level is back on (#1051)', async () => {
+    const w = await world();
+    await alexOne(w, { respond: { level: 'off', accepts: [], limits: [] } });
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBe(422);
+    await alexOne(w, { respond: { level: 'questions', accepts: ['question', 'message'], limits: [] } });
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBeLessThan(300);
+  });
+
+  it('refuses a person\'s text to an agent on a reporter older than the Chat release, which cannot show the Admin callout (#1051)', async () => {
+    const w = await world();
+    const old = report('Alex', 'sess-alex', 'review', BOX);
+    old.reporter = { ...old.reporter, version: '1.5.1' };
+    expect((await post(w, w.alex.token, old)).status).toBe(200);
+    const sent = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED });
+    expect(sent.status).toBe(422);
+    expect(sent.body.error).toMatch(/podium-reporter/);
+    expect(await requestsOf(w.alexB)).toEqual([]);
+    // A dev build carries its commit, and is the code under test, so it counts as current.
+    old.reporter = { ...old.reporter, build: 'abc1234' };
+    expect((await post(w, w.alex.token, old)).status).toBe(200);
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: MSG_FROM_ED })).status).toBeLessThan(300);
+  });
 
   it('shows the owner a request in My reporters, and the sender "Waiting for Alex to approve"', async () => {
     const w = await world();
@@ -1071,12 +1232,12 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(asAdmin.body.cross).toMatchObject({ viewerIs: 'admin' });
     expect((await link(admin, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
     expect((await admin.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
-    // A third person: 403 on the thread, nothing in the list, and no way to touch it.
-    expect((await thread(zedB, `${CH}/dm/person:ed/sess-alex/messages`)).status).toBe(403);
+    // A third person: 404 on the thread, as for a conversation that is not there, nothing in the list, and no way to touch it.
+    expect((await thread(zedB, `${CH}/dm/person:ed/sess-alex/messages`)).status).toBe(404);
     expect(JSON.stringify((await zedB.get(CH)).body.directs)).toBe('[]');
-    expect((await link(zedB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(403);
-    expect((await zedB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).status).toBe(403);
-    expect((await zedB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(403);
+    expect((await link(zedB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
+    expect((await zedB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).status).toBe(404);
+    expect((await zedB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
     // Both list it.
     expect((await w.edB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['sender']);
     expect((await w.alexB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['owner']);
@@ -1273,6 +1434,23 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await crossOf(w.alexB)).toMatchObject({ link: 'removed', pausedBy: null, canResume: false });
   });
 
+  it('does not let the owner\'s Allow lift a pause the sender or an Admin made (#1051)', async () => {
+    const w = await world();
+    await openLink(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    expect((await link(admin, 'pause', L)).body).toMatchObject({ ok: true, link: 'paused' });
+    const refused = await link(w.alexB, 'allow', L);
+    expect(refused.status).toBe(409);
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused', pausedBy: 'admin' });
+    expect((await link(admin, 'resume', L)).body).toMatchObject({ ok: true, link: 'open' });
+    expect((await link(w.edB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
+    expect((await link(w.alexB, 'allow', L)).status).toBe(409);
+    expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused', pausedBy: 'sender' });
+    // Allow still opens a link that was removed.
+    expect((await link(w.alexB, 'remove', L)).body).toMatchObject({ ok: true, link: 'removed' });
+    expect((await link(w.alexB, 'allow', L)).body).toMatchObject({ ok: true, link: 'open' });
+  });
+
   it('lets only the agent\'s owner resume a link the owner paused', async () => {
     const w = await world();
     await openLink(w);
@@ -1386,7 +1564,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await reply(w, REPLY);
     const zed = await w.people.createPerson('Zed');
     const zedB = await signedIn(w, 'Zed', zed.token);
-    expect((await thread(zedB, T)).status).toBe(403);
+    expect((await thread(zedB, T)).status).toBe(404);
     expect(JSON.stringify((await zedB.get(CH)).body)).not.toContain(REPLY);
     for (const b of [w.edB, w.alexB, zedB]) {
       for (const path of ['/channels/general/messages', '/channels/group/messages']) expect(JSON.stringify((await b.get(`${CH}${path}`)).body)).not.toContain(REPLY);
@@ -1666,7 +1844,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     const thread = (await w.edB.get(`${AB}/messages`)).body;
     expect(thread.adminReads).toEqual([{ admin: 'Admin secret', startedAt: t0, lastSeenAt: t0, kind: 'read' }]);
     expect(await dmLive(w.alexB)).toEqual([]);
-    expect((await w.alexB.get(`${AB}/messages`)).status).toBe(403);
+    expect((await w.alexB.get(`${AB}/messages`)).status).toBe(404);
   });
 
   it('tells both owners of a conversation across owners, an Admin reads it too, and a third person sees nothing', async () => {
@@ -1682,7 +1860,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await w.alexB.get(`${CROSS}/messages`)).body.adminReads).toHaveLength(1);
     expect(await dmLive(zed)).toEqual([]);
     expect(JSON.stringify((await zed.get(CH)).body)).not.toContain('Admin secret');
-    expect((await zed.get(`${CROSS}/messages`)).status).toBe(403);
+    expect((await zed.get(`${CROSS}/messages`)).status).toBe(404);
     expect((await ping(zed, `${CROSS}/reading`)).status).toBe(403);
     // Neither owner's reading of it is recorded.
     await w.alexB.get(`${CROSS}/messages`);
@@ -1913,7 +2091,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await linkOp(admin, 'allow')).status).toBe(403);
     expect((await admin.delete(AB).set(H)).status).toBe(403);
     expect((await admin.post(`${AB}/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
-    expect((await linkOp(w.alexB, 'pause')).status).toBe(403);
+    expect((await linkOp(w.alexB, 'pause')).status).toBe(404);
     expect((await w.edB.get(CH)).body.directs).toHaveLength(1);
   });
 
@@ -2257,7 +2435,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
       for (const path of ['/channels/general/messages', '/channels/group/messages']) expect(JSON.stringify((await b.get(`${CH}${path}`)).body)).not.toContain(ANSWER);
       expect(JSON.stringify((await b.get('/api/fleet/respond/peers/conversations')).body ?? '')).not.toContain(ANSWER);
     }
-    expect((await w.alexB.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(403);
+    expect((await w.alexB.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(404);
   });
 
   it('refuses an answer from an agent the owner never wrote to, to another person, and after the conversation is removed, in the generic words', async () => {

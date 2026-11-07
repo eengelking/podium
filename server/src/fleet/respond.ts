@@ -505,7 +505,9 @@ export class RespondStore {
     }
     const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}) };
     s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
-    this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text: feedText(delivery, null), by, note: null }, delivery);
+    // What a person wrote in Chat reaches the agent and nobody else: the anonymous activity feed, the history and the recordings get a line without the text (#1051).
+    const text = delivery.chat || delivery.channel ? `a Chat message from ${by}` : feedText(delivery, null);
+    this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text, by, note: null }, delivery);
     return { ok: true, delivery };
   }
 

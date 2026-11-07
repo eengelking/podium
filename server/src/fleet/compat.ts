@@ -75,3 +75,26 @@ export function serverVersion(): string {
   cached = version;
   return version;
 }
+
+/**
+ * The first reporter release with the Chat person frame and the Admin callout (`adminNotices`, #1034). A reporter older than it shows a person's text
+ * unframed and cannot tell its person that an Admin is reading, so the console does not send a person's text to its agent (#1051). It was unreleased when
+ * this was written (the last tag was 1.5.1); change it here if the release that carries Chat has another number.
+ */
+export const CHAT_REPORTER_SINCE = "1.6.0";
+
+/**
+ * Whether a reporter of this version can show the Admin callout. A dev build (it carries its commit) is the code under test and counts as current; a
+ * version that cannot be read does not count.
+ */
+export function showsAdminCallout(version: string | null | undefined, build: string | null | undefined): boolean {
+  if (build) return true;
+  const v = /^(\d+)\.(\d+)\.(\d+)$/.exec(version ?? "");
+  const need = CHAT_REPORTER_SINCE.split(".").map(Number);
+  if (!v) return false;
+  for (let i = 0; i < 3; i++) {
+    const d = Number(v[i + 1]) - need[i]!;
+    if (d !== 0) return d > 0;
+  }
+  return true;
+}

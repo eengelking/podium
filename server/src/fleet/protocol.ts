@@ -4,6 +4,7 @@
 // the UI and the reporters share; this file re-exports them so the server's imports stay as they were.
 
 import { parseBuild } from './parseBuild.js';
+import { stripFormat } from '../storage/peerText.js';
 import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
 import { CAPABILITY_KEYS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
@@ -419,6 +420,9 @@ class Invalid extends Error {
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000a-\u001f\u007f]/g;
 
+/** The line separators besides `\n` that a terminal or browser breaks at. */
+const LINE_SEPARATORS = /[\u2028\u2029\u0085]/g;
+
 // The full prompt and answer keep their line breaks: only the other control characters go.
 // eslint-disable-next-line no-control-regex
 const CONTROL_KEEP_NEWLINE = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
@@ -429,7 +433,8 @@ function clampText(v: string, max: number): string {
 }
 
 function clampStr(v: string, max: number): string {
-  const clean = v.replace(CONTROL, ' ');
+  // Format characters draw nothing and U+2028, U+2029 and U+0085 break a line, so none of them stays in a name or a short string (#1051).
+  const clean = stripFormat(v).replace(LINE_SEPARATORS, ' ').replace(CONTROL, ' ');
   return clean.length > max ? clean.slice(0, max) : clean;
 }
 
@@ -840,10 +845,24 @@ function modelFields(o: Record<string, unknown>, path: string, version: ReportVe
   return out;
 }
 
+/**
+ * Why a session id cannot be taken, or null when it can (#1051). Chat names a person's end `person:<name>` and joins
+ * two ends with `|` or `+`, and a dot-only id vanishes from a URL path, so a reporter must not be able to make an id
+ * that reads as any of those. Real ids (a UUID, `ses_...`) have none of them.
+ */
+export function badSessionId(id: string): string | null {
+  if (/^person:/i.test(id)) return 'must not start with "person:"';
+  if (/^\.+$/.test(id)) return 'must not be only dots';
+  if (/[|+/]/.test(id)) return 'must not contain "|", "+" or "/"';
+  return null;
+}
+
 function session(v: unknown, path: string, version: ReportVersion, harnessId: string | null): SessionReport {
   const o = obj(v, path);
   const id = str(o.id, `${path}.id`, LIMITS.id);
   if (!id) throw new Invalid(`${path}.id`, 'must not be empty');
+  const badId = badSessionId(id);
+  if (badId) throw new Invalid(`${path}.id`, badId);
   const bg = background(o.background, `${path}.background`);
   return {
     id,

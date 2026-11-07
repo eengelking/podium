@@ -75,6 +75,8 @@ export interface ChatHost {
   respondFlagsOn(): boolean;
   featureOn(id: string): boolean;
   isLive(sessionId: string): boolean;
+  /** The version (and dev build commit) of the reporter a session last reported through, or null when the session is unknown. */
+  reporterOf(sessionId: string): Promise<{ version: string | null; build: string | null } | null>;
   liveIds(): string[];
   /** The admin secret and anything else that must never be stored or sent on. */
   secrets(): string[];

@@ -14,17 +14,40 @@ export interface TripRow {
 }
 
 /**
- * Text with every control character other than a line break or a tab replaced by a space. A loop over char codes, not
- * a regex with control characters in it (SonarCloud typescript:S6324).
+ * Format characters (Unicode category Cf): bidi controls, zero-width characters, the word joiner, the byte order mark and the tag characters. They draw
+ * nothing, so they can make one name look like another or reorder what a reader sees (#1051). One rule for text and names on the server.
+ */
+export const stripFormat = (raw: string): string => raw.replace(/\p{Cf}/gu, '');
+
+/**
+ * `stripFormat` for a message's text: the zero-width joiner U+200D and the zero-width non-joiner U+200C stay, because they spell what a person means (a
+ * family or a flag emoji is a sequence of emoji joined by U+200D, and Persian, Kurdish and other scripts write a word with U+200C inside it). Every other
+ * format character, bidi controls and U+200B included, is removed. A name still loses all of them.
+ */
+const stripFormatKeepJoiners = (raw: string): string => raw.replace(/(?![\u200C\u200D])\p{Cf}/gu, '');
+
+/** The line separators a terminal or a browser breaks a line at besides `\n` (U+2028, U+2029 and U+0085), as a line break. */
+const toNewline = (raw: string): string => raw.replace(/[\u2028\u2029\u0085]/g, '\n');
+
+/**
+ * Text with the format characters removed (but not the joiners U+200C and U+200D, see `stripFormatKeepJoiners`), the line separators U+2028, U+2029 and U+0085 turned into a line break, and every other control character
+ * other than a line break or a tab replaced by a space. A loop over char codes, not a regex with control characters in it (SonarCloud typescript:S6324).
  */
 export function cleanPeerText(raw: string): string {
+  const text = toNewline(stripFormatKeepJoiners(raw));
   const out: string[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw.charCodeAt(i);
-    out.push((c < 32 && c !== 9 && c !== 10) || c === 127 ? ' ' : raw[i]);
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    out.push((c < 32 && c !== 9 && c !== 10) || c === 127 ? ' ' : text[i]);
   }
   return out.join('');
 }
+
+/**
+ * A name (a person's, a session's, a machine's) on one line with no format character: the same as `cleanPeerText`, with every line break and tab a
+ * space. Names are compared and shown as this, so two that differ only in what draws nothing are one name.
+ */
+export const cleanNameText = (raw: string): string => cleanPeerText(stripFormat(raw)).replace(/[\n\t]/g, ' ');
 
 /**
  * Round trips in a conversation since its owner last approved a message: the stored messages that were not declined
@@ -71,6 +94,12 @@ export function shownCount(rows: readonly ShownRow[]): number {
   }
   return shown;
 }
+
+/**
+ * The largest of a list of numbers. A loop, because `Math.max(...list)` passes every entry as an argument and throws a RangeError once a list holds about
+ * 120,000 of them, which a hidden conversation's messages can (#1051).
+ */
+export const latestOf = (list: readonly number[]): number => list.reduce((m, n) => (n > m ? n : m), Number.NEGATIVE_INFINITY);
 
 /** What a paging read throws for a cursor it did not give out (a person or a script made it up). */
 export const BAD_CURSOR = 'The cursor is not one this server gave out.';

@@ -152,6 +152,10 @@ class PgReadState {
   forget(thread: string): Promise<number> {
     return this.db.run('DELETE FROM chat_read_state WHERE thread = ?', [thread]);
   }
+
+  async threads(prefix: string): Promise<string[]> {
+    return (await this.db.all<{ thread: string }>('SELECT DISTINCT thread FROM chat_read_state WHERE substr(thread, 1, ?) = ? ORDER BY thread', [prefix.length, prefix])).map((r) => r.thread);
+  }
 }
 
 interface DbAdminRead {
@@ -252,6 +256,7 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     bump: (person, thread, mention) => db.tx(() => state.bump(person, thread, mention)),
     markRead: (person, thread, upTo) => db.tx(() => state.markRead(person, thread, upTo)),
     forget: (thread) => state.forget(thread),
+    threads: (prefix) => state.threads(prefix),
   };
   const adminReads: ChatAdminReadsApi = {
     touch: (thread, admin, gapMs) => db.tx(() => reads.touch(thread, admin, gapMs)),

@@ -20,6 +20,8 @@ export const AGENT_READ_CHARS = 30_000;
 export const AGENT_READ_WINDOW_MS = 60 * 60 * 1000;
 /** How many pages of 100 are searched for the call into a channel: far more than a channel gets in an hour. */
 const CALLED_PAGES = 30;
+/** The longest id a reply or a mark-read may name; a message id is far shorter. */
+const MAX_ID = 64;
 /** The mention states in which the agent was in fact called: it has the message, is working on it or answered it. */
 const CALLED: ReadonlySet<MentionState> = new Set<MentionState>(['waiting', 'working', 'done']);
 export const NOT_CALLED = 'You were not called into this channel in the last hour.';
@@ -255,7 +257,9 @@ export class ChannelChat {
     let cursor: string | null = null;
     for (let i = 0; i < CALLED_PAGES; i++) {
       const page: ChannelPage = await h.page({ before: cursor, limit: HELD_PAGE });
-      if (page.messages.some((m) => m.createdAt >= since && m.mentions.some((x) => CALLED.has(x.state) && mentionsAgent(x, o)))) return true;
+      // A mention in the agent's own message is its own word and calls no one in (#1051).
+      const own = (m: ChannelMessage): boolean => m.authorKind === 'orchestrator' && m.authorRef === o.sessionId;
+      if (page.messages.some((m) => !own(m) && m.createdAt >= since && m.mentions.some((x) => CALLED.has(x.state) && mentionsAgent(x, o)))) return true;
       if (!page.older || (page.messages[0]?.createdAt ?? 0) < since) return false;
       cursor = page.older;
     }
@@ -264,10 +268,11 @@ export class ChannelChat {
 
   // ---- Posting ---------------------------------------------------------------------------------------------------------
 
-  private checkText(raw: unknown, limits: ChatLimits): { text: string } | Fail {
+  /** The checks that cost nothing: a text, and within Chat's length. The rate limit follows, then `this.core.redact`, which reads every character (#1051). */
+  private checkText(raw: unknown, limits: ChatLimits): { raw: string } | Fail {
     if (typeof raw !== 'string' || !raw.trim()) return fail(400, 'The message is empty. Write the text to send.');
     if (raw.length > limits.maxChars) return fail(422, `The message is ${raw.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
-    return { text: this.core.redact(raw) };
+    return { raw };
   }
 
   private busy(who: string, limits: ChatLimits): Fail | null {
@@ -338,11 +343,15 @@ export class ChannelChat {
     if ('ok' in checked) return checked;
     const limited = this.busy(`person:${nameKey(viewer.name)}`, limits);
     if (limited) return limited;
-    const parsed = parseMentions(checked.text);
+    // A reply to a message that is not in this channel is refused, as an agent's is, so a post never points at an id nothing holds (#1051).
+    const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;
+    if (replyTo && (replyTo.length > MAX_ID || !(await this.find(channel, owner, replyTo)))) return fail(404, 'There is no such message to reply to in this channel.');
+    const text = this.core.redact(checked.raw);
+    const parsed = parseMentions(text);
     const planned = await this.plan(parsed, channel, owner, viewer, limits);
     if ('ok' in planned) return planned;
     const warnings: string[] = [];
-    const framed = `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${viewer.name} wrote:\n${checked.text}`;
+    const framed = `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${viewer.name} wrote:\n${text}`;
     const inputs: NonNullable<ChannelPostInput['mentions']> = [];
     const sentTo = new Map<number, { sessionId: string; deliveryId: string }>();
     // An @ of another person's agent (#1034) is a request for that agent's owner. It is made after the message is stored, so a message that fails to store leaves no request behind.
@@ -384,11 +393,11 @@ export class ChannelChat {
         authorKind: 'person',
         authorRef: viewer.name,
         authorName: viewer.name,
-        text: checked.text,
-        replyTo: typeof body.replyTo === 'string' ? body.replyTo : null,
-        issue: typeof body.issue === 'string' ? body.issue : null,
-        project: typeof body.project === 'string' ? body.project : null,
-        milestone: typeof body.milestone === 'string' ? body.milestone : null,
+        text,
+        replyTo,
+        issue: this.core.label(body.issue),
+        project: this.core.label(body.project),
+        milestone: this.core.label(body.milestone),
         mentions: inputs,
       });
     } catch (err) {
@@ -396,7 +405,7 @@ export class ChannelChat {
       return fail(400, (err as Error).message);
     }
     for (const [index, sent] of sentTo) this.follow(channel, owner, message.id, index, sent.deliveryId, sent.sessionId);
-    for (const x of across) await this.askAcross(viewer, channel, owner, message, x, checked.text, warnings);
+    for (const x of across) await this.askAcross(viewer, channel, owner, message, x, text, warnings);
     await this.afterPost(channel, owner, viewer.name, planned);
     this.core.onEvent({ kind: 'sent', channel, owner, by: viewer.actor, messageId: message.id, sessionId: null });
     return { ok: true, message, warnings };
@@ -475,6 +484,7 @@ export class ChannelChat {
     if ('ok' in checked) return checked;
     const limited = this.busy(`agent:${o.sessionId}`, limits);
     if (limited) return limited;
+    const text = this.core.redact(checked.raw);
     const h = this.handle(channel, owner);
     const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;
     let parent: ChannelMessage | null = null;
@@ -482,13 +492,14 @@ export class ChannelChat {
       parent = await this.find(channel, owner, replyTo);
       if (!parent) return fail(404, 'There is no such message to reply to in this channel.');
     }
-    const planned = await this.plan(parseMentions(checked.text), channel, channel === 'group' ? owner : null, null, { ...limits, everyone: false }).catch(() => [] as Planned[]);
+    const planned = await this.plan(parseMentions(text), channel, channel === 'group' ? owner : null, null, { ...limits, everyone: false }).catch(() => [] as Planned[]);
     const mentions = (Array.isArray(planned) ? planned : []).map((p) => (p.deliver ? { ...p.input, state: 'not-delivered' as const, why: NOT_YET } : p.input));
-    const message = await h.post({ authorKind: 'orchestrator', authorRef: o.sessionId, authorName: o.name, text: checked.text, replyTo, mentions });
+    const message = await h.post({ authorKind: 'orchestrator', authorRef: o.sessionId, authorName: o.name, text, replyTo, mentions });
     if (parent) {
       const state: MentionState = body.state === 'working' ? 'working' : 'done';
       for (const [i, m] of parent.mentions.entries()) {
-        if (mentionsAgent(m, o)) await h.setMention(parent.id, i, { state });
+        // Only a call the agent is working on moves: a reply never turns a mention that was not delivered (an agent's own @ of itself) into a call (#1051).
+        if (mentionsAgent(m, o) && (m.state === 'waiting' || m.state === 'working')) await h.setMention(parent.id, i, { state });
       }
     }
     await this.afterPost(channel, channel === 'group' ? owner : null, null, Array.isArray(planned) ? planned : []);
@@ -539,7 +550,7 @@ export class ChannelChat {
   }
 
   /** Delivers what was held for a channel, in order. `only` limits it to the agents of one person. Returns how many reached an agent. */
-  private async release(channel: ChannelId, owner: string | null, only: string | null, byName: string): Promise<number> {
+  private async release(channel: ChannelId, owner: string | null, only: string | null): Promise<number> {
     let delivered = 0;
     const h = this.handle(channel, owner);
     const everyoneOn = (await this.core.limits()).everyone;
@@ -561,7 +572,8 @@ export class ChannelChat {
         await h.setMention(message.id, index, { state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${target.name}'s person` });
         continue;
       }
-      const sent = this.core.deliver(target.sessionId, byName, target.name, `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${message.authorName} wrote:\n${message.text}`, false, target.peers === true ? CHANNEL_NAMES[channel] : null);
+      // The message goes out as its author's, not as the one who resumed the channel (an Admin resuming for everyone sent nothing, #1051).
+      const sent = this.core.deliver(target.sessionId, message.authorName, target.name, `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${message.authorName} wrote:\n${message.text}`, false, target.peers === true ? CHANNEL_NAMES[channel] : null);
       if (sent.ok) {
         await h.setMention(message.id, index, { state: 'waiting' });
         this.follow(channel, owner, message.id, index, sent.delivery.id, target.sessionId);
@@ -598,7 +610,7 @@ export class ChannelChat {
     const byAdmin = paused && viewer.admin && (everyone || !mine) ? viewer.actor : undefined;
     await this.store.settings.setFlags(scope.key, { paused, ...(byAdmin ? { pausedByAdmin: byAdmin } : {}) });
     let delivered = 0;
-    if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : nameKey(viewer.name), viewer.name);
+    if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : nameKey(viewer.name));
     // An Admin's stop on what is not theirs stays on the record, and the people it stops are told (#1034).
     if (viewer.admin && before.paused !== paused && (everyone || (channel === 'group' && !mine))) await this.reads.stopped(viewer, this.threadOf(channel, owner), paused ? 'paused' : 'resumed', this.stopTells(channel, owner, everyone ? 'General for everyone' : 'your Podium group'));
     this.core.onEvent({ kind: paused ? 'paused' : 'resumed', channel, owner: scope.owner, by: viewer.actor, everyone, count: delivered });

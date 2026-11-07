@@ -1,7 +1,7 @@
 // What Chat's channel and direct-message sides share (#1034): the Admin's limits, redaction of a person's text, the rate limit, telling the
 // console that something changed (a count, never text), the audit callback, and delivering text to an agent through the console's message path.
 // Nothing here reads a direct message or a channel message.
-import { cleanPeerText } from '../storage/peerText.js';
+import { cleanNameText, cleanPeerText } from '../storage/peerText.js';
 import { scrubStored } from '../logging/redact.js';
 import { CHAT_EVERYONE } from '../storage/features.js';
 import { nameKey } from '../storage/rows.js';
@@ -50,6 +50,9 @@ const DROP_WHY: Record<string, string> = {
   'responding-off': 'responding was turned off before the agent got the message',
 };
 
+/** The longest issue, project or milestone a post may carry, in characters. */
+export const MAX_LABEL = 200;
+
 export class ChatCore {
   /** Replaced by the routes, so an event reaches the Admin log and the server log. */
   onEvent: (e: ChatEvent) => void = () => {};
@@ -88,6 +91,16 @@ export class ChatCore {
   /** The person's text with control characters removed and secrets replaced by `[redacted]`. The caller has checked its length. */
   redact(raw: string): string {
     return scrubStored(cleanPeerText(raw), this.host.secrets(), true);
+  }
+
+  /**
+   * A short label a person sets on a post (its issue, project or milestone): cut to `MAX_LABEL` first, so the scan reads a bounded string, then one line with no
+   * format character and no secret. Null when nothing is left, or when it is not a string (#1051).
+   */
+  label(raw: unknown): string | null {
+    if (typeof raw !== 'string') return null;
+    const clean = scrubStored(cleanNameText(raw.slice(0, MAX_LABEL * 4)), this.host.secrets(), true).trim().slice(0, MAX_LABEL);
+    return clean || null;
   }
 
   /** Counts one post by `who` and returns the seconds to wait when it is over `perMinute`, or null when it is within. */

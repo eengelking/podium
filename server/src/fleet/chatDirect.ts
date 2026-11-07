@@ -6,6 +6,7 @@ import { MERGE_MS } from '../storage/peerText.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
+import { showsAdminCallout } from './compat.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
@@ -259,7 +260,8 @@ export class DirectChat {
       return { ok: true as const, thread: dmThread(a, b), a: this.party(x), b: this.party(y), messages: [] as DirectMessageView[], older: null, total: 0, ended: [] as string[], owner: nameKey(fresh.own ? viewer.name : o.owner), paused: false, pausedBy: null, pausedByAdmin: null, adminReads: [] as { admin: string; startedAt: number; lastSeenAt: number }[], roundTrips: { used: 0, cap: 0 }, cross };
     }
     const role = this.role(viewer, c);
-    if (!role) return fail(403, 'Only the people in a conversation and an Admin can read it.');
+    // Someone who is not in it hears what they hear of a conversation that is not there, so the answer does not say which ones exist (#1051).
+    if (!role) return fail(404, 'There is no such conversation.');
     let page;
     try {
       page = await this.peers.page(c.owner, a, b, opts);
@@ -319,11 +321,15 @@ export class DirectChat {
     // Another person's agent (#1034): the person asks its owner. The agent's owner writes to it from their own conversation with it.
     if (c && role === 'owner' && [c.a.sessionId, c.b.sessionId].some((id) => isPersonId(id) && id !== me)) return fail(409, 'This conversation is with another person. Write to your agent from your own conversation with it.');
     if (c && role === 'sender') return this.sendAcrossDm(viewer, [a, b].find((id) => !isPersonId(id))!, body);
+    if (c && !role) return fail(404, 'There is no such conversation.');
     if (c && role !== 'owner') return fail(403, 'Only the people in a conversation can add to it, and an Admin can read it.');
     const fresh = c ? null : this.newWith(viewer, a, b);
     if (!c && !fresh) return fail(404, 'There is no such conversation.');
     if (fresh && !fresh.own) return this.sendAcrossDm(viewer, fresh.sessionId, body);
     if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    // The checks that cost nothing come before the scan for secrets, which reads every character: type, length, then rate (#1051).
+    const early = await this.early(viewer, body.text, true);
+    if (early) return early;
     const text = this.core.redact(body.text);
     const agents = [a, b].filter((id) => !isPersonId(id));
     const want = Array.isArray(body.to) ? body.to.filter((x): x is string => typeof x === 'string') : agents;
@@ -382,19 +388,51 @@ export class DirectChat {
   }
 
   /** The text of a person's message to another person's agent: stored and held for the agent's owner, or sent at once over a link the owner opened. */
-  private async acrossRow(viewer: ChatViewer, sessionId: string, text: string, rate: boolean): Promise<{ ok: true; row: MessageRow } | Fail> {
+  private async acrossRow(viewer: ChatViewer, sessionId: string, text: string, rate: boolean, redact = false): Promise<{ ok: true; row: MessageRow } | Fail> {
     if (viewer.personId === null) return fail(403, "Only a signed-in person can write to another person's agent.");
+    const early = await this.early(viewer, text, rate);
+    if (early) return early;
+    const refused = await this.acrossTarget(sessionId);
+    if (refused) return refused;
+    // The text comes in raw from a direct message (checked above first) and already redacted from a channel post.
+    const row = await this.peers.sendAcross({ person: viewer.name, toSession: sessionId, text: redact ? this.core.redact(text) : text });
+    if ('ok' in row) return fail(row.status, row.error);
+    this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
+    await this.tell(viewer.name, row.owner);
+    return { ok: true, row };
+  }
+
+  /**
+   * What is checked of a person's text before anything reads it (#1051): its length against Chat's limit, then, for a message written in a conversation, the
+   * person's per-minute limit. The scan for secrets runs after both, so a text that is refused costs nothing to refuse.
+   */
+  private async early(viewer: ChatViewer, text: string, rate: boolean): Promise<Fail | null> {
     const limits = await this.core.limits();
     if (text.length > limits.maxChars) return fail(422, `The message is ${text.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
     if (rate) {
       const wait = this.core.rate(`person:${nameKey(viewer.name)}`, limits.perMinute);
       if (wait !== null) return fail(429, `That is more than ${limits.perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`);
     }
-    const row = await this.peers.sendAcross({ person: viewer.name, toSession: sessionId, text });
-    if ('ok' in row) return fail(row.status, row.error);
-    this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
-    await this.tell(viewer.name, row.owner);
-    return { ok: true, row };
+    return null;
+  }
+
+  /**
+   * Whether the agent can be written to by a person who is not its owner (#1051): its reporter takes messages from Podium (the Admin's respond switches, the
+   * respond level at questions or higher and the activity feed on, which is what a Direct Message to your own agent needs), and it is recent enough to show the
+   * Admin callout and frame a person's text. Said before the owner is asked, so a message that could never be taken waits for no one.
+   */
+  private async acrossTarget(sessionId: string): Promise<Fail | null> {
+    const o = this.peers.live(sessionId);
+    if (!o || o.peers !== true) return null;
+    if (!this.core.host.respondFlagsOn()) return fail(403, 'Responding is off, so Podium cannot hand a message to an agent. An Admin turns it on in Admin > Settings.');
+    if (!this.core.host.respond.info(sessionId)?.accepts.includes('message')) {
+      return fail(422, `${o.name} does not take messages from Podium: its owner has its respond level off, or its activity feed off, in podium-reporter on its machine. ${o.owner} can turn them on.`);
+    }
+    const r = await this.core.host.reporterOf(sessionId);
+    if (!showsAdminCallout(r?.version, r?.build)) {
+      return fail(422, `${o.name} runs a podium-reporter that is too old to show its person who is reading, or to mark your text as a person's. ${o.owner} can update podium-reporter on ${o.machine}.`);
+    }
+    return null;
   }
 
   /** What the channel side asks: the same, with its own text (already redacted) and its own rate limit. */
@@ -407,7 +445,7 @@ export class DirectChat {
   private async sendAcrossDm(viewer: ChatViewer, agentId: string, body: Record<string, unknown>) {
     if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     if (Array.isArray(body.to) && body.to.some((x) => x !== agentId)) return fail(400, 'to must name an agent of this conversation.');
-    const out = await this.acrossRow(viewer, agentId, this.core.redact(body.text), true);
+    const out = await this.acrossRow(viewer, agentId, body.text, true, true);
     if ('status' in out) return out;
     return { ok: true as const, message: directMessages([out.row])[0]!, skipped: [] as { sessionId: string; name: string; why: string }[], errors: [] as { sessionId: string; name: string; status: number; error: string }[] };
   }
@@ -423,7 +461,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) return fail(404, 'There is no such conversation.');
     const role = this.role(viewer, c);
-    if (!role) return fail(403, 'Only the people in a conversation and an Admin can change its link.');
+    if (!role) return fail(404, 'There is no such conversation.');
     const cross = await this.crossOf(c, viewer);
     // An Admin can stop any conversation (pause it, and resume what they paused or anyone did) but never remove its link: that is the people's.
     if (role === 'admin' && op !== 'pause' && op !== 'resume') return fail(403, 'An Admin can pause and resume a link, not remove it. Its people do that.');
@@ -432,6 +470,8 @@ export class DirectChat {
       return this.adminLink(viewer, c, op);
     }
     if (op === 'allow' && role === 'sender') return fail(403, `Only ${cross.owner} can open the link again.`);
+    // Allow opens a link that was removed. A paused link is resumed by whoever paused it (#1051), so an allow never lifts a pause.
+    if (op === 'allow' && cross.link === 'paused') return fail(409, 'This link is paused. Resume it (the one who paused it, or an Administrator, can) instead of opening it again.');
     const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId))!;
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId))!;
     // Only whoever paused a link can resume it, and an Admin (#1034). A pause whose pauser is not known may be resumed by either owner.
@@ -506,6 +546,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) return fail(404, 'There is no such conversation.');
     const role = this.role(viewer, c);
+    if (!role) return fail(404, 'There is no such conversation.');
     if (role !== 'owner' && role !== 'sender') return fail(403, 'Only the people in a conversation can delete it.');
     const removed = await this.peers.deleteConversation(c.owner, a, b);
     await this.core.store.readState.forget(dmThread(a, b));

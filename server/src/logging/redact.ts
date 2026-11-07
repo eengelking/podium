@@ -34,10 +34,12 @@ const AUTH_SCHEME = /\b(Bearer|Basic)(\s+)([A-Za-z0-9._~+/=-]{8,})/g;
 /**
  * A secret-named key and its value: `password=x`, `x-api-key=x`, `"token": "x"`. A bare `key: value` in prose is
  * left alone (a colon counts only when the key is quoted, as in JSON), and so is a name that merely contains one
- * of these words (`token_count`, `tokens`).
+ * of these words (`token_count`, `tokens`). The part of the key before the word is bounded (40 characters), so a long run of
+ * word characters, dots and dashes is read in linear time: with an open-ended prefix a text of `a.a.a.…` backtracked from every
+ * start and 60,000 characters took seconds (#1051).
  */
 const SECRET_ASSIGNMENT =
-  /((?:["']?)\b[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)(?:["']?)\s*)(=\s*|(?<=["'])\s*:\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s&,;"'}\])]+)/gi;
+  /((?:["']?)[\w.-]{0,40}(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)(?:["']?)\s*)(=\s*|(?<=["'])\s*:\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s&,;"'}\])]+)/gi;
 
 /** URL userinfo: the `user:pass@` in `https://user:pass@host/`. */
 const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi;
@@ -103,7 +105,30 @@ export function scrubStored(value: string, secrets: readonly string[], patterns:
   for (const s of secrets) {
     if (s && s.length >= MIN_SECRET) out = out.split(s).join(REDACTED);
   }
-  return patterns ? scrubPatterns(out) : out;
+  return patterns ? scrubPatternsWindowed(out) : out;
+}
+
+/** How much of a stored text the patterns read at once. */
+const STORED_WINDOW = 8000;
+
+/**
+ * `scrubPatterns` over a long text, one window at a time, so no single pass reads more than STORED_WINDOW characters. A window ends at the last line
+ * break (else the last space) in its final 500 characters, so a `key=value` that has no whitespace inside it is never cut in two.
+ */
+function scrubPatternsWindowed(value: string): string {
+  if (value.length <= STORED_WINDOW) return scrubPatterns(value);
+  const parts: string[] = [];
+  for (let at = 0; at < value.length; ) {
+    let end = Math.min(at + STORED_WINDOW, value.length);
+    if (end < value.length) {
+      const tail = value.slice(end - 500, end);
+      const cut = Math.max(tail.lastIndexOf('\n'), tail.lastIndexOf(' '));
+      if (cut >= 0) end = end - 500 + cut + 1;
+    }
+    parts.push(scrubPatterns(value.slice(at, end)));
+    at = end;
+  }
+  return parts.join('');
 }
 
 /** True for a field name the logger refuses whatever its value. */
