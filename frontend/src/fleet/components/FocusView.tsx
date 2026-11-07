@@ -28,6 +28,8 @@ export function FocusView(props: {
   flashAgent: string | null;
   onAgent: (id: string) => void;
   onRemove?: (id: string) => void;
+  /** Orchestrator messaging is on: the header carries the Chat with Agent button (#1067). */
+  chat?: boolean;
 }) {
   const { s, now, config } = props;
   // The Files tab needs room for paths, so the left column grows while it is selected.
@@ -47,7 +49,7 @@ export function FocusView(props: {
   return (
     <div className="op">
       <div className={`osum${s.blowouts.level === 2 ? " risk" : ""}`}>
-        <FocusHeader s={s} kind={kind} now={now} showHarness={props.showHarness} />
+        <FocusHeader s={s} kind={kind} now={now} showHarness={props.showHarness} chat={props.chat} />
         {open && <BlowoutCallout s={s} onAgent={props.onAgent} id={detailId} />}
         <FactsBar s={s} now={now} onAgent={props.onAgent} blow={{ open, onToggle: () => setOpenFor(open ? null : s.id), controls: detailId }} />
         <RecordingLayer s={s} now={now} />

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Podium orchestrator page: Chat button</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1067: a button on the orchestrator page that opens the direct (1-1) chat with that orchestrator on the Chat page.
+   Colors and fonts come from tokens.css; this file carries no token block of its own and adds no new class to the app. The page below is the
+   real one (.op, .osum, .fh, .fact, .band) with one added element: an <a class="btn"> in the header's .id column.
+
+   What this mockup shows, and what was decided:
+     1. Where the button goes. Decided by the maintainer: beside the name, in one row with it (the h1 and the button inside a
+        new wrapper, .nm-row). That wrapper is the one new class this change adds, so it needs a Standards: line.
+     2. What the button says. Decided by the maintainer: always "Chat with Agent", so the button is the same size on every
+        orchestrator page whatever the session is called. The session's name is in the tooltip. With no earlier conversation
+        it says the same words too. The click
+        lands on Chat's own start-a-message state, which Chat already has (People and agents > a row with no conversation).
+     3. What it does when orchestrator messaging is off. Recommended: it is absent, exactly as the top bar's Chat link is.
+
+   Not drawn: the three small charts at the right of the header (unchanged, a dashed box stands in for them), the Plan / Files
+   column and the agent tree under the surface (unchanged), and the top bar's other controls (simplified). Example data only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); color: var(--ink2); }
+.demo b { color: var(--ink); font-weight: 600; }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.why { margin: 0 auto; max-width: var(--stage, 1280px); padding: 12px 16px 0; color: var(--ink2); font-size: 13px; line-height: 1.5; }
+.why b { color: var(--ink); }
+.stage { margin: 12px auto 40px; max-width: var(--stage, 1280px); border: 1px solid var(--border); background: var(--bg); }
+.stage .podium { height: auto; }
+.stage .podium .top { gap: 10px; flex-wrap: wrap; }
+.stage .podium .top .spacer { flex: 1; }
+.stage .podium .page { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.stage.narrow .podium .fh h1 { font-size: 24px; }
+.ph { flex: none; align-self: stretch; min-width: 220px; min-height: 64px; display: grid; place-items: center; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-size: 12px; }
+.stage.narrow .ph { display: none; }
+/* New class for #1067: the name and the button in one row. It wraps, so on a narrow page or a long name the button drops under the name. */
+.nm-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.sr { position: absolute; left: -9999px; }
+.shell-note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--muted); border-top: 1px dashed var(--border); }
+.ch-split { min-height: 0; }
+.ch-body .feed { padding: 0; margin: 0; list-style: none; }
+</style>
+</head>
+<body>
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <span class="grp"><b>Theme</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button></span>
+  <span class="grp"><b>Width</b>
+    <button type="button" data-w="wide" aria-pressed="true">1440 px</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button></span>
+  <span class="grp"><b>State</b>
+    <button type="button" data-state="chat" aria-pressed="true">Has a chat</button>
+    <button type="button" data-state="fresh" aria-pressed="false">No chat yet</button>
+    <button type="button" data-state="off" aria-pressed="false">Messaging off</button>
+    <button type="button" data-state="done" aria-pressed="false">Session ended</button></span>
+  <span class="grp"><b>View</b>
+    <button type="button" data-view="page" aria-pressed="true">Orchestrator page</button>
+    <button type="button" data-view="after" aria-pressed="false">After the click</button></span>
+</div>
+<p class="why" id="why" aria-live="polite"></p>
+<div class="stage" id="stage"><div class="podium" id="app"></div></div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var S = { mode: 'dark', w: 'wide', state: 'chat', view: 'page' };
+  var NAME = 'Foobar';
+
+  var ICON = {
+    dm: '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
+    run: '<svg class="si si-running" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="2.4" fill="currentColor"/></svg>',
+    done: '<svg class="si" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.4 8.2l1.8 1.8 3.4-3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    br: '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="6" r="1.6"/><path d="M4.5 5.1v5.8M11.5 7.6c0 2.2-2.4 2.4-7 3.2"/></svg>'
+  };
+
+  function chatBtn() {
+    if (S.state === 'off') return '';
+    return '<a class="btn" id="chatbtn" href="#/chat/foobar" title="Open your direct chat with ' + NAME + ' in Chat">' + ICON.dm + 'Chat with Agent</a>';
+  }
+
+  function topBar() {
+    // Simplified: the real bar has more controls. The Chat link is drawn because the new button duplicates its destination, not its job.
+    var chatLink = S.state === 'off' ? '' : '<a class="btn" href="#/chat">Chat</a>';
+    return '<header class="top"><a class="logo" href="#/" aria-label="Podium, the fleet"><span>Podium</span></a>' +
+      '<span class="pill">Orchestrator</span><span class="spacer"></span>' + chatLink + '<a class="btn" href="#/board">Board</a></header>';
+  }
+
+  function facts(done) {
+    var cell = function (k, v) { return '<div class="fact"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>'; };
+    return '<div class="facts">' + cell('Agents', done ? '0 running <span class="soft">/ 4 done</span>' : '2 running <span class="soft">/ 4 done</span>') +
+      cell('Est. cost', '$1.42') + cell('Tokens', '214k') + cell('Running for', done ? '48:10' : '18:40') + cell('Agent time', '41:12') + cell('Reporter', '1.6.0') + '</div>';
+  }
+
+  function orchestratorPage() {
+    var done = S.state === 'done';
+    var btn = chatBtn();
+    var title = '<h1><span class="sd">' + (done ? ICON.done : ICON.run) + '</span>' + NAME + '</h1>';
+    var head = btn ? '<div class="nm-row">' + title + btn + '</div>' : title;
+    var band = done
+      ? '<div class="band done" role="status"><span class="bi">' + ICON.done + '</span><span class="bt"><span class="bl">Done</span></span></div>'
+      : '<div class="band running" role="status"><span class="bi">' + ICON.run + '</span><span class="bt"><span class="bl">Running</span></span></div>';
+    return '<div class="page"><div class="op"><div class="osum">' +
+      '<div class="fh"><div class="id">' + head +
+        '<div class="goal">Add the settings page<span> · now: Wire the save button</span></div>' +
+        '<div class="sub mono"><span title="Working directory">/Users/ed/dev/foobar</span><span class="sep" aria-hidden="true">|</span><span title="Repository">foobar</span></div>' +
+        '<div class="git"><span class="br">' + ICON.br + '<span class="brn">issue/42-settings-page</span></span><span class="wt no">main checkout</span></div></div>' +
+        '<div class="ph">Charts, unchanged</div></div>' +
+      facts(done) + band + '</div>' +
+      '<p class="shell-note">Plan and files, and the agent tree, sit under this surface and do not change.</p></div></div>';
+  }
+
+  // One message, in the markup ChatThread draws: time, icon, then who and the text. Text is drawn as text.
+  function msg(at, who, text, mine) {
+    return '<li class="txt' + (mine ? ' mine' : '') + '"><span class="at">' + at + '</span>' +
+      '<span class="k" role="img" aria-label="Message" title="Message"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></span>' +
+      '<span class="body"><span class="who' + (mine ? ' me' : '') + '"><bdi>' + who + '</bdi></span>' + text + '</span></li>';
+  }
+
+  function afterClick() {
+    var fresh = S.state === 'fresh';
+    var done = S.state === 'done';
+    var thread = fresh
+      ? '<ol class="feed" aria-label="Messages"><li class="empty">No messages yet. Write the first one below.</li></ol>'
+      : '<ol class="feed" aria-label="Messages">' + msg('2m', 'You', 'Where did you leave the save button?', true) + msg('1m', NAME, 'Wired to the form in SettingsPage. Tests next.', false) + '</ol>';
+    var note = done ? NAME + ' has ended and will not receive this. ' : 'It reaches ' + NAME + ' when its current turn ends, and says Waiting until then. ';
+    return '<div class="page"><div class="ch-split" data-pane="thread">' +
+      '<div class="ch-side"><div class="ch-sec"><h2>Direct Messages</h2><ul class="ch-list">' +
+        (fresh ? '' : '<li class="ch-item on"><button type="button" class="ch-row" aria-current="true"><span class="stack"><span class="nm">' + NAME + '</span><span class="sub">You and ' + NAME + '</span></span></button></li>') +
+        '</ul></div>' +
+        (fresh ? '<div class="ch-sec"><h2>People and agents</h2><ul class="ch-list"><li class="ch-item on hl-running"><button type="button" class="ch-row" aria-current="true"><span class="stack"><span class="nm">' + NAME + '</span><span class="sub">Orchestrator, running</span></span></button></li></ul></div>' : '') +
+      '</div>' +
+      '<div class="ch-thread"><div class="ch-head"><h2><span class="nm">' + NAME + '</span></h2><div class="sub"><span>You and ' + NAME + '</span></div></div>' +
+        '<div class="ch-body">' + thread + '</div>' +
+        '<div class="ch-composer"><label for="msg">Message ' + NAME + '</label><div class="row"><textarea id="msg" placeholder="Write a message."></textarea><button type="button" class="btn pri">Send</button></div>' +
+        '<div class="note">' + note + 'Secrets are replaced before a message leaves this machine. Enter sends; Shift+Enter adds a line.</div></div></div>' +
+      '</div><p class="shell-note">The Chat page, as it is today, with the conversation already selected' + (fresh ? ' and ready to start' : '') + '. Chat itself does not change.</p></div>';
+  }
+
+  var WHY = {
+    chat: '<b>Has a chat.</b> The button is a link, so it opens in the same tab and Back returns to ' + NAME + '. It always reads “Chat with Agent”, so its size never changes with the session’s name; the name is in the tooltip. It is a default button (<code>.btn</code>), not the primary one: this view’s one primary action belongs to the status band when a session waits on a person.',
+    fresh: '<b>No chat yet.</b> Same button, same words. The click lands on Chat with ' + NAME + ' selected under People and agents and the box ready, which is the state Chat already has for an agent with no conversation. No error, no empty page.',
+    off: '<b>Messaging off.</b> The button is absent, as the top bar’s Chat link is. Nothing here says Chat exists, because Admin has turned it off and the person cannot act on it.',
+    done: '<b>Session ended.</b> The button stays: the earlier conversation is still readable. Chat itself says the session has ended and will not receive a new message, in the box’s note.'
+  };
+  var WHY_AFTER = ' <b>After the click</b> is shown for context. It is the person’s own conversation, so there is no Admin notice (the Admin-read rule applies only when an Admin opens someone else’s).';
+
+  function press(attr, val) {
+    Array.prototype.forEach.call(document.querySelectorAll('.demo button[' + attr + ']'), function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute(attr) === val ? 'true' : 'false');
+    });
+  }
+  function draw() {
+    root.setAttribute('data-theme', S.mode);
+    var st = document.getElementById('stage');
+    st.style.setProperty('--stage', S.w === 'narrow' ? '400px' : '1440px');
+    st.classList.toggle('narrow', S.w === 'narrow');
+    document.getElementById('why').style.setProperty('--stage', S.w === 'narrow' ? '400px' : '1440px');
+    document.getElementById('why').innerHTML = WHY[S.state] + (S.view === 'after' ? WHY_AFTER : '');
+    document.getElementById('app').innerHTML = topBar() + (S.view === 'after' ? afterClick() : orchestratorPage());
+  }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { S.mode = b.dataset.mode; press('data-mode', S.mode); }
+    if (b.dataset.w) { S.w = b.dataset.w; press('data-w', S.w); }
+    if (b.dataset.state) { S.state = b.dataset.state; press('data-state', S.state); }
+    if (b.dataset.view) { S.view = b.dataset.view; press('data-view', S.view); }
+    draw();
+  });
+  // The button opens the "After the click" view, so the whole path can be walked in the mockup.
+  document.getElementById('app').addEventListener('click', function (e) {
+    var a = e.target.closest('#chatbtn'); if (!a) return;
+    e.preventDefault(); S.view = 'after'; press('data-view', 'after'); draw();
+  });
+  draw();
+})();
+</script>
+</body>
+</html>

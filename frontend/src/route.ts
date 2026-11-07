@@ -1,7 +1,7 @@
 export type Route = "history" | "admin" | "board" | "my-reporters" | "traffic" | "chat" | "fleet";
 
 /**
- * `#/history` is the history view, `#/board` the kanban board, `#/me/reporters` My reporters, `#/chat` Chat (#1034), `#/traffic` the
+ * `#/history` is the history view, `#/board` the kanban board, `#/me/reporters` My reporters, `#/chat` Chat (#1034, `#/chat?with=<id>` opens the chat with that session, #1067), `#/traffic` the
  * retired Traffic (which the page redirects to Chat) and `#/admin` the Admin section; every other hash (including the retired `#/usage`) is the fleet console.
  */
 export function routeFor(hash: string): Route {
@@ -9,8 +9,20 @@ export function routeFor(hash: string): Route {
   if (hash === "#/board" || hash.startsWith("#/board?")) return "board";
   if (hash === "#/me/reporters") return "my-reporters";
   if (hash === "#/traffic") return "traffic";
-  if (hash === "#/chat") return "chat";
+  if (hash === "#/chat" || hash.startsWith("#/chat?")) return "chat";
   return hash === "#/history" || hash.startsWith("#/history?") ? "history" : "fleet";
+}
+
+/** The session whose chat `#/chat?with=<id>` opens (#1067), or null: the orchestrator page's "Chat with Agent" button builds that address. */
+export function chatWith(hash: string): string | null {
+  if (routeFor(hash) !== "chat") return null;
+  const q = hash.indexOf("?");
+  return q < 0 ? null : new URLSearchParams(hash.slice(q + 1)).get("with") || null;
+}
+
+/** The address of the chat with one session (#1067). */
+export function chatHash(id: string): string {
+  return `#/chat?${new URLSearchParams({ with: id }).toString()}`;
 }
 
 /** The orchestrator open on the fleet console, which the address keeps as `#/?open=<id>` the way History does. */
