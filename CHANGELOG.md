@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Changed
+
+- **`dist/` is left out of CodeQL and SonarCloud analysis (#1022).** The built reporter holds nothing `plugin/` does not, and `plugin/` is scanned, so each release's rebuild reported the same alert again at a new path. `dist` is now in the CodeQL `paths-ignore` and `dist/**` in `sonar.exclusions`; `plugin:dist:check` still fails a PR into `main` whose `dist/` is not a clean build. DECISIONS 60, PROJECT.md and the architecture page say so. No open alert was under `dist/`.
+
 ### Fixed
 
 - **A Claude Code Edit permission dialog is now announced to Podium and can be answered from it (#1044).** The reporter paired a permission request with its tool call by comparing their arguments as text, and Edit lists `replace_all` first in the call and last in the request, so the two never matched: the card showed `waiting` but no `permission` ask was opened. The arguments are now compared with their keys in one order (tried live on Edit; Write and NotebookEdit use the same pairing). OpenCode takes its asks from the request OpenCode raises, with no such pairing, so it was not affected (read from the code).

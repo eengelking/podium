@@ -1,8 +1,10 @@
 name: Podium CodeQL config
 
-# Sample data and tests are not shipped code, so alerts in them are noise.
+# Sample data and tests are not shipped code, so alerts in them are noise. dist/ is the built reporter (DECISIONS 60): the same code as
+# plugin/, which is scanned, so a copy of each alert would come back at a new path with every release (#1022).
 paths-ignore:
   - '**/node_modules'
+  - dist
   - docs/fixtures
   - '**/*.test.ts'
   - '**/*.test.tsx'
