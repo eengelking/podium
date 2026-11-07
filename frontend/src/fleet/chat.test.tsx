@@ -1858,6 +1858,8 @@ describe("an Admin reading a person's conversations", () => {
     expect((screen.getByLabelText("Read a person's conversations") as HTMLSelectElement).value).toBe("");
     expect(screen.queryByRole("heading", { name: "Direct Messages" })).toBeNull();
     expect(screen.getByText("Back to your own conversations.")).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(document.activeElement).toBe(screen.getByLabelText("Read a person's conversations"));
     cleanup();
     page({ chat: fakeChat(world()), me: ED });
     await flush();

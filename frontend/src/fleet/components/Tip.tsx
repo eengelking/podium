@@ -50,6 +50,7 @@ export function Tip({ text, className, style, label, children }: { text: string;
       style={style}
       tabIndex={0}
       aria-describedby={id}
+      role={label ? "img" : undefined}
       aria-label={label}
       onMouseEnter={() => {
         setHover(true);

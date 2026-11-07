@@ -243,6 +243,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setActionErr(null);
     setPane("side");
     setSaid(name ? `Reading ${name}'s conversations as an Admin. Read only.` : "Back to your own conversations.");
+    if (!name) setTimeout(() => document.getElementById("read-as")?.focus(), 0);
   };
   const openDm = (d: DirectInfo) => select({ kind: "dm", a: d.a.sessionId, b: d.b.sessionId, key: dmKey(d) });
 
