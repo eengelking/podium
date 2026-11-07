@@ -635,6 +635,19 @@ describe('respond: messages and commands', () => {
     expect(w.submitted).toEqual(['Is the build green?\n\nTo answer in the Chat thread, use podium_send to "person:Ed".', 'A console message.'])
   })
 
+  test('a message from an @ in a channel ends with where to read around it, in the channel it came from (#1034)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.deliveries.push(by('message', null, { id: 'dlv_g1', text: 'From Podium Chat, My group, Ed wrote:\nlook', channel: 'My group' }))
+    w.server.deliveries.push(by('message', null, { id: 'dlv_g2', text: 'From Podium Chat, General, Ed wrote:\nlook', channel: 'General' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    expect(w.submitted).toEqual([
+      'From Podium Chat, My group, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group".',
+      'From Podium Chat, General, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "general".',
+    ])
+  })
+
   test('a result the server answers 404 to is dropped, not sent again (#329)', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)

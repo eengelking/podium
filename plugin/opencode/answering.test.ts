@@ -27,6 +27,12 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
     return s;
   };
 
+  it('a message from an @ in a channel ends with where to read around it, in the channel it came from (#1034)', () => {
+    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'My group' })).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group".');
+    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'General' })).toContain('channel "general"');
+    expect(framedMessage({ by: 'Ed', text: 'look' })).not.toContain('podium_chat_read');
+  });
+
   it('shows a permission as its action and resources, never cut for a short one', () => {
     const s = store();
     apply(s, permission(), 2);

@@ -16,6 +16,13 @@ const HELD_PAGES = 10;
 const HELD_PAGE = 100;
 /** A read for an agent is cut at about this many characters; the cursor gets the rest. */
 export const AGENT_READ_CHARS = 30_000;
+/** The window an agent may read: fixed here, never chosen by the caller. */
+export const AGENT_READ_WINDOW_MS = 60 * 60 * 1000;
+/** How many pages of 100 are searched for the call into a channel: far more than a channel gets in an hour. */
+const CALLED_PAGES = 30;
+/** The mention states in which the agent was in fact called: it has the message, is working on it or answered it. */
+const CALLED: ReadonlySet<MentionState> = new Set<MentionState>(['waiting', 'working', 'done']);
+export const NOT_CALLED = 'You were not called into this channel in the last hour.';
 const NOT_YET = 'Agents addressing each other in a channel arrive in a later release, so this was not delivered.';
 
 export interface MentionView {
@@ -60,6 +67,22 @@ export function messageView(m: ChannelMessage, viewer: string | null): ChannelMe
     mentions: m.mentions.map((x) => ({ typed: x.typed, sessionId: x.sessionId, state: x.state, why: x.why, stateAt: x.stateAt })),
   };
 }
+
+/** Whether a stored mention is of this agent: its session, else the same reporter and name (as delivery resolves it). */
+export function mentionsAgent(m: ChannelMention, o: LiveOrchestrator): boolean {
+  return m.sessionId === o.sessionId || (m.peerKey === o.reporterKey && nameKey(m.typed.split('@')[0] ?? '') === nameKey(o.name));
+}
+
+/** What an agent is shown of a channel message: who wrote it, of what kind, when, and its text. No session id, no delivery state. */
+export interface AgentMessageView {
+  id: string;
+  authorKind: ChatAuthorKind;
+  authorName: string;
+  text: string;
+  createdAt: number;
+  replyTo: string | null;
+}
+export const agentMessageView = (m: ChannelMessage): AgentMessageView => ({ id: m.id, authorKind: m.authorKind, authorName: m.authorName, text: m.text, createdAt: m.createdAt, replyTo: m.replyTo });
 
 /** The flags a channel is under for the person it concerns: the group's own, or General's for everyone and for one person's agents. */
 export interface ChannelState {
@@ -191,13 +214,29 @@ export class ChannelChat {
     return this.handle(channel, owner).count();
   }
 
-  /** The newest messages that fit in about 30,000 characters, and the cursor for the ones before them. */
+  /**
+   * What an agent may read of a channel (#1034): the last hour of it, and only when the agent was called into it (a stored mention of this agent that was
+   * delivered, in that hour). The newest messages that fit in about 30,000 characters, oldest first, and the cursor for the ones before them that are
+   * still inside the hour. Reading changes no mention.
+   */
   async agentRead(o: LiveOrchestrator, channel: ChannelId, before: string | null): Promise<{ messages: ChannelMessage[]; older: string | null } | Fail> {
     const flags = await this.flagsOf(channel, nameKey(o.owner), nameKey(o.owner));
     if (flags.disconnected) return fail(403, `${CHANNEL_NAMES[channel]} is disconnected for your agents. Your person reconnects it.`);
     const h = this.handle(channel, nameKey(o.owner));
+    const since = this.core.host.now() - AGENT_READ_WINDOW_MS;
     try {
-      let page = await h.page({ before, limit: 50 });
+      if (!(await this.calledInto(h, o, since))) return fail(403, NOT_CALLED);
+      const inHour = async (cursor: string | null, limit: number): Promise<ChannelPage> => {
+        const page = await h.page({ before: cursor, limit });
+        const messages = page.messages.filter((m) => m.createdAt >= since);
+        let older = messages.length < page.messages.length ? null : page.older;
+        if (older) {
+          const next = (await h.page({ before: older, limit: 1 })).messages[0];
+          if (!next || next.createdAt < since) older = null;
+        }
+        return { messages, older };
+      };
+      const page = await inHour(before, 50);
       let used = 0;
       let keep = 0;
       for (let i = page.messages.length - 1; i >= 0; i--) {
@@ -205,11 +244,22 @@ export class ChannelChat {
         if (used > AGENT_READ_CHARS && keep > 0) break;
         keep++;
       }
-      if (keep < page.messages.length) page = await h.page({ before, limit: keep });
-      return { messages: page.messages, older: page.older };
+      return keep < page.messages.length ? await inHour(before, keep) : page;
     } catch (err) {
       return fail(400, (err as Error).message);
     }
+  }
+
+  /** Whether a delivered mention of this agent is in the channel's messages since `since`. Pages back from the newest and stops at the hour's edge. */
+  private async calledInto(h: { page: (o: { before?: string | null; limit: number }) => Promise<ChannelPage> }, o: LiveOrchestrator, since: number): Promise<boolean> {
+    let cursor: string | null = null;
+    for (let i = 0; i < CALLED_PAGES; i++) {
+      const page: ChannelPage = await h.page({ before: cursor, limit: HELD_PAGE });
+      if (page.messages.some((m) => m.createdAt >= since && m.mentions.some((x) => CALLED.has(x.state) && mentionsAgent(x, o)))) return true;
+      if (!page.older || (page.messages[0]?.createdAt ?? 0) < since) return false;
+      cursor = page.older;
+    }
+    return false;
   }
 
   // ---- Posting ---------------------------------------------------------------------------------------------------------
@@ -316,7 +366,7 @@ export class ChannelChat {
         } else if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${o.name}'s person` };
         else if (flags.paused) input = { ...input, state: 'held', why: `${CHANNEL_NAMES[channel]} is paused` };
         else {
-          const sent = this.core.deliver(o.sessionId, viewer.name, o.name, framed);
+          const sent = this.core.deliver(o.sessionId, viewer.name, o.name, framed, false, o.peers === true ? CHANNEL_NAMES[channel] : null);
           if (sent.ok) {
             sentTo.set(inputs.length, { sessionId: o.sessionId, deliveryId: sent.delivery.id });
             input = { ...input, state: 'waiting' };
@@ -438,7 +488,7 @@ export class ChannelChat {
     if (parent) {
       const state: MentionState = body.state === 'working' ? 'working' : 'done';
       for (const [i, m] of parent.mentions.entries()) {
-        if (m.sessionId === o.sessionId || (m.peerKey === o.reporterKey && nameKey(m.typed.split('@')[0] ?? '') === nameKey(o.name))) await h.setMention(parent.id, i, { state });
+        if (mentionsAgent(m, o)) await h.setMention(parent.id, i, { state });
       }
     }
     await this.afterPost(channel, channel === 'group' ? owner : null, null, Array.isArray(planned) ? planned : []);
@@ -511,7 +561,7 @@ export class ChannelChat {
         await h.setMention(message.id, index, { state: 'not-delivered', why: `${CHANNEL_NAMES[channel]} is disconnected for ${target.name}'s person` });
         continue;
       }
-      const sent = this.core.deliver(target.sessionId, byName, target.name, `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${message.authorName} wrote:\n${message.text}`);
+      const sent = this.core.deliver(target.sessionId, byName, target.name, `From Podium Chat, ${CHANNEL_NAMES[channel]}, ${message.authorName} wrote:\n${message.text}`, false, target.peers === true ? CHANNEL_NAMES[channel] : null);
       if (sent.ok) {
         await h.setMention(message.id, index, { state: 'waiting' });
         this.follow(channel, owner, message.id, index, sent.delivery.id, target.sessionId);

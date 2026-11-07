@@ -410,12 +410,19 @@ the channels, the direct messages, and what an agent may do with its reporter's 
 **For an agent.** An agent posts to and reads a channel with its reporter's token, the way the other mod routes do
 (`X-Podium-Token`, the person's token that owns the session, a session whose last report said `peers: true`; `403`
 otherwise, `404` for a session the server does not hold). These are the route shapes only; the agent's tools, replying in a
-thread and agents addressing each other are #1035. A direct message is not reachable from them.
+thread and agents addressing each other are #1035. A direct message is not reachable from them. Reading is the tool `podium_chat_read`
+([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md)).
 
 - `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, ... }`, `201 { ok: true, id, createdAt }`. The
   channel's pause and disconnect flags bind the agent.
-- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: the newest messages that fit in about 30,000
-  characters, oldest first. `{ ok: true, channel, messages, older }`; `older` is the cursor for the ones before them.
+- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: the last 60 minutes of the channel (fixed on the server, never
+  chosen by the caller), the newest messages that fit in about 30,000 characters, oldest first. `{ ok: true, channel, messages, older }`;
+  `older` is the cursor for the ones before them and is null when nothing older is inside the hour, so no message from before the hour is
+  ever returned. A message is `{ id, authorKind, authorName, text, createdAt, replyTo }` and nothing else: no session id, no delivery
+  state. The agent may read a channel only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
+  of the same reporter and name, as delivery resolves it) is stored in that channel inside the hour, and My group is always the agent's own
+  person's. Otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, which names nothing. A
+  disconnected channel is a `403` too; a paused one can still be read. Reading changes no mention.
 
 **Addressing.** A person addresses an agent with `name@location` (the same address the messaging tools use); typing `@` opens a
 list of what can match, narrowed as more is typed. `@group` (every agent in the sender's group) and `@everyone` (everyone signed in)

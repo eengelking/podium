@@ -551,6 +551,8 @@ export interface Delivery {
   command?: PodiumCommand;
   /** Set on a message that is the owner's own Chat Direct Message to this agent (#1034): the agent may answer it in the thread with `podium_send` to `person:<by>`. Older reporters ignore it. */
   chat?: true;
+  /** Set on a message from an `@` in a Chat channel (#1034), to a session whose reporter has peer tools: the channel's name (`General` or `My group`). The reporter adds where to read what was said around it. Older reporters ignore it. */
+  channel?: string;
 }
 
 /** What became of a delivery, as the mod reports it. */

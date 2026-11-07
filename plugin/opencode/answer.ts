@@ -75,8 +75,8 @@ export const answerSummary = (answer: Record<string, string | string[]>): string
  * The text a message reaches the model as. OpenCode hands a prompt over as an ordinary user message with no marker, so the
  * label is in the text: the model is told who wrote it and that it came through Podium, not from the person at the terminal.
  */
-export function framedMessage(d: Pick<Delivery, 'by' | 'text' | 'chat'>): string {
-  // The owner's own Chat message ends with where to answer, so the answer lands in the thread (#1034).
+export function framedMessage(d: Pick<Delivery, 'by' | 'text' | 'chat' | 'channel'>): string {
+  // The owner's own Chat message ends with where to answer, so the answer lands in the thread, and an @ in a channel with where to read around it (#1034).
   return withChatHint(`[Message from ${clip(d.by, 80)} via Podium, not typed at this terminal]\n\n${(d.text ?? '').slice(0, RESPOND_LIMITS.message)}`, d);
 }
 
