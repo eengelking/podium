@@ -6,7 +6,7 @@ import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
 import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
-import { AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
+import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeKeptLine, adminNoticeToast } from '../core/adminNotice.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
@@ -59,7 +59,9 @@ export interface ReporterDeps {
   /** Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. */
   attached?: () => boolean;
   /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
-  notify?: (line: string) => void;
+  notify?: (line: string, opts?: { durationMs?: number }) => void;
+  /** Writes a line that stays (the console log), the way Claude Code writes a transcript line; every call is written, none is dropped as a repeat (#1051). */
+  keep?: (line: string) => void;
   /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
   problem?: () => { status: string } | null;
   /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
@@ -344,7 +346,13 @@ export class Reporter {
   private takeAdminNotices(t: Transport): void {
     const list = t.adminNotices;
     t.adminNotices = [];
-    for (const n of this.adminSeen.fresh(list)) this.deps.notify?.(adminNoticeToast(n));
+    // With no TUI part attached there is no toast to show, and the notice is not marked seen (#1051): the server hands it over again, and it
+    // is shown once a TUI part is there. Claude Code shows the same two things (a 60 s toast and a transcript line), here a log line stands in.
+    if (this.deps.attached && !this.deps.attached()) return;
+    for (const n of this.adminSeen.fresh(list)) {
+      this.deps.notify?.(adminNoticeToast(n), { durationMs: ADMIN_NOTICE_TOAST_MS });
+      this.deps.keep?.(adminNoticeKeptLine(n));
+    }
   }
 
   /** Takes the server's grant for the recording and tells the owner what changed. Capture needs the owner's option on as well; with it off nothing is captured. */

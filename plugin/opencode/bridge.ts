@@ -28,7 +28,7 @@ export const BRIDGE = {
     notice: {
       schema: {
         type: 'object',
-        properties: { title: { type: 'string' }, message: { type: 'string' }, variant: { type: 'string' } },
+        properties: { title: { type: 'string' }, message: { type: 'string' }, variant: { type: 'string' }, duration: { type: 'number' } },
         required: ['message'],
       },
     },
@@ -55,6 +55,8 @@ export interface NoticeEvent {
   title?: string;
   message: string;
   variant?: 'info' | 'success' | 'warning' | 'error';
+  /** How long the toast stays, in milliseconds; the host's own default when absent. */
+  duration?: number;
 }
 
 /** The connection's status line the TUI part shows in the prompt's footer. */

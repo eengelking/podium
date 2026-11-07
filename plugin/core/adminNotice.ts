@@ -36,5 +36,8 @@ export const adminNoticeLine = (n: AdminNotice): string => oneLine(n.text, TEXT_
 /** The toast: it says whom it is from, since a toast stands alone. */
 export const adminNoticeToast = (n: AdminNotice): string => `Podium: ${adminNoticeLine(n)}`;
 
+/** The line that stays where a harness has no transcript (the console log), so a toast missed is still on record. */
+export const adminNoticeKeptLine = (n: AdminNotice): string => `podium-reporter: ${adminNoticeLine(n)}`;
+
 /** How long the toast stays up: long enough to be read away from the keyboard. */
 export const ADMIN_NOTICE_TOAST_MS = 60_000;

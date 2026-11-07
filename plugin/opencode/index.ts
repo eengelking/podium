@@ -124,7 +124,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       log: dedupe((line) => console.warn(line)),
       // The TUI part says it is attached every ATTACH_EVERY_MS; an idle session stays open (and reachable) while it does (#984).
       attached: () => !!bridge.emit && bridge.seenAt > 0 && Date.now() - bridge.seenAt < ATTACH_TTL_MS,
-      notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }),
+      notify: (line, o) => void show({ title: 'Podium', message: line, variant: 'info', ...(o?.durationMs ? { duration: o.durationMs } : {}) }),
+      keep: (line) => console.warn(line),
       problem: link?.problem,
       answering,
       loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
@@ -147,7 +148,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     },
     () => undefined,
   );
-  const show = (n: Notice): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
+  const show = (n: Notice & { duration?: number }): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
   // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
   // `/podium allow|decline|deliver <id>` answers a messaging request, `/podium name <text>` names the session and `/podium context ...` picks the Podium server.
   void ctx.command.transform((editor) =>
