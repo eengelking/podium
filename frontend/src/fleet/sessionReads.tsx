@@ -111,7 +111,7 @@ interface Words {
 }
 
 const WORDS: Record<SessionReadKind, Words> = {
-  ask: { doing: () => "reading your waiting plan", did: () => "opened your waiting plan", label: "your waiting plan" },
+  ask: { doing: () => "reading your waiting plan, question or tool request", did: () => "opened your waiting plan, question or tool request", label: "your waiting plan, question or tool request" },
   activity: { doing: (s) => `paging through the stored Activity of ${s}`, did: (s) => `read the stored Activity of ${s}`, label: "your stored Activity" },
 };
 

@@ -39,6 +39,13 @@ the name **Admin** with the admin secret. Sign in from the modal or from **Sign 
 Only the session's owner, or an Admin, can respond. On anyone else's card **Respond** is dimmed with their name. A
 sign-in ends after 12 hours without use, on **Sign out**, when the server restarts, and when your token changes.
 
+An Admin never reads in silence. When an Admin opens a waiting plan, question or tool request in one of your sessions,
+you are told: a red notice on that session's page and above the ask while the Admin has it open, a plain line there
+afterward (who and when, never what the ask said), and one line in the session itself, such as "Root (an Admin) is
+reading your waiting plan, question or tool request on history-paging." The line in the session is shown to you only and
+is never sent to the model. The **X** on a notice hides it in this browser. It does not clear the record. Opening your
+own ask tells no one.
+
 ## What you can send
 
 - **A question.** Pick an option on each tab (or **Type something**), check **Review**, then **Submit answers**. Writing in

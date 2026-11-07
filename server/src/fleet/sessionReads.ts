@@ -14,7 +14,7 @@ interface KindDef {
 }
 
 const KINDS: Record<SessionReadKind, KindDef> = {
-  ask: { phrase: (name) => `is reading your waiting plan on ${name}`, loop: false },
+  ask: { phrase: (name) => `is reading your waiting plan, question or tool request on ${name}`, loop: false },
   activity: { phrase: (name) => `is paging through the stored Activity of ${name}`, loop: true },
 };
 

@@ -484,6 +484,7 @@ This is the only way anything reaches a session from Podium, so every rule here 
   a row always pairs with its `respond_sent` by id (DECISIONS 34).
 - A delivery that already has a result is not written again, and one that is dropped twice (a session that
   ended, then was deleted) is written once.
+- An Admin opening an ask that is not their own (`GET …/asks/:askId`) is written as `ask_read` (#1073): actor, the owner, the session (its name and the first 8 characters of its id) and the ask's id, never the question, plan or tool input. One row for a reading session (opens less than 30 minutes apart are one), written after the read is recorded and before the ask is sent. The owner is told in the console and in `podium-reporter` (see [7.1](07-01-endpoints.md#browser-routes-for-an-admins-read-of-a-persons-session-1073-1074)); the owner's own open writes nothing.
 - The server log has the same as `respond.sent`, `respond.result` and `respond.dropped`, and each refusal as
   `respond.refused` with its reason.
 - The text of an answer, a message, a question, a plan or a tool's input is never logged, shipped or stored on
