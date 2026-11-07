@@ -638,6 +638,13 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(400).json({ ok: false, error: read.error, path: '$.query' });
       return;
     }
+    // An Admin reading a person's stored Activity: recorded first (a failure stops the read, so nothing is read without a record), the person told, and one
+    // content-free Admin log line per reading session. The owner's own read, and a session nobody owns, tell no one (#1074).
+    const told = await fleet.chat.adminReads.noteSession(v, 'activity', row, loop);
+    if (told.changed) {
+      await people?.log('activity_admin_read', `${v.actor} read the stored Activity of ${row.name} (${shortId(row.id)}), loop ${loop}, owned by ${row.owner ?? ''}`, sourceOf(req), now(), v.actor);
+      fleet.sessionReadsChanged();
+    }
     const limit = Math.min(Math.max(read.value.limit ?? ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
     const page: ActivityHistoryPage = await fleet.activityHistory.page(row.id, loop, read.value.before, limit);
     res.json(page);
