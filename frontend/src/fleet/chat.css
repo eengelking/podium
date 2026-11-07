@@ -127,6 +127,11 @@
 /* An Admin reading (#1034, mockup/podium-chat.html): the picker, the red banner and tags, and the record line. The red is the critical tokens, with an icon and words, never color alone. */
 .ch-read { display: grid; gap: 6px; padding: 4px 20px 8px; }
 .ch-read label { font-size: 12px; color: var(--ink2); }
+.ch-read .rd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ch-read .rd-i { display: inline-flex; color: var(--muted); cursor: help; }
+.ch-read .rd-i:hover, .ch-read .rd-i:focus-visible { color: var(--ink); }
+.ch-read .btn { justify-self: start; }
+.ch-composer .note.with-btn { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
 .adminv .ch-read select.field { width: 100%; min-width: 0; }
 .adminv .ch-read .hint { max-width: none; margin: 0; }
 .ch-nav.ro { display: flex; gap: 8px; align-items: flex-start; margin: 10px 16px 0; }

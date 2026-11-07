@@ -1842,6 +1842,39 @@ describe("an Admin reading a person's conversations", () => {
     expect(row("c:general")).toBeInTheDocument();
   });
 
+  it("lets an Admin stop reading in place, from the picker and from the thread, and shows no such button to anyone else (#1066)", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
+    await pickPerson();
+    const stop = screen.getByTestId("chat-stop-reading");
+    expect(stop).toHaveTextContent("Stop reading");
+    const picker = screen.getByLabelText("Read a person's conversations") as HTMLSelectElement;
+    expect(picker.value).toBe("Maya");
+    expect(screen.getByRole("heading", { name: "Direct Messages" })).toBeInTheDocument();
+    fireEvent.click(stop);
+    await flush();
+    expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
+    expect((screen.getByLabelText("Read a person's conversations") as HTMLSelectElement).value).toBe("");
+    expect(screen.queryByRole("heading", { name: "Direct Messages" })).toBeNull();
+    expect(screen.getByText("Back to your own conversations.")).toBeInTheDocument();
+    cleanup();
+    page({ chat: fakeChat(world()), me: ED });
+    await flush();
+    expect(screen.queryByLabelText("Read a person's conversations")).toBeNull();
+    expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
+  });
+
+  it("keeps the long reading note behind an (i) tip on the picker's label (#1066)", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    const tip = screen.getByLabelText("About reading as an Admin");
+    const note = document.getElementById(tip.getAttribute("aria-describedby")!)!;
+    expect(note).toHaveAttribute("role", "tooltip");
+    expect(note).toHaveTextContent("the person sees a red notice");
+    expect(note).toHaveTextContent("never the text");
+  });
+
   it("draws Loading, not the previous person's list, menus and box, while the chosen person's list is read (#1051)", async () => {
     const w = world();
     w.overview.me = { name: "Root", admin: true, person: true };

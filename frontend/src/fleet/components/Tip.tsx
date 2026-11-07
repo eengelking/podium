@@ -9,7 +9,7 @@ const GUTTER = 8;
  * plus `tabIndex`, which a browser does not show on focus (issue #275). The box is `position: fixed` and placed from the
  * trigger's rectangle, so a table's scroll container cannot clip it.
  */
-export function Tip({ text, className, style, children }: { text: string; className?: string; style?: CSSProperties; children: ReactNode }) {
+export function Tip({ text, className, style, label, children }: { text: string; className?: string; style?: CSSProperties; label?: string; children: ReactNode }) {
   const id = useId();
   const trigger = useRef<HTMLSpanElement>(null);
   const box = useRef<HTMLSpanElement>(null);
@@ -50,6 +50,7 @@ export function Tip({ text, className, style, children }: { text: string; classN
       style={style}
       tabIndex={0}
       aria-describedby={id}
+      aria-label={label}
       onMouseEnter={() => {
         setHover(true);
         setDismissed(false);
