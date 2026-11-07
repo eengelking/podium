@@ -160,6 +160,19 @@ describe('chat: People and agents', () => {
     cy.focused().type('{esc}');
   });
 
+  it('shows the owner their own agent\'s answer in the same thread, with the agent as author and a new badge on the row', () => {
+    // Reads the message Ed sent to arm64-check in the test above. The agent answers through its reporter's route, as podium_send to the person does.
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow('d:e2e-s-arm64-check').find('.unread').should('not.exist');
+    cy.request({ method: 'POST', url: '/api/fleet/sessions/e2e-s-arm64-check/peers/messages', headers: { 'X-Podium-Token': seeded().people.Ed.token }, body: { to: 'person:ed', text: 'The arm64 build is ready.' }, log: false }).its('status', { log: false }).should('eq', 202);
+    cy.chatRow('d:e2e-s-arm64-check').find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
+    cy.chatRow('d:e2e-s-arm64-check').find('button.ch-row').click();
+    cy.tid('chat-message').should('have.length', 2).first().should('contain.text', 'Is the arm64 build ready?');
+    cy.tid('chat-message').last().should('contain.text', 'arm64-check').and('contain.text', 'The arm64 build is ready.').and('not.contain.text', 'You');
+    cy.chatRow('d:e2e-s-arm64-check').find('.unread').should('not.exist');
+  });
+
   it('opens an agent\'s orchestration page from its menu among the people in a thread', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
