@@ -49,12 +49,18 @@ new place until the release had made it exist.
   stays a GitHub prerelease with its zip. `release.yml` now runs the check, zips the tracked `dist/` without rebuilding it, and
   `scripts/plugin-dist-compare.mjs` fails the release when a zip differs from `dist/<harness>/` in the tag's checkout. There is
   nothing to wait for. The nightly builds into its own throwaway checkout and never changes the tracked `dist/`.
+- **`dist/` is not scanned (#1022).** CodeQL (`paths-ignore` in `.github/codeql/codeql-config.yml`) and SonarCloud
+  (`sonar.exclusions` in `sonar-project.properties`) leave `dist/` out, as the coverage and duplication measures already did.
+  `npm run plugin:dist:check` is unchanged, so what is scanned in `plugin/` is what ships.
 - **Gone.** `plugin-dist.yml`, `scripts/plugin-publish.mjs`, the `plugin-dist` branch, the manual seed, and the branch-protection
   setting that entry 58 listed as a cost.
 
 **Why.** One place holds the source of truth, and it is `main`. The check does what the publish job's tests did, before the merge
 instead of after it, and a failing check blocks the release instead of leaving the marketplace on an older commit. Nothing writes to a
-branch behind the maintainer's back, and the cutover needs no seeding.
+branch behind the maintainer's back, and the cutover needs no seeding. `dist/` is not scanned because it holds nothing `plugin/`
+does not: a fault in it is a fault in the source, which is scanned, and a second report would reappear at a new path with every
+release and need dismissing again (CodeQL alerts 63 to 66 repeated 55 and 56 in `dist/*/plugin/core/tls/helper.mjs`). The check is what
+guarantees the scanned source is the shipped code.
 
 **Alternatives.** Keeping `plugin-dist` and seeding it from a `release-candidate/*` branch before the release closes the gap, but
 only with a manual push, and it keeps the bot, the protection setting and the wait. Pinning the marketplace by `sha` would need an
@@ -63,5 +69,4 @@ edit for every release.
 **Cost.** Built files are in the repo and in the release PR's diff, about the size of the reporter's source twice over, and they add
 to history at each release. The release PR is the only PR that changes them, so the review noise stays in one place. A commit that
 lands on `development` after release-prep makes `dist/` stale, and the check fails the release PR until release-prep is redone.
-Code scanning sees each reporter file twice, once in `plugin/` and once in `dist/`; see `sonar-project.properties` for what is
-excluded from coverage and duplication. Entry 12's rule that a plugin fix needs a version bump to reach users still holds.
+Entry 12's rule that a plugin fix needs a version bump to reach users still holds.

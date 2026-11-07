@@ -53,6 +53,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - **A person's message in Chat is stored.** Responding keeps nothing, but a message the owner writes to an agent in a Direct Message is kept in `peer_messages` as the person's, so the conversation can be read back. SPEC 7.2 and 7.7 say so, and add who can read each of General, My group and a Direct Message (an Admin's read is always shown to the people in it).
 - **Chat opens with the rail and the Activity panel collapsed, as the Board does**, and keeps its own collapsed flags (`podium.collapsed.chat`). My reporters no longer says no messages cross people.
 - **The hourly sweep no longer drops a person's message, or an agent's answer to one, as an orphan.**
+- **`dist/` is left out of CodeQL and SonarCloud analysis (#1022).** The built reporter holds nothing `plugin/` does not, and `plugin/` is scanned, so each release's rebuild reported the same alert again at a new path. `dist` is now in the CodeQL `paths-ignore` and `dist/**` in `sonar.exclusions`; `plugin:dist:check` still fails a PR into `main` whose `dist/` is not a clean build. DECISIONS 60, PROJECT.md and the architecture page say so. No open alert was under `dist/`.
 
 ### Deprecated
 
