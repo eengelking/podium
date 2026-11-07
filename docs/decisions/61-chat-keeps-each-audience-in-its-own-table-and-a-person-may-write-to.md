@@ -69,5 +69,5 @@ one owner.
 <!-- nav:start -->
 ---
 
-Previous: [60. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)](60-the-built-plugins-are-tracked-in-dist-on-main-and-checked-on-every-pr.md) · Up: [Decisions](README.md)
+Previous: [60. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)](60-the-built-plugins-are-tracked-in-dist-on-main-and-checked-on-every-pr.md) · Up: [Decisions](README.md) · Next: [62. An agent's text and live activity are gated to the owner and an Admin, and the other open fleet reads stay open (#1076)](62-an-agents-text-and-live-activity-are-gated-to-the-owner-and-admin-and-the-rest-of-the-open-fleet-reads-stay-open.md)
 <!-- nav:end -->
