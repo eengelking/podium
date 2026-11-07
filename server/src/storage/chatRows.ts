@@ -177,3 +177,22 @@ export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
     },
   };
 }
+
+/** A list of folded names kept in a text column (`chat_admin_reads.people`, `.seen`). Anything that is not a list of strings is an empty one. */
+export function keyList(raw: string | null | undefined): string[] {
+  try {
+    const v: unknown = JSON.parse(raw ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The list as the column keeps it: folded, without repeats, in order. */
+export const keyText = (names: readonly string[]): string => JSON.stringify([...new Set(names.map(nameKey))]);
+
+/** Whether an Admin record is still owed to someone: a person it names has not seen it (#1051). */
+export const stillOwed = (r: { people: string; seen: string }): boolean => {
+  const seen = new Set(keyList(r.seen));
+  return keyList(r.people).some((p) => !seen.has(p));
+};

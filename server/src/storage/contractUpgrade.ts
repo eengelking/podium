@@ -261,6 +261,10 @@ export function upgradeCases(o: UpgradeOpeners): void {
       // A touch within the gap continues the old record rather than starting a new one.
       expect(await reads.touch('group:ed', 'Root', 30 * MIN)).toMatchObject({ started: false, previousSeenAt: T0 + 5 * MIN, record: { startedAt: T0, lastSeenAt: T0 + 6 * MIN, kind: 'read' } });
       expect((await reads.list('group:ed')).map((r) => r.kind)).toEqual(['read', 'read']);
+      // A record made before it was kept who it is owed to owes nothing, so retention and forgetting take it as they did (#1051).
+      expect(await reads.purge(T0 - 70 * MIN)).toBe(1);
+      expect(await reads.forget('group:ed')).toBe(2);
+      expect(await reads.list('dm:a|b')).toEqual([]);
     } finally {
       await s.close();
     }

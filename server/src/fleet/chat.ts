@@ -2,8 +2,8 @@
 // overview the Chat page opens with, and runs the two housekeeping jobs (a conversation hiding and returning as its agents leave and come back, and the
 // retention purge). The two sides stay apart on purpose: see `chatChannels.ts` and `chatDirect.ts`.
 import { nameKey } from '../storage/rows.js';
-import type { ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
-import { AdminReads, SESSION_GAP_MS } from './chatAdminReads.js';
+import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
+import { AdminReads, LIST_PHRASE, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
@@ -55,7 +55,14 @@ export interface Overview {
   people: { name: string; you: boolean; directs?: number }[];
   /** How many messages from other people wait for the viewer's approval as the owner of the agent they wrote to (#1034). Answered on My reporters. */
   approvals: number;
+  /** The Admins looking at this person's list of conversations now (#1051). Empty for an Admin who browses. Names and times, never text. */
+  listReading: AdminReading[];
+  /** The latest records of an Admin looking at this person's list, oldest first. Empty for an Admin who browses. */
+  listReads: AdminReadRow[];
 }
+
+/** How many records of a look at the person's list the overview carries. */
+const LIST_RECORDS = 20;
 
 /** What `upTo` of a mark-read may be: a paging cursor or a message id. */
 const CURSOR_SHAPE = /^[A-Za-z0-9._:-]{1,64}$/;
@@ -71,6 +78,7 @@ export class ChatService {
     this.adminReads = new AdminReads(this.core);
     this.channels = new ChannelChat(this.core, this.adminReads);
     this.direct = new DirectChat(this.core, this.adminReads);
+    this.adminReads.resolve = (thread) => this.direct.subjectOf(thread);
     // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
     this.core.across = (v, sessionId, text, opts) => this.direct.across(v, sessionId, text, opts);
     this.core.hearAcross((u) => void this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err)));
@@ -86,9 +94,12 @@ export class ChatService {
     return this.core.store.settings;
   }
 
-  /** The callouts a session's next report reply carries for its person: an Admin read or stopped their conversation. Empty for most. Content-free. */
-  adminNoticesFor(sessionId: string): AdminNotice[] {
-    return this.core.notices.for(sessionId);
+  /**
+   * The callouts a session's next report reply carries for its person: every Admin who has read their group or a conversation, or looked at their list, in the
+   * last few minutes (derived from the record, so it survives a restart and reaches a session that began late), and the Admin's stops. Empty for most. Content-free.
+   */
+  adminNoticesFor(sessionId: string): Promise<AdminNotice[]> {
+    return this.adminReads.noticesFor(sessionId);
   }
 
   /** Replaced by the routes, so a Chat event reaches the Admin log and the server log. */
@@ -111,17 +122,11 @@ export class ChatService {
     const subject = (await this.core.persons()).find((p) => p.key === key);
     if (!subject) return fail(404, `There is no person named ${raw.slice(0, 80)}.`);
     if (viewer.personId !== null && nameKey(viewer.name) === key) return this.overview(viewer);
-    const out = await this.overview(viewer, subject.name);
-    const now = this.core.host.now();
-    const mark = `${nameKey(viewer.actor)}|${key}`;
-    if (now - (this.browsed.get(mark) ?? -Infinity) >= SESSION_GAP_MS) {
-      this.browsed.set(mark, now);
-      this.core.onEvent({ kind: 'admin_browse', by: viewer.actor, person: subject.name });
-    }
-    return out;
+    // The person's list is theirs: an Admin looking at it is recorded and the person is told, in the console and in podium-reporter (#1051). It names
+    // who they talk to and how many messages, never what they say. Recorded before it is answered; the Admin log gets `chat_admin_browse` once a session.
+    await this.adminReads.note(viewer, { scope: 'list', thread: listThread(key), owners: [key], phrase: LIST_PHRASE, person: subject.name });
+    return this.overview(viewer, subject.name);
   }
-
-  private readonly browsed = new Map<string, number>();
 
   async overview(viewer: ChatViewer, browsing?: string): Promise<Overview> {
     const person = viewer.personId !== null;
@@ -157,9 +162,20 @@ export class ChatService {
     const channels = [await channel('general'), ...(person || browsing ? [await channel('group')] : [])];
     const directs = browsing ? await this.direct.listAbout(viewer, who) : await this.direct.list(viewer);
     // The Admins reading right now, named, for the people in the thread. A reading whose time has passed is never reported.
-    const live = await this.adminReads.liveFor([...(person || browsing ? [groupThread(who)] : []), ...directs.map((d) => d.thread)]);
+    const list = person || browsing ? listThread(who) : null;
+    const hidden = person || browsing ? await this.direct.hiddenOf(viewer, who, browsing !== undefined) : [];
+    const live = await this.adminReads.liveFor([...(person || browsing ? [groupThread(who)] : []), ...(list ? [list] : []), ...directs.map((d) => d.thread), ...hidden.map((d) => d.thread)]);
     for (const c of channels) if (c.id === 'group') c.adminReading = live.get(c.thread) ?? [];
     for (const d of directs) d.adminReading = live.get(d.thread) ?? [];
+    // A conversation that left the list (every agent in it has ended) is still read by an Admin who opened it, so it comes back while that is live (#1051).
+    for (const d of hidden) {
+      d.adminReading = live.get(d.thread) ?? [];
+      if (d.adminReading.length) directs.push(d);
+    }
+    // Who looked at the person's own list, and who is looking now. An Admin browsing sees neither: it is the person's to see. Loading it is seeing it.
+    const listReading = list && !browsing ? (live.get(list) ?? []) : [];
+    const listReads = list && !browsing ? (await this.adminReads.list(list)).slice(-LIST_RECORDS) : [];
+    if (list && !browsing && viewer.personId !== null) await this.adminReads.seen(list, viewer.name);
     return {
       enabled: true,
       serverTime: host.now(),
@@ -172,6 +188,8 @@ export class ChatService {
         ? await Promise.all((await this.core.persons()).map(async (p) => ({ name: p.name, you: false, directs: await this.direct.countOf(p.name) })))
         : (await this.core.persons()).map((p) => ({ name: p.name, you: p.key === nameKey(viewer.name) })),
       approvals: person && !browsing ? await this.direct.approvalsFor(viewer.name) : 0,
+      listReading,
+      listReads,
     };
   }
 

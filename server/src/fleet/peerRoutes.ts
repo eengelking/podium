@@ -401,9 +401,23 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!v) return void refuse(req, res, 403, 'sign in to read a conversation');
     const rows = await fleet.peers.messages.conversation(req.params.a!, req.params.b!);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
-    if (!v.admin && nameKey(rows[0]!.owner) !== nameKey(v.name)) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
+    const owns = v.personId !== null && nameKey(rows[0]!.owner) === nameKey(v.name);
+    if (!v.admin && !owns) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
+    // An Admin reads a person's Chat only in Chat, where the read is recorded and the people in it are told (#1051). This route does neither.
+    if (!owns && isPersonChat(rows)) return void refuse(req, res, 403, CHAT_ONLY);
     res.json({ messages: rows.map(messageView) });
   }));
+}
+
+/** Why an Admin is turned away from a person's Chat on a route that does not tell the person. */
+export const CHAT_ONLY = "this conversation is a person's Chat. An Admin reads it in Chat, where the people in it are told";
+
+/**
+ * Whether stored messages are a person's Chat: a person is at one end, or a person wrote one. Its text is read through Chat only, which records an Admin's
+ * read, shows the people a notice and tells their reporter (#1051). Every route that returns a conversation's text checks it before answering an Admin.
+ */
+export function isPersonChat(rows: MessageRow[]): boolean {
+  return rows.some((m) => m.author === 'person' || isPersonId(m.fromSession) || isPersonId(m.toSession));
 }
 
 /** A message as a conversation shows it: who, to whom, when, where it is, and its text drawn as text by the page. */

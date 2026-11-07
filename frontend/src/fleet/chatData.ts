@@ -117,6 +117,10 @@ export interface ChatOverview {
   people: { name: string; you: boolean }[];
   /** How many messages from other people wait for the viewer's approval as the owner of the agent they wrote to. */
   approvals?: number;
+  /** The Admins looking at this person's list of conversations now (#1051). Absent from an older server and for an Admin who browses. */
+  listReading?: AdminReading[];
+  /** The latest records of an Admin looking at the list, oldest first. */
+  listReads?: AdminRead[];
 }
 
 export type MentionState = "waiting" | "working" | "done" | "not-delivered" | "held" | "dropped";
@@ -519,6 +523,20 @@ export const readersStops = (l: readonly AdminReading[]): string => (l.length ==
 
 /** The tip's text: every Admin reading, with when they started. `at` formats a time. */
 export const readersTip = (l: readonly AdminReading[], at: (t: number) => string): string => `Reading now: ${l.map((r) => `${r.admin} since ${at(r.since)}`).join(", ")}.`;
+
+/** The red banner's bold line for the Admins looking at the person's list of conversations. */
+export function listReadersLine(l: readonly AdminReading[]): string {
+  const names = l.map((r) => r.admin);
+  if (names.length <= 1) return adminWho(names[0]);
+  if (names.length === 2) return `${names[0]} and ${names[1]} (Admins)`;
+  return `${names[0]}, ${names[1]} and ${more(names.length - 2)}`;
+}
+
+/** The rest of that banner: what the Admin sees of the list, and what they do not. */
+export const LIST_READING_REST = "looking at your list of conversations now: who you talk to and how many messages, not what they say.";
+
+/** The quiet line a look at the person's list leaves afterward. */
+export const listRecordLine = (r: AdminRead): string => `${adminWho(r.admin)} looked at your list of conversations on ${onDay(r.startedAt)}. They saw who you talk to and message counts, not the messages.`;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 

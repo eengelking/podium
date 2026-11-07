@@ -419,6 +419,14 @@ CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);`,
     // messages, paused, resumed. The rows already there are readings, which the default says.
     sql: `ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';`,
   },
+  {
+    version: 35,
+    // An Admin record is kept until the person has seen it (#1051): who it is owed to (`people`) and who has seen it (`seen`), each a JSON list of folded names.
+    // The rows already there owe nothing, so retention treats them as before.
+    sql: `
+ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

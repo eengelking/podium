@@ -30,7 +30,7 @@ const READ_RETRY_MS = 2000;
 function earliestEnd(d: ChatOverview | null, readAt: number): number | null {
   if (!d) return null;
   let best: number | null = null;
-  for (const r of [...d.channels.flatMap((c) => c.adminReading ?? []), ...d.directs.flatMap((x) => x.adminReading ?? [])]) {
+  for (const r of [...d.channels.flatMap((c) => c.adminReading ?? []), ...d.directs.flatMap((x) => x.adminReading ?? []), ...(d.listReading ?? [])]) {
     if (r.until > readAt && (best === null || r.until < best)) best = r.until;
   }
   return best;

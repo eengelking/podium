@@ -11,8 +11,9 @@ import { ChatComposer } from "./components/ChatComposer";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
+import { ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct } from "./components/ChatMenu";
-import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
+import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
@@ -486,6 +487,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           Could not read Chat again: {overview.loadError}. What is shown may be out of date. It reads again when something changes.
         </div>
       )}
+      {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
       <div className="ch-split" data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}
@@ -548,6 +550,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           }
         />
       </div>
+      {!ro && <ListRecordLines reads={o.listReads ?? []} />}
       <div className="vh" role="status" aria-live="polite">
         {said}
       </div>

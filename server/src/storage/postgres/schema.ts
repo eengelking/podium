@@ -249,6 +249,15 @@ CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
     // the record for good: removed all messages, paused, resumed.
     sql: typed(`ALTER TABLE chat_admin_reads ADD COLUMN kind TXT NOT NULL DEFAULT 'read';`),
   },
+  {
+    version: 11,
+    // An Admin record is kept until the person has seen it (#1051), as SQLite migration 35 keeps it: who it is owed to (`people`) and who has seen it (`seen`),
+    // each a JSON list of folded names. The rows already there owe nothing, so retention treats them as before.
+    sql: typed(`
+ALTER TABLE chat_admin_reads ADD COLUMN people TXT NOT NULL DEFAULT '[]';
+ALTER TABLE chat_admin_reads ADD COLUMN seen TXT NOT NULL DEFAULT '[]';
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

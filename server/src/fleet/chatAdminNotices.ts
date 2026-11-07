@@ -1,6 +1,8 @@
 // What an Admin's reading or stopping of a person's conversation tells that person's own reporter sessions (#1034, PROJECT.md "An Admin Never Reads in Silence").
 // A notice is one content-free sentence: who, what they did and which conversation, never any message text. It is held in memory, handed to a session in
 // the reply to its reports for a few minutes (the reporter shows each id once), and goes to the person only: a reporter never submits it to the model.
+// Only an Admin's stops are held here. A reading is not: it is derived from the reading's record (chat_admin_reads) each time a session reports, so a
+// restart, a session that started late, or a run of stops can never lose it (#1051).
 export interface AdminNotice {
   id: string;
   at: number;
@@ -19,11 +21,13 @@ export class AdminNotices {
 
   constructor(private readonly now: () => number) {}
 
+  /** Holds a notice for a session. The same words said again replace the earlier notice, so a run of one Admin's repeats cannot push other notices out. */
   push(sessionId: string, text: string): void {
     const at = this.now();
     this.prune(at);
-    const list = this.bySession.get(sessionId) ?? [];
-    list.push({ id: `${at.toString(36)}-${(this.seq++).toString(36)}`, at, text: text.replace(/\s+/g, ' ').trim().slice(0, TEXT_MAX) });
+    const clean = text.replace(/\s+/g, ' ').trim().slice(0, TEXT_MAX);
+    const list = (this.bySession.get(sessionId) ?? []).filter((n) => n.text !== clean);
+    list.push({ id: `${at.toString(36)}-${(this.seq++).toString(36)}`, at, text: clean });
     this.bySession.set(sessionId, list.slice(-MAX_PER_SESSION));
   }
 

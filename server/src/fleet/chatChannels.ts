@@ -190,7 +190,7 @@ export class ChannelChat {
 
   /** The subject of an Admin's reading of a person's group: the person is told in the console and in each of their reporter sessions. */
   private groupSubject(owner: string): ReadSubject {
-    return { scope: 'group', thread: groupThread(owner), owners: [nameKey(owner)], told: this.reads.sessionsOf(owner).map((sessionId) => ({ sessionId, about: 'your Podium group' })) };
+    return { scope: 'group', thread: groupThread(owner), owners: [nameKey(owner)], phrase: 'is reading your Podium group' };
   }
 
   /**
@@ -201,7 +201,10 @@ export class ChannelChat {
     if (channel === 'general') return this.reads.list(publicThread);
     if (owner === null) return [];
     if (viewer.admin && nameKey(owner) !== nameKey(viewer.name)) await this.reads.note(viewer, this.groupSubject(owner));
-    return this.reads.list(groupThread(owner));
+    const records = await this.reads.list(groupThread(owner));
+    // The records go to the person's own console here, so what is owed to them is seen (#1051).
+    if (viewer.personId !== null && nameKey(owner) === nameKey(viewer.name)) await this.reads.seen(groupThread(owner), viewer.name);
+    return records;
   }
 
   /** An Admin's open group says it is still being read. Content-free. */
@@ -608,12 +611,13 @@ export class ChannelChat {
     const mine = scope.owner !== null && nameKey(scope.owner) === nameKey(viewer.name);
     if (before.pausedByAdmin && !viewer.admin) return paused ? { ok: true, delivered: 0, ...(await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name))) } : fail(403, `${before.pausedByAdmin}, an Administrator, paused this, so only an Administrator can resume it.`);
     const byAdmin = paused && viewer.admin && (everyone || !mine) ? viewer.actor : undefined;
+    // The record and the Admin log come first, then the stop (#1051): a stop that could not be recorded is not done, and one that fails midway is already on both.
+    // An Admin's stop on what is not theirs stays on the record, and the people it stops are told (#1034).
+    if (viewer.admin && before.paused !== paused && (everyone || (channel === 'group' && !mine))) await this.reads.stopped(viewer, this.threadOf(channel, owner), paused ? 'paused' : 'resumed', this.stopTells(channel, owner, everyone ? 'General for everyone' : 'your Podium group'), this.peopleOf(channel, owner));
+    this.core.onEvent({ kind: paused ? 'paused' : 'resumed', channel, owner: scope.owner, by: viewer.actor, everyone, count: 0 });
     await this.store.settings.setFlags(scope.key, { paused, ...(byAdmin ? { pausedByAdmin: byAdmin } : {}) });
     let delivered = 0;
     if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : nameKey(viewer.name));
-    // An Admin's stop on what is not theirs stays on the record, and the people it stops are told (#1034).
-    if (viewer.admin && before.paused !== paused && (everyone || (channel === 'group' && !mine))) await this.reads.stopped(viewer, this.threadOf(channel, owner), paused ? 'paused' : 'resumed', this.stopTells(channel, owner, everyone ? 'General for everyone' : 'your Podium group'));
-    this.core.onEvent({ kind: paused ? 'paused' : 'resumed', channel, owner: scope.owner, by: viewer.actor, everyone, count: delivered });
     this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
     const state = await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name));
     return { ok: true, delivered, ...state };
@@ -622,11 +626,11 @@ export class ChannelChat {
   async setDisconnected(viewer: ChatViewer, channel: ChannelId, owner: string | null, disconnected: boolean): Promise<(ChannelState & { ok: true }) | Fail> {
     const scope = this.scopeKey(viewer, channel, owner, false);
     if ('ok' in scope) return scope;
-    await this.store.settings.setFlags(scope.key, { disconnected });
-    // An Admin's disconnect of a group that is not theirs stays on the record, and the group's person is told (#1034).
+    // An Admin's disconnect of a group that is not theirs stays on the record, and the group's person is told (#1034). Recorded and logged before it is done (#1051).
     const aboutGroup = channel === 'group' && scope.owner !== null && nameKey(scope.owner) !== nameKey(viewer.name);
-    if (viewer.admin && aboutGroup) await this.reads.stopped(viewer, this.threadOf(channel, owner), disconnected ? 'disconnected' : 'reconnected', this.stopTells(channel, owner, 'your Podium group'));
+    if (viewer.admin && aboutGroup) await this.reads.stopped(viewer, this.threadOf(channel, owner), disconnected ? 'disconnected' : 'reconnected', this.stopTells(channel, owner, 'your Podium group'), this.peopleOf(channel, owner));
     this.core.onEvent({ kind: disconnected ? 'disconnected' : 'reconnected', channel, owner: scope.owner, by: viewer.actor, everyone: false, count: 0 });
+    await this.store.settings.setFlags(scope.key, { disconnected });
     this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
     return { ok: true, ...(await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name))) };
   }
@@ -636,6 +640,11 @@ export class ChannelChat {
     if (everyone) return { key: GLOBAL_SCOPE, owner: null };
     if (viewer.personId === null) return fail(400, 'The admin secret has no agents of its own to pause or disconnect. Pause General for everyone instead.');
     return { key: personScope(viewer.name), owner: nameKey(viewer.name) };
+  }
+
+  /** Who is owed a look at an Admin's stop: the group's person. General's stop is for everyone and is shown on General, so it is owed to no one in particular. */
+  private peopleOf(channel: ChannelId, owner: string | null): string[] {
+    return channel === 'group' && owner !== null ? [nameKey(owner)] : [];
   }
 
   /** Who is told of an Admin's stop: the group's person's sessions, or every session for General. */
@@ -649,10 +658,12 @@ export class ChannelChat {
    */
   async clear(viewer: ChatViewer, channel: ChannelId, owner: string | null): Promise<{ ok: true; removed: number } | Fail> {
     if (channel === 'general' && !viewer.admin) return fail(403, 'Only an Admin can remove the messages of General.');
-    const removed = await this.handle(channel, owner).clear();
+    const h = this.handle(channel, owner);
+    // Recorded and logged first (#1051): an Admin's removal that could not be recorded is not done. The count is what is there to remove.
+    if (viewer.admin && (channel === 'general' || nameKey(owner as string) !== nameKey(viewer.name))) await this.reads.stopped(viewer, this.threadOf(channel, owner), 'cleared', this.stopTells(channel, owner, channel === 'group' ? 'your Podium group' : 'General'), this.peopleOf(channel, owner));
+    this.core.onEvent({ kind: 'cleared', channel, owner, by: viewer.actor, everyone: false, count: await h.count() });
+    const removed = await h.clear();
     await this.store.readState.forget(this.threadOf(channel, owner));
-    if (viewer.admin && (channel === 'general' || nameKey(owner as string) !== nameKey(viewer.name))) await this.reads.stopped(viewer, this.threadOf(channel, owner), 'cleared', this.stopTells(channel, owner, channel === 'group' ? 'your Podium group' : 'General'));
-    this.core.onEvent({ kind: 'cleared', channel, owner, by: viewer.actor, everyone: false, count: removed });
     this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
     return { ok: true, removed };
   }

@@ -1550,6 +1550,91 @@ describe("the person an Admin reads, told in the console", () => {
     expect(within(row("d:dm:s-dash|s-tester")).queryByText("Admin reading")).toBeNull();
   });
 
+  describe("an Admin looking at the person's list of conversations (#1051)", () => {
+    const REST = "is looking at your list of conversations now: who you talk to and how many messages, not what they say.";
+    const listWorld = (over: { listReading?: ReturnType<typeof live>[]; listReads?: { admin: string; startedAt: number; lastSeenAt: number; kind?: "read" }[] }) => {
+      const w = world();
+      Object.assign(w.overview, over);
+      return fakeChat(w);
+    };
+
+    it("shows a full-width red banner naming the Admin while the look is live, with the words of the mockup", async () => {
+      page({ chat: listWorld({ listReading: [live("Root")] }) });
+      await flush();
+      const banner = screen.getByTestId("chat-list-reading-banner");
+      expect(banner).toHaveAttribute("role", "status");
+      expect(banner).toHaveClass("ch-nav", "ro", "crit");
+      expect(banner).toHaveTextContent(`Root (an Admin) ${REST}`);
+      // It is above the page's two panes, not inside the list.
+      expect(within(screen.getByTestId("chat-split")).queryByTestId("chat-list-reading-banner")).toBeNull();
+      expect(banner.compareDocumentPosition(screen.getByTestId("chat-split")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("names two Admins and counts the rest", async () => {
+      page({ chat: listWorld({ listReading: [live("Root"), live("Alex"), live("Sam"), live("Kim")] }) });
+      await flush();
+      expect(screen.getByTestId("chat-list-reading-banner")).toHaveTextContent("Root, Alex and 2 more Admins are looking at your list of conversations now");
+    });
+
+    it("shows nothing when no one looks, and a quiet record line afterward with the date and time", async () => {
+      const at = new Date(2026, 10, 6, 14, 20).getTime();
+      page({ chat: listWorld({ listReading: [], listReads: [{ admin: "Root", startedAt: at, lastSeenAt: at }] }) });
+      await flush();
+      expect(screen.queryByTestId("chat-list-reading-banner")).toBeNull();
+      const line = screen.getByTestId("chat-list-record");
+      expect(line).toHaveClass("ch-nav", "ro");
+      expect(line).not.toHaveClass("crit");
+      expect(line).toHaveTextContent("Root (an Admin) looked at your list of conversations on Nov 6 at 14:20. They saw who you talk to and message counts, not the messages.");
+    });
+
+    it("draws an Admin's name as text, never as markup", async () => {
+      const name = '<img src=x onerror="alert(1)">';
+      page({ chat: listWorld({ listReading: [live(name)], listReads: [{ admin: name, startedAt: ago(60_000), lastSeenAt: ago(60_000) }] }) });
+      await flush();
+      expect(document.querySelector("img[src='x']")).toBeNull();
+      expect(screen.getByTestId("chat-list-reading-banner")).toHaveTextContent(name);
+      expect(screen.getByTestId("chat-list-record")).toHaveTextContent(name);
+    });
+
+    it("drops the banner once its time has passed and a read confirms it, and keeps the record", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const chat = listWorld({ listReading: [live("Root", T0 - 5000, T0 + 4000)], listReads: [{ admin: "Root", startedAt: T0 - 5000, lastSeenAt: T0 - 5000 }] });
+      const real = chat.api.overview.getMockImplementation()!;
+      chat.api.overview.mockImplementation(async (owner?: string | null) => ({ ...(await real(owner)), serverTime: Date.now() }));
+      page({ chat });
+      await flush();
+      expect(screen.getByTestId("chat-list-reading-banner")).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(screen.queryByTestId("chat-list-reading-banner")).toBeNull();
+      expect(screen.getByTestId("chat-list-record")).toBeInTheDocument();
+    });
+
+    it("keeps the banner up past 30 seconds while the Admin keeps looking (the overview is read again before it ends)", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const chat = listWorld({ listReading: [live("Root", T0 - 5000, T0 + 30_000)] });
+      const real = chat.api.overview.getMockImplementation()!;
+      let reads = 0;
+      chat.api.overview.mockImplementation(async (owner?: string | null) => {
+        const o = await real(owner);
+        reads++;
+        o.serverTime = Date.now();
+        o.listReading = [live("Root", T0 - 5000, reads === 1 ? T0 + 30_000 : Date.now() + 30_000)];
+        return o;
+      });
+      page({ chat });
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(reads).toBeGreaterThan(1);
+      expect(screen.getByTestId("chat-list-reading-banner")).toBeInTheDocument();
+    });
+  });
+
   it("puts a record line among the messages in time order, one for each thing an Admin did", async () => {
     const w = world();
     w.reads = {

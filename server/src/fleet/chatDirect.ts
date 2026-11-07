@@ -218,6 +218,16 @@ export class DirectChat {
     return Promise.all(mine.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));
   }
 
+  /**
+   * The person's conversations that have left the list because every agent in them ended (#1051). The overview shows one only while an Admin is reading it, so
+   * a person can see who is reading a conversation they cannot open. `asAdmin` is an Admin browsing the person. Never any text.
+   */
+  async hiddenOf(viewer: ChatViewer, owner: string, asAdmin: boolean): Promise<DirectInfo[]> {
+    if (viewer.personId === null && !asAdmin) return [];
+    const mine = (await this.peers.ownerConversations(owner, { includeHidden: true })).filter((c) => c.hiddenAt !== null);
+    return Promise.all(mine.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));
+  }
+
   /** How many conversations a person takes part in, hidden ones left out. */
   async countOf(owner: string): Promise<number> {
     return (await this.peers.ownerConversations(owner)).length;
@@ -271,32 +281,41 @@ export class DirectChat {
     // An Admin's read is recorded before it is answered, so no conversation is read without a record, and its people are told. A refused read (above) records nothing.
     if (role === 'admin') await this.reads.note(viewer, this.subject(c));
     const info = this.info({ ...c, hiddenAt: null }, new Map());
-    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads: await this.reads.list(info.thread), roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
+    const adminReads = await this.reads.list(info.thread);
+    // The records go to the person's own console here, so what is owed to them is seen (#1051).
+    if (role !== 'admin') await this.reads.seen(info.thread, viewer.name);
+    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads, roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
   }
 
-  /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners. */
+  /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners, in every live reporter session of each. */
   private subject(c: ConversationSummary): ReadSubject {
+    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: this.peopleOf(c), phrase: `is reading your Podium conversation between ${c.a.name} and ${c.b.name}` };
+  }
+
+  /** The people of a conversation, folded: its owner, and the person who wrote when it is across owners. */
+  private peopleOf(c: ConversationSummary): string[] {
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    const owners = [nameKey(c.owner), ...(person ? [nameKey(person.sessionId.slice('person:'.length))] : [])];
-    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: [...new Set(owners)], told: this.told(c, 'your Podium conversation with') };
+    return [...new Set([nameKey(c.owner), ...(person ? [nameKey(person.sessionId.slice('person:'.length))] : [])])];
+  }
+
+  /** What the callout of a thread says, from its conversation: for the reporter sessions of its people. Null when there is no such conversation. */
+  async subjectOf(thread: string): Promise<ReadSubject | null> {
+    const c = (await this.peers.conversations({})).find((x) => dmThread(x.a.sessionId, x.b.sessionId) === thread);
+    return c ? this.subject(c) : null;
   }
 
   /**
-   * The reporter sessions of a conversation's two ends that are live, each told in words that name the other end. A person has no reporter session, so a
-   * person across owners is told in the console only.
+   * The sessions of a conversation's people that are live, each told in words that name the conversation. Every live session of the owner and of the person
+   * who wrote is told, not only the agents in it (#1051).
    */
   private told(c: ConversationSummary, about: string): Told[] {
-    const out: Told[] = [];
-    for (const [me, other] of [[c.a, c.b], [c.b, c.a]] as const) {
-      if (!isPersonId(me.sessionId) && this.liveOf(me.sessionId)) out.push({ sessionId: me.sessionId, about: `${about} ${other.name}` });
-    }
-    return out;
+    return this.peopleOf(c).flatMap((p) => this.reads.sessionsOf(p).map((sessionId) => ({ sessionId, about })));
   }
 
-  /** An Admin paused or resumed a link: it stays on the conversation's record, and each end that has a session is told which link it was. */
+  /** An Admin is about to pause or resume a link: it stays on the conversation's record, and each of its people's sessions is told which link it was. */
   private async stoppedLink(viewer: ChatViewer, c: ConversationSummary, op: 'pause' | 'resume'): Promise<void> {
     const link = `the link between ${c.a.name} and ${c.b.name}`;
-    await this.reads.stopped(viewer, dmThread(c.a.sessionId, c.b.sessionId), op === 'pause' ? 'paused' : 'resumed', this.told(c, '').map((t) => ({ sessionId: t.sessionId, about: link })));
+    await this.reads.stopped(viewer, dmThread(c.a.sessionId, c.b.sessionId), op === 'pause' ? 'paused' : 'resumed', this.told(c, link), this.peopleOf(c));
   }
 
   /** An Admin's open conversation says it is still being read, so its people keep seeing it. Content-free. */
@@ -481,9 +500,10 @@ export class DirectChat {
     }
     // A pause stays with whoever made it: pausing again does not take it over, so the one who paused can still resume it. Only an Admin's pause replaces another's.
     if (op === 'pause' && cross.link === 'paused' && role !== 'admin') return { ok: true, link: cross.link };
+    // An Admin's stop is recorded before it is done (#1051), so a stop that could not be recorded does not happen.
+    if (role === 'admin' && (op === 'pause' || op === 'resume') && (op === 'pause') !== (cross.link === 'paused')) await this.stoppedLink(viewer, c, op);
     const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' }, op === 'pause' ? role : undefined);
     if (!out.ok) return fail(out.status, out.error);
-    if (role === 'admin' && (op === 'pause' || op === 'resume') && (op === 'pause') !== (cross.link === 'paused')) await this.stoppedLink(viewer, c, op);
     await this.tell(personEnd.name, c.owner);
     return { ok: true, link: (await this.crossOf(c, viewer))?.link ?? 'none' };
   }
@@ -491,9 +511,9 @@ export class DirectChat {
   /** An Admin pauses or resumes the link between two of a person's own reporters, by the pause the owner has on My reporters, tagged as the Admin's. */
   private async adminLink(viewer: ChatViewer, c: ConversationSummary, op: PersonLinkOp): Promise<{ ok: true; link: CrossInfo['link'] } | Fail> {
     if (isPersonId(c.a.sessionId) || isPersonId(c.b.sessionId)) return fail(404, 'That conversation has no link to pause.');
+    await this.stoppedLink(viewer, c, op === 'pause' ? 'pause' : 'resume');
     const out = await this.peerStore.rights.pauseLink(null, c.a.reporterKey, c.b.reporterKey, op === 'pause', { name: viewer.actor, admin: true });
     if (!out.ok) return fail(out.status, out.error);
-    await this.stoppedLink(viewer, c, op === 'pause' ? 'pause' : 'resume');
     this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
     return { ok: true, link: op === 'pause' ? 'paused' : 'open' };
   }

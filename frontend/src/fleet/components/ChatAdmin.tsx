@@ -1,7 +1,7 @@
 // What an Admin's reading looks like in Chat (#1034, mockup/podium-chat.html): the picker an Admin chooses a person with, the red
 // tags and banners the person sees while an Admin reads or after one paused, the record line a visit leaves among the messages,
 // and the banner the Admin sees. Every word is a text node, and every banner is a polite status with an icon and words, never color alone.
-import { adminWho, onDay, readersLine, readersStops, readersTip, recordLine, stamp, type AdminRead, type AdminReading } from "../chatData";
+import { adminWho, listReadersLine, listRecordLine, LIST_READING_REST, onDay, readersLine, readersStops, readersTip, recordLine, stamp, type AdminRead, type AdminReading } from "../chatData";
 import { ChEye, ChLock, ChPause } from "./ChatIcons";
 import { Tip } from "./Tip";
 
@@ -37,6 +37,37 @@ export function ReadingBanner({ readers, also, now }: { readers: AdminReading[];
         <Tip text={readersTip(readers, (t) => stamp(t, now))}>Who is reading</Tip>
       </span>
     </div>
+  );
+}
+
+/** The full-width banner a person sees while an Admin looks at their list of conversations (#1051, mockup/podium-chat-security.html section 5). */
+export function ListReadingBanner({ readers }: { readers: AdminReading[] }) {
+  if (!readers.length) return null;
+  const several = readers.length > 1;
+  return (
+    <div className="ch-nav ro crit" role="status" data-testid="chat-list-reading-banner">
+      <ChEye />
+      <span>
+        <b>{listReadersLine(readers)}</b> {several ? "are " : "is "}
+        {LIST_READING_REST}
+      </span>
+    </div>
+  );
+}
+
+/** The quiet record of the looks an Admin took at the person's list, newest first, a few of them. */
+export function ListRecordLines({ reads, max = 3 }: { reads: AdminRead[]; max?: number }) {
+  const shown = reads.filter((r) => (r.kind ?? "read") === "read").slice(-max).reverse();
+  if (!shown.length) return null;
+  return (
+    <>
+      {shown.map((r) => (
+        <div key={`${r.admin}|${r.startedAt}`} className="ch-nav ro" role="status" data-testid="chat-list-record">
+          <ChEye />
+          <span>{listRecordLine(r)}</span>
+        </div>
+      ))}
+    </>
   );
 }
 
