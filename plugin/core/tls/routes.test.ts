@@ -17,9 +17,11 @@ describe("routes.mjs: the reporter routes and nothing else", () => {
     expect(reporterTarget("PUT", "/api/fleet/sessions/s1/diffs/d.1")).toEqual({ method: "PUT", path: "/api/fleet/sessions/s1/diffs/d.1" });
   });
 
-  test("lets a reporter read a channel it was called into (#1034), by GET only, and not post to one", () => {
+  test("lets a reporter read a channel it was called into (#1034) and answer in it (#1065), by GET and POST only", () => {
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/group/messages?before=cur_9%3D")).toEqual({ method: "GET", path: "/api/fleet/sessions/s1/chat/channels/group/messages?before=cur_9%3D" });
-    expect(reporterTarget("POST", "/api/fleet/sessions/s1/chat/channels/group/messages")).toBeNull();
+    expect(reporterTarget("POST", "/api/fleet/sessions/s1/chat/channels/group/messages")).toEqual({ method: "POST", path: "/api/fleet/sessions/s1/chat/channels/group/messages" });
+    expect(reporterTarget("DELETE", "/api/fleet/sessions/s1/chat/channels/group/messages")).toBeNull();
+    expect(reporterTarget("PUT", "/api/fleet/sessions/s1/chat/channels/group/messages")).toBeNull();
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/../messages")).toBeNull();
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/group")).toBeNull();
   });

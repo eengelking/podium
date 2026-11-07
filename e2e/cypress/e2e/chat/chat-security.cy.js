@@ -92,7 +92,12 @@ describe('chat: slash commands in a message to your own agent', () => {
 });
 
 describe('chat: who wrote a General message', () => {
-  before(() => cy.resetServer({ seedArgs: '--talk' }));
+  // An agent answers a channel that called it (#1065), so Ed mentions both in General first. A mention keeps the session, so the rename in a later test does not undo it.
+  before(() => {
+    cy.resetServer({ seedArgs: '--talk' });
+    cy.signIn('Ed');
+    cy.request({ method: 'POST', url: `${API}/channels/general/messages`, headers: H, body: { text: '@invoice-v2@ed-mbp @Tester@ci-runner-01 report here' }, log: false }).its('status', { log: false }).should('eq', 201);
+  });
   const say = (session, text) => cy.request({ method: 'POST', url: `/api/fleet/sessions/${session}/chat/channels/general/messages`, headers: agentToken(), body: { text }, log: false }).its('status', { log: false }).should('eq', 201);
   const general = () => {
     cy.signIn('Ed');
@@ -133,6 +138,36 @@ describe('chat: who wrote a General message', () => {
     cy.tid('chat-message').last().within(() => {
       cy.contains('.chip', 'orchestrator on ci-runner-01');
       cy.contains('.chip.warn', 'Name says Admin').should('have.attr', 'title', "This orchestrator's name says it is an Admin. Only a person signed in as an Admin is one.");
+    });
+  });
+});
+
+describe('chat: an agent answers only a channel that called it in', () => {
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+  const agentPost = (text, failOnStatusCode = true) => cy.request({ method: 'POST', url: `/api/fleet/sessions/${INVOICE}/chat/channels/general/messages`, headers: agentToken(), body: { text }, failOnStatusCode, log: false });
+
+  it('refuses an agent that was not called into General, and shows nothing of its words', () => {
+    cy.signIn('Ed');
+    agentPost('I was not asked.', false).then((r) => {
+      expect(r.status).to.eq(403);
+      expect(r.body.error).to.eq('You were not called into this channel in the last hour.');
+    });
+    cy.openConsole('#/chat');
+    cy.chatRow('c:general').find('button.ch-row').click();
+    // General is empty on a fresh server: the refused words are not in it.
+    cy.tid('chat-thread').should('not.contain.text', 'I was not asked.');
+    cy.tid('chat-message').should('have.length', 0);
+  });
+
+  it('lets the same agent answer once a person has mentioned it, and marks the answer as an orchestrator\'s', () => {
+    cy.signIn('Ed');
+    cy.request({ method: 'POST', url: `${API}/channels/general/messages`, headers: H, body: { text: '@invoice-v2@ed-mbp how is the build?' }, log: false }).its('status', { log: false }).should('eq', 201);
+    agentPost('The build is green.').its('status').should('eq', 201);
+    cy.openConsole('#/chat');
+    cy.chatRow('c:general').find('button.ch-row').click();
+    cy.tid('chat-thread').should('not.contain.text', 'I was not asked.');
+    cy.tid('chat-message').last().should('contain.text', 'The build is green.').within(() => {
+      cy.contains('.chip', 'orchestrator on ed-mbp');
     });
   });
 });

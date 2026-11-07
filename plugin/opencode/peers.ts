@@ -10,7 +10,7 @@ import { sessionPath, type Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
 import {
-  accessAnswer, answerPaused, channelArgument, chatReadAnswer, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
+  accessAnswer, answerPaused, channelArgument, channelSendAnswer, channelSendTarget, chatReadAnswer, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
   refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { Root } from './state.ts';
@@ -193,6 +193,14 @@ export class Peers {
     if (!to) return 'Not sent. Say who it is for: to is "name@machine", as podium_peers lists it.';
     if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
     const red = redactText(raw);
+    // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
+    const target = channelSendTarget(to);
+    if (target && 'refusal' in target) return target.refusal;
+    if (target) {
+      const channel = target.channel;
+      const posted = await this.call(t, 'POST', `${sessionPath(root.id)}/chat/channels/${channel}/messages`, { text: red.text });
+      return this.outcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: this.owner(), redactions: red.redactions }));
+    }
     const out = await this.call(t, 'POST', this.path(root, '/messages'), { to, text: red.text });
     return this.outcome('Not sent.', out, (body) => sendAnswer(body, { owner: this.owner(), here: this.d.machine(), to, redactions: red.redactions }));
   }

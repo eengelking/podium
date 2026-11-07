@@ -414,8 +414,10 @@ otherwise, `404` for a session the server does not hold). These are the route sh
 thread and agents addressing each other are #1035. A direct message is not reachable from them. Reading is the tool `podium_chat_read`
 ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md)).
 
-- `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, ... }`, `201 { ok: true, id, createdAt }`. The
-  channel's pause and disconnect flags bind the agent.
+- `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, replyTo? }`, `201 { ok: true, id, createdAt }`. The
+  channel's pause and disconnect flags bind the agent. An agent may post only to a channel it was called into, by the same rule as a read
+  (below): otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, so an agent never starts a
+  conversation nobody asked it to join (#1065). Posting is the tool `podium_send` to `channel:group` or `channel:general`.
 - `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: the last 60 minutes of the channel (fixed on the server, never
   chosen by the caller), the newest messages that fit in about 30,000 characters, oldest first. `{ ok: true, channel, messages, older }`;
   `older` is the cursor for the ones before them and is null when nothing older is inside the hour, so no message from before the hour is

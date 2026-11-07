@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing';
-import { CHAT_READ_HINT, PEER_MESSAGE_END, RULE, peerPrompt, SUBAGENT_CHAT_READ, TOOL_DESCRIPTIONS, chatReadAnswer, chatReadFrame, channelArgument, withChatHint } from './peers.ts';
+import { CHAT_ANSWER_HINT, CHANNEL_ADDRESS_REFUSAL, channelAddress, channelOfAddress, channelSendTarget, channelSendAnswer, SEND_TO_DESCRIPTION, CHAT_READ_HINT, PEER_MESSAGE_END, RULE, peerPrompt, SUBAGENT_CHAT_READ, TOOL_DESCRIPTIONS, chatReadAnswer, chatReadFrame, channelArgument, withChatHint } from './peers.ts';
 
 const at = Date.UTC(2026, 10, 6, 14, 5, 59);
 const body = (over: Record<string, unknown> = {}) => ({
@@ -126,7 +126,7 @@ describe('quoted text cannot pose as Podium\'s line (#1051 D1, D2)', () => {
 
 describe('the sentence that points an addressed agent at the tool (#1034)', () => {
   test('ends a channel message with where to read around it, and leaves other text as it is', () => {
-    expect(withChatHint('From Podium Chat, My group, Ed wrote:\nhi', { by: 'Ed', channel: 'My group' })).toBe(`From Podium Chat, My group, Ed wrote:\nhi\n\n${CHAT_READ_HINT('group')}`);
+    expect(withChatHint('From Podium Chat, My group, Ed wrote:\nhi', { by: 'Ed', channel: 'My group' })).toBe(`From Podium Chat, My group, Ed wrote:\nhi\n\n${CHAT_READ_HINT('group')} ${CHAT_ANSWER_HINT('group')}`);
     expect(CHAT_READ_HINT('general')).toBe('To see what was said around it, use podium_chat_read with channel "general".');
     expect(withChatHint('x', { by: 'Ed', channel: 'General' })).toContain('channel "general"');
     expect(withChatHint('x', { by: 'Ed' })).toBe('x');
@@ -136,5 +136,59 @@ describe('the sentence that points an addressed agent at the tool (#1034)', () =
 
   test('the owner\'s own Direct Message still gets only the answer hint', () => {
     expect(withChatHint('x', { by: 'Ed', chat: true })).toBe('x\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
+  });
+});
+
+describe('answering in the channel that called the agent (#1065)', () => {
+  test('the frame of a channel message names the address to answer to, for My group and for General', () => {
+    expect(CHAT_ANSWER_HINT('group')).toBe('To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:group".');
+    expect(CHAT_ANSWER_HINT('general')).toContain('podium_send to "channel:general".');
+    expect(withChatHint('x', { by: 'Ed', channel: 'General' })).toContain('podium_send to "channel:general".');
+    expect(withChatHint('x', { by: 'Ed', channel: 'My group' })).toContain('podium_send to "channel:group".');
+  });
+
+  test('a direct Chat message is still answered to the person, and names no channel', () => {
+    const out = withChatHint('x', { by: 'Ed', chat: true, channel: 'group' });
+    expect(out).toBe('x\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
+    expect(out).not.toContain('channel:');
+  });
+
+  test('reads the address back: the two channels only, whatever the case', () => {
+    expect(channelAddress('group')).toBe('channel:group');
+    expect(channelOfAddress('channel:group')).toBe('group');
+    expect(channelOfAddress(' Channel:General ')).toBe('general');
+    expect(channelOfAddress('channel:dm')).toBeNull();
+    expect(channelOfAddress('channel:')).toBeNull();
+    expect(channelOfAddress('person:Ed')).toBeNull();
+    expect(channelOfAddress('dev@ed-mbp')).toBeNull();
+    expect(channelOfAddress(undefined)).toBeNull();
+  });
+
+  test('decides where a podium_send address goes: a channel, a refusal for a malformed channel address, or null for every other address', () => {
+    expect(channelSendTarget('channel:group')).toEqual({ channel: 'group' });
+    expect(channelSendTarget(' Channel:General ')).toEqual({ channel: 'general' });
+    expect(channelSendTarget('channel:dm')).toEqual({ refusal: CHANNEL_ADDRESS_REFUSAL });
+    expect(channelSendTarget('CHANNEL:')).toEqual({ refusal: CHANNEL_ADDRESS_REFUSAL });
+    expect(CHANNEL_ADDRESS_REFUSAL).toBe('Not sent. A channel is channel:group (My group) or channel:general (General).');
+    expect(channelSendTarget('person:Ed')).toBeNull();
+    expect(channelSendTarget('dev@ed-mbp')).toBeNull();
+    expect(channelSendTarget('')).toBeNull();
+  });
+
+  test('the tool descriptions tell the agent it can post to the channel', () => {
+    expect(SEND_TO_DESCRIPTION).toContain('"channel:group"');
+    expect(SEND_TO_DESCRIPTION).toContain('"channel:general"');
+    expect(TOOL_DESCRIPTIONS.send).toMatch(/channel:group/);
+    expect(TOOL_DESCRIPTIONS.send).toMatch(/last hour/);
+    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/cannot post/);
+    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/podium_send to "channel:group"/);
+  });
+
+  test('what podium_send answers after a channel post says where it went and who can read it', () => {
+    const out = channelSendAnswer('group', { owner: 'Ed', redactions: 0 });
+    expect(out).toBe('Posted in My group. Everyone who can read the channel sees it, and Ed can too.');
+    expect(channelSendAnswer('general', { owner: 'Ed', redactions: 2 })).toContain('Posted in General. Everyone who can read the channel sees it');
+    expect(channelSendAnswer('general', { owner: 'Ed', redactions: 2 })).toContain('2 values that looked like secrets were replaced with [redacted]');
+    expect(channelSendAnswer('group', { owner: 'Ed', redactions: 1 })).toContain('1 value that looked like a secret was replaced');
   });
 });

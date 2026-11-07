@@ -28,8 +28,8 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
   };
 
   it('a message from an @ in a channel ends with where to read around it, in the channel it came from (#1034)', () => {
-    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'My group' })).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group".');
-    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'General' })).toContain('channel "general"');
+    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'My group' })).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:group".');
+    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'General' })).toContain('podium_send to "channel:general"');
     expect(framedMessage({ by: 'Ed', text: 'look' })).not.toContain('podium_chat_read');
   });
 
