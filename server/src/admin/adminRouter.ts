@@ -5,6 +5,7 @@
 import { randomBytes } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { jsonBody } from '../jsonBody.js';
+import type { AdminActs } from '../fleet/adminActs.js';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
 import type { ActivityHistoryApi, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
@@ -30,7 +31,7 @@ import { CROSS_DAYS } from '../tlsRotation.js';
 import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '../tlsPeople.js';
 import { sizeText } from '../fleet/sizeText.js';
 import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
-import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
+import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult, type StoredFilter } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
 import type { RecordingState } from '../fleet/protocol.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
@@ -70,6 +71,8 @@ export interface AdminRouterOptions {
   };
   /** Session recording (#353): the store, the Admin's limits and a way to tell open consoles a recording changed. Without it the recording routes answer 404. */
   recordings?: { service: SessionRecordingsApi; settings: LiveRecordingSettings; changed: (sessionId: string) => void };
+  /** Tells a person when an Admin stops or deletes their things (#1078). Without it the acts are only in the Admin log. */
+  adminActs?: AdminActs;
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -370,7 +373,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       throw err;
     }
     if (!out) return void res.status(404).json({ ok: false, error: 'unknown person' });
-    if (out.revoked) await audit(req, 'token_revoked', `Revoked the token of ${out.p.name}${out.certsRevoked > 0 ? ' and their certificate' : ''}`, { person_id: id, certificates_revoked: out.certsRevoked });
+    if (out.revoked) {
+      await audit(req, 'token_revoked', `Revoked the token of ${out.p.name}${out.certsRevoked > 0 ? ' and their certificate' : ''}`, { person_id: id, certificates_revoked: out.certsRevoked });
+      await acts?.onPerson(await adminName(req), 'access_revoked', out.p.name);
+    }
     res.json({ ok: true });
   }));
 
@@ -444,7 +450,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       if (err instanceof PeopleError) return fail(res, err);
       throw err;
     }
-    if (out.n > 0 || out.tokenRevoked) await audit(req, 'revoked_all', `Revoked the certificate and the token of ${t.person.name}`, { person_id: t.person.id });
+    if (out.n > 0 || out.tokenRevoked) {
+      await audit(req, 'revoked_all', `Revoked the certificate and the token of ${t.person.name}`, { person_id: t.person.id });
+      await acts?.onPerson(await adminName(req), 'access_revoked', t.person.name);
+    }
     res.json({ ok: true, revoked: out.n, tokenRevoked: out.tokenRevoked });
   }));
 
@@ -471,7 +480,11 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     try {
       const gone = await people.deleteMany(ids as number[]);
       if (gone.length === 0) return void res.status(404).json({ ok: false, error: 'unknown person' });
-      for (const p of gone) await audit(req, 'person_deleted', `Deleted ${p.name}`, { person_id: p.id });
+      const by = await adminName(req);
+      for (const p of gone) {
+        await audit(req, 'person_deleted', `Deleted ${p.name}`, { person_id: p.id });
+        await acts?.onPerson(by, 'person_deleted', p.name);
+      }
       res.json({ ok: true, removed: gone.length });
     } catch (err) {
       fail(res, err);
@@ -545,30 +558,56 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // Bulk removal and ignore rules (issue #167). These come before `/reporters/:key`, which would take "ignores" for a key.
   const MAX_BULK = 500;
+  /** Who owns each of these reporters and what it is called, read before they go. A reporter on the admin secret has no person to tell. */
+  const reporterOwners = async (keys: string[]): Promise<{ who: string; name: string }[]> => {
+    if (!acts) return [];
+    const out: { who: string; name: string }[] = [];
+    for (const k of keys) {
+      const d = await reporters?.get(k, now(), { page: 1, pageSize: 1 });
+      if (d && !d.adminSecret && d.who) out.push({ who: d.who, name: d.name });
+    }
+    return out;
+  };
+  const tellReporterOwners = async (req: Request, owners: { who: string; name: string }[]): Promise<void> => {
+    if (!acts || owners.length === 0) return;
+    const by = await adminName(req);
+    // One record and one callout for each person, however many of their reporters went (#1078).
+    const byWho = new Map<string, string[]>();
+    for (const o of owners) byWho.set(o.who, [...(byWho.get(o.who) ?? []), o.name]);
+    for (const [who, names] of byWho) await acts.onPerson(by, 'reporter_removed', who, names.length === 1 ? `your reporter ${names[0]}` : `${names.length} of your reporters`);
+  };
   const plural = (n: number) => `${n} reporter${n === 1 ? '' : 's'}`;
 
   router.post('/reporters/remove', asyncHandler(async (req, res) => {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
     const { keys, state, match } = (req.body ?? {}) as { keys?: unknown; state?: unknown; match?: unknown };
     let removed: number;
+    let owners: { who: string; name: string }[] = [];
     if (match !== undefined) {
       // Every reporter a filter holds, which can be more than one page: what "select all that match" asks for.
       const m = match as { q?: unknown; state?: unknown; admin?: unknown };
       if (!m || typeof m !== 'object' || Array.isArray(m)) return void res.status(400).json({ ok: false, error: 'match must be a filter' });
       if (m.state !== undefined && m.state !== '' && !REPORTER_STATES.includes(m.state as ReporterState)) return void res.status(400).json({ ok: false, error: 'match.state is not a reporter state' });
       // The filter and the removal are one step, so a reporter that has stopped matching by then is not taken.
-      removed = await storage.tx(async () => reporters.removeMany(await reporters.keys({ q: str(m.q), state: str(m.state), admin: m.admin === true }, now())));
+      removed = await storage.tx(async () => {
+        const found = await reporters.keys({ q: str(m.q), state: str(m.state), admin: m.admin === true }, now());
+        owners = await reporterOwners(found);
+        return reporters.removeMany(found);
+      });
     } else if (Array.isArray(keys)) {
       if (keys.length < 1 || keys.length > MAX_BULK || keys.some((k) => typeof k !== 'string' || reporterKey(k) === null)) {
         return void res.status(400).json({ ok: false, error: `keys must be 1 to ${MAX_BULK} reporter keys` });
       }
+      owners = await reporterOwners(keys as string[]);
       removed = await reporters.removeMany(keys as string[]);
     } else if (typeof state === 'string' && REPORTER_STATES.includes(state as ReporterState)) {
+      owners = await reporterOwners(await reporters.keys({ state }, now()));
       removed = await reporters.removeState(state as ReporterState, now());
     } else {
       return void res.status(400).json({ ok: false, error: 'give keys, a state or a match' });
     }
     await audit(req, 'reporter_removed', `Removed ${plural(removed)} from the list`, { count: removed });
+    await tellReporterOwners(req, owners);
     res.json({ ok: true, removed });
   }));
 
@@ -699,6 +738,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const d = await reporters.get(key, now());
     if (!d || !await reporters.remove(key)) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
     await audit(req, 'reporter_removed', `Removed the reporter ${d.name} from the list`, { reporter: key });
+    await tellReporterOwners(req, [{ who: d.who, name: d.name }]);
     res.json({ ok: true });
   }));
 
@@ -708,6 +748,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const activityState = async (h: NonNullable<typeof history>): Promise<ActivityHistoryState> => ({ settings: h.settings.get(), totals: await h.history.totals(), lastPurge: h.history.lastPurge, authOn: opts.secret !== null });
 
   const rec = opts.recordings;
+  const acts = opts.adminActs;
   const recordingState = async (r: NonNullable<typeof rec>) => ({ settings: r.settings.get(), totals: await r.service.totals(), authOn: opts.secret !== null });
 
   const featureList = () => FEATURES.map(({ defaultOn, ...f }) => ({ ...f, on: features ? features.featureOn(f.id) : defaultOn }));
@@ -912,6 +953,18 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     return who === null || who === ADMIN_SECRET_ACTOR ? 'Admin' : who;
   };
 
+  /** The sessions a stored-activity delete reaches: the ticked ones, or every session a filter (or everything) holds, a page at a time. */
+  const storedSessionsOf = async (h: NonNullable<typeof history>['history'], body: StoredDeleteBody): Promise<string[]> => {
+    if ('ids' in body) return body.ids;
+    const filter = 'match' in body ? body.match : ({} as StoredFilter);
+    const out: string[] = [];
+    for (let page = 1; ; page++) {
+      const got = await h.list(filter, page, 200);
+      out.push(...got.rows.map((r) => r.sessionId));
+      if (page * 200 >= got.match.sessions) return out;
+    }
+  };
+
   router.post(STORED_DELETE, jsonBody({ limit: '64kb' }), asyncHandler(async (req, res) => {
     const body = parseDeleteBody(req.body);
     if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
@@ -920,6 +973,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       rec.service.removeFor(body.value).then(async (out) => {
         for (const g of out.each) {
           await recordingDeleted(req, g);
+          await acts?.onSession(await adminName(req), 'recording_deleted', g.sessionId);
           rec.changed(g.sessionId);
         }
         res.json({ entries: out.entries, sessions: out.sessions, bytes: out.bytes, freed: out.freed });
@@ -927,7 +981,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       return;
     }
     if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
+    // The sessions that lose entries are read before they go, so each owner can be told (#1078).
+    const affected = acts ? await storedSessionsOf(history.history, body.value) : [];
     history.history.deleteBy(body.value).then(async (out) => {
+      for (const sid of affected) await acts?.onSession(await adminName(req), 'activity_deleted', sid);
       await audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
       res.json(out);
     }).catch(storeFailed(res));
@@ -1047,6 +1104,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!out) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     if (out.changed) {
       await audit(req, 'recording_stopped', `Stopped the recording of ${shortId(sid)}`, { session_id: sid });
+      await acts?.onSession(await adminName(req), 'recording_stopped', sid);
       rec.changed(sid);
     }
     res.json({ ok: true, grant: out.grant });
@@ -1057,7 +1115,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const sid = req.params.sessionId;
     if (!(await rec.service.has(sid))) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     rec.service.removeMany([sid]).then(async (out) => {
-      for (const g of out.each) await recordingDeleted(req, g);
+      for (const g of out.each) {
+        await recordingDeleted(req, g);
+        await acts?.onSession(await adminName(req), 'recording_deleted', g.sessionId);
+      }
       rec.changed(sid);
       res.json({ ok: true, entries: out.entries, bytes: out.bytes });
     }).catch(storeFailed(res));

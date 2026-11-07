@@ -15,7 +15,20 @@ export interface AdminReading {
 }
 
 /** What an Admin did in a thread that stays in it as a record line. A record from a server that does not say is a read. */
-export type AdminReadKind = "read" | "cleared" | "paused" | "resumed" | "disconnected" | "reconnected";
+export type AdminReadKind =
+  | "read"
+  | "cleared"
+  | "paused"
+  | "resumed"
+  | "disconnected"
+  | "reconnected"
+  | "recording_stopped"
+  | "recording_deleted"
+  | "activity_deleted"
+  | "session_deleted"
+  | "access_revoked"
+  | "person_deleted"
+  | "reporter_removed";
 export interface AdminRead {
   admin: string;
   startedAt: number;
@@ -554,7 +567,17 @@ const GONE_WHAT: Record<AdminReadKind, string> = {
   resumed: "resumed",
   disconnected: "disconnected the agents in",
   reconnected: "reconnected the agents in",
+  recording_stopped: "stopped a recording of one of your sessions",
+  recording_deleted: "deleted a recording of one of your sessions",
+  activity_deleted: "deleted the stored activity of one of your sessions",
+  session_deleted: "deleted one of your sessions",
+  access_revoked: "revoked your Podium access",
+  person_deleted: "deleted your Podium account",
+  reporter_removed: "removed one of your reporters from the Reporters list",
 };
+
+/** An Admin's stop or delete of the person's own things (#1078): it has no conversation, so the line names no other party. */
+export const isActRecord = (r: Pick<GoneRead, "kind">): boolean => !["read", "cleared", "paused", "resumed", "disconnected", "reconnected"].includes(r.kind);
 
 /** The parts of the quiet line for a record of a deleted conversation: the Admin, what they did, the other party and when. The page puts the names in <bdi>. */
 export const goneRecordParts = (r: GoneRead): { admin: string; what: string; with: string; when: string } => ({ admin: adminWho(r.admin), what: GONE_WHAT[r.kind] ?? GONE_WHAT.read, with: r.with, when: onDay(r.startedAt) });
