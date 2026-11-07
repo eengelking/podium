@@ -69,7 +69,7 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
   const sources = new AsyncLocalStorage<string>();
   const withSource = <T>(src: string, fn: () => T): T => sources.run(src, fn);
   const actorName = (a: Actor): string => (a.name === ADMIN_OWNER ? ADMIN_SECRET_ACTOR : a.name);
-  const pair = (m: MessageRow): string => `${m.fromName} on ${m.fromMachine} to ${m.toName} on ${m.toMachine}, ${m.owner}'s`;
+  const pair = (m: MessageRow): string => `${m.author === 'person' ? `${m.fromName} (a person)` : `${m.fromName} on ${m.fromMachine}`} to ${m.toSession.startsWith('person:') ? `${m.toName} (a person)` : `${m.toName} on ${m.toMachine}`}, ${m.owner}'s`;
   const short = (id: string): string => id.slice(0, 12);
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
     // Called from the peer service's synchronous events: the entry is queued now, in order, and the server-log line follows it.
@@ -80,6 +80,12 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
   };
 
   fleet.peers.onMessage = (t: MessageTrail) => {
+    // Chat moves the mention a person wrote to another person's agent, and signals both sides (#1034). It never stops the log below.
+    try {
+      fleet.chat.peerTrail(t);
+    } catch (err) {
+      logger.warn('chat.failed', `podium: Chat could not follow a message: ${(err as Error).message}`, { reason: (err as Error).message });
+    }
     const m = t.message;
     const fields = { owner: m.owner, from_session: m.fromSession, to_session: m.toSession, message_id: short(m.id) };
     if (t.kind === 'sent') {
@@ -100,6 +106,9 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
     switch (t.kind) {
       case 'set':
         row('peer_right_set', `${machine(t.right.from)} to ${machine(t.right.to)}, ${t.right.owner}'s: ${LEVEL_WORDS[t.right.level]}`, actorName(t.actor), { owner: t.right.owner, from_key: t.right.from, to_key: t.right.to, level: t.right.level, admin: t.actor.admin });
+        break;
+      case 'person-link':
+        row(`peer_person_link_${t.op === 'allow' ? 'opened' : t.op === 'pause' ? 'paused' : t.op === 'resume' ? 'resumed' : 'removed'}`, `Link between ${t.person.slice('person:'.length)} (a person) and ${machine(t.toKey)}, ${t.owner}'s: ${t.op === 'allow' ? 'opened' : t.op === 'pause' ? 'paused' : t.op === 'resume' ? 'resumed' : 'removed'}`, actorName(t.actor), { owner: t.owner, person: t.person, to_key: t.toKey, admin: t.actor.admin });
         break;
       case 'paused':
       case 'resumed':

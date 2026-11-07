@@ -241,20 +241,35 @@ take part`, `not your session`, `messaging is off on this machine: turn on the r
 refusal is `{ ok: false, error }`, the error in words the mod can show the model as is.
 
 **`GET /api/fleet/sessions/:id/peers`**: what `podium_peers` answers.
-- `200 { ok: true, peers, leftOut }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", id, duplicate, name,
+- `200 { ok: true, peers, leftOut, people }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", id, duplicate, name,
   machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the first eight characters of the
   session id; `duplicate` is true when more than one orchestrator the asker can reach has that name and machine. `leftOut` lists the owner's reporters with no
   orchestrator listed, and why: `messaging off on the machine`, `reporter too old to message`, `no right to see it`, `no
-  orchestrator running`.
+  orchestrator running`. `people` (#1034) are the people who wrote to this orchestrator through Chat and whom it may answer, because
+  the owner's link to them is open or paused: `{ address: "person:eve", name, paused }`. A person with no link, or whose link was removed, is not listed.
 
 **`POST /api/fleet/sessions/:id/peers/messages`**: `podium_send`.
-- Body `{ to: "name@machine" | "name@machine#id", text }`, at most 128 KB. `id` is a prefix of the target's session id,
+- Body `{ to: "name@machine" | "name@machine#id" | "person:name", text }`, at most 128 KB. `id` is a prefix of the target's session id,
   as `podium_peers` lists it; it picks one of several orchestrators that share the name. A plain `name@machine` that
   matches more than one is a `409` that lists the `name@machine#id` forms to use (#500).
 - `202 { ok: true, id, state, paused, approvalWhy, requestId, to: { name, machine }, roundTrips: { used, cap } }`.
   `state` is `sent` (the receiver is idle and gets it in its next reply), `turn` (it gets it when its turn ends) or
   `approval` (it waits for the owner; `approvalWhy` is `link` or `round-trips`, and `requestId` names the request).
   `paused` says the link is paused, so it waits for a resume too.
+- **An answer to a person (#1034).** `to: "person:<name>"` answers a person who wrote to this orchestrator through Chat. The reply is
+  `202` with `person: true` and `to: { name, machine: "" }`, `state` `sent`, `paused` false and no `requestId`: the answer is stored at
+  once as delivered, because the person has no reporter to hand it to, and no answer comes back unless they write again. It is
+  allowed only when this session holds a stored message from that person to it **and** the owner's link to that person is open
+  or paused. Any other `person:x`, including a person who never wrote to this session, is the generic `404` `You cannot see an
+  orchestrator called person:x. Run podium_peers for the list.`, which never names the owner's other agents. A removed link is a
+  `403` with the reason, and a paused link is a `409` with the reason: the answer is refused, not held. The messages per minute on the
+  link is a `429`, an empty text or one over the longest message is refused as for any send, and an agent that has ended is a `403`.
+  There is no cap on answers beyond the per-minute limit, and a person's messages never count towards or reset the round-trip cap.
+  The same address answers the agent's own owner: `person:<owner>` is allowed when this session holds a stored message from that owner
+  (one they wrote from Chat to this agent), needs no link, and is stored in the same conversation (`dm/me/<session>`), read by the owner and
+  an Admin. The owner's one reader gets one unread and a mention. If the owner deleted the conversation there is no message to answer
+  and the generic `404` follows. The owner's own Chat message reaches the agent as a delivery with `chat: true`, and the reporter ends the
+  text with `To answer in the Chat thread, use podium_send to "person:<owner>".` (older reporters ignore the field).
 - `400` for a body that is not `to` and `text` strings, or an empty text. `404` for a `to` that is not one of the owner's
   live orchestrators this one can see (whoever else it may be). `409` when two orchestrators answer to that address.
   `422` to itself, or over the longest message. `403` with a right to see only. `429` over the messages per minute on
@@ -282,7 +297,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
 - `took` marks a message delivered. `queued` says it waits for the session to be idle (a `took` follows). `refused`
   drops it, and its sender is told. A notice is let go on any result.
 
-**`GET /api/fleet/peers/traffic?range=live|24h|30d`**: Traffic's map and table, open to every reader.
+**`GET /api/fleet/peers/traffic?range=live|24h|30d`**: Traffic's map and table, open to every reader. Traffic is deprecated (announced in 1.6, removed in 1.9, [DEPRECATIONS](../../DEPRECATIONS.md)); the route keeps working until then, and `#/traffic` opens Chat.
 - `{ enabled, conversations, retainDays, serverTime }`, each conversation `{ link, a, b, owner, messages, lastAt,
   state: "active" | "waiting" | "paused", paused, aToB, bToA, roundTrips }` (`a` and `b` are `{ sessionId, name,
   machine, reporterKey }`; `state` is `waiting` while a message waits for approval even on a paused link, and `paused`
@@ -302,8 +317,9 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
   `machine`, `os`, `peers`, `version`, `state`, `lastSeenAt` and `compat` as Admin > Reporters works them out, and
   `live`, its live orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
   `requests` are the open ones, each a `PeerRequest` with `fromKey` and `toKey` (the two reporter keys, so the page
-  can tell apart two machines that share a name) and `messageId`. The mod's `peerRequests` carry the `PeerRequest`
-  alone.
+  can tell apart two machines that share a name) and `messageId`, and `fromPerson`, true for a person's message to
+  this owner's agent from Chat (`fromKey` is then `person:<name>`, not a reporter; see Chat below). The mod's
+  `peerRequests` carry the `PeerRequest` alone.
 - `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `200 { ok: true, right }`. `403` when
   either reporter is another person's, on the admin secret, or the two belong to different people.
 - `PUT /api/fleet/respond/peers/links`: `{ a, b, paused }`, Pause link or Resume link, both directions.
@@ -315,6 +331,122 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 - `GET /api/fleet/respond/peers/conversations/:a/:b`: one conversation's messages with their text, oldest first, for its
   owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
   stateAt, why, approved }`. `403` for anyone else, `404` when there is none.
+
+## Routes for Chat (#1034)
+
+Chat is the console's page for conversation: two channels, **General** (everyone signed in) and **My group** (a person and
+their own agents), and **Direct Messages** (the conversations between two of a person's agents, or between the person and
+one agent, kept in `peer_messages`). The browser's routes are on responding's `/respond` router like the messaging routes above,
+so they need its sign-in and `X-Podium-Respond: 1` on a change, and send `Cache-Control: no-store`. Every one answers `403`
+while orchestrator messaging is off (`orchestrator messaging is off`) and `403` for a browser that is not signed in (`sign in to use Chat`).
+A route answers `{ ok: false, error }` for a refusal, with words a person can read. The rules for who may read what are in
+[7.7](07-07-hardening.md#chat-1034).
+
+Each route is on one of three sides, kept in separate code so that a missed filter cannot send one audience's text to another:
+the channels, the direct messages, and what an agent may do with its reporter's token. No channel route returns a
+`peer_messages` row, and no direct-message route returns a channel message.
+
+- `GET /api/fleet/respond/chat`: what the page opens with, counts and names and never a message's text. `{ enabled: true,
+  serverTime, me: { name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
+  channels, directs, agents, people, approvals }`. `channels` has General, and My group for a person: each `{ id: "general" |
+  "group", name, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
+  adminReading, can: { pause, pauseEveryone, disconnect, removeAll } }`. `pausedByAdmin` is the Admin's name while an Admin's pause holds
+  the channel, and `adminReading` is the Admins reading it now, each `{ admin, since, until }` (My group only; empty when no one is, and never one
+  whose `until` has passed). `directs` are the viewer's conversations that are not hidden (7.5), each with the
+  two sides, the unread count, the link between two people when there is one, `pausedBy` (`sender`, `owner` or `admin`), `pausedByAdmin`, `adminReading` and the other states the page shows; a person
+  who wrote to another person's agent sees that conversation too, and its owner does. `agents` are the person's own live
+  agents with `address` (`name@machine`), `status`, `waitReason` and whether the reporter has `peers` on. `people` are the
+  names of everyone who can sign in. `approvals` is how many messages from other people wait for this person as an agent's
+  owner. The admin secret has no person: it gets General only and no counts.
+  `GET /api/fleet/respond/chat?owner=<name>` is an Admin's way to see one person's Chat: the same shape about that person, with names and
+  counts only and no text, and the counts are 0 because they are not the Admin's to see or clear. `403` for anyone who is not an Admin, `404`
+  for a name that is no one's, `400` for an empty one. It records no read; the Admin log gets `chat_admin_browse`, once for each Admin and person in 30 minutes.
+- `POST /api/fleet/respond/chat/read`: `{ thread, upTo }`. Marks a thread of the viewer's read up to a cursor and answers
+  `{ ok: true, unread, mentions }`. `403` for a thread that is not the viewer's.
+- `GET /api/fleet/respond/chat/channels/:channel/messages?limit=&before=&owner=`: one page of a channel, newest page first,
+  each page oldest first. `:channel` is `general` or `group` (`404` otherwise). `limit` is 1 to 100 (default 50). `before`
+  is the `older` of the page after it. `owner` is for an Admin naming a person's group. `200 { ok: true, channel,
+  messages, older, total, adminReads }`. `adminReads` is the channel's record: each `{ admin, startedAt, lastSeenAt, kind }`, oldest first, where
+  `kind` is `read`, `cleared`, `paused` or `resumed`. An Admin's read of a person's group is recorded and the person is told before this answers
+  (7.7); General is never read-recorded, so its `adminReads` holds only an Admin's stops.
+- `POST /api/fleet/respond/chat/channels/group/reading`: `{ owner }`. An Admin's open group says it is still being read, which the page sends every
+  15 seconds. `200 { ok: true }`, content-free; `403` for anyone who is not an Admin, `400` for General (public, never recorded) and for the Admin's own group.
+- `POST /api/fleet/respond/chat/channels/:channel/messages`: `{ text, replyTo?, issue?, project?, milestone? }`. `201 { ok:
+  true, message, warnings }`. The text is cleaned and secrets are replaced by `[redacted]` before it is stored. A message over
+  `maxChars` is a `422`, over `perMinute` an author's posts a `429` with the seconds to wait, and an empty one a `400`; none is cut.
+  Each `@` in the text is worked out as in "Addressing" below, and `warnings` names a mention that could not be delivered.
+  `owner` may name a group, but only to be refused: an Admin reads and stops a person's group and never writes in it, so a message into a group that is not the sender's own is a `403`.
+- `PUT /api/fleet/respond/chat/channels/:channel/pause`: `{ paused, everyone?, owner? }`. **Pause** holds messages for the agents
+  and keeps their access; resuming delivers what was held, in order. `everyone` pauses General for every agent and is an Admin's
+  (`403` otherwise). `200 { ok: true, delivered, paused, pausedForEveryone, disconnected }`.
+- `PUT /api/fleet/respond/chat/channels/:channel/disconnect`: `{ disconnected, owner? }`. **Disconnect** takes the person's
+  agents' access to the channel away. In My group it is the person's or an Admin's; in General it is the person's own agents only.
+- `DELETE /api/fleet/respond/chat/channels/:channel/messages`: `{ owner? }`. **Remove all messages**: a person's own group
+  (or an Admin's), or General (an Admin's only, `403` for anyone else). `200 { ok: true, removed }`.
+- `GET /api/fleet/respond/chat/addresses?channel=&q=`: what a typed `@` can mean in a channel, narrowed by `q` (the start of
+  `name@location`). `200 { ok: true, addresses }`.
+- `GET /api/fleet/respond/chat/dm/:a/:b/messages?limit=&before=`: one page of a conversation between two ids (a session
+  id, or `person:<name>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
+  owner, the person who wrote in one across owners, and an Admin may read it (`403` otherwise, `404` when there is none). The answer also holds
+  `pausedBy`, `pausedByAdmin` and `adminReads` (the conversation's record, as for a channel). An Admin's read is recorded and the people in it told before it answers.
+- `POST /api/fleet/respond/chat/dm/:a/:b/reading`: an Admin's open conversation says it is still being read, every 15 seconds. `200 { ok: true }`;
+  `403` for anyone who is not an Admin and for a conversation that is the Admin's own, `404` when there is none.
+- `POST /api/fleet/respond/chat/dm/:a/:b/messages`: `{ text, to? }`. The person writes to one agent of a conversation, or
+  to both when adding to a conversation between two (`to` names the agent ids; it defaults to every agent of the conversation).
+  The text goes to each agent as a message of the console, through responding's delivery and the reporter's consent (the
+  Admin's respond flags, and the reporter's respond level at `questions` or higher with `activityFeed` and `peers` on), and is
+  stored with the person as its author. `202 { ok: true, message, skipped, errors }`: `skipped` is an agent that has ended and will
+  not receive it, `errors` an agent that could not take it. `409` when every agent has ended (nothing is queued), `429` at 20
+  waiting for one agent, and `403` for a person who is not the conversation's owner.
+- `PUT /api/fleet/respond/chat/dm/:a/:b/link`: `{ op }`, `pause`, `resume`, `remove` or `allow`, on a conversation between
+  a person and another person's agent. Either person of it may pause or remove at any time; only the agent's owner may
+  `allow`; and only whoever paused a link, or an Admin, may resume it (`403` names who). An Admin may `pause` and `resume` any link, including one
+  between two of a person's own reporters, and may not `remove` or `allow` (`403`). An Admin's pause is kept with the Admin's name (`pausedByAdmin`), the
+  owner cannot resume it, and pausing again does not take it over. For anyone else, `404` for a link between two of
+  one person's own reporters: those are changed on My reporters.
+- `DELETE /api/fleet/respond/chat/dm/:a/:b`: **Delete conversation**, its messages and its row. The link and its rights stay.
+  Either person of a conversation across owners may.
+
+**For an agent.** An agent posts to and reads a channel with its reporter's token, the way the other mod routes do
+(`X-Podium-Token`, the person's token that owns the session, a session whose last report said `peers: true`; `403`
+otherwise, `404` for a session the server does not hold). These are the route shapes only; the agent's tools, replying in a
+thread and agents addressing each other are #1035. A direct message is not reachable from them. Reading is the tool `podium_chat_read`
+([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md)).
+
+- `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, ... }`, `201 { ok: true, id, createdAt }`. The
+  channel's pause and disconnect flags bind the agent.
+- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: the last 60 minutes of the channel (fixed on the server, never
+  chosen by the caller), the newest messages that fit in about 30,000 characters, oldest first. `{ ok: true, channel, messages, older }`;
+  `older` is the cursor for the ones before them and is null when nothing older is inside the hour, so no message from before the hour is
+  ever returned. A message is `{ id, authorKind, authorName, text, createdAt, replyTo }` and nothing else: no session id, no delivery
+  state. The agent may read a channel only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
+  of the same reporter and name, as delivery resolves it) is stored in that channel inside the hour, and My group is always the agent's own
+  person's. Otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, which names nothing. A
+  disconnected channel is a `403` too; a paused one can still be read. Reading changes no mention.
+
+**Addressing.** A person addresses an agent with `name@location` (the same address the messaging tools use); typing `@` opens a
+list of what can match, narrowed as more is typed. `@group` (every agent in the sender's group) and `@everyone` (everyone signed in)
+are refused, with nothing sent, until an Admin turns on **Address @group and @everyone in Chat** (`chat-everyone`, off by default).
+A stored mention keeps the session id, the reporter key and the address as typed. It is delivered to that session when it is live,
+otherwise to the one live session with the same reporter key and name; if neither works, or more than one live session matches, it
+shows "Not delivered" and why. A mention's state is one of `waiting`, `working`, `done`, `not-delivered`, `held` (the channel
+is paused), `dropped` (the agent ended first) and `approval` (an agent of another person, waiting for its owner). The text an agent
+receives from a channel begins "From Podium Chat, <channel>, <name> wrote:".
+
+**Another person's agent.** An `@` of another person's agent, in a channel or a direct message, is not delivered at once.
+It is held as a request in the agent owner's My reporters list (`fromPerson` above), and the sender sees "Waiting for <owner> to
+approve". At most 5 messages from one person wait at one owner, and a second while one waits is refused. Allow opens a link between
+that person and the agent's reporter and delivers; Decline drops the message with the reason. An Admin needs the owner's approval
+as well; an Admin's powers over another person's group are to read, pause, disconnect and clear it (never to write in it), and over a Direct Message to read it and pause and resume its link. Either person of the
+link can Pause, Remove it, or Delete the conversation at any time. The agent receives the text framed as written by that person,
+never as its owner's words ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)).
+The agent can answer that person with `podium_send` to `person:<name>` while the link is open or paused (the peers route above). The
+answer is stored in `peer_messages` as the agent's, in the same conversation, so it is read by both owners and an Admin, and it adds one
+unread and one mention for the person and one unread for the owner. A reporter older than this release keeps the old frame, which tells
+the agent its answer is not passed back, and fails safe.
+
+**Not in this release.** Sending selected messages to an agent did not ship. Delivery is `queue` on both harnesses
+(an agent takes a message when its turn ends); OpenCode's `steer` was evaluated (#1033) and deferred.
 
 ## Certificate routes (#577)
 
@@ -478,6 +610,10 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - orchestrator messaging (#347): `peerMessaging` `{ roundTrips, perMinute, maxChars, retainDays }`, whole numbers
       from 1 to 100, 1 to 60, 1 to 20,000 and 1 to 365 (defaults 10, 6, 20,000 and 30), any of them in one change,
       written to the Admin log as `peer_limits_changed`;
+    - Chat (#1034): `chat` `{ retainDays, graceHours, maxChars, perMinute }`, whole numbers from 1 to 365, 1 to 720, 1 to 20,000
+      and 1 to 600 (defaults 30, 24, 4,000 and 6), any of them in one change, all of them validated before any is written, written
+      to the Admin log as `chat_settings_changed`. The reply of `GET settings` carries them as `chat`. The switch for `@group` and
+      `@everyone` is the feature flag `chat-everyone`;
     - the Activity history (#432): the reply's `activityHistory` is `{ settings: { policy, n, unit, capGb },
       totals: { entries, bytes, sessions, fileBytes }, lastPurge: { at, entries, bytes } | null, authOn }` (`bytes` is
       the entries' estimated size, `fileBytes` the file's pages in use, for "on disk"), and a change sends

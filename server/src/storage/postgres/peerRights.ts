@@ -7,7 +7,10 @@ import { randomBytes } from 'node:crypto';
 import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel, type PeerRequestKind } from '../../fleet/protocol.js';
 import {
   OWNER_DEFAULTS,
+  isPersonKey,
   refuse,
+  type LinkPauser,
+  type PersonLinkOp,
   type AccessOutcome,
   type Actor,
   type AnswerOutcome,
@@ -28,6 +31,7 @@ import type { PgDb } from './conn.js';
 const RANK: Record<PeerLevel, number> = { none: 0, see: 1, ask: 2, send: 3 };
 const ON_REQUEST: readonly OwnerDefaults['onRequest'][] = ['ask', 'allow', 'decline'];
 const NEW_SEND: readonly OwnerDefaults['newSend'][] = ['ask', 'send'];
+const ADMIN_PAUSED = 'An Administrator paused this link, so only an Administrator can resume it.';
 const NO_ADMIN = 'a reporter on the admin secret cannot take part';
 
 interface DbRight {
@@ -36,6 +40,8 @@ interface DbRight {
   owner: string;
   level: PeerLevel;
   paused: number;
+  paused_by: string | null;
+  paused_by_admin: string | null;
   set_at: number;
 }
 
@@ -82,7 +88,9 @@ function cleanReason(s: string): string {
   return out.trim();
 }
 
-const toRight = (r: DbRight): RightRow => ({ from: r.from_key, to: r.to_key, owner: r.owner, level: r.level, paused: r.paused === 1, setAt: r.set_at });
+/** Who paused a stored right, for the answers that carry it. */
+const pauser = (r: RightRow | null | undefined): Pick<RightRow, 'pausedBy' | 'pausedByAdmin'> => (r?.paused ? { ...(r.pausedBy ? { pausedBy: r.pausedBy } : {}), ...(r.pausedByAdmin ? { pausedByAdmin: r.pausedByAdmin } : {}) } : {});
+const toRight = (r: DbRight): RightRow => ({ from: r.from_key, to: r.to_key, owner: r.owner, level: r.level, paused: r.paused === 1, ...(r.paused === 1 && r.paused_by ? { pausedBy: r.paused_by as LinkPauser } : {}), ...(r.paused === 1 && r.paused_by === 'admin' && r.paused_by_admin ? { pausedByAdmin: r.paused_by_admin } : {}), setAt: r.set_at });
 
 const toRequest = (r: DbRequest): PeerRequestRow => ({
   id: r.id,
@@ -213,14 +221,16 @@ export class PgPeerRights implements PeerRightsStoreApi {
     return r ? toRight(r) : null;
   }
 
-  private async write(from: string, to: string, owner: string, level: PeerLevel, paused: boolean): Promise<RightRow> {
+  private async write(from: string, to: string, owner: string, level: PeerLevel, paused: boolean, pausedBy: LinkPauser | null = null, adminName: string | null = null): Promise<RightRow> {
     const setAt = this.now();
+    const by = paused ? pausedBy : null;
+    const named = by === 'admin' ? adminName : null;
     await this.db.run(
-      `INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(from_key, to_key) DO UPDATE SET owner = excluded.owner, level = excluded.level, paused = excluded.paused, set_at = excluded.set_at`,
-      [from, to, owner, level, Number(paused), setAt],
+      `INSERT INTO peer_rights (from_key, to_key, owner, level, paused, paused_by, paused_by_admin, set_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(from_key, to_key) DO UPDATE SET owner = excluded.owner, level = excluded.level, paused = excluded.paused, paused_by = excluded.paused_by, paused_by_admin = excluded.paused_by_admin, set_at = excluded.set_at`,
+      [from, to, owner, level, Number(paused), by, named, setAt],
     );
-    return { from, to, owner, level, paused, setAt };
+    return { from, to, owner, level, paused, ...(by ? { pausedBy: by } : {}), ...(named ? { pausedByAdmin: named } : {}), setAt };
   }
 
   private async drop(from: string, to: string): Promise<void> {
@@ -235,26 +245,62 @@ export class PgPeerRights implements PeerRightsStoreApi {
   }
 
   /** Pauses or resumes every direction of a link. A pause with no right yet is kept as a `none` row so it holds; a resume drops such rows. */
-  private async pausePair(owner: string, a: string, b: string, paused: boolean): Promise<void> {
+  private async pausePair(owner: string, a: string, b: string, paused: boolean, by: LinkPauser | null = null, adminName: string | null = null): Promise<void> {
     for (const [f, t] of directions(a, b)) {
       const had = await this.row(f, t);
-      if (paused) await this.write(f, t, owner, had?.level ?? 'none', true);
+      // An Admin's pause stays an Admin's: a pause by anyone else does not take it over, and only an Admin lifts it (#1034).
+      const theirs = had?.paused === true && had.pausedBy === 'admin';
+      if (paused) await this.write(f, t, owner, had?.level ?? 'none', true, theirs ? 'admin' : by, theirs ? (had?.pausedByAdmin ?? null) : adminName);
+      else if (theirs && by !== 'admin') continue;
       else if (had?.level === 'none') await this.drop(f, t);
       else if (had) await this.write(f, t, owner, had.level, false);
     }
   }
 
   async effective(from: string, to: string): Promise<EffectiveRight> {
+    // A person's link to another person's agent (#1034) has no Trust and no second owner: the row is the whole answer.
+    if (isPersonKey(from)) {
+      const link = await this.row(from, to);
+      return { level: link?.level ?? 'none', paused: link?.paused ?? false, ...pauser(link) };
+    }
     const p = await this.pair(null, from, to);
     if (!p.ok) return { level: 'none', paused: false };
     const had = await this.row(from, to);
-    return { level: (await this.defaults(p.owner)).trust ? 'send' : (had?.level ?? 'none'), paused: had?.paused ?? false };
+    return { level: (await this.defaults(p.owner)).trust ? 'send' : (had?.level ?? 'none'), paused: had?.paused ?? false, ...pauser(had) };
   }
 
   /** Owners are compared with `nameKey` in JS, the way the SQLite store does, so one rule folds case on every adapter. */
   async rightsOf(owner: string): Promise<RightRow[]> {
     const key = nameKey(owner);
-    return (await this.db.all<DbRight>('SELECT * FROM peer_rights ORDER BY from_key, to_key')).filter((r) => nameKey(r.owner) === key).map(toRight);
+    // A person's link (#1034) is not one of the reporters' Grid, so it is left out; `personLink` reads it.
+    return (await this.db.all<DbRight>('SELECT * FROM peer_rights ORDER BY from_key, to_key')).filter((r) => nameKey(r.owner) === key && !isPersonKey(r.from_key)).map(toRight);
+  }
+
+  async personLink(personKey: string, toKey: string): Promise<RightRow | null> {
+    return isPersonKey(personKey) ? this.row(personKey, toKey) : null;
+  }
+
+  setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal> {
+    return this.db.tx(async () => {
+      if (!isPersonKey(personKey) || personKey.length <= 'person:'.length) return refuse(400, 'a person link starts at a person');
+      const r = await this.reporters.get(toKey);
+      if (!r) return refuse(404, 'no such reporter');
+      if (!eligible(r)) return refuse(403, NO_ADMIN);
+      if (`person:${nameKey(r.owner)}` === personKey) return refuse(403, "a person's own agents need no link");
+      const had = await this.row(personKey, toKey);
+      let right: RightRow | null;
+      if (op === 'allow') right = await this.write(personKey, toKey, r.owner, 'send', false);
+      else if (op === 'remove') {
+        if (!had || had.level === 'none') return refuse(404, 'there is no link to remove');
+        // A `none` row is kept, so a removed link holds: the person's next message is refused, not asked about again.
+        right = await this.write(personKey, toKey, r.owner, 'none', false);
+      } else {
+        if (!had || had.level === 'none') return refuse(404, 'there is no link to pause');
+        right = await this.write(personKey, toKey, r.owner, had.level, op === 'pause', op === 'pause' ? (pausedBy ?? null) : null, actor.name);
+      }
+      await this.trail({ kind: 'person-link', op, owner: r.owner, person: personKey, toKey, actor });
+      return { ok: true as const, right };
+    });
   }
 
   setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal> {
@@ -275,7 +321,10 @@ export class PgPeerRights implements PeerRightsStoreApi {
     return this.db.tx(async () => {
       const p = await this.pair(owner, a, b);
       if (!p.ok) return p;
-      await this.db.savepoint('peer_rights', () => this.pausePair(p.owner, a, b, paused));
+      // owner === null is an Admin acting on someone else's link: their pause is theirs, and the owner cannot lift it.
+      const admin = owner === null;
+      if (!paused && !admin) for (const [f, t] of directions(a, b)) if ((await this.row(f, t))?.pausedBy === 'admin') return refuse(403, ADMIN_PAUSED);
+      await this.db.savepoint('peer_rights', () => this.pausePair(p.owner, a, b, paused, admin ? 'admin' : null, admin ? actor.name : null));
       await this.trail({ kind: paused ? 'paused' : 'resumed', owner: p.owner, a, b, actor });
       return { ok: true as const };
     });
@@ -456,7 +505,8 @@ export class PgPeerRights implements PeerRightsStoreApi {
         'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',
       );
       for (const { k } of keys) {
-        if (await this.reporters.get(k)) continue;
+        // A person's end of a link is not a reporter; it goes with the reporter on the other end.
+        if (isPersonKey(k) || (await this.reporters.get(k))) continue;
         n += await this.db.run('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?', [k, k]);
         await this.db.run('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?', [k, k]);
       }

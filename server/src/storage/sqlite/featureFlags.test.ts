@@ -15,7 +15,7 @@ describe('FeatureFlags', () => {
     expect(ACTIVITY_FEED).toBe('activity-feed');
     expect(RESPOND).toBe('respond');
     const flags = new FeatureFlags(openDb(':memory:'));
-    expect(flags.view()).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'session-recording': false, 'update-check': true });
+    expect(flags.view()).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'update-check': true });
   });
 
   it('lists Bash output in the activity feed under the feed, off by default, worded as the mockup says (#431)', () => {

@@ -2,13 +2,13 @@
 describe('top bar', () => {
   before(() => cy.resetServer());
 
-  it('shows Board, History and Traffic on the wall, with no Fleet button and no Admin button', () => {
+  it('shows Board, History and Chat on the wall, with no Fleet button and no Admin button', () => {
     cy.openConsole('#/');
     cy.tid('page-pill').should('have.text', 'Fleet');
     cy.get('#podium-top').within(() => {
       cy.contains('a.btn', 'Board');
       cy.contains('a.btn', 'History');
-      cy.contains('a.btn', 'Traffic');
+      cy.contains('a.btn', 'Chat');
       cy.contains('a.btn', /^Fleet$/).should('not.exist');
       cy.contains('a.btn', 'Admin').should('not.exist');
       cy.get('a.logo').should('have.attr', 'aria-label', 'Podium, fleet').and('have.attr', 'href', '#/');
@@ -25,9 +25,9 @@ describe('top bar', () => {
     cy.tid('page-pill').should('have.text', 'History');
     cy.get('#podium-top').contains('a.btn', /^History$/).should('not.exist');
 
-    cy.visit('/#/traffic');
-    cy.tid('page-pill').should('have.text', 'Traffic');
-    cy.get('#podium-top').contains('a.btn', /^Traffic$/).should('not.exist');
+    cy.visit('/#/chat');
+    cy.tid('page-pill').should('have.text', 'Chat');
+    cy.get('#podium-top').contains('a.btn', /^Chat$/).should('not.exist');
   });
 
   it('names an orchestrator page "Orchestrator" and the Fleet button returns to the wall', () => {

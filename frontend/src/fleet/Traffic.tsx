@@ -4,6 +4,7 @@
 // link and Remove link act through the owner's routes. Text an orchestrator wrote is drawn as text nodes.
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./admin/admin.css";
+import "./chat.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
@@ -154,6 +155,9 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
       <div className="apage">
         <div className="apage-in">
           <PageHeader title="Traffic" lead={lead} />
+          <div className="ch-nav" role="note" data-testid="traffic-deprecated">
+            <b>Traffic is retired.</b> Chat replaces it: the same conversations are Direct Messages there, and Pause link and Remove link are in the menu on each one. <a href="#/chat">Open Chat</a>
+          </div>
           {body}
           {traffic.data?.enabled && links.length > 0 && <Rules retainDays={traffic.data.retainDays} />}
         </div>

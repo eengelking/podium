@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { FleetApp } from "./fleet/FleetApp";
 import { AdminView } from "./fleet/admin/AdminView";
 import { HistoryView } from "./fleet/HistoryView";
-import { routeFor } from "./route";
+import { redirectFor, routeFor } from "./route";
 
 function Root() {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -13,11 +13,16 @@ function Root() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
   const route = routeFor(hash);
+  // Traffic was replaced by Chat (#1034): its address goes there, and Pause link and Remove link are on each Direct Message.
+  useEffect(() => {
+    const to = redirectFor(hash);
+    if (to) window.location.replace(to);
+  }, [hash]);
   if (route === "history") return <HistoryView />;
   if (route === "admin") return <AdminView />;
-  // The board, My reporters and Traffic are pages of the fleet console, so they are the same element with a flag: opening a
+  // The board, My reporters, Chat and Traffic are pages of the fleet console, so they are the same element with a flag: opening a
   // card keeps the selection it made, and the top bar's "N waiting" and My reporters read the same data.
-  return <FleetApp board={route === "board"} myReporters={route === "my-reporters"} traffic={route === "traffic"} />;
+  return <FleetApp board={route === "board"} myReporters={route === "my-reporters"} traffic={route === "traffic"} chat={route === "chat"} />;
 }
 
 const rootElement = document.getElementById("root");

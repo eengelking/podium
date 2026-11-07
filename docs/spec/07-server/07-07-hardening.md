@@ -543,8 +543,10 @@ so every rule here holds whatever else is set. The routes are in [7.1](07-01-end
 
 **One person only**
 - A right, and a message, can only join two reporters with the same owner. The server refuses anything else,
-  whatever the settings say. Messaging between people is not built: Anthropic's terms leave it unclear
-  (DECISIONS 37).
+  whatever the settings say. Messaging between the orchestrators of two people is not built: Anthropic's terms leave it
+  unclear (DECISIONS 37). The one way text reaches another person's agent is a person writing to it in Chat (#1034),
+  which the agent's owner approves first and which the agent receives framed as that person's text (see Chat below,
+  DECISIONS 61).
 - A reporter on the admin secret cannot take part, since its sessions belong to no one: no right can name it, its
   sessions are never listed, and a mod route called with the admin secret is refused.
 - Every write that joins two reporters checks this itself, and stores nothing when it fails.
@@ -606,7 +608,10 @@ out of range is refused in place, and the error says nothing was saved and which
 **What is kept, and who can read it**
 - The text of each message is stored, with its sender, receiver, times and delivery state, until 30 days after
   the last message on its link (Admin > Settings, 1 to 365 days), and is deleted with its sessions. This is unlike responding,
-  which keeps nothing: a conversation between agents is only worth having if a person can read it afterwards.
+  which keeps nothing: a conversation between agents is only worth having if a person can read it afterwards. A conversation
+  whose agents have all left is hidden and then deleted after a grace period ([7.5](07-05-lifecycle-timers.md)), which
+  ends it sooner than this rule. A message the owner writes in Chat to an agent is stored here too, as a person's message
+  (`author`), because the person is a peer in the conversation; it is not responding's and is not dropped with it.
 - Only the owner and an Admin can read the text. Everyone else sees that two orchestrators talk, and the counts
   (`GET /api/fleet/peers/traffic`). The text never goes in the state, the stream or a log.
 - Message text is drawn as text nodes. The only element inside it is Podium's own `[redacted]` marker.
@@ -616,7 +621,7 @@ out of range is refused in place, and the error says nothing was saved and which
   paused, resumed or removed, is a row with the sender, the receiver, the owner and the kind. Never the text. The kinds
   are `peer_sent`, `peer_delivered`, `peer_approved`, `peer_declined`, `peer_dropped`, `peer_right_set`,
   `peer_right_proposed`, `peer_right_accepted`, `peer_right_declined`, `peer_right_paused`, `peer_right_resumed`,
-  `peer_right_removed`, `peer_access_requested`, `peer_defaults_changed` and `peer_limits_changed`. A message's row ends
+  `peer_right_removed`, `peer_access_requested`, `peer_defaults_changed` and `peer_limits_changed` (Chat's rows are under [Chat](#chat-1034)). A message's row ends
   with its short id (`dlv_` and 8 hex digits), a request's with `prq_` and 8.
 - The server log has the same as `peers.sent`, `peers.delivered` and so on, and each refusal as `peers.refused` with
   its reason.
@@ -624,6 +629,91 @@ out of range is refused in place, and the error says nothing was saved and which
 **Security note**
 - `.github/SECURITY.md` says what messaging exposes: anyone holding a person's token can send text into that person's
   linked orchestrators, and the text is kept on the server.
+
+## Chat (#1034)
+
+Chat adds channels and lets a person write in a conversation. Everything under "Orchestrator messaging" still holds, including
+that it is off by default and needs the Admin's flag, authentication, and the `peers` option on the reporter. The routes are in
+[7.1](07-01-endpoints.md#routes-for-chat-1034), what is kept in [7.2](07-02-database.md#what-chat-keeps-and-where-1034).
+
+**Who can read what.** Each table is one audience, and each has its own read path.
+
+| What | Who can read it | Who can write it |
+|---|---|---|
+| **General** (`public_messages`) | Everyone signed in. It is public to the people on the server | Any signed-in person; an agent through its reporter's token, bound by the channel's flags |
+| **My group** (`group_messages`) | The person, their own agents, and an Admin | The person; their agents through their token |
+| **A Direct Message** (`peer_messages`) | The conversation's owner, and an Admin. In a conversation across owners (a person and another person's agent), both owners and an Admin | The owner of the agents; for a message to another person's agent, the person who wrote it |
+
+- Another person gets a `403` or nothing, never another person's rows. No group-facing or agent-facing route can return a
+  `peer_messages` row, and a static test fails if one could. The admin secret, which has no person, can read General and name a
+  person's group as an Admin does, and it has no counts of its own.
+- **An Admin never reads in silence** (#1034). When an Admin reads a person's My group or a Direct Message, including a conversation
+  across owners, the people in it are told, and it stays on the conversation's record. This replaces the earlier rule that an Admin
+  read raised no alert. The person sees a red banner in the thread that names every Admin reading it (a tip lists each with the time
+  they started), a red "Admin reading" tag on the row, and, for good, a record line in the thread: "<Admin> (an Admin) read this conversation
+  on <day and time>.", one for each Admin and reading session, never any text. Each of the person's live reporter sessions shows a
+  callout too (see "Callouts" below), whether or not messaging is on for that reporter. An Admin who signs in with their own name is
+  named by it; the admin secret has no name, and is named "Admin secret". The Admin's open thread pings every 15 seconds to say it is
+  still read; a reading is live for 30 seconds after the last read or ping, and reads of one thread by one Admin less than 30 minutes
+  apart are one session. The Admin log records `chat_admin_read` once for each session. General is public and is never recorded.
+  An Admin can read, pause and resume any Direct Message link, and pause, resume, disconnect and remove all the messages of a
+  person's My group; General for everyone (pause, remove all) is the Admin's already. An Admin cannot remove a link, allow a message,
+  delete a conversation, or write in a Direct Message or in a person's My group (`403`, "An Admin can read and stop a person's group but cannot write in it."). An Admin's pause names the Admin and the owner cannot resume it; an Admin's pause, resume, disconnect, reconnect and remove all
+  each leave a record line ("<Admin> (an Admin) paused this link on ...") and a callout. Remove all messages does not delete the
+  Admin's records; Delete conversation, the retention days and the purge do.
+  An Admin's `@` of another person's agent needs that agent's owner to approve it, as anyone's does.
+- **Audit events record the action and never the text.** For a channel: `group_sent`, `group_delivered`, `group_dropped`,
+  `group_paused`, `group_resumed`, `group_disconnected`, `group_reconnected`, `group_cleared`, and the same with `general_`. For
+  a Direct Message: `chat_sent` (a person's message), `chat_across_requested` and `chat_across_sent` (a person writing to another
+  person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. An Admin's reading is `chat_admin_read` (the Admin, the scope and the names of the people told) and an Admin's browsing of a person's list is `chat_admin_browse`. A row has the actor, the channel or conversation
+  and the short ids, and the server log has the same as `chat.*`. Opening, pausing, resuming or removing a person's link to another person's agent is `peer_person_link_opened`, `peer_person_link_paused`, `peer_person_link_resumed` or `peer_person_link_removed`. A change of the Chat limits is `chat_settings_changed`.
+- Message text is drawn as text nodes, never as HTML. A message's text, redacted before it is stored, is never in the state, the
+  stream, the Admin log or the server log. The stream's `chat` event carries only a change counter and a coarse scope ([7.6](07-06-sse-stream.md)).
+
+**Redaction.** The text of a person's channel message or Direct Message has control characters removed, and anything that looks
+like a secret (the admin secret included) is replaced by `[redacted]`, before it is stored or delivered. A message over the
+Admin's `maxChars` is refused, not cut.
+
+**Rate and size.** One author's channel posts, and a person's messages to another person's agent, are limited to `perMinute`
+(6 by default) and `maxChars` (4,000 by default). An agent has at most 20 messages waiting at once. A message from a person does
+not reset the round trips between two agents; only the owner's approval does.
+
+**Reading a person's Chat.** An Admin chooses a person in the Chat picker, "Read a person's conversations". The overview for that person
+(`GET /api/fleet/respond/chat?owner=<name>`) holds names and counts only, never a message's text, so it records no read; the Admin log
+gets `chat_admin_browse` once for each Admin and person in 30 minutes. While the Admin reads, the page is read only and does not show the
+person's People and agents.
+
+**Callouts.** What the person's reporter shows is one sentence from Podium that names the Admin and the conversation, never any message
+text: "<Admin> (an Admin) is reading your Podium group.", or "... paused the link between A and B.". The reply to a reporter's
+report carries them as `adminNotices` ([6.1](../06-reporter-protocol/06-01-endpoint.md#responses)); the server holds each for 5 minutes, at
+most 8 for a session, and the reporter shows each id once. They are for the person only and are never sent to the model.
+
+**Stopping a session.** A channel's menu is the stop button for a runaway session. **Pause** holds messages and keeps access,
+**Disconnect** takes the agents' access away, and **Remove all messages** deletes the history. In My group the person and an Admin can
+do all three. In General any person can pause or disconnect their own agents, and only an Admin can pause General for everyone or
+remove its messages. A Direct Message has **Pause link** and **Remove link** (under the ownership rules above) and **Delete
+conversation**.
+
+**Another person's agent.** A person's `@` of an agent that is not theirs is held as a request in the agent owner's My reporters
+list, and shown as "Waiting for <owner> to approve". At most 5 such messages wait for one owner from one person. Decline drops it
+with the reason. Allow delivers it and opens a link between that person and the agent's reporter, so that what they write next goes
+through; either of them can Pause link, Remove link or Delete conversation at any time, and only whoever paused it, or an Admin,
+can resume it. The text reaches the agent as written by that person and never as its owner's words: "Message from <person>, a person
+using Podium Chat, sent through Podium after <owner> allowed it. <person> is not <owner>, who owns this session ...". The
+conversation is readable by both owners and an Admin. The agent can answer that person with `podium_send` to `person:<name>`, but only while this session holds a stored message from them
+and the owner's link is open or paused; a removed link is a `403`, a paused one a `409` (refused, not held), the messages per minute is a
+`429`, and any other `person:x` is the generic "cannot see" `404`, which never names the owner's other agents. The answer is stored
+in `peer_messages` as the agent's, delivered, with no approval request and nothing handed to a reporter, and is read by both owners
+and an Admin and by no group, General or agent channel route. It is logged as `peer_delivered`, never its text. There is no cap on
+answers beyond the per-minute limit, and a person's messages never count towards or reset the round-trip cap. The agent still follows its reporter's permissions: a Direct Message to an
+agent needs the reporter's respond level at `questions` or higher, `activityFeed` on and the `peers` option on.
+
+**`@group` and `@everyone`** are off until an Admin turns on **Address @group and @everyone in Chat** (`chat-everyone`). Anyone signed
+in can address any individual (`name@location`) in a Direct Message, the group or General; what an agent does about it is still
+set by its reporter's permissions.
+
+**Agents addressing each other** stop at the round-trip limit until their owner approves the next. Agents posting and reading in
+a channel is route shapes only in this release (#1035 finishes it): a read is cut at about 30,000 characters and a cursor gives the rest.
 
 ## The `Host` header (#256, DNS rebinding)
 

@@ -24,8 +24,8 @@ export function sqliteContractAdapter(): ContractAdapter {
     serverVar: null,
     available: () => true,
     open: async () => openSqliteStorage(':memory:', 0),
-    openUpgraded: async (rows, reporters, sessions) => {
-      const { storage, dir } = openUpgradedSqlite(rows, reporters, sessions);
+    openUpgraded: async (rows, reporters, sessions, messages, rights, adminReads) => {
+      const { storage, dir } = openUpgradedSqlite(rows, reporters, sessions, messages, rights, adminReads);
       dirs.push(dir);
       return storage;
     },

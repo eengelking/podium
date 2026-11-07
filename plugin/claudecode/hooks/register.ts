@@ -73,6 +73,8 @@ import { redactText } from '../../core/diffRedact.ts';
 import {
   accessAnswer,
   answerPaused,
+  channelArgument,
+  chatReadAnswer,
   appliedLevel,
   deliveredLine,
   errorOf,
@@ -90,12 +92,18 @@ import {
   requestLine,
   requestToast,
   sendAnswer,
+  withChatHint,
+  SEND_TO_DESCRIPTION,
+  CHAT_READ_BEFORE_DESCRIPTION,
+  CHAT_READ_CHANNEL_DESCRIPTION,
   shortId,
   SUBAGENT_ACCESS,
+  SUBAGENT_CHAT_READ,
   SUBAGENT_PEERS,
   SUBAGENT_SEND,
   TOOL_DESCRIPTIONS,
 } from '../../core/peers.ts';
+import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeLine, adminNoticeToast } from '../../core/adminNotice.ts';
 import { connectionLine, messagingLine, optionProblem, messagingOffReason, nonBooleanOptions, type MessagingFacts } from './messagingStatus.ts';
 import {
   answeredLine,
@@ -349,10 +357,12 @@ const PEER_KICK_MS = 50;
 const PEER_REQUESTS_KEPT = 50;
 
 let peerCalls: PeerCall[] = [];
-/** The three tools were registered in this load: once the reply first says the session takes part. */
+/** The tools were registered in this load: once the reply first says the session takes part. */
 let peerToolsRegistered = false;
 /** Requests seen in this load, by id, oldest first: each is toasted once. */
 let peerKnown = new Map<string, PeerRequest>();
+/** The callouts an Admin's reading earned, shown already (#1034). */
+let adminNoticesSeen = new AdminNoticeSeen();
 /** The ids the last reply listed as open. */
 let peerOpen: string[] = [];
 
@@ -573,6 +583,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     toastOnce($, r, true);
     handleDeliveries($, r);
     handleDiffs($, r);
+    handleAdminNotices($, r);
     handlePeers($, r);
     messagesLine($, r);
     takeRecording($, r.transport.recording);
@@ -1379,7 +1390,8 @@ async function submitMessage($: Engine, sid: string, d: Delivery): Promise<void>
   sentFromPodium.push(text);
   if (sentFromPodium.length > 20) sentFromPodium.shift();
   try {
-    await $.prompt.submit({ text });
+    // The owner's own Chat message ends with where to answer, so the answer lands in the thread (#1034). The recording still keeps the bare text.
+    await $.prompt.submit({ text: withChatHint(text, d) });
     transcriptLine($, answeredLine(d, nowMs()));
     queueResult(sid, d.id, 'took');
   } catch (err) {
@@ -1427,6 +1439,24 @@ function peerPath(sessionId: string, rest: string): string {
 /** What became of a peer delivery: through the peer route, never responding's, from the same queue of 50. */
 function queuePeerResult(sessionId: string, deliveryId: string, result: PeerResult): void {
   queueOut({ path: peerPath(sessionId, `/deliveries/${encodeURIComponent(deliveryId)}/result`), body: { result, at: nowMs() } });
+}
+
+/**
+ * An Admin read, paused, resumed or removed the messages of one of this person's Podium conversations (#1034): a toast and a transcript line, each once.
+ * For the person only. It is not a prompt, a turn, a tool's answer or system text, so the model never reads it, and it does not depend on the messaging
+ * option: the person is told whether or not their agents take part in messaging.
+ */
+function handleAdminNotices($: Engine, r: Runtime): void {
+  const list = r.transport.adminNotices;
+  r.transport.adminNotices = [];
+  for (const n of adminNoticesSeen.fresh(list)) {
+    try {
+      $.ui.toast(adminNoticeToast(n), { timeoutMs: ADMIN_NOTICE_TOAST_MS });
+    } catch {
+      // no toasts on this host
+    }
+    transcriptLine($, adminNoticeLine(n));
+  }
 }
 
 /** The reply's messaging fields. Unless the mod takes part, nothing in them is taken, whatever the reply says. */
@@ -1509,7 +1539,7 @@ function showRequests($: Engine, list: PeerRequest[]): void {
   }
 }
 
-/** The three tools, once the reply first says this session takes part (SPEC 5.3): never offered while it does not. */
+/** The four tools, once the reply first says this session takes part (SPEC 5.3): never offered while it does not. */
 async function registerPeerTools($: Engine): Promise<void> {
   try {
     await $.tool.register({ name: 'podium_peers', description: TOOL_DESCRIPTIONS.peers, inputSchema: { type: 'object', properties: {} } });
@@ -1518,7 +1548,7 @@ async function registerPeerTools($: Engine): Promise<void> {
       description: TOOL_DESCRIPTIONS.send,
       inputSchema: {
         type: 'object',
-        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine", or "name@machine#id" when podium_peers shows an id' }, text: { type: 'string', description: 'The message' } },
+        properties: { to: { type: 'string', description: SEND_TO_DESCRIPTION }, text: { type: 'string', description: 'The message' } },
         required: ['to', 'text'],
       },
     });
@@ -1533,6 +1563,15 @@ async function registerPeerTools($: Engine): Promise<void> {
           reason: { type: 'string', description: 'Why, in a sentence' },
         },
         required: ['to', 'right', 'reason'],
+      },
+    });
+    await $.tool.register({
+      name: 'podium_chat_read',
+      description: TOOL_DESCRIPTIONS.chatRead,
+      inputSchema: {
+        type: 'object',
+        properties: { channel: { type: 'string', enum: ['general', 'group'], description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
+        required: ['channel'],
       },
     });
   } catch (err) {
@@ -1668,6 +1707,17 @@ async function accessTool($: Engine, e: { agentId?: unknown; to?: unknown; right
   const reason = typeof e.reason === 'string' ? redactText(e.reason).text : '';
   const out = await peerCall($, 'POST', peerPath(r.state.id, '/access'), { to, right, reason });
   return peerOutcome('Not asked.', out, (body) => accessAnswer(body, { owner: ownerName(), right, to }));
+}
+
+async function chatReadTool($: Engine, e: { agentId?: unknown; channel?: unknown; before?: unknown }): Promise<string> {
+  if (fromSubagent(e)) return SUBAGENT_CHAT_READ;
+  const r = rt;
+  if (!peersOn(r)) return notTakingPart('Not read.');
+  const channel = channelArgument(e.channel);
+  if (!channel) return 'Not read. channel must be general or group.';
+  const before = typeof e.before === 'string' && e.before.trim() ? `?before=${encodeURIComponent(e.before.trim())}` : '';
+  const out = await peerCall($, 'GET', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages${before}`);
+  return peerOutcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: ownerName() }));
 }
 
 // ---- orchestrator messaging: answering a request in the terminal (#414) ----------------------------------------
@@ -2071,6 +2121,7 @@ export const register: Register = (on, rawOptions) => {
   peerCalls = [];
   peerToolsRegistered = false;
   peerKnown = new Map();
+  adminNoticesSeen = new AdminNoticeSeen();
   peerOpen = [];
 
   on('session.start', async ($, e, next) => {
@@ -2321,6 +2372,7 @@ export const register: Register = (on, rawOptions) => {
   const peerFallback = { result: 'podium-reporter could not finish this call, so it may not have gone. podium_peers and Podium > Traffic show what arrived; /podium shows the connection.' };
   on('tool.call', { tool: 'mcp__podium-reporter__podium_peers' }, async ($, e) => ({ result: await peersTool($, e as never) })).catch(() => peerFallback);
   on('tool.call', { tool: 'mcp__podium-reporter__podium_send' }, async ($, e) => ({ result: await sendTool($, e as never) })).catch(() => peerFallback);
+  on('tool.call', { tool: 'mcp__podium-reporter__podium_chat_read' }, async ($, e) => ({ result: await chatReadTool($, e as never) })).catch(() => peerFallback);
   on('tool.call', { tool: 'mcp__podium-reporter__podium_request_access' }, async ($, e) => ({ result: await accessTool($, e as never) })).catch(() => peerFallback);
 
   on('skill.prompt', async ($, e, next) => {

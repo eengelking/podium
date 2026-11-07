@@ -7,6 +7,9 @@ order: 15
 
 # Traffic
 
+> **Deprecated.** Traffic was announced as deprecated in 1.6 and is removed in 1.9. [Chat](16-chat.md) replaces it, the same
+> conversations are its Direct Messages, and `#/traffic` opens Chat. See [Deprecations](../../DEPRECATIONS.md#the-traffic-page).
+
 **Traffic** (`#/traffic`) shows which orchestrators message which, like a service mesh's traffic map, and what they said.
 The link is in the top bar after **History** while the Admin's **Orchestrator messaging** switch is on.
 `mockup/podium-traffic.html` shows every case, and [MESSAGING.md](../../MESSAGING.md#traffic) has a key to the map.
@@ -52,5 +55,5 @@ still hides and shows the top bar.
 <!-- nav:start -->
 ---
 
-Previous: [My reporters](14-my-reporters.md) · Up: [Reading the console](README.md) · Next: [History](16-history.md)
+Previous: [My reporters](14-my-reporters.md) · Up: [Reading the console](README.md) · Next: [Chat](16-chat.md)
 <!-- nav:end -->

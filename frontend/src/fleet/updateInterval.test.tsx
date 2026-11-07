@@ -45,6 +45,11 @@ describe("isUrgentChange", () => {
     expect(isUrgentChange(held, next)).toBe(false);
   });
 
+  it("is true when Chat is told something changed, so it reads at once and not at the next redraw (#1034)", () => {
+    const held = base();
+    expect(isUrgentChange(held, fleetReducer(held, { type: "chat" }))).toBe(true);
+  });
+
   it("is true when a session starts waiting for you", () => {
     const held = base();
     const next = fleetReducer(held, { type: "session", view: makeSession({ id: "a", status: "waiting", waitReason: "input" }) });
