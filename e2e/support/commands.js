@@ -71,7 +71,7 @@ Cypress.Commands.add('card', (key) => cy.get(`button.card.sc[data-session="${see
 /** The element with this data-testid. */
 Cypress.Commands.add('tid', (id, opts) => cy.get(`[data-testid="${id}"]`, opts));
 
-/** A row of Chat's sidebar by its key: `c:general`, `c:group`, `d:<the agents' session ids, sorted, joined with +>` or `a:<session id>` (its data-testid is `chat-row-<key>`). */
+/** A row of Chat's sidebar by its key: `c:general`, `c:group`, `d:<the server's thread, dm:a|b with the two ids sorted>` or `a:<session id>` (its data-testid is `chat-row-<key>`). */
 Cypress.Commands.add('chatRow', (key) => cy.get(`[data-testid="chat-row-${key}"]`));
 
 /** Sets the feature flags (and other settings) through Admin's route. The admin secret stays in Node's env, never in a log. */

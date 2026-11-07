@@ -4,12 +4,12 @@
 // it, and an Admin's pause, disconnect and Remove all messages in a group. The callout shown to the person in the terminal is the reporter's and is not in the console (docs/e2e/COVERAGE.md).
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
 // An Admin's "reading" is made through the API the way the Admin's open page makes it (a read of the thread and its 15-second ping), because only one browser is open at a time.
-// The page decides a reading has ended by the server's clock it was given and its own clock, so the spec freezes the page's clock and moves it past the 30 seconds instead of waiting them.
+// The page decides a reading has ended by the server's clock it was given and its own clock, so the spec waits the 30 seconds out, in a retrying query (it does not move the clock).
 import { seeded } from '../../../support/commands';
 
 const GROUP = 'c:group';
 const GENERAL = 'c:general';
-const DM = 'd:e2e-s-invoice+e2e-s-tester';
+const DM = 'd:dm:e2e-s-invoice|e2e-s-tester';
 const A = 'e2e-s-invoice';
 const B = 'e2e-s-tester';
 const H = { 'X-Podium-Respond': '1' };
@@ -143,8 +143,6 @@ describe('chat: what the person sees while an Admin reads', () => {
 
   it('shows a red banner naming the Admin and an "Admin reading" tag on the row, with the tip listing who reads, until the Admin stops', () => {
     adminReads();
-    // The page\'s clock stands still, so the reading cannot lapse between two steps; it is moved past the 30 seconds below.
-    cy.clock(Date.now(), ['Date', 'setInterval', 'clearInterval']);
     cy.openConsole('#/chat');
     cy.chatRow(GROUP).find('[data-testid=chat-tag-reading]').should('contain.text', 'Admin reading');
     cy.chatRow(DM).find('[data-testid=chat-tag-reading]').should('contain.text', 'Admin reading');
@@ -158,9 +156,9 @@ describe('chat: what the person sees while an Admin reads', () => {
     cy.tid('chat-reading-banner').find('[role=tooltip]').should('not.be.visible');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-reading-banner').should('contain.text', `${READ_AS} is reading this conversation.`);
-    // About 30 seconds after the Admin\'s last read, the notice and the tags clear, and the record line stays.
-    cy.tick(31000);
-    cy.tid('chat-reading-banner').should('not.exist');
+    // About 30 seconds after the Admin\'s last read, the notice and the tags clear, and the record line stays. The page hides a reading only once the server has answered
+    // after its end, never on its own clock (#1051), so this waits the real 30 seconds, in a query that retries.
+    cy.tid('chat-reading-banner', { timeout: 60000 }).should('not.exist');
     cy.tid('chat-tag-reading').should('not.exist');
     cy.tid('chat-record').first().should('contain.text', `${READ_AS} read this conversation on `);
   });

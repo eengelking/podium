@@ -10,7 +10,7 @@ describe('responsive layout', () => {
     '#/': () => cy.cards().should('have.length', 12),
     '#/board': () => cy.get('section.kb-col a.kb-card').should('have.length.greaterThan', 5),
     '#/history': () => cy.get('table.htable tbody tr').should('have.length.greaterThan', 0),
-    '#/chat': () => cy.chatRow('d:e2e-s-invoice+e2e-s-tester').should('exist'),
+    '#/chat': () => cy.chatRow('d:dm:e2e-s-invoice|e2e-s-tester').should('exist'),
     '#/me/reporters': () => cy.get('table.ptab tbody tr').should('have.length', 3),
     '#/?open=e2e-s-invoice': () => cy.contains('.fact', 'Est. cost').should('exist'),
   };
