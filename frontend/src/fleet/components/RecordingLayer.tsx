@@ -3,6 +3,7 @@ import "../chat.css";
 import { adminWho, type AdminRead } from "../chatData";
 import { RespondError } from "../respondApi";
 import { nameKey } from "../respond";
+import { ADMIN } from "../people";
 import { readingKey, replayersLine, replayersRest, replayRecordLine, useDismissed, useReplayReads } from "../replayReads";
 import { ChEye } from "./ChatIcons";
 import { fmtAt, fmtWhen, joinWords, loopNames, mayRecord, openReplay, sizeWords, stoppedWords } from "../recording";
@@ -59,7 +60,7 @@ function ReplayNotes({ s }: { s: SessionView }) {
   const reads = useReplayReads();
   const dismissed = useDismissed();
   const me = respond?.me;
-  const owns = !!me?.signedIn && !!me.name && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) === nameKey(me.name);
+  const owns = !!me?.signedIn && !!me.name && !!s.owner && s.owner !== ADMIN && nameKey(s.owner) === nameKey(me.name);
   const [records, setRecords] = useState<AdminRead[]>([]);
   const rev = reads?.rev ?? 0;
   const api = respond?.api;
@@ -172,8 +173,8 @@ export function RecordingLayer({ s, now: shownAt }: { s: SessionView; now: numbe
   if (kept) {
     text = (
       <>
-          <b>This session was recorded. </b>
-          {stoppedWords(v, s.status === "done")} What was recorded, {size}, is kept for troubleshooting{until ? ` until ${until}` : ""}, then deleted. Only the owner and an Admin can open it.
+        <b>This session was recorded. </b>
+        {stoppedWords(v, s.status === "done")} What was recorded, {size}, is kept for troubleshooting{until ? ` until ${until}` : ""}, then deleted. Only the owner and an Admin can open it.
       </>
     );
   } else if (!v.ownerAllows) {

@@ -524,6 +524,30 @@ describe('GET /respond/sessions/:id/recording (the replay)', () => {
       spy.mockRestore();
     });
 
+    it('refuses an Admin\'s ping for a session that has no recording, and tells nobody', async () => {
+      const { app, boss, ed, fleet } = await setup();
+      expect((await send(app, ed.token, report())).status).toBe(200); // a session that was never recorded
+      const b = await signedIn(app, 'Boss', boss.token);
+      const res = await b.post(`${BASE}/reading`).set(H);
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('this session has no recording');
+      expect(await fleet.chat.adminReads.list(`replay:${SID}`)).toEqual([]);
+      expect(await noticesOf(app, ed.token)).toEqual([]);
+    });
+
+    it('costs a report no stored-session read once it is known that nobody has replayed anything, and asks again after a replay', async () => {
+      const { app, boss, ed, fleet } = await recorded();
+      const spy = vi.spyOn(fleet.db, 'getSession');
+      await fleet.chat.adminReads.noticesFor(SID); // the first call looks, once, for any replay on record
+      spy.mockClear();
+      for (let i = 0; i < 3; i++) expect(await fleet.chat.adminReads.noticesFor(SID)).toEqual([]);
+      expect(spy).not.toHaveBeenCalled();
+      const b = await signedIn(app, 'Boss', boss.token);
+      await b.get(BASE);
+      expect(await fleet.chat.adminReads.noticesFor(SID)).toHaveLength(1);
+      expect(await noticesOf(app, ed.token)).toHaveLength(1);
+    });
+
     it('lets the owner see who replayed and when, and marks it seen, but shows an Admin nothing of another Admin', async () => {
       const { a, app, boss } = await recorded();
       const b = await signedIn(app, 'Boss', boss.token);

@@ -170,6 +170,8 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     const got = await access(req, res);
     if (!got) return;
     if (!got.v.admin) return void refuse(req, res, 403, 'only an Admin replays a session that is not their own');
+    // A ping without a recording to replay would tell the owner of a replay that is not happening.
+    if (!(await fleet.recordings.has(got.row.id))) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     if (await fleet.chat.adminReads.noteReplay(got.v, got.row)) fleet.replayChanged();
     res.json({ ok: true });
   }));

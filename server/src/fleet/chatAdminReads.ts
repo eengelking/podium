@@ -38,10 +38,10 @@ export interface ReadSubject {
   person?: string;
 }
 
-/** The thread an Admin's replay of a person's recorded session is recorded under (#1075). */
 /** Whose recorded session an Admin is replaying: the person told, and what the callout says. */
 export type ReplaySubject = Omit<ReadSubject, 'scope'> & { scope: 'replay' };
 
+/** The thread an Admin's replay of a person's recorded session is recorded under (#1075). */
 export const replayThread = (sessionId: string): string => `replay:${sessionId}`;
 
 /** What the callout says of a replay of a recorded session. */
@@ -62,6 +62,10 @@ export class AdminReads {
   private readonly known = new Map<string, { subject: ReadSubject | ReplaySubject; at: number }>();
   /** Replaced by the Chat service: what a direct-message thread's callout says, from the conversation. Null when there is none. */
   resolve: (thread: string) => Promise<ReadSubject | null> = async () => null;
+
+  /** When a replay was last read or noted, and whether the records have been scanned for one since this server started. */
+  private replayAt = 0;
+  private replayScanned = false;
 
   constructor(private readonly core: ChatCore) {}
 
@@ -97,6 +101,7 @@ export class AdminReads {
     const subject: ReplaySubject = { scope: 'replay', thread: replayThread(session.id), owners: [nameKey(session.owner)], phrase: replayPhrase(session.name) };
     await this.store.touch(subject.thread, viewer.actor, SESSION_GAP_MS, subject.owners);
     this.known.set(subject.thread, { subject, at: this.core.host.now() });
+    this.replayAt = this.core.host.now();
     return true;
   }
 
@@ -146,12 +151,18 @@ export class AdminReads {
   async noticesFor(sessionId: string): Promise<AdminNotice[]> {
     const live = this.core.host.peers.messages.live(sessionId);
     const held = this.core.notices.for(sessionId);
+    // A session that peers do not know costs nothing on its report unless a replay is on record: once one scan has found none, or only old ones, it is
+    // skipped until the next replay is noted. A restart scans once more, so a replay from the minutes before it is not lost (#1075).
+    if (!live && this.replayScanned && this.core.host.now() - this.replayAt >= NOTICE_TTL_MS) return held;
     // A replay is recorded whether or not peer messaging is on, so a session that peers do not know still hears of it, from the stored session's owner.
     const owner = live?.owner ?? (await this.core.host.sessionOf(sessionId))?.owner ?? null;
     if (owner === null) return held;
     const person = nameKey(owner);
     const out: AdminNotice[] = [];
-    for (const r of await this.store.recent(this.core.host.now() - NOTICE_TTL_MS)) {
+    const recent = await this.store.recent(this.core.host.now() - NOTICE_TTL_MS);
+    for (const r of recent) if (r.thread.startsWith('replay:')) this.replayAt = Math.max(this.replayAt, r.lastSeenAt);
+    this.replayScanned = true;
+    for (const r of recent) {
       if (!live && !r.thread.startsWith('replay:')) continue;
       const subject = await this.subjectOf(r.thread);
       if (!subject || !subject.owners.includes(person)) continue;
