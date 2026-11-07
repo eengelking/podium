@@ -64,6 +64,7 @@ say '/podium'; sleep 1; tmux send-keys -t "$T" C-m; sleep 1; tmux capture-pane -
 | `attached: false`, fork command | Harness | `attached` is never false (true even for a done session); fork reads "not available"; resume is `opencode <cwd> --session <id>`. |
 | Rate limits | Not on the event bus | There is no `rateLimits` key. |
 | Terminal confirmation lines ("Answered from Podium by…") | Harness: no transcript to write to; intended (#1012) | A framed message text instead; no line is asserted. |
+| Admin callout as a scroll-back line ("Admin reads in silence", #1051) | Harness: no transcript a plugin can write to without the model reading it | With a TUI attached, assert a toast (about 60 s, shown again after the status toast) and the line above the prompt (`session.composer.top`), and that no `session_message` row (OpenCode's own database) holds the Admin's text. With no TUI part (`opencode run`, `serve`) nothing is shown: assert the notice is still handed again by the server for the 5-minute window and shows when a TUI attaches within it. A re-read of the same thread inside 30 minutes keeps its id and shows once. |
 | Plugin options `flushIntervalMs`, `heartbeatMs`, `sessionName` | An auto-discovered plugin may not receive options; unconfirmed | Skip and say so. |
 | Idle `done` | Harness | With no TUI attached, `done` with `endReason:"idle"` after `idleSeconds`. |
 

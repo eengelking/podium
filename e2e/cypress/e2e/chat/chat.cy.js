@@ -6,7 +6,7 @@ import { seeded } from '../../../support/commands';
 
 const GENERAL = 'c:general';
 const GROUP = 'c:group';
-const DM = 'd:e2e-s-invoice+e2e-s-tester';
+const DM = 'd:dm:e2e-s-invoice|e2e-s-tester';
 const H = { 'X-Podium-Respond': '1' };
 
 /** Posts to a channel as the signed-in browser's person, by request (no typing), so a spec can fill a thread. */

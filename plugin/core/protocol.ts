@@ -255,12 +255,17 @@ export interface Capabilities {
   context?: boolean;
   git?: boolean;
   respond?: boolean;
+  /**
+   * The reporter shows its person the Admin callout (`adminNotices` in a report's reply) and frames a person's text as a person's (#1051). Podium sends a person's
+   * text to an agent across owners only when its reporter declares this as an explicit `true`; a reporter that does not say counts as not showing it.
+   */
+  adminNotices?: boolean;
   /** The slash commands Podium may send to the session (for example `/clear`). Empty when none. */
   commands: string[];
 }
 
 /** The capability keys a v2 report may declare, besides `commands`. */
-export const CAPABILITY_KEYS = ['effort', 'plan', 'agents', 'cost', 'context', 'git', 'respond'] as const;
+export const CAPABILITY_KEYS = ['effort', 'plan', 'agents', 'cost', 'context', 'git', 'respond', 'adminNotices'] as const;
 
 export interface AgentReport {
   id: string;
@@ -401,6 +406,11 @@ export interface Report {
   harness?: HarnessInfo;
   /** What the reporter can send (v2). Absent from a v1 report, which means everything Claude Code has. */
   capabilities?: Capabilities;
+  /**
+   * The `adminNotices` capability for a v1 report, which has no capabilities block (and whose absent block means every command Claude Code has): an explicit
+   * `true` when the reporter shows the Admin callout. A v2 report declares it in `capabilities`. Absent means no (#1051).
+   */
+  adminNotices?: boolean;
   /** `build` is the commit hash of a dev build of the mod (#400). A release, and a mod that predates it, leave it out. */
   reporter: { name: ReporterName; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
   session: SessionReport;

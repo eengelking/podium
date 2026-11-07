@@ -1107,11 +1107,14 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   In a Direct Message the Admin's menu is Pause link and Resume link, and nothing else. For the people in the thread, while an Admin reads: a
   red banner above the messages names every Admin reading (one, two, or the first two and a count) and says the notice clears about 30 seconds
   after the last stops, with a tip, **Who is reading**, that lists each Admin with the time they started; a red **Admin reading** tag on the
-  row and the header; and, for good, a line among the messages ("Root (an Admin) read this conversation on Nov 6 at 14:20.") that is not a message,
+  row and the header; and a line among the messages (kept at least until the person has seen it) ("Root (an Admin) read this conversation on Nov 6 at 14:20.") that is not a message,
   so it has nothing to select and no delivery line. An Admin's pause shows a red **Paused by an Admin** tag and a banner that says only an Admin can
   resume it; the owner's Resume link is disabled with that reason. An Admin's pause, resume, disconnect, reconnect and remove all leave a line too ("paused this link",
   "resumed this link", "removed all messages"). The open thread of an Admin pings every 15 seconds so the notice stays up. Each is a status with an
-  icon and words, never color alone.
+  icon and words, never color alone. When the conversation an Admin read has since been deleted, the person's list shows the same quiet line at the top, newest
+  first and at most 20 ("Root (an Admin) read your conversation with Tester on Nov 5 at 09:12. That conversation has since been deleted."; "removed all messages in",
+  "paused" or "resumed" when that is what the Admin did), with the names in `<bdi>`. The server sends each once and marks it seen, so the page keeps what it was
+  given while it stays open and a later load does not show it again.
 - **A Direct Message expires and leaves the list when every agent session in it has ended or disconnected from Podium** ([7.5](../07-server/07-05-lifecycle-timers.md)).
   It comes back with its history if the same peers return within the grace period.
 - **Narrow.** At 760 px and narrower the sidebar and the thread are two screens, with **Back to the list** on the thread.

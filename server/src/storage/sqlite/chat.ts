@@ -6,7 +6,7 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, mentionsOf, newChannelId, newServerScope, toChannelMessage, withMentionState, type DbChannelRow,
+  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, keyList, keyText, mentionsOf, newChannelId, newServerScope, stillOwed, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 
@@ -160,6 +160,10 @@ class ReadState {
   forget(thread: string): number {
     return Number(this.db.prepare('DELETE FROM chat_read_state WHERE thread = ?').run(thread).changes);
   }
+
+  threads(prefix: string): string[] {
+    return (this.db.prepare('SELECT DISTINCT thread FROM chat_read_state WHERE substr(thread, 1, ?) = ? ORDER BY thread').all(prefix.length, prefix) as unknown as { thread: string }[]).map((r) => r.thread);
+  }
 }
 
 interface DbAdminRead {
@@ -168,6 +172,19 @@ interface DbAdminRead {
   started_at: number;
   last_seen_at: number;
   kind: AdminReadKind;
+}
+
+interface DbOwed {
+  thread: string;
+  admin_key: string;
+  started_at: number;
+  people: string;
+  seen: string;
+}
+
+interface DbOwedLists {
+  people: string;
+  seen: string;
 }
 
 const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
@@ -179,7 +196,7 @@ class AdminReads {
     private readonly now: () => number,
   ) {}
 
-  touch(thread: string, admin: string, gapMs: number): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
+  touch(thread: string, admin: string, gapMs: number, people: string[] = []): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
     const now = this.now();
     const key = nameKey(admin);
     const last = this.db.prepare("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND kind = 'read' ORDER BY last_seen_at DESC, started_at DESC LIMIT 1").get(thread, key) as unknown as DbAdminRead | undefined;
@@ -188,19 +205,19 @@ class AdminReads {
       this.db.prepare("UPDATE chat_admin_reads SET last_seen_at = ? WHERE thread = ? AND admin_key = ? AND started_at = ? AND kind = 'read'").run(seen, thread, key, last.started_at);
       return { record: { admin: last.admin, startedAt: last.started_at, lastSeenAt: seen, kind: 'read' }, started: false, previousSeenAt: last.last_seen_at };
     }
-    const row = this.insert(thread, key, admin, now, 'read');
+    const row = this.insert(thread, key, admin, now, 'read', people);
     return { record: row, started: true, previousSeenAt: null };
   }
 
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>): AdminReadRow {
-    return this.insert(thread, nameKey(admin), admin, this.now(), kind);
+  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[] = []): AdminReadRow {
+    return this.insert(thread, nameKey(admin), admin, this.now(), kind, people);
   }
 
   /** One record at `at`, or the first free millisecond after it, since (thread, admin, time) is the key. */
-  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind): AdminReadRow {
+  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: string[]): AdminReadRow {
     let t = at;
     while (this.db.prepare('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').get(thread, key, t)) t++;
-    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind) VALUES (?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind);
+    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, keyText(people), '[]');
     return { admin, startedAt: t, lastSeenAt: t, kind };
   }
 
@@ -217,16 +234,52 @@ class AdminReads {
     return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
 
+  recent(since: number): (AdminReadRow & { thread: string })[] {
+    const rows = this.db
+      .prepare("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE kind = 'read' AND last_seen_at > ? ORDER BY thread, started_at, admin_key")
+      .all(since) as unknown as DbAdminRead[];
+    return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
+  }
+
   threads(prefix: string): string[] {
     return (this.db.prepare('SELECT DISTINCT thread FROM chat_admin_reads WHERE substr(thread, 1, ?) = ? ORDER BY thread').all(prefix.length, prefix) as unknown as { thread: string }[]).map((r) => r.thread);
   }
 
+  seen(thread: string, person: string): number {
+    const who = nameKey(person);
+    let n = 0;
+    const rows = this.db.prepare('SELECT admin_key, started_at, people, seen FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key').all(thread) as unknown as DbOwed[];
+    for (const r of rows) {
+      const seen = keyList(r.seen);
+      if (!keyList(r.people).includes(who) || seen.includes(who)) continue;
+      this.db.prepare('UPDATE chat_admin_reads SET seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(keyText([...seen, who]), thread, r.admin_key, r.started_at);
+      n++;
+    }
+    return n;
+  }
+
+  unseenFor(person: string): (AdminReadRow & { thread: string })[] {
+    const who = nameKey(person);
+    const rows = this.db.prepare('SELECT thread, admin, started_at, last_seen_at, kind, people, seen FROM chat_admin_reads ORDER BY started_at DESC, thread, admin_key, kind').all() as unknown as (DbAdminRead & DbOwedLists)[];
+    return rows.filter((r) => keyList(r.people).includes(who) && !keyList(r.seen).includes(who)).map((r) => ({ thread: r.thread, ...toRead(r) }));
+  }
+
+  /** Deletes the rows of `rows` that nobody is still owed a look at. */
+  private drop(rows: DbOwed[]): number {
+    let n = 0;
+    for (const r of rows) {
+      if (stillOwed(r)) continue;
+      n += Number(this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at).changes);
+    }
+    return n;
+  }
+
   forget(thread: string): number {
-    return Number(this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ?').run(thread).changes);
+    return this.drop(this.db.prepare('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key').all(thread) as unknown as DbOwed[]);
   }
 
   purge(olderThan: number): number {
-    return Number(this.db.prepare('DELETE FROM chat_admin_reads WHERE last_seen_at < ?').run(olderThan).changes);
+    return this.drop(this.db.prepare('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE last_seen_at < ? ORDER BY thread, started_at, admin_key').all(olderThan) as unknown as DbOwed[]);
   }
 }
 
@@ -263,13 +316,17 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     bump: (person, thread, mention) => step(() => state.bump(person, thread, mention)),
     markRead: (person, thread, upTo) => step(() => state.markRead(person, thread, upTo)),
     forget: (thread) => step(() => state.forget(thread)),
+    threads: (prefix) => step(() => state.threads(prefix)),
   };
   const adminReads: ChatAdminReadsApi = {
-    touch: (thread, admin, gapMs) => step(() => reads.touch(thread, admin, gapMs)),
-    mark: (thread, admin, kind) => step(() => reads.mark(thread, admin, kind)),
+    touch: (thread, admin, gapMs, people) => step(() => reads.touch(thread, admin, gapMs, people)),
+    mark: (thread, admin, kind, people) => step(() => reads.mark(thread, admin, kind, people)),
     list: (thread) => step(() => reads.list(thread)),
     live: (threads, since) => step(() => reads.live(threads, since)),
+    recent: (since) => step(() => reads.recent(since)),
     threads: (prefix) => step(() => reads.threads(prefix)),
+    unseenFor: (person) => step(() => reads.unseenFor(person)),
+    seen: (thread, person) => step(() => reads.seen(thread, person)),
     forget: (thread) => step(() => reads.forget(thread)),
     purge: (olderThan) => step(() => reads.purge(olderThan)),
   };

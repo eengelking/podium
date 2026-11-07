@@ -60,6 +60,27 @@ describe('RespondStore', () => {
     expect(s.detail(sid, 'toolu_q', 'Ed', 5)).toMatchObject({ ask: QUESTION, state: 'open', delivery: null, closed: null, lastSeenAt: 5 });
   });
 
+  it('keeps the adminNotices declaration across a report that does not carry it, and drops it only for an explicit false (#1051)', () => {
+    const { s, sid } = store(ALL, (r) => {
+      r.adminNotices = true;
+    });
+    expect(s.adminNotices(sid)).toBe(true);
+    const lighter = fixtureReport();
+    lighter.session.respond = { level: 'everything', accepts: ALL, limits: [] };
+    delete lighter.adminNotices;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(true);
+    lighter.adminNotices = false;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(false);
+    delete lighter.adminNotices;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(false);
+    lighter.adminNotices = true;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(true);
+  });
+
   it('takes the first answer only, and refuses a later one with who answered and when', () => {
     const { s, sid, feed } = store();
     s.announce(sid, QUESTION);
@@ -401,10 +422,10 @@ async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn
   return { app, fleet, people, ed, alex };
 }
 
-/** A report from a reporter that responds at every level, carrying `asks`. */
+/** A report from a reporter that responds at every level, carrying `asks`. A reporter that responds has its activityFeed option on (it takes nothing from Podium without it), and Podium's entries in the feed need it (#1051). */
 function report(userName: string, id = 'sess-ed', asks: Ask[] = []): Report {
   const r = fixtureReport();
-  r.session = { ...r.session, id, status: 'waiting', respond: { level: 'everything', accepts: ALL, limits: [] }, asks };
+  r.session = { ...r.session, id, status: 'waiting', activityFeed: true, respond: { level: 'everything', accepts: ALL, limits: [] }, asks };
   r.userName = userName;
   return r;
 }

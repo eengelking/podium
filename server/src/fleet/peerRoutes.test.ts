@@ -90,6 +90,12 @@ async function linked(level: 'see' | 'ask' | 'send' = 'send', opts: Parameters<t
   return { ...s, edBrowser: ed };
 }
 
+/** Ed's third session on the sender's machine: the one a person types /podium deliver in, since the sender and the target may not answer (#1051). */
+const third = async (s: S) => {
+  expect((await post(s, s.ed.token, report('Ed', 'sess-third', 'third', MAC))).status).toBe(200);
+  return (id: string, a: string) => request(s.app).post(`/api/fleet/sessions/sess-third/peers/requests/${id}`).set('X-Podium-Token', s.ed.token).send({ answer: a });
+};
+
 const logKinds = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 100 })).rows.map((r) => r.kind);
 const storedMessages = (s: S) => (s.db.prepare('SELECT COUNT(*) AS n FROM peer_messages').get() as { n: number }).n;
 
@@ -167,15 +173,33 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     expect(ok.body).toEqual({ ok: true, outcome: 'delivered' });
     expect((await testerReport(s)).body.peerDeliveries.map((d: { id: string }) => d.id)).toEqual([sent.body.id]);
     // Answered in one place, it is closed in the other.
-    const again = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'decline' });
+    const again = await (await third(s))(sent.body.requestId, 'decline');
     expect(again.status).toBe(410);
     expect(await logKinds(s)).toContain('peer_approved');
+  });
+
+  it('refuses an answer from the session that sent the message or the one it was sent to, and takes it from a third session (#1051)', async () => {
+    const s = await linked('ask');
+    const sent = await send(s, 'please run it');
+    const via = (sid: string) => request(s.app).post(`/api/fleet/sessions/${sid}/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'deliver' });
+    expect((await via('sess-dev')).status).toBe(403);
+    expect((await via('sess-tester')).status).toBe(403);
+    expect((await s.edBrowser.get('/api/fleet/respond/peers')).body.requests).toHaveLength(1);
+    expect((await (await third(s))(sent.body.requestId, 'deliver')).body).toEqual({ ok: true, outcome: 'delivered' });
+  });
+
+  it('refuses the session that asked for access to answer its own request (#1051)', async () => {
+    const s = await linked('ask');
+    const asked = await request(s.app).post('/api/fleet/sessions/sess-dev/peers/access').set('X-Podium-Token', s.ed.token).send({ to: 'ci-runner-01', right: 'send', reason: 'Linux tests.' });
+    const out = await request(s.app).post(`/api/fleet/sessions/sess-dev/peers/requests/${asked.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'allow' });
+    expect(out.status).toBe(403);
+    expect((await s.edBrowser.get('/api/fleet/respond/peers')).body.requests).toHaveLength(1);
   });
 
   it('can be declined from a session, and its sender is told', async () => {
     const s = await linked('ask');
     const sent = await send(s, 'no thanks');
-    const out = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'decline' });
+    const out = await (await third(s))(sent.body.requestId, 'decline');
     expect(out.body).toEqual({ ok: true, outcome: 'declined' });
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
     expect((await devReport(s)).body.peerDeliveries).toEqual([expect.objectContaining({ kind: 'notice', from: null })]);
@@ -184,7 +208,8 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
 
   it('delivered from a session on a paused link, says the link is paused, so /podium deliver says it waits for Resume', async () => {
     const s = await linked('ask');
-    const answer = (id: string) => request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${id}`).set('X-Podium-Token', s.ed.token).send({ answer: 'deliver' });
+    const viaThird = await third(s);
+    const answer = (id: string) => viaThird(id, 'deliver');
     const first = await send(s, 'on an open link');
     expect((await answer(first.body.requestId)).body).toEqual({ ok: true, outcome: 'delivered' });
     await s.edBrowser.put('/api/fleet/respond/peers/links').set(H).send({ a: MAC.id, b: LINUX.id, paused: true });

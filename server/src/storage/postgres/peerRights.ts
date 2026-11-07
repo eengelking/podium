@@ -289,7 +289,11 @@ export class PgPeerRights implements PeerRightsStoreApi {
       if (`person:${nameKey(r.owner)}` === personKey) return refuse(403, "a person's own agents need no link");
       const had = await this.row(personKey, toKey);
       let right: RightRow | null;
-      if (op === 'allow') right = await this.write(personKey, toKey, r.owner, 'send', false);
+      // An allow opens a link that is removed or not there yet. It never lifts a pause: whoever paused it (the sender, the owner or an Admin) resumes it (#1051).
+      if (op === 'allow') {
+        if (had?.paused) return refuse(409, 'this link is paused, so it is resumed, not allowed again');
+        right = await this.write(personKey, toKey, r.owner, 'send', false);
+      }
       else if (op === 'remove') {
         if (!had || had.level === 'none') return refuse(404, 'there is no link to remove');
         // A `none` row is kept, so a removed link holds: the person's next message is refused, not asked about again.

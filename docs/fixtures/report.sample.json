@@ -1,5 +1,6 @@
 {
   "v": 1,
+  "adminNotices": true,
   "sentAt": 1791648000000,
   "reporter": { "name": "podium-reporter", "version": "0.14.2", "engineVersion": "2.1.296", "hostSurface": "terminal" },
   "session": {

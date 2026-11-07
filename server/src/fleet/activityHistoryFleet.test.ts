@@ -190,6 +190,39 @@ describe('capture through the fleet', () => {
     expect(await stored()).toHaveLength(1);
   });
 
+  it('keeps the text of a Chat message out of the live feed and the history, and writes nothing for a reporter with the activity feed off (#1051)', async () => {
+    const fleet = await makeFleet();
+    await fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.features.setFeature('respond', true);
+    const r = report([]);
+    r.session.respond = { level: 'everything', accepts: ['message', 'command'], limits: [] };
+    await fleet.ingest(r);
+    fleet.activity.watch(r.session.id, MAIN_LOOP, 5);
+    const chat = fleet.respond.message(r.session.id, 'Ed', { text: 'PRIVATE CHAT TEXT' }, true);
+    const channel = fleet.respond.message(r.session.id, 'Ed', { text: 'PRIVATE CHANNEL TEXT' }, false, 'My group');
+    const plain = fleet.respond.message(r.session.id, 'Ed', { text: 'plain console text' });
+    if (!chat.ok || !channel.ok || !plain.ok) throw new Error('message refused');
+    await fleet.flush();
+    const live = fleet.activity.watch(r.session.id, MAIN_LOOP, 5).entries;
+    const kept = (await fleet.activityHistory.page(r.session.id, MAIN_LOOP, null, 20)).entries;
+    for (const entries of [live, kept]) {
+      expect(JSON.stringify(entries)).not.toContain('PRIVATE');
+      expect(entries.map((e) => e.text)).toEqual(['a Chat message from Ed', 'a Chat message from Ed', 'plain console text']);
+    }
+    // The delivery itself still carries the text to the agent.
+    expect(chat.delivery).toMatchObject({ kind: 'message', text: 'PRIVATE CHAT TEXT', chat: true });
+
+    const off = report([], [], false);
+    off.session.id = 'sess-feed-off';
+    off.session.respond = { level: 'everything', accepts: ['message', 'command'], limits: [] };
+    await fleet.ingest(off);
+    fleet.activity.watch(off.session.id, MAIN_LOOP, 5);
+    expect(fleet.respond.message(off.session.id, 'Ed', { text: 'to a reporter with the feed off' }).ok).toBe(true);
+    await fleet.flush();
+    expect(fleet.activity.watch(off.session.id, MAIN_LOOP, 5).entries).toEqual([]);
+    expect((await fleet.activityHistory.page(off.session.id, MAIN_LOOP, null, 20)).entries).toEqual([]);
+  });
+
   it('skips a Podium entry for a session the main database does not hold', async () => {
     const fleet = await makeFleet();
     await fleet.activityHistorySettings.set({ policy: 'all' });

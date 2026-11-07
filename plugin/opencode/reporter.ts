@@ -5,8 +5,8 @@ import { excerpt, explainPrompt } from '../core/failures.ts';
 import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
-import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
-import { AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
+import type { AdminNotice, DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
+import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
@@ -56,10 +56,14 @@ export interface ReporterDeps {
   log: (line: string) => void;
   /** The name `/podium name` kept for a session (`ctx.storage`), or null; asked once for each root when it appears (#987). */
   loadName?: (rootId: string) => Promise<string | null>;
-  /** Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. */
+  /**
+   * Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. Where it is given, an Admin
+   * callout is held until it is true and counts as shown only when the TUI part says so (`adminShown`, #1051): the TUI part may be gone for up to the attach
+   * time limit, or not listening yet, and a toast sent then goes nowhere.
+   */
   attached?: () => boolean;
   /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
-  notify?: (line: string) => void;
+  notify?: (line: string, opts?: { durationMs?: number; id?: string; admin?: boolean }) => void;
   /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
   problem?: () => { status: string } | null;
   /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
@@ -125,6 +129,9 @@ export interface Summary {
   messaging: { option: boolean; canPrompt: boolean; reported: boolean; serverSays: boolean };
 }
 
+/** How long after a callout was offered to the TUI part, with no word that it was shown, it is offered again. A report goes out every few seconds, so this is a few reports. */
+export const ADMIN_OFFER_AGAIN_MS = 10_000;
+
 export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
 export class Reporter {
@@ -144,6 +151,10 @@ export class Reporter {
   private readonly responder: Responder;
   /** The callouts an Admin's reading earned that were shown already (#1034); a notice the server keeps handing over is shown once. */
   private readonly adminSeen = new AdminNoticeSeen();
+  /** When each callout that waits for the TUI part's word was last offered to it. */
+  private readonly adminOffered = new Map<string, number>();
+  /** Callouts the server handed over while no TUI part was attached, kept until one is: the server's list of them is in memory and each reply replaces the last. */
+  private readonly adminHeld = new Map<string, AdminNotice>();
   /** Orchestrator messaging (#347); null unless the person allowed it (`PODIUM_PEERS`) and the host can submit a prompt. */
   private readonly peers: Peers | null;
   /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
@@ -340,11 +351,37 @@ export class Reporter {
   /**
    * An Admin read, paused, resumed or removed the messages of one of this person's Podium conversations (#1034): a toast, each once. It is for the person
    * only, never a prompt, a turn or a tool's answer, so the model does not read it, and it does not depend on the messaging option.
+   *
+   * With a TUI part to confirm (`attached` is given) a callout is offered while the part is attached, again after `ADMIN_OFFER_AGAIN_MS` until `adminShown` says it
+   * was shown, and held while none is attached (the server hands it over for minutes, so it is shown when a TUI part comes). Without one it is shown once.
    */
   private takeAdminNotices(t: Transport): void {
-    const list = t.adminNotices;
+    const confirms = !!this.deps.attached;
+    if (confirms && !this.deps.attached!()) {
+      // Held, not dropped: none that was shown (or is held already) is added again, and the oldest go past 50.
+      for (const n of t.adminNotices) if (!this.adminSeen.has(n.id)) this.adminHeld.set(n.id, n);
+      for (const id of this.adminHeld.keys()) if (this.adminHeld.size <= 50) break; else this.adminHeld.delete(id);
+      return;
+    }
+    const list = [...new Map([...this.adminHeld, ...t.adminNotices.map((n): [string, AdminNotice] => [n.id, n])]).values()];
+    this.adminHeld.clear();
     t.adminNotices = [];
-    for (const n of this.adminSeen.fresh(list)) this.deps.notify?.(adminNoticeToast(n));
+    const now = this.deps.now();
+    for (const n of list) {
+      if (this.adminSeen.has(n.id)) continue;
+      const told = this.adminOffered.get(n.id);
+      if (confirms && told !== undefined && now - told < ADMIN_OFFER_AGAIN_MS) continue;
+      if (!confirms) this.adminSeen.add(n.id);
+      else this.adminOffered.set(n.id, now);
+      this.deps.notify?.(adminNoticeToast(n), { durationMs: ADMIN_NOTICE_TOAST_MS, id: n.id, admin: true });
+    }
+    for (const id of this.adminOffered.keys()) if (this.adminOffered.size <= 100) break; else this.adminOffered.delete(id);
+  }
+
+  /** The TUI part showed the Admin callout `id` (#1051): it is not offered again. */
+  adminShown(id: string): void {
+    this.adminSeen.add(id);
+    this.adminOffered.delete(id);
   }
 
   /** Takes the server's grant for the recording and tells the owner what changed. Capture needs the owner's option on as well; with it off nothing is captured. */

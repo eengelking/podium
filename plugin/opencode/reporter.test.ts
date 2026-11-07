@@ -491,6 +491,11 @@ describe('effort from the model variant', () => {
     const root = store(ev('session.created', { sessionID: ROOT }, 1)).roots.get(ROOT)!;
     expect(buildReport(root, [], meta).capabilities).toMatchObject({ effort: true, context: true });
   });
+
+  it('declares adminNotices, because it shows the Admin callout as a toast and a log line (#1051)', () => {
+    const root = store(ev('session.created', { sessionID: ROOT }, 1)).roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).capabilities?.adminNotices).toBe(true);
+  });
 });
 
 describe('context window and percent', () => {

@@ -148,6 +148,8 @@ export function peerCases(o: Openers): void {
       await rec('live (unknown)', peers.messages.live('nope'));
       const one = await peers.messages.send('sa', 'beta@box-b', 'one');
       await rec('send', (one));
+      await rec('message by id', peers.messages.message((one as { id: string }).id));
+      await rec('message by an unknown id', peers.messages.message('nope'));
       await rec('send to an unknown name', peers.messages.send('sa', 'nobody@box-x', 'hi'));
       await rec('send too long', peers.messages.send('sa', 'beta@box-b', 'x'.repeat(20_001)));
       const ask = await peers.messages.send('sa', 'gamma@box-c', 'may I?');
@@ -226,6 +228,26 @@ export function peerCases(o: Openers): void {
       await rec('conversation (after drop all)', (await peers.messages.conversation('sa', 'sb')));
     });
     expect(t.has('owner view')).toBe(true);
+  });
+
+  it('sweeps a message from a session id that only looks like a person end, and keeps a real person end, the same on every adapter (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      await peers.rights.setRight('ed', a, b, 'send', ED);
+      await peers.rights.setRight('ed', b, a, 'send', ED);
+      // A live orchestrator whose id has no sessions row, and whose id differs from the prefix only in case.
+      await peers.note('Person:ghost', a, 'ed', waiting('ghost', 'box-a'));
+      await rec('send from the look-alike', peers.messages.send('Person:ghost', 'beta@box-b', 'who am I'));
+      await rec('person writes', peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'from the person' }));
+      await rec('retain', peers.retain());
+      await rec('look-alike conversation', peers.messages.conversation('Person:ghost', 'sb'));
+      await rec('person conversation', peers.messages.conversation('person:ed', 'sb'));
+    });
+    expect((t.get('send from the look-alike') as { ok: boolean }).ok).toBe(true);
+    expect((t.get('retain') as { messages: number }).messages).toBe(1);
+    expect(t.get('look-alike conversation')).toEqual([]);
+    expect((t.get('person conversation') as unknown[]).length).toBe(1);
   });
 
   it('agrees on every adapter for who wrote a message, the pages of a conversation, a person adding to it, hiding it and deleting it (#1034)', async () => {
@@ -352,6 +374,26 @@ export function peerCases(o: Openers): void {
     expect((t.get('the other conversation') as { text: string }[]).map((x) => x.text)).toEqual(['to gamma']);
     expect((t.get('conversations') as unknown[]).length).toBe(1);
   });
+  it('lists a hidden conversation with the time it was hidden, however many messages it holds (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      // The count stays small because every message is a database call; the largest a list can hold without throwing is held by `peerText.test.ts` (`latestOf`).
+      for (let i = 0; i < 60; i++) await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', text: `m${i}`, state: 'queued' });
+      clock.now += 5;
+      await rec('hide', m.hideConversation('ed', 'person:ed', 'sa'));
+      clock.now += 5;
+      await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'another conversation', state: 'queued' });
+      const list = await rec('with the hidden one', m.ownerConversations('ed', { includeHidden: true }));
+      await rec('hidden at', Promise.resolve(list.map((c) => [c.a.sessionId, c.b.sessionId, c.messages, c.hiddenAt])));
+      await rec('without the hidden one', m.ownerConversations('ed').then((l) => l.map((c) => [c.a.sessionId, c.b.sessionId])));
+    });
+    expect(t.get('hide')).toBe(60);
+    expect(t.get('hidden at')).toEqual([['person:ed', 'sb', 1, null], ['person:ed', 'sa', 60, T0 + 5]]);
+    expect(t.get('without the hidden one')).toEqual([['person:ed', 'sb']]);
+  });
+
   it("agrees on every adapter for a person writing to another person's agent: the request, the link it opens, pausing, removing and the refusals (#1034)", async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
@@ -479,6 +521,40 @@ export function peerCases(o: Openers): void {
     const left = t.get('eve list after the delete') as { a: { sessionId: string }; b: { sessionId: string } }[];
     expect(left.some((c) => c.a.sessionId === 'sb' || c.b.sessionId === 'sb')).toBe(false);
     expect(left.length).toBeGreaterThan(0);
+  });
+
+  it('agrees on every adapter that an allow never lifts a pause on a person\'s link, and that approving a waiting message keeps it paused (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a } = await setUp(s, clock);
+      const m = peers.messages;
+      await s.fleet.upsertSession(session({ id: 'sx1', owner: 'ed' }));
+      await peers.note('sx1', a, 'ed', waiting('alpha two', 'box-a'));
+      await m.sendAcross({ person: 'Eve', toSession: 'sa', text: 'one' });
+      await m.sendAcross({ person: 'Eve', toSession: 'sx1', text: 'two' });
+      const [first, second] = (await peers.rights.openRequests('ed')).filter((r) => r.toKey === a);
+      await rec('approve the first', peers.answer(first!.id, 'ed', 'deliver', ED));
+      await rec('an Admin pauses the link', peers.setPersonLink('person:eve', a, 'pause', ED, 'admin'));
+      await rec('approve the second while paused', peers.answer(second!.id, 'ed', 'deliver', ED));
+      await rec('the link is still paused by the Admin', peers.rights.personLink('person:eve', a));
+      await rec('allow while paused', peers.setPersonLink('person:eve', a, 'allow', ED));
+      await rec('the link after the allow', peers.rights.personLink('person:eve', a));
+      await rec('resume', peers.setPersonLink('person:eve', a, 'resume', ED));
+      await rec('allow on an open link', peers.setPersonLink('person:eve', a, 'allow', ED));
+      await rec('the sender pauses', peers.setPersonLink('person:eve', a, 'pause', ED, 'sender'));
+      await rec('allow after the sender paused', peers.setPersonLink('person:eve', a, 'allow', ED));
+      await rec('remove', peers.setPersonLink('person:eve', a, 'resume', ED));
+      await rec('removed', peers.setPersonLink('person:eve', a, 'remove', ED));
+      await rec('allow after a removal', peers.setPersonLink('person:eve', a, 'allow', ED));
+    });
+    expect(t.get('approve the first')).toMatchObject({ ok: true });
+    expect(t.get('approve the second while paused')).toMatchObject({ ok: true });
+    expect(t.get('the link is still paused by the Admin')).toMatchObject({ paused: true, pausedBy: 'admin' });
+    expect(t.get('allow while paused')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('the link after the allow')).toMatchObject({ paused: true, pausedBy: 'admin' });
+    expect(t.get('allow on an open link')).toMatchObject({ ok: true });
+    expect(t.get('allow after the sender paused')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('allow after a removal')).toMatchObject({ ok: true, right: { level: 'send', paused: false } });
   });
 
   it("agrees on every adapter for an agent answering a person over the link the owner opened: only that link, the same limits, stored delivered (#1034)", async () => {

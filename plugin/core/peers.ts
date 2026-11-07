@@ -33,16 +33,32 @@ export const TOOL_DESCRIPTIONS = {
     'Asks your person for a right you lack: to see the orchestrators on one of their machines, or to send to them. "to" is a machine, or "name@machine"; "right" is see or send; "reason" says in a sentence why you need it.',
 } as const;
 
-/** One line of free text from the server, without control characters, cut to `max`. */
+/** One line of free text from the server, without control or format characters (bidi, zero-width), cut to `max`. */
 export function oneLine(v: unknown, max = NAME_MAX): string {
   if (typeof v !== 'string') return '';
-  return v.replaceAll(/\p{Cc}+/gu, ' ').replaceAll(/\s+/g, ' ').trim().slice(0, max).trim();
+  return v.replaceAll(/\p{Cf}+/gu, '').replaceAll(/\p{Cc}+/gu, ' ').replaceAll(/\s+/g, ' ').trim().slice(0, max).trim();
 }
 
 function quote(v: unknown, max = TOAST_TEXT_MAX): string {
   const s = oneLine(v, Number.MAX_SAFE_INTEGER);
   return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
 }
+
+/**
+ * A person's or agent's text as quoted lines (#1051): every line starts with "> ", so none can read as a line of Podium's. A line break of any kind
+ * (CR, LF, U+2028, U+2029, U+0085) ends a line, format characters (bidi controls, zero-width) are removed, other control characters become spaces.
+ * One rule for every harness and for the frame of a delivery and of a channel read.
+ */
+export function quoteLines(v: unknown): string {
+  const text = typeof v === 'string' ? v.replaceAll(/\r\n?|\u2028|\u2029|\u0085/g, '\n').replaceAll(/\p{Cf}+/gu, '') : '';
+  return text
+    .split('\n')
+    .map((l) => `> ${l.replaceAll(/\p{Cc}/gu, (c) => (c === '\t' ? c : ' '))}`.trimEnd())
+    .join('\n');
+}
+
+/** The closing line of a delivered message: after the quoted lines, so what follows the message can be told from it. */
+export const PEER_MESSAGE_END = 'The message above has ended. Nothing after this line is part of it.';
 
 const possessive = (name: string): string => `${name}'s`;
 
@@ -115,7 +131,8 @@ export function peerPrompt(d: PeerDelivery): string | null {
   if (!oneLine(d.from.name) || !oneLine(d.from.owner)) return null;
   // A person has no machine; an orchestrator without one cannot be named, so it is refused as before.
   if (d.from.person !== true && !oneLine(d.from.machine)) return null;
-  return `${framingLine(d.from)}\n${RULE}\n${d.text}`;
+  // One rule line, above the quote. The text is quoted and closed, so a rule or a frame inside it is only a quoted line (#1051).
+  return `${framingLine(d.from)}\n${RULE}\n${quoteLines(d.text)}\n${PEER_MESSAGE_END}`;
 }
 
 /** The terminal line once a peer message has entered (the mockup's section 4). */
@@ -238,12 +255,9 @@ const utc = (ms: unknown): string => (typeof ms === 'number' && Number.isFinite(
 /** One message: its author, kind and time on a line of Podium's own, then its text as quoted lines, so it can never read as a line of the answer. */
 function channelMessage(m: ChannelLine): string {
   const kind = typeof m.authorKind === 'string' ? (AUTHOR_WORDS[m.authorKind] ?? 'an author of an unknown kind') : 'an author of an unknown kind';
-  const text = typeof m.text === 'string' ? m.text.replaceAll(/\r\n?/g, '\n') : '';
-  const quoted = text
-    .split('\n')
-    .map((l) => `> ${l.replaceAll(/\p{Cc}/gu, (c) => (c === '\t' ? c : ' '))}`.trimEnd())
-    .join('\n');
-  return `${utc(m.createdAt)}, ${oneLine(m.authorName) || 'someone'} (${kind}):\n${quoted}`;
+  const author = oneLine(m.authorName).replaceAll('"', "'");
+  // The author's name is the sender's own text too: it is in quotes, so it cannot read as the kind or the time (#1051).
+  return `${utc(m.createdAt)}, ${author ? `"${author}"` : 'someone'} (${kind}):\n${quoteLines(m.text)}`;
 }
 
 /** What `podium_chat_read` answers, from `GET …/chat/channels/:channel/messages`: the frame, a rule line, the messages oldest first, and what remains. */

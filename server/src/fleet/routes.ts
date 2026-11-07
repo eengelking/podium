@@ -139,8 +139,8 @@ function intParam(v: unknown): number | null | 'bad' {
 const routeName = (req: Request): string => `${req.baseUrl}${(req.route as { path?: string } | undefined)?.path ?? req.path}`;
 
 /** The callouts for this session's person when an Admin read or stopped their conversation (#1034): present only while there is one. Older reporters ignore the field. */
-function adminNoticesOf(fleet: Fleet, sessionId: string): { adminNotices?: AdminNotice[] } {
-  const adminNotices = fleet.chat.adminNoticesFor(sessionId);
+async function adminNoticesOf(fleet: Fleet, sessionId: string): Promise<{ adminNotices?: AdminNotice[] }> {
+  const adminNotices = await fleet.chat.adminNoticesFor(sessionId);
   return adminNotices.length ? { adminNotices } : {};
 }
 
@@ -288,7 +288,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...adminNoticesOf(fleet, out.sessionId), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...(await adminNoticesOf(fleet, out.sessionId)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof HarnessConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
@@ -445,8 +445,14 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   }));
 
   router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
-    if (!(await fleet.deleteSession(req.params.id))) {
+    const id = identityOf(res);
+    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.name : undefined);
+    if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (out === 'forbidden') {
+      res.status(403).json({ ok: false, error: 'that session belongs to someone else', path: '$.id' });
       return;
     }
     res.json({ ok: true });

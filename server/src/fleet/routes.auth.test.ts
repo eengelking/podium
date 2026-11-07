@@ -96,13 +96,43 @@ describe('reporting with a person token', () => {
     expect(await owners(app)).toEqual(['Dana']);
   });
 
-  it('lets any valid credential delete a session, and refuses a revoked one', async () => {
+  it('lets the admin secret delete a session, and refuses a revoked person token', async () => {
     const { app, people } = await setup();
     const a = await people.createPerson('Dana');
     await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'));
     await people.revoke(a.person.id);
     expect((await request(app).delete('/api/fleet/sessions/sess-1').set('X-Podium-Token', a.token)).status).toBe(401);
     expect((await request(app).delete('/api/fleet/sessions/sess-1').set('X-Podium-Token', 'admin-secret')).status).toBe(200);
+  });
+});
+
+describe('deleting a session (#1051)', () => {
+  it('404s an id that is no session before any side effect, including a person: id', async () => {
+    const { app, people, fleet } = await setup();
+    const a = await people.createPerson('Dana');
+    const spy: string[][] = [];
+    const orig = fleet.peers.deleted.bind(fleet.peers);
+    fleet.peers.deleted = async (ids: string[]) => {
+      spy.push(ids);
+      return orig(ids);
+    };
+    for (const id of ['person:dana', 'nope']) {
+      const r = await request(app).delete(`/api/fleet/sessions/${encodeURIComponent(id)}`).set('X-Podium-Token', a.token);
+      expect(r.status).toBe(404);
+    }
+    expect(spy).toEqual([]);
+  });
+
+  it('refuses a person who does not own the session, and lets the owner and the admin secret delete it', async () => {
+    const { app, people, fleet } = await setup();
+    const dana = await people.createPerson('Dana');
+    const eli = await people.createPerson('Eli');
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Dana', 'mine'))).status).toBe(200);
+    expect((await request(app).delete('/api/fleet/sessions/mine').set('X-Podium-Token', eli.token)).status).toBe(403);
+    expect(await fleet.db.getSession('mine')).toBeTruthy();
+    expect((await request(app).delete('/api/fleet/sessions/mine').set('X-Podium-Token', dana.token)).status).toBe(200);
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Dana', 'again'))).status).toBe(200);
+    expect((await request(app).delete('/api/fleet/sessions/again').set('X-Podium-Token', 'admin-secret')).status).toBe(200);
   });
 });
 

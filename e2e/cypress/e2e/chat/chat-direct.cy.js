@@ -3,7 +3,7 @@
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
 import { seeded } from '../../../support/commands';
 
-const DM = 'd:e2e-s-invoice+e2e-s-tester';
+const DM = 'd:dm:e2e-s-invoice|e2e-s-tester';
 const GENERAL = 'c:general';
 const NAME = 'Actions for invoice-v2, Tester';
 
@@ -44,8 +44,11 @@ describe('chat: the controls of a Direct Message', () => {
     cy.openConsole('#/chat');
     cy.chatRow(DM).should('not.exist');
     cy.contains('No conversations. Start one from People and agents.');
-    // And the server refuses its text to them.
-    cy.request({ url: '/api/fleet/respond/chat/dm/e2e-s-invoice/e2e-s-tester/messages?limit=50', failOnStatusCode: false }).its('status').should('eq', 403);
+    // And the server answers them as it would for a conversation that does not exist (404), with no text.
+    cy.request({ url: '/api/fleet/respond/chat/dm/e2e-s-invoice/e2e-s-tester/messages?limit=50', failOnStatusCode: false }).then((r) => {
+      expect(r.status).to.eq(404);
+      expect(r.body.error).to.eq('There is no such conversation.');
+    });
   });
 
   it('says so, and changes nothing, when Pause link fails', () => {
@@ -147,16 +150,16 @@ describe('chat: People and agents', () => {
   it('starts a Direct Message with an agent, which joins the list once the first message is sent', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow('d:e2e-s-arm64-check').should('not.exist');
+    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('not.exist');
     cy.chatRow('a:e2e-s-arm64-check').find('button.ch-row').should('have.attr', 'title', 'Message arm64-check').click();
     cy.get('#th-h').should('have.text', 'arm64-check');
     cy.get('label').contains('Message arm64-check');
     cy.contains('No messages yet. Write the first one below.');
-    cy.tid('chat-box').should('have.attr', 'placeholder', 'Write a message.').type('Is the arm64 build ready?{enter}');
+    cy.tid('chat-box').should('have.attr', 'placeholder', 'Write a message, or type / for a command.').type('Is the arm64 build ready?{enter}');
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'Is the arm64 build ready?').and('contain.text', 'Waiting:');
-    cy.chatRow('d:e2e-s-arm64-check').should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
+    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
     // A conversation with one agent has no link to pause: only Delete is offered.
-    openMenu('d:e2e-s-arm64-check').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
+    openMenu('d:dm:e2e-s-arm64-check|person:ed').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
     cy.focused().type('{esc}');
   });
 
@@ -164,13 +167,13 @@ describe('chat: People and agents', () => {
     // Reads the message Ed sent to arm64-check in the test above. The agent answers through its reporter's route, as podium_send to the person does.
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow('d:e2e-s-arm64-check').find('.unread').should('not.exist');
+    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
     cy.request({ method: 'POST', url: '/api/fleet/sessions/e2e-s-arm64-check/peers/messages', headers: { 'X-Podium-Token': seeded().people.Ed.token }, body: { to: 'person:ed', text: 'The arm64 build is ready.' }, log: false }).its('status', { log: false }).should('eq', 202);
-    cy.chatRow('d:e2e-s-arm64-check').find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
-    cy.chatRow('d:e2e-s-arm64-check').find('button.ch-row').click();
+    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
+    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 2).first().should('contain.text', 'Is the arm64 build ready?');
     cy.tid('chat-message').last().should('contain.text', 'arm64-check').and('contain.text', 'The arm64 build is ready.').and('not.contain.text', 'You');
-    cy.chatRow('d:e2e-s-arm64-check').find('.unread').should('not.exist');
+    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
   });
 
   it('opens an agent\'s orchestration page from its menu among the people in a thread', () => {

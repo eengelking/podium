@@ -233,6 +233,21 @@ export function fleetCases(o: Openers): void {
     expect(t.get('live kept')).toBeDefined();
   });
 
+  it('keeps the characters that draw nothing out of a person\'s name and a group\'s, and refuses a line separator (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      await rec('person with bidi and zero-width', s.people.createPerson('Al\u202Eex\u200B', null, T0).then((r) => r.person.name));
+      await rec('the plain name is taken', s.people.createPerson('Alex', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('person with a line separator', s.people.createPerson('A\u2028B', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('person with a next-line', s.people.createPerson('A\u0085B', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('person of only format characters', s.people.createPerson('\u200B\u200D', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('group with a bidi control', s.people.createGroup('Ops\u202E', T0).then((g) => g.name));
+    });
+    expect(t.get('person with bidi and zero-width')).toBe('Alex');
+    expect(String(t.get('the plain name is taken'))).toMatch(/taken/);
+    for (const k of ['person with a line separator', 'person with a next-line', 'person of only format characters']) expect(t.get(k), k).not.toBe('created');
+    expect(t.get('group with a bidi control')).toBe('Ops');
+  });
+
   it('stores text with non-ASCII letters, emoji, quotes, backslashes and wildcards as it is, and finds it by a search that treats them as plain characters (#1007)', async () => {
     // Every value here is one a person can type or a harness can send, and the report validator lets it through (it removes control
     // characters, which includes NUL; a NUL never reaches a store, and not every database stores one, so it is no case here).
@@ -276,7 +291,8 @@ export function fleetCases(o: Openers): void {
     });
     // the values themselves, not only the agreement between two databases
     const names = (t.get('people') as { rows: { name: string }[] }).rows.map((p) => p.name).sort(byCode);
-    expect(names).toEqual([...odd].sort(byCode));
+    // a person's name has no format character (a zero-width joiner in the emoji case goes), as the case above says
+    expect(names).toEqual(odd.map((n) => n.replace(/\p{Cf}/gu, '')).sort(byCode));
     const sessions = t.get('sessions') as { name: string; wait_note: string; owner: string }[];
     expect(sessions.map((r) => r.name)).toEqual(odd);
     expect(sessions.map((r) => r.wait_note)).toEqual(odd);

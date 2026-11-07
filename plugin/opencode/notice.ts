@@ -1,6 +1,8 @@
 // What the OpenCode reporter tells the person (#969): the transport's notices as console lines said once, the text of `/podium`, and the
 // toast the TUI part shows when the connection changes. Pure; index.ts and tui.ts only carry the text to where it is shown.
 import { connectionLine } from '../core/podiumCommand.ts';
+import { ADMIN_NOTICE_TOAST_MS } from '../core/adminNotice.ts';
+import type { NoticeEvent } from './bridge.ts';
 import type { Summary } from './reporter.ts';
 
 /** A logger that says each distinct line once. It remembers at most `max` lines, so a long run cannot make it grow without end. */
@@ -141,5 +143,80 @@ export class StatusRelay {
   }
   private emit(): void {
     void this.send?.({ text: this.current }).catch(() => undefined);
+  }
+}
+
+/** How long a toast that is not an Admin callout is taken to stay up, when it names no time (the host's own default is about this). */
+export const OTHER_TOAST_MS = 5000;
+const RESHOW_GAP_MS = 300;
+
+/**
+ * The TUI part's toasts. The host shows one toast at a time: a new one replaces the one up (found in a live run, where the connection's status toast, 14 ms behind
+ * an Admin callout, replaced it). The Admin callout is the one thing the person must see (#1051), so any other toast is shown as it comes, and the callout is shown
+ * again, for the time it has left, once the last of them has had its time.
+ */
+export class ToastKeeper {
+  private readonly admin: { n: NoticeEvent; until: number }[] = [];
+  private generation = 0;
+
+  constructor(
+    private readonly show: (n: NoticeEvent) => void,
+    private readonly now: () => number,
+    private readonly later: (ms: number, fn: () => void) => void,
+  ) {}
+
+  offer(n: NoticeEvent): void {
+    const now = this.now();
+    if (n.admin) {
+      this.admin.push({ n, until: now + (n.duration ?? ADMIN_NOTICE_TOAST_MS) });
+      this.generation++;
+      this.show(n);
+      return;
+    }
+    const mine = ++this.generation;
+    this.show(n);
+    if (!this.live(now)) return;
+    this.later((n.duration ?? OTHER_TOAST_MS) + RESHOW_GAP_MS, () => {
+      if (mine !== this.generation) return;
+      const at = this.now();
+      const up = this.live(at);
+      if (up && up.until - at > 1000) this.show({ ...up.n, duration: up.until - at });
+    });
+  }
+
+  /** The newest Admin toast with time left, or null. */
+  private live(now: number): { n: NoticeEvent; until: number } | null {
+    for (let i = this.admin.length - 1; i >= 0; i--) if (this.admin[i]!.until > now) return this.admin[i]!;
+    this.admin.length = 0;
+    return null;
+  }
+}
+
+/** How many lines the board holds. */
+const BOARD_LINES = 5;
+/** How long a line stays on the board: twice the time the server hands a callout over, so it is there for as long as the reading is. */
+export const BOARD_KEEP_MS = 10 * 60_000;
+
+/**
+ * The Admin callouts that stay in view (#1051). OpenCode has no transcript a plugin may write to without the model reading it, so a toast, which passes, is
+ * backed by a board in the session screen that stays. Content-free lines, each once, oldest first.
+ */
+export class AdminBoard {
+  private readonly rows = new Map<string, { text: string; at: number }>();
+
+  constructor(
+    private readonly keepMs = BOARD_KEEP_MS,
+    private readonly max = BOARD_LINES,
+  ) {}
+
+  add(id: string, text: string, now: number): void {
+    if (this.rows.has(id)) return;
+    this.rows.set(id, { text, at: now });
+    while (this.rows.size > this.max) this.rows.delete(this.rows.keys().next().value as string);
+  }
+
+  lines(now: number): string[] {
+    for (const [id, r] of this.rows) if (now - r.at >= this.keepMs) this.rows.delete(id);
+    return [...this.rows.values()].map((r) => r.text);
   }
 }

@@ -75,6 +75,8 @@ export interface ChatHost {
   respondFlagsOn(): boolean;
   featureOn(id: string): boolean;
   isLive(sessionId: string): boolean;
+  /** A session's name and owner as last stored (a session that has ended is still known), or null when it is not. */
+  sessionOf(sessionId: string): Promise<{ name: string; owner: string | null } | null>;
   liveIds(): string[];
   /** The admin secret and anything else that must never be stored or sent on. */
   secrets(): string[];

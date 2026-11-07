@@ -69,7 +69,7 @@ function usageRows(...sets: Record<string, ModelUsage>[]): ModelUsage[] {
 }
 
 /** What this reporter sends before it is allowed to answer: it watches only. Effort is the model's variant and the window comes from the model list. */
-export const CAPABILITIES: Capabilities = { effort: true, plan: true, agents: true, cost: true, context: true, git: true, respond: false, commands: [] };
+export const CAPABILITIES: Capabilities = { effort: true, plan: true, agents: true, cost: true, context: true, git: true, respond: false, adminNotices: true, commands: [] };
 
 /** The capabilities for what the session takes now: `respond` and `/compact` only when something can be answered (#858). OpenCode has no `/clear`. */
 export function capabilities(info: RespondInfo | null): Capabilities {

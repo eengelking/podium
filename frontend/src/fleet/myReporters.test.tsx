@@ -378,7 +378,7 @@ describe("Waiting for you", () => {
     // The text is a text node, never HTML.
     expect(row).toHaveTextContent('Can you check the build? <img src=x onerror="alert(1)">');
     expect(row.querySelector("img")).toBeNull();
-    expect(row).toHaveTextContent("Allow opens a link: Maya can message this agent until you pause or remove it.");
+    expect(row).toHaveTextContent("Allow opens a link to this reporter, ed-mbp, not only to claude-dashboard: Maya can then message every orchestrator on it, including ones started later, until you pause or remove the link. Decline delivers nothing.");
     expect(within(row).queryByRole("button", { name: "Deliver" })).toBeNull();
     // The person is not a reporter: the Grid has no column or row for them.
     expect(screen.queryByLabelText(/Maya to /)).toBeNull();

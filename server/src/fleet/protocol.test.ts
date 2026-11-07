@@ -107,6 +107,36 @@ describe('protocol', () => {
       expect(r.report.capabilities?.commands).toEqual(['/clear', '/compact']);
     });
 
+    it('reads the adminNotices capability as declared, and an omitted one as not declared (#1051)', () => {
+      const f = v2();
+      f.capabilities = { adminNotices: true, commands: [] };
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(r.error);
+      expect(r.report.capabilities).toEqual({ adminNotices: true, commands: [] });
+      expect(r.report.adminNotices).toBe(true);
+      const none = validateReport(v2());
+      if (!none.ok) throw new Error(none.error);
+      expect(none.report.adminNotices).toBeUndefined();
+      const bad = v2();
+      bad.capabilities = { adminNotices: 'yes', commands: [] };
+      expect(validateReport(bad)).toMatchObject({ ok: false, path: '$.capabilities.adminNotices' });
+    });
+
+    it('reads adminNotices from a v1 report, which has no capabilities block, and refuses a value that is not a boolean (#1051)', () => {
+      const f = loadFixture() as Record<string, any>;
+      f.adminNotices = true;
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(r.error);
+      expect(r.report.adminNotices).toBe(true);
+      expect(r.report.capabilities).toBeUndefined();
+      f.adminNotices = 'yes';
+      expect(validateReport(f)).toMatchObject({ ok: false, path: '$.adminNotices' });
+      delete f.adminNotices;
+      const none = validateReport(f);
+      if (!none.ok) throw new Error(none.error);
+      expect(none.report.adminNotices).toBeUndefined();
+    });
+
     it('treats an omitted capability as not supported and keeps null as null', () => {
       const f = v2();
       f.capabilities = {};
@@ -140,6 +170,40 @@ describe('protocol', () => {
       edit(f);
       expect(validateReport(f)).toMatchObject({ ok: false, path });
     });
+  });
+
+  it.each([
+    ['person:alex', 'a person end'],
+    ['Person:Alex', 'a person end in other case'],
+    ['..', 'dots only'],
+    ['.', 'one dot'],
+    ['a|b', 'a pipe'],
+    ['a+b', 'a plus'],
+    ['a/b', 'a slash'],
+  ])('rejects the session id %s: %s (#1051)', (id) => {
+    const f = loadFixture() as { session: Record<string, unknown> };
+    f.session.id = id;
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.id' });
+  });
+
+  it('removes format characters and line separators from a session name, a user name and a machine name (#1051)', () => {
+    const f = loadFixture() as { session: Record<string, unknown>; userName?: string; machine?: Record<string, unknown> };
+    f.session.name = 'Al\u202Eex\u200B (an\u2028Admin)';
+    f.userName = 'Ed\u200D\u2066';
+    f.machine = { name: 'mb\u2029p\u0085', id: 'abcdef123456' };
+    const r = validateReport(f);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.report.session.name).toBe('Alex (an Admin)');
+    expect(r.report.userName).toBe('Ed');
+    expect(r.report.machine?.name).toBe('mb p');
+  });
+
+  it('accepts the session ids real clients make', () => {
+    for (const id of ['3f9c2a1e-77b4-4d0a-9c55-1be2f4c0a8d6', 'ses_5a91c0e4d2b7f3a8', 'sess-dev', 'a.b']) {
+      const f = loadFixture() as { session: Record<string, unknown> };
+      f.session.id = id;
+      expect(validateReport(f).ok).toBe(true);
+    }
   });
 
   it('rejects a non-array agents', () => {

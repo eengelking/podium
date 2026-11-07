@@ -14,6 +14,20 @@ export class AdminNoticeSeen {
 
   constructor(private readonly kept = SEEN_KEPT) {}
 
+  /** Whether a notice was shown. */
+  has(id: string): boolean {
+    return this.ids.has(id);
+  }
+
+  /** Marks a notice as shown, for a harness that is told when it was. */
+  add(id: string): void {
+    this.ids.add(id);
+    for (const old of this.ids) {
+      if (this.ids.size <= this.kept) break;
+      this.ids.delete(old);
+    }
+  }
+
   /** The notices of a reply not shown before, oldest first. */
   fresh(list: readonly AdminNotice[]): AdminNotice[] {
     const out: AdminNotice[] = [];

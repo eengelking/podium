@@ -145,10 +145,16 @@ export function chatCases(o: Openers): void {
       await rec('get (read)', rs.get('ed', 'public'));
       await rec('list (after)', rs.list('ed'));
       await rec('list (another person)', rs.list('eve'));
+      await rec('threads that start with dm:', rs.threads('dm:'));
+      await rec('threads that start with group:', rs.threads('group:'));
+      await rec('threads that start with nothing there', rs.threads('zz'));
       await rec('forget the thread', rs.forget('public'));
       await rec('list (after forget)', rs.list('ed'));
       await rec('list (another person, after forget)', rs.list('eve'));
     });
+    expect(t.get('threads that start with dm:')).toEqual(['dm:a|b']);
+    expect(t.get('threads that start with group:')).toEqual(['group:g1']);
+    expect(t.get('threads that start with nothing there')).toEqual([]);
     expect(t.get('get (never seen)')).toEqual({ person: 'ed', thread: 'public', lastRead: null, unread: 0, mentions: 0, updatedAt: 0 });
     expect(t.get('bump (a mention)')).toEqual({ person: 'ed', thread: 'public', lastRead: null, unread: 3, mentions: 1, updatedAt: T0 + 1 });
     expect((t.get('list') as { thread: string }[]).map((r) => r.thread)).toEqual(['group:g1', 'public']);
@@ -275,6 +281,114 @@ export function chatCases(o: Openers): void {
     expect(t.get('list (the other thread is kept)')).toEqual([{ admin: 'Root', startedAt: at, lastSeenAt: at, kind: 'read' }]);
   });
 
+  it('keeps an Admin record until each person it names has seen it, and lets the rest go by retention (#1051)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await reads.touch('group:ed', 'Root', GAP, ['Ed']);
+      await reads.mark('dm:a|b', 'Root', 'paused', ['Ed', 'eve']);
+      await reads.touch('list:ed', 'Root', GAP, ['ed']);
+      await reads.mark('public', 'Root', 'cleared');
+      clock.now += 2 * MIN;
+      await reads.touch('group:zed', 'Zoe', GAP, ['zed']);
+      await rec('recent (the last minute)', reads.recent(clock.now - MIN).then((l) => l.map((r) => r.thread)));
+      await rec('recent (the last hour)', reads.recent(clock.now - 60 * MIN).then((l) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}`)));
+      clock.now += 60 * MIN;
+      await rec('purge (only what nobody is owed)', reads.purge(clock.now));
+      await rec('threads (the unseen are kept)', reads.threads(''));
+      await rec('forget (unseen)', reads.forget('dm:a|b'));
+      await rec('seen (a person it does not name)', reads.seen('dm:a|b', 'zed'));
+      await rec('seen (Ed, folded)', reads.seen('dm:a|b', 'ED'));
+      await rec('seen (Ed again)', reads.seen('dm:a|b', 'ed'));
+      await rec('forget (Eve has not seen it)', reads.forget('dm:a|b'));
+      await rec('seen (Eve)', reads.seen('dm:a|b', 'Eve'));
+      await rec('forget (all have seen it)', reads.forget('dm:a|b'));
+      await rec('seen (the group, Ed)', reads.seen('group:ed', 'Ed'));
+      await rec('purge (seen now)', reads.purge(clock.now));
+      await rec('threads (after)', reads.threads(''));
+    });
+    expect(t.get('recent (the last minute)')).toEqual(['group:zed']);
+    expect(t.get('recent (the last hour)')).toEqual(['group:ed:Root:read', 'group:zed:Zoe:read', 'list:ed:Root:read']);
+    // Only General's record owes nothing, so it alone goes.
+    expect(t.get('purge (only what nobody is owed)')).toBe(1);
+    expect(t.get('threads (the unseen are kept)')).toEqual(['dm:a|b', 'group:ed', 'group:zed', 'list:ed']);
+    expect(t.get('forget (unseen)')).toBe(0);
+    expect(t.get('seen (a person it does not name)')).toBe(0);
+    expect(t.get('seen (Ed, folded)')).toBe(1);
+    expect(t.get('seen (Ed again)')).toBe(0);
+    expect(t.get('forget (Eve has not seen it)')).toBe(0);
+    expect(t.get('seen (Eve)')).toBe(1);
+    expect(t.get('forget (all have seen it)')).toBe(1);
+    expect(t.get('seen (the group, Ed)')).toBe(1);
+    expect(t.get('purge (seen now)')).toBe(1);
+    expect(t.get('threads (after)')).toEqual(['group:zed', 'list:ed']);
+  });
+
+  it('lists the records a person has not seen, newest first, and stops listing a thread\'s once the person has seen it (#1051)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await reads.touch('dm:a|b', 'Root', GAP, ['Ed', 'eve']);
+      clock.now += MIN;
+      await reads.mark('dm:a|b', 'Zoe', 'cleared', ['ed']);
+      clock.now += MIN;
+      await reads.touch('group:ed', 'Root', GAP, ['ed']);
+      await reads.touch('dm:c|d', 'Root', GAP, ['zed']);
+      await reads.mark('public', 'Root', 'paused');
+      await reads.touch('dm:old|older', 'Root', GAP);
+      const brief = (l: { thread: string; admin: string; kind: string; startedAt: number }[]) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}:${r.startedAt - T0}`);
+      await rec('Ed, folded', reads.unseenFor('ED').then(brief));
+      await rec('Eve', reads.unseenFor('Eve').then(brief));
+      await rec('nobody', reads.unseenFor('nobody').then(brief));
+      await rec('seen (Ed, the conversation)', reads.seen('dm:a|b', 'ed'));
+      await rec('Ed after seeing it', reads.unseenFor('ed').then(brief));
+      await rec('Eve after Ed saw it', reads.unseenFor('eve').then(brief));
+    });
+    expect(t.get('Ed, folded')).toEqual([`group:ed:Root:read:${2 * MIN}`, `dm:a|b:Zoe:cleared:${MIN}`, 'dm:a|b:Root:read:0']);
+    expect(t.get('Eve')).toEqual(['dm:a|b:Root:read:0']);
+    expect(t.get('nobody')).toEqual([]);
+    expect(t.get('seen (Ed, the conversation)')).toBe(2);
+    expect(t.get('Ed after seeing it')).toEqual([`group:ed:Root:read:${2 * MIN}`]);
+    expect(t.get('Eve after Ed saw it')).toEqual(['dm:a|b:Root:read:0']);
+  });
+
+  it('removes the Admin records owed only to a deleted person, keeps those owed to others too, and leaves a record that names nobody (#1051)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      const ed = (await s.people.createPerson('Ed', null, T0)).person;
+      await s.people.createPerson('Eve', null, T0);
+      await reads.touch('group:ed', 'Root', GAP, ['Ed']);
+      await reads.touch('list:ed', 'Root', GAP, ['ed']);
+      await reads.mark('dm:ed-only', 'Root', 'paused', ['ED']);
+      await reads.touch('dm:a|b', 'Root', GAP, ['ed', 'eve']);
+      await reads.mark('dm:a|b', 'Zoe', 'cleared', ['eve', 'Ed']);
+      await reads.touch('group:eve', 'Root', GAP, ['eve']);
+      // Made before people were kept, or about General: it names nobody and goes by retention alone.
+      await reads.touch('dm:none', 'Root', GAP);
+      await reads.mark('public', 'Root', 'paused');
+      await rec('delete Ed', s.people.deleteMany([ed.id]).then((r) => r.length));
+      await rec('threads', reads.threads(''));
+      await rec('Ed is owed none', reads.unseenFor('ed').then((l) => l.length));
+      await rec('Eve is owed', reads.unseenFor('eve').then((l) => l.map((r) => `${r.thread}:${r.kind}`)));
+      await rec('Eve has seen the conversation', reads.seen('dm:a|b', 'eve'));
+      await rec('purge (nobody is owed the shared ones now)', reads.purge(clock.now + MIN));
+      await rec('threads (after)', reads.threads(''));
+    });
+    expect(t.get('delete Ed')).toBe(1);
+    expect(t.get('threads')).toEqual(['dm:a|b', 'dm:none', 'group:eve', 'public']);
+    expect(t.get('Ed is owed none')).toBe(0);
+    expect(t.get('Eve is owed')).toEqual(['dm:a|b:read', 'dm:a|b:cleared', 'group:eve:read']);
+    expect(t.get('Eve has seen the conversation')).toBe(2);
+    expect(t.get('threads (after)')).toEqual(['group:eve']);
+  });
+
   onEachAdapter(o, 'mints the server scope once and keeps it, and puts it in every channel message id', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const scope = await chat.serverScope();
@@ -286,6 +400,43 @@ export function chatCases(o: Openers): void {
     expect(g.id).toMatch(new RegExp(`^grp_${scope}_[0-9a-f]{24}$`));
     expect(p.id).toMatch(new RegExp(`^pub_${scope}_[0-9a-f]{24}$`));
     expect(new Set([g.id, (await chat.group.post(G, input('z'))).id]).size).toBe(2);
+  });
+
+  it('forgets a deleted person\'s Chat data, so a new person of the same name inherits none of it, and leaves everyone else\'s (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b, eve } = await setUp(s, clock);
+      const chat = s.chat({ now: () => clock.now });
+      const ed = (await s.people.createPerson('Ed', null, T0)).person;
+      await s.people.createPerson('Eve', null, T0);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      await peers.messages.send('sa', 'beta@box-b', 'agent to agent');
+      await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'from the person' });
+      await peers.setPersonLink('person:ed', eve, 'allow', ED);
+      await chat.group.post(G, input('ED GROUP'));
+      await chat.group.post({ owner: 'eve', groupId: 'g1' }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
+      await chat.readState.bump('ed', 'group:ed', true);
+      await chat.readState.bump('eve', 'group:eve', false);
+      await rec('before: person link', peers.rights.personLink('person:ed', eve));
+      await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
+      await rec('group (Ed)', chat.group.page(G, { limit: 10 }).then(texts));
+      await rec('group (Eve)', chat.group.page({ owner: 'eve', groupId: 'g1' }, { limit: 10 }).then(texts));
+      await rec('read state (Ed)', chat.readState.list('ed'));
+      await rec('read state (Eve)', chat.readState.list('eve').then((l) => l.length));
+      await rec('person link', peers.rights.personLink('person:ed', eve));
+      await rec('agent conversation', peers.messages.conversation('sa', 'sb'));
+      await rec('person conversation', peers.messages.conversation('person:ed', 'sb'));
+      await rec('Ed conversations', peers.messages.ownerConversations('ed'));
+    });
+    expect(t.get('before: person link')).not.toBeNull();
+    expect(t.get('group (Ed)')).toEqual([]);
+    expect(t.get('group (Eve)')).toEqual(['EVE GROUP']);
+    expect(t.get('read state (Ed)')).toEqual([]);
+    expect(t.get('read state (Eve)')).toBe(1);
+    expect(t.get('person link')).toBeNull();
+    expect(t.get('agent conversation')).toEqual([]);
+    expect(t.get('person conversation')).toEqual([]);
+    expect(t.get('Ed conversations')).toEqual([]);
   });
 
   // The hard rule of the Chat page: three tables, one per audience, so a missed filter cannot leak one audience's text to another.

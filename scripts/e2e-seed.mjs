@@ -160,6 +160,8 @@ export function sessionReport(who, machine, id, name, over = {}, extra = {}) {
     reporter: { name: 'podium-reporter', version: extra.reporterVersion ?? VERSION, engineVersion: '2.1.301', hostSurface: 'terminal' },
     userName: who,
     machine,
+    // The seeded reporter declares it shows an Admin's reading to its person (#1051); without it a person's text to this agent is refused.
+    adminNotices: true,
     session: {
       id, name, status: 'running', waitReason: null, waitNote: null, endReason: null, resumeId: null,
       startedAt, cwd: `/Users/dev/${name}`, projectRoot: `/Users/dev/${name}`, repoName: `acme/${name}`,

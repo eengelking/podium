@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { mountStatus, type SlotHost, type StatusParts } from './statusSlot.ts';
+import { mountBanner, mountStatus, type SlotHost, type StatusParts } from './statusSlot.ts';
 
 function fakes() {
   let value = '';
@@ -31,6 +31,18 @@ describe('the status line in the prompt footer (#987)', () => {
     const f = fakes();
     expect(await mountStatus(f.host, async () => { throw new Error('no solid-js'); })).toBeNull();
     expect(await mountStatus({ slot: () => { throw new Error('no slot'); } }, async () => f.parts)).toBeNull();
+  });
+  it('claims session.composer.top for the Admin board, which shows the lines it is given and gives the slot back (#1051)', async () => {
+    const f = fakes();
+    const board = await mountBanner(f.host, async () => f.parts);
+    expect(board).not.toBeNull();
+    expect(f.claims.map((c) => (c as unknown as { append: string }).append)).toEqual(['session.composer.top']);
+    const el = f.claims[0]!.render() as { type: string; text: string };
+    board!.set('Podium: A (an Admin) is reading your Podium group.');
+    expect(el.text).toBe('Podium: A (an Admin) is reading your Podium group.');
+    board!.dispose();
+    expect(f.disposed()).toBe(1);
+    expect(await mountBanner({ slot: () => { throw new Error('no slot'); } }, async () => f.parts)).toBeNull();
   });
   it('names the host modules with literal specifiers in tui.ts: the host cannot resolve a name held in a variable (found in a live run)', () => {
     const tui = readFileSync(new URL('./tui.ts', import.meta.url), 'utf8');

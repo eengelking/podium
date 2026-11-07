@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -20,7 +20,7 @@ import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { ChatService } from './chat.js';
-import type { ChatHost, ChatSignal } from './chatTypes.js';
+import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
 import { silentLogger, type Logger } from '../logging/logger.js';
@@ -255,14 +255,16 @@ export class Fleet {
         // The live feed is updated first and cannot fail. The history write is best effort: a full disk or a locked file is
         // logged and never reaches the answer, ask or message that caused it.
         add: (sid, loop, ref, e, delivery) => {
+          // The feed, the history and the recordings are the reporter's activityFeed option's to fill (#1051): a reporter that has it off, or has not said, gets no Podium entry.
+          if (this.activity.feedOn(sid) !== true) return;
           this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e);
           this.historySafely('add', sid, async () => {
             const meta = await this.historyMeta(sid);
             if (meta) await this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
           });
           // A message's prompt entry, when it arrives from the mod, gets the sender as its marker (#353), when its text matches exactly. An answer, an
-          // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them.
-          if (delivery.kind === 'message') this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e, ref));
+          // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them. A Chat message has no text here to match.
+          if (delivery.kind === 'message' && !delivery.chat && !delivery.channel) this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e, ref));
         },
         update: (sid, ref, note) => {
           this.activity.updatePodium(sid, ref, note);
@@ -283,6 +285,10 @@ export class Fleet {
       respondFlagsOn: () => this.respondFlagsOn(),
       featureOn: (id) => this.features.featureOn(id),
       isLive: (id) => this.live.has(id),
+      sessionOf: async (id) => {
+        const row = await this.db.getSession(id);
+        return row ? { name: row.name, owner: row.owner } : null;
+      },
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),
       // The stream goes to every open console, so it carries a change counter and a coarse scope only: no name, count or id (#1034).
@@ -858,11 +864,26 @@ export class Fleet {
 
   /** Deletes a session after any report for it that was already taken in; a report taken in later stores it again, as ever. */
   deleteSession(id: string): Promise<boolean> {
-    return this.serial.run(id, () => this.deleteNow(id));
+    return this.serial.run(id, async () => (await this.deleteNow(id, null)) === 'deleted');
   }
 
-  private async deleteNow(id: string): Promise<boolean> {
-    const owner = (await this.db.getSession(id))?.owner ?? null;
+  /**
+   * The Delete route (#1051): looks the session up first, so an id that is no session (a `person:` id included) changes
+   * nothing, and lets only the session's owner delete it. `asOwner` is the caller's name, or undefined for the admin
+   * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's.
+   */
+  deleteSessionAs(id: string, asOwner: string | undefined): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    return this.serial.run(id, () => this.deleteNow(id, { asOwner }));
+  }
+
+  /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwner` must own it. */
+  private async deleteNow(id: string, check: { asOwner: string | undefined } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    const row = await this.db.getSession(id);
+    if (check) {
+      if (!row) return 'unknown';
+      if (check.asOwner !== undefined && row.owner && nameKey(row.owner) !== nameKey(check.asOwner)) return 'forbidden';
+    }
+    const owner = row?.owner ?? null;
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);
@@ -873,7 +894,8 @@ export class Fleet {
     this.recordings.removeSession(id).catch((err: Error) => this.logger.error('recording.delete_failed', `podium: could not remove the recording of session ${id}: ${err.message}`, { session_id: id, reason: err.message }));
     this.diffs.drop(id);
     this.respond.dropSession(id);
-    await this.peers.deleted([id]);
+    // `person:<name>` is how Chat names a person's end, never a session; deleting by it would wipe that person's conversations (#1051).
+    if (!isPersonId(id.toLowerCase())) await this.peers.deleted([id]);
     await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
@@ -881,7 +903,7 @@ export class Fleet {
     const existed = await this.db.deleteSession(id);
     if (wasLive) await this.emit(() => ['removed', { sessionId: id, reason: 'deleted' satisfies RemovedReason }]);
     if (existed) this.logger.info('session.deleted', `podium: session ${id} deleted`, { session_id: id, live: wasLive });
-    return existed;
+    return existed ? 'deleted' : 'unknown';
   }
 
   /**

@@ -2,6 +2,8 @@
 // A token is returned once, at creation or rotation, and never stored; see tokens.ts.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
+import { stripFormat } from '../peerText.js';
+import { withoutPerson } from '../chatRows.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 
 /** How long a machine stays in a person's list without reporting, and how many are kept (#379). */
@@ -21,9 +23,10 @@ export function clampPage(p: Partial<PageIn>): PageIn {
 }
 
 function cleanName(raw: string, max: number, what: string): string {
-  const name = raw.trim().replace(/ +/g, ' ');
+  // Format characters draw nothing, so they are dropped (#1051); the line separators U+0085, U+2028 and U+2029 are refused with the control characters.
+  const name = stripFormat(raw).trim().replace(/ +/g, ' ');
   // eslint-disable-next-line no-control-regex
-  if (name.length < 1 || name.length > max || /[\u0000-\u001f\u007f]/.test(name)) {
+  if (name.length < 1 || name.length > max || /[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(name)) {
     throw new PeopleError('invalid', `${what} must be 1 to ${max} characters, with no control characters`);
   }
   return name;
@@ -157,13 +160,44 @@ export class PeopleStore {
     }
     this.db.exec('BEGIN');
     try {
-      for (const p of found) this.stmt('DELETE FROM people WHERE id = ?').run(p.id);
+      for (const p of found) {
+        this.stmt('DELETE FROM people WHERE id = ?').run(p.id);
+        this.forgetChat(p.name);
+      }
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
       throw err;
     }
     return found;
+  }
+
+  /**
+   * Everything Chat and the peer stores keep under a deleted person's name (#1051): their group channel, read counts, direct messages (the ones they own
+   * and the ones with their `person:<name>` end), links and requests, and their owner defaults. A new person of the same name starts with none of it.
+   * Sessions, spend and the Admin log keep the name as text, and so does General, a channel for everyone.
+   */
+  private forgetChat(name: string): void {
+    const key = nameKey(name);
+    const pk = `person:${key}`;
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
+      const owners = (this.db.prepare(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`).all() as unknown as { owner: string }[]).map((r) => r.owner).filter((o) => nameKey(o) === key);
+      for (const o of owners) this.db.prepare(`DELETE FROM ${table} WHERE owner = ?`).run(o);
+    }
+    this.db.prepare('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?').run(pk, pk);
+    this.db.prepare('DELETE FROM peer_rights WHERE from_key = ?').run(pk);
+    this.db.prepare('DELETE FROM peer_requests WHERE from_key = ?').run(pk);
+    this.db.prepare('DELETE FROM peer_owner_settings WHERE owner_lower = ?').run(key);
+    this.db.prepare('DELETE FROM group_messages WHERE owner = ?').run(key);
+    this.db.prepare('DELETE FROM chat_read_state WHERE person = ?').run(key);
+    // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
+    const reads = this.db.prepare('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads ORDER BY thread, started_at, admin_key').all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[];
+    for (const r of reads) {
+      const out = withoutPerson(r, key);
+      if (out === 'none') continue;
+      if (out === 'drop') this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at);
+      else this.db.prepare('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(out.people, out.seen, r.thread, r.admin_key, r.started_at);
+    }
   }
 
   /**

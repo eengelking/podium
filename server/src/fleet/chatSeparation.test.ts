@@ -3,7 +3,7 @@
 // name the other side's store; every Chat route is in the table below (a new route fails here until someone says which audience it serves); and
 // chatRoutes.test.ts seeds a direct message and reads every other route for it.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -64,5 +64,15 @@ describe('Chat keeps a direct message\'s text apart from a channel\'s (#1034)', 
     const textRoutes = ROUTES.filter((r) => r.audience === 'dm' && r.method === 'get');
     expect(textRoutes).toHaveLength(1);
     for (const r of ROUTES.filter((x) => x.audience !== 'dm')) expect(r.path, `${r.method} ${r.path}`).not.toContain('/dm/');
+  });
+
+  it('answers an Admin a conversation\'s text from no route that does not check for a person\'s Chat (#1051)', () => {
+    // Every file outside Chat and the storage adapter that reads a stored conversation's text must refuse an Admin a person's Chat (isPersonChat), because
+    // only Chat records an Admin's read and tells the people in it. A new route that reads `peer_messages` fails here until it does the same.
+    const reader = /\bmessages\.(?:conversation|message|page)\(/;
+    const walk = (dir: string): string[] => readdirSync(join(here, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'storage' ? [] : walk(join(dir, e.name))) : e.name.endsWith('.ts') && !e.name.endsWith('.test.ts') ? [join(dir, e.name)] : []));
+    const readers = ['.', '../admin'].flatMap(walk).filter((f) => !/(^|\/)chat[A-Za-z]*\.ts$/.test(f) && reader.test(code(f)));
+    expect(readers.length).toBeGreaterThan(0);
+    for (const f of readers) expect(code(f), f).toMatch(/\bisPersonChat\(/);
   });
 });

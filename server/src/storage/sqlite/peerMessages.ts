@@ -38,7 +38,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanPeerText, decodeCursor, encodeCursor, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
 const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;
@@ -199,7 +199,7 @@ export class PeerMessages implements PeerMessagesApi {
 
   /** The people who wrote to this agent through Chat and whose link is still there (#1034); one who has no link, or whose was removed, is not listed. */
   private peopleOf(sender: LiveOrchestrator): PersonListing[] {
-    const rows = this.stmt(`SELECT from_session, from_name FROM peer_messages WHERE to_session = ? AND author = 'person' AND from_session LIKE 'person:%' ORDER BY sent_at, seq`).all(sender.sessionId) as unknown as { from_session: string; from_name: string }[];
+    const rows = this.stmt(`SELECT from_session, from_name FROM peer_messages WHERE to_session = ? AND author = 'person' AND substr(from_session, 1, 7) = 'person:' ORDER BY sent_at, seq`).all(sender.sessionId) as unknown as { from_session: string; from_name: string }[];
     const names = new Map(rows.map((r) => [r.from_session, r.from_name]));
     const out: PersonListing[] = [];
     for (const [address, name] of names) {
@@ -587,7 +587,7 @@ export class PeerMessages implements PeerMessagesApi {
     this.stmt(
       `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanPeerText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now);
+    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now);
     return this.row(id) as MessageRow;
   }
 
@@ -626,7 +626,7 @@ export class PeerMessages implements PeerMessagesApi {
     this.stmt(
       `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanPeerText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now);
+    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now);
     if (state === 'approval') {
       this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
     }
@@ -673,7 +673,7 @@ export class PeerMessages implements PeerMessagesApi {
     }
     const out: OwnerConversation[] = [];
     for (const g of groups.values()) {
-      const hiddenAt = g.every((r) => r.hidden_at != null) ? Math.max(...g.map((r) => r.hidden_at as number)) : null;
+      const hiddenAt = g.every((r) => r.hidden_at != null) ? latestOf(g.map((r) => r.hidden_at as number)) : null;
       if (hiddenAt !== null && !opts.includeHidden) continue;
       out.push({ ...this.summary(g.map(toRow)), hiddenAt });
     }

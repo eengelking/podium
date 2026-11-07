@@ -258,6 +258,8 @@ export interface PeerStoreApi {
     /** The live directory is memory, so this answers at once. */
     live(sessionId: string): LiveOrchestrator | null;
     list(sessionId: string): Promise<PeerListResult>;
+    /** One stored message by id, with its text, or null. */
+    message(id: string): Promise<MessageRow | null>;
     send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal>;
     result(sessionId: string, id: string, result: PeerResult): Promise<'new' | 'repeat' | 'unknown'>;
     conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
@@ -402,6 +404,8 @@ export interface ChatReadStateApi {
   markRead(person: string, thread: string, upTo: string | null): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
   forget(thread: string): Promise<number>;
+  /** Every thread, for any person, that starts with `prefix`, once each, by thread. Used to forget the rows of conversations that no longer exist (#1051). */
+  threads(prefix: string): Promise<string[]>;
 }
 
 /** The Admin's Chat settings: how long a channel keeps its messages, how long a hidden direct message is kept, the longest channel message and the posts per minute of one author. */
@@ -447,27 +451,43 @@ export interface AdminReadRow {
   kind: AdminReadKind;
 }
 
-/** The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text. */
+/**
+ * The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text.
+ *
+ * A record names the people it is owed to (`people`, folded names) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
+ * retention sweep, the purge of a hidden conversation or a writer deleting a conversation never erases what the person was never shown. A record made
+ * with no people (General's, or one made before this was kept) owes nothing and goes by retention alone. "Seen" is `seen`: the person loaded the
+ * thread's records, or their own overview for the record of a look at their list.
+ */
 export interface ChatAdminReadsApi {
   /**
    * An Admin read `thread` now. A read within `gapMs` of that Admin's last read of it (names compared folded) is the same session and refreshes its
-   * `lastSeenAt`; a longer gap starts a new record. `previousSeenAt` is the session's last read before this one, or null when it began now.
+   * `lastSeenAt`; a longer gap starts a new record, owed to `people`. `previousSeenAt` is the session's last read before this one, or null when it began now.
    */
-  touch(thread: string, admin: string, gapMs: number): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
+  touch(thread: string, admin: string, gapMs: number, people?: string[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
   /**
-   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session. Two records of one Admin
-   * in the same millisecond are kept apart by moving the later one on by a millisecond.
+   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people`. Two
+   * records of one Admin in the same millisecond are kept apart by moving the later one on by a millisecond.
    */
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>): Promise<AdminReadRow>;
+  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people?: string[]): Promise<AdminReadRow>;
   /** The thread's records of every kind, oldest first. */
   list(thread: string): Promise<AdminReadRow[]>;
   /** The reading records (never a stop) of these threads last read after `since`, by thread, then oldest first. */
   live(threads: string[], since: number): Promise<(AdminReadRow & { thread: string })[]>;
+  /** The reading records (never a stop) of every thread last read after `since`, by thread, then oldest first. */
+  recent(since: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** Every thread that has a record and starts with `prefix`, by name. */
   threads(prefix: string): Promise<string[]>;
-  /** The thread is gone (a conversation deleted): removes its records of every kind. Remove all messages does not call this. Returns how many. */
+  /** `person` (names compared folded) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
+  seen(thread: string, person: string): Promise<number>;
+  /**
+   * Every record `person` (names compared folded) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
+   * The caller decides which of them it can show on a thread and which can only be shown on the person's overview (#1051).
+   */
+  unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]>;
+  /** The thread is gone (a conversation deleted): removes its records that nobody is still owed a look at. Remove all messages does not call this. Returns how many. */
   forget(thread: string): Promise<number>;
-  /** Removes the records last read before `olderThan`. Returns how many. */
+  /** Removes the records last read before `olderThan` that nobody is still owed a look at. Returns how many. */
   purge(olderThan: number): Promise<number>;
 }
 

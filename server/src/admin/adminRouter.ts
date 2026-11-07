@@ -16,7 +16,7 @@ import { buildAbout } from './about.js';
 import type { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from '../fleet/liveSettings.js';
 import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
-import { messageView, rangeOf } from '../fleet/peerRoutes.js';
+import { CHAT_ONLY, isPersonChat, messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, shortId, type PeerLevel } from '../fleet/protocol.js';
@@ -667,6 +667,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
     const rows = await peers.messages.conversation(req.params.a, req.params.b);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
+    // A person's Chat is read in Chat, where it is recorded and its people are told (#1051).
+    if (isPersonChat(rows)) return void res.status(403).json({ ok: false, error: CHAT_ONLY });
     res.json({ messages: rows.map(messageView) });
   }));
 

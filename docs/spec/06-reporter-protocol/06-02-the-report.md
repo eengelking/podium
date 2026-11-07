@@ -234,10 +234,13 @@ interface ReportV2 extends Omit<Report, 'v'> {
   harness: { id: string; name: string; version: string; surface: string | null };  // id: 1 to 32 letters, digits, - or _ (the key the server uses)
   capabilities: {                       // each key is a boolean; a key left out is not declared (below)
     effort?: boolean; plan?: boolean; agents?: boolean; cost?: boolean; context?: boolean; git?: boolean; respond?: boolean;
+    adminNotices?: boolean;             // shows the person the Admin callout and frames a person's text (#1051); only an explicit true counts, and a v1 report sends it as a top-level `adminNotices`
     commands?: string[];                // the slash commands Podium may send, at most 64, none empty; left out means none
   };
 }
 ```
+
+`adminNotices` is the one capability the server acts on by itself (#1051): the console sends a person's text to another person's agent only when that agent's last report declared it as an explicit `true`. The key left out, or `false`, means the reporter cannot show its person the callout, and the message is refused up front. A v1 report has no capabilities block (and its absent block means every command Claude Code has), so Claude Code declares the key as a top-level boolean `adminNotices: true`; a value that is not a boolean is a 400 at `$.adminNotices`. The server holds it in memory with the session's other respond state, so it is read again from the next report after a restart.
 
 What changes inside the v1 fields when `v` is 2:
 

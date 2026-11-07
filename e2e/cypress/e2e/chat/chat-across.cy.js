@@ -4,7 +4,7 @@
 import { seeded } from '../../../support/commands';
 
 const GENERAL = 'c:general';
-const AGENT = 'd:e2e-s-invoice';
+const AGENT = 'd:dm:e2e-s-invoice|person:alex';
 const ASK = 'Please run the unit tests on invoice-v2.';
 const REQUEST = '[role=group][aria-label="A person\'s message waiting for approval"]';
 
@@ -44,7 +44,7 @@ describe('chat: a person writes to another person\'s agent', () => {
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', ASK).and('contain.text', 'Waiting for Ed to approve it.');
     cy.contains('Waiting for Ed to approve your message. It is delivered once Ed allows it.');
     // Ed's own agents and conversations are not in Alex's lists.
-    cy.chatRow('d:e2e-s-invoice+e2e-s-tester').should('not.exist');
+    cy.chatRow('d:dm:e2e-s-invoice|e2e-s-tester').should('not.exist');
     cy.chatRow('a:e2e-s-invoice').should('not.exist');
   });
 
@@ -53,7 +53,7 @@ describe('chat: a person writes to another person\'s agent', () => {
     cy.openConsole('#/chat');
     cy.contains('a.ch-notice', '1 message from another person waits for your approval in My reporters.').should('have.attr', 'href', '#/me/reporters').click();
     cy.get('h1').should('have.text', 'My reporters');
-    cy.get(REQUEST).should('have.length', 1).and('contain.text', 'Alex (a person using Chat) wants to send invoice-v2 a message.').and('contain.text', ASK).and('contain.text', 'Allow opens a link: Alex can message this agent until you pause or remove it. Decline delivers nothing.');
+    cy.get(REQUEST).should('have.length', 1).and('contain.text', 'Alex (a person using Chat) wants to send invoice-v2 a message.').and('contain.text', ASK).and('contain.text', 'Allow opens a link to this reporter, ed-mbp, not only to invoice-v2: Alex can then message every orchestrator on it, including ones started later, until you pause or remove the link. Decline delivers nothing.');
     cy.get(REQUEST).contains('button', 'Decline').click();
     cy.get(REQUEST).should('not.exist');
     // Alex hears it: the message is declined, and nothing was delivered.

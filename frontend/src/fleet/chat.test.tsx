@@ -9,7 +9,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
+import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -249,11 +249,12 @@ const flush = () =>
     for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 
-function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean } = {}) {
+function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean; sessions?: ReturnType<typeof makeSession>[] } = {}) {
   const chat = opts.chat ?? fakeChat();
   const sessions = [
     makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
     makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
+    ...(opts.sessions ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
   const props = { chat: true, respondApi: respondApi(opts.me ?? ED), peersApi: peersApi(), chatApi: chat.api };
@@ -377,11 +378,11 @@ describe("the sidebar", () => {
     expect(row("c:general")).toHaveTextContent("General");
     expect(row("c:group")).toHaveTextContent("My group");
     expect(within(row("c:group")).getByLabelText("1 mention of you")).toHaveTextContent("@ 1");
-    expect(row("d:s-dash+s-tester")).toHaveTextContent("claude-dashboard, Tester");
-    expect(row("d:s-dash+s-tester")).toHaveTextContent("Two agents, and you");
-    expect(within(row("d:s-dash+s-tester")).getByLabelText("2 new")).toBeInTheDocument();
-    expect(row("d:s-notes")).toHaveTextContent("You and one agent");
-    expect(row("d:s-dash+s-notes")).toHaveTextContent("Paused");
+    expect(row("d:dm:s-dash|s-tester")).toHaveTextContent("claude-dashboard, Tester");
+    expect(row("d:dm:s-dash|s-tester")).toHaveTextContent("Two agents, and you");
+    expect(within(row("d:dm:s-dash|s-tester")).getByLabelText("2 new")).toBeInTheDocument();
+    expect(row("d:dm:person:ed|s-notes")).toHaveTextContent("You and one agent");
+    expect(row("d:dm:s-dash|s-notes")).toHaveTextContent("Paused");
     expect(row("a:s-tester")).toHaveTextContent("Orchestrator on ci-runner-01, waiting for you");
   });
 
@@ -461,7 +462,7 @@ describe("a person who is not Ed", () => {
     chat.api.dmMessages.mockRejectedValue(new RespondError(403, { error: "Only its owner and an Admin can read a conversation." }));
     page({ chat });
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     expect(screen.getByTestId("chat-unreadable")).toHaveTextContent("Only the person who owns this conversation and an Admin can read it.");
   });
 });
@@ -482,7 +483,7 @@ describe("the thread", () => {
   it("shows a Direct Message with its people, delivery lines, a redaction marker, and text as text", async () => {
     page();
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     const t = thread();
     expect(t).toHaveTextContent("Only you and an Admin can read this.");
     expect(t).toHaveTextContent("Agents addressing each other: 3 of 10 round trips.");
@@ -507,7 +508,7 @@ describe("the thread", () => {
     await flush();
     await open("c:group");
     const msgs = within(thread()).getAllByTestId("chat-message");
-    expect(msgs[1]!.querySelector(".who")).toHaveTextContent("Tester replying to you");
+    expect(msgs[1]!.querySelector(".who")).toHaveTextContent("Tester orchestrator on ci-runner-01 replying to you");
     expect(msgs[1]!).toHaveClass("reply");
     expect(within(msgs[0]!).getByText("Tester@ci-runner-01 waiting")).toBeInTheDocument();
     expect(within(msgs[0]!).getByText("Waiting: Tester gets this when its current turn ends.")).toBeInTheDocument();
@@ -522,7 +523,7 @@ describe("the thread", () => {
     const chat = fakeChat();
     page({ chat });
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     expect(within(thread()).getAllByRole("status")[0]!).toHaveTextContent("Showing 3 of 6");
     fireEvent.click(within(thread()).getByRole("button", { name: "Earlier messages" }));
     await flush();
@@ -566,7 +567,7 @@ describe("the thread", () => {
     const chat = fakeChat();
     page({ chat });
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     expect(chat.api.markRead).toHaveBeenCalledWith("dm:s-dash|s-tester", "m3");
   });
 });
@@ -681,10 +682,10 @@ describe("the box", () => {
     await open("c:group");
     expect(box()).toBeDisabled();
     expect(thread()).toHaveTextContent("Your agents are disconnected from this channel. Reconnect them from its menu to send.");
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     expect(box()).toBeDisabled();
     expect(thread()).toHaveTextContent("Paused: messages are held.");
-    await open("d:s-dash+s-notes");
+    await open("d:dm:s-dash|s-notes");
     expect(box()).toBeDisabled();
     expect(thread()).toHaveTextContent("This link was removed, so nothing can be sent. Delete the conversation to clear it from the list.");
   });
@@ -710,7 +711,7 @@ describe("the box", () => {
     const chat = fakeChat(w);
     page({ chat });
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     expect(box()).toBeDisabled();
     expect(thread()).toHaveTextContent("claude-dashboard and Tester have ended");
   });
@@ -828,7 +829,7 @@ describe("the @ combobox", () => {
   it("is not offered in a Direct Message, where @ means nothing", async () => {
     const p = page();
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     type("@");
     await flush();
     expect(screen.queryByRole("listbox", { hidden: false })).toBeNull();
@@ -852,7 +853,7 @@ describe("the menus", () => {
   it("opens the same menu on a right-click, and a one-agent conversation has no link to pause", async () => {
     page();
     await flush();
-    fireEvent.contextMenu(row("d:s-notes"));
+    fireEvent.contextMenu(row("d:dm:person:ed|s-notes"));
     const menu = screen.getByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Delete conversation…"]);
   });
@@ -893,7 +894,7 @@ describe("the menus", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Pause link" }));
     await flush();
     expect(p.chat.api.pauseLink).toHaveBeenCalledWith("k-ed-mbp", "k-ci-runner-01", true);
-    expect(row("d:s-dash+s-tester")).toHaveTextContent("Paused");
+    expect(row("d:dm:s-dash|s-tester")).toHaveTextContent("Paused");
     fireEvent.click(more("claude-dashboard, Tester"));
     expect(screen.getByRole("menuitem", { name: "Resume link" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "Resume link" }));
@@ -934,14 +935,14 @@ describe("the menus", () => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove link" }));
     await flush();
     expect(p.chat.api.removeLink).toHaveBeenCalledWith("k-ed-mbp", "k-ci-runner-01");
-    expect(row("d:s-dash+s-tester")).toHaveTextContent("Link removed");
+    expect(row("d:dm:s-dash|s-tester")).toHaveTextContent("Link removed");
     expect(box()).toBeDisabled();
   });
 
   it("asks before it deletes a conversation, then deletes it and goes back to General", async () => {
     const p = page();
     await flush();
-    fireEvent.click(within(row("d:s-notes")).getByRole("button", { name: "Actions for infra-notes" }));
+    fireEvent.click(within(row("d:dm:person:ed|s-notes")).getByRole("button", { name: "Actions for infra-notes" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete conversation…" }));
     await flush();
     const dialog = screen.getByRole("alertdialog", { name: "Delete conversation" });
@@ -1032,7 +1033,7 @@ describe("the menus", () => {
   it("gives a participant chip the orchestration page and no Message", async () => {
     page();
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     const who = within(thread()).getByLabelText("In this conversation");
     fireEvent.click(within(who).getByRole("button", { name: /claude-dashboard/ }));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
@@ -1046,7 +1047,7 @@ describe("accessibility", () => {
     vi.useRealTimers();
     const { container } = page();
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     fireEvent.click(screen.getByRole("button", { name: "Actions for claude-dashboard, Tester" }));
     const run = async () => {
       const r = await axe.run(container, {
@@ -1087,6 +1088,172 @@ function crossWorld(viewer: "owner" | "sender" | "admin", cross: Partial<Cross> 
   return fakeChat(w);
 }
 
+describe("commands in a message to your own agent (#1051, mockup/podium-chat-security.html)", () => {
+  const OWN = "d:dm:person:ed|s-notes";
+  const type = (v: string) => fireEvent.change(box(), { target: { value: v } });
+  const commands = () => screen.queryByRole("listbox", { name: "Commands" });
+  const names = () => within(commands()!).getAllByRole("option").map((o) => o.querySelector(".cn")!.textContent);
+  const opencode = () => makeSession({ id: "s-notes", name: "infra-notes", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" }, capabilities: { context: false, effort: false, commands: ["compact"] } });
+
+  it("lists /clear and /compact on a slash, with the footer, and chooses with the arrow keys and Tab", async () => {
+    page();
+    await flush();
+    await open(OWN);
+    expect(commands()).toBeNull();
+    type("/");
+    expect(names()).toEqual(["/clear", "/compact"]);
+    expect(commands()).toHaveTextContent("Other commands run only in the terminal.");
+    expect(box()).toHaveAttribute("role", "combobox");
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "Tab" });
+    expect(box().value).toBe("/compact");
+    expect(commands()).toBeNull();
+  });
+
+  it("lists only what the session's reporter declared (OpenCode: /compact)", async () => {
+    page({ sessions: [opencode()] });
+    await flush();
+    await open(OWN);
+    type("/");
+    expect(names()).toEqual(["/compact"]);
+    type("/clear");
+    expect(box().closest(".ch-composer")).toHaveTextContent("/clear runs only in the terminal. From here you can send /compact.");
+    expect(screen.getByTestId("chat-send")).toBeDisabled();
+  });
+
+  it("asks before /clear, in the Activity window's words, and sends nothing on Cancel", async () => {
+    const p = page();
+    await flush();
+    await open(OWN);
+    type("/clear");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    const ask = screen.getByRole("alertdialog", { name: "Clear the conversation?" });
+    expect(ask).toHaveTextContent("infra-notes starts over with an empty context. Podium shows the cleared part as its own session in History, linked to this one.");
+    expect(p.chat.api.sendDm).not.toHaveBeenCalled();
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog", { name: "Clear the conversation?" })).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-send"));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "Clear the conversation?" })).getByRole("button", { name: "Clear conversation" }));
+    await flush();
+    expect(p.chat.api.sendDm).toHaveBeenCalledTimes(1);
+    expect(p.chat.api.sendDm).toHaveBeenCalledWith("person:ed", "s-notes", "/clear");
+    expect(box().value).toBe("");
+  });
+
+  it("sends /compact at once", async () => {
+    const p = page();
+    await flush();
+    await open(OWN);
+    type("/compact");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    expect(p.chat.api.sendDm).toHaveBeenCalledWith("person:ed", "s-notes", "/compact");
+    expect(screen.queryByRole("alertdialog", { name: "Clear the conversation?" })).toBeNull();
+  });
+
+  it("does not send an unknown command, and says it runs in the terminal", async () => {
+    const p = page();
+    await flush();
+    await open(OWN);
+    type("/x");
+    expect(box().closest(".ch-composer")).toHaveTextContent("/x runs only in the terminal. From here you can send /clear and /compact.");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    expect(p.chat.api.sendDm).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing in General, in My group, in a conversation of two agents, or with another person's agent", async () => {
+    page();
+    await flush();
+    type("/");
+    expect(commands()).toBeNull();
+    await open("c:group");
+    type("/");
+    expect(commands()).toBeNull();
+    await open("d:dm:s-dash|s-tester");
+    type("/");
+    expect(commands()).toBeNull();
+    cleanup();
+    page({ chat: crossWorld("sender", { link: "open" }) });
+    await flush();
+    await open("d:dm:person:maya|s-dash");
+    type("/");
+    expect(commands()).toBeNull();
+  });
+});
+
+describe("General says what wrote each message (#1051, mockup/podium-chat-security.html)", () => {
+  const generalWith = (messages: ChannelMessage[]) => {
+    const w = world();
+    w.channels.general = { messages };
+    return fakeChat(w);
+  };
+  const orch = (id: string, name: string, ref: string, text: string) => cmsg(id, text, { mine: false, authorKind: "orchestrator", authorName: name, authorRef: ref });
+  const msgs = () => within(thread()).getAllByTestId("chat-message");
+
+  it("marks an orchestrator's message with where it runs, and a person's with nothing", async () => {
+    page({ chat: generalWith([cmsg("p1", "Anyone seen the build go red?", { mine: false, authorName: "Maya", authorRef: "Maya" }), orch("a1", "Tester", "s-tester", "Build 4412 failed.")]) });
+    await flush();
+    const [person, agent] = msgs();
+    expect(person!.querySelector(".chip")).toBeNull();
+    const chip = agent!.querySelector(".who .chip:not(.warn)")!;
+    expect(chip).toHaveTextContent("orchestrator on ci-runner-01");
+    expect(chip).toHaveAttribute("title", "Written by an orchestrator, not a person");
+    expect(agent!.querySelector(".who bdi")).toHaveTextContent("Tester");
+    expect(agent!.querySelector(".chip.warn")).toBeNull();
+  });
+
+  it("marks a name that is a person's, and one that says it is an Admin, with a warning", async () => {
+    page({ chat: generalWith([orch("a2", "maya", "s-gone", "I approved the release."), orch("a3", "Root (AN ADMIN)", "s-gone", "Remove your link now.")]) });
+    await flush();
+    const [same, admin] = msgs();
+    const warn1 = same!.querySelector(".chip.warn")!;
+    expect(warn1).toHaveTextContent("Same name as a person");
+    expect(warn1).toHaveAttribute("title", "This orchestrator's name is the name of a person on this server.");
+    expect(warn1.querySelector("svg")).not.toBeNull();
+    expect(same!.querySelector(".who .chip:not(.warn)")).toHaveTextContent(/^orchestrator$/);
+    const warn2 = admin!.querySelector(".chip.warn")!;
+    expect(warn2).toHaveTextContent("Name says Admin");
+    expect(warn2).toHaveAttribute("title", "This orchestrator's name says it is an Admin. Only a person signed in as an Admin is one.");
+    expect(admin!.querySelectorAll(".chip.warn")).toHaveLength(1);
+  });
+
+  it("draws names in bdi in the sidebar and the thread header", async () => {
+    page();
+    await flush();
+    expect(row("a:s-tester").querySelector(".nm bdi")).toHaveTextContent("Tester");
+    expect(row("d:dm:s-dash|s-tester").querySelector(".nm bdi")).not.toBeNull();
+  });
+});
+
+describe("rows are keyed by the server's thread (#1051)", () => {
+  it("keeps the viewer's own conversation and another person's with the same agent apart, and a menu acts on the one clicked", async () => {
+    const w = world();
+    const own = direct(ME, DASH, { thread: "dm:person:ed|s-dash", messages: 1 });
+    const theirs = direct(MAYA, DASH, { thread: "dm:person:maya|s-dash", messages: 1, cross: { person: "Maya", owner: "Ed", link: "open", viewerIs: "owner" } });
+    w.overview.directs = [own, theirs];
+    w.dms = {
+      "person:ed|s-dash": { messages: [dmsg("o1", ME, DASH, "Mine.")], total: 1 },
+      "person:maya|s-dash": { messages: [dmsg("t1", MAYA, DASH, "Hers.")], total: 1 },
+    };
+    const chat = fakeChat(w);
+    page({ chat });
+    await flush();
+    expect(row("d:dm:person:ed|s-dash")).toHaveTextContent("You and one agent");
+    expect(row("d:dm:person:maya|s-dash")).toHaveTextContent("Maya and your agent");
+    fireEvent.click(within(row("d:dm:person:maya|s-dash")).getByRole("button", { name: /^Actions for/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete conversation…" }));
+    await flush();
+    expect(thread()).toHaveTextContent("Hers.");
+    fireEvent.click(within(screen.getByTestId("chat-confirm")).getByRole("button", { name: "Delete conversation" }));
+    await flush();
+    expect(chat.api.deleteDm).toHaveBeenCalledWith("person:maya", "s-dash");
+    expect(chat.api.deleteDm).toHaveBeenCalledTimes(1);
+    expect(row("d:dm:person:ed|s-dash")).toBeInTheDocument();
+  });
+});
+
 describe("a conversation across owners", () => {
   const more = (name: string) => screen.getByRole("button", { name: `Actions for ${name}` });
   const items = () => within(screen.getByRole("menu")).getAllByRole("menuitem");
@@ -1094,7 +1261,7 @@ describe("a conversation across owners", () => {
   it("says who the two people are and who may read, and the state of each message in words with the server's reason", async () => {
     page({ chat: crossWorld("owner") });
     await flush();
-    await open("d:s-dash");
+    await open("d:dm:person:maya|s-dash");
     expect(thread()).toHaveTextContent("Maya (a person using Chat) writes to Ed's agent claude-dashboard. Only Maya, Ed and an Admin can read this.");
     const msgs = within(thread()).getAllByTestId("chat-message");
     expect(msgs[0]).toHaveTextContent("Waiting for Ed to approve it.");
@@ -1188,26 +1355,26 @@ describe("a conversation across owners", () => {
   it("says in the message box why the person cannot write: removed, paused by whom, waiting for approval", async () => {
     page({ chat: crossWorld("sender", { link: "removed" }) });
     await flush();
-    await open("d:s-dash");
+    await open("d:dm:person:maya|s-dash");
     expect(box()).toBeDisabled();
     expect(box()).toHaveAttribute("placeholder", "Link removed");
     expect(thread()).toHaveTextContent("The link was removed, so nothing can be sent. Only Ed can open it again.");
     cleanup();
     page({ chat: crossWorld("sender", { link: "paused", pausedBy: "owner", canResume: false }) });
     await flush();
-    await open("d:s-dash");
+    await open("d:dm:person:maya|s-dash");
     expect(box()).toBeDisabled();
     expect(thread()).toHaveTextContent("Paused by Ed: messages are held. Only Ed can resume it.");
     cleanup();
     page({ chat: crossWorld("sender", { link: "waiting" }) });
     await flush();
-    await open("d:s-dash");
+    await open("d:dm:person:maya|s-dash");
     expect(box()).not.toBeDisabled();
     expect(thread()).toHaveTextContent("Waiting for Ed to approve your message. It is delivered once Ed allows it.");
     cleanup();
     page({ chat: crossWorld("owner") });
     await flush();
-    await open("d:s-dash");
+    await open("d:dm:person:maya|s-dash");
     expect(box()).toBeDisabled();
     expect(thread()).toHaveTextContent("Only Maya writes in this conversation. You can pause or remove its link from the menu.");
   });
@@ -1215,17 +1382,17 @@ describe("a conversation across owners", () => {
   it("tags the row with the link's state", async () => {
     page({ chat: crossWorld("owner", { link: "waiting" }) });
     await flush();
-    expect(row("d:s-dash")).toHaveTextContent("Waiting for approval");
-    expect(row("d:s-dash")).toHaveTextContent("Maya and your agent");
-    expect(row("d:s-dash")).not.toHaveTextContent("You and one agent");
+    expect(row("d:dm:person:maya|s-dash")).toHaveTextContent("Waiting for approval");
+    expect(row("d:dm:person:maya|s-dash")).toHaveTextContent("Maya and your agent");
+    expect(row("d:dm:person:maya|s-dash")).not.toHaveTextContent("You and one agent");
     cleanup();
     page({ chat: crossWorld("sender") });
     await flush();
-    expect(row("d:s-dash")).toHaveTextContent("You and Ed's agent");
+    expect(row("d:dm:person:maya|s-dash")).toHaveTextContent("You and Ed's agent");
     cleanup();
     page({ chat: crossWorld("admin") });
     await flush();
-    expect(row("d:s-dash")).toHaveTextContent("Maya and Ed's agent");
+    expect(row("d:dm:person:maya|s-dash")).toHaveTextContent("Maya and Ed's agent");
   });
 });
 
@@ -1280,9 +1447,9 @@ describe("the person an Admin reads, told in the console", () => {
   it("shows a red banner above the messages, naming the Admin, and an Admin reading tag on the row", async () => {
     page({ chat: withReaders([live("Root")]) });
     await flush();
-    expect(within(row("d:s-dash+s-tester")).getByText("Admin reading")).toBeInTheDocument();
-    expect(within(row("d:s-notes")).queryByText("Admin reading")).toBeNull();
-    await open("d:s-dash+s-tester");
+    expect(within(row("d:dm:s-dash|s-tester")).getByText("Admin reading")).toBeInTheDocument();
+    expect(within(row("d:dm:person:ed|s-notes")).queryByText("Admin reading")).toBeNull();
+    await open("d:dm:s-dash|s-tester");
     const banner = within(thread()).getByTestId("chat-reading-banner");
     expect(banner).toHaveAttribute("role", "status");
     expect(banner).toHaveClass("crit");
@@ -1294,7 +1461,7 @@ describe("the person an Admin reads, told in the console", () => {
   it("names the first two Admins inline and the rest by count, and lists all of them with their start times in a tip", async () => {
     page({ chat: withReaders([live("Root", T0 - 120_000), live("Alex", T0 - 60_000), live("Sam", T0 - 30_000), live("Kim", T0 - 10_000)]) });
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     const banner = within(thread()).getByTestId("chat-reading-banner");
     expect(banner).toHaveTextContent("Root, Alex and 2 more Admins are reading this conversation.");
     expect(banner).toHaveTextContent("after the last of them stops");
@@ -1320,13 +1487,244 @@ describe("the person an Admin reads, told in the console", () => {
   it("drops a reading once its time has passed, without waiting for the server", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(T0);
-    page({ chat: withReaders([live("Root", T0 - 5000, T0 + 4000)]) });
+    const chat = withReaders([live("Root", T0 - 5000, T0 + 4000)]);
+    // The server's clock moves with the test's, so a read after the reading's end can say it ended (#1051).
+    const real = chat.api.overview.getMockImplementation()!;
+    chat.api.overview.mockImplementation(async (owner?: string | null) => ({ ...(await real(owner)), serverTime: Date.now() }));
+    page({ chat });
     await flush();
-    expect(within(row("d:s-dash+s-tester")).getByText("Admin reading")).toBeInTheDocument();
+    expect(within(row("d:dm:s-dash|s-tester")).getByText("Admin reading")).toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6000);
     });
-    expect(within(row("d:s-dash+s-tester")).queryByText("Admin reading")).toBeNull();
+    expect(within(row("d:dm:s-dash|s-tester")).queryByText("Admin reading")).toBeNull();
+  });
+
+  it("reads again before the earliest reading runs out, so a live read is not hidden at 30 seconds (#1051)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const chat = withReaders([live("Root", T0 - 5000, T0 + 30_000)]);
+    const real = chat.api.overview.getMockImplementation()!;
+    let reads = 0;
+    chat.api.overview.mockImplementation(async (owner?: string | null) => {
+      const o = await real(owner);
+      reads++;
+      // The first read says 30 seconds; the Admin's pings keep the read going, so a later read says 30 seconds from then.
+      o.serverTime = Date.now();
+      o.directs[0]!.adminReading = [live("Root", T0 - 5000, reads === 1 ? T0 + 30_000 : Date.now() + 30_000)];
+      return o;
+    });
+    page({ chat });
+    await flush();
+    expect(within(row("d:dm:s-dash|s-tester")).getByText("Admin reading")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(reads).toBeGreaterThan(1);
+    expect(within(row("d:dm:s-dash|s-tester")).getByText("Admin reading")).toBeInTheDocument();
+  });
+
+  it("keeps a reading shown after its time until a read confirms it ended, then drops it (#1051)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const chat = withReaders([live("Root", T0 - 5000, T0 + 10_000)]);
+    const real = chat.api.overview.getMockImplementation()!;
+    let down = false;
+    chat.api.overview.mockImplementation(async (owner?: string | null) => {
+      if (down) throw new RespondError(500, { error: "busy" });
+      const o = await real(owner);
+      o.serverTime = Date.now();
+      return o;
+    });
+    page({ chat });
+    await flush();
+    down = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(within(row("d:dm:s-dash|s-tester")).getByText("Admin reading")).toBeInTheDocument();
+    down = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(within(row("d:dm:s-dash|s-tester")).queryByText("Admin reading")).toBeNull();
+  });
+
+  describe("an Admin looking at the person's list of conversations (#1051)", () => {
+    const REST = "is looking at your list of conversations now: who you talk to and how many messages, not what they say.";
+    const listWorld = (over: { listReading?: ReturnType<typeof live>[]; listReads?: { admin: string; startedAt: number; lastSeenAt: number; kind?: "read" }[] }) => {
+      const w = world();
+      Object.assign(w.overview, over);
+      return fakeChat(w);
+    };
+
+    it("shows a full-width red banner naming the Admin while the look is live, with the words of the mockup", async () => {
+      page({ chat: listWorld({ listReading: [live("Root")] }) });
+      await flush();
+      const banner = screen.getByTestId("chat-list-reading-banner");
+      expect(banner).toHaveAttribute("role", "status");
+      expect(banner).toHaveClass("ch-nav", "ro", "crit");
+      expect(banner).toHaveTextContent(`Root (an Admin) ${REST}`);
+      // It is above the page's two panes, not inside the list.
+      expect(within(screen.getByTestId("chat-split")).queryByTestId("chat-list-reading-banner")).toBeNull();
+      expect(banner.compareDocumentPosition(screen.getByTestId("chat-split")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("names two Admins and counts the rest", async () => {
+      page({ chat: listWorld({ listReading: [live("Root"), live("Alex"), live("Sam"), live("Kim")] }) });
+      await flush();
+      expect(screen.getByTestId("chat-list-reading-banner")).toHaveTextContent("Root, Alex and 2 more Admins are looking at your list of conversations now");
+    });
+
+    it("shows nothing when no one looks, and a quiet record line afterward with the date and time", async () => {
+      const at = new Date(2026, 10, 6, 14, 20).getTime();
+      page({ chat: listWorld({ listReading: [], listReads: [{ admin: "Root", startedAt: at, lastSeenAt: at }] }) });
+      await flush();
+      expect(screen.queryByTestId("chat-list-reading-banner")).toBeNull();
+      const line = screen.getByTestId("chat-list-record");
+      expect(line).toHaveClass("ch-nav", "ro");
+      expect(line).not.toHaveClass("crit");
+      expect(line).toHaveTextContent("Root (an Admin) looked at your list of conversations on Nov 6 at 14:20. They saw who you talk to and message counts, not the messages.");
+    });
+
+    it("draws an Admin's name as text, never as markup", async () => {
+      const name = '<img src=x onerror="alert(1)">';
+      page({ chat: listWorld({ listReading: [live(name)], listReads: [{ admin: name, startedAt: ago(60_000), lastSeenAt: ago(60_000) }] }) });
+      await flush();
+      expect(document.querySelector("img[src='x']")).toBeNull();
+      expect(screen.getByTestId("chat-list-reading-banner")).toHaveTextContent(name);
+      expect(screen.getByTestId("chat-list-record")).toHaveTextContent(name);
+    });
+
+    it("drops the banner once its time has passed and a read confirms it, and keeps the record", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const chat = listWorld({ listReading: [live("Root", T0 - 5000, T0 + 4000)], listReads: [{ admin: "Root", startedAt: T0 - 5000, lastSeenAt: T0 - 5000 }] });
+      const real = chat.api.overview.getMockImplementation()!;
+      chat.api.overview.mockImplementation(async (owner?: string | null) => ({ ...(await real(owner)), serverTime: Date.now() }));
+      page({ chat });
+      await flush();
+      expect(screen.getByTestId("chat-list-reading-banner")).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(screen.queryByTestId("chat-list-reading-banner")).toBeNull();
+      expect(screen.getByTestId("chat-list-record")).toBeInTheDocument();
+    });
+
+    it("keeps the banner up past 30 seconds while the Admin keeps looking (the overview is read again before it ends)", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+      const chat = listWorld({ listReading: [live("Root", T0 - 5000, T0 + 30_000)] });
+      const real = chat.api.overview.getMockImplementation()!;
+      let reads = 0;
+      chat.api.overview.mockImplementation(async (owner?: string | null) => {
+        const o = await real(owner);
+        reads++;
+        o.serverTime = Date.now();
+        o.listReading = [live("Root", T0 - 5000, reads === 1 ? T0 + 30_000 : Date.now() + 30_000)];
+        return o;
+      });
+      page({ chat });
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(reads).toBeGreaterThan(1);
+      expect(screen.getByTestId("chat-list-reading-banner")).toBeInTheDocument();
+    });
+  });
+
+  describe("the records of a conversation that has since been deleted (#1051)", () => {
+    const gone = (over: Partial<GoneRead> = {}): GoneRead => ({ admin: "Root", startedAt: new Date(2026, 10, 5, 9, 12).getTime(), kind: "read", with: "Tester", ...over });
+    const goneWorld = (goneReads: GoneRead[]) => {
+      const w = world();
+      w.overview.goneReads = goneReads;
+      return fakeChat(w);
+    };
+
+    it("shows each as a quiet line at the top of the list, with the words of the mockup, names in bdi", async () => {
+      page({ chat: goneWorld([gone(), gone({ admin: "Alex", startedAt: new Date(2026, 9, 30, 11, 5).getTime(), with: "Review (Alex's agent)" })]) });
+      await flush();
+      const lines = screen.getAllByTestId("chat-gone-record");
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toHaveClass("ch-nav", "ro");
+      expect(lines[0]).not.toHaveClass("crit");
+      expect(lines[0]).toHaveAttribute("role", "status");
+      expect(lines[0]).toHaveTextContent("Root (an Admin) read your conversation with Tester on Nov 5 at 09:12. That conversation has since been deleted.");
+      expect(lines[1]).toHaveTextContent("Alex (an Admin) read your conversation with Review (Alex's agent) on Oct 30 at 11:05. That conversation has since been deleted.");
+      expect([...lines[0]!.querySelectorAll("bdi")].map((b) => b.textContent)).toEqual(["Root (an Admin)", "Tester"]);
+      expect(lines[0]!.compareDocumentPosition(screen.getByTestId("chat-split")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("says what an Admin did when it was not a read, and shows nothing when the server sends none", async () => {
+      page({ chat: goneWorld([gone({ kind: "cleared" }), gone({ kind: "paused", with: "Notes" })]) });
+      await flush();
+      const lines = screen.getAllByTestId("chat-gone-record");
+      expect(lines[0]).toHaveTextContent("Root (an Admin) removed all messages in your conversation with Tester on Nov 5 at 09:12. That conversation has since been deleted.");
+      expect(lines[1]).toHaveTextContent("Root (an Admin) paused your conversation with Notes on Nov 5 at 09:12. That conversation has since been deleted.");
+      cleanup();
+      page({ chat: fakeChat(world()) });
+      await flush();
+      expect(screen.queryByTestId("chat-gone-record")).toBeNull();
+    });
+
+    it("draws a name as text, never as markup", async () => {
+      const name = '<img src=x onerror="alert(1)">';
+      page({ chat: goneWorld([gone({ admin: name, with: name })]) });
+      await flush();
+      expect(document.querySelector("img[src='x']")).toBeNull();
+      expect(screen.getByTestId("chat-gone-record")).toHaveTextContent(`${name} (an Admin) read your conversation with ${name}`);
+    });
+
+    it("keeps the lines for as long as the page stays open, though the server sends each only once", async () => {
+      const chat = goneWorld([gone()]);
+      const real = chat.api.overview.getMockImplementation()!;
+      let reads = 0;
+      chat.api.overview.mockImplementation(async (owner?: string | null) => {
+        const o = await real(owner);
+        reads++;
+        if (reads > 1) o.goneReads = [];
+        return o;
+      });
+      const p = page({ chat });
+      await flush();
+      p.signal();
+      await flush();
+      expect(reads).toBeGreaterThan(1);
+      expect(screen.getAllByTestId("chat-gone-record")).toHaveLength(1);
+    });
+
+    it("keeps a record that came in a read a newer read replaced, because the server sends it once", async () => {
+      const chat = goneWorld([]);
+      const real = chat.api.overview.getMockImplementation()!;
+      let reads = 0;
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      chat.api.overview.mockImplementation(async (owner?: string | null) => {
+        const o = await real(owner);
+        reads++;
+        if (reads === 1) {
+          // The older read carries the record and lands after a newer one has started.
+          o.goneReads = [gone()];
+          await held;
+        }
+        return o;
+      });
+      const p = page({ chat });
+      await flush();
+      p.signal();
+      await flush();
+      expect(reads).toBe(2);
+      expect(screen.queryByTestId("chat-gone-record")).toBeNull();
+      await act(async () => {
+        release();
+      });
+      await flush();
+      expect(screen.getAllByTestId("chat-gone-record")).toHaveLength(1);
+    });
   });
 
   it("puts a record line among the messages in time order, one for each thing an Admin did", async () => {
@@ -1343,7 +1741,7 @@ describe("the person an Admin reads, told in the console", () => {
     [500_000, 490_000, 200_000].forEach((ms, i) => (msgs[i]!.sentAt = ago(ms)));
     page({ chat: fakeChat(w) });
     await flush();
-    await open("d:s-dash+s-tester");
+    await open("d:dm:s-dash|s-tester");
     const items = [...thread().querySelectorAll("ol.feed > li")].map((li) => (li.classList.contains("ch-rec") ? `rec:${li.textContent}` : `msg:${li.querySelector(".who")?.textContent}`));
     expect(items).toEqual([
       "msg:claude-dashboard",
@@ -1362,8 +1760,8 @@ describe("the person an Admin reads, told in the console", () => {
     w.overview.directs = [direct(DASH, TESTER, { state: "paused", paused: true, pausedBy: "admin", pausedByAdmin: "Root" })];
     page({ chat: fakeChat(w) });
     await flush();
-    expect(within(row("d:s-dash+s-tester")).getByText("Paused by an Admin")).toBeInTheDocument();
-    await open("d:s-dash+s-tester");
+    expect(within(row("d:dm:s-dash|s-tester")).getByText("Paused by an Admin")).toBeInTheDocument();
+    await open("d:dm:s-dash|s-tester");
     expect(within(thread()).getByTestId("chat-admin-pause-banner")).toHaveTextContent("Root (an Admin) paused this link. Messages are held and nothing is sent. Only an Admin can resume it.");
     fireEvent.click(screen.getByRole("button", { name: "Actions for claude-dashboard, Tester" }));
     const item = screen.getByRole("menuitem", { name: /Resume link/ });
@@ -1378,7 +1776,7 @@ describe("the person an Admin reads, told in the console", () => {
     w.dms["person:ed|s-n"] = { messages: [dmsg("c1", ME, agent("s-n", "maya-bot", "maya-mbp"), "Hello.")], total: 1 };
     page({ chat: fakeChat(w), me: { ...ED, name: "Maya" } });
     await flush();
-    await open("d:s-n");
+    await open("d:dm:person:ed|s-n");
     expect(within(thread()).getByTestId("chat-reading-banner")).toHaveTextContent("Only you, Ed and Admins can read it.");
   });
 
@@ -1444,6 +1842,35 @@ describe("an Admin reading a person's conversations", () => {
     expect(row("c:general")).toBeInTheDocument();
   });
 
+  it("draws Loading, not the previous person's list, menus and box, while the chosen person's list is read (#1051)", async () => {
+    const w = world();
+    w.overview.me = { name: "Root", admin: true, person: true };
+    w.overview.people = [{ name: "Root", you: true }, { name: "Maya", you: false }];
+    w.owners = { Maya: { directs: [] } };
+    const chat = fakeChat(w);
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const real = chat.api.overview.getMockImplementation()!;
+    chat.api.overview.mockImplementation(async (owner?: string | null) => {
+      if (owner === "Maya") await held;
+      return real(owner);
+    });
+    page({ chat, me: ROOT });
+    await flush();
+    expect(row("d:dm:s-dash|s-tester")).toBeInTheDocument();
+    await pickPerson();
+    expect(screen.queryByTestId("chat-row-d:dm:s-dash|s-tester")).toBeNull();
+    expect(screen.queryByTestId("chat-box")).toBeNull();
+    expect(screen.queryByTestId("chat-split")).toBeNull();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    release();
+    await flush();
+    expect(screen.getByText("Maya has no Direct Messages.")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-row-d:dm:s-dash|s-tester")).toBeNull();
+  });
+
   it("never offers the picker to someone who is not an Admin", async () => {
     page();
     await flush();
@@ -1458,16 +1885,16 @@ describe("an Admin reading a person's conversations", () => {
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
     expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels", "Direct Messages"]);
     expect(row("c:group")).toHaveTextContent("read only");
-    expect(row("d:m-1+m-2")).toHaveTextContent("Two agents, and Maya, read only");
-    expect(row("d:m-1+m-2")).toHaveTextContent("maya-api, maya-ui");
-    expect(within(row("d:m-1+m-2")).queryByLabelText(/new/)).toBeNull();
+    expect(row("d:dm:m-1|m-2")).toHaveTextContent("Two agents, and Maya, read only");
+    expect(row("d:dm:m-1|m-2")).toHaveTextContent("maya-api, maya-ui");
+    expect(within(row("d:dm:m-1|m-2")).queryByLabelText(/new/)).toBeNull();
   });
 
   it("opens a thread with a red banner, no message box and the reason, and records nothing as read", async () => {
     const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
     await flush();
     await pickPerson();
-    await open("d:m-1+m-2");
+    await open("d:dm:m-1|m-2");
     const banner = within(thread()).getByTestId("chat-ro-banner");
     expect(banner).toHaveClass("crit");
     expect(banner).toHaveAttribute("role", "status");
@@ -1488,7 +1915,7 @@ describe("an Admin reading a person's conversations", () => {
     const p = page({ chat: fakeChat(w), me: ROOT });
     await flush();
     await pickPerson();
-    await open("d:m-1");
+    await open("d:dm:m-1|person:ed");
     expect(within(thread()).getByTestId("chat-ro-banner")).toHaveTextContent("Reading Maya's conversation as an Admin. You cannot send here. Maya and Ed are told while you read");
     expect(p.chat.api.markRead).not.toHaveBeenCalled();
   });
@@ -1600,7 +2027,7 @@ describe("an Admin reading a person's conversations", () => {
       page({ chat, me: ROOT });
       await flush();
       await pickPerson();
-      await open("d:m-1+m-2");
+      await open("d:dm:m-1|m-2");
       hide("hidden");
       await act(async () => {
         await vi.advanceTimersByTimeAsync(15_000);

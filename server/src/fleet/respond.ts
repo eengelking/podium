@@ -85,6 +85,8 @@ interface SessionEntry {
   info: RespondInfo | null;
   /** The slash commands the reporter declared (#940); null while it has sent no capabilities block, which leaves every command Podium knows open. An empty list is a declaration: the session takes none. */
   commands: string[] | null;
+  /** The last report that declared `adminNotices` said true (#1051); a report without the declaration keeps the last value, and a session that has never declared it since the server started is false. */
+  adminNotices: boolean;
   asks: Map<string, AskEntry>;
   messages: DeliveryEntry[];
 }
@@ -247,7 +249,7 @@ export class RespondStore {
   private entry(sessionId: string): SessionEntry {
     let s = this.sessions.get(sessionId);
     if (!s) {
-      s = { info: null, commands: null, asks: new Map(), messages: [] };
+      s = { info: null, commands: null, adminNotices: false, asks: new Map(), messages: [] };
       this.sessions.set(sessionId, s);
     }
     return s;
@@ -256,6 +258,11 @@ export class RespondStore {
   /** Report.session.respond as last reported; null when no report since the server started has said. */
   info(sessionId: string): RespondInfo | null {
     return this.sessions.get(sessionId)?.info ?? null;
+  }
+
+  /** Whether the session's reporter declared `adminNotices` in its last report: it shows its person the Admin callout and frames a person's text (#1051). */
+  adminNotices(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.adminNotices === true;
   }
 
   /**
@@ -267,6 +274,8 @@ export class RespondStore {
     const sid = report.session.id;
     if (report.session.respond) this.entry(sid).info = report.session.respond;
     else if (this.sessions.has(sid)) this.entry(sid).info = null;
+    // Sticky like `commands`: a report that does not carry the declaration (protocol.ts leaves `adminNotices` undefined then) keeps the last one.
+    if (report.adminNotices !== undefined) this.entry(sid).adminNotices = report.adminNotices;
     if (report.capabilities) this.entry(sid).commands = report.capabilities.commands;
     if (report.session.status === 'done') {
       this.endSession(sid);
@@ -505,7 +514,9 @@ export class RespondStore {
     }
     const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}) };
     s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
-    this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text: feedText(delivery, null), by, note: null }, delivery);
+    // What a person wrote in Chat reaches the agent and nobody else: the anonymous activity feed, the history and the recordings get a line without the text (#1051).
+    const text = delivery.chat || delivery.channel ? `a Chat message from ${by}` : feedText(delivery, null);
+    this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text, by, note: null }, delivery);
     return { ok: true, delivery };
   }
 

@@ -117,6 +117,21 @@ export interface ChatOverview {
   people: { name: string; you: boolean }[];
   /** How many messages from other people wait for the viewer's approval as the owner of the agent they wrote to. */
   approvals?: number;
+  /** The Admins looking at this person's list of conversations now (#1051). Absent from an older server and for an Admin who browses. */
+  listReading?: AdminReading[];
+  /** The latest records of an Admin looking at the list, oldest first. */
+  listReads?: AdminRead[];
+  /** The person's unseen records of a conversation that has since been deleted, newest first (#1051). Sent once: the server marks them seen. */
+  goneReads?: GoneRead[];
+}
+
+/** An Admin record of a conversation that no longer exists, for the person's overview. Never any text. */
+export interface GoneRead {
+  admin: string;
+  startedAt: number;
+  kind: AdminReadKind;
+  /** The other party's name. */
+  with: string;
 }
 
 export type MentionState = "waiting" | "working" | "done" | "not-delivered" | "held" | "dropped";
@@ -249,13 +264,17 @@ export const plain = (s: string): string => {
 
 // ---- Direct Messages ---------------------------------------------------------------------------------------------------
 
-/** The agents of a conversation, sorted and joined: the same for one you have not started yet and one that is stored. */
-export function dmKey(d: Pick<DirectInfo, "a" | "b">): string {
-  return [d.a, d.b]
-    .filter((p) => p.kind === "agent")
-    .map((p) => p.sessionId)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    .join("+");
+/**
+ * A conversation's row key: the server's own `thread` value (dm:<a>|<b>). The ends alone are not enough, because the person's own
+ * conversation with an agent and another person's with the same agent share the agent (#1051).
+ */
+export function dmKey(d: Pick<DirectInfo, "thread">): string {
+  return d.thread;
+}
+
+/** The viewer's own conversation with one agent (no other person in it), or undefined: a new message to that agent opens it. */
+export function ownDmWith(directs: readonly DirectInfo[], sessionId: string): DirectInfo | undefined {
+  return directs.find((d) => !d.cross && d.a.kind !== d.b.kind && [d.a, d.b].some((p) => p.kind === "agent" && p.sessionId === sessionId));
 }
 
 /** A conversation between the person and one agent is named by the agent; one between two agents by both; one across owners by the other person first. */
@@ -335,6 +354,32 @@ export function crossOff(c: Cross): { word: string; why: string } | null {
 
 /** What the box says under it while a person's message waits for the owner. */
 export const crossNote = (c: Cross): string | null => (c.viewerIs === "sender" && c.link === "waiting" ? `Waiting for ${c.owner} to approve your message. It is delivered once ${c.owner} allows it.` : null);
+
+// ---- Who wrote a channel message (#1051) --------------------------------------------------------------------------------
+
+export interface AuthorMarks {
+  /** The chip that says an orchestrator or subagent wrote it, not a person: "orchestrator on <machine>". */
+  chip: string;
+  /** The warning chips: a name that is a person's, or that says it is an Admin. */
+  warns: { text: string; title: string }[];
+}
+
+export const AUTHOR_CHIP_TITLE = "Written by an orchestrator, not a person";
+
+/**
+ * What a channel message says about its author beyond the name. A person's message has none. An agent's has the chip, so an agent
+ * cannot look like a person, and a warning when its name is a person's on this server or claims to be an Admin. `machine` is where
+ * the author runs, or null when the page does not know it (the chip then says only what wrote it).
+ */
+export function authorMarks(m: Pick<ChannelMessage, "authorKind" | "authorName">, people: readonly string[], machine: string | null): AuthorMarks | null {
+  if (m.authorKind === "person") return null;
+  const what = m.authorKind === "subagent" ? "subagent" : "orchestrator";
+  const warns: AuthorMarks["warns"] = [];
+  const name = m.authorName.trim().toLowerCase();
+  if (people.some((p) => p.trim().toLowerCase() === name)) warns.push({ text: "Same name as a person", title: "This orchestrator's name is the name of a person on this server." });
+  if (name.includes("(an admin)")) warns.push({ text: "Name says Admin", title: "This orchestrator's name says it is an Admin. Only a person signed in as an Admin is one." });
+  return { chip: machine ? `${what} on ${machine}` : what, warns };
+}
 
 // ---- Delivery lines ----------------------------------------------------------------------------------------------------
 
@@ -489,6 +534,41 @@ export const readersStops = (l: readonly AdminReading[]): string => (l.length ==
 
 /** The tip's text: every Admin reading, with when they started. `at` formats a time. */
 export const readersTip = (l: readonly AdminReading[], at: (t: number) => string): string => `Reading now: ${l.map((r) => `${r.admin} since ${at(r.since)}`).join(", ")}.`;
+
+/** The red banner's bold line for the Admins looking at the person's list of conversations. */
+export function listReadersLine(l: readonly AdminReading[]): string {
+  const names = l.map((r) => r.admin);
+  if (names.length <= 1) return adminWho(names[0]);
+  if (names.length === 2) return `${names[0]} and ${names[1]} (Admins)`;
+  return `${names[0]}, ${names[1]} and ${more(names.length - 2)}`;
+}
+
+/** The rest of that banner: what the Admin sees of the list, and what they do not. */
+export const LIST_READING_REST = "looking at your list of conversations now: who you talk to and how many messages, not what they say.";
+
+/** What an Admin did in a conversation that has since been deleted, in the words after their name. */
+const GONE_WHAT: Record<AdminReadKind, string> = {
+  read: "read",
+  cleared: "removed all messages in",
+  paused: "paused",
+  resumed: "resumed",
+  disconnected: "disconnected the agents in",
+  reconnected: "reconnected the agents in",
+};
+
+/** The parts of the quiet line for a record of a deleted conversation: the Admin, what they did, the other party and when. The page puts the names in <bdi>. */
+export const goneRecordParts = (r: GoneRead): { admin: string; what: string; with: string; when: string } => ({ admin: adminWho(r.admin), what: GONE_WHAT[r.kind] ?? GONE_WHAT.read, with: r.with, when: onDay(r.startedAt) });
+
+/** Adds the records a read brought to those the page already shows, newest first, at most 20, so they stay while the page is open though the server sends each once. */
+export function mergeGone(shown: readonly GoneRead[], incoming: readonly GoneRead[]): GoneRead[] {
+  const key = (r: GoneRead) => `${r.admin}|${r.startedAt}|${r.kind}|${r.with}`;
+  const seen = new Set(shown.map(key));
+  const added = incoming.filter((r) => !seen.has(key(r)));
+  return added.length ? [...shown, ...added].sort((a, b) => b.startedAt - a.startedAt).slice(0, 20) : (shown as GoneRead[]);
+}
+
+/** The quiet line a look at the person's list leaves afterward. */
+export const listRecordLine = (r: AdminRead): string => `${adminWho(r.admin)} looked at your list of conversations on ${onDay(r.startedAt)}. They saw who you talk to and message counts, not the messages.`;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
