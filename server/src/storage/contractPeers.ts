@@ -299,7 +299,7 @@ export function peerCases(o: Openers): void {
     expect(t.get('hide')).toBe(4);
     expect(t.get('hide again')).toBe(0);
     expect((t.get('owner conversations (hidden left out)') as { a: { sessionId: string } }[]).map((c) => c.a.sessionId)).toEqual(['person:ed']);
-    expect((t.get('owner conversations (hidden included)') as { hiddenAt: number | null }[]).map((c) => c.hiddenAt).sort()).toEqual([T0 + 15, null]);
+    expect((t.get('owner conversations (hidden included)') as { hiddenAt: number | null }[]).map((c) => c.hiddenAt).sort((a, b) => (a === null ? 1 : b === null ? -1 : a - b))).toEqual([T0 + 15, null]);
     expect(t.get('purge (not yet old enough)')).toBe(0);
     expect(t.get('show')).toBe(4);
     expect((t.get('owner conversations (shown)') as { hiddenAt: number | null }[]).map((c) => c.hiddenAt)).toEqual([null, null]);

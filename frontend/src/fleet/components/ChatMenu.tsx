@@ -138,7 +138,7 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
   }
   return (
     // The keys belong to the menu's own items, which take the focus.
-    <div className="ch-menu" role="menu" aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
+    <div className="ch-menu" role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
       {props.spec.items.map((it) =>
         it.href ? (
           <a key={it.act} role="menuitem" href={it.href} data-act={it.act} onClick={() => props.onClose(false)}>

@@ -13,7 +13,11 @@ const WORD = '[A-Za-z0-9._-]+';
 const MENTION = new RegExp(`(?<![\\w.@-])@(${WORD})(?:@(${WORD})(?:#([A-Za-z0-9_-]+))?)?(?![\\w@])`, 'g');
 
 /** A name or location without the full stop or dash a sentence ends on. */
-const trimEnd = (s: string): string => s.replace(/[.-]+$/, '');
+const trimEnd = (s: string): string => {
+  let end = s.length;
+  while (end > 0 && (s[end - 1] === '.' || s[end - 1] === '-')) end--;
+  return s.slice(0, end);
+};
 
 export function parseMentions(text: string): ParsedMention[] {
   const out: ParsedMention[] = [];

@@ -36,4 +36,13 @@ describe('parseMentions (#1034)', () => {
     expect(parseMentions('no mentions here')).toEqual([]);
     expect(parseMentions('')).toEqual([]);
   });
+
+  it('trims the full stops and dashes a sentence ends on, in linear time on a long adversarial name', () => {
+    expect(parseMentions('hi @dev.')).toEqual([{ kind: 'plain', name: 'dev', typed: 'dev' }]);
+    expect(parseMentions('@dev@host-- ok')).toEqual([{ kind: 'address', name: 'dev', location: 'host', id: null, typed: 'dev@host' }]);
+    const t0 = Date.now();
+    parseMentions('@' + '.-'.repeat(25_000) + '!');
+    parseMentions('@a@' + '-.'.repeat(25_000) + '!');
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
 });

@@ -241,7 +241,11 @@ export type LinkOp = "pause" | "resume" | "remove" | "allow";
 export type ChatApi = typeof chatApi;
 
 /** A server reason without its closing full stop, so a sentence built around it does not end in two. */
-export const plain = (s: string): string => s.replace(/[.\s]+$/, "");
+export const plain = (s: string): string => {
+  let end = s.length;
+  while (end > 0 && (s[end - 1] === "." || /\s/.test(s[end - 1]!))) end--;
+  return s.slice(0, end);
+};
 
 // ---- Direct Messages ---------------------------------------------------------------------------------------------------
 
@@ -250,7 +254,7 @@ export function dmKey(d: Pick<DirectInfo, "a" | "b">): string {
   return [d.a, d.b]
     .filter((p) => p.kind === "agent")
     .map((p) => p.sessionId)
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .join("+");
 }
 

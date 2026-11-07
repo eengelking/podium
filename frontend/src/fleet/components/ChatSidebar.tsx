@@ -118,7 +118,7 @@ export function ChatSidebar(p: SidebarProps) {
 
   const dmRow = (d: DirectInfo) => {
     const name = dmName(d);
-    const key = `d:${[d.a, d.b].filter((x) => x.kind === "agent").map((x) => x.sessionId).sort().join("+")}`;
+    const key = `d:${[d.a, d.b].filter((x) => x.kind === "agent").map((x) => x.sessionId).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join("+")}`;
     const ro = p.readAs !== null;
     const readers = ro ? [] : liveReaders(d.adminReading, p.serverNow);
     return row(key, dmMenu(d, true, ro), (

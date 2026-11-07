@@ -291,6 +291,7 @@ export function ChatThread(p: ThreadProps) {
       <div
         className="ch-body"
         ref={body}
+        role="region"
         tabIndex={0}
         aria-label="Messages, oldest first"
         onScroll={(e) => {

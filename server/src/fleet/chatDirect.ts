@@ -90,7 +90,7 @@ export function directMessages(rows: MessageRow[]): DirectMessageView[] {
     const last = out.at(-1);
     if (m.author === 'person' && last?.author === 'person' && last.text === m.text && Math.abs(m.sentAt - last.sentAt) <= MERGE_MS && last.from.name === m.fromName && !last.to.some((t) => t.sessionId === m.toSession)) {
       last.to.push(target);
-      const worst = last.to.reduce((a, b) => (rank(b.state) > rank(a.state) ? b : a));
+      const worst = last.to.reduce((a, b) => (rank(b.state) > rank(a.state) ? b : a), last.to[0]!);
       last.state = worst.state;
       last.why = worst.why;
       last.stateAt = Math.max(last.stateAt, m.stateAt);

@@ -24,6 +24,7 @@ import {
   dmTag,
   mentionChip,
   mentionQuery,
+  plain,
   messageParts,
   stamp,
   type Address,
@@ -316,5 +317,20 @@ describe("an Admin reading (#1034)", () => {
     const c: Cross = { person: "Maya", owner: "Ed", link: "paused", viewerIs: "owner", pausedBy: "admin", pausedByAdmin: "Root", canResume: false };
     expect(crossOff(c)?.why).toBe("Paused by Root (an Admin): messages are held. Only an Admin can resume it.");
     expect(whoWord(c, "admin")).toBe("Root (an Admin)");
+  });
+});
+
+describe("a reason without its closing full stop", () => {
+  it("drops trailing full stops and white space and keeps the rest", () => {
+    expect(plain("Paused by Ed.")).toBe("Paused by Ed");
+    expect(plain("Paused. . \n")).toBe("Paused");
+    expect(plain("a.b")).toBe("a.b");
+    expect(plain("")).toBe("");
+    expect(plain(" . ")).toBe("");
+  });
+  it("finishes at once on a long run that does not end the way it starts", () => {
+    const t0 = Date.now();
+    expect(plain(". ".repeat(25_000) + "x")).toBe(". ".repeat(25_000) + "x");
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 });
