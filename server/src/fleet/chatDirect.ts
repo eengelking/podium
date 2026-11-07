@@ -297,6 +297,18 @@ export class DirectChat {
     return [...new Set([nameKey(c.owner), ...(person ? [nameKey(person.sessionId.slice('person:'.length))] : [])])];
   }
 
+  /**
+   * An Admin reads the text of the conversation between two ids on a route outside Chat (the Admin's Reporters page, or Traffic): the same record, Admin log line
+   * and notices as an Admin's read in Chat (#1072). Called before the text is answered, so a failure to record stops the read. False when there is no such
+   * conversation, and then nothing was recorded.
+   */
+  async noteAdminRead(viewer: ChatViewer, a: string, b: string): Promise<boolean> {
+    const c = await this.find(a, b);
+    if (!c) return false;
+    await this.reads.note(viewer, this.subject(c));
+    return true;
+  }
+
   /** What the callout of a thread says, from its conversation: for the reporter sessions of its people. Null when there is no such conversation. */
   async subjectOf(thread: string): Promise<ReadSubject | null> {
     const c = (await this.peers.conversations({})).find((x) => dmThread(x.a.sessionId, x.b.sessionId) === thread);

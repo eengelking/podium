@@ -125,6 +125,11 @@ export class ChatService {
     return this.adminReads.toldLinkStop(admin, owner, what);
   }
 
+  /** An Admin reads a conversation between agents outside Chat: recorded before the text is answered, and its people are told (#1072). False when there is none. */
+  noteConversationRead(viewer: ChatViewer, a: string, b: string): Promise<boolean> {
+    return this.direct.noteAdminRead(viewer, a, b);
+  }
+
   /** Replaced by the routes, so a Chat event reaches the Admin log and the server log. */
   set onEvent(fn: (e: ChatEvent) => void) {
     this.core.onEvent = fn;
