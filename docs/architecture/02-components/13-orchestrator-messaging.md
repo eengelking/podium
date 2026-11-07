@@ -167,6 +167,12 @@ handed over in the reply to the session's report as `adminNotices` (`routes.ts`)
 transcript line. Neither reaches the model or depends on the `peers` option. In the console `components/ChatAdmin.tsx` draws the picker, the
 banners, the red tags and the record lines, and the Admin's page hides People and agents while it reads.
 
+**An Admin's stop or delete (#1078).** `AdminActs` (`adminActs.ts`, on `Fleet` as `adminActs`) is what the Admin router and the session delete call after an
+Admin stops or deletes a person's recording, stored activity, session, access or reporter. It writes a `chat_admin_reads` row on the `act:<name>` thread
+(`AdminReads.record`) and pushes the sentence to each live session of the person (`AdminReads.tell`), so the reporter side is unchanged. Chat's
+`goneReadsOf` puts those rows on the overview with the conversations that are gone, and `isActRecord` in `chatData.ts` words them without a conversation.
+No table or column changed: the kinds are text in both adapters.
+
 **Not in this release.** The agent's side of the channels is plumbing: the reporter-token routes in `chatAgentRoutes.ts` and the
 paged read capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000), and
 the finished tools are #1035. Delivery is `queue` on both harnesses; OpenCode can also deliver at the next step of a running

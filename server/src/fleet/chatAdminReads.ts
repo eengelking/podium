@@ -145,6 +145,11 @@ export class AdminReads {
     for (const t of tells) this.tell(t.sessionId, `${this.who(viewer)} ${verb} ${t.about}.`);
   }
 
+  /** Records an Admin's act on a person's things (#1078) on `thread`, owed to `people` until they have seen it. */
+  record(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[]): Promise<AdminReadRow> {
+    return this.store.mark(thread, admin, kind, people);
+  }
+
   /** The records `person` is owed and has not seen, of every thread, newest first. */
   unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]> {
     return this.store.unseenFor(person);

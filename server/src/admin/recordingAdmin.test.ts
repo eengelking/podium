@@ -8,13 +8,14 @@ import type { SessionRecordingsApi } from '../storage/types.js';
 import { LiveActivityHistorySettings, LiveRecordingSettings } from '../fleet/liveSettings.js';
 import { MAIN_LOOP } from '../fleet/protocol.js';
 import { createAdminRouter } from './adminRouter.js';
+import type { AdminActs } from '../fleet/adminActs.js';
 
 const SECRET = 'the-admin-secret-0123456789';
 const H = { 'X-Podium-Admin': '1' };
 const T0 = 1_800_000_000_000;
 const BODY = 'UNIQUE-RECORDED-TEXT-9042';
 
-async function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
+async function setup(over: { withRecordings?: boolean; withHistory?: boolean; acts?: AdminActs } = {}) {
   const storage = openSqliteStorage(':memory:');
   const people = storage.people;
   const settings = new LiveRecordingSettings(storage.recordingSettings);
@@ -44,6 +45,7 @@ async function setup(over: { withRecordings?: boolean; withHistory?: boolean } =
       people,
       now: () => T0,
       log: () => {},
+      ...(over.acts ? { adminActs: over.acts } : {}),
       ...(over.withRecordings === false ? {} : { recordings: { service, settings, changed } }),
       ...(over.withHistory ? { activityHistory: { history, settings: histSettings } } : {}),
     }),
@@ -172,6 +174,42 @@ describe('GET /recordings', () => {
     expect((await agent.get('/api/admin/recordings')).status).toBe(404);
     expect((await agent.post('/api/admin/recordings/s1/stop').set(H)).status).toBe(404);
     expect((await agent.delete('/api/admin/recordings/s1').set(H)).status).toBe(404);
+  });
+});
+
+const spyActs = () => ({ onSession: vi.fn(async () => {}), onPerson: vi.fn(async () => {}) }) as unknown as AdminActs & { onSession: ReturnType<typeof vi.fn>; onPerson: ReturnType<typeof vi.fn> };
+
+describe('an Admin\'s stop or delete tells the person (#1078)', () => {
+  it('a stop tells once, naming the Admin, and a repeat stop tells nobody again', async () => {
+    const acts = spyActs();
+    const { agent, service } = await unlocked({ acts });
+    await record(service, 's1');
+    await agent.post('/api/admin/recordings/s1/stop').set(H);
+    await agent.post('/api/admin/recordings/s1/stop').set(H);
+    expect(acts.onSession.mock.calls).toEqual([['Admin', 'recording_stopped', 's1']]);
+  });
+
+  it('deleting a recording, one or by the Stored activity page, tells for each session', async () => {
+    const acts = spyActs();
+    const { agent, service } = await unlocked({ acts });
+    await record(service, 's1');
+    await record(service, 's2');
+    await record(service, 's3');
+    await agent.delete('/api/admin/recordings/s1').set(H);
+    await agent.post('/api/admin/stored-activity/delete').set(H).send({ ids: ['s2', 's3'], source: 'recordings' });
+    expect(acts.onSession.mock.calls).toEqual([
+      ['Admin', 'recording_deleted', 's1'],
+      ['Admin', 'recording_deleted', 's2'],
+      ['Admin', 'recording_deleted', 's3'],
+    ]);
+  });
+
+  it('a failed stop or an unknown recording tells nobody', async () => {
+    const acts = spyActs();
+    const { agent } = await unlocked({ acts });
+    await agent.post('/api/admin/recordings/nope/stop').set(H);
+    await agent.delete('/api/admin/recordings/nope').set(H);
+    expect(acts.onSession).not.toHaveBeenCalled();
   });
 });
 

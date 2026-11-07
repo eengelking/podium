@@ -2369,6 +2369,23 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
   });
 
+  it('tells the owner, in their other sessions and on their overview once, when the admin secret deletes a session or an Admin removes a reporter of theirs (#1078)', async () => {
+    const w = await world();
+    expect(await noticesOf(w, 'dev')).toEqual([]);
+    expect((await request(w.app).delete('/api/fleet/sessions/sess-tester').set('X-Podium-Token', SECRET)).status).toBe(200);
+    const told = (await noticesOf(w, 'dev')).map((n) => n.text);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatch(/^Admin \(an Admin\) deleted your session .+\.$/);
+    await w.fleet.adminActs.onPerson('Root', 'reporter_removed', 'Ed', 'ed-mbp');
+    expect((await noticesOf(w, 'dev')).map((n) => n.text)).toContain('Root (an Admin) removed your reporter ed-mbp from the Reporters list.');
+    const shelf = (await w.edB.get(CH)).body.goneReads as { admin: string; kind: string; with: string }[];
+    expect(shelf.map((r) => `${r.admin}:${r.kind}:${r.with}`).sort()).toEqual(['Admin:session_deleted:', 'Root:reporter_removed:']);
+    expect((await w.edB.get(CH)).body.goneReads).toEqual([]);
+    // Another person is told nothing, and the Admin deleting a session no one owns tells no one.
+    expect(await noticesOf(w, 'alex')).toEqual([]);
+    expect(JSON.stringify((await w.alexB.get(CH)).body.goneReads)).toBe('[]');
+  });
+
   it('uses the Admin\'s own name when the Admin is a person', async () => {
     const w = await world();
     const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
