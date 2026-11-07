@@ -70,7 +70,7 @@
 .ch-composer textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
 .ch-composer textarea:disabled { color: var(--muted); }
 .ch-composer .note { font-size: 12px; color: var(--muted); }
-.ch-composer .note.warn { color: var(--warn); }
+.ch-composer .note.warn { color: var(--warn-text); }
 .ch-body .feed li { position: relative; }
 .ch-mention { display: inline-block; padding: 0 5px; border-radius: 4px; background: var(--sel); color: var(--ink); font-weight: 600; }
 .ch-body .feed li.reply .body { border-left: 2px solid var(--axis); padding-left: 8px; margin-left: 14px; }
