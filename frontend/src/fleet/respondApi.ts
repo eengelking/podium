@@ -2,6 +2,7 @@
 // Every change carries X-Podium-Respond: 1; the sign-in lives in an HttpOnly cookie the page never sees, and the token
 // typed into the form is sent once and never kept (SPEC 7.7).
 import type { ActivityHistoryPage, AskDetail, FileDiffReply, PeerLevel, RecordingGrant, RecordingPage, RespondMe } from "./types";
+import type { AdminRead, AdminReading } from "./chatData";
 import type { PeerDefaults, PeerLimitsView, PeersRead } from "./peers";
 
 const BASE = "/api/fleet/respond";
@@ -74,15 +75,41 @@ export const respondApi = {
   recordingStart: (sessionId: string, loops: string[]) => callRespond<{ ok: true; grant: RecordingGrant }>("PUT", `${sessionPath(sessionId)}/recording`, { loops }),
   /** Ends capture and keeps what was recorded. */
   recordingStop: (sessionId: string) => callRespond<{ ok: true; grant: RecordingGrant }>("POST", `${sessionPath(sessionId)}/recording/stop`),
+  /** The Admins reading the signed-in person's own sessions now, by kind of read and session (#1073, #1074). Content-free. */
+  sessionReads: () => callRespond<SessionReadersReply>("GET", "/session-reads"),
+  /** The person's own look at the record of reads of one of their sessions: who read and when, and who reads now. Content-free. */
+  sessionReadRecords: (sessionId: string, kind: SessionReadKind) => callRespond<SessionReadRecordsReply>("GET", `${sessionPath(sessionId)}/admin-reads/${kind}`),
+  /** An Admin's open read of someone else's session keeps its owner's notice alive; sent every 15 seconds while it is open. Records the read if it has not begun. */
+  sessionReading: (sessionId: string, kind: SessionReadKind, loop?: string) => callRespond<{ ok: true }>("POST", `${sessionPath(sessionId)}/admin-reads/${kind}/reading`, loop === undefined ? {} : { loop }),
   /** Removes the whole recording. */
   recordingDelete: (sessionId: string) => callRespond<{ ok: true; entries: number; bytes: number }>("DELETE", `${sessionPath(sessionId)}/recording`),
 };
 
+/** What an Admin reads of a person's session: a waiting ask, or one loop's stored Activity. */
+export type SessionReadKind = "ask" | "activity";
+
+/** Who reads the person's own sessions now, by kind and session, and the server's clock. */
+export interface SessionReadersReply {
+  ok: true;
+  serverTime: number;
+  readers: Partial<Record<SessionReadKind, Record<string, AdminReading[]>>>;
+}
+
+export interface SessionReadRecordsReply {
+  ok: true;
+  serverTime: number;
+  adminReads: AdminRead[];
+  adminReading: AdminReading[];
+}
+
 /** The recording routes (#353). Optional so a test's fake can leave them out; the real one has them. */
 type RecordingCalls = "recordingPage" | "recordingConsent" | "recordingStart" | "recordingStop" | "recordingDelete";
 
+/** The session-read routes (#1073, #1074). Optional so a test's fake can leave them out; the real one has them. */
+type SessionReadCalls = "sessionReads" | "sessionReadRecords" | "sessionReading";
+
 /** The browser's side of responding. `fileDiff`, `activityHistory` and the recording calls are optional so a test's fake can leave them out; the real one has them. */
-export type RespondApi = Omit<typeof respondApi, "fileDiff" | "fileDiffOpened" | "activityHistory" | RecordingCalls> & Partial<Pick<typeof respondApi, "fileDiff" | "fileDiffOpened" | "activityHistory" | RecordingCalls>>;
+export type RespondApi = Omit<typeof respondApi, "fileDiff" | "fileDiffOpened" | "activityHistory" | RecordingCalls | SessionReadCalls> & Partial<Pick<typeof respondApi, "fileDiff" | "fileDiffOpened" | "activityHistory" | RecordingCalls | SessionReadCalls>>;
 
 /**
  * My reporters (#347, #415, SPEC 7.1 "Browser routes for orchestrator messaging"): on the same router and sign-in as

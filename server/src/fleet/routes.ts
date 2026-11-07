@@ -16,6 +16,7 @@ import type { AdminNotice } from './chatAdminNotices.js';
 import { mountRespondRoutes, replyFor, type RespondAccess } from './respondRoutes.js';
 import { mountChatAgentRoutes, mountChatBrowserRoutes } from './chatRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
+import { mountSessionReadRoutes } from './sessionReadRoutes.js';
 import { mountRecordingBrowserRoutes, mountRecordingRoutes, recordingEnabled, wireRecordingLogs } from './recordingRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
@@ -588,6 +589,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       mountPeerBrowserRoutes(browser, peerDeps, h);
       mountChatBrowserRoutes(browser, peerDeps, h);
       mountRecordingBrowserRoutes(browser, peerDeps, h);
+      mountSessionReadRoutes(browser, peerDeps, h);
     },
   });
 

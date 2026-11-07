@@ -536,6 +536,16 @@ as the Activity history, [7.7](07-07-hardening.md#activity-history-432)): `401` 
   `grant` of a person who may not read it is never sent: the state shown on a card is the session view's
   `recording` ([7.4](07-04-view-types.md)), which carries no text.
 
+## Browser routes for an Admin's read of a person's session (#1073, #1074)
+
+An Admin never reads in silence. When an Admin reads the content of a session that is not their own (a waiting ask, kind `ask`; one loop's stored Activity, kind `activity`), the read is recorded before anything is sent, the Admin log gets a line from the route that serves the read, the owner's console shows a red notice while the read is live and a quiet line after, and the owner's reporter sessions show a one-line callout (`Root (an Admin) is reading your waiting plan on history-paging.`). A session owned by the shared Admin name, or by no one, has no person to tell, and an owner's own read tells no one. A record is a row of `chat_admin_reads` under the thread `ask:<session>` or `activity:<session>:<loop>`, with the owner in `people`; reads of one thread by one Admin less than 30 minutes apart are one record. It holds a name and a time, never any text.
+
+On responding's `/respond` router, with its sign-in and `X-Podium-Respond: 1` on a change; `404` while authentication is off, `401` without a sign-in, `400` for a kind other than `ask` or `activity`, `404` for an unknown session.
+
+- **`GET /api/fleet/respond/session-reads`**: `{ ok, serverTime, readers }`, where `readers` is `{ <kind>: { <sessionId>: [{ admin, since, until }] } }` for the signed-in person's own sessions only: the Admins who read in the last 30 seconds. The console reads it when the stream's `reads` event, which carries a counter and nothing else, moves.
+- **`GET /api/fleet/respond/sessions/:id/admin-reads/:kind`**: the session's owner only (`403` for anyone else, an Admin included). `{ ok, serverTime, adminReads, adminReading }`: the records of that kind (every loop for `activity`), oldest first, and who reads now. Loading it is the owner seeing the records.
+- **`POST /api/fleet/respond/sessions/:id/admin-reads/:kind/reading`**: an Admin's open read pings this every 15 seconds so the owner keeps seeing it. Body `{ loop }` for `activity` (one loop id, no colon), none for `ask`. It records the read if it has not begun. Admin only (`403`); an Admin's own session tells no one.
+
 ## Admin API
 
 The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
