@@ -569,7 +569,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const tellReporterOwners = async (req: Request, owners: { who: string; name: string }[]): Promise<void> => {
     if (!acts || owners.length === 0) return;
     const by = await adminName(req);
-    for (const o of owners) await acts.onPerson(by, 'reporter_removed', o.who, o.name);
+    // One record and one callout for each person, however many of their reporters went (#1078).
+    const byWho = new Map<string, string[]>();
+    for (const o of owners) byWho.set(o.who, [...(byWho.get(o.who) ?? []), o.name]);
+    for (const [who, names] of byWho) await acts.onPerson(by, 'reporter_removed', who, names.length === 1 ? `your reporter ${names[0]}` : `${names.length} of your reporters`);
   };
   const plural = (n: number) => `${n} reporter${n === 1 ? '' : 's'}`;
 

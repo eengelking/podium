@@ -8,9 +8,9 @@ import { nameKey } from '../storage/rows.js';
 /** The kinds of an Admin's act on a person's things. */
 export type AdminActKind = Extract<AdminReadKind, 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed'>;
 
-/** The thread a person's records of these acts are kept under. */
 /** Every thread of these records starts with this. */
 export const ACT_PREFIX = 'act:';
+/** The thread a person's records of these acts are kept under. */
 export const actThread = (owner: string): string => `${ACT_PREFIX}${nameKey(owner)}`;
 
 export interface ActDeps {
@@ -20,7 +20,7 @@ export interface ActDeps {
   sessionOf(sessionId: string): Promise<{ name: string; owner: string | null } | null>;
 }
 
-/** What the callout says after the Admin's name. `what` is the session's name, or the reporter's. */
+/** What the callout says after the Admin's name. `what` is the session's name, or for a reporter the words that name it (`your reporter ed-mbp`, `3 of your reporters`). */
 const WORDS: Record<AdminActKind, (what: string) => string> = {
   recording_stopped: (n) => `stopped the recording of your session ${n}`,
   recording_deleted: (n) => `deleted the recording of your session ${n}`,
@@ -28,7 +28,7 @@ const WORDS: Record<AdminActKind, (what: string) => string> = {
   session_deleted: (n) => `deleted your session ${n}`,
   access_revoked: () => 'revoked your Podium access',
   person_deleted: () => 'deleted your Podium account',
-  reporter_removed: (n) => (n ? `removed your reporter ${n} from the Reporters list` : 'removed your reporter from the Reporters list'),
+  reporter_removed: (what) => `removed ${what || 'your reporter'} from the Reporters list`,
 };
 
 export class AdminActs {

@@ -32,7 +32,7 @@ describe('AdminActs', () => {
     await acts.onSession('Root', 'activity_deleted', 'x');
     await acts.onSession('Root', 'session_deleted', 'x');
     await acts.onPerson('Root', 'access_revoked', 'Ed');
-    await acts.onPerson('Root', 'reporter_removed', 'Ed', 'ed-mbp');
+    await acts.onPerson('Root', 'reporter_removed', 'Ed', 'your reporter ed-mbp');
     expect(told.map((t) => t.text)).toEqual([
       'Root (an Admin) deleted the recording of your session Billing.',
       'Root (an Admin) deleted the stored activity of your session Billing.',

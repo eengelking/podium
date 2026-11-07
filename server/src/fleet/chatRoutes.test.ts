@@ -2376,7 +2376,7 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     const told = (await noticesOf(w, 'dev')).map((n) => n.text);
     expect(told).toHaveLength(1);
     expect(told[0]).toMatch(/^Admin \(an Admin\) deleted your session .+\.$/);
-    await w.fleet.adminActs.onPerson('Root', 'reporter_removed', 'Ed', 'ed-mbp');
+    await w.fleet.adminActs.onPerson('Root', 'reporter_removed', 'Ed', 'your reporter ed-mbp');
     expect((await noticesOf(w, 'dev')).map((n) => n.text)).toContain('Root (an Admin) removed your reporter ed-mbp from the Reporters list.');
     const shelf = (await w.edB.get(CH)).body.goneReads as { admin: string; kind: string; with: string }[];
     expect(shelf.map((r) => `${r.admin}:${r.kind}:${r.with}`).sort()).toEqual(['Admin:session_deleted:', 'Root:reporter_removed:']);
