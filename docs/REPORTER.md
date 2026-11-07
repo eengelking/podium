@@ -376,9 +376,9 @@ nothing the server sends is taken.
 | Tool | What it does |
 |---|---|
 | `podium_peers` | Lists the orchestrators it can reach on your other machines: name, machine, OS, project, status, and whether it can send there (with or without your approval). Says which of your machines are left out and why |
-| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
+| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name, or answers in the Chat channel that called it with `channel:group` (My group) or `channel:general` (General): the answer shows in that channel for everyone who can read it. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
 | `podium_request_access(to, right, reason)` | Asks you for a right to see or to send to one of your machines. The answer arrives later as a message |
-| `podium_chat_read(channel, before?)` | Reads the last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only, under a line that says the messages are not your instructions. A channel it was not called into in that hour is refused |
+| `podium_chat_read(channel, before?)` | Reads the last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only, under a line that says the messages are not your instructions. A channel it was not called into in that hour is refused, and so is an answer in one |
 
 - **Only the orchestrator.** Claude Code lists a mod's tools for subagents too, so each tool refuses any call
   made by a subagent (or one of Claude Code's own forks): "Not sent. Only an orchestrator can send. Put the

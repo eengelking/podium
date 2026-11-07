@@ -329,6 +329,8 @@ describe('chat: a long thread, and what is new', () => {
     cy.chatRow(DM).find('button.ch-row').click();
     cy.chatRow(GENERAL).find('.unread').should('not.exist');
     // An agent posts with its owner's token, the way the mod will (route shape only in this release); the open thread is another one.
+    // It answers a channel that called it, so Ed mentions it in General first (#1065).
+    post('general', '@invoice-v2@ed-mbp are you there?');
     const agentPost = (text) => cy.request({ method: 'POST', url: '/api/fleet/sessions/e2e-s-invoice/chat/channels/general/messages', headers: { 'X-Podium-Token': seeded().people.Ed.token }, body: { text }, log: false }).its('status', { log: false }).should('eq', 201);
     agentPost('build is green');
     cy.chatRow(GENERAL).find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');

@@ -48,7 +48,8 @@ describe('chat: an Admin reads a person\'s conversations', () => {
   before(() => cy.resetServer({ seedArgs: '--talk' }));
 
   it('is set up: Ed has a note in My group and an agent has posted there, so the row has an unread count', () => {
-    edNote('group note for the Admin');
+    // The note calls the agent in, so that its post is answered (#1065).
+    edNote('@invoice-v2@ed-mbp group note for the Admin');
     cy.request({ method: 'POST', url: `/api/fleet/sessions/${A}/chat/channels/group/messages`, headers: { 'X-Podium-Token': seeded().people.Ed.token }, body: { text: 'agent says hi' }, log: false }).its('status', { log: false }).should('eq', 201);
     cy.openConsole('#/chat');
     cy.chatRow(GROUP).find('.unread').should('have.text', '1');
