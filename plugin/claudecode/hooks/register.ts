@@ -1201,9 +1201,17 @@ function loopKey(agentId: string | null | undefined): string {
   return agentId ?? '@main';
 }
 
+function withSortedKeys(o: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/**
+ * A tool's arguments as one string to compare, whatever order the keys came in: a call and its PermissionRequest list
+ * them differently (Edit carries `replace_all` first in the call and last in the request, #1044).
+ */
 function inputKey(input: unknown): string {
   try {
-    return JSON.stringify(input ?? null);
+    return JSON.stringify(input ?? null, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? withSortedKeys(v as Record<string, unknown>) : v));
   } catch {
     return '';
   }
