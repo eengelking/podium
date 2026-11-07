@@ -305,7 +305,8 @@ export class DirectChat {
   async noteAdminRead(viewer: ChatViewer, a: string, b: string): Promise<boolean> {
     const c = await this.find(a, b);
     if (!c) return false;
-    await this.reads.note(viewer, this.subject(c));
+    // Only an Admin who is not in the conversation is noticed, as in Chat: its owner, and the person who wrote to it, read their own (the read is still served).
+    if (this.role(viewer, c) === 'admin') await this.reads.note(viewer, this.subject(c));
     return true;
   }
 

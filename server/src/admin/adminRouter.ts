@@ -694,7 +694,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     // The read is recorded before the text is answered, and the owner is told in the console and in podium-reporter (#1072). With no way to record it, nothing is read.
     if (!opts.noteConversationRead) return void res.status(503).json({ ok: false, error: 'conversations cannot be read here: the read cannot be recorded' });
     const actor = await peerActor(req);
-    if (!await opts.noteConversationRead({ name: actor.name, actor: actor.name, admin: true, personId: null }, req.params.a, req.params.b)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
+    // An Administrator is a person (personId set): reading the conversation of their own agents is not noticed. The admin secret has no person.
+    const sid = readCookie(req, COOKIE);
+    const personId = (sid ? sessions.get(sid)?.personId : null) ?? null;
+    if (!await opts.noteConversationRead({ name: actor.name, actor: actor.name, admin: true, personId },req.params.a, req.params.b)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
   }));
 

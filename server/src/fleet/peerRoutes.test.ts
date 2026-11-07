@@ -617,6 +617,22 @@ describe('the Admin’s side (#412)', () => {
     expect(await logKinds(s)).toContain('peer_links_paused');
   });
 
+  it('does not record, log or tell anyone when an Administrator reads the conversation between their own agents (#1072)', async () => {
+    const s = await linked('send');
+    await send(s, 'my own text');
+    expect(await s.people.setGroup(s.ed.person.id, (await s.people.administratorsGroupId())!)).toBe(true);
+    const own = request.agent(s.app);
+    expect((await own.post('/api/admin/unlock').set(HA).send({ name: 'Ed', token: s.ed.token })).status).toBe(200);
+    const res = await own.get('/api/admin/peers/conversations/sess-dev/sess-tester');
+    expect(res.body.messages).toEqual([expect.objectContaining({ text: 'my own text' })]);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-tester')).toEqual([]);
+    expect(await logKinds(s)).not.toContain('chat_admin_read');
+    expect(((await devReport(s)).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+    // Another Administrator reading the same conversation is still recorded and told.
+    expect((await (await adminAgent(s)).get('/api/admin/peers/conversations/sess-dev/sess-tester')).status).toBe(200);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-tester')).toHaveLength(1);
+  });
+
   it('tells the owner when an Admin reads a conversation here, writes the record before the text, and serves nothing it cannot record (#1072)', async () => {
     const s = await linked('send');
     await send(s, 'text the Admin reads');
