@@ -145,6 +145,13 @@ describe('scrub of common secret shapes (#155)', () => {
     }
   });
 
+  it('leaves a quote that never closes as one pass would, and stays fast (#1064)', () => {
+    const text = `${'x'.repeat(7990)} password="${'h'.repeat(60000)}`;
+    const t0 = Date.now();
+    expect(scrubStored(text, [], true)).toBe(text);
+    expect(Date.now() - t0).toBeLessThan(5000);
+  });
+
   it('is applied to the logger message and event, not only to fields', () => {
     const local: string[] = [];
     const logger = createLogger({ format: 'json', secrets: [], write: (l) => local.push(l), ship: () => {} });
