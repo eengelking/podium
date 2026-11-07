@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '../core/transport.ts';
-import { dedupe, deliver, messagingLine, messagingOffReason, noticeOf, podiumText, StatusRelay, StatusWatcher, statusChange } from './notice.ts';
+import type { NoticeEvent } from './bridge.ts';
+import { AdminBoard, ToastKeeper, dedupe, deliver, messagingLine, messagingOffReason, noticeOf, podiumText, StatusRelay, StatusWatcher, statusChange } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
 import type { BusEvent } from './state.ts';
@@ -238,5 +239,82 @@ describe('StatusRelay: the footer status is sent on change and on attach (#999)'
   it('survives a failing send', async () => {
     const relay = new StatusRelay(async () => Promise.reject(new Error('gone')));
     expect(() => relay.push('online')).not.toThrow();
+  });
+});
+
+describe('the Admin callout is never lost to another toast, because the host shows one toast at a time (#1051, found in a live run)', () => {
+  function keeper() {
+    const t = { now: 0 };
+    const shown: { message: string; duration?: number }[] = [];
+    const timers: { at: number; fn: () => void }[] = [];
+    const k = new ToastKeeper((n) => void shown.push({ message: n.message, ...(n.duration === undefined ? {} : { duration: n.duration }) }), () => t.now, (ms, fn) => void timers.push({ at: t.now + ms, fn }));
+    /** Moves the clock and runs the timers that fell due. */
+    const advance = (ms: number) => {
+      t.now += ms;
+      for (const x of timers.filter((y) => y.at <= t.now)) { timers.splice(timers.indexOf(x), 1); x.fn(); }
+    };
+    return { k, shown, advance };
+  }
+  const admin = (message = 'Podium: Admin (an Admin) is reading your Podium group.'): NoticeEvent => ({ message, title: 'Podium', variant: 'info', duration: 60_000, id: 'rd-1', admin: true });
+
+  it('shows the Admin toast again after a status toast that came 14 ms behind it displaced it, for the time it has left', () => {
+    const { k, shown, advance } = keeper();
+    k.offer(admin());
+    advance(14);
+    k.offer({ message: 'podium v1 | dev ● 1 live', variant: 'info' });
+    expect(shown.map((s) => s.message)).toEqual(['Podium: Admin (an Admin) is reading your Podium group.', 'podium v1 | dev ● 1 live']);
+    advance(6000);
+    expect(shown).toHaveLength(3);
+    expect(shown[2]).toEqual({ message: 'Podium: Admin (an Admin) is reading your Podium group.', duration: 60_000 - 6014 });
+  });
+
+  it('shows nothing again once the Admin toast has run its time, or when no Admin toast is up', () => {
+    const { k, shown, advance } = keeper();
+    k.offer({ message: 'plain', variant: 'info' });
+    advance(10_000);
+    expect(shown).toHaveLength(1);
+    k.offer(admin());
+    advance(61_000);
+    k.offer({ message: 'later', variant: 'info' });
+    advance(10_000);
+    expect(shown.map((s) => s.message)).toEqual(['plain', 'Podium: Admin (an Admin) is reading your Podium group.', 'later']);
+  });
+
+  it('shows it again only after the last of several toasts, not between them', () => {
+    const { k, shown, advance } = keeper();
+    k.offer(admin());
+    k.offer({ message: 'one', variant: 'info' });
+    advance(2000);
+    k.offer({ message: 'two', variant: 'info' });
+    advance(4000);
+    expect(shown.map((s) => s.message)).toEqual([admin().message, 'one', 'two']);
+    advance(2000);
+    expect(shown.map((s) => s.message)).toEqual([admin().message, 'one', 'two', admin().message]);
+  });
+
+  it('a second Admin toast replaces the first as the one shown again', () => {
+    const { k, shown, advance } = keeper();
+    k.offer(admin('first'));
+    k.offer({ ...admin('second'), id: 'rd-2' });
+    k.offer({ message: 'status', variant: 'info' });
+    advance(6000);
+    expect(shown.map((s) => s.message)).toEqual(['first', 'second', 'status', 'second']);
+  });
+});
+
+describe('the Admin board: the lines that stay where the host has no transcript (#1051)', () => {
+  it('lists each notice once, oldest first, and drops it after the keep time', () => {
+    const b = new AdminBoard(600_000);
+    b.add('a', 'Podium: A (an Admin) is reading your Podium group.', 1000);
+    b.add('b', 'Podium: B (an Admin) removed all messages in your Podium group.', 2000);
+    b.add('a', 'Podium: A (an Admin) is reading your Podium group.', 3000);
+    expect(b.lines(4000)).toEqual(['Podium: A (an Admin) is reading your Podium group.', 'Podium: B (an Admin) removed all messages in your Podium group.']);
+    expect(b.lines(601_500)).toEqual(['Podium: B (an Admin) removed all messages in your Podium group.']);
+    expect(b.lines(700_000)).toEqual([]);
+  });
+  it('keeps at most a few lines, the newest', () => {
+    const b = new AdminBoard(600_000, 3);
+    for (let i = 0; i < 5; i++) b.add(`id${i}`, `line ${i}`, i);
+    expect(b.lines(10)).toEqual(['line 2', 'line 3', 'line 4']);
   });
 });

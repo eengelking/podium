@@ -4,7 +4,7 @@
 // provide them leaves the toast as the only display.
 
 export interface SlotHost {
-  slot(claim: { append: 'prompt.footer.status'; render: () => unknown }): () => void;
+  slot(claim: { append: 'prompt.footer.status' | 'session.composer.top'; render: () => unknown }): () => void;
 }
 
 export interface StatusParts {
@@ -20,12 +20,20 @@ export interface StatusLine {
 }
 
 /** Claims the slot, or null when the host cannot (the parts did not load, or the claim failed). Never throws. */
-export async function mountStatus(host: SlotHost, load: () => Promise<StatusParts>): Promise<StatusLine | null> {
+export const mountStatus = (host: SlotHost, load: () => Promise<StatusParts>): Promise<StatusLine | null> => mountText(host, load, 'prompt.footer.status');
+
+/**
+ * The Admin board (#1051): the Admin callouts stay in the session screen, above the prompt, for as long as the reading does. A line there is for the person
+ * only: it is drawn by the terminal UI and never enters a session, so the model does not read it. `set` takes the lines, joined by new lines; empty shows nothing.
+ */
+export const mountBanner = (host: SlotHost, load: () => Promise<StatusParts>): Promise<StatusLine | null> => mountText(host, load, 'session.composer.top');
+
+async function mountText(host: SlotHost, load: () => Promise<StatusParts>, slot: 'prompt.footer.status' | 'session.composer.top'): Promise<StatusLine | null> {
   try {
     const { solid, jsx } = await load();
     const [text, setText] = solid.createSignal('');
     // A getter, so the element follows the signal.
-    const dispose = host.slot({ append: 'prompt.footer.status', render: () => jsx.jsx('text', { get children() { return text(); } }) });
+    const dispose = host.slot({ append: slot, render: () => jsx.jsx('text', { get children() { return text(); } }) });
     return { set: setText, dispose };
   } catch {
     return null;

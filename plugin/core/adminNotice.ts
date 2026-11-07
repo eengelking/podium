@@ -14,6 +14,20 @@ export class AdminNoticeSeen {
 
   constructor(private readonly kept = SEEN_KEPT) {}
 
+  /** Whether a notice was shown. */
+  has(id: string): boolean {
+    return this.ids.has(id);
+  }
+
+  /** Marks a notice as shown, for a harness that is told when it was. */
+  add(id: string): void {
+    this.ids.add(id);
+    for (const old of this.ids) {
+      if (this.ids.size <= this.kept) break;
+      this.ids.delete(old);
+    }
+  }
+
   /** The notices of a reply not shown before, oldest first. */
   fresh(list: readonly AdminNotice[]): AdminNotice[] {
     const out: AdminNotice[] = [];
@@ -35,9 +49,6 @@ export const adminNoticeLine = (n: AdminNotice): string => oneLine(n.text, TEXT_
 
 /** The toast: it says whom it is from, since a toast stands alone. */
 export const adminNoticeToast = (n: AdminNotice): string => `Podium: ${adminNoticeLine(n)}`;
-
-/** The line that stays where a harness has no transcript (the console log), so a toast missed is still on record. */
-export const adminNoticeKeptLine = (n: AdminNotice): string => `podium-reporter: ${adminNoticeLine(n)}`;
 
 /** How long the toast stays up: long enough to be read away from the keyboard. */
 export const ADMIN_NOTICE_TOAST_MS = 60_000;

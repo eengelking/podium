@@ -44,16 +44,16 @@ function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { pro
   const prompts: { session: string; id: string; text: string }[] = [];
   const toasts: string[] = [];
   const toastMs: (number | undefined)[] = [];
-  const kept: string[] = [];
+  const toastOpts: (Record<string, unknown> | undefined)[] = [];
   const prompt =over.prompt === undefined ? async (session: string, id: string, text: string) => void prompts.push({ session, id, text }) : (over.prompt ?? undefined);
   const t = { now: 10_000 };
   const r = new Reporter(
-    { fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: over.log ?? (() => undefined), notify: (l, o) => void (toasts.push(l), toastMs.push(o?.durationMs)), keep: (l) => void kept.push(l), ...(over.attached ? { attached: over.attached } : {}), ...(prompt ? { prompt } : {}), ...(over.peerCallMs ? { peerCallMs: over.peerCallMs } : {}) },
+    { fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: over.log ?? (() => undefined), notify: (l, o) => void (toasts.push(l), toastMs.push(o?.durationMs), toastOpts.push(o)), ...(over.attached ? { attached: over.attached } : {}), ...(prompt ? { prompt } : {}), ...(over.peerCallMs ? { peerCallMs: over.peerCallMs } : {}) },
     { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', PODIUM_USER: 'Ed', ...env }), machine: { name: 'mac', id: 'm1' }, idleMs: 600_000 },
   );
   r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }));
   r.handle(ev('session.created', { sessionID: KID, parentID: ROOT }));
-  return { r, t, server, prompts, toasts, toastMs, kept };
+  return { r, t, server, prompts, toasts, toastMs, toastOpts };
 }
 const last = (s: Server): Report => s.reports[s.reports.length - 1]!;
 /** A report went out and its reply was read: the first tick makes the root known to the server. */
@@ -489,7 +489,7 @@ describe('the callout an Admin\'s reading shows the person (#1034)', () => {
     });
   }
 
-  it('is held unseen while no TUI part is attached, then shown once with a log line and the 60 s toast (#1051)', async () => {
+  it('is held unseen while no TUI part is attached, then shown with the 60 s toast, carrying its id, until the TUI part confirms it (#1051)', async () => {
     const tui = { on: false };
     const x = rig({}, { attached: () => tui.on });
     x.server.adminNotices = [CALL];
@@ -497,16 +497,39 @@ describe('the callout an Admin\'s reading shows the person (#1034)', () => {
     await x.r.tick();
     await flushed();
     expect(x.toasts).toEqual([]);
-    expect(x.kept).toEqual([]);
     tui.on = true;
     await reported(x);
     await x.r.tick();
     expect(x.toasts.filter((t) => t.includes('Root (an Admin)'))).toEqual(['Podium: Root (an Admin) is reading your Podium conversation with Tester.']);
     expect(x.toastMs).toEqual([60_000]);
-    expect(x.kept).toEqual(['podium-reporter: Root (an Admin) is reading your Podium conversation with Tester.']);
+    expect(x.toastOpts).toEqual([{ durationMs: 60_000, id: 'an-1', admin: true }]);
+    // Not confirmed yet: it is not offered again at once (the TUI part may be about to show it), and is once the retry gap has passed.
     await reported(x);
     await x.r.tick();
     expect(x.toasts).toHaveLength(1);
-    expect(x.kept).toHaveLength(1);
+    x.t.now += 12_000;
+    await x.r.tick();
+    expect(x.toasts).toHaveLength(2);
+    // Confirmed: never again, however long the server keeps handing it over.
+    x.r.adminShown('an-1');
+    x.t.now += 12_000;
+    await x.r.tick();
+    expect(x.toasts).toHaveLength(2);
+  });
+
+  it('is offered again when the TUI part that was told is gone before it shows it: attached holds for 90 s after the last attach, and the toast went nowhere (#1051)', async () => {
+    const x = rig({}, { attached: () => true });
+    x.server.adminNotices = [CALL];
+    await reported(x);
+    await x.r.tick();
+    expect(x.toasts).toHaveLength(1);
+    // No confirmation came (the part had exited). A second part attaches and confirms what it is shown.
+    x.t.now += 12_000;
+    await x.r.tick();
+    expect(x.toasts).toHaveLength(2);
+    x.r.adminShown('an-1');
+    x.t.now += 12_000;
+    await x.r.tick();
+    expect(x.toasts).toHaveLength(2);
   });
 });

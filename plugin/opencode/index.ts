@@ -124,8 +124,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       log: dedupe((line) => console.warn(line)),
       // The TUI part says it is attached every ATTACH_EVERY_MS; an idle session stays open (and reachable) while it does (#984).
       attached: () => !!bridge.emit && bridge.seenAt > 0 && Date.now() - bridge.seenAt < ATTACH_TTL_MS,
-      notify: (line, o) => void show({ title: 'Podium', message: line, variant: 'info', ...(o?.durationMs ? { duration: o.durationMs } : {}) }),
-      keep: (line) => console.warn(line),
+      notify: (line, o) => void show({ title: 'Podium', message: line, variant: 'info', ...(o?.durationMs ? { duration: o.durationMs } : {}), ...(o?.id ? { id: o.id } : {}), ...(o?.admin ? { admin: true } : {}) }),
       problem: link?.problem,
       answering,
       loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
@@ -138,7 +137,11 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   );
   bridge.reporter = reporter;
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
-  void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); bridge.status.attached(); return { ok: true }; } }).then(
+  void ctx.rpc.register(BRIDGE, {
+    attach: async () => { bridge.seenAt = Date.now(); bridge.status.attached(); return { ok: true }; },
+    // The TUI part showed an Admin callout (#1051): it is not offered again.
+    shown: async (input) => { const id = (input as { id?: unknown } | null)?.id; if (typeof id === 'string') reporter.adminShown(id); return { ok: true }; },
+  }).then(
     (reg) => {
       const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status', data: AnswerEvent | NoticeEvent | StatusEvent) => Promise<void> } }).events;
       bridge.emit = async (e) => events.emit('answer', e);
@@ -148,7 +151,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     },
     () => undefined,
   );
-  const show = (n: Notice & { duration?: number }): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
+  const show = (n: Notice & { duration?: number; id?: string; admin?: boolean }): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
   // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
   // `/podium allow|decline|deliver <id>` answers a messaging request, `/podium name <text>` names the session and `/podium context ...` picks the Podium server.
   void ctx.command.transform((editor) =>

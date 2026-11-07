@@ -15,6 +15,12 @@ export const BRIDGE = {
       input: { type: 'object', properties: {}, additionalProperties: false },
       output: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false },
     },
+    // The TUI part says it showed the Admin callout `id` (#1051): until it does, the server part offers the callout again, so a toast sent to a TUI part
+    // that was gone, or not yet listening, is not counted as shown.
+    shown: {
+      input: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+      output: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false },
+    },
   },
   events: {
     answer: {
@@ -28,7 +34,7 @@ export const BRIDGE = {
     notice: {
       schema: {
         type: 'object',
-        properties: { title: { type: 'string' }, message: { type: 'string' }, variant: { type: 'string' }, duration: { type: 'number' } },
+        properties: { title: { type: 'string' }, message: { type: 'string' }, variant: { type: 'string' }, duration: { type: 'number' }, id: { type: 'string' }, admin: { type: 'boolean' } },
         required: ['message'],
       },
     },
@@ -57,6 +63,9 @@ export interface NoticeEvent {
   variant?: 'info' | 'success' | 'warning' | 'error';
   /** How long the toast stays, in milliseconds; the host's own default when absent. */
   duration?: number;
+  /** For an Admin callout (#1051): its id, which the TUI part sends back through `shown` once it has shown it, and the mark that it must not be lost to another toast. */
+  id?: string;
+  admin?: boolean;
 }
 
 /** The connection's status line the TUI part shows in the prompt's footer. */

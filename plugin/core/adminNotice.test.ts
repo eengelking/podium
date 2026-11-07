@@ -18,6 +18,16 @@ describe('the callout an Admin\'s reading shows the person (#1034)', () => {
     expect(seen.fresh([n('a')])).toEqual([]);
   });
 
+  test('marks an id as shown when the harness is told so, without a list, and forgets the oldest past its limit (#1051)', () => {
+    const seen = new AdminNoticeSeen(2);
+    expect(seen.has('a')).toBe(false);
+    seen.add('a');
+    seen.add('b');
+    seen.add('c');
+    expect([seen.has('a'), seen.has('b'), seen.has('c')]).toEqual([false, true, true]);
+    expect(seen.fresh([n('b'), n('d')]).map((x) => x.id)).toEqual(['d']);
+  });
+
   test('forgets the oldest ids past its limit, so it stays small', () => {
     const seen = new AdminNoticeSeen(3);
     seen.fresh([n('a'), n('b'), n('c'), n('d')]);
