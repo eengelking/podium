@@ -55,6 +55,8 @@ export interface AdminRouterOptions {
   chat?: ChatSettingsApi;
   /** Tells a person's live reporter sessions that an Admin paused, resumed or removed their links (#1077). Returns how many sessions were told. */
   toldLinkStop?: (admin: string, owner: string, what: string) => number;
+  /** Records an Admin's read of a conversation between agents and tells its people, before the text is answered (#1072). False when there is no such conversation. Without it the text is not served. */
+  noteConversationRead?: (viewer: { name: string; actor: string; admin: boolean; personId: number | null }, a: string, b: string) => Promise<boolean>;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistoryApi; settings: LiveActivityHistorySettings };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
@@ -689,6 +691,13 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     // A person's Chat is read in Chat, where it is recorded and its people are told (#1051).
     if (isPersonChat(rows)) return void res.status(403).json({ ok: false, error: CHAT_ONLY });
+    // The read is recorded before the text is answered, and the owner is told in the console and in podium-reporter (#1072). With no way to record it, nothing is read.
+    if (!opts.noteConversationRead) return void res.status(503).json({ ok: false, error: 'conversations cannot be read here: the read cannot be recorded' });
+    const actor = await peerActor(req);
+    // An Administrator is a person (personId set): reading the conversation of their own agents is not noticed. The admin secret has no person.
+    const sid = readCookie(req, COOKIE);
+    const personId = (sid ? sessions.get(sid)?.personId : null) ?? null;
+    if (!await opts.noteConversationRead({ name: actor.name, actor: actor.name, admin: true, personId },req.params.a, req.params.b)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
   }));
 

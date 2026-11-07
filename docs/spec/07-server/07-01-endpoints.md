@@ -330,7 +330,8 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 - `GET /api/fleet/respond/peers/conversations?range=`: the person's conversations, as Traffic's read.
 - `GET /api/fleet/respond/peers/conversations/:a/:b`: one conversation's messages with their text, oldest first, for its
   owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
-  stateAt, why, approved }`. `403` for anyone else, `404` when there is none.
+  stateAt, why, approved }`. `403` for anyone else, `404` when there is none. An Admin who is not its owner is recorded
+  before the text is answered, and the owner is told in the console and in every live `podium-reporter` session (#1072).
 
 ## Routes for Chat (#1034)
 
@@ -672,7 +673,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`; `409` for a level at or below
     the stored right, since a proposal only raises one), `PUT reporters/:key/peers/pause`
     (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once). Pause all links records the Admin as the pauser of each link it pauses (`pausedBy` `admin`, `pausedByAdmin` the Admin's name), so only an Admin resumes it. A pause, resume or removal is never quiet: every live reporter session of the person gets one `adminNotices` callout naming the Admin, once for a bulk change, and the Admin log gets `peer_links_paused`, `peer_links_resumed` or `peer_link_removed` with who and whose reporter, never text.
-  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner.
+  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner. Reading one conversation's text is never quiet (#1072): the read is recorded on the conversation's `dm:` thread before the text is answered (a record that cannot be written stops the read), the Admin log gets `chat_admin_read` with who and whose and never text, and the owner is told in the console and in their reporter sessions, as for an Admin's read in Chat.
   - `GET log`.
 - Lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return
   `{ total, page, pageSize, rows }`. The reporters list also takes `state`, `sort` and `dir` and adds `counts`

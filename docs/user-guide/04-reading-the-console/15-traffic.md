@@ -46,7 +46,7 @@ On your own link:
   stays on the page until it expires.
 
 Both act on the two machines, so they also pause or remove every other conversation between them. If either fails, the
-page says so and the link is as it was. An Admin can read anyone's conversation here, but cannot pause or remove
+page says so and the link is as it was. An Admin can read anyone's conversation here, and you are told when one reads yours: a red notice in Chat and a line in your reporter sessions, as for any Admin read. An Admin cannot pause or remove
 another person's link on this page; **Pause all links** in Admin > Reporters pauses every link of a reporter. When an Admin has
 paused a link, it shows a red **Paused by an Admin** tag and the Admin's name, and **Resume link** is off: only an Admin
 resumes it.

@@ -649,8 +649,9 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   `404` whether the conversation exists or not, so the answer does not say who talks to whom. No group-facing or agent-facing
   route can return a `peer_messages` row, and a static test fails if one could. The older routes no longer return a person's Chat:
   Traffic (`GET /api/fleet/peers/traffic`) leaves out every conversation with a person at one end, and the routes that return one conversation's
-  text (`GET peers/conversations/:a/:b`, for an owner and for an Admin) answer an Admin who is not its owner with a `403` that points to Chat, where the read is
-  recorded and its people are told. The admin secret, which has no person, can read General and name a
+  text (`GET peers/conversations/:a/:b`, for an owner and for an Admin) answer an Admin who is not its owner with a `403` that points to Chat when a person is
+  at one end, where the read is recorded and its people are told. A conversation between two agents is read on those routes, and the Admin's read is recorded
+  and its owner told the same way (#1072). The admin secret, which has no person, can read General and name a
   person's group as an Admin does, and it has no counts of its own.
 - **An Admin never reads in silence** (#1034). When an Admin reads a person's My group or a Direct Message, including a conversation
   across owners, the people in it are told, and it stays on the conversation's record. This replaces the earlier rule that an Admin

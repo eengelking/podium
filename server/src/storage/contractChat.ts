@@ -356,6 +356,31 @@ export function chatCases(o: Openers): void {
     expect(t.get('Eve after Ed saw it')).toEqual(['dm:a|b:Root:read:0']);
   });
 
+  it('leaves a record owed to the owner for an Admin\'s read of a conversation between two agents, and none for the owner\'s own (#1072)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const thread = 'dm:sess-dev|sess-tester';
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await rec('list (before any read)', reads.list(thread));
+      await rec('the Admin reads', reads.touch(thread, 'Admin secret', GAP, ['ed']));
+      clock.now += MIN;
+      await rec('the Admin reads again', reads.touch(thread, 'Admin secret', GAP, ['ed']));
+      await rec('list', reads.list(thread));
+      await rec('owed to the owner', reads.unseenFor('Ed').then((l) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}`)));
+      await rec('owed to someone else', reads.unseenFor('alex').then((l) => l.length));
+      await rec('live', reads.live([thread], clock.now - 30_000).then((l) => l.map((r) => r.admin)));
+    });
+    expect(t.get('list (before any read)')).toEqual([]);
+    expect((t.get('the Admin reads') as { started: boolean }).started).toBe(true);
+    expect((t.get('the Admin reads again') as { started: boolean }).started).toBe(false);
+    expect(t.get('list')).toEqual([{ admin: 'Admin secret', startedAt: T0, lastSeenAt: T0 + MIN, kind: 'read' }]);
+    expect(t.get('owed to the owner')).toEqual([`${thread}:Admin secret:read`]);
+    expect(t.get('owed to someone else')).toBe(0);
+    expect(t.get('live')).toEqual(['Admin secret']);
+  });
+
   it('removes the Admin records owed only to a deleted person, keeps those owed to others too, and leaves a record that names nobody (#1051)', async () => {
     const MIN = 60_000;
     const GAP = 30 * MIN;
