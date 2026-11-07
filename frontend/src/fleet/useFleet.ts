@@ -74,6 +74,7 @@ export function useFleet(opts: UseFleetOptions = {}): FleetState {
       on<{ sessionId: string; reason: RemovedReason }>("removed", (d) => dispatch({ type: "removed", sessionId: d.sessionId, reason: d.reason, at: Date.now() }));
       on<WallSettingsView>("wall", (wall) => dispatch({ type: "wall", wall }));
       on<unknown>("chat", () => dispatch({ type: "chat" }));
+      on<unknown>("replay", () => dispatch({ type: "replay" }));
       on<{ serverTime: number; kpis: Kpis }>("tick", (d) => dispatch({ type: "tick", serverTime: d.serverTime, kpis: d.kpis }));
       s.onerror = () => {
         if (stopped || source !== s) return;

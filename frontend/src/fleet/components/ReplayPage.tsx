@@ -21,6 +21,9 @@ const CLASS: Record<ReplayItem["kind"], string> = { prompt: "you", text: "txt", 
 /** The longest a loop's name gets in the filter before it is cut; the whole name is the option's title. */
 const NAME_CUT = 28;
 
+/** An Admin's open replay tells the server it is still open this often, so its owner's notice stays (the server counts a replay live for 30 seconds). */
+const PING_MS = 15_000;
+
 type Load =
   | { state: "loading" }
   | { state: "error"; status: number | null; message: string; owner: string | null; unavailable?: true }
@@ -273,6 +276,17 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
     if (signedIn && !was.current && refused) setTries((n) => n + 1);
     was.current = signedIn;
   }, [signedIn, refused]);
+
+  // An Admin replaying someone else's session keeps that person's notice alive while the replay is open (#1075): one ping every 15 seconds. A failed ping is
+  // ignored; the next one tries again. The person's own replay needs none.
+  const owner = load.state === "ok" ? load.owner : null;
+  const admin = respond?.me?.admin === true && !!respond.me.name && owner !== null && nameKey(owner) !== nameKey(respond.me.name);
+  const ping = api?.recordingReading;
+  useEffect(() => {
+    if (!admin || !ping) return;
+    const t = setInterval(() => void ping(id).catch(() => undefined), PING_MS);
+    return () => clearInterval(t);
+  }, [admin, ping, id]);
 
   const rows = load.state === "ok" ? load.rows : null;
   const items = useMemo(() => buildItems(rows ?? []), [rows]);

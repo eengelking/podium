@@ -244,7 +244,8 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `purgeActivityHistory` | Removes stored activity past its retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `purgeRecordings` | Removes recordings past their retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `class SseHub` | The open browser streams, and broadcasts to them. In `server/src/fleet/sse.ts`. |
-| Server | `SseEventName` | The stream's event names, with chat. In `server/src/fleet/sse.ts`. |
+| Server | `SseEventName` | The stream's event names, with chat and replay. In `server/src/fleet/sse.ts`. |
+| Server | `replayChanged` | Tells open consoles an Admin's replay opened, paged or ended, with a counter and nothing else. In `server/src/fleet/fleet.ts`. |
 | Server | `requireToken` | Turns a token, the admin secret or open access into an owner. In `server/src/fleet/routes.ts`. |
 | Server | `certAuth` | Checks the client certificate on every request. In `server/src/tlsClientAuth.ts`. |
 | Server | `tokenMatches` | Compares a token in constant time. In `server/src/fleet/tokens.ts`. |
@@ -266,8 +267,10 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `agentPost` | An agent's answer in a channel, only if it was called into it in the last hour. In `server/src/fleet/chatChannels.ts`. |
 | Server | `class DirectChat` | Direct Messages, across-person writes, hide and purge. In `server/src/fleet/chatDirect.ts`. |
 | Server | `class ChatCore` | The shared limits, signal and store. In `server/src/fleet/chatCore.ts`. |
-| Server | `class AdminReads` | Records an Admin's reading of a person's group or Direct Message and tells its people. In `server/src/fleet/chatAdminReads.ts`. |
+| Server | `class AdminReads` | Records an Admin's reading of a person's group, Direct Message or session replay and tells its people. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `note` | Records a read and signals the chat stream when a reading starts or comes back and at every ping, not on a plain read. In `server/src/fleet/chatAdminReads.ts`. |
+| Server | `noteReplay` | Records an Admin's replay of someone else's recorded session under the thread replay:<sessionId>, and says whether a person was told. In `server/src/fleet/chatAdminReads.ts`. |
+| Server | `replayersOf` | The Admins replaying a person's own sessions now, by session id, never any text. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `class AdminNotices` | The content-free callouts a session's next reply carries. In `server/src/fleet/chatAdminNotices.ts`. |
 | Server | `acrossTarget` | Whether a person's text may go to another person's agent. In `server/src/fleet/chatDirect.ts`. |
 | Server | `adminNotices` | Whether the session's reporter declared the Admin callout. In `server/src/fleet/respond.ts`. |
@@ -358,7 +361,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Watching an agent live | Shows an agent's recent activity while someone looks. Capture is leased, not stored. | You open the agent's panel; the server takes out a lease; the next reply lists the loops to watch; the mod reads their tool calls and text; entries ride the next report; the panel fills, and closing it stops capture. |
 | Answering a waiting session | The one place Podium acts. It answers a question, plan or permission prompt. | The session stops at a prompt and the mod holds the hook open; it is reported as an open ask; the server holds it in memory for its owner; the owner signs in and answers; the answer waits for the next reply; the mod turns it into the held hook's result. |
 | One orchestrator messages another | Cross-machine messages between one person's orchestrators, with rights and an audit trail. | A session calls `podium_send`; the timer sends it; the server resolves the target and checks rights and limits; the message is stored as ready or awaiting approval; it is handed over when the target is idle; the mod frames it, submits it as a prompt and reports the result; in Chat the exchange is a Direct Message that the person who owns an agent can add to, and the agent can answer its own owner there with `podium_send` to `person:<owner>`. |
-| Recording and replaying | Records a whole session and plays it back. The most sensitive feature has the most switches. | Three yeses start it (Admin switch, owner's choice, reporter option); the recorder redacts and numbers entries; batches go up every five seconds; the owner replays it; the sweeper purges it on schedule. |
+| Recording and replaying | Records a whole session and plays it back. The most sensitive feature has the most switches. | Three yeses start it (Admin switch, owner's choice, reporter option); the recorder redacts and numbers entries; batches go up every five seconds; the owner or an Admin replays it, and an Admin's replay of someone else's session is recorded and the owner is told; the sweeper purges it on schedule. |
 | Securing the reporter link | Mutual TLS, from creating a person to a revoked certificate. | An Admin creates a person; the server issues a certificate; the config file is shown once; the Claude Code mod starts the TLS helper (the OpenCode reporter runs the same client in its own process); the handshake needs a certificate; it is checked again on every request; it renews itself. |
 
 ## Four ways to run it

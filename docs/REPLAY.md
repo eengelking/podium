@@ -235,7 +235,7 @@ The Admin log records each action with who did it and the session, and never any
 | `recording_stopped` | A person stopped it |
 | `recording_deleted` | It was deleted, with entries and bytes |
 | `recording_limit` | The session limit or the budget stopped it |
-| `recording_read` | A replay was opened (a read without `before`, so paging back does not repeat it) |
+| `recording_read` | A replay was opened (a read without `before`, so paging back does not repeat it). When the Admin is not the session's owner, the owner is also told (#1075): a notice in the console and a line in the session |
 | `recording_settings_changed` | The three limits, before and after |
 | `recording_purged` | A purge run that removed something, with counts and sizes |
 

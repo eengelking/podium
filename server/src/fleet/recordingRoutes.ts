@@ -9,7 +9,8 @@ import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
-import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { ADMIN_OWNER, nameKey, sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { replayThread } from './chatAdminReads.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
 import { MAIN_LOOP, RECORDING_LIMITS, shortId, validateRecordingBatch, validateRecordingStart, type RecordingPage } from './protocol.js';
@@ -146,9 +147,31 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     }
     const page = await fleet.recordings.page(got.row.id, before, Math.min(limit ?? RECORDING_LIMITS.page, RECORDING_LIMITS.page), loop);
     // Opening a replay is a read of everything the session did: the Admin log hears of it, the owner's own included. Paging back is not another read.
+    // An Admin's replay of someone else's session is recorded and the owner is told (#1075): in their reporter session through the record, and on their console. Paging back keeps the reading live.
+    if (got.v.admin && (await fleet.chat.adminReads.noteReplay(got.v, got.row))) fleet.replayChanged();
     if (before === null) await audit(req, got.v, got.row, 'recording_read', `${got.v.name} opened the replay${loop ? ` of ${loop === MAIN_LOOP ? 'the orchestrator' : 'one agent'}` : ''}`, { entries: page.entries.length });
     const body: RecordingPage = { ...page, grant: await fleet.recordings.grant(got.row.id), loops, owner: got.row.owner };
     res.json(body);
+  }));
+
+  // The Admins replaying the signed-in person's own recorded sessions now (#1075), by session. The console reads it when the stream's `replay` counter moves,
+  // so the owner's wall card and page can say so. An Admin gets only the sessions that are their own, like anyone: this names no one else's.
+  browser.get('/recording-reads', asyncHandler(async (req, res) => {
+    if (!recordingEnabled(fleet, d.token)) return void res.status(404).json({ ok: false, error: 'session recording is off' });
+    const v = await h.viewerOf(req);
+    if (!v) return void refuse(req, res, 401, 'sign in to see who is replaying your recordings');
+    const sessions: Record<string, { admin: string; since: number; until: number }[]> = {};
+    for (const [id, list] of await fleet.chat.adminReads.replayersOf(v.name)) sessions[id] = list;
+    res.json({ ok: true, serverTime: now(), sessions });
+  }));
+
+  // An Admin's open replay pings this every 15 seconds so its owner keeps seeing that it is being replayed (#1075). A person's own replay needs none.
+  browser.post('/sessions/:id/recording/reading', asyncHandler(async (req, res) => {
+    const got = await access(req, res);
+    if (!got) return;
+    if (!got.v.admin) return void refuse(req, res, 403, 'only an Admin replays a session that is not their own');
+    if (await fleet.chat.adminReads.noteReplay(got.v, got.row)) fleet.replayChanged();
+    res.json({ ok: true });
   }));
 
   // The consent as it stands before anything is chosen, so the picker can say whether the owner allows recording (SPEC 7.1). It
@@ -156,7 +179,14 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   browser.get('/sessions/:id/recording/consent', asyncHandler(async (req, res) => {
     const got = await access(req, res);
     if (!got) return;
-    res.json({ ok: true, grant: await fleet.recordings.grant(got.row.id), keepHours: fleet.recordingSettings.get().keepHours });
+    // The owner's own look at the replay's record (#1075): who replayed it and when, and who is replaying it now. Never any text. Loading it is the owner seeing it.
+    const own = got.row.owner !== null && got.row.owner !== ADMIN_OWNER && nameKey(got.row.owner) === nameKey(got.v.name);
+    const reads = fleet.chat.adminReads;
+    const thread = replayThread(got.row.id);
+    const adminReads = own ? await reads.list(thread) : [];
+    const adminReading = own ? ((await reads.liveFor([thread])).get(thread) ?? []) : [];
+    if (own && adminReads.length) await reads.seen(thread, got.v.name);
+    res.json({ ok: true, grant: await fleet.recordings.grant(got.row.id), keepHours: fleet.recordingSettings.get().keepHours, adminReads, adminReading });
   }));
 
   browser.put('/sessions/:id/recording', asyncHandler(async (req, res) => {

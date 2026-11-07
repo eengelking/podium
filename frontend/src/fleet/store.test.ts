@@ -7,6 +7,15 @@ function snap(over = {}): FleetState {
 }
 
 describe("fleetReducer", () => {
+  it("counts a replay signal, and every snapshot, so the owner reads again who is replaying their recordings (#1075)", () => {
+    const one = fleetReducer(initialState, { type: "replay" });
+    expect(one.replayRev).toBe(1);
+    expect(fleetReducer(one, { type: "replay" }).replayRev).toBe(2);
+    expect(fleetReducer(one, { type: "snapshot", body: makeState() }).replayRev).toBe(2);
+    expect(fleetReducer(one, { type: "tick", serverTime: 5, kpis: makeKpis() }).replayRev).toBe(1);
+    expect(fleetReducer(one, { type: "chat" }).replayRev).toBe(1);
+  });
+
   it("counts a chat signal, and every snapshot (so a reconnect too), so Chat reads again (#1034)", () => {
     const one = fleetReducer(initialState, { type: "chat" });
     expect(one.chatRev).toBe(1);

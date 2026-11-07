@@ -220,6 +220,18 @@ as it happens.
   only). Everyone else gets `403`. The owner and an Admin are equals here: either can start, stop and delete, and an
   Admin can do it without the owner's knowing, which is why the notice cannot be hidden and the owner's terminal is
   told, by the mod, every time.
+- **An Admin's replay is told to the owner (#1075).** An Admin who opens a replay of a session that is not theirs (a
+  session owned by `Admin`, or a person's own, is not) is recorded in `chat_admin_reads` under the thread
+  `replay:<session id>`: who and when, never any text, one record for all the reads of one Admin less than 30 minutes
+  apart, so paging back is the same record. The owner is told in two places and the Admin log keeps `recording_read`. (1)
+  The console shows the owner a red notice on the orchestrator page and on the card's recording band while the replay
+  is live (30 seconds after the Admin's last read or ping), and a quiet line for each earlier replay, newest first,
+  three at most, until the owner has seen it. Each has an X that hides it in that browser, and only the owner (an Admin
+  only for a session of their own) can use it; the record, the log line and the callout stay. (2) The reporter's
+  next report reply carries one content-free callout, `<Admin> (an Admin) is replaying your recorded Podium session
+  <name>.`, for the person only and never for the model, even when peer messaging is off. The stream carries only the
+  `replay` change counter ([7.6](07-06-sse-stream.md)); the owner's console reads who is replaying from
+  `GET /api/fleet/respond/recording-reads` ([7.1](07-01-endpoints.md)).
 - **Everyone** who can open the console sees that a session is recorded: the state, who started it, which loops are and
   are not recorded and when it goes (`SessionView.recording`, [7.4](07-04-view-types.md)), and never any content. This is
   not a wall notice and has no way to be closed ([8.1](../08-ui/08-01-what-the-ui-must-do.md#session-recording-353-mockuppodium-recordinghtml)).
