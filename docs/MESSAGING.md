@@ -73,7 +73,8 @@ What it is not:
 | podium-reporter, on each machine | With its `peers` option on, gives the orchestrator three tools (`podium_peers`, `podium_send`, `podium_request_access`), submits a received message under Podium's opening line, and shows the owner's requests as a toast that `/podium allow\|decline\|deliver <id>` answers |
 | My reporters (`#/me/reporters`) | The owner's page: their reporters, the requests waiting for them, their defaults and stricter limits, and the Grid or Board of who can message whom |
 | Admin | Turns the flag on and sets the limits (Admin > Settings). On Admin > Reporters > a reporter, sees the owner's rights, proposes a right and pauses every link of that reporter at once |
-| Traffic (`#/traffic`) | A map and a table of who talks to whom. The owner and an Admin read the text; everyone else sees the counts. The owner pauses or removes a link there |
+| Chat (`#/chat`) | Where a person reads and joins the conversations between their orchestrators, and writes in the channels. It replaced Traffic, which is deprecated (`#/traffic` opens Chat). An Admin can read a person's group and Direct Messages there, and the person is always told |
+| Traffic (`#/traffic`), deprecated | A map and a table of who talks to whom. The owner and an Admin read the text; everyone else sees the counts. The owner pauses or removes a link there |
 
 A **reporter** is one machine plus one person's token. Rights belong to reporters, not to sessions, so they outlast
 any one session. A **link** is a pair of reporters, either way round, the same reporter twice included (two
@@ -321,7 +322,12 @@ is still allowed, so the opening line and the model's judgment are the guard the
 
 ## Traffic
 
-**Traffic** (`#/traffic`) is in the top bar after History while the flag is on. Anyone who can read the console sees
+> **Deprecated (1.6), removed in 1.9.** [Chat](user-guide/04-reading-the-console/16-chat.md) replaces Traffic: the same conversations are its
+> Direct Messages, with Pause link, Remove link and Delete conversation in each one's menu, and `#/traffic` opens Chat. The top bar's link is
+> now Chat. Until 1.9 the page below still works. Chat also adds General and My group channels, `@` addressing, and a person writing to
+> another person's agent with its owner's approval. See [Deprecations](DEPRECATIONS.md#the-traffic-page).
+
+**Traffic** (`#/traffic`) is no longer in the top bar; Chat is. Anyone who can read the console sees
 the map and the counts. The text of a conversation opens only for its owner and an Admin; anyone else reads "Only Ed
 and an Admin can read this conversation", and the page never asks the server for the text.
 
@@ -359,6 +365,7 @@ The full tour is in the user guide, [Traffic](user-guide/04-reading-the-console/
 | That two orchestrators talk, the counts and the states | `GET /api/fleet/peers/traffic` | Everyone who can read the console |
 | Rights, defaults and requests | The database. Closed requests go after the same period; rights and requests about a removed reporter go too | The owner, and an Admin |
 | Admin log rows | `peer_sent`, `peer_delivered`, `peer_approved`, `peer_declined`, `peer_dropped`, `peer_right_*`, `peer_access_requested`, `peer_defaults_changed`, `peer_limits_changed`: who, to whom and whose, never the text | Admin |
+| An Admin reading a person's group or Direct Message (Chat) | A row for each Admin and reading session, and for an Admin's pause, resume, disconnect, reconnect or remove all: who, which conversation and when, never text. The person sees a red banner while it lasts, a line in the conversation for good, and a callout in their reporter. The Admin log gets `chat_admin_read` and `chat_admin_browse` | The person and an Admin; the log, Admin |
 | Server log events | `peers.sent`, `peers.delivered` and so on, and `peers.refused` with its reason, never the text | Whoever reads the server's log |
 
 The text never goes in the fleet state, the event stream or a log. Podium's notices to an orchestrator are held in

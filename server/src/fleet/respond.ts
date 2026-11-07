@@ -218,6 +218,24 @@ export class RespondStore {
   private readonly waiters = new Set<Waiter>();
   /** Told what became of each delivery (#304). The routes set it to write the admin log. */
   trail: (t: DeliveryTrail) => void = () => {};
+  /** Others that follow each delivery's fate (the Chat page's mentions and direct messages, #1034). They are told after `trail`, and one that throws does not stop the rest. */
+  private readonly watchers: ((t: DeliveryTrail) => void)[] = [];
+
+  /** Adds a watcher of what becomes of each delivery. `trail` stays the one the routes assign. */
+  watch(fn: (t: DeliveryTrail) => void): void {
+    this.watchers.push(fn);
+  }
+
+  private note(t: DeliveryTrail): void {
+    this.trail(t);
+    for (const w of this.watchers) {
+      try {
+        w(t);
+      } catch {
+        // a watcher's failure never reaches the delivery it follows
+      }
+    }
+  }
 
   constructor(
     private readonly now: () => number,
@@ -369,7 +387,7 @@ export class RespondStore {
     if (d && d.result === null && !d.handedOver) {
       d.result = 'closed';
       this.feed?.remove(sessionId, d.d.id);
-      this.trail({ kind: 'dropped', sessionId, delivery: d.d, why: 'ask-closed', by: d.d.by });
+      this.note({ kind: 'dropped', sessionId, delivery: d.d, why: 'ask-closed', by: d.d.by });
     }
     this.wake(sessionId, e.ask.id, { kind: 'closed', outcome: closed.outcome });
     this.onChange(sessionId);
@@ -383,8 +401,8 @@ export class RespondStore {
     // A message or command with no result yet never reached the session. One the session queued may still be read, so the
     // row for it says only that the session ended first (#334); one with a final result already has its row.
     for (const m of s.messages) {
-      if (m.result === null) this.trail({ kind: 'dropped', sessionId, delivery: m.d, why: 'session-ended', by: m.d.by });
-      else if (m.result === 'queued') this.trail({ kind: 'dropped', sessionId, delivery: m.d, why: 'queued-session-ended', by: m.d.by });
+      if (m.result === null) this.note({ kind: 'dropped', sessionId, delivery: m.d, why: 'session-ended', by: m.d.by });
+      else if (m.result === 'queued') this.note({ kind: 'dropped', sessionId, delivery: m.d, why: 'queued-session-ended', by: m.d.by });
     }
     s.messages = [];
   }
@@ -392,7 +410,7 @@ export class RespondStore {
   /** A row for each answer, message or command held with no result yet, as the entry is about to go (#333). */
   private dropPending(sessionId: string, s: SessionEntry, why: DropWhy): void {
     const waiting = [...s.messages, ...[...s.asks.values()].flatMap((e) => (e.delivery ? [e.delivery] : []))];
-    for (const d of waiting) if (d.result === null) this.trail({ kind: 'dropped', sessionId, delivery: d.d, why, by: d.d.by });
+    for (const d of waiting) if (d.result === null) this.note({ kind: 'dropped', sessionId, delivery: d.d, why, by: d.d.by });
   }
 
   /** The session is gone: everything it held goes. */
@@ -477,7 +495,7 @@ export class RespondStore {
   }
 
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */
-  message(sessionId: string, by: string, body: unknown): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
+  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
     const accepts = this.info(sessionId)?.accepts ?? [];
     const parsed = parseMessage(body, accepts, this.sessions.get(sessionId)?.commands ?? null);
     if (!parsed.ok) return { ok: false, err: parsed.err };
@@ -485,7 +503,7 @@ export class RespondStore {
     if (s.messages.filter((m) => m.result === null).length >= RESPOND_LIMITS.deliveries) {
       return { ok: false, err: { status: 429, error: `at most ${RESPOND_LIMITS.deliveries} messages can wait for one session` } };
     }
-    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields };
+    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}) };
     s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
     this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text: feedText(delivery, null), by, note: null }, delivery);
     return { ok: true, delivery };
@@ -512,7 +530,7 @@ export class RespondStore {
     if (msg) {
       if (msg.result === result) return 'repeat'; // a retry of what is already recorded (#327)
       msg.result = result;
-      this.trail({ kind: 'result', sessionId, delivery: msg.d, result });
+      this.note({ kind: 'result', sessionId, delivery: msg.d, result });
       if (result === 'refused' || result === 'closed') this.feed?.remove(sessionId, deliveryId);
       else this.feed?.update(sessionId, deliveryId, noteFor(msg.d, null, result));
       // A message with its final result is done; keep only those still waiting for one.
@@ -524,7 +542,7 @@ export class RespondStore {
     const d = e.delivery;
     if (d.result === result) return 'repeat'; // a retry of what is already recorded (#327)
     d.result = result;
-    this.trail({ kind: 'result', sessionId, delivery: d.d, result });
+    this.note({ kind: 'result', sessionId, delivery: d.d, result });
     if (result === 'took') {
       if (!e.closed || e.closed.implicit) e.closed = { outcome: 'podium', at: this.now(), by: d.d.by, answer: null, planApproved: d.d.kind === 'plan-approve', implicit: false };
       this.wake(sessionId, e.ask.id, { kind: 'closed', outcome: 'podium' });
@@ -552,7 +570,7 @@ export class RespondStore {
       if (mi >= 0) s.messages.splice(mi, 1);
       else if (ask) ask.delivery = null;
       this.feed?.remove(sid, deliveryId);
-      this.trail({ kind: 'dropped', sessionId: sid, delivery: d.d, why: 'discarded', by: viewer });
+      this.note({ kind: 'dropped', sessionId: sid, delivery: d.d, why: 'discarded', by: viewer });
       this.onChange(sid);
       return 'ok';
     }

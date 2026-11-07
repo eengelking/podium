@@ -51,8 +51,14 @@ export interface PeerLimitsView {
   maxChars: number;
 }
 
-/** A request as the owner's read lists it: the reporters by machine for the words, and by key to find their Grid cell. */
-export type PeerRequestView = PeerRequest & { fromKey: string; toKey: string; messageId: string | null };
+/** A request as the owner's read lists it: the reporters by machine for the words, and by key to find their Grid cell (a person's message has no cell). */
+export type PeerRequestView = PeerRequest & {
+  fromKey: string;
+  toKey: string;
+  messageId: string | null;
+  /** The request is a person's message to the owner's agent (#1034): `fromKey` is `person:<name>`, not a reporter, so no Grid cell matches it. */
+  fromPerson?: boolean;
+};
 
 /** My reporters in one read. */
 export interface PeersRead {

@@ -66,10 +66,10 @@ describe('theme picker', () => {
     cy.get('html').should('have.attr', 'data-theme', 'light');
   });
 
-  it('shows the same picker on History and Traffic', () => {
+  it('shows the same picker on History and Chat', () => {
     cy.visit('/#/history');
     cy.get('[role=radiogroup][aria-label=Mode]').should('be.visible');
-    cy.visit('/#/traffic');
+    cy.visit('/#/chat');
     cy.get('[role=radiogroup][aria-label=Mode]').should('be.visible');
   });
 });

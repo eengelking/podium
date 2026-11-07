@@ -413,7 +413,7 @@ export const SAMPLES: Sample[] = [
     files: ["MyReporters.tsx"],
     purpose: "A signed-in person's own reporters and which of them may see and message each other, in the Admin page layout under the console's top bar. Waiting for you lists the requests that need an answer, Your reporters is a table of their machines, and Defaults holds the switches and the limits that apply to all of them.",
     use: ["Deciding which of your reporters may message each other.", "Answering a proposal, an access request or a message that waits for approval."],
-    avoid: ["Showing another person's reporters. Podium does not carry messages between people.", "Drawing text an orchestrator wrote as anything but text."],
+    avoid: ["Showing another person's reporters. A person using Chat who wants to message one of your agents asks you first; do not hide that request.", "Drawing text an orchestrator wrote as anything but text."],
     a11y: "Each request has a button per answer. A change and its result are spoken in a status message, and a failure is an alert that says nothing changed. The page is a main region named My reporters.",
     cases: [
       { label: "The page: requests, reporters, defaults and the Grid", screen: "my-reporters", selector: "main.adminv" },

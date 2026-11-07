@@ -19,6 +19,8 @@ import { ActivityStore } from './activity.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
+import { ChatService } from './chat.js';
+import type { ChatHost, ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
 import { silentLogger, type Logger } from '../logging/logger.js';
@@ -151,6 +153,8 @@ export class Fleet {
   readonly respond: RespondStore;
   /** Orchestrator messaging (#347, #412): rights, requests and messages, in the database. */
   readonly peers: PeerStoreApi;
+  /** Chat (#1034): the channels, the direct messages a person adds to, and their counts. */
+  readonly chat: ChatService;
   /** The daily check for a newer Podium release (#499); the wall's update notice reads its answer. */
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
@@ -272,6 +276,20 @@ export class Fleet {
       },
     );
     this.peers = storage.peers({ now, flagOn: () => this.features.featureOn(PEER_MESSAGING), startedAt: this.startedAt });
+    const host: ChatHost = {
+      now,
+      peers: this.peers,
+      respond: this.respond,
+      respondFlagsOn: () => this.respondFlagsOn(),
+      featureOn: (id) => this.features.featureOn(id),
+      isLive: (id) => this.live.has(id),
+      liveIds: () => [...this.live.keys()],
+      secrets: () => (history.secret ? [history.secret] : []),
+      // The stream goes to every open console, so it carries a change counter and a coarse scope only: no name, count or id (#1034).
+      signal: (s: ChatSignal & { rev: number }) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
+      warn: (what, err) => this.logger.warn('chat.failed', `podium: ${what}: ${(err as Error).message}`, { reason: (err as Error).message }),
+    };
+    this.chat = new ChatService(host, storage.chat({ now }));
     this.wall = new LiveWallSettings(storage.wallSettings, () => {
       this.settingsEpoch++;
       void this.broadcastWall();
@@ -825,7 +843,17 @@ export class Fleet {
       const row = await this.db.getSession(sessionId);
       if (!row || (row.status === 'done' && report.session.status !== 'done')) return;
       await this.peers.note(sessionId, reporterKey, owner, report);
+      await this.chatSafely('a session reported', () => this.chat.sessionSeen(sessionId, owner));
     });
+  }
+
+  /** Chat follows the live set, but a failure in it never stops a report, a sweep or a delete. */
+  private async chatSafely(what: string, job: () => Promise<void>): Promise<void> {
+    try {
+      await job();
+    } catch (err) {
+      this.logger.warn('chat.failed', `podium: Chat could not follow ${what}: ${(err as Error).message}`, { reason: (err as Error).message });
+    }
   }
 
   /** Deletes a session after any report for it that was already taken in; a report taken in later stores it again, as ever. */
@@ -834,6 +862,7 @@ export class Fleet {
   }
 
   private async deleteNow(id: string): Promise<boolean> {
+    const owner = (await this.db.getSession(id))?.owner ?? null;
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);
@@ -845,6 +874,7 @@ export class Fleet {
     this.diffs.drop(id);
     this.respond.dropSession(id);
     await this.peers.deleted([id]);
+    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
@@ -890,6 +920,7 @@ export class Fleet {
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
     await this.peers.ended(row.id);
+    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner));
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);
@@ -1016,6 +1047,7 @@ export class Fleet {
       this.logger.error('retention.recording_failed', `podium: could not remove the recordings of expired sessions: ${err.message}`, { reason: err.message });
     });
     const peers = await this.peers.retain();
+    await this.chatSafely('retention', () => this.chat.maintain());
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
   }
 

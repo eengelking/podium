@@ -8,7 +8,7 @@ describe('accessibility (axe)', () => {
     { name: 'the board', hash: '#/board', ready: () => cy.get('section.kb-col a.kb-card').should('have.length.greaterThan', 5) },
     { name: 'My reporters', hash: '#/me/reporters', // The requests and the table load after the heading, so the page is read once they are there.
     ready: () => cy.get('[role=group][aria-label="A request for access"]').should('exist').then(() => cy.get('table.ptab tbody tr').should('have.length', 3)), signIn: 'Ed' },
-    { name: 'Traffic', hash: '#/traffic', ready: () => cy.get('h2#map-h').should('exist').then(() => cy.contains('4 messages').should('exist')) },
+    { name: 'Chat', hash: '#/chat', ready: () => cy.chatRow('d:e2e-s-invoice+e2e-s-tester').should('exist').then(() => cy.tid('chat-thread').should('exist')), signIn: 'Ed' },
     { name: 'History', hash: '#/history', ready: () => cy.get('table.htable tbody tr').should('have.length.greaterThan', 0) },
     { name: 'Admin', hash: '#/admin', ready: () => cy.get('nav[aria-label="Admin sections"]').should('exist').then(() => cy.get('table.ptab tbody tr').should('have.length.greaterThan', 0)), admin: true },
   ];

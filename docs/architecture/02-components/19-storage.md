@@ -22,6 +22,7 @@ Contents:
 - [Ordering above the storage](#ordering-above-the-storage)
 - [Start and stop](#start-and-stop)
 - [Rules for calling it](#rules-for-calling-it)
+- [Chat's stores](#chats-stores-1034)
 - [The PostgreSQL adapter](#the-postgresql-adapter)
 - [What is not shared between processes](#what-is-not-shared-between-processes)
 - [Small timing differences](#small-timing-differences)
@@ -39,6 +40,7 @@ Contents:
 | `settings.ts` | The limits, defaults, ranges and value checks for the Admin's settings (re-exported by `rows.ts`) |
 | `lock.ts` | `AsyncLock`, the queue each adapter puts in front of a connection |
 | `peerText.ts` | The pure helpers both messaging stores share: control-character cleaning, round trips used, the notice cap |
+| `chatRows.ts` | The pure part of Chat's stores (#1034), shared by both adapters: the channel id (`grp_` or `pub_`, the server's scope, 24 hex digits), the author kinds, the mention states, the row-to-message conversion, and `chatSettingsOver`, the Admin's Chat limits and each channel's flags over a key-value view of `settings` that each adapter lends. Nothing in it touches a database or knows `peer_messages` |
 | `adapters.test.ts` | The one test every adapter passes (#1008): the contract, the upgrade cases, the differential test, and the guards (a method with no case, a table, column or index in one adapter and not another, a registered adapter with no CI job or e2e run). It loops over the kinds registered in `index.ts`, so a new adapter is added in one place |
 | `contractAdapter.ts`, `sqlite/contractAdapter.ts`, `postgres/contractAdapter.ts` | What the tests need from an adapter: open a fresh storage, open one at the oldest schema, read its table, column and index names, and the defects another issue owns (`known`). Each adapter folder has one; `index.ts` registers it as the kind's `testing` entry |
 | `contract.ts` | The checks a store must pass on every adapter, with the expected values written out: the type of every field of the main rows, how names compare, and the order lists come back in |
@@ -163,6 +165,21 @@ These are the rules the code now depends on. The type checker does not catch a b
    "read the row, decide, write it back" over several awaits is no longer atomic by itself.
 4. **A synchronous read of a setting comes from its `Live*` cache.** Do not add an async read where a card or a report is built.
 
+
+## Chat's stores (#1034)
+
+`Storage.chat({ now })` hands out `ChatStoreApi` (`types.ts`): `serverScope()`, `group` and `public` (a `ChannelStoreApi` each: `post`,
+`page`, `setMention`, `clear`, `count`, `purge`), `readState` (`get`, `list`, `bump`, `markRead`, `forget`) and `settings`
+(`ChatSettingsApi`: the Admin's limits and each channel's pause and disconnect flags). The group store's every call takes the group
+(`owner`, `groupId`), so a member reads only their own. SQLite's is `sqlite/chat.ts`, PostgreSQL's `postgres/chat.ts`, and the contract
+case is `contractChat.ts`. **No method of `ChatStoreApi` reads or returns a `peer_messages` row, and none ever will**; a Direct
+Message is the messaging store's (`PeerStoreApi.messages`), which gained `sendFromPerson`, `sendAcross`, `page` (a cursor read, newest
+page first), `deleteConversation`, `ownerConversations`, `hideConversation`, `showConversation` and `purgeHidden`, and
+`PeerStoreApi.rights` gained `personLink` and `setPersonLink` for a person's link to another person's agent. `ChatStoreApi.adminReads` (`ChatAdminReadsApi`: `touch`, `mark`, `list`, `live`, `threads`, `forget`, `purge`) keeps an Admin's readings and stops, in `sqlite/chat.ts` and `postgres/chat.ts`. A page of a channel or a
+conversation orders by `created_at, seq` (`sent_at, seq` for a conversation) in both adapters and starts strictly before its cursor.
+The server's code that uses them is in `server/src/fleet/chat*.ts` ([Orchestrator messaging](13-orchestrator-messaging.md#chat-1034)),
+and `server/src/fleet/chatSeparation.test.ts` fails if the channel side names the direct side's store or the reverse, or if a Chat route is not listed with the one audience it serves.
+
 ## The PostgreSQL adapter
 
 `server/src/storage/postgres/` implements every interface in `types.ts` over the `pg` driver (#822). `openPostgresStorage` is
@@ -184,6 +201,11 @@ contract.
   references across the two schemas, as nothing references across the two SQLite files.
 - **Migrations.** Each schema has a `schema_migrations` table, and a step is applied in a transaction of its own. The baseline
   is one step equal to the end state of SQLite's 25 migrations. A later change adds a step with the next number.
+  SQLite has 34 numbered migrations, and the `podium` PostgreSQL schema has steps 1 to 10. Chat (#1034) added four, each mirrored by a PostgreSQL main step in the same PR: migration 31 is
+  step 7 (`author` and `hidden_at` on `peer_messages`, the tables `group_messages`, `public_messages` and `chat_read_state`) and
+  migration 32 is step 8 (`peer_rights.paused_by`), migration 33 is step 9 (`peer_rights.paused_by_admin` and the table `chat_admin_reads`, an Admin's readings) and migration 34 is step 10 (`chat_admin_reads.kind`, which tells a reading from an Admin's pause, resume, disconnect, reconnect or remove all). The columns and indexes are the same in both ([SPEC 7.2](../../spec/07-server/07-02-database.md#what-chat-keeps-and-where-1034)),
+  and `adapters.test.ts` fails if one has what the other lacks. An existing `peer_messages` row migrates as an agent's message
+  (`author` defaults to `agent`), and `contractUpgrade.ts` has an upgrade case for it in each adapter.
   A migration that rewrites rows is covered by `contractUpgrade.ts` (#892): each adapter builds a database at the schema before it
   (`sqlite/upgradeTesting.ts`, `postgres/upgradeTesting.ts`), loads the same rows, and the case reads them back through `Storage`. The seeders can also link a seeded reporter to sessions, which is how a case builds a key the stores never write themselves, such as one with its prefix in another case (#943).
 - **Text.** Every text column is `COLLATE "C"`, so bytes compare as they do in SQLite, whatever locale the database was made

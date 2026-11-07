@@ -22,7 +22,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `command.ts` | Pure: which word `/podium` was given (`allow\|decline\|deliver`, `name`, `context`, or none) and the text that answers it. |
 | `build.ts` | The dev-build stamp (`.claude-plugin/dev-build.json`), read once so a dev build says so in its reports (#987). |
 | `notice.ts` | Pure: the console lines said once (`dedupe`), the text of `/podium`, and the toast the TUI part shows when the connection changes. |
-| `peers.ts`, `tools.ts` | Orchestrator messaging (`PODIUM_PEERS`, #347): the `podium_peers`, `podium_send` and `podium_request_access` tools, the `plan` tool, messages that arrive as `session.prompt`, and `/podium allow\|decline\|deliver <id>`. The words are `../core/peers.ts`. |
+| `peers.ts`, `tools.ts` | Orchestrator messaging (`PODIUM_PEERS`, #347): the `podium_peers`, `podium_send`, `podium_request_access` and `podium_chat_read` tools, the `plan` tool, messages that arrive as `session.prompt`, and `/podium allow\|decline\|deliver <id>`. The words are `../core/peers.ts`. |
 | `window.ts` | Pure: a model's context window from a `ctx.model.list()` answer. |
 | `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
