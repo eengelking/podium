@@ -260,10 +260,24 @@ CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
 ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected' or 'reconnected'
 ```
 
+Migration 35 (#1051; PostgreSQL main step 11) keeps a record until each person it names has seen it:
+
+```sql
+ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';   -- the people the record is owed to: a JSON list of folded names
+ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';     -- the ones of those who have seen it: a JSON list of folded names
+```
+
+A row made before migration 35 owes nobody, so retention treats it as before. General's rows owe nobody either.
+
 A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds
-are one permanent row for each stop (an Admin's remove all messages, pause or resume), never a session. Delete conversation removes the thread's rows;
-Remove all messages does not. The hourly retention removes the rows last seen before the channels' retention days, and those of a conversation that
-no longer exists.
+are one row for each stop (an Admin's remove all messages, pause or resume), never a session. A look at a person's list of conversations is a reading of the
+thread `list:<person>`. A row is protected until every person in `people` is in `seen`; after that it goes by retention. A person has seen a row when Podium sent it to their console: they loaded the
+group or conversation it is about, or, for a look at their list, their own overview. The row of a conversation they can no longer open is never seen, so it
+stays. Until then neither the hourly retention (which removes rows last seen before the channels' retention days, and those of a conversation that no
+longer exists), the purge of a hidden conversation, nor Delete conversation removes it; once it is seen, they do. Remove all messages never removes
+any. An Admin's stop is recorded before it happens, so a stop that cannot be recorded does not happen. Deleting a person removes their group, read counts,
+Direct Messages (the ones they own and the ones with their `person:<name>` end), links, requests and owner defaults; sessions, spend, the Admin log and
+General keep their name as text.
 
 - **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
@@ -280,8 +294,8 @@ no longer exists.
   way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
 - **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md).
 - **Settings rows**, all in `settings`: `chat.retainDays` (days a channel keeps its messages, default 30, 1 to 365),
-  `chat.graceHours` (hours a hidden conversation is kept, default 24, 1 to 720), `chat.maxChars` (the longest channel message, or
-  message to another person's agent, default 4,000, 1 to 20,000) and `chat.perMinute` (posts a minute for one author, default 6, 1
+  `chat.graceHours` (hours a hidden conversation is kept, default 24, 1 to 720), `chat.maxChars` (the longest channel message, message to another person's agent,
+  or message to one's own agent from Chat, default 4,000, 1 to 20,000) and `chat.perMinute` (posts or messages a minute for one author, default 6, 1
   to 600). A value outside its range is ignored on read and refused on write. `chat.flag.<scope>` holds a channel's flags as
   letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<name>`
   (General, one person's agents) or `group:<owner>`. A scope with neither flag has no row. The flag `feature.chat-everyone`

@@ -1107,7 +1107,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   In a Direct Message the Admin's menu is Pause link and Resume link, and nothing else. For the people in the thread, while an Admin reads: a
   red banner above the messages names every Admin reading (one, two, or the first two and a count) and says the notice clears about 30 seconds
   after the last stops, with a tip, **Who is reading**, that lists each Admin with the time they started; a red **Admin reading** tag on the
-  row and the header; and, for good, a line among the messages ("Root (an Admin) read this conversation on Nov 6 at 14:20.") that is not a message,
+  row and the header; and a line among the messages (kept at least until the person has seen it) ("Root (an Admin) read this conversation on Nov 6 at 14:20.") that is not a message,
   so it has nothing to select and no delivery line. An Admin's pause shows a red **Paused by an Admin** tag and a banner that says only an Admin can
   resume it; the owner's Resume link is disabled with that reason. An Admin's pause, resume, disconnect, reconnect and remove all leave a line too ("paused this link",
   "resumed this link", "removed all messages"). The open thread of an Admin pings every 15 seconds so the notice stays up. Each is a status with an

@@ -246,7 +246,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   session id; `duplicate` is true when more than one orchestrator the asker can reach has that name and machine. `leftOut` lists the owner's reporters with no
   orchestrator listed, and why: `messaging off on the machine`, `reporter too old to message`, `no right to see it`, `no
   orchestrator running`. `people` (#1034) are the people who wrote to this orchestrator through Chat and whom it may answer, because
-  the owner's link to them is open or paused: `{ address: "person:eve", name, paused }`. A person with no link, or whose link was removed, is not listed.
+  the owner's link to them is open or paused: `{ address: "person:eve", name, paused }`. A person with no link, or whose link was removed, is not listed. A paused one is listed with `paused: true`, and an answer to them is refused until the link is resumed.
 
 **`POST /api/fleet/sessions/:id/peers/messages`**: `podium_send`.
 - Body `{ to: "name@machine" | "name@machine#id" | "person:name", text }`, at most 128 KB. `id` is a prefix of the target's session id,
@@ -360,7 +360,8 @@ the channels, the direct messages, and what an agent may do with its reporter's 
   owner. The admin secret has no person: it gets General only and no counts.
   `GET /api/fleet/respond/chat?owner=<name>` is an Admin's way to see one person's Chat: the same shape about that person, with names and
   counts only and no text, and the counts are 0 because they are not the Admin's to see or clear. `403` for anyone who is not an Admin, `404`
-  for a name that is no one's, `400` for an empty one. It records no read; the Admin log gets `chat_admin_browse`, once for each Admin and person in 30 minutes.
+  for a name that is no one's, `400` for an empty one. It shows who the person talks to, so it is recorded and the person is told, in the console and in
+  their reporter ([7.7](07-07-hardening.md#chat-1034)); the Admin log gets `chat_admin_browse`, once for each Admin and person in 30 minutes.
 - `POST /api/fleet/respond/chat/read`: `{ thread, upTo }`. Marks a thread of the viewer's read up to a cursor and answers
   `{ ok: true, unread, mentions }`. `403` for a thread that is not the viewer's.
 - `GET /api/fleet/respond/chat/channels/:channel/messages?limit=&before=&owner=`: one page of a channel, newest page first,
@@ -440,10 +441,10 @@ that person and the agent's reporter and delivers; Decline drops the message wit
 as well; an Admin's powers over another person's group are to read, pause, disconnect and clear it (never to write in it), and over a Direct Message to read it and pause and resume its link. Either person of the
 link can Pause, Remove it, or Delete the conversation at any time. The agent receives the text framed as written by that person,
 never as its owner's words ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)).
-The agent can answer that person with `podium_send` to `person:<name>` while the link is open or paused (the peers route above). The
+The agent can answer that person with `podium_send` to `person:<name>` while the link is open (the peers route above); a paused link is a `409` and a removed one a `403`. The
 answer is stored in `peer_messages` as the agent's, in the same conversation, so it is read by both owners and an Admin, and it adds one
-unread and one mention for the person and one unread for the owner. A reporter older than this release keeps the old frame, which tells
-the agent its answer is not passed back, and fails safe.
+unread and one mention for the person and one unread for the owner. A reporter older than 1.6.0 cannot frame the text as a person's or show its
+person the Admin callout, so a person's message to that agent is refused up front, before the owner is asked.
 
 **Not in this release.** Sending selected messages to an agent did not ship. Delivery is `queue` on both harnesses
 (an agent takes a message when its turn ends); OpenCode's `steer` was evaluated (#1033) and deferred.
