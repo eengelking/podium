@@ -110,14 +110,14 @@ const rep = (key: string, machine: string, os: string | null, peers: boolean | n
   live: [],
 });
 
-function peersApi(): PeersApi {
+function peersApi(rights: PeersRead["rights"] = []): PeersApi {
   const read: PeersRead = {
     enabled: true,
     owner: "Ed",
     serverTime: T0,
     serverStartedAt: T0 - 3_600_000,
     reporters: [rep("k1", "ed-mbp", "macOS 26.1"), rep("k2", "ci-runner-01", "Ubuntu 24.04"), rep("k3", "build-pi", null), rep("k4", "win-lab", "Windows 11", false)],
-    rights: [],
+    rights,
     defaults: { trust: false, onRequest: "ask", newSend: "ask", limits: {} },
     limits: { server: { roundTrips: 10, perMinute: 6, maxChars: 20000 }, effective: { roundTrips: 10, perMinute: 6, maxChars: 20000 } },
     requests: [],
@@ -142,7 +142,7 @@ const flush = () =>
     for (let i = 0; i < 12; i++) await Promise.resolve();
   });
 
-function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[] } = {}) {
+function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[]; rights?: PeersRead["rights"] } = {}) {
   const traffic = opts.traffic ?? fakeTraffic();
   const sessions = [
     makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
@@ -150,7 +150,7 @@ function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; 
     ...(opts.more ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
-  const view = render(<FleetView traffic={opts.on ?? true} state={state} respondApi={respondApi(opts.me ?? ED)} peersApi={peersApi()} trafficApi={traffic.api} />);
+  const view = render(<FleetView traffic={opts.on ?? true} state={state} respondApi={respondApi(opts.me ?? ED)} peersApi={peersApi(opts.rights)} trafficApi={traffic.api} />);
   return { traffic, ...view };
 }
 
@@ -376,6 +376,23 @@ describe("the conversation, for its owner", () => {
     expect(p).toHaveTextContent("Held: the link is paused. It goes when the link resumes.");
     expect(p).toHaveTextContent(/Declined at \d\d:\d\d\. It was not delivered\./);
     expect(within(p).getByRole("button", { name: "Resume link" })).toBeInTheDocument();
+  });
+
+  it("says an Admin paused the link, names them, and does not offer a Resume that would be refused (#1077)", async () => {
+    const { traffic } = page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", pausedByAdmin: "Root", setAt: 1 }] });
+    await flush();
+    expect(within(panel()).getByText("Paused by an Admin")).toBeInTheDocument();
+    expect(panel()).toHaveTextContent("Root paused this link. Only an Admin can resume it.");
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toBeDisabled();
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toHaveAccessibleDescription("Ask Root to resume it.");
+    expect(traffic.api.pause).not.toHaveBeenCalled();
+  });
+
+  it("offers Resume when the owner paused the link, and says nothing of an Admin (#1077)", async () => {
+    page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "owner", setAt: 1 }] });
+    await flush();
+    expect(within(panel()).queryByText("Paused by an Admin")).toBeNull();
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toBeEnabled();
   });
 
   it("pauses and resumes the link through the owner's route", async () => {

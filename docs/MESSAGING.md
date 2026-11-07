@@ -218,11 +218,11 @@ owner approves it.
 | **Pause link** | Traffic, the conversation (owner) | Holds every message on the link, both ways, and keeps the rights |
 | **Resume link** | Traffic, the conversation (owner) | Lets the held messages go |
 | **Remove link…** | Traffic, the conversation (owner) | Asks first. Both ways lose every right, a message still waiting is dropped, and the conversation stays on Traffic until it expires. Under Trust my own reporters, the link is left paused |
-| **Pause all links** | Admin > Reporters > a reporter (Admin) | Pauses every link of that reporter at once, with no answer needed. **Resume all links** undoes it |
+| **Pause all links** | Admin > Reporters > a reporter (Admin) | Pauses every link of that reporter at once, with no answer needed, as the Admin's pause: it names the Admin, and only an Admin resumes it. **Resume all links** undoes it. The person is told in their reporter sessions, once for the whole change |
 
 Pause and Remove act on the two reporters, so they cover every conversation between the same two machines. A pause
 holds under Trust my own reporters too. The Admin's page has no Remove button; the Admin API can remove a link
-(`DELETE /api/admin/reporters/:key/peers/:other`, [SPEC 7.1](spec/07-server/07-01-endpoints.md#admin-api)).
+(`DELETE /api/admin/reporters/:key/peers/:other`, [SPEC 7.1](spec/07-server/07-01-endpoints.md#admin-api)). An Admin's pause, resume or removal of a person's links is never quiet: every live session of the person shows a callout naming the Admin, and the Admin log has a line with who and whose. On Traffic the link carries "Paused by an Admin" and Resume link is off, and the Rights grid says "by <Admin>, an Admin" under the Paused mark.
 
 ## Limits
 

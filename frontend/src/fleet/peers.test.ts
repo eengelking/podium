@@ -125,6 +125,29 @@ describe("systemKind", () => {
 });
 
 
+describe("an Admin's pause (#1077)", () => {
+  it("names the Admin who holds a pause, in either direction, and not an owner's", () => {
+    const m = rightsModel(
+      read({
+        rights: [
+          { from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", pausedByAdmin: "Root", setAt: 1 },
+          { from: "k2", to: "k1", owner: "Ed", level: "see", paused: true, pausedBy: "admin", setAt: 1 },
+          { from: "k1", to: "k3", owner: "Ed", level: "send", paused: true, pausedBy: "owner", setAt: 1 },
+        ],
+      }),
+    );
+    expect(m.adminPause("k1", "k2")).toEqual({ name: "Root" });
+    expect(m.adminPause("k2", "k1")).toEqual({ name: null });
+    expect(m.adminPause("k1", "k3")).toBeNull();
+    expect(m.adminPause("k3", "k1")).toBeNull();
+  });
+
+  it("keeps the Admin on a pause when a level changes under it", () => {
+    const d = read({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", pausedByAdmin: "Root", setAt: 1 }] });
+    expect(withRight(d, "k1", "k2", "see").rights).toEqual([expect.objectContaining({ level: "see", paused: true, pausedBy: "admin", pausedByAdmin: "Root" })]);
+  });
+});
+
 describe("withRight", () => {
   it("adds, changes and removes a direction, keeping a pause", () => {
     const d = read();
