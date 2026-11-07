@@ -1694,6 +1694,37 @@ describe("the person an Admin reads, told in the console", () => {
       expect(reads).toBeGreaterThan(1);
       expect(screen.getAllByTestId("chat-gone-record")).toHaveLength(1);
     });
+
+    it("keeps a record that came in a read a newer read replaced, because the server sends it once", async () => {
+      const chat = goneWorld([]);
+      const real = chat.api.overview.getMockImplementation()!;
+      let reads = 0;
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      chat.api.overview.mockImplementation(async (owner?: string | null) => {
+        const o = await real(owner);
+        reads++;
+        if (reads === 1) {
+          // The older read carries the record and lands after a newer one has started.
+          o.goneReads = [gone()];
+          await held;
+        }
+        return o;
+      });
+      const p = page({ chat });
+      await flush();
+      p.signal();
+      await flush();
+      expect(reads).toBe(2);
+      expect(screen.queryByTestId("chat-gone-record")).toBeNull();
+      await act(async () => {
+        release();
+      });
+      await flush();
+      expect(screen.getAllByTestId("chat-gone-record")).toHaveLength(1);
+    });
   });
 
   it("puts a record line among the messages in time order, one for each thing an Admin did", async () => {

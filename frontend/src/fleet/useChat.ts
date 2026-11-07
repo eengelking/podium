@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
-import { PAGE_SIZE, plain, type AdminRead, type Address, type Cross, type CrossRole, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
+import { PAGE_SIZE, mergeGone, plain, type GoneRead, type AdminRead, type Address, type Cross, type CrossRole, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
 import { ReadGate } from "./readGate";
 
 export interface OverviewRead {
@@ -17,6 +17,8 @@ export interface OverviewRead {
   skew: number;
   /** The server's clock at the last read that landed (epoch ms; 0 before the first). A reading is not hidden until a read at or after its end. */
   readAt: number;
+  /** The records of conversations that are gone, kept while the page stays open; each came once, even in a read a newer one replaced. */
+  gone: GoneRead[];
   reload: () => Promise<void>;
 }
 
@@ -43,11 +45,18 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
   const [skew, setSkew] = useState(0);
   const [readAt, setReadAt] = useState(0);
   const [tries, setTries] = useState(0);
+  const [gone, setGone] = useState<GoneRead[]>([]);
   const [gate] = useState(() => new ReadGate());
   const reload = useCallback(async () => {
     const at = gate.fresh();
     try {
       const d = await api.overview(owner);
+      // The server sends each record of a deleted conversation once and marks it seen, so a read that a newer one replaced must still
+      // keep them (#1051). They are the viewer's own, so only a read of the viewer's own list carries them.
+      if (owner === null && d.goneReads?.length) {
+        const incoming = d.goneReads;
+        setGone((cur) => mergeGone(cur, incoming));
+      }
       if (!gate.land(at)) return;
       setData(d);
       setDataOwner(owner);
@@ -65,6 +74,7 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
   useEffect(() => {
     if (!on) {
       setData(null);
+      setGone([]);
       setLoadError(null);
       return;
     }
@@ -83,7 +93,7 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
     const timer = setTimeout(() => void reload(), delay);
     return () => clearTimeout(timer);
   }, [on, data, readAt, skew, tries, reload]);
-  return { data, owner: dataOwner, loadError, skew, readAt, reload };
+  return { data, owner: dataOwner, loadError, skew, readAt, gone, reload };
 }
 
 /** What the open thread is, whichever store it comes from: the channel's id, or a Direct Message's two ids. */
