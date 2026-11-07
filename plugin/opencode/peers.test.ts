@@ -385,6 +385,30 @@ describe('the messaging tools (#969)', () => {
     expect(text).toContain('call podium_chat_read again with channel "group" and before "cur_9"');
   });
 
+  it('answers in the channel that called it: the route, the credential, the answer, the secret replaced (#1065)', async () => {
+    const x = rig();
+    await reported(x);
+    expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.description).toContain('channel:group');
+    x.server.answer = () => ({ status: 201, text: JSON.stringify({ ok: true, id: 'grp_2', createdAt: 1 }) });
+    expect(await tool(x, 'podium_send', { to: 'channel:group', text: 'Done, 14 of 14 pass.' })).toBe('Posted in My group. Everyone who can read the channel sees it, and Ed can too.');
+    expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/chat/channels/group/messages', token: 'tok', body: { text: 'Done, 14 of 14 pass.' } });
+    const general = await tool(x, 'podium_send', { to: ' Channel:General ', text: 'password=hunter2 works' });
+    expect(general).toContain('Posted in General.');
+    expect(general).toContain('replaced with [redacted]');
+    expect(x.server.calls.at(-1)).toMatchObject({ path: '/api/fleet/sessions/ses_root/chat/channels/general/messages', body: { text: 'password=[redacted] works' } });
+    expect(x.server.calls.some((c) => c.path === '/api/fleet/sessions/ses_root/peers/messages')).toBe(false);
+  });
+
+  it('answers Podium\'s refusal of a channel post, refuses a channel it cannot name, and a subagent cannot post', async () => {
+    const x = rig();
+    await reported(x);
+    x.server.answer = () => ({ status: 403, text: JSON.stringify({ ok: false, error: 'You were not called into this channel in the last hour.' }) });
+    expect(await tool(x, 'podium_send', { to: 'channel:general', text: 'hi' })).toBe('Not sent. You were not called into this channel in the last hour.');
+    expect(await tool(x, 'podium_send', { to: 'channel:dm', text: 'hi' })).toMatch(/^Not sent\./);
+    expect(await tool(x, 'podium_send', { to: 'channel:group', text: 'hi' }, KID)).toContain('Only an orchestrator can send');
+    expect(x.server.calls.map((c) => c.path)).toEqual(['/api/fleet/sessions/ses_root/chat/channels/general/messages']);
+  });
+
   it('answers Podium\'s refusal in its words, and refuses a channel it cannot name without asking Podium', async () => {
     const x = rig();
     await reported(x);

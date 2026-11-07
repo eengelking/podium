@@ -485,10 +485,17 @@ export class ChannelChat {
     const limits = await this.core.limits();
     const checked = this.checkText(body.text, limits);
     if ('ok' in checked) return checked;
+    const h = this.handle(channel, owner);
+    // The rate limit comes first, so an agent that was not called in cannot make the paged lookup below as often as it likes (#1065).
     const limited = this.busy(`agent:${o.sessionId}`, limits);
     if (limited) return limited;
+    // An agent answers a channel that called it in the last hour, the window it reads (#1065). It does not start a conversation nobody asked it to join.
+    try {
+      if (!(await this.calledInto(h, o, this.core.host.now() - AGENT_READ_WINDOW_MS))) return fail(403, NOT_CALLED);
+    } catch (err) {
+      return fail(400, (err as Error).message);
+    }
     const text = this.core.redact(checked.raw);
-    const h = this.handle(channel, owner);
     const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;
     let parent: ChannelMessage | null = null;
     if (replyTo) {

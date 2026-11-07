@@ -3,22 +3,38 @@ import type { SessionView } from "../types";
 import { harnessOfSession } from "../harness";
 import { GitLine, HarnessBadge, StateIcon, type StateKind } from "./Chips";
 import { MiniCharts } from "./MiniCharts";
+import { chatHash } from "../../route";
+import { IconChat } from "./Icons";
 
 /** Layer one of the summary surface: who it is, what it is doing, where. The state shape beside the name is the status band's shape. */
-export function FocusHeader({ s, kind, now, showHarness }: { s: SessionView; kind: StateKind; now: number; showHarness?: boolean }) {
+export function FocusHeader({ s, kind, now, showHarness, chat }: { s: SessionView; kind: StateKind; now: number; showHarness?: boolean; chat?: boolean }) {
   const harness = harnessOfSession(s);
   const step = currentStep(s.plan);
   const next = step ? null : inferredStep(s.plan);
+  const name = (
+    <h1>
+      <span className="sd">
+        <StateIcon kind={kind} />
+      </span>
+      {s.name}
+      {showHarness && <HarnessBadge harness={s.harness} />}
+    </h1>
+  );
   return (
     <div className="fh">
       <div className="id">
-        <h1>
-          <span className="sd">
-            <StateIcon kind={kind} />
-          </span>
-          {s.name}
-          {showHarness && <HarnessBadge harness={s.harness} />}
-        </h1>
+        {/* The button beside the name (#1067, mockup/podium-orchestrator-chat-button.html): the same words on every page, so its size never follows the name. It is left off while orchestrator messaging is off, as the top bar's Chat link is. */}
+        {chat ? (
+          <div className="nm-row">
+            {name}
+            <a className="btn" href={chatHash(s.id)} title={`Open your direct chat with ${s.name} in Chat`}>
+              <IconChat />
+              Chat with Agent
+            </a>
+          </div>
+        ) : (
+          name
+        )}
         {s.plan ? (
           <div className="goal">
             {s.plan.title ?? "Plan"}

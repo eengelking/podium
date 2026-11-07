@@ -43,7 +43,7 @@ import { RespondProvider, useRespond } from "./useRespond";
 import { peersApi, type PeersApi, type RespondApi } from "./respondApi";
 import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
-import { fleetHash, openIn, replayIn } from "../route";
+import { chatWith, fleetHash, openIn, replayIn } from "../route";
 import { ReplayPage } from "./components/ReplayPage";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
@@ -574,7 +574,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
             {chat ? (
-              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={now} />
+              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={now} openWith={chatWith(window.location.hash)} />
             ) : myReporters ? (
               <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} sessions={all} />
             ) : (
@@ -604,6 +604,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     onAgent={selectAgent}
                     onRemove={onRemove}
                     showHarness={mixedHarnesses(all)}
+                    chat={peersOn}
                   />
                 ) : (
                   <Wall

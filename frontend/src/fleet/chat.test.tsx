@@ -2110,3 +2110,110 @@ describe("an Admin reading a person's conversations", () => {
     expect(screen.queryByTestId("chat-row-c:group")).toBeNull();
   });
 });
+
+// #1067 (mockup/podium-orchestrator-chat-button.html): the orchestrator page's "Chat with Agent" button opens #/chat?with=<id>, and
+// Chat opens the person's own conversation with that orchestrator, or one ready to start when there is none.
+describe("the chat an address names (#1067)", () => {
+  it("opens the conversation the person already has with that orchestrator", async () => {
+    window.location.hash = "#/chat?with=s-notes";
+    page();
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("infra-notes");
+    expect(within(thread()).getByText("Add the install steps.")).toBeInTheDocument();
+    expect(row("d:dm:person:ed|s-notes")).toHaveClass("on");
+  });
+
+  it("opens one ready to start when there is none, and sends to it through 'me'", async () => {
+    const w = world();
+    w.overview.directs = [];
+    const chat = fakeChat(w);
+    chat.api.dmMessages.mockImplementation(async () => ({ ok: true, thread: "dm:x", a: ME, b: DASH, messages: [], older: null, total: 0, ended: [], owner: "Ed", paused: false, roundTrips: { used: 0, cap: 0 } }));
+    window.location.hash = "#/chat?with=s-dash";
+    page({ chat });
+    await flush();
+    expect(chat.api.dmMessages).toHaveBeenCalledWith("me", "s-dash", expect.anything());
+    expect(screen.getByText("Message claude-dashboard")).toBeInTheDocument();
+    expect(screen.queryByText(/could not|failed/i)).toBeNull();
+    fireEvent.change(box(), { target: { value: "hello" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    expect(chat.api.sendDm).toHaveBeenCalledWith("me", "s-dash", "hello");
+  });
+
+  it("falls back to General, with no error, for a session Chat does not list", async () => {
+    window.location.hash = "#/chat?with=s-gone";
+    page();
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("General");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("opens General first when the address names no one", async () => {
+    window.location.hash = "#/chat";
+    page();
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("General");
+  });
+
+  it("leaves the person's later choice alone when the console redraws", async () => {
+    window.location.hash = "#/chat?with=s-notes";
+    const p = page();
+    await flush();
+    await open("c:general");
+    p.signal();
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("General");
+  });
+
+  it("opens the same conversation again when the person leaves the address and the button is used once more", async () => {
+    window.location.hash = "#/chat?with=s-notes";
+    const p = page();
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("infra-notes");
+    // The top bar's Chat link goes to #/chat, which names no one, and the person picks General.
+    window.location.hash = "#/chat";
+    p.signal();
+    await flush();
+    await open("c:general");
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("General");
+    // Back, or the button again, names the same session: it opens that conversation again.
+    window.location.hash = "#/chat?with=s-notes";
+    p.signal();
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("infra-notes");
+  });
+
+  it("shows no Admin notice: opening one's own conversation is not an Admin read", async () => {
+    window.location.hash = "#/chat?with=s-notes";
+    page();
+    await flush();
+    // The red notice, the red tag and the record line are what an Admin's read draws; none is on the person's own conversation.
+    expect(document.querySelector(".ch-nav.crit, .tag.crit, .ch-rec")).toBeNull();
+  });
+});
+
+describe("the Chat button on the orchestrator page (#1067)", () => {
+  const consoleWith = (peers: boolean) => {
+    window.location.hash = "#/?open=s-dash";
+    const state = stateFrom({
+      sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed" })],
+      features: { "activity-feed": true, "peer-messaging": peers },
+    });
+    return render(<FleetView respondApi={respondApi(ED)} peersApi={peersApi()} chatApi={fakeChat().api} state={state} />);
+  };
+
+  it("shows beside the name while orchestrator messaging is on, and opens that orchestrator's chat", async () => {
+    consoleWith(true);
+    await flush();
+    const link = screen.getByRole("link", { name: "Chat with Agent" });
+    expect(link).toHaveAttribute("href", "#/chat?with=s-dash");
+    expect(link.closest(".nm-row")?.querySelector("h1")).toHaveTextContent("claude-dashboard");
+  });
+
+  it("is absent while orchestrator messaging is off", async () => {
+    consoleWith(false);
+    await flush();
+    expect(screen.queryByRole("link", { name: "Chat with Agent" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: /claude-dashboard/ })).toBeInTheDocument();
+  });
+});

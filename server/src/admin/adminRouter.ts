@@ -54,6 +54,8 @@ export interface AdminRouterOptions {
   peers?: PeerStoreApi;
   /** The Chat limits (#1034): kept in the settings table. Without it the Chat settings are not offered. */
   chat?: ChatSettingsApi;
+  /** Tells a person's live reporter sessions that an Admin paused, resumed or removed their links (#1077). Returns how many sessions were told. */
+  toldLinkStop?: (admin: string, owner: string, what: string) => number;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistoryApi; settings: LiveActivityHistorySettings };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
@@ -658,6 +660,19 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const peerFail = (res: Response, out: Refusal) => res.status(out.status).json({ ok: false, error: out.error });
   const withPeerSource = <T>(req: Request, fn: () => T): T => (peers ? peers.withSource(sourceOf(req), fn) : fn());
 
+  // An Admin's stop on a person's links is told to the person in their reporter session (`opts.toldLinkStop`) and written to the Admin log, with who and whose and
+  // never any text (#1077). `what` gives the words after the Admin's name, for the person ("your reporter") or the log ("Ed's reporter"). The stop is already
+  // done, so a failure to tell is logged, not raised, and the Admin log line still records how many sessions were told.
+  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; machine: string }, what: (whose: string) => string, kind: string): Promise<void> => {
+    let told = 0;
+    try {
+      told = ref.owner && opts.toldLinkStop ? opts.toldLinkStop(actor.name, ref.owner, what('your')) : 0;
+    } catch (err) {
+      opts.logger?.warn('admin.link_stop_not_told', `podium: an Admin's link stop could not be told to the person: ${(err as Error).message}`, { reporter: ref.machine });
+    }
+    await audit(req, kind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
+  };
+
   router.get('/reporters/:key/peers', asyncHandler(async (req, res) => {
     const view = peers ? await peers.adminView(req.params.key) : null;
     if (!view) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
@@ -681,16 +696,21 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const paused = (req.body as { paused?: unknown } | undefined)?.paused;
     if (typeof paused !== 'boolean') return void res.status(400).json({ ok: false, error: 'paused must be true or false' });
     const actor = await peerActor(req);
+    const mine = (await peers.adminView(req.params.key))?.reporter;
     const out = await withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
     if (!out.ok) return void peerFail(res, out);
+    // The person is told once for the whole bulk change, in the session and in the Admin log, by the Admin's name (#1077).
+    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'peer_links_paused' : 'peer_links_resumed');
     res.json(out);
   }));
 
   router.delete('/reporters/:key/peers/:other', asyncHandler(async (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
     const actor = await peerActor(req);
+    const [a, b] = [(await peers.adminView(req.params.key))?.reporter, (await peers.adminView(req.params.other))?.reporter];
     const out = await withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
     if (!out.ok) return void peerFail(res, out);
+    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'peer_link_removed');
     res.json(out);
   }));
 

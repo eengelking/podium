@@ -75,6 +75,8 @@ import {
   answerPaused,
   channelArgument,
   chatReadAnswer,
+  channelSendAnswer,
+  channelSendTarget,
   appliedLevel,
   deliveredLine,
   errorOf,
@@ -1692,6 +1694,14 @@ async function sendTool($: Engine, e: { agentId?: unknown; to?: unknown; text?: 
   if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
   // Secrets go before the text leaves the machine, with the same redactor as a file's diff (SPEC 6.4).
   const red = redactText(raw);
+  // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
+  const target = channelSendTarget(to);
+  if (target && 'refusal' in target) return target.refusal;
+  if (target) {
+    const channel = target.channel;
+    const posted = await peerCall($, 'POST', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages`, { text: red.text });
+    return peerOutcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: ownerName(), redactions: red.redactions }));
+  }
   const out = await peerCall($, 'POST', peerPath(r.state.id, '/messages'), { to, text: red.text });
   return peerOutcome('Not sent.', out, (body) => sendAnswer(body, { owner: ownerName(), here: r.machine?.name ?? null, to, redactions: red.redactions }));
 }

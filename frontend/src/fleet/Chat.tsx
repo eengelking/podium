@@ -32,7 +32,7 @@ export function sendFailure(err: unknown): string {
   return `Could not send: ${plain(failReason(err))}. Nothing was sent. Try again.`;
 }
 
-export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number }) {
+export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number; openWith?: string | null }) {
   const { me, peersOn } = props;
   let body: React.ReactNode;
   if (!peersOn) body = <Blank title="Orchestrator messaging is off">An Admin turns it on in Admin &gt; Settings &gt; Feature flags. Until then no orchestrator can message another, and Chat has nothing to show.</Blank>;
@@ -92,7 +92,7 @@ function Rules() {
   );
 }
 
-function ChatBody(props: { me: RespondMe | null; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number }) {
+function ChatBody(props: { me: RespondMe | null; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number; openWith?: string | null }) {
   const { api, sessions, rev } = props;
   // An Admin reads a person's conversations by choosing the person: the overview and the open thread are then that person's.
   const [readAs, setReadAs] = useState<string | null>(null);
@@ -146,6 +146,19 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setSendErr(null);
     focusHeading.current = true;
   };
+  // The orchestrator page's "Chat with Agent" button opens #/chat?with=<id> (#1067): the person's own conversation with that agent, or one
+  // ready to start when there is none. It applies once per address, so a later choice is never undone; an id Chat does not list leaves General.
+  const opened = useRef<string | null>(null);
+  const want = props.openWith ?? null;
+  useEffect(() => {
+    if (want === null) opened.current = null; // leaving the address forgets it, so the same button opens the chat again later
+    if (!o || stale || want === null || opened.current === want) return;
+    opened.current = want;
+    const a = o.agents.find((x) => x.sessionId === want);
+    if (!a) return;
+    const existing = ownDmWith(o.directs, a.sessionId);
+    select(existing ? { kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: dmKey(existing) } : { kind: "dm", a: "me", b: a.sessionId, key: a.sessionId, fresh: true });
+  }, [o, stale, want]);
   useEffect(() => {
     if (focusHeading.current) {
       focusHeading.current = false;

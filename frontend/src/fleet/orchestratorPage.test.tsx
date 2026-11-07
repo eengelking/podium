@@ -14,7 +14,7 @@ afterEach(cleanup);
 const CFG: LifecycleConfig = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };
 const NOW = 2_000_000;
 
-function page(over: Partial<SessionView> = {}, opts: { now?: number; remove?: boolean; onAgent?: (id: string) => void } = {}) {
+function page(over: Partial<SessionView> = {}, opts: { now?: number; remove?: boolean; onAgent?: (id: string) => void; chat?: boolean } = {}) {
   const onRemove = opts.remove === false ? undefined : vi.fn();
   const utils = render(
     <FocusView
@@ -27,6 +27,7 @@ function page(over: Partial<SessionView> = {}, opts: { now?: number; remove?: bo
       flashAgent={null}
       onAgent={opts.onAgent ?? (() => {})}
       onRemove={onRemove}
+      chat={opts.chat}
     />,
   );
   const c = utils.container;
@@ -354,5 +355,41 @@ describe("page layout CSS (#165)", () => {
   it("the old callout, alert and inline Remove rules are gone", () => {
     expect(css).not.toMatch(/\.podium \.alert/);
     expect(css).not.toContain(".remove-inline");
+  });
+});
+
+// #1067 (mockup/podium-orchestrator-chat-button.html): a button beside the name that opens the 1-1 chat with this orchestrator.
+describe("the Chat button", () => {
+  it("sits beside the name, in one row with it, and says Chat with Agent whatever the session is called", () => {
+    for (const name of ["Foobar", "a-very-long-session-name-that-would-change-the-width-of-the-button"]) {
+      const { container } = page({ id: "s-9", name }, { chat: true });
+      const row = container.querySelector(".fh .id .nm-row") as HTMLElement;
+      expect(row.firstElementChild!.tagName).toBe("H1");
+      const link = within(row).getByRole("link", { name: "Chat with Agent" });
+      expect(link.className).toContain("btn");
+      expect(link.className).not.toContain("pri");
+      // The shared 14 px icon class, so the icon never grows and squeezes the words (seen in the real console, not in the mockup).
+      expect(link.querySelector("svg")?.getAttribute("class")).toMatch(/\bi\b/);
+      cleanup();
+    }
+  });
+
+  it("opens the chat with this session, and names the session in its tooltip", () => {
+    const { container } = page({ id: "s-9", name: "Foobar" }, { chat: true });
+    const link = container.querySelector(".nm-row a") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("#/chat?with=s-9");
+    expect(link.getAttribute("title")).toBe("Open your direct chat with Foobar in Chat");
+  });
+
+  it("is absent while orchestrator messaging is off, as the top bar's Chat link is", () => {
+    const { container } = page({ id: "s-9", name: "Foobar" }, { chat: false });
+    expect(container.querySelector(".nm-row")).toBeNull();
+    expect(within(container).queryByRole("link", { name: "Chat with Agent" })).toBeNull();
+    expect(container.querySelector(".fh h1")).not.toBeNull();
+  });
+
+  it("stays on an ended session, where Chat itself says it will not receive a message", () => {
+    const { container } = page({ id: "s-9", name: "Foobar", status: "done" }, { chat: true });
+    expect(within(container).getByRole("link", { name: "Chat with Agent" })).toBeInTheDocument();
   });
 });

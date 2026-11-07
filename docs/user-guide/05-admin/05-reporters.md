@@ -59,7 +59,9 @@ pauses fit together is in [MESSAGING.md](../../MESSAGING.md#rights-and-approval)
   Proposed, waiting for them, and applies only once they accept it, on My reporters or in a session on the machine. You
   can only propose more than a pair has; lowering a right or taking it away is the owner's choice.
 - **Pause all links** in the details' header pauses every link of that reporter at once, with no answer needed, and
-  **Resume all links** undoes it.
+  **Resume all links** undoes it. Pause all links is your pause, with your name on it: the person's page says an Admin paused the link and
+  names you, only an Admin can resume it, and every live session of the person shows a notice naming you, once for the whole change.
+  Removing a link does the same, and the Admin log records each.
 - While the owner has **Trust my own reporters** on, the choices are locked and a band says so.
 - A reporter on the admin secret, with no owner, with messaging off on its machine, or too old to message says why
   and offers no choices.

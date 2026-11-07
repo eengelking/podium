@@ -1065,6 +1065,13 @@ the bar on Chat itself). It replaces Traffic ([below](#traffic-page-347-mockuppo
 A conversation is a thread of messages, laid out like Slack or Teams: a sidebar and the open thread. The rules for who may read what
 are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](../07-server/07-01-endpoints.md#routes-for-chat-1034).
 
+- **Chat with Agent (#1067).** The orchestrator page has a default button, **Chat with Agent**, beside the session's name, in one row
+  with it. It is a link to `#/chat?with=<session id>`, so it opens in the same tab and Back returns to the orchestrator. It reads the
+  same on every page, so its size never follows the name; the name is in its tooltip, "Open your direct chat with <name> in Chat".
+  It shows while orchestrator messaging is on, as the top bar's Chat link does, and is left off while it is off. It stays on an
+  ended session, where Chat says the session will not receive a new message. Chat opens the person's own Direct Message with that
+  agent, or one ready to start when there is none, and opens General for a session it does not list. The address is applied once, so
+  a later choice in the sidebar is not undone. Opening one's own conversation is not an Admin read and shows no Admin notice.
 - **Panes.** The page sits between the left rail and the Activity panel as the Board does, and opens with both side panels
   collapsed to their edge tabs, kept under `podium.collapsed.chat` apart from the others. The top bar starts open. It has no
   legend and no Wall mode button. With Shortcuts on, `[` and `]` open and close the panels and `\` the top bar; `w` does nothing.

@@ -339,6 +339,9 @@ body.podium-resizing .podium .cols { transition: none; }
 /* focus view */
 .podium .fh { display: flex; flex-wrap: wrap; align-items: stretch; gap: 14px 24px; padding: 14px 16px; }
 .podium .fh .id { flex: 1; min-width: min(280px, 100%); display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+/* The name and the Chat with Agent button in one row (#1067). It wraps, so the button drops under a long name or a narrow page. */
+.podium .fh .nm-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.podium .fh .nm-row h1 { min-width: 0; }
 .podium .fh h1 { margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; display: flex; gap: 10px; align-items: center; overflow-wrap: anywhere; }
 .podium .fh h1 .sd { flex: none; display: inline-flex; color: var(--muted); }
 .podium .fh h1 .sd .si { width: 20px; height: 20px; }
@@ -1358,6 +1361,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .pm-conv h2 .sep { color: var(--muted); }
 .podium .pm-conv .sub { font-size: 12px; color: var(--muted); display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: center; }
 .podium .pm-conv .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.podium .pm-conv .acts .hint { align-self: center; }
+.podium .pm-conv .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.podium .pm-conv .sub .tag.crit { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; color: var(--crit-text); font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; }
+.podium .pm-conv .sub .tag svg { width: 14px; height: 14px; flex: none; }
 .podium .pm-conv .cap { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
 .podium .pm-conv .feed { height: auto; max-height: 460px; }
 .podium .pm-conv .feed .body { white-space: pre-wrap; color: var(--ink); }

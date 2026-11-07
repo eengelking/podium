@@ -492,9 +492,10 @@ describe('pausing, disconnecting and removing a channel', () => {
     const agentRead = await request(s.app).get('/api/fleet/sessions/sess-tester/chat/channels/group/messages').set('X-Podium-Token', s.ed.token);
     expect(agentRead.status).toBe(403);
     await s.edB.put(`${CH}/channels/group/disconnect`).set(H).send({ disconnected: false });
-    expect((await request(s.app).post('/api/fleet/sessions/sess-tester/chat/channels/group/messages').set('X-Podium-Token', s.ed.token).send({ text: 'back' })).status).toBe(201);
     const again = await say(s.edB, 'group', '@Tester@ci-runner-01 hello again');
     expect(again.body.message.mentions[0].state).toBe('waiting');
+    // Back in the channel, the agent answers the call it now has (#1065).
+    expect((await request(s.app).post('/api/fleet/sessions/sess-tester/chat/channels/group/messages').set('X-Podium-Token', s.ed.token).send({ text: 'back' })).status).toBe(201);
   });
 
   it('refuses an agent\'s post while its channel is paused', async () => {
@@ -981,6 +982,40 @@ describe('an agent reads the channel it was called into (#1034)', () => {
     expect((await asTester(s)).body).toEqual({ ok: false, error: NOT_CALLED });
   });
 
+  const postAsTester = (s: S, text: string, channel = 'group') => request(s.app).post(`/api/fleet/sessions/sess-tester/chat/channels/${channel}/messages`).set('X-Podium-Token', s.ed.token).send({ text });
+
+  it('lets an agent answer only a channel that called it in the last hour, and shows the answer there for everyone who reads it (#1065)', async () => {
+    const s = await world();
+    await say(s.edB, 'group', 'a note with no @');
+    const refused = await postAsTester(s, 'unasked');
+    expect(refused.status).toBe(403);
+    expect(refused.body).toEqual({ ok: false, error: NOT_CALLED });
+    await say(s.edB, 'group', '@Tester@ci-runner-01 can you respond to the group?');
+    expect((await postAsTester(s, 'Done, 14 of 14 pass.')).status).toBe(201);
+    // A second answer in the same call still works: the call is answered, and the channel has not left the hour.
+    expect((await postAsTester(s, 'One more thing.')).status).toBe(201);
+    expect(texts(await asTester(s))).toEqual(['a note with no @', '@Tester@ci-runner-01 can you respond to the group?', 'Done, 14 of 14 pass.', 'One more thing.']);
+    const seen = await read(s.edB, 'group');
+    expect(seen.body.messages.slice(-2).map((m: { authorKind: string; authorName: string }) => [m.authorKind, m.authorName])).toEqual([['orchestrator', 'Tester'], ['orchestrator', 'Tester']]);
+  });
+
+  it('refuses an answer to General when only My group called the agent, and the other way round (#1065)', async () => {
+    const s = await world();
+    await say(s.edB, 'group', '@Tester@ci-runner-01 here');
+    expect((await postAsTester(s, 'in general?', 'general')).body).toEqual({ ok: false, error: NOT_CALLED });
+    await say(s.edB, 'general', '@Tester@ci-runner-01 and here');
+    expect((await postAsTester(s, 'in general', 'general')).status).toBe(201);
+    expect(texts(await asTester(s, 'general'))).toEqual(['@Tester@ci-runner-01 and here', 'in general']);
+  });
+
+  it('refuses an answer once the call is older than an hour (#1065)', async () => {
+    const s = await world();
+    await say(s.edB, 'group', '@Tester@ci-runner-01 the call');
+    s.tick(61 * MIN);
+    await tester(s);
+    expect((await postAsTester(s, 'late')).body).toEqual({ ok: false, error: NOT_CALLED });
+  });
+
   it('shows the last hour only: a message at 59 minutes, never one at 61, and the call itself must be inside it', async () => {
     const s = await world();
     await say(s.edB, 'group', 'oldest');
@@ -1056,7 +1091,7 @@ describe('an agent reads the channel it was called into (#1034)', () => {
   it('shows another agent\'s message with its kind, and returns no session id or direct message', async () => {
     const s = await world();
     await linkedConversation(s);
-    await say(s.edB, 'group', '@Tester@ci-runner-01 report back');
+    await say(s.edB, 'group', '@Tester@ci-runner-01 @dev@ed-mbp report back');
     const posted = await request(s.app).post('/api/fleet/sessions/sess-dev/chat/channels/group/messages').set('X-Podium-Token', s.ed.token).send({ text: 'dev here' });
     expect(posted.status).toBe(201);
     const res = await asTester(s);
@@ -1122,12 +1157,13 @@ describe('the reporter-token routes for agents', () => {
   it('lets an orchestrator post to its group and to General, and read both', async () => {
     const s = await world();
     // An agent reads only a channel it was called into (#1034), so dev is called into both first.
-    await say(s.edB, 'group', '@dev@ed-mbp are you there');
-    await say(s.edB, 'general', '@dev@ed-mbp are you there');
+    const call = '@dev@ed-mbp @Tester@ci-runner-01 are you there';
+    await say(s.edB, 'group', call);
+    await say(s.edB, 'general', call);
     expect((await agentPost(s, 'sess-tester', 'group', { text: 'to my group' })).status).toBe(201);
     expect((await agentPost(s, 'sess-tester', 'general', { text: 'to everyone' })).status).toBe(201);
-    expect(texts(await agentRead(s, 'sess-dev', 'group'))).toEqual(['@dev@ed-mbp are you there', 'to my group']);
-    expect(texts(await agentRead(s, 'sess-dev', 'general'))).toEqual(['@dev@ed-mbp are you there', 'to everyone']);
+    expect(texts(await agentRead(s, 'sess-dev', 'group'))).toEqual([call, 'to my group']);
+    expect(texts(await agentRead(s, 'sess-dev', 'general'))).toEqual([call, 'to everyone']);
     expect((await read(s.alexB, 'general')).body.messages.at(-1)).toMatchObject({ authorKind: 'orchestrator', authorName: 'Tester' });
     expect(texts(await read(s.alexB, 'group'))).toEqual([]);
   });
@@ -1147,22 +1183,28 @@ describe('the reporter-token routes for agents', () => {
 
   it('does not deliver an agent\'s mention to another agent here; it is stored as not delivered, for #1035', async () => {
     const s = await world();
+    await say(s.edB, 'group', '@dev@ed-mbp go ahead');
     const res = await agentPost(s, 'sess-dev', 'group', { text: '@Tester@ci-runner-01 please look' });
     expect(res.status).toBe(201);
-    expect((await read(s.edB, 'group')).body.messages[0].mentions[0]).toMatchObject({ state: 'not-delivered' });
+    expect((await read(s.edB, 'group')).body.messages.at(-1).mentions[0]).toMatchObject({ state: 'not-delivered' });
     expect(await deliveriesFor(s, 'tester')).toEqual([]);
   });
 
   it('does not let an agent call itself into a channel: a mention in its own message never opens the read, and a reply does not make it count (#1051)', async () => {
     const s = await world();
+    const NOT_CALLED = 'You were not called into this channel in the last hour.';
     expect((await say(s.edB, 'general', 'ED GENERAL LINE')).status).toBe(201);
     expect((await agentRead(s, 'sess-dev', 'general')).status).toBe(403);
+    // Since #1065 an agent that was not called in cannot post at all, so it has no message to call itself in with.
+    expect(await agentPost(s, 'sess-dev', 'general', { text: '@dev@ed-mbp note to self' })).toMatchObject({ status: 403, body: { error: NOT_CALLED } });
+    expect(await agentRead(s, 'sess-dev', 'general')).toMatchObject({ status: 403, body: { error: NOT_CALLED } });
+    // Called in by the person, it can post a mention of itself, and that mention calls no one in: it stays not-delivered (#1051).
+    await say(s.edB, 'general', '@dev@ed-mbp go ahead');
     const mine = await agentPost(s, 'sess-dev', 'general', { text: '@dev@ed-mbp note to self' });
     expect(mine.status).toBe(201);
     expect((await agentPost(s, 'sess-dev', 'general', { text: 'done', replyTo: mine.body.id })).status).toBe(201);
     const shown = (await read(s.edB, 'general')).body.messages.find((m: { id: string }) => m.id === mine.body.id);
     expect(shown.mentions[0].state).toBe('not-delivered');
-    expect(await agentRead(s, 'sess-dev', 'general')).toMatchObject({ status: 403, body: { error: 'You were not called into this channel in the last hour.' } });
   });
 
   it('reads about 30,000 characters a call, newest first by page, with a cursor that gets the rest', async () => {

@@ -121,6 +121,11 @@ export class ChatService {
     return this.adminReads.noticesFor(sessionId);
   }
 
+  /** An Admin paused, resumed or removed links of a person's reporters: the person's live sessions are told (#1077). Returns how many sessions were. */
+  toldLinkStop(admin: string, owner: string, what: string): number {
+    return this.adminReads.toldLinkStop(admin, owner, what);
+  }
+
   /** Replaced by the routes, so a Chat event reaches the Admin log and the server log. */
   set onEvent(fn: (e: ChatEvent) => void) {
     this.core.onEvent = fn;

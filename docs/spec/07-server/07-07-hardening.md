@@ -757,8 +757,8 @@ set by its reporter's permissions.
 
 **Agents addressing each other** stop at the round-trip limit until their owner approves the next. An agent reads a channel
 with `podium_chat_read`, only the last hour of General or its person's My group and only where a delivered `@` of that agent is stored in the
-channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. Posting
-by an agent is route shapes only in this release (#1035 finishes it).
+channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. An agent posts to a channel with `podium_send` to `channel:group` or `channel:general`, under the same rule: only a channel that called it in the last
+hour, otherwise the same refusal (#1065). Agents addressing each other is still #1035.
 
 ## The `Host` header (#256, DNS rebinding)
 

@@ -670,8 +670,8 @@ describe('respond: messages and commands', () => {
     await w.clock.advance(5000)
     await settle(w)
     expect(w.submitted).toEqual([
-      'From Podium Chat, My group, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group".',
-      'From Podium Chat, General, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "general".',
+      'From Podium Chat, My group, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:group".',
+      'From Podium Chat, General, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "general". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:general".',
     ])
   })
 

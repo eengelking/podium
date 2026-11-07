@@ -47,7 +47,9 @@ On your own link:
 
 Both act on the two machines, so they also pause or remove every other conversation between them. If either fails, the
 page says so and the link is as it was. An Admin can read anyone's conversation here, but cannot pause or remove
-another person's link on this page; **Pause all links** in Admin > Reporters pauses every link of a reporter.
+another person's link on this page; **Pause all links** in Admin > Reporters pauses every link of a reporter. When an Admin has
+paused a link, it shows a red **Paused by an Admin** tag and the Admin's name, and **Resume link** is off: only an Admin
+resumes it.
 
 The page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; with **Shortcuts** turned on, `\`
 still hides and shows the top bar.

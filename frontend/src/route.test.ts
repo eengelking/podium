@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fleetHash, openIn, redirectFor, routeFor, replayHash, replayIn } from "./route";
+import { chatHash, chatWith, fleetHash, openIn, redirectFor, routeFor, replayHash, replayIn } from "./route";
 
 describe("routeFor", () => {
   it("opens the history view for #/history, with or without a query", () => {
@@ -84,5 +84,30 @@ describe("the replay in the address (#353)", () => {
     expect(replayIn("#/?replay")).toBeNull();
     expect(replayIn("#/")).toBeNull();
     expect(replayIn("#/history?open=s1&replay")).toBeNull();
+  });
+});
+
+// #1067: the orchestrator page's "Chat with Agent" button opens the chat with that orchestrator, at #/chat?with=<session id>.
+describe("the address of a chat with one orchestrator (#1067)", () => {
+  it("is still the Chat page, with or without a query", () => {
+    expect(routeFor("#/chat?with=s-1")).toBe("chat");
+    expect(routeFor("#/chat?")).toBe("chat");
+    expect(routeFor("#/chat-x?with=s-1")).toBe("fleet");
+  });
+
+  it("names the session to talk to, and nothing else", () => {
+    expect(chatWith("#/chat?with=s-1")).toBe("s-1");
+    expect(chatWith("#/chat?x=1&with=s-1")).toBe("s-1");
+    expect(chatWith("#/chat")).toBeNull();
+    expect(chatWith("#/chat?with=")).toBeNull();
+    expect(chatWith("#/board?with=s-1")).toBeNull();
+    expect(chatWith("#/?open=s-1")).toBeNull();
+  });
+
+  it("builds an address that round-trips an id with characters that need escaping", () => {
+    expect(chatHash("s-1")).toBe("#/chat?with=s-1");
+    const odd = "a b&c=d/é";
+    expect(chatWith(chatHash(odd))).toBe(odd);
+    expect(routeFor(chatHash(odd))).toBe("chat");
   });
 });
