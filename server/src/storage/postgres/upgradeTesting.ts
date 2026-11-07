@@ -4,20 +4,20 @@ import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { openPostgresStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions, messages, rights), td };
+    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[]): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[]): Promise<Storage> {
   const old = new PgDb({ connectionString: td.url, schema: MAIN_SCHEMA, max: 2, name: 'test' });
   try {
     await migrate(old, MAIN_SCHEMA, MAIN_STEPS.slice(0, 1));
@@ -53,6 +53,13 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
     }
     for (const x of rights) {
       await old.run('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, 0)', [x.fromKey, x.toKey, x.owner, x.level, Number(x.paused)]);
+    }
+    if (adminReads.length > 0) {
+      // The Admin read records come from step 9; step 10 gave them a kind, so the rows go in at the schema before it.
+      await migrate(old, MAIN_SCHEMA, MAIN_STEPS.filter((s) => s.version <= 9));
+      for (const x of adminReads) {
+        await old.run('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?)', [x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt]);
+      }
     }
   } finally {
     await old.close();
