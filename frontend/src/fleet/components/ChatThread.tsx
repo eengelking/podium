@@ -292,7 +292,7 @@ export function ChatThread(p: ThreadProps) {
         className="ch-body"
         ref={body}
         role="region"
-        tabIndex={0}
+        tabIndex={0} /* NOSONAR S6845: a focusable scroll region, by design */
         aria-label="Messages, oldest first"
         onScroll={(e) => {
           const el = e.currentTarget;
