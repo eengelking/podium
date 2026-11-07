@@ -1,11 +1,11 @@
-// The tools the reporter adds to OpenCode's model through `ctx.tool.transform` (#969): `plan`, and the three messaging tools. Each takes plain
+// The tools the reporter adds to OpenCode's model through `ctx.tool.transform` (#969): `plan`, and the four messaging tools. Each takes plain
 // JSON Schema for its input (a `ValueSchema` may be one) and answers with text. The descriptions are `core/peers.ts`'s, the same as Claude
 // Code's. A tool never throws: whatever goes wrong is its answer.
-import { SEND_TO_DESCRIPTION, TOOL_DESCRIPTIONS } from '../core/peers.ts';
+import { CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, SEND_TO_DESCRIPTION, TOOL_DESCRIPTIONS } from '../core/peers.ts';
 import type { Reporter } from './reporter.ts';
 
 /** The names of the messaging tools: removed from the host when Podium stops saying the session takes part. */
-export const MESSAGING_TOOLS = ['podium_peers', 'podium_send', 'podium_request_access'] as const;
+export const MESSAGING_TOOLS = ['podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read'] as const;
 
 export interface PodiumTool {
   name: string;
@@ -27,7 +27,7 @@ export function podiumTools(reporter: Reporter): PodiumTool[] {
     },
   ];
   if (!reporter.offersMessaging) return tools;
-  const peerTool = (name: 'podium_peers' | 'podium_send' | 'podium_request_access') => async (input: unknown, c: { sessionID: string }) => text(await reporter.peerTool(name, c.sessionID, input).catch(() => 'Not done. The reporter could not finish this call; /podium shows the connection.'));
+  const peerTool = (name: (typeof MESSAGING_TOOLS)[number]) => async (input: unknown, c: { sessionID: string }) => text(await reporter.peerTool(name, c.sessionID, input).catch(() => 'Not done. The reporter could not finish this call; /podium shows the connection.'));
   tools.push(
     { name: 'podium_peers', description: TOOL_DESCRIPTIONS.peers, input: { type: 'object', properties: {} }, execute: peerTool('podium_peers') },
     {
@@ -53,6 +53,16 @@ export function podiumTools(reporter: Reporter): PodiumTool[] {
         required: ['to', 'right', 'reason'],
       },
       execute: peerTool('podium_request_access'),
+    },
+    {
+      name: 'podium_chat_read',
+      description: TOOL_DESCRIPTIONS.chatRead,
+      input: {
+        type: 'object',
+        properties: { channel: { type: 'string', enum: ['general', 'group'], description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
+        required: ['channel'],
+      },
+      execute: peerTool('podium_chat_read'),
     },
   );
   return tools;

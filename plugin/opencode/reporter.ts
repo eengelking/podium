@@ -537,10 +537,10 @@ export class Reporter {
   }
 
   /**
-   * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`) from the session it ran in. A call from a subagent's
+   * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`) from the session it ran in. A call from a subagent's
    * session is refused: only an orchestrator takes part. The answer is the tool's text, never a thrown error.
    */
-  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access', sessionId: string, input: unknown): Promise<string> {
+  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access' | 'podium_chat_read', sessionId: string, input: unknown): Promise<string> {
     const peers = this.peers;
     if (!peers) return 'Not taking part. Orchestrator messaging is off on this machine.';
     const rootId = this.store.rootOf.get(sessionId);
@@ -550,6 +550,7 @@ export class Reporter {
     const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
     if (name === 'podium_peers') return peers.list(root, t, sub);
     if (name === 'podium_send') return peers.send(root, t, sub, args);
+    if (name === 'podium_chat_read') return peers.chatRead(root, t, sub, args);
     return peers.access(root, t, sub, args);
   }
 

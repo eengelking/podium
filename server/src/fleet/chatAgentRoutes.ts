@@ -7,7 +7,7 @@ import { asyncHandler } from './asyncHandler.js';
 import { jsonBody } from '../jsonBody.js';
 import { nameKey, sourceAddress } from '../storage/rows.js';
 import { peersEnabled, type PeerDeps } from './peerRoutes.js';
-import { messageView } from './chatChannels.js';
+import { agentMessageView } from './chatChannels.js';
 import { channelOf, type Fail } from './chatTypes.js';
 import type { LiveOrchestrator } from './peerTypes.js';
 
@@ -57,7 +57,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     res.status(201).json({ ok: true, id: out.message.id, createdAt: out.message.createdAt });
   }));
 
-  /** The newest messages that fit in about 30,000 characters, oldest first; `older` is the cursor for the ones before them. */
+  /** The last hour of a channel the agent was called into: the newest messages that fit in about 30,000 characters, oldest first; `older` is the cursor for the ones before them that are inside the hour. */
   router.get('/sessions/:id/chat/channels/:channel/messages', d.requireToken, asyncHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
@@ -66,6 +66,6 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     const before = typeof req.query.before === 'string' ? req.query.before : null;
     const out = await fleet.chat.channels.agentRead(o, channel, before);
     if ('status' in out) return void failed(req, res, out);
-    res.json({ ok: true, channel, messages: out.messages.map((m) => messageView(m, null)), older: out.older });
+    res.json({ ok: true, channel, messages: out.messages.map(agentMessageView), older: out.older });
   }));
 }

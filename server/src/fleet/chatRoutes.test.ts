@@ -249,7 +249,8 @@ describe('addressing with @', () => {
     expect(res.body.message.mentions).toEqual([expect.objectContaining({ typed: 'Tester@ci-runner-01', sessionId: 'sess-tester', state: 'waiting', why: null })]);
     const got = await deliveriesFor(s, 'tester');
     expect(got).toHaveLength(1);
-    expect(got[0]).toMatchObject({ kind: 'message' });
+    // The channel's name tells the reporter to add where to read what was said around it (podium_chat_read).
+    expect(got[0]).toMatchObject({ kind: 'message', channel: 'My group' });
     expect(got[0]!.text).toContain('run the Debian tests');
     expect(got[0]!.text).toMatch(/Podium Chat.*My group.*Ed/);
     // The other agent heard nothing.
@@ -740,13 +741,18 @@ describe('direct messages', () => {
     const s = await world();
     await linkedConversation(s);
     await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'DM-ONLY-SECRET-TEXT' });
-    await say(s.edB, 'group', 'channel text');
-    await say(s.edB, 'general', 'public text');
+    // The agent is called into both channels, so its read is answered (a refusal would hold the rule for nothing).
+    await say(s.edB, 'group', '@Tester@ci-runner-01 channel text');
+    await say(s.edB, 'general', '@Tester@ci-runner-01 public text');
     const seen: string[] = [];
     for (const b of [s.edB, s.alexB]) {
       for (const path of ['', '/channels/group/messages', '/channels/general/messages', '/addresses?channel=general', '/addresses?channel=group']) seen.push(JSON.stringify((await b.get(`${CH}${path}`)).body));
     }
-    for (const path of ['group', 'general']) seen.push(JSON.stringify((await request(s.app).get(`/api/fleet/sessions/sess-tester/chat/channels/${path}/messages`).set('X-Podium-Token', s.ed.token)).body));
+    for (const path of ['group', 'general']) {
+      const agent = await request(s.app).get(`/api/fleet/sessions/sess-tester/chat/channels/${path}/messages`).set('X-Podium-Token', s.ed.token);
+      expect(agent.status).toBe(200);
+      seen.push(JSON.stringify(agent.body));
+    }
     const sse: string[] = [];
     s.fleet.hub.add({ write: (c: string) => sse.push(c) });
     await say(s.edB, 'group', 'one more');
@@ -754,6 +760,150 @@ describe('direct messages', () => {
     seen.push(sse.join(''));
     for (const body of seen) expect(body).not.toContain('DM-ONLY-SECRET-TEXT');
     expect(seen.join('')).not.toContain('agent hello');
+  });
+});
+
+describe('an agent reads the channel it was called into (#1034)', () => {
+  const HOUR = 60 * 60 * 1000;
+  const MIN = 60 * 1000;
+  const NOT_CALLED = 'You were not called into this channel in the last hour.';
+  const agentRead = (s: S, sid: string, token: string, channel: string, q = '') => request(s.app).get(`/api/fleet/sessions/${sid}/chat/channels/${channel}/messages${q}`).set('X-Podium-Token', token);
+  const asTester = (s: S, channel = 'group', q = '') => agentRead(s, 'sess-tester', s.ed.token, channel, q);
+
+  it('answers the messages of the last hour, oldest first, to an agent that was addressed in the channel', async () => {
+    const s = await world();
+    await say(s.edB, 'group', 'before the call');
+    s.tick(MIN);
+    await say(s.edB, 'group', '@Tester@ci-runner-01 look at the build');
+    const res = await asTester(s);
+    expect(res.status).toBe(200);
+    expect(texts(res)).toEqual(['before the call', '@Tester@ci-runner-01 look at the build']);
+    expect(res.body).toMatchObject({ ok: true, channel: 'group', older: null });
+    expect(res.body.messages[0]).toMatchObject({ authorKind: 'person', authorName: 'Ed' });
+    expect(typeof res.body.messages[0].createdAt).toBe('number');
+  });
+
+  it('refuses a channel the agent was not called into, in words that name nothing', async () => {
+    const s = await world();
+    await say(s.edB, 'group', 'a note with no @');
+    await say(s.edB, 'general', '@dev@ed-mbp only the other agent');
+    for (const channel of ['group', 'general']) {
+      const res = await asTester(s, channel);
+      expect(res.status).toBe(403);
+      expect(res.body).toEqual({ ok: false, error: NOT_CALLED });
+    }
+  });
+
+  it('allows General and My group each only where the agent was addressed in that channel', async () => {
+    const s = await world();
+    await say(s.edB, 'general', '@Tester@ci-runner-01 hello everyone');
+    await say(s.edB, 'group', 'group chatter');
+    expect(texts(await asTester(s, 'general'))).toEqual(['@Tester@ci-runner-01 hello everyone']);
+    expect((await asTester(s, 'group')).status).toBe(403);
+    await say(s.edB, 'group', '@Tester@ci-runner-01 now here');
+    expect(texts(await asTester(s, 'group'))).toEqual(['group chatter', '@Tester@ci-runner-01 now here']);
+  });
+
+  it('does not count a call that was never delivered', async () => {
+    const s = await world();
+    await s.edB.put(`${CH}/channels/group/disconnect`).set(H).send({ disconnected: true });
+    await say(s.edB, 'group', '@Tester@ci-runner-01 never delivered');
+    await s.edB.put(`${CH}/channels/group/disconnect`).set(H).send({ disconnected: false });
+    expect((await asTester(s)).body).toEqual({ ok: false, error: NOT_CALLED });
+  });
+
+  it('shows the last hour only: a message at 59 minutes, never one at 61, and the call itself must be inside it', async () => {
+    const s = await world();
+    await say(s.edB, 'group', 'oldest');
+    s.tick(30 * MIN);
+    await say(s.edB, 'group', '@Tester@ci-runner-01 the call');
+    s.tick(29 * MIN);
+    await tester(s);
+    expect(texts(await asTester(s))).toEqual(['oldest', '@Tester@ci-runner-01 the call']);
+    s.tick(2 * MIN);
+    await tester(s);
+    const later = await asTester(s);
+    expect(texts(later)).toEqual(['@Tester@ci-runner-01 the call']);
+    expect(later.body.older).toBeNull();
+    s.tick(30 * MIN);
+    await tester(s);
+    expect((await asTester(s)).body).toEqual({ ok: false, error: NOT_CALLED });
+  });
+
+  it('pages inside the hour by the cursor, never past it, and cuts a call at about 30,000 characters', async () => {
+    const s = await world();
+    await (await adminAgent(s)).put('/api/admin/settings').set(HA).send({ chat: { maxChars: 12_000, perMinute: 600 } });
+    await say(s.edB, 'group', 'x'.repeat(100) + ' from two hours ago');
+    s.tick(2 * HOUR);
+    await tester(s);
+    const chunk = (i: number) => `${String(i).padStart(2, '0')} ` + 'y'.repeat(3_000);
+    expect((await say(s.edB, 'group', '@Tester@ci-runner-01 ' + chunk(0))).status).toBe(201);
+    for (let i = 1; i < 14; i++) expect((await say(s.edB, 'group', chunk(i))).status).toBe(201);
+    const first = await asTester(s);
+    expect(first.status).toBe(200);
+    const shown = texts(first);
+    expect(shown.reduce((n, t) => n + t.length, 0)).toBeLessThanOrEqual(30_000);
+    expect(shown.length).toBeLessThan(14);
+    expect(shown.at(-1)!.startsWith('13 ')).toBe(true);
+    expect(first.body.older).toEqual(expect.any(String));
+    const second = await asTester(s, 'group', `?before=${encodeURIComponent(first.body.older)}`);
+    expect(second.status).toBe(200);
+    expect([...texts(second), ...shown].length).toBe(14);
+    expect(texts(second)[0]!.startsWith('@Tester@ci-runner-01 00 ')).toBe(true);
+    expect(second.body.older).toBeNull();
+    expect(JSON.stringify([first.body, second.body])).not.toContain('two hours ago');
+  });
+
+  it('still reads a paused channel, and refuses a disconnected one', async () => {
+    const s = await world();
+    await say(s.edB, 'group', '@Tester@ci-runner-01 hello');
+    await s.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true });
+    expect((await asTester(s)).status).toBe(200);
+    await s.edB.put(`${CH}/channels/group/disconnect`).set(H).send({ disconnected: true });
+    expect((await asTester(s)).status).toBe(403);
+  });
+
+  it('refuses an ended agent, another person\'s agent and the admin secret', async () => {
+    const s = await world();
+    await say(s.edB, 'group', '@Tester@ci-runner-01 hello');
+    expect((await agentRead(s, 'sess-tester', s.alex.token, 'group')).status).toBe(403);
+    expect((await agentRead(s, 'sess-tester', SECRET, 'group')).status).toBe(403);
+    await tester(s, { status: 'done', waitReason: null });
+    s.tick(10_000);
+    await s.fleet.sweep();
+    expect((await asTester(s)).status).toBe(404);
+  });
+
+  it('reads only its own person\'s group: another person\'s group text is never returned', async () => {
+    const s = await world();
+    await say(s.edB, 'group', '@Tester@ci-runner-01 ED-GROUP-ONLY');
+    await say(s.alexB, 'group', '@review@alex-box ALEX-GROUP-ONLY');
+    const alexs = await agentRead(s, 'sess-alex', s.alex.token, 'group');
+    expect(texts(alexs)).toEqual(['@review@alex-box ALEX-GROUP-ONLY']);
+    expect(JSON.stringify(alexs.body)).not.toContain('ED-GROUP-ONLY');
+    expect(JSON.stringify((await asTester(s)).body)).not.toContain('ALEX-GROUP-ONLY');
+  });
+
+  it('shows another agent\'s message with its kind, and returns no session id or direct message', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await say(s.edB, 'group', '@Tester@ci-runner-01 report back');
+    const posted = await request(s.app).post('/api/fleet/sessions/sess-dev/chat/channels/group/messages').set('X-Podium-Token', s.ed.token).send({ text: 'dev here' });
+    expect(posted.status).toBe(201);
+    const res = await asTester(s);
+    expect(res.body.messages.map((m: { authorKind: string; authorName: string }) => [m.authorKind, m.authorName])).toEqual([['person', 'Ed'], ['orchestrator', 'dev']]);
+    const wire = JSON.stringify(res.body);
+    expect(wire).not.toContain('sess-');
+    expect(wire).not.toContain('agent hello');
+  });
+
+  it('changes no mention\'s state by reading', async () => {
+    const s = await world();
+    await say(s.edB, 'group', '@Tester@ci-runner-01 hello');
+    const before = JSON.stringify((await read(s.edB, 'group')).body.messages[0].mentions);
+    await asTester(s);
+    await asTester(s, 'general');
+    expect(JSON.stringify((await read(s.edB, 'group')).body.messages[0].mentions)).toBe(before);
   });
 });
 
@@ -802,11 +952,14 @@ describe('the reporter-token routes for agents', () => {
 
   it('lets an orchestrator post to its group and to General, and read both', async () => {
     const s = await world();
+    // An agent reads only a channel it was called into (#1034), so dev is called into both first.
+    await say(s.edB, 'group', '@dev@ed-mbp are you there');
+    await say(s.edB, 'general', '@dev@ed-mbp are you there');
     expect((await agentPost(s, 'sess-tester', 'group', { text: 'to my group' })).status).toBe(201);
     expect((await agentPost(s, 'sess-tester', 'general', { text: 'to everyone' })).status).toBe(201);
-    expect(texts(await agentRead(s, 'sess-dev', 'group'))).toEqual(['to my group']);
-    expect(texts(await agentRead(s, 'sess-dev', 'general'))).toEqual(['to everyone']);
-    expect((await read(s.alexB, 'general')).body.messages[0]).toMatchObject({ authorKind: 'orchestrator', authorName: 'Tester' });
+    expect(texts(await agentRead(s, 'sess-dev', 'group'))).toEqual(['@dev@ed-mbp are you there', 'to my group']);
+    expect(texts(await agentRead(s, 'sess-dev', 'general'))).toEqual(['@dev@ed-mbp are you there', 'to everyone']);
+    expect((await read(s.alexB, 'general')).body.messages.at(-1)).toMatchObject({ authorKind: 'orchestrator', authorName: 'Tester' });
     expect(texts(await read(s.alexB, 'group'))).toEqual([]);
   });
 
@@ -835,7 +988,7 @@ describe('the reporter-token routes for agents', () => {
     const s = await world();
     const a = await adminAgent(s);
     await a.put('/api/admin/settings').set(HA).send({ chat: { maxChars: 12_000, perMinute: 600 } });
-    for (let i = 0; i < 6; i++) expect((await say(s.edB, 'group', `${i}`.repeat(12_000))).status).toBe(201);
+    for (let i = 0; i < 6; i++) expect((await say(s.edB, 'group', i === 0 ? `@dev@ed-mbp ${'0'.repeat(11_900)}` : `${i}`.repeat(12_000))).status).toBe(201);
     const first = await agentRead(s, 'sess-dev', 'group');
     expect(first.status).toBe(200);
     const size = (r: typeof first) => (r.body.messages as { text: string }[]).reduce((n, m) => n + m.text.length, 0);

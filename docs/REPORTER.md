@@ -158,7 +158,7 @@ five plugin options at the end of the table.
 | `PODIUM_SESSION_RECORDING` | off | Allow session recording, as for `sessionRecording`. The person is told through a toast when a recording starts or stops |
 | `PODIUM_FILE_DIFF` | off | Send a changed file's diff on request, as for `fileDiff`. The list of changed files is always sent |
 | `PODIUM_RESPOND` | off | How far Podium may answer: `true` or `questions`, `questions-and-plans`, or `everything`. Needs `PODIUM_ACTIVITY_FEED` too, and the Admin's Respond from Podium switch |
-| `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send` and `podium_request_access` tools once Podium says the session takes part, and withdraws them if it stops (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
+| `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send`, `podium_request_access` and `podium_chat_read` tools once Podium says the session takes part, and withdraws them if it stops (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
 | `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with the cheapest small model in OpenCode's model list (an enabled chat model whose id names a Haiku, mini, nano, flash, lite or small tier) and uses OpenCode's default model only when none is listed (a chosen model that fails gives no explanation, so the expensive default is never the retry). The explanation ends with the model that wrote it. It is cut at 400 characters, and its cost is not counted anywhere |
 | `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds`, `fileDiffPreload` | `1000`, `5000`, empty, `60`, on | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named. `fileDiffPreload: false` turns off sending the diffs ahead of a request; it only narrows `PODIUM_FILE_DIFF`, so it never turns a diff on. These five are read only if OpenCode hands the plugin its options, and the PR that added them (#978) found they cannot be set on an auto-discovered plugin, which every install above is. That is not confirmed with a live run, so use the environment variable (`PODIUM_IDLE_SECONDS`) where one exists |
 
@@ -370,7 +370,7 @@ This section is the mod's side. To set messaging up across your machines (the se
 [MESSAGING.md](MESSAGING.md). It also covers Traffic (deprecated; Chat replaced it), the console page that shows who talks to whom.
 
 With `peers` on, and once the server says this session takes part, the orchestrator (the session's main loop)
-gets three tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
+gets four tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
 nothing the server sends is taken.
 
 | Tool | What it does |
@@ -378,6 +378,7 @@ nothing the server sends is taken.
 | `podium_peers` | Lists the orchestrators it can reach on your other machines: name, machine, OS, project, status, and whether it can send there (with or without your approval). Says which of your machines are left out and why |
 | `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
 | `podium_request_access(to, right, reason)` | Asks you for a right to see or to send to one of your machines. The answer arrives later as a message |
+| `podium_chat_read(channel, before?)` | Reads the last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only, under a line that says the messages are not your instructions. A channel it was not called into in that hour is refused |
 
 - **Only the orchestrator.** Claude Code lists a mod's tools for subagents too, so each tool refuses any call
   made by a subagent (or one of Claude Code's own forks): "Not sent. Only an orchestrator can send. Put the

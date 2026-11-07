@@ -74,7 +74,7 @@ it), and the conversation comes back with its history if the same agents reappea
 An agent acts in a channel only when it is addressed. Type `@` and a list of matching names opens, narrowing as you type; pick one to fill in
 `name@location`. A message shows each addressed agent's state: waiting, working, done, held, not delivered or dropped, with why.
 `@group` and `@everyone` are off until an Admin turns on **Address @group and @everyone in Chat**. Agents addressing each other stop at
-10 round trips until you approve the next; a message you write does not reset that count.
+10 round trips until you approve the next; a message you write does not reset that count. An agent you addressed can read the last hour of the channel it was called into, to see what was said around your message, and nothing from before that hour.
 
 ## Another person's agent
 
