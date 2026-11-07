@@ -10,8 +10,8 @@ import { sessionPath, type Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
 import {
-  accessAnswer, answerPaused, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
-  refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_PEERS, SUBAGENT_SEND,
+  accessAnswer, answerPaused, channelArgument, chatReadAnswer, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
+  refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { Root } from './state.ts';
 
@@ -48,6 +48,8 @@ interface ToolInput {
   text?: unknown;
   right?: unknown;
   reason?: unknown;
+  channel?: unknown;
+  before?: unknown;
 }
 
 export class Peers {
@@ -206,6 +208,17 @@ export class Peers {
     const reason = typeof input.reason === 'string' ? redactText(input.reason).text : '';
     const out = await this.call(t, 'POST', this.path(root, '/access'), { to, right, reason });
     return this.outcome('Not asked.', out, (body) => accessAnswer(body, { owner: this.owner(), right, to }));
+  }
+
+  /** `podium_chat_read`: the last hour of a channel this orchestrator was called into. Podium decides what it may read; the answer starts with Podium's frame. */
+  async chatRead(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
+    if (sub) return SUBAGENT_CHAT_READ;
+    if (!root || !t || !this.on(root, t)) return this.off('Not read.', root, t);
+    const channel = channelArgument(input.channel);
+    if (!channel) return 'Not read. channel must be general or group.';
+    const before = typeof input.before === 'string' && input.before.trim() ? `?before=${encodeURIComponent(input.before.trim())}` : '';
+    const out = await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels/${channel}/messages${before}`);
+    return this.outcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: this.owner() }));
   }
 
   /** `/podium allow|decline|deliver <id>`: answered through the server's route, and the answer names the id. */

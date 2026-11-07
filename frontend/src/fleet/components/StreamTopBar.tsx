@@ -10,7 +10,7 @@ import { TopBar } from "./TopBar";
 /**
  * The shared top bar for a page that has no wall of its own (History #452, Admin #468). It owns the fleet stream, so the
  * stream's ticks redraw only the bar and not the page below, and gives the bar what it reads: the live reporter count, the
- * connection, who is signed in, and the Traffic and My reporters links while orchestrator messaging is on. There is no Hide
+ * connection, who is signed in, and the Chat and My reporters links while orchestrator messaging is on. There is no Hide
  * top bar or wall button here: the page has no wall, and the bar is one line.
  */
 export function StreamTopBar({ page, base, fleetOptions, respondApi, peersApi, onSignInChange }: { page: string; base?: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi; onSignInChange?: (signedIn: boolean) => void }) {
@@ -39,7 +39,7 @@ function Bar({ page, fleet, peersApi = livePeersApi, onSignInChange }: { page: s
       phase={fleet.phase}
       reporters={reportersLive(fleet.sessions, fleet.leaving)}
       myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: false } : undefined}
-      traffic={peersOn ? { current: false } : undefined}
+      chat={peersOn ? { current: false } : undefined}
     />
   );
 }

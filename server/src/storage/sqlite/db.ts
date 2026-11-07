@@ -365,6 +365,60 @@ ALTER TABLE sessions ADD COLUMN model_provider TEXT;`,
     sql: `ALTER TABLE agents ADD COLUMN model_label TEXT;
 ALTER TABLE agents ADD COLUMN model_provider TEXT;`,
   },
+  {
+    version: 31,
+    // The Chat page (#1034). A direct message records who wrote it, an agent or the owning person (every message stored before this was an agent's), and
+    // when every agent in its conversation had left (hidden_at), so the conversation is kept for a grace period and comes back if the same peers return.
+    // Group and General messages are tables of their own, one per audience, with the same row shape (the group's also carries its owner and group); a
+    // direct message is never copied into either. A person's unread and mention counts are kept per thread.
+    sql: `
+ALTER TABLE peer_messages ADD COLUMN author TEXT NOT NULL DEFAULT 'agent';
+ALTER TABLE peer_messages ADD COLUMN hidden_at INTEGER;
+CREATE INDEX IF NOT EXISTS peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, group_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (
+  person TEXT NOT NULL, thread TEXT NOT NULL, last_read TEXT, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
+  },
+  {
+    version: 32,
+    // Who paused a person's link to another person's agent (#1034): the person, the agent's owner or an Admin, so only they (or an Admin) can resume it.
+    // NULL means not paused, or paused before this was kept, which either owner may resume.
+    sql: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;`,
+  },
+  {
+    version: 33,
+    // An Admin reading a person's group or a Direct Message (#1034): one record per reading session, so the people in the thread can be told. It holds who,
+    // which thread and when, never any text. A session is the Admin's reads of one thread with less than 30 minutes between them.
+    // The Admin who paused a link is named with the pause (paused_by_admin), so the owner knows whom to ask.
+    sql: `
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TEXT;
+CREATE TABLE chat_admin_reads (
+  thread TEXT NOT NULL, admin_key TEXT NOT NULL, admin TEXT NOT NULL, started_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);`,
+  },
+  {
+    version: 34,
+    // What an Admin record says (#1034): a reading (every record before this one), or one of the Admin's stops that stay on the record for good: removed all
+    // messages, paused, resumed. The rows already there are readings, which the default says.
+    sql: `ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

@@ -16,6 +16,7 @@ import { reportCases } from './contractReports.js';
 import { txCases } from './contractTx.js';
 import { activityCases } from './contractActivity.js';
 import { peerCases } from './contractPeers.js';
+import { chatCases } from './contractChat.js';
 import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
 import type { StoredSessionRow } from '../fleet/activityHistoryTypes.js';
 import type { AgentRow, BlowoutRow, EventRow, GroupListRow, PersonListRow, PersonRow, ReporterRow, ReporterSeen, SampleRow, SessionRow } from './rows.js';
@@ -97,7 +98,7 @@ const REPORTER_SHAPE: Shape<ReporterRow> = {
 };
 const MESSAGE_SHAPE: Shape<MessageRow> = {
   id: 'text', owner: 'text', link: 'text', fromKey: 'text', toKey: 'text', fromSession: 'text', toSession: 'text', fromName: 'text', fromMachine: 'text',
-  toName: 'text', toMachine: 'text', text: 'text', sentAt: 'int', state: 'text', stateAt: 'int', why: 'text?', approved: 'bool',
+  toName: 'text', toMachine: 'text', text: 'text', sentAt: 'int', state: 'text', stateAt: 'int', why: 'text?', approved: 'bool', author: 'text',
 };
 const RECORDING_SHAPE: Shape<RecordingAdminRow> = {
   sessionId: 'text', name: 'text', owner: 'text?', startedBy: 'text?', state: 'text', limit: 'text?', loops: 'int', label: 'text', bytes: 'int', keptUntil: 'int?',
@@ -118,6 +119,7 @@ export function runStorageContract(adapters: ContractAdapter[]): void {
     peopleCases(against);
     reporterCases(against);
     peerCases(against);
+    chatCases(against);
     activityCases(against);
     reportCases(against);
     txCases(against);

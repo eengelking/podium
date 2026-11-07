@@ -549,6 +549,10 @@ export interface Delivery {
   mode?: PlanMode;
   text?: string;
   command?: PodiumCommand;
+  /** Set on a message that is the owner's own Chat Direct Message to this agent (#1034): the agent may answer it in the thread with `podium_send` to `person:<by>`. Older reporters ignore it. */
+  chat?: true;
+  /** Set on a message from an `@` in a Chat channel (#1034), to a session whose reporter has peer tools: the channel's name (`General` or `My group`). The reporter adds where to read what was said around it. Older reporters ignore it. */
+  channel?: string;
 }
 
 /** What became of a delivery, as the mod reports it. */
@@ -595,6 +599,11 @@ export interface PeerParty {
   owner: string;
   /** The sender's short session id, for `name@machine#id`; absent from a server older than #500. */
   id?: string;
+  /**
+   * True when `name` is a person, not an orchestrator (#1034): another person who wrote to this one's agent through Podium Chat, with their owner's say-so.
+   * Then `machine` is empty and `owner` is the person who owns this session, so the frame can say the text is not theirs.
+   */
+  person?: boolean;
 }
 
 /**
@@ -641,6 +650,17 @@ export interface PeerRequest {
   text: string | null;
 }
 
+/**
+ * A callout for this session's person (#1034): an Admin started reading, or paused, resumed or removed all messages of, one of their Podium conversations.
+ * One content-free sentence naming the Admin, never any message text. The server hands the same one over for a few minutes; `id` lets the mod show it once.
+ * It is for the person only: a mod shows it as a toast and a transcript line and never submits it to the model. Not gated by the `peers` option.
+ */
+export interface AdminNotice {
+  id: string;
+  at: number;
+  text: string;
+}
+
 /** The reply to an accepted report. Older servers send only some of it. */
 export interface ReportReply {
   ok: true;
@@ -671,6 +691,8 @@ export interface ReportReply {
   peerDeliveries?: PeerDelivery[];
   /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
   peerRequests?: PeerRequest[];
+  /** Callouts for the person, present only while there is one (#1034). Absent from a server older than the release that adds it; an older reporter ignores it. */
+  adminNotices?: AdminNotice[];
   /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
   recording?: RecordingGrant;
 }

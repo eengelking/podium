@@ -5,18 +5,30 @@ describe('admin: settings', () => {
   beforeEach(() => cy.openAdmin('Settings'));
 
   const FLAGS = ['activity-feed', 'activity-output', 'respond', 'file-diff', 'peer-messaging', 'session-recording', 'update-check'];
+  // Address @group and @everyone in Chat (#1034) is off on a seeded server; the seed turns on the seven above.
+  const CHAT_EVERYONE = 'chat-everyone';
   // Whatever a test turned off is turned on again here, so a failing test cannot leave a flag off for the next one.
-  afterEach(() => cy.setFlags(Object.fromEntries(FLAGS.map((f) => [f, true]))));
+  afterEach(() => cy.setFlags({ ...Object.fromEntries(FLAGS.map((f) => [f, true])), [CHAT_EVERYONE]: false }));
 
   it('has one switch row per feature flag, with its name, its id in mono and a description', () => {
     cy.get('h2#admin-features-h').should('have.text', 'Feature flags');
-    for (const id of FLAGS) cy.settingSwitch(`feature-${id}`).should('exist');
+    for (const id of [...FLAGS, CHAT_EVERYONE]) cy.settingSwitch(`feature-${id}`).should('exist');
+    cy.contains('.srow', 'Address @group and @everyone in Chat').should('contain.text', CHAT_EVERYONE).and('contain.text', 'Off, a message that uses either is refused');
     cy.contains('.srow', 'Agent activity feed').should('contain.text', 'activity-feed').and('contain.text', "Shows an agent's recent tool calls and text in its panel");
     cy.contains('.srow', 'Release check').should('contain.text', 'update-check');
   });
 
   it('shows the seeded state of each flag (all on)', () => {
     for (const id of FLAGS) cy.settingSwitch(`feature-${id}`).should('have.attr', 'aria-checked', 'true');
+  });
+
+  it('starts Address @group and @everyone in Chat off, turns it on and off again, and the server keeps it', () => {
+    cy.settingSwitch(`feature-${CHAT_EVERYONE}`).should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[CHAT_EVERYONE]).to.eq(true));
+    cy.reload();
+    cy.adminPage('Settings');
+    cy.settingSwitch(`feature-${CHAT_EVERYONE}`).should('have.attr', 'aria-checked', 'true').click().should('have.attr', 'aria-checked', 'false');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[CHAT_EVERYONE]).to.eq(false));
   });
 
   it('turns a flag off and on again, and the server keeps it', () => {

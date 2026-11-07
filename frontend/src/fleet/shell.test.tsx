@@ -387,6 +387,18 @@ describe("useFleet", () => {
     expect(result.current.gone.s1).toBe("done");
   });
 
+  it("counts the stream's content-free chat event, for Chat to read again (#1034)", async () => {
+    vi.useFakeTimers();
+    const fetchState = vi.fn().mockResolvedValue(makeState());
+    const { result } = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const before = result.current.chatRev;
+    act(() => FakeSource.last!.emit("chat", { scope: "dm", owner: null, rev: 1 }));
+    expect(result.current.chatRev).toBe(before + 1);
+  });
+
   it("reopens a stream the browser closed on error", () => {
     vi.useFakeTimers();
     FakeSource.opened = 0;

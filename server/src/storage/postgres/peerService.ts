@@ -3,7 +3,7 @@
 import { PgPeerRights } from './peerRights.js';
 import { PgPeerMessages } from './peerMessages.js';
 import { PgPeerSettings } from './peerSettings.js';
-import { isIdle, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
+import { isIdle, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
@@ -47,6 +47,7 @@ export class PgPeerService {
       {
         effective: (from, to) => this.rights.effective(from, to),
         limits: async (owner) => this.rights.limits(owner, await this.settings.limits()),
+        personLink: (k, t) => this.rights.personLink(k, t),
         openMessageRequest: (input) => this.rights.openMessageRequest(input),
         closeMessageRequest: (id, outcome) => this.rights.closeMessageRequest(id, outcome),
       },
@@ -107,7 +108,8 @@ export class PgPeerService {
 
   /** A request as the owner's sessions and My reporters show it: machines by name, and a message's text for its approval. */
   async requestView(r: PeerRequestRow): Promise<PeerRequest> {
-    const machine = async (key: string) => (await this.reporters.get(key))?.machine ?? key;
+    // A person's end of a link (#1034) is not a machine: it reads "Podium Chat".
+    const machine = async (key: string) => (isPersonKey(key) ? 'Podium Chat' : ((await this.reporters.get(key))?.machine ?? key));
     const m = r.messageId ? await this.messages.message(r.messageId) : null;
     return {
       id: r.id,
@@ -124,7 +126,7 @@ export class PgPeerService {
 
   /** A request as the owner's read lists it: `requestView`, plus both reporters by key and the message it is about. */
   async ownerRequestView(r: PeerRequestRow): Promise<OwnerRequestView> {
-    return { ...(await this.requestView(r)), fromKey: r.fromKey, toKey: r.toKey, messageId: r.messageId };
+    return { ...(await this.requestView(r)), fromKey: r.fromKey, toKey: r.toKey, messageId: r.messageId, fromPerson: isPersonKey(r.fromKey) };
   }
 
   /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
@@ -140,8 +142,11 @@ export class PgPeerService {
     const out = await this.rights.answer(id, owner, answer, actor);
     if (!out.ok) return out;
     if ('message' in out) {
-      if (out.message.deliver) await this.messages.approve(out.message.id, actor);
-      else await this.messages.decline(out.message.id, actor);
+      if (out.message.deliver) {
+        await this.messages.approve(out.message.id, actor);
+        // Allowing a person's first message opens the link, so what they write next goes through without asking again (#1034).
+        if (isPersonKey(out.request.fromKey)) await this.rights.setPersonLink(out.request.fromKey, out.request.toKey, 'allow', actor);
+      } else await this.messages.decline(out.message.id, actor);
       return out;
     }
     const r = out.request;
@@ -228,6 +233,13 @@ export class PgPeerService {
     return out;
   }
 
+  /** Opens, pauses, resumes or removes a person's link to another person's agent's reporter (#1034). A removal drops what still waits on it. */
+  async setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal> {
+    const out = await this.rights.setPersonLink(personKey, toKey, op, actor, pausedBy);
+    if (out.ok && op === 'remove') await this.messages.linkRemoved(personKey, toKey);
+    return out;
+  }
+
   ended(sessionId: string): Promise<void> {
     return this.messages.ended(sessionId);
   }
@@ -249,7 +261,7 @@ export class PgPeerService {
     return this.db.tx(async () => {
       const cutoff = this.now() - (await this.settings.retainMs());
       const quiet = await this.messages.retain(cutoff);
-      const orphans = await this.db.run('DELETE FROM peer_messages WHERE from_session NOT IN (SELECT id FROM sessions) OR to_session NOT IN (SELECT id FROM sessions)');
+      const orphans = await this.db.run('DELETE FROM peer_messages WHERE (from_session NOT LIKE \'person:%\' AND from_session NOT IN (SELECT id FROM sessions)) OR (to_session NOT LIKE \'person:%\' AND to_session NOT IN (SELECT id FROM sessions))');
       return { messages: quiet + orphans, requests: await this.rights.retain(cutoff) };
     });
   }

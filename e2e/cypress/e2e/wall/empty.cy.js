@@ -9,13 +9,13 @@ describe('wall: empty state', () => {
     cy.tid('connection-pill').should('contain.text', '0 reporters live');
   });
 
-  it('says so on the board, in History and on Traffic too', () => {
+  it('says so on the board, in History and on Chat too', () => {
     cy.visit('/#/board');
     cy.contains('No plans on the board');
     cy.visit('/#/history');
     cy.get('.none').invoke('text').should('match', /^No sessions ended on \d{4}-\d{2}-\d{2}\.$/);
-    // A server with nothing set up has messaging off, so Traffic says that (there are no seeded flags).
-    cy.visit('/#/traffic');
+    // A server with nothing set up has messaging off, so Chat says that (there are no seeded flags).
+    cy.visit('/#/chat');
     cy.contains('Orchestrator messaging is off');
   });
 });

@@ -11,7 +11,7 @@ Files: `server/src/fleet/peerTypes.ts`, `peerSettings.ts`, `peerRights.ts`, `pee
 `peerRoutes.ts`; `scripts/podium-peers-demo.mjs`; the mod's `plugin/core/peers.ts` and the messaging block in
 `plugin/claudecode/hooks/register.ts`; the console's `MyReporters.tsx`, `useMyPeers.ts`, `peers.ts`, `components/PeerRights.tsx` and
 `components/PeerLimits.tsx`; Admin's `admin/ReporterMessaging.tsx`; Traffic's `Traffic.tsx`, `trafficData.ts`,
-`useTraffic.ts` and `components/TrafficMap.tsx`. Issue #412 builds the server half of #347, #414 the mod, #415 My
+`useTraffic.ts` and `components/TrafficMap.tsx` (deprecated in 1.6, replaced by Chat; see [Chat](#chat-1034)). Issue #412 builds the server half of #347, #414 the mod, #415 My
 reporters, #416 the Admin's pages, #417 Traffic and #436 an owner's stricter limits; the rules are in SPEC 5.3, 7.7 and
 8.1, and the reasoning in DECISIONS 37. How a person sets it up and uses it is in [MESSAGING.md](../../MESSAGING.md).
 
@@ -87,6 +87,91 @@ cubic curves, and each label at the first point along its curve that clears earl
 `components/TrafficMap.tsx` draws it as inline SVG, each line an `<a>`. `useTraffic` reads the open
 `GET /api/fleet/peers/traffic` every 10 seconds while the page is visible, and `useConversation` asks for a
 conversation's text only when the viewer is its owner or an Admin, so a signed-out browser never requests it.
+
+## Chat (#1034)
+
+Chat is the page that replaced Traffic. It adds two channels, lets the owner write in a Direct Message, and lets one person ask
+another person's agent for a message. Files: `server/src/fleet/chat.ts`, `chatCore.ts`, `chatChannels.ts`, `chatDirect.ts`,
+`chatMentions.ts`, `chatTypes.ts` and the route files `chatRoutes.ts`, `chatChannelRoutes.ts`, `chatDmRoutes.ts` and
+`chatAgentRoutes.ts`; the console's `Chat.tsx`, `chatData.ts`, `useChat.ts`, `chat.css` and `components/Chat*.tsx`. The rules are in SPEC 7.1,
+7.5, 7.7 and 8.1, and the reasoning in DECISIONS 61. The storage is in [Storage](19-storage.md#chats-stores-1034).
+
+**Parts.** `ChatService` (`chat.ts`) is the object the fleet owns (`fleet.chat`). It holds three things and keeps them apart on
+purpose. `ChatCore` has what both sides share and touches no message: the Admin's limits, redaction (`scrubStored`), the per-author
+rate limit, the read-state counts and the stream signal, the audit callback, and `deliver`, which hands a text to an agent through
+responding's message path (`RespondStore.message`) so the Admin's respond flags and the reporter's own consent apply as they do for the
+console's message box. `ChannelChat` is General and My group: posting, paging, the `@` address book, mentions and their
+delivery state, and the stop buttons. `DirectChat` is the Direct Messages: a person writing to one agent or into a conversation
+between two, a person writing to another person's agent, the link between them, hide and show, and delete. `channels` never
+reads a conversation and `direct` never reads a channel, and `chatSeparation.test.ts` holds the files to it. Where they need each
+other, `ChatCore` carries an ask in one direction (`across`) and a hearing in the other (`hearAcross`), and neither carries text it
+should not.
+
+**A channel post.** The text is checked (`maxChars`, `perMinute`), cleaned and redacted, and each `@` is parsed (`chatMentions.ts`)
+and resolved against the address book of that channel to a session id, a reporter key and the address as typed. `@group` and
+`@everyone` fail the whole post when the `chat-everyone` flag is off. For each mention that reaches an agent of the poster, the
+channel's flags decide: disconnected is Not delivered, paused is Held (kept in the mention, delivered in order on resume), otherwise
+`deliver` hands "From Podium Chat, <channel>, <name> wrote:" and the text to the session, and the mention is Waiting. The
+message is stored with its mentions, and `core.watch` follows each delivery's trail so the mention moves to Working, Done, Not
+delivered or Dropped. A mention of another person's agent is stored as `approval` and asked of its owner (below). The counts of
+every person it concerns are bumped (`readState.bump`), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
+
+**A Direct Message.** The conversation is `peer_messages`, so its rules are the messaging store's. A person's text is stored as a
+message with `author: person`; it is stored `queued` after `deliver` took it, so the peer path does not hand it a second time. A
+message to an agent that ended is refused (409) and one in a conversation of two agents with one ended is sent to the other
+with the ended one listed in `skipped`. Hiding and showing follow the live set: `Fleet` calls `chat.sessionSeen` on a report and
+`chat.sessionLeft` when a session ends, is dropped or deleted, `reconcileOwner` hides a conversation with no live agent and shows
+one that has one again, and the hourly `maintain` reconciles everything, then purges (`purgeHidden`, `graceHours`) and applies the
+channels' retention (`retainDays`).
+
+**Across owners.** `sendAcross` stores a person's message to another person's agent as `approval` with a request in the owner's
+list (`fromKey` is `person:<name>`; `fromPerson` on the view). A link from a person (`person:<name>`) to a reporter is a row in
+`peer_rights` (`personLink`, `setPersonLink`; the SQLite and PostgreSQL stores each), so it holds until removed. Allow
+delivers the message and opens the link, so the next one goes without asking; Decline drops it and tells the sender; Pause, Remove
+and `paused_by` (who may resume) are the link's. At most 5 messages from a person wait at one owner. The plugin frames the text
+by `PeerParty.person` (`plugin/core/peers.ts`), so it is never taken for its owner's words, and the frame gives the agent the address to
+answer: `person:<name>`.
+
+**An agent answers a person.** `podium_send` with `to` `person:<name>` reaches `replyToPerson` in each adapter's `peerMessages` store (SQLite and
+PostgreSQL, one test in `contractPeers.ts`), before the usual resolution of `name@machine`. It needs a stored message from that person to
+this very session and a person link (`personLink`) that is open or paused; otherwise it returns the same `404` words as an orchestrator
+the sender cannot see (`REPLY_WORDS.unseen` in `peerText.ts`, which both adapters share), so a refusal says nothing about the owner's
+other agents. A removed link is a `403`, a paused one a `409` (refused and not held), and the per-minute limit a `429`, counted over
+the agent's answers to that person. The answer is stored at once as an `agent` message, `delivered`, with `to_session` `person:<key>`, and
+the `delivered` trail runs, which is how `peer_delivered` reaches the Admin log and how `DirectChat.peerTrail` adds one unread and a mention for the person and one
+unread for the owner (one count when the person is the owner) and sends the content-free `chat` signal. When the person is the agent's own owner, `replyToPerson` needs no link, only a stored message from `person:<owner>` to the session; the owner's Chat message is delivered through the console path with `chat: true` on the `Delivery`, and `plugin/core/peers.ts` (`withChatHint`) ends it with the address to answer to, for Claude Code and OpenCode alike. `podium_peers` lists the people it may answer (`people`). The route
+answers `202` with `person: true`, and `plugin/core/peers.ts` words it for the agent, so Claude Code and OpenCode share it; each has a test. A
+Podium reporter from before this change keeps the old frame and has no such address, and fails safe. The hourly sweep that drops orphan
+messages treats a `person:` end as present. The reporter that took part is
+the owner's, and an Admin's `@` of another person's agent is asked of the owner as anyone's is.
+
+**The page.** `Chat.tsx` keeps what the page chose; `useChat` reads the overview and the open thread when the page opens and
+again whenever the `chat` signal moves `rev` (no interval for data, since a page that also polled would hide a signal that never came; the one timer is an Admin's keep-alive ping, below).
+`chatData.ts` holds the API, the words and the pure helpers; the sidebar, thread, composer and menu are in `components/Chat*.tsx`.
+`usePanes` takes `chat` as a page of its own (`podium.collapsed.chat`, both panels collapsed at first), and `route.ts` sends
+`#/traffic` to `#/chat` (`redirectFor`). Message text is rendered as text nodes only.
+
+**An Admin reading (#1034).** An Admin never reads a person's content in silence (PROJECT.md). `AdminReads` (`chatAdminReads.ts`) is where it is kept:
+`note` runs whenever an Admin reads a My group or a Direct Message that is not theirs (the channel page, the conversation page and the ping routes
+all end in it), and writes one `chat_admin_reads` row for each Admin and reading session (a read less than 30 minutes after the last one is the same
+row; `touch` returns whether it started a new one). A new session writes `chat_admin_read` to the Admin log (`chatRoutes.ts`) and tells each live
+reporter session of the people in the thread; a reading that came back after more than 30 seconds raises the content-free `chat` signal for
+those people, so their page shows the red banner at once. A reading is live for 30 seconds after the last read (`LIVE_MS`), which `liveFor` reports as
+`adminReading` (`since`, `until`) on the overview, so a reading whose time passed is never shown. The Admin's page pings
+`POST …/reading` every 15 seconds while the thread is open (`KEEP_ALIVE_MS` in `Chat.tsx`). An Admin's pause, resume, disconnect, reconnect and remove all go through
+`stopped`, which writes the same table with a `kind` and tells the sessions; `forget` (Delete conversation) and `maintain` (retention) are the only
+things that delete records, and Remove all messages never calls them. `chat.browse` answers `?owner=` with names and counts only, so it notes no
+read. The sentence a reporter shows is built by `AdminNotices` (`chatAdminNotices.ts`): held in memory for 5 minutes, at most 8 for a session, and
+handed over in the reply to the session's report as `adminNotices` (`routes.ts`). `plugin/core/adminNotice.ts` remembers which ids it has shown;
+`handleAdminNotices` in the Claude Code hooks shows a 60-second toast and a transcript line, and the OpenCode reporter a toast, with no
+transcript line. Neither reaches the model or depends on the `peers` option. In the console `components/ChatAdmin.tsx` draws the picker, the
+banners, the red tags and the record lines, and the Admin's page hides People and agents while it reads.
+
+**Not in this release.** The agent's side of the channels is plumbing: the reporter-token routes in `chatAgentRoutes.ts` and the
+paged read capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000), and
+the finished tools are #1035. Delivery is `queue` on both harnesses; OpenCode can also deliver at the next step of a running
+turn (`delivery: 'steer'`, verified in #1033), which was evaluated and left for later so the two harnesses read the same.
+"Send selected messages to an agent" did not ship.
 
 **Testing.** `peerRights.test.ts` and `peerMessages.test.ts` test the stores alone; `peerRoutes.test.ts` plays two of
 one owner's reporters and another person's through the real router and the Admin router. `scripts/podium-peers-demo.mjs`

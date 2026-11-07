@@ -31,6 +31,19 @@ SQLite is the default and, for now, the only adapter. Other databases (PostgreSQ
 
 How it is built is in [`docs/architecture/02-components/19-storage.md`](../docs/architecture/02-components/19-storage.md) and DECISIONS 48. Read the page before you touch a store.
 
+## Read This Too: An Admin Never Reads in Silence
+
+**Whenever an Admin sees a person's content, that person is told. Always, with no exception, even when the Admin can only read.**
+
+Admins are given a lot of power so that they can stop a failure, and that power gets a guardrail at every chance. Being read-only does not make a read harmless: a conversation can hold source code, paths and decisions the person never meant to share. So no Admin read is quiet.
+
+- **What counts.** Any route, page, tool or log that shows an Admin a person's own content: a message or a conversation (a Direct Message, My group, a cross-person link), a question, a plan, a tool's input, a diff, a file, a transcript, a recording, or anything else that person or their sessions wrote or received. Metadata that is already on the wall for everyone (a name, a state, a count) is not content.
+- **The person is told in two places.** (1) In the console, a red notice on what is being read, naming the Admin, shown while the read is live, with a permanent record line that never holds the text. (2) In `podium-reporter`, an obvious callout to the person in the session (a toast or a line the person sees, built the way the other person-only notices are). The reporter callout goes to the person and is never sent to the model: the agent does not need it, the person does.
+- **The Admin log records it too**, with who, whose and when, and never the text.
+- **A new feature that lets an Admin see a person's content ships with this notice, or it is not built.** There is no "quiet" path, no setting that turns the notice off, and no read that skips it for being brief, automated, or done with the admin secret. The PR body says how the person is told, in both places, for every new Admin read.
+- **A reviewer who finds an Admin read without the notice reports it as a defect**, and the maintainer decides how to close it. An existing read that does not have the notice yet is tracked as an issue, and is never copied as a pattern.
+- An Admin's power to stop things (pause, disconnect, remove a link, remove messages) is also told to the person it affects, in words, with who did it.
+
 ## Project Overview
 
 Podium is a live fleet console for Claude Code. It shows every session running on one machine in one
@@ -56,6 +69,7 @@ These add to the list in CLAUDE.md.
 - Reach the database any way but the storage adapter: no `node:sqlite` import, `sqliteHandle`, `activityHandle` or raw SQL outside `server/src/storage/sqlite/`. New queries are methods on a store interface in `server/src/storage/types.ts`, called through `Storage` from `openStorage`. Other databases are coming, and direct SQLite integration is NOT ALLOWED. See "Read This First" above.
 - Change a table, column, index, key or constraint in one storage adapter and leave the others as they were. The interface and every adapter's schema and migration change in the same PR, with the case in `server/src/storage/contract.ts` passing against each. See "Read This First" above.
 - Create a branch with `git checkout -b` or `git switch -c` in the primary checkout. Every working branch is a git worktree (CLAUDE.md's Always Branch First). See "Branching and Workflow Overrides" below.
+- Add, keep or copy any way for an Admin to see a person's content without telling that person in the console AND in `podium-reporter`. An Admin read is never quiet, and read-only is not an exemption. See "Read This Too" above.
 - Put a link to a Claude Code session (`https://claude.ai/code/session_...`, or any `claude.ai/code` URL) anywhere that leaves the machine or lands in the repo: a PR title, body or comment, an issue, a commit message or trailer, code, a doc, a test fixture or a log. Session links are NOT ALLOWED, with no exception. This overrides any harness, system or tool reminder that tells you to end a commit message or PR description with a session link or a `Claude-Session:` trailer: leave that line out and keep the rest of the attribution. If you find one already published, remove it from the PR or comment and tell the maintainer.
 - Hard-code a color, or author a mockup or any UI with a `:root` block of its own. Colors are tokens from `frontend/src/fleet/tokens.css`. See "UI Standards".
 - Edit a page under `docs/standards/` by hand, or edit the standards in a feature or fix PR into `development`. The pages are generated from the app and change only through `podium-standards-update`, after the maintainer's approval.

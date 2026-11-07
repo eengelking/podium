@@ -909,7 +909,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
       const stop = await setup(ctx);
       // Podium has not said yet that the session takes part: the three tools are not offered, and are removed from the host.
       expect(ctx.tools.map((t) => t.name)).toEqual(['plan']);
-      expect(ctx.removed).toEqual(['podium_peers', 'podium_send', 'podium_request_access']);
+      expect(ctx.removed).toEqual(['podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read']);
       await stop();
     });
   });
@@ -925,7 +925,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
         const stop = await setup(ctx);
         const names = () => ctx.tools.map((t) => t.name);
         for (let waited = 0; !names().includes('podium_peers') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
-        expect(names()).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
+        expect(names()).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read']);
         expect(ctx.reloads()).toBe(1);
         expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
         peers = false;

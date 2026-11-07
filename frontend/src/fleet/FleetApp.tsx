@@ -47,6 +47,8 @@ import { fleetHash, openIn, replayIn } from "../route";
 import { ReplayPage } from "./components/ReplayPage";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
+import { ChatPage } from "./Chat";
+import { chatApi, type ChatApi } from "./chatData";
 import { RespondModal } from "./components/Respond";
 import { ActivityOutputFlag } from "./components/BashRow";
 import type { SessionView } from "./types";
@@ -86,12 +88,14 @@ export interface FleetAppProps {
   myReporters?: boolean;
   /** Traffic (#417) under the console's top bar, with no rail, wall or Activity panel. */
   traffic?: boolean;
+  /** Chat (#1034) in the middle of the console instead of the wall, with the rail and the Activity panel collapsed at first, as the Board has them. It replaces Traffic. */
+  chat?: boolean;
   /** For tests: drive the app from a given state instead of the server. */
   state?: FleetState;
   fleetOptions?: UseFleetOptions;
 }
 
-function LiveFleetApp({ fleetOptions, board, myReporters, traffic }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean; traffic?: boolean }) {
+function LiveFleetApp({ fleetOptions, board, myReporters, traffic, chat }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean; traffic?: boolean; chat?: boolean }) {
   const live = useFleet(fleetOptions);
   const [every, setEvery] = useState(readUpdateEvery);
   // The page below redraws once per chosen interval (#138); a session needing the viewer or a failure shows at once.
@@ -100,12 +104,12 @@ function LiveFleetApp({ fleetOptions, board, myReporters, traffic }: { fleetOpti
     setEvery(n);
     writeUpdateEvery(n);
   }, []);
-  return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} traffic={traffic} />;
+  return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} traffic={traffic} chat={chat} />;
 }
 
 export function FleetApp(props: FleetAppProps = {}) {
-  if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
-  return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
+  if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} traffic={props.traffic} chat={props.chat} />;
+  return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} traffic={props.traffic} chat={props.chat} />;
 }
 
 interface FleetViewProps {
@@ -125,6 +129,10 @@ interface FleetViewProps {
   traffic?: boolean;
   /** For tests: Traffic's API. */
   trafficApi?: TrafficApi;
+  /** Show Chat (#1034) under the top bar instead of the rail, the middle and the Activity panel. */
+  chat?: boolean;
+  /** For tests: Chat's API. */
+  chatApi?: ChatApi;
 }
 
 // Memoized so the held state, which keeps its identity between updates, stops a parent render from redrawing it.
@@ -143,15 +151,17 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
           peersApi={props.peersApi}
           traffic={props.traffic}
           trafficApi={props.trafficApi}
+          chat={props.chat}
+          chatApi={props.chatApi}
         />
       </RespondProvider>
     </ActivityOutputFlag.Provider>
   );
 });
 
-function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, myReporters = false, peersApi: peersApiProp, traffic = false, trafficApi: trafficApiProp }: FleetViewProps) {
+function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, myReporters = false, peersApi: peersApiProp, traffic = false, trafficApi: trafficApiProp, chat = false, chatApi: chatApiProp }: FleetViewProps) {
   // My reporters and Traffic draw no wall. Traffic is one page under the top bar; My reporters keeps the rail and the Activity panel (#446).
-  const consolePage = myReporters || traffic;
+  const consolePage = myReporters || traffic || chat;
   const now = useNow(updateEvery * 1000);
   const theme = useTheme();
   // The single-key shortcuts are off until a person turns them on, per browser (#636).
@@ -171,7 +181,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const cols = useRef<HTMLDivElement>(null);
   const container = useCallback(() => cols.current, []);
   const resize = useResizable(container);
-  const panes = usePanes(board ? "board" : myReporters ? "reporters" : "fleet");
+  const panes = usePanes(board ? "board" : myReporters ? "reporters" : chat ? "chat" : "fleet");
   const idle = useIdle(panes.wall);
   const visible = usePageVisible();
   const root = useRef<HTMLDivElement>(null);
@@ -199,7 +209,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   // My reporters (#415): read while orchestrator messaging is on and a person is signed in, so the top bar can say how many
   // requests wait; often while the page is open. The admin secret has no reporters of its own.
   const peersOn = state.features["peer-messaging"] === true;
-  const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters);
+  const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters, state.chatRev);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
   const myKey = active ? meKey(sorted, me) : null;
@@ -231,7 +241,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const selected = showsOrchestrator ? selSession : null;
 
   // One page, many routes: the title says which one is on screen (#636). History and Admin set their own.
-  const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : traffic ? `${APP_NAME} traffic` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
+  const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : traffic ? `${APP_NAME} traffic` : chat ? `${APP_NAME} chat` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
   useEffect(() => {
     document.title = pageTitle;
   }, [pageTitle]);
@@ -324,11 +334,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
 
   // Opening the board or My reporters leaves any orchestrator page behind, so a session that ends later does not raise a notice there (#446).
   useEffect(() => {
-    if (!board && !myReporters) return;
+    if (!board && !myReporters && !chat) return;
     selRef.current = null;
     setSel(null);
     setSelAgent(null);
-  }, [board, myReporters]);
+  }, [board, myReporters, chat]);
 
   /**
    * Opens an orchestrator, or the wall for `null`, and writes it to the address. Opening one from the wall pushes an entry so
@@ -454,12 +464,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     // Every other key is one printable character (WCAG 2.1.4): it does nothing until Shortcuts is turned on (#636).
     if (!shortcuts) return;
     if (e.key === "\\") toggle("top");
-    // Traffic draws no rail or side panel, so their keys do nothing there; the top bar's still works (#415).
+    // Traffic draws no rail or side panel, so their keys do nothing there; the top bar's still works (#415). Chat keeps both, as the Board does.
     else if (traffic) return;
     else if (e.key === "[") toggle("left");
     else if (e.key === "]") toggle("right");
-    // My reporters has no wall to show, so w does nothing there (#415, #446).
-    else if (myReporters) return;
+    // My reporters and Chat have no wall to show, so w does nothing there (#415, #446, #1034).
+    else if (myReporters || chat) return;
     else if (e.key === "w" || e.key === "W") (panes.wall ? stopWall : () => startWall(false))();
   });
 
@@ -472,9 +482,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       )}
       <div className="app">
         <TopBar
-          page={myReporters ? "My reporters" : traffic ? "Traffic" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
+          page={myReporters ? "My reporters" : traffic ? "Traffic" : chat ? "Chat" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
           myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: myReporters } : undefined}
-          traffic={peersOn ? { current: traffic } : undefined}
+          chat={peersOn ? { current: chat } : undefined}
           phase={state.phase}
           reporters={reporters}
           outdated={outdated}
@@ -517,6 +527,16 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
               <ThemePicker theme={theme} />
             </div>
           </div>
+        ) : chat ? (
+          <div className="banner has-picker" role="region" aria-label="Display settings">
+            <span>
+              <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
+            </span>
+            <div className="bannerctl">
+              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
+              <ThemePicker theme={theme} />
+            </div>
+          </div>
         ) : (
           <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
@@ -553,7 +573,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           />
           <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
-            {myReporters ? (
+            {chat ? (
+              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={now} />
+            ) : myReporters ? (
               <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} sessions={all} />
             ) : (
               <main className="main" id="podium-main">
@@ -621,7 +643,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
               </main>
             )}
             {/* My reporters shows no legend (#446). */}
-            {!myReporters && <Legend />}
+            {!myReporters && !chat && <Legend />}
           </div>
           <PaneEdgeTab side="right" collapsed={panes.collapsed.right} onToggle={() => toggle("right")} shortcuts={shortcuts} />
           <SidePanel

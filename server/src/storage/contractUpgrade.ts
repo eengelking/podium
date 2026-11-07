@@ -35,6 +35,24 @@ export interface LegacyReporter {
   sessionIds?: string[];
 }
 
+/** A right between a person and another person's agent as an older database stores it, before it kept who paused it (#1034). */
+export interface LegacyRight {
+  fromKey: string;
+  toKey: string;
+  owner: string;
+  level: 'send' | 'none';
+  paused: boolean;
+}
+
+/** An Admin's read record as an older database stores it, before a record had a kind (#1034). */
+export interface LegacyAdminRead {
+  thread: string;
+  adminKey: string;
+  admin: string;
+  startedAt: number;
+  lastSeenAt: number;
+}
+
 /** A session as an older database stores it, before a session named its harness (#851). */
 export interface LegacySession {
   id: string;
@@ -46,9 +64,21 @@ export interface LegacySession {
   agent?: string;
 }
 
+/** A peer message as an older database stores it, before a row said who wrote it (#1034). */
+export interface LegacyMessage {
+  id: string;
+  owner: string;
+  fromSession: string;
+  toSession: string;
+  text: string;
+  sentAt: number;
+  /** The insertion number the older schema already had. */
+  seq: number;
+}
+
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[]): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -162,6 +192,75 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(ids.slice(0, 3)).toEqual(['prq_b', 'prq_a', 'prq_c']);
       expect(ids).toHaveLength(5);
       expect(ids[3]).toBe((made as { request: { id: string } }).request.id);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('keeps every peer message and its order, as one an agent wrote and none hidden, when a database made before a message had an author is upgraded (#1034)', async () => {
+    const msg = (id: string, from: string, to: string, text: string, sentAt: number, seq: number, owner = 'ed'): LegacyMessage => ({ id, owner, fromSession: from, toSession: to, text, sentAt, seq });
+    // Inserted out of time order, and two share a moment: the insertion number the old schema had still decides.
+    const s = await o.openUpgraded([], [], [], [
+      msg('dlv_3', 's2', 's1', 'three', T0 + 9, 3),
+      msg('dlv_1', 's1', 's2', 'one', T0 + 1, 1),
+      msg('dlv_2', 's2', 's1', 'two', T0 + 1, 2),
+      msg('dlv_x', 's3', 's4', 'someone else', T0, 4, 'eve'),
+    ]);
+    try {
+      const peers = s.peers({ now: () => T0 + 20, flagOn: () => true, startedAt: T0 });
+      const thread = await peers.messages.conversation('s1', 's2');
+      expect(thread.map((m) => [m.text, m.author])).toEqual([['one', 'agent'], ['two', 'agent'], ['three', 'agent']]);
+      const page = await peers.messages.page('ed', 's1', 's2', { limit: 2 });
+      expect(page.messages.map((m) => m.text)).toEqual(['two', 'three']);
+      expect((await peers.messages.page('ed', 's1', 's2', { before: page.older, limit: 2 })).messages.map((m) => m.text)).toEqual(['one']);
+      expect(await peers.messages.page('ed', 's3', 's4', { limit: 5 })).toEqual({ messages: [], older: null });
+      const mine = await peers.messages.ownerConversations('ed');
+      expect(mine.map((c) => [c.messages, c.hiddenAt])).toEqual([[3, null]]);
+      expect(await peers.messages.purgeHidden(T0 + 1e9)).toBe(0);
+      expect(await peers.messages.deleteConversation('ed', 's1', 's2')).toBe(3);
+      expect(await peers.messages.conversation('s3', 's4')).toHaveLength(1);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('keeps a paused link between a person and another person\'s agent paused, with no pauser known, so either owner may resume it, when a database made before a link kept its pauser is upgraded (#1034)', async () => {
+    const reporter: LegacyReporter = { key: 'rk-a', kind: 'mod', machineId: 'ma', machineName: 'box-a', owner: 'ed', version: '1.0.0', firstSeenAt: T0, lastSeenAt: T0, sessionIds: ['sa'] };
+    const right = (paused: boolean): LegacyRight => ({ fromKey: 'person:eve', toKey: 'rk-a', owner: 'ed', level: 'send', paused });
+    const s = await o.openUpgraded([], [reporter], [], [], [right(true), { ...right(false), fromKey: 'person:zoe' }]);
+    try {
+      const peers = s.peers({ now: () => T0 + 20, flagOn: () => true, startedAt: T0 });
+      const paused = await peers.rights.personLink('person:eve', 'rk-a');
+      expect(paused).toMatchObject({ level: 'send', paused: true });
+      expect(paused).not.toHaveProperty('pausedBy');
+      expect(await peers.rights.personLink('person:zoe', 'rk-a')).toMatchObject({ level: 'send', paused: false });
+      // A pause made now keeps its pauser; a resume clears it.
+      expect(await peers.setPersonLink('person:zoe', 'rk-a', 'pause', ED, 'owner')).toMatchObject({ ok: true, right: { paused: true, pausedBy: 'owner' } });
+      expect(await peers.setPersonLink('person:eve', 'rk-a', 'resume', ED)).toMatchObject({ ok: true, right: { paused: false } });
+      expect(await peers.rights.personLink('person:zoe', 'rk-a')).toMatchObject({ paused: true, pausedBy: 'owner' });
+    } finally {
+      await s.close();
+    }
+  });
+  it('reads an Admin\'s record made before a record had a kind as a reading, in order, that live and touch treat as a reading, when the database is upgraded (#1034)', async () => {
+    const MIN = 60_000;
+    const read = (adminKey: string, admin: string, startedAt: number, lastSeenAt: number, thread = 'group:ed'): LegacyAdminRead => ({ thread, adminKey, admin, startedAt, lastSeenAt });
+    const s = await o.openUpgraded([], [], [], [], [], [read('zoe', 'Zoe', T0 + MIN, T0 + 2 * MIN), read('root', 'Root', T0, T0 + 5 * MIN), read('root', 'Root', T0 - 90 * MIN, T0 - 80 * MIN, 'dm:a|b')]);
+    try {
+      const reads = s.chat({ now: () => T0 + 6 * MIN }).adminReads;
+      expect(await reads.list('group:ed')).toEqual([
+        { admin: 'Root', startedAt: T0, lastSeenAt: T0 + 5 * MIN, kind: 'read' },
+        { admin: 'Zoe', startedAt: T0 + MIN, lastSeenAt: T0 + 2 * MIN, kind: 'read' },
+      ]);
+      expect(await reads.list('dm:a|b')).toEqual([{ admin: 'Root', startedAt: T0 - 90 * MIN, lastSeenAt: T0 - 80 * MIN, kind: 'read' }]);
+      // Live counts them as readings.
+      expect(await reads.live(['group:ed', 'dm:a|b'], T0 + MIN)).toEqual([
+        { thread: 'group:ed', admin: 'Root', startedAt: T0, lastSeenAt: T0 + 5 * MIN, kind: 'read' },
+        { thread: 'group:ed', admin: 'Zoe', startedAt: T0 + MIN, lastSeenAt: T0 + 2 * MIN, kind: 'read' },
+      ]);
+      // A touch within the gap continues the old record rather than starting a new one.
+      expect(await reads.touch('group:ed', 'Root', 30 * MIN)).toMatchObject({ started: false, previousSeenAt: T0 + 5 * MIN, record: { startedAt: T0, lastSeenAt: T0 + 6 * MIN, kind: 'read' } });
+      expect((await reads.list('group:ed')).map((r) => r.kind)).toEqual(['read', 'read']);
     } finally {
       await s.close();
     }

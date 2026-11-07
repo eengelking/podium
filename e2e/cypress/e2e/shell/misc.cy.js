@@ -2,13 +2,13 @@
 describe('the page title and motion', () => {
   before(() => cy.resetServer());
 
-  it('names the tab after the page: the wall, the board, an orchestrator, History and Admin', () => {
+  it('names the tab after the page: the wall, the board, Chat, an orchestrator, History and Admin', () => {
     cy.openConsole('#/');
     cy.title().should('eq', 'Podium');
     cy.visit('/#/board');
     cy.title().should('eq', 'Podium board');
-    cy.visit('/#/traffic');
-    cy.title().should('eq', 'Podium traffic');
+    cy.visit('/#/chat');
+    cy.title().should('eq', 'Podium chat');
     cy.visit('/#/?open=e2e-s-api-gateway');
     cy.title().should('eq', 'api-gateway - Podium');
     cy.visit('/#/history');

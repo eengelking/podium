@@ -43,6 +43,7 @@ function setup() {
   const closed: [string, string][] = [];
   const rights: PeerRightsView = {
     effective: (f, t) => ({ level: levels.get(`${f}>${t}`) ?? 'none', paused: paused.has(linkKey(f, t)) }),
+    personLink: () => null,
     limits: () => limits,
     openMessageRequest: (input) => {
       opened.push(input);
@@ -89,6 +90,7 @@ describe('PeerMessages: defaults', () => {
   it('runs on the wall clock with no trail', () => {
     const rights: PeerRightsView = {
       effective: () => ({ level: 'send', paused: false }),
+      personLink: () => null,
       limits: () => ({ roundTrips: 10, perMinute: 6, maxChars: 100 }),
       openMessageRequest: () => ({ id: 'req' }) as PeerRequestRow,
       closeMessageRequest: () => {},
@@ -515,7 +517,7 @@ describe('PeerMessages: podium_peers', () => {
 
   it('lists nothing for a session that cannot take part', () => {
     const { s } = setup();
-    expect(s.list('s-none')).toEqual({ peers: [], leftOut: [] });
+    expect(s.list('s-none')).toEqual({ peers: [], leftOut: [], people: [] });
   });
 });
 

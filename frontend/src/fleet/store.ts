@@ -30,6 +30,8 @@ export interface FleetState {
   wall: WallSettingsView;
   /** The Admin's feature flags by id (Admin > Settings > Feature flags). A flag missing here counts as on. */
   features: Record<string, boolean>;
+  /** Counts the server's content-free `chat` signals and every snapshot (so a reconnect too): Chat reads again whenever it changes (#1034). */
+  chatRev: number;
 }
 
 export type FleetAction =
@@ -38,6 +40,7 @@ export type FleetAction =
   | { type: "activity"; event: ActivityView }
   | { type: "removed"; sessionId: string; reason: RemovedReason; at: number }
   | { type: "wall"; wall: WallSettingsView }
+  | { type: "chat" }
   | { type: "tick"; serverTime: number; kpis: Kpis }
   | { type: "disconnected"; at: number }
   | { type: "error"; message: string }
@@ -57,6 +60,7 @@ export const initialState: FleetState = {
   server: null,
   wall: { notices: {}, showBackgroundSessions: false, cardTitleMachine: false },
   features: {},
+  chatRev: 0,
 };
 
 function capEvents(list: ActivityView[]): ActivityView[] {
@@ -88,6 +92,7 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
       return {
         ...state,
         ...live(),
+        chatRev: state.chatRev + 1,
         serverTime: action.body.serverTime,
         config: action.body.config ?? state.config,
         sessions,
@@ -132,6 +137,8 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
       const { [action.sessionId]: _l, ...leaving } = state.leaving;
       return { ...state, sessions, leaving };
     }
+    case "chat":
+      return { ...state, chatRev: state.chatRev + 1 };
     case "wall":
       return { ...state, ...live(), wall: action.wall };
     case "tick":

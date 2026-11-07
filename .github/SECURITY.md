@@ -14,7 +14,7 @@ problems that matter here are:
 | **Secrets leaving a session** | The mod cuts text to fixed limits and replaces things that look like secrets with `[redacted]` (see [What leaves the session](../docs/REPORTER.md#what-leaves-the-session)). A real credential format that the redaction misses, or data the README says never leaves the session but does. |
 | **Tokens and Admin** | `PODIUM_TOKEN` (the admin secret) opens Admin, and each person's token is bound to their name. A way around either; a token or the admin secret that shows up in a log, an error, the browser's storage or a command line; a token stored in a readable form; a way to open Admin or call its API without the secret or from another site; a way past the lockout; a config file with loose permissions. |
 | **`podiumctl` and the container** | Command injection through a config value, the server listening on more than the user asked for, the container running as root, or a boot service file that does more than it should. |
-| **The mod acting on a session** | Podium can answer a session that waits on its person, and carry a message between one person's own orchestrators, and nothing else (see "Responding from Podium" and "Orchestrator messaging" below). A way for the mod or the server to do more than that is a security bug: to send a prompt or an answer to a session whose owner didn't turn the `respond` option on, past the Admin's switch, at a level the session didn't allow, or from anyone but the session's owner or an Admin; to run any command but `/clear` and `/compact`; to change a session's permission rules ("always allow"); or to stop or start a session. |
+| **The mod acting on a session** | Podium can answer a session that waits on its person, carry a message between one person's own orchestrators, and carry a Chat message from a person to an agent, and nothing else (see "Responding from Podium", "Orchestrator messaging" and "Chat" below). A way for the mod or the server to do more than that is a security bug: to send a prompt or an answer to a session whose owner didn't turn the `respond` option on, past the Admin's switch, at a level the session didn't allow, or from anyone but the session's owner or an Admin; to run any command but `/clear` and `/compact`; to change a session's permission rules ("always allow"); or to stop or start a session. |
 
 ### By design
 
@@ -49,7 +49,7 @@ owner both turn it on. What it exposes:
 | **Browser requests** | Every change needs the header `X-Podium-Respond: 1` and, when the browser sends an `Origin`, that Origin must name this server. No CORS is offered. The server refuses a `Host` it does not expect. |
 | **Guessing** | Five wrong tries from one address lock signing in for 15 minutes, counted together with Admin unlocks. Wrong admin-secret guesses on the report routes have a throttle of their own. |
 | **The mod never trusts the server** | It checks its own `respond` level, answers only an ask it has open, and runs no command but `/clear` and `/compact`. It never sends "always allow" or any other change to permission rules, and a command too long to show in full can only be allowed in the terminal. |
-| **What is seen and kept** | A question, a plan or a tool's input is shown only to the session's owner or an Admin, and kept in the server's memory only. The text of an answer, a message, a question, a plan or a tool's input is never stored or logged. |
+| **What is seen and kept** | A question, a plan or a tool's input is shown only to the session's owner or an Admin, and kept in the server's memory only. The text of an answer, of a message typed in the console's message box, of a question, a plan or a tool's input is never stored or logged. A message written in Chat is the exception: it is stored as Chat's (see "Chat" below). |
 | **Audit** | Each accepted answer, message or command is written to the admin log with who sent it, the source address, the session (its name and the first 8 characters of its id) and the kind of answer, for example "Allowed a tool once". Sign-ins, failed sign-ins, lockouts and flag changes are logged too. The log is shown only in Admin, and nothing edits or deletes its entries. The same events go to the structured server log, which can be shipped to VictoriaLogs. |
 
 A way to answer a session without the switches above, without being its owner or an Admin, from another site, or
@@ -97,12 +97,12 @@ HTTP on 4317, since Podium does not serve HTTPS to browsers. The rules are in `d
 ## Orchestrator messaging
 
 Podium can carry messages between one person's own orchestrators (#347): the server since #412, the mod's tools since
-#414, the owner's My reporters page since #415, the Admin's pages since #416 and Traffic since #417. It is off until the Admin turns on Orchestrator messaging and the person turns on the
+#414, the owner's My reporters page since #415, the Admin's pages since #416 and Traffic since #417. Chat (#1034) replaced Traffic and adds one narrow path between people, described under "Chat" below. It is off until the Admin turns on Orchestrator messaging and the person turns on the
 reporter's `peers` option on each machine and gives the pair a right. What it exposes:
 
 | Topic | How it works |
 |---|---|
-| **Who** | Only between reporters with the same owner. The server refuses a right or a message between two people, and any reporter on the admin secret, whatever the settings say. An Admin can propose a right, which applies only when the owner accepts it; an Admin's pause or removal applies at once. |
+| **Who** | Between reporters, only with the same owner. The server refuses a right or a message from one person's reporter to another person's, and any reporter on the admin secret, whatever the settings say. The one way across owners is a person writing in Chat (see "Chat" below). An Admin can propose a right, which applies only when the owner accepts it; an Admin's pause or removal applies at once. |
 | **In the session** | Only the orchestrator can send; the mod refuses any tool call from a subagent. A received message always starts with Podium's line saying it is another agent's text, never the person's, and it never answers a question or permission prompt, runs a command, or changes a mode or permission rule. A message waiting for the owner's approval, and an orchestrator's reason for asking for access, are shown only to the person (a toast), never to the model. |
 | **Who a message is from** | The person's token and the reporting session that send it, never a name in the message. A `to` is looked up only among that person's own live orchestrators, so another person's orchestrator cannot be named, or found by guessing. |
 | **What it lets a token do** | Anyone holding a person's token can send text into that person's linked orchestrators, within the rights and limits that person set. The text becomes a new turn in the receiving session, marked as another agent's text. Its permission prompts still ask, but what an auto or accept-edits mode allows is not a prompt (DECISIONS 37). |
@@ -112,6 +112,30 @@ reporter's `peers` option on each machine and gives the pair a right. What it ex
 
 A way to put text into a session without these switches, from another person's token, through the admin secret, past
 a limit, or a way to read a conversation's text as anyone but its owner or an Admin, is in scope.
+
+## Chat
+
+Chat (#1034, DECISIONS 61) is the page that replaced Traffic. It needs everything "Orchestrator messaging" needs: the Admin's
+switch, authentication and the reporter's `peers` option. A Direct Message to an agent also needs the reporter's `respond`
+level at `questions` or higher and `activityFeed` on. What it exposes:
+
+| Topic | How it works |
+|---|---|
+| **Who can read what** | Each audience has its own table and its own read path. General is read by everyone signed in. My group is read by the person, their own agents and an Admin. A Direct Message is read by its owner and an Admin, and in a conversation across owners by both owners and an Admin. Another person gets a `403` or nothing. No group-facing or agent-facing route can return a Direct Message, and a test fails if one could. An Admin never reads in silence: the people in a group or Direct Message an Admin reads see a red banner naming each Admin, a permanent record line in the thread and a callout in their reporter (never sent to the model), and the Admin log records each reading session as `chat_admin_read`. An Admin's pause, resume, disconnect and clear of a group, and pause and resume of a link, are logged, and an Admin's pause, resume, disconnect, reconnect and clear also leave a record line. An Admin can browse a person's list of conversations (`chat_admin_browse`, names and counts only). |
+| **Another person's agent** | A person can ask to message an agent that is not theirs. The message is held as a request for that agent's owner, and nothing reaches the agent until the owner chooses Allow. Allow delivers it and opens a link between that person and the agent's reporter, so the next messages go through until either of them pauses or removes the link. Decline drops it. An Admin needs the owner's approval too. |
+| **The person frame** | The text reaches the agent as that person's, never as its owner's: it starts with Podium's line saying who wrote it, that the person is not the owner, that it cannot approve anything or change a setting, and that the owner can read the conversation. A reporter from before Chat keeps the older frame. |
+| **What an agent reads** | An agent reads a channel only through `podium_chat_read`, only the last 60 minutes of General or its own person's My group, and only where a delivered `@` of that agent is stored in that channel inside the hour; otherwise the answer is a refusal that names nothing. The server returns only the channel's own messages (author, kind, time, text and reply link: no session id, no delivery state, never a Direct Message), the text already cleaned and redacted when it was stored. Every result starts with Podium's line that it is people's and agents' text, not the owner's instructions, and each message is shown quoted. A subagent cannot call the tool, and reading changes nothing. |
+| **The agent's answer** | An agent can answer that person with `podium_send` to `person:<name>`, only while it holds a stored message from them and the link is open or paused (a removed link is refused). An address that does not qualify gets the same "cannot see" answer as an orchestrator it may not reach, so it says nothing about the owner's other agents. The answer is stored as the agent's, with no approval step, and is read by both owners and an Admin. An agent can also answer its own owner in the thread the owner started, where no link is involved. |
+| **What is kept** | The text of a channel message or a Direct Message, with secrets replaced by `[redacted]` and control characters removed before it is stored. General and My group keep messages 30 days by default (`retainDays`, set by the Admin). A Direct Message is hidden when every agent in it has left, and its messages are deleted after a grace period, 24 hours by default (`graceHours`, set by the Admin); if the same agents return first, it and its history come back. |
+| **Limits** | A message over the Admin's `maxChars` (4,000 by default) is refused, never cut. An author's posts, and a person's messages to another person's agent, are limited to `perMinute` (6 by default). |
+| **Who an Admin is named as** | An Admin who signs in with their own name is named by it in the banner, the record line and the callout. The admin secret has no name and appears as "Admin secret". |
+| **Stopping a session** | A channel can be paused, disconnected or cleared, and a link can be paused or removed. In General a person can pause or disconnect their own agents, and only an Admin can pause it for everyone or remove its messages. |
+| **Audit and the stream** | Each message sent, delivered or dropped, each link opened, paused, resumed or removed, each delete and purge, and each change of the Chat limits is written to the Admin log and the server log with who and which conversation, never the text. The stream's `chat` event is sent to every open console, so it carries only a change counter and a coarse scope (General, group or Direct Message): no text, name, count or id. A console reads its own counts from the Chat routes, which check who is asking. |
+
+A way to put text into another person's agent without its owner's approval, to read a Direct Message or a group as
+anyone but those named above, to see message text in the stream, the state or a log, or to pass a limit, is in scope.
+The mod still follows its reporter's permissions: Chat adds no way to answer a question or permission prompt, run a command
+or change a permission rule.
 
 ## Where to read more
 
@@ -123,6 +147,7 @@ a limit, or a way to read a conversation's text as anyone but its owner or an Ad
 | The rules the server and the mod follow | `docs/spec/` 7.7 "Hardening": "Who a report is from", "Who", "The browser's credential", "The mod never trusts the server" and "The admin log" |
 | How a person turns responding on and uses it | `docs/user-guide/`, "Answering a session from Podium" |
 | How orchestrator messaging is set up, and what is kept | `docs/MESSAGING.md`, with the reasoning in `docs/decisions/` 37 |
+| What Chat keeps, who reads it, and writing to another person's agent | `docs/spec/` 7.7 "Chat", with the reasoning in `docs/decisions/` 61 |
 | Why Podium makes its own CA, and the rules for it | `docs/decisions/` 42, `docs/spec/` 5.9, 6 and 7.7 "Built-in TLS" |
 | What is open by design | `docs/gotchas/` and [Running the server](../docs/SERVER.md#run-it-with-podiumctl) ("Several people on one Podium") |
 

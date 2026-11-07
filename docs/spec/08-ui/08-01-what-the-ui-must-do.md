@@ -15,14 +15,14 @@ pages, responding, the orchestrator page and the right panel.
 
 **Top bar**
 - Logo and name, which are one link to the fleet page (`#/`, accessible name "Podium, fleet"), then Fleet,
-  Board and History buttons, then Traffic while orchestrator messaging is on and Admin for a signed-in Administrator (below). Each leaves the wall as it is when already there.
+  Board and History buttons, then Chat while orchestrator messaging is on (it replaced Traffic, #1034) and Admin for a signed-in Administrator (below). Each leaves the wall as it is when already there.
 - Fleet returns to the wall from the board or an orchestrator's page.
 - The button for the page you are on is left off, since its pill already names it: no Fleet on the wall, no
-  Board on the board, no History in History, no Admin in Admin, no Traffic on Traffic and no My reporters link on
+  Board on the board, no History in History, no Admin in Admin, no Chat on Chat and no My reporters link on
   My reporters (#468; Traffic and My reporters were shown as the current page until then).
 - History and Admin draw this same top bar (#452, #468), so their buttons, connection pill and Sign in match the
   other pages. Neither has a Hide top bar control or wall mode button, because they have no wall and the bar is one
-  line; the `\` shortcut does nothing there. The Traffic link shows while orchestrator messaging is on, signed in
+  line; the `\` shortcut does nothing there. The Chat link shows while orchestrator messaging is on, signed in
   or not, and the My reporters link while it is on and a person is signed in (#470).
 - On Admin the bar's Sign in is the sign-in to respond, the same as everywhere. It does not unlock Admin: the
   Admin session is its own unlock, with its own form on the locked screen and Lock Admin at the bottom of the Admin
@@ -81,7 +81,7 @@ pages, responding, the orchestrator page and the right panel.
   and from a shortcut: `[` left, `]` right, `\` top bar, `w` wall mode, `Esc` leaves wall mode.
 - The single-key shortcuts (`[`, `]`, `\`, `w`) are off by default (WCAG 2.1.4, #636). A **Shortcuts** switch (the
   Admin `.sw` switch in a `.field`) in the Display settings row turns them on. It sits beside Refresh every and Theme
-  on the wall, the Board, the orchestrator page, Traffic and My reporters, and beside Theme on History. It is kept per
+  on the wall, the Board, the orchestrator page, Traffic, Chat and My reporters, and beside Theme on History. It is kept per
   browser in `localStorage` under `podium.shortcuts` (`true` or `false`), the way the theme and the refresh interval
   are. While it is off the four keys do nothing, `Esc` still leaves wall mode, and every button still works. The
   pane controls' tips and the Wall mode button's title name their keys only while it is on. The switch's own hint
@@ -90,7 +90,7 @@ pages, responding, the orchestrator page and the right panel.
   hover, a pointer cursor and a focus ring) that opens the console's `Modal`, "Keyboard shortcuts" (#828). The modal
   lists every shortcut in two columns split by a 1px `--border` pipe, `\`, `[` and `]` on the left and `w` and `Esc`
   on the right, each key in the inline code chip, with a note where a key does nothing (`[` and `]` on Traffic, `w`
-  on Traffic and My reporters). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
+  on Traffic, Chat and My reporters). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
   the dimmed area close it, and focus returns to the word. While the switch is off the word is a plain label. One
   array, `SHORTCUTS`, feeds this list and the switch's hint. Mockup `mockup/podium-shortcuts-help.html`.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
@@ -647,7 +647,7 @@ a map of it.
 **Signing in**
 - Signed out, Respond opens the modal with the feed and the sign-in form (Name, Token, Sign in) in the answer
   panel, and no message box.
-- The top bar's far end, after a divider that follows History, Traffic, the wall mode button and Admin,
+- The top bar's far end, after a divider that follows History, Chat, the wall mode button and Admin,
   has **Sign in** (shown only while `GET /respond/me` says `enabled`), which opens a small Sign in dialog with the same form. Signed in, that spot shows "Signed in
   as `<name>`" and **Sign out**.
 - These go after the spacer, at the end of the bar, so the controls before them don't move. Nothing is added
@@ -1058,7 +1058,76 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. With Shortcuts on, `[` and `]` open and
     close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 
+## Chat page (#1034, `mockup/podium-chat.html`)
+
+Built. A console page, `#/chat`, reached from **Chat** in the top bar after History while orchestrator messaging is on (left off
+the bar on Chat itself). It replaces Traffic ([below](#traffic-page-347-mockuppodium-traffichtml)), and `#/traffic` opens it.
+A conversation is a thread of messages, laid out like Slack or Teams: a sidebar and the open thread. The rules for who may read what
+are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](../07-server/07-01-endpoints.md#routes-for-chat-1034).
+
+- **Panes.** The page sits between the left rail and the Activity panel as the Board does, and opens with both side panels
+  collapsed to their edge tabs, kept under `podium.collapsed.chat` apart from the others. The top bar starts open. It has no
+  legend and no Wall mode button. With Shortcuts on, `[` and `]` open and close the panels and `\` the top bar; `w` does nothing.
+- **Sidebar.** Three lists: **Channels** (*General*, and *My group* for a signed-in person), **Direct Messages** (every open or
+  ongoing conversation, with the two agents and the person as the third) and **People and agents** (the person's own orchestrators,
+  subagents and forks, to start a Direct Message with). Each row has an unread count, or a mention count (`@ 2`) when it is
+  addressed to the person. A Direct Message row also shows when part of its conversation has ended ("Tester ended"). A row that
+  is an agent shows the app's own state icon (running, waiting for you, delegating, idle on background work, heartbeat lost,
+  done) in the same shape and color as the session cards, and a person shows a monogram. A People and agents row takes its state's
+  color when pointed at or focused. A row opens with a click or Enter, and has a **...** button and a right-click that open its menu.
+  Above the Direct Messages a notice row says how many messages from other people wait for the person's approval in My reporters,
+  and links there.
+- **Thread.** The header names the conversation, says who can read it, and lists who is in it as chips (an agent with its state
+  icon, a person with a monogram, and each agent's state). The newest message is at the bottom, and **Earlier messages** above
+  the oldest loaded one pages back, 50 at a time, keeping the reader's place. A message shows its author, the time, its text as text
+  (never HTML) and, for a message to an agent, where it is: waiting (until the agent's turn ends), working, done, held (while the
+  channel is paused), not delivered or dropped (with why), or waiting for the owner's approval. A mention is a chip in the text. A
+  person's message that went to both agents of a conversation is shown once.
+- **The box.** Enter sends and Shift+Enter adds a line. In a channel typing `@` opens a list (a combobox) of what the
+  address can mean, narrowed as more is typed, with a line that says how many match; the arrow keys move, Enter or Tab picks and
+  Escape closes. `@group` and `@everyone` are listed but cannot be picked while the Admin has them off. A box that cannot send
+  is disabled and says why under it: Paused, Disconnected, "has ended and will not receive this", or a link that was removed. A sent
+  message to an agent shows Waiting until the agent has taken it, and the page does not promise an immediate reply.
+- **Menus.** Right-click and the **...** button open the same menu, which opens on arrow keys, closes on Escape and offers
+  only what the viewer may do.
+  - A Direct Message: **Pause link** or **Resume link**, **Remove link…** (a confirmation that names what goes) and **Delete
+    conversation…** (a confirmation; it removes the messages and leaves the list, and is separate from Remove link, which takes
+    the rights away and keeps the conversation until it expires or is deleted). On a conversation with another person's agent
+    a menu item that is not the viewer's to use is disabled and a note says why ("Paused by Ed. Only Ed can resume it").
+  - A channel, the stop button for a runaway session: **Pause** (hold messages, keep access), **Disconnect** (take the agents'
+    access away) and **Remove all messages…**. In *My group* the person and an Admin can do all three (an Admin's pause is the Admin's to lift). In *General* any person can pause or
+    disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages.
+  - An agent, in People and agents or among a thread's participants: **Open orchestration page**, which opens that orchestrator on
+    the fleet console (`#/?open=<id>`), and **Message** where it applies.
+  - A menu that only has something to say is a note (a popover with no choices).
+- **An Admin reading, and the person told** (#1034, [7.7](../07-server/07-07-hardening.md#chat-1034)). An Admin sees **Read as an Admin** at the top of
+  the sidebar: a picker, "Read a person's conversations", of everyone else who uses Chat. Choosing a person shows that person's My group and
+  Direct Messages, read only: the Admin has no composer, the sidebar has no unread counts and no People and agents, and a banner on the thread says
+  "Reading <person>'s conversation as an Admin. You cannot send here." and that the person is told while the Admin reads and a line stays afterward.
+  In a Direct Message the Admin's menu is Pause link and Resume link, and nothing else. For the people in the thread, while an Admin reads: a
+  red banner above the messages names every Admin reading (one, two, or the first two and a count) and says the notice clears about 30 seconds
+  after the last stops, with a tip, **Who is reading**, that lists each Admin with the time they started; a red **Admin reading** tag on the
+  row and the header; and, for good, a line among the messages ("Root (an Admin) read this conversation on Nov 6 at 14:20.") that is not a message,
+  so it has nothing to select and no delivery line. An Admin's pause shows a red **Paused by an Admin** tag and a banner that says only an Admin can
+  resume it; the owner's Resume link is disabled with that reason. An Admin's pause, resume, disconnect, reconnect and remove all leave a line too ("paused this link",
+  "resumed this link", "removed all messages"). The open thread of an Admin pings every 15 seconds so the notice stays up. Each is a status with an
+  icon and words, never color alone.
+- **A Direct Message expires and leaves the list when every agent session in it has ended or disconnected from Podium** ([7.5](../07-server/07-05-lifecycle-timers.md)).
+  It comes back with its history if the same peers return within the grace period.
+- **Narrow.** At 760 px and narrower the sidebar and the thread are two screens, with **Back to the list** on the thread.
+- **Not signed in, or the admin secret.** General is read and written by every signed-in person. The admin secret reads General and has
+  no group, no Direct Messages and no counts of its own, and says so.
+- A failed action says so in place ("Could not pause General: … Nothing changed. Try again.") and changes nothing.
+- The page also carries **Who can read what**, the rules in short form.
+
+**Not in this release.** Sending selected messages to an agent did not ship. Agents posting and reading in channels is route
+shapes only (#1035 finishes the feature).
+
 ## Traffic page (#347, `mockup/podium-traffic.html`)
+
+**Deprecated (1.6, #1034); removed in 1.9.** Chat replaces it, the same conversations are its Direct Messages, and `#/traffic` opens
+Chat ([DEPRECATIONS](../../DEPRECATIONS.md)). Until then the page and its read still work; it shows a note, "Traffic is retired. Chat
+replaces it", that links to Chat. The rest of this section describes the page as it still works.
 
 Built (#417). A console page, `#/traffic`, reached from **Traffic** in the top bar after History while the flag is
 on (left off the bar on the Traffic page itself). It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
@@ -1146,7 +1215,7 @@ status band as the last row.
   it again. Moving to another orchestrator (the rail, an activity event) replaces that entry, so Back still returns
   to the wall.
 - "All orchestrators" and Fleet return to the wall's entry when the console added one, and otherwise replace the
-  address with `#/`. Opening an orchestrator from the board, My reporters or Traffic goes to its address.
+  address with `#/`. Opening an orchestrator from the board, My reporters, Traffic or Chat goes to its address (`#/?open=<id>`).
 - When the open session leaves the fleet, the address goes back to `#/` with the usual message. An address naming
   a session that is not in the fleet lands on the wall with "That session is not in the fleet. Sessions that ended are listed in History."
 

@@ -72,6 +72,7 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
     const closed: [string, string][] = [];
     const rights: PgPeerRightsView = {
       effective: async (f, t) => ({ level: levels.get(`${f}>${t}`) ?? 'none', paused: paused.has(linkKey(f, t)) }),
+      personLink: async () => null,
       limits: async () => limits,
       openMessageRequest: async (input) => {
         opened.push(input);
@@ -109,6 +110,7 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
       await db.exec('TRUNCATE peer_messages, peer_requests');
       const rights: PgPeerRightsView = {
         effective: async () => ({ level: 'send', paused: false }),
+        personLink: async () => null,
         limits: async () => ({ roundTrips: 10, perMinute: 6, maxChars: 100 }),
         openMessageRequest: async () => ({ id: 'req' }) as PeerRequestRow,
         closeMessageRequest: async () => {},
@@ -534,7 +536,7 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
 
     it('lists nothing for a session that cannot take part', async () => {
       const { s } = await setup();
-      expect(await s.list('s-none')).toEqual({ peers: [], leftOut: [] });
+      expect(await s.list('s-none')).toEqual({ peers: [], leftOut: [], people: [] });
     });
   });
 
