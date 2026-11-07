@@ -306,7 +306,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
   const readingOthers = !!me?.signedIn && me.admin === true && !!feed.stored?.canRead && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
   useReadingPing("activity", s.id, props.loop, readingOthers);
 
-  const pick =useCallback((n: number) => {
+  const pick = useCallback((n: number) => {
     setEvery(n);
     writeEvery(n);
   }, []);
