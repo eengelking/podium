@@ -140,13 +140,23 @@ export function RecordLine({ r }: { r: AdminRead }) {
   );
 }
 
-/** The Admin's choice of whose conversations to read. */
+const READ_NOTE = "Pick a person to see their My group and Direct Messages. Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.";
+
+/** The Admin's choice of whose conversations to read, with Stop reading while one is chosen (#1066). The long note is behind the (i). */
 export function ReadPicker({ people, value, onChange }: { people: string[]; value: string | null; onChange: (name: string | null) => void }) {
   return (
     <section className="ch-sec" aria-labelledby="sec-rd">
       <h2 id="sec-rd">Read as an Admin</h2>
       <div className="ch-read">
-        <label htmlFor="read-as">Read a person&apos;s conversations</label>
+        <div className="rd-head">
+          <label htmlFor="read-as">Read a person&apos;s conversations</label>
+          <Tip text={READ_NOTE} label="About reading as an Admin" className="rd-i">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5" />
+              <path d="M8 7.2v4M8 4.8v.2" />
+            </svg>
+          </Tip>
+        </div>
         <select className="field sm" id="read-as" data-testid="chat-read-as" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
           <option value="">{people.length ? "Choose a person…" : "No one else uses Chat yet"}</option>
           {people.map((n) => (
@@ -155,16 +165,16 @@ export function ReadPicker({ people, value, onChange }: { people: string[]; valu
             </option>
           ))}
         </select>
-        <p className="hint">
-          {value ? (
-            <>
-              Showing <bdi>{value}</bdi>&apos;s My group and Direct Messages.{" "}
-            </>
-          ) : (
-            "Pick a person to see their My group and Direct Messages. "
-          )}
-          Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.
-        </p>
+        {value && (
+          <>
+            <button type="button" className="btn sm" data-testid="chat-stop-reading" onClick={() => onChange(null)}>
+              Stop reading
+            </button>
+            <p className="hint">
+              Showing <bdi>{value}</bdi>&apos;s My group and Direct Messages. Read only.
+            </p>
+          </>
+        )}
       </div>
     </section>
   );
