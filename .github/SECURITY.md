@@ -23,7 +23,7 @@ These are not vulnerabilities on their own. [Running the server](../docs/SERVER.
 
 | Behavior | Why it is not a bug |
 |---|---|
-| **Fleet reads are open on localhost.** `GET /api/fleet/state`, `/stream`, `/sessions/...`, `/events` and `/history` need no token; only reports, hooks and deletes do. | They show how the wall looks. A waiting session's question, plan or tool input (under `/api/fleet/respond`) is the exception: it is shown only to its owner or an Admin who has signed in. |
+| **Fleet reads are open on localhost.** `GET /api/fleet/state`, `/stream`, `/sessions/...`, `/events` and `/history` need no token; only reports, hooks and deletes do. | They show how the wall looks. A waiting session's question, plan or tool input (under `/api/fleet/respond`) is the exception: it is shown only to its owner or an Admin who has signed in. An agent's whole prompt and answer (`.../agents/:agentId/text`) and its live activity (`.../agents/:agentId/activity`) are the person's own content and are decided to be gated the same way, with the Admin notice (DECISIONS 62). **Until that is built they are still open.** |
 | **Tokens travel in a header over plain HTTP, unless built-in TLS is on.** | Plain HTTP is the default for a fresh install. A server reachable over a network needs a trusted network, a TLS proxy or built-in TLS (see "Built-in TLS" below). |
 | **A person who holds a valid token can delete any session.** | Any valid credential may `DELETE` a session. |
 | **Anyone with access to your user account or to `~/.podium` can read the token and the data.** `podman inspect podium` (or `docker inspect podium`) also shows the token, because it is part of the container's environment. | The token has to live somewhere the server can read it. |
