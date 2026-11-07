@@ -284,7 +284,10 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
   const ping = api?.recordingReading;
   useEffect(() => {
     if (!admin || !ping) return;
-    const t = setInterval(() => void ping(id).catch(() => undefined), PING_MS);
+    // A page that is hidden is not being read, so it does not say so (the polls of the console pause while hidden too).
+    const t = setInterval(() => {
+      if (document.visibilityState !== "hidden") void ping(id).catch(() => undefined);
+    }, PING_MS);
     return () => clearInterval(t);
   }, [admin, ping, id]);
 

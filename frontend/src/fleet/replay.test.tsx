@@ -118,6 +118,24 @@ describe("an Admin's open replay of someone else's session (#1075)", () => {
     vi.useRealTimers();
   });
 
+  it("sends nothing while the page is hidden, and pings again once it is shown", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const api = fakeApi({ me: vi.fn(async () => ADMIN), recordingReading });
+    await replay(api);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(recordingReading).not.toHaveBeenCalled();
+    vis.mockReturnValue("visible");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_100);
+    });
+    expect(recordingReading).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("sends nothing for the owner's own replay or for a person who is not an Admin", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     const recordingReading = vi.fn(async () => ({ ok: true as const }));
