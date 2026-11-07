@@ -16,7 +16,7 @@ export const ABOUT_REFRESH_MS = 30_000;
 function Facts({ label, rows }: { label: string; rows: [string, string][] }) {
   return (
     <Panel>
-      <div className="tw2" tabIndex={0} aria-label={label}>
+      <div className="tw2" tabIndex={0} aria-label={label} /* NOSONAR S6845: a focusable scroll region, by design */>
         <table className="ptab">
           <thead>
             <tr>
@@ -102,7 +102,7 @@ export function AboutTab({ api, onLocked }: { api: AdminApi; onLocked: () => voi
               </div>
             ) : (
               <Panel>
-                <div className="tw2" tabIndex={0} aria-label="Reporter versions">
+                <div className="tw2" tabIndex={0} aria-label="Reporter versions" /* NOSONAR S6845: a focusable scroll region, by design */>
                   <table className="ptab">
                     <thead>
                       <tr>
