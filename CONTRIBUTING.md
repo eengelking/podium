@@ -174,6 +174,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/e2e/COVERAGE.md` | The end-to-end suite: the map of every feature to its Cypress spec, how to run it, how to read a CI failure, how to add a spec, the test-id convention |
 | `.claude/skills/podium-live-test/` | The live test with real harness sessions (Claude Code, OpenCode): tmux, a throwaway server, keeping the session off your real server, answering from the API, shutting it down. Run it when a change touches the harness contract |
 | `docs/PERFORMANCE.md` | What Podium costs to run at four fleet sizes, how to measure it again (`scripts/podium-perf*`), and the ranked findings of the performance audit |
+| `docs/PATTERNS.md` | The development patterns the code follows, each with where it applies, why, an example and the check that holds it, and the rule for changing one. Read the sections that cover your change before you write it |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |

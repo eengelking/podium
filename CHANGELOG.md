@@ -45,6 +45,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - Standards: an Admin stop the owner cannot reverse (an Admin's pause), approved by the maintainer on the mockup `mockup/podium-chat.html`.
 - Standards: the Admin read-only picker ("Read a person's conversations") with its read-only banner and the People and agents area hidden while reading, approved by the maintainer on the mockup `mockup/podium-chat.html`.
 - Standards: the "Who is reading" tip, which lists every reading Admin, approved by the maintainer on the mockup `mockup/podium-chat.html`.
+- **`docs/PATTERNS.md` lists the development patterns the code follows, and `podium-patterns-check` applies it (#912).** Each entry says what the pattern is, where it applies, why, one place in the code and the check that holds it. `.claude/PROJECT.md` now says to read the patterns that apply before implementing, to name them in the PR body, and that a pattern changes only through a DECISIONS entry, the maintainer's approval, a full update of its uses and a full test pass. Six places the code departs from a candidate pattern are filed as #1052 to #1057.
 
 ### Changed
 
