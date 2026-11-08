@@ -196,7 +196,9 @@ export class AdminReads {
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, [s.owner]);
     this.replayAt = this.core.host.now();
     this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], phrase: s.phrase }, at: this.core.host.now() });
-    return { told: true, changed: got.started };
+    // a read that lapsed (no ping for LIVE_MS) and resumes is live again, which no console holds an end for, so it wakes them like a start
+    const resumed = got.previousSeenAt !== null && this.core.host.now() - got.previousSeenAt > LIVE_MS;
+    return { told: true, changed: got.started || resumed };
   }
 
   /**

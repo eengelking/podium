@@ -140,6 +140,20 @@ describe('the person is told', () => {
     expect(await fleet.chat.adminReads.unseenFor('Ed')).toEqual([]);
   });
 
+  it('wakes the consoles again when a read that lapsed resumes inside the same record', async () => {
+    const { app, fleet, clock, boss } = await setup();
+    const changed = vi.spyOn(fleet, 'sessionReadsChanged');
+    const b = await signedIn(app, 'Boss', boss.token);
+    await b.post(`${BASE}/ask/reading`).set(H).send({});
+    expect(changed).toHaveBeenCalledTimes(1);
+    clock.now += LIVE_MS + 10_000;
+    await b.post(`${BASE}/ask/reading`).set(H).send({});
+    expect(changed).toHaveBeenCalledTimes(2);
+    clock.now += 5_000;
+    await b.post(`${BASE}/ask/reading`).set(H).send({});
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
   it('is still told after the server forgot what it knew, from the stored session', async () => {
     const { app, fleet, boss, name, report } = await setup();
     const b = await signedIn(app, 'Boss', boss.token);
