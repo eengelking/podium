@@ -29,6 +29,11 @@ What to know:
 
 - Only the session's owner and an Admin can stop, delete or replay it. Everyone sees that it is recorded and never what
   is in it.
+- When an Admin replays your recorded session, you are told. While they replay it, a red notice under the recording
+  layer on the session's page names them, and the session's card on the wall says so on its second line; your terminal
+  shows one line as well. Afterwards a quiet line stays for each replay, with who, when and for how long. Click the X to
+  hide a notice or a line in this browser. Hiding it changes nothing else: the replay stays in Podium's records and in the
+  Admin log.
 - It keeps whole prompts, file contents, command output and tool results. Anything that looks like a secret is replaced
   with `[redacted]` on the machine, but that is not a guarantee, so do not record a session you would not want an Admin
   to read.

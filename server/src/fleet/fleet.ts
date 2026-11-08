@@ -818,6 +818,16 @@ export class Fleet {
     if (this.live.has(sessionId)) this.scheduleSession(sessionId);
   }
 
+  private replayRev = 0;
+
+  /**
+   * An Admin opened, paged or left a replay of someone's recorded session (#1075): open consoles are told, with a counter and nothing else, so the owner's
+   * console reads who is replaying and nobody else's learns anything. The stream never names the Admin or the session.
+   */
+  replayChanged(): void {
+    void this.emit(() => ['replay', { rev: ++this.replayRev }]);
+  }
+
   /** The Admin changed the Activity history setting: open consoles learn whether a sign-in is now offered. */
   activityHistoryChanged(): Promise<void> {
     this.settingsEpoch++;

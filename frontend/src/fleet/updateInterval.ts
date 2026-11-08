@@ -27,6 +27,7 @@ export function isUrgentChange(held: FleetState, next: FleetState): boolean {
   if (held.phase !== next.phase) return true;
   // Chat reads again at once on a signal, not at the next redraw tick (#1034).
   if (held.chatRev !== next.chatRev) return true;
+  if (held.replayRev !== next.replayRev) return true;
   // The viewer's own clicks (close a notice, remove a session, show or hide background sessions) come back as these.
   if (held.wall !== next.wall || held.features !== next.features || Object.keys(held.gone).length !== Object.keys(next.gone).length) return true;
   for (const s of Object.values(next.sessions)) {
