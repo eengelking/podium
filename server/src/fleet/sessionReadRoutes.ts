@@ -8,6 +8,7 @@ import type { Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { ADMIN_OWNER, nameKey, sourceAddress } from '../storage/rows.js';
 import { LOOP_ID, isSessionReadKind, readNeedsLoop } from './sessionReads.js';
+import { MAIN_LOOP } from './protocol.js';
 import { asyncHandler } from './asyncHandler.js';
 
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
@@ -46,7 +47,7 @@ export function mountSessionReadRoutes(browser: Router, d: PeerDeps, h: BrowserH
     res.json({ ok: true, serverTime: fleet.now(), adminReads: got.records, adminReading: got.reading });
   }));
 
-  // An Admin's open read pings this every 15 seconds so the session's owner keeps seeing that it is being read. Records first, like the read itself. A person's
+  // An Admin's open read pings this every 15 seconds so the session's owner keeps seeing that it is being read. Records first, like the read itself, and only a loop the session has (`404` otherwise, nothing recorded). Only a read that begins wakes the consoles: a ping adds nothing a console cannot work out from the end it holds. A person's
   // own read, and a session nobody owns, tell no one. The body may carry `loop` for a kind that is read per loop.
   browser.post('/sessions/:id/admin-reads/:kind/reading', json, asyncHandler(async (req, res) => {
     if (d.token === null) return void res.status(404).json({ ok: false, error: 'authentication is off' });
@@ -59,7 +60,8 @@ export function mountSessionReadRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (readNeedsLoop(kind) ? typeof loop !== 'string' || !LOOP_ID.test(loop) : loop !== undefined) return void refuse(req, res, 400, readNeedsLoop(kind) ? 'loop must be one loop id' : 'this kind of read has no loop');
     const row = await fleet.db.getSession(req.params.id as string);
     if (!row) return void res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
-    const got = await reads().noteSession(v, kind, row, loop as string | undefined, true);
+    if (kind === 'activity' && loop !== MAIN_LOOP && !(await fleet.db.getAgents(row.id)).some((a) => a.id === loop)) return void res.status(404).json({ ok: false, error: 'unknown loop', path: '$.loop' });
+    const got = await reads().noteSession(v, kind, row, loop as string | undefined);
     if (got.changed) fleet.sessionReadsChanged();
     res.json({ ok: true });
   }));
