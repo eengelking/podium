@@ -274,7 +274,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `note` | Records a read and signals the chat stream when a reading starts or comes back and at every ping, not on a plain read. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `noteReplay` | Records an Admin's replay of someone else's recorded session under the thread replay:<sessionId>, and says whether a person was told. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `replayersOf` | The Admins replaying a person's own sessions now, by session id, never any text. In `server/src/fleet/chatAdminReads.ts`. |
-| Server | `noteSession` | Records an Admin's read of a session that is someone else's (an ask, one loop's stored Activity) before it is answered, and tells the owner. In `server/src/fleet/chatAdminReads.ts`. |
+| Server | `noteSession` | Records an Admin's read of a session that is someone else's (an ask, one loop's stored Activity, an agent's whole text, its live Activity) before it is answered, and tells the owner. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `sessionReadersOf` | The Admins reading a person's own sessions now, by kind and session; never text. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `sessionRecordsOf` | The records of one kind of read of a session, for its owner, marking them seen. In `server/src/fleet/chatAdminReads.ts`. |
 | Server | `parseSessionThread` | The kind, session and loop of a session-read thread. In `server/src/fleet/sessionReads.ts`. |
@@ -350,7 +350,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `RespondModal` | Answer a question, plan or permission prompt. In `frontend/src/fleet/components/Respond.tsx`. |
 | Console | `ChatPage` | Channels, Direct Messages and a thread. In `frontend/src/fleet/Chat.tsx`. |
 | Console | `useChatOverview` | Reads the overview again when the chat event moves, and keeps the records of deleted conversations (gone) even from a read a newer one replaced. In `frontend/src/fleet/useChat.ts`. |
-| Console | `useReadingPing` | An Admin's open ask or Activity posts a reading every 15 seconds. In `frontend/src/fleet/sessionReads.tsx`. |
+| Console | `useReadingPing` | An Admin's open ask, Activity, whole text or live feed posts a reading every 15 seconds. In `frontend/src/fleet/sessionReads.tsx`. |
 | Console | `SessionReadNotes` | The red notice and record lines the owner sees when an Admin reads their ask or Activity. In `frontend/src/fleet/components/SessionReadNotes.tsx`. |
 | Console | `GoneRecordLines` | The quiet lines for records of a deleted conversation. In `frontend/src/fleet/components/ChatAdmin.tsx`. |
 | Console | `ReadPicker` | An Admin picks whose Chat to read. In `frontend/src/fleet/components/ChatAdmin.tsx`. |

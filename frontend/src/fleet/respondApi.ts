@@ -106,7 +106,7 @@ export const respondApi = {
 };
 
 /** What an Admin reads of a person's session: a waiting ask, or one loop's stored Activity. */
-export type SessionReadKind = "ask" | "activity";
+export type SessionReadKind = "ask" | "activity" | "text" | "live";
 
 /** Who reads the person's own sessions now, by kind and session, and the server's clock. */
 export interface SessionReadersReply {

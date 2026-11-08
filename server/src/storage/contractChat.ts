@@ -248,6 +248,26 @@ export function chatCases(o: Openers): void {
     expect(t.get('threads (after forgetting the ask)')).toEqual(['ask:s%', 'ask:s_10']);
   });
 
+  it('agrees on every adapter for the Admin read records of an agent\'s whole text and live Activity (#1082): each agent is a thread of its own under its kind, listed by prefix and live', async () => {
+    const GAP = 30 * 60_000;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await rec('touch (text, one agent)', reads.touch('text:s_1:a1', 'Root', GAP, ['ed']));
+      await rec('touch (text, another agent)', reads.touch('text:s_1:a2', 'Root', GAP, ['ed']));
+      await rec('touch (live, one agent)', reads.touch('live:s_1:a1', 'Zoe', GAP, ['ed']));
+      await rec('touch (live, the orchestrator)', reads.touch('live:s_1:@orchestrator', 'Zoe', GAP, ['ed']));
+      await rec('threads (text of one session)', reads.threads('text:s_1:'));
+      await rec('threads (live of one session)', reads.threads('live:s_1:'));
+      await rec('list (live, one agent)', reads.list('live:s_1:a1'));
+      await rec('live (text of a1 only)', reads.live(['text:s_1:a1', 'live:s_1:a1'], clock.now - 30_000));
+    });
+    expect(t.get('threads (text of one session)')).toEqual(['text:s_1:a1', 'text:s_1:a2']);
+    expect(t.get('threads (live of one session)')).toEqual(['live:s_1:@orchestrator', 'live:s_1:a1']);
+    expect(t.get('list (live, one agent)')).toMatchObject([{ admin: 'Zoe' }]);
+    expect(t.get('live (text of a1 only)')).toHaveLength(2);
+  });
+
   it('agrees on every adapter for the Admin read records: one per reading session, the live window, forgetting a thread and retention', async () => {
     const MIN = 60_000;
     const GAP = 30 * MIN;

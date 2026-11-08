@@ -413,6 +413,8 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   // The whole prompt and answer, fetched when the console opens them (issue #97). Not in the state or
   // the stream: they can be tens of kilobytes per agent.
   router.get('/sessions/:id/agents/:agentId/text', asyncHandler(async (req, res) => {
+    // Only the session's owner or an Admin, signed in; an Admin's read is recorded and the person told (#1082).
+    if (!respondAccess || !(await respondAccess.agentRead(req, res, 'text', req.params.id, req.params.agentId))) return;
     const t = await fleet.db.getAgentTexts(req.params.id, req.params.agentId);
     if (!t) {
       res.status(404).json({ ok: false, error: 'no full text for this agent', path: '$.agentId' });
@@ -423,13 +425,11 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
 
   // An agent's recent activity (#118). Each fetch takes or renews the viewer's lease on that loop for `every` seconds
   // plus a margin; the reply to the next report then asks the mod for its entries. `@orchestrator` is the main loop.
-  // In memory only, never in the state or the stream. No token, like the other reads.
+  // In memory only, never in the state or the stream.
   router.get('/sessions/:id/agents/:agentId/activity', asyncHandler(async (req, res) => {
     const { id, agentId } = req.params;
-    if (!(await fleet.db.getSession(id)) || (agentId !== MAIN_LOOP && !(await fleet.db.getAgents(id)).some((a) => a.id === agentId))) {
-      res.status(404).json({ ok: false, error: 'unknown session or agent', path: '$.agentId' });
-      return;
-    }
+    // Only the session's owner or an Admin, signed in, before any lease is taken; an Admin's read is recorded and the person told (#1082).
+    if (!respondAccess || !(await respondAccess.agentRead(req, res, 'live', id, agentId))) return;
     // With the Admin's flag off (Admin > Settings > Feature flags) no lease is taken; the panel keeps asking and says so.
     let body: ActivityReply;
     if (!fleet.activity.on) body = { entries: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };

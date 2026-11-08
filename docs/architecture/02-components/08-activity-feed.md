@@ -20,7 +20,7 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
 - `ActivityStore` lives on the `Fleet` and holds two maps in process memory. One holds leases (session, then loop
   key: an agent id or `@orchestrator`), each with its start, its expiry and a ring of the last 20 entries numbered
   by `seq`. The other records whether each session's reporter has the option on (`SessionView.activityFeed`).
-- `GET .../agents/:agentId/activity?every=` takes or renews a lease for `every` seconds plus
+- `GET .../agents/:agentId/activity?every=` needs a sign-in as the session's owner or an Admin, checked before any lease is taken (#1082: 401, then 403). An Admin's read of another person's loop is recorded and the owner told (`RespondAccess.agentRead`, kind `live`). It takes or renews a lease for `every` seconds plus
   `ACTIVITY_LEASE_SLACK_MS` (15 s).
 - The report route answers with `watch`, the loops under a live lease.
 - `Fleet.ingest` hands each validated report to the store, which merges only watched loops' entries. It skips any

@@ -269,13 +269,22 @@ export function feedEmpty(feed: FeedState, signedIn: boolean | null, fallback: s
   return plain;
 }
 
+/** What the feed says in place of its entries when the server refused it (#1082): nobody signed in (401), or a person who is neither the owner nor an Admin (403). */
+export function refusedEmpty(refused: 401 | 403, owner: string | null): string {
+  const adminOwned = owner === null || owner === "Admin";
+  if (refused === 401) return adminOwned ? "The live activity is open to the session's Admin. Sign in as an Admin to see it." : `The live activity is open to ${owner} and the Admin. Sign in as ${owner} or an Admin to see it.`;
+  return adminOwned ? "The live activity is open to an Admin only." : `The live activity is open to ${owner} and the Admin only.`;
+}
+
 export function footer(feed: FeedState, active: boolean, isMain: boolean, now: number): [string, string] {
   const st = feed.stored;
   let count: string;
-  if (st) count = !st.canRead ? "Nothing to show" : `${fmtCount(st.total)} stored ${st.total === 1 ? "entry" : "entries"}${st.since === null ? "" : ` since ${fmtDay(st.since)}`}`;
+  if (feed.refused) count = "Nothing to show";
+  else if (st) count = !st.canRead ? "Nothing to show" : `${fmtCount(st.total)} stored ${st.total === 1 ? "entry" : "entries"}${st.since === null ? "" : ` since ${fmtDay(st.since)}`}`;
   else count = feed.seen === 0 ? "Nothing yet" : `Last ${feed.entries.length} of ${feed.seen} since you started watching`;
   let when: string;
-  if (!feed.live) when = "No more updates";
+  if (feed.refused) when = "Not shown";
+  else if (!feed.live) when = "No more updates";
   else if (!active) when = isMain ? "Session ended, no more updates" : "Agent finished, no more updates";
   else if (feed.failed) when = "Could not reach the server, retrying";
   else if (feed.fetchedAt === null) when = "Starting";
@@ -305,6 +314,9 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
   const me = respond?.me;
   const readingOthers = !!me?.signedIn && me.admin === true && !!feed.stored?.canRead && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
   useReadingPing("activity", s.id, props.loop, readingOthers);
+  // The same for the live feed (#1082): each poll is itself a read the server recorded; the ping keeps the notice alive between slow polls.
+  const watchingOthers = !!me?.signedIn && me.admin === true && feed.fetchedAt !== null && !feed.refused && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  useReadingPing("live", s.id, props.loop, watchingOthers);
 
   const pick = useCallback((n: number) => {
     setEvery(n);
@@ -354,7 +366,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
     : active
       ? "Watching from now. Earlier activity is not kept, and nothing is kept after you close this."
       : `${props.isMain ? "The session has ended" : "This agent has finished"}. Activity is kept only while someone watches it run.`;
-  const empty = feedEmpty(feed, respond?.me ? respond.me.signedIn : null, emptyBase);
+  const empty = feed.refused ? refusedEmpty(feed.refused, s.owner) : feedEmpty(feed, respond?.me ? respond.me.signedIn : null, emptyBase);
   // Date.now() rather than `now` for "Updated": fetchedAt is this browser's time. `now` ticking re-renders it.
   const [count, when] = footer(feed, active, !!props.isMain, Date.now());
 

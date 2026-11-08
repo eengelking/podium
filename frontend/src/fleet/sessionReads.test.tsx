@@ -280,6 +280,8 @@ describe("the words", () => {
   it("name one, two or more Admins, and the notice's labels", () => {
     expect(readingLine("ask", "x", [live("Root")])).toBe("Root (an Admin) is reading your waiting plan, question or tool request.");
     expect(readingLine("ask", "x", [live("Root"), live("Sam")])).toBe("Root and Sam (Admins) are reading your waiting plan, question or tool request.");
+    expect(readingLine("text", "x", [live("Root")])).toBe("Root (an Admin) is reading the whole prompt and answer of an agent in x.");
+    expect(readingLine("live", "x", [live("Root")])).toBe("Root (an Admin) is watching the live activity of an agent in x.");
     expect(readingLine("activity", "x", [live("Root"), live("Sam"), live("Kim")])).toBe("Root, Sam and 1 more Admin are paging through the stored Activity of x.");
     expect(readingLine("ask", "x", [live("Root"), live("Sam"), live("Kim"), live("Lee")])).toBe("Root, Sam and 2 more Admins are reading your waiting plan, question or tool request.");
     expect(readingRest([live("Root"), live("Sam")])).toBe("Only you and Admins can open it. The notice clears about 30 seconds after the last of them stops.");

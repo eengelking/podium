@@ -60,7 +60,7 @@ export function mountSessionReadRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (readNeedsLoop(kind) ? typeof loop !== 'string' || !LOOP_ID.test(loop) : loop !== undefined) return void refuse(req, res, 400, readNeedsLoop(kind) ? 'loop must be one loop id' : 'this kind of read has no loop');
     const row = await fleet.db.getSession(req.params.id as string);
     if (!row) return void res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
-    if (kind === 'activity' && loop !== MAIN_LOOP && !(await fleet.db.getAgents(row.id)).some((a) => a.id === loop)) return void res.status(404).json({ ok: false, error: 'unknown loop', path: '$.loop' });
+    if (readNeedsLoop(kind) && !(loop === MAIN_LOOP && kind !== 'text') && !(await fleet.db.getAgents(row.id)).some((a) => a.id === loop)) return void res.status(404).json({ ok: false, error: 'unknown loop', path: '$.loop' });
     const got = await reads().noteSession(v, kind, row, loop as string | undefined);
     if (got.changed) fleet.sessionReadsChanged();
     res.json({ ok: true });

@@ -45,9 +45,9 @@ describe('activity history: the feed and Admin > Stored activity', () => {
       side().invoke('text').should('match', /Kept until \d{4}-\d{2}-\d{2}, then purged\. Only the owner and the Admin can open it\./);
     });
 
-    it('does not show the entries to a viewer who may not read them, and says who can', () => {
+    it('does not show the entries to a viewer who may not read them, and says who can (the live feed itself is refused, #1082)', () => {
       openFeed();
-      cy.get('#podium-side-body').contains('Sign in as Ed or an Admin to open it.', { timeout: 15000 });
+      cy.get('#podium-side-body').contains('The live activity is open to Ed and the Admin. Sign in as Ed or an Admin to see it.', { timeout: 15000 });
       cy.get('#podium-side-body').should('not.contain.text', 'Read src/file58.ts');
       cy.get('#podium-side-body').contains('Nothing to show');
     });

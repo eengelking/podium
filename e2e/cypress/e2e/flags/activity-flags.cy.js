@@ -7,6 +7,8 @@ describe('flags: activity feed and Bash output', () => {
   // A reporter whose activityOutput option is off sends the command and the exit, never the output.
   const bash = (withOutput = true) => ({ at: Date.now(), kind: 'tool', text: 'Bash npm test -- invoice', id: `toolu_e2e_flag_${Date.now()}`, command: 'npm test -- invoice', ...(withOutput ? { output: 'Tests  12 passed' } : {}), done: true, exitCode: 0 });
   const open = () => {
+    // The live activity is open to the session's owner and the Admin only (#1082).
+    cy.signIn('Ed');
     cy.openConsole('#/');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');

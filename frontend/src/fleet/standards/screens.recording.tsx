@@ -65,7 +65,7 @@ const replayPage = (): RecordingPage => {
 // Bash rows, as the feed holds them.
 const T0 = 1_000_000;
 const entry = (seq: number, over: Partial<FeedEntry> = {}): FeedEntry => ({ seq, at: T0 + seq * 1000, kind: "tool", text: "Bash npm test", command: "npm test", ...over });
-const bashFeed = (entries: FeedEntry[]): FeedState => ({ entries, stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false });
+const bashFeed = (entries: FeedEntry[]): FeedState => ({ entries, stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false, refused: null });
 const LONG_CURL = `curl -H 'Authorization: Bearer [redacted]' "https://staging.example.com/api/invoices?${Array.from({ length: 30 }, (_, i) => `field${i}=value${i}`).join("&")}"`;
 const bashRows: FeedEntry[] = [
   entry(1, { command: "npm run build", text: "Bash npm run build", output: "built in 2.1s", done: true, exitCode: 0 }),

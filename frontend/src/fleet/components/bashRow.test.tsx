@@ -9,7 +9,7 @@ import { useRef } from "react";
 
 const T0 = 1_000_000;
 const entry = (seq: number, over: Partial<FeedEntry> = {}): FeedEntry => ({ seq, at: T0 + seq * 1000, kind: "tool", text: "Bash npm test", command: "npm test", ...over });
-const feed = (entries: FeedEntry[]): FeedState => ({ entries, stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false });
+const feed = (entries: FeedEntry[]): FeedState => ({ entries, stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false, refused: null });
 
 function show(entries: FeedEntry[], opts: { admin?: boolean | null; machine?: boolean | null; active?: boolean } = {}) {
   const ui = (list: FeedEntry[]) => (
