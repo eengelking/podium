@@ -559,6 +559,15 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown ask' });
       return;
     }
+    // An Admin opening an ask that is not their own shows them the question, plan or tool input in full (#1073): the read is recorded before it is sent, the
+    // Admin log hears of it (who, whose, which ask, never the text) and the owner is told in the console and in their reporter. The owner's own open is not noticed.
+    const read = await fleet.chat.adminReads.noteSession(got.v, 'ask', got.row);
+    // The Admin log gets one line per reading session, as Chat does: when the read begins, not at every fetch of it.
+    if (read.changed) {
+      await people?.log('ask_read', `${got.v.name} opened an ask of ${got.row.owner} in ${got.row.name} (${shortId(got.row.id)}) [${req.params.askId}]`, sourceOf(req), now(), got.v.actor);
+      logger.info('respond.ask_read', `podium: an Admin opened an ask in session ${got.row.id}`, { session_id: got.row.id, ask_id: req.params.askId ?? null, by: got.v.actor, owner: got.row.owner, source: sourceOf(req) });
+      fleet.sessionReadsChanged();
+    }
     res.json(detail);
   }));
 

@@ -73,7 +73,7 @@ describe("the owner's red notice while an Admin reads", () => {
   it("names the Admin and the waiting plan, who can open it and when it clears, with an eye and words, and nothing else", async () => {
     const { container } = await notes(fakeApi({ readers: { ask: { s1: [live("Root")] } } }));
     const note = container.querySelector("[data-testid='read-notice']")!;
-    expect(note.textContent).toContain("Root (an Admin) is reading your waiting plan.");
+    expect(note.textContent).toContain("Root (an Admin) is reading your waiting plan, question or tool request.");
     expect(note.textContent).toContain("Only you and Admins can open it. The notice clears about 30 seconds after Root stops.");
     expect(note.getAttribute("role")).toBe("status");
     expect(note.classList.contains("crit")).toBe(true);
@@ -94,7 +94,7 @@ describe("the owner's red notice while an Admin reads", () => {
 
   it("hides on the X, for that reading only, and stays hidden when the page is opened again; a later read shows again", async () => {
     const first = await notes(fakeApi({ readers: { ask: { s1: [live("Root", NOW - 20_000)] } } }));
-    fireEvent.click(screen.getByRole("button", { name: "Close notice: Admin reading your waiting plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close notice: Admin reading your waiting plan, question or tool request" }));
     expect(first.container.querySelector("[data-testid='read-notice']")).toBeNull();
     expect(JSON.parse(window.localStorage.getItem("podium.sessionreads.dismissed")!)).toEqual([readingKey("ask", "s1", "Root", NOW - 20_000)]);
     first.unmount();
@@ -121,7 +121,7 @@ describe("the owner's red notice while an Admin reads", () => {
 
   it("is seen by an Admin who is the session's owner, and the Admin can dismiss it", async () => {
     const { container } = await notes(fakeApi({ me: ADMIN_ME, readers: { ask: { s1: [live("Sam")] } } }), "ask", { ...SESSION, owner: "Root" });
-    expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Sam (an Admin) is reading your waiting plan.");
+    expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Sam (an Admin) is reading your waiting plan, question or tool request.");
     fireEvent.click(screen.getByRole("button", { name: /Close notice/ }));
     expect(container.querySelector("[data-testid='read-notice']")).toBeNull();
   });
@@ -133,7 +133,7 @@ describe("the owner's red notice while an Admin reads", () => {
 
   it("hides every Admin of one notice with one X", async () => {
     const { container } = await notes(fakeApi({ readers: { ask: { s1: [live("Root"), live("Sam", NOW - 10_000)] } } }));
-    expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Root and Sam (Admins) are reading your waiting plan.");
+    expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Root and Sam (Admins) are reading your waiting plan, question or tool request.");
     fireEvent.click(screen.getByRole("button", { name: /Close notice/ }));
     expect(container.querySelector("[data-testid='read-notice']")).toBeNull();
   });
@@ -144,8 +144,8 @@ describe("the quiet record lines after a read", () => {
     const records = [read("Sam", at(9, 41)), read("Root", at(14, 2)), read("Root", at(10, 0)), read("Kim", at(8, 0))];
     const { container } = await notes(fakeApi({ records }));
     const lines = [...container.querySelectorAll("[data-testid='read-record']")].map((n) => n.textContent);
-    expect(lines).toEqual(["Root (an Admin) opened your waiting plan on 14:02.", "Root (an Admin) opened your waiting plan on 10:00.", "Sam (an Admin) opened your waiting plan on 09:41."]);
-    expect(screen.getAllByRole("button", { name: /Close notice: .* opened your waiting plan/ })).toHaveLength(3);
+    expect(lines).toEqual(["Root (an Admin) opened your waiting plan, question or tool request on 14:02.", "Root (an Admin) opened your waiting plan, question or tool request on 10:00.", "Sam (an Admin) opened your waiting plan, question or tool request on 09:41."]);
+    expect(screen.getAllByRole("button", { name: /Close notice: .* opened your waiting plan, question or tool request/ })).toHaveLength(3);
     expect(container.querySelector("[data-testid='read-record']")!.classList.contains("crit")).toBe(false);
   });
 
@@ -158,8 +158,8 @@ describe("the quiet record lines after a read", () => {
     const records = [read("Root", at(14, 2)), read("Sam", at(9, 41)), read("Root", at(13, 0), "paused")];
     const { container } = await notes(fakeApi({ records }));
     expect(container.querySelectorAll("[data-testid='read-record']")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Close notice: Root (an Admin) opened your waiting plan" }));
-    expect([...container.querySelectorAll("[data-testid='read-record']")].map((n) => n.textContent)).toEqual(["Sam (an Admin) opened your waiting plan on 09:41."]);
+    fireEvent.click(screen.getByRole("button", { name: "Close notice: Root (an Admin) opened your waiting plan, question or tool request" }));
+    expect([...container.querySelectorAll("[data-testid='read-record']")].map((n) => n.textContent)).toEqual(["Sam (an Admin) opened your waiting plan, question or tool request on 09:41."]);
   });
 
   it("does not repeat a read that is still open as a line", async () => {
@@ -267,12 +267,12 @@ describe("the stream's reads counter", () => {
 
 describe("the words", () => {
   it("name one, two or more Admins, and the notice's labels", () => {
-    expect(readingLine("ask", "x", [live("Root")])).toBe("Root (an Admin) is reading your waiting plan.");
-    expect(readingLine("ask", "x", [live("Root"), live("Sam")])).toBe("Root and Sam (Admins) are reading your waiting plan.");
+    expect(readingLine("ask", "x", [live("Root")])).toBe("Root (an Admin) is reading your waiting plan, question or tool request.");
+    expect(readingLine("ask", "x", [live("Root"), live("Sam")])).toBe("Root and Sam (Admins) are reading your waiting plan, question or tool request.");
     expect(readingLine("activity", "x", [live("Root"), live("Sam"), live("Kim")])).toBe("Root, Sam and 1 more Admin are paging through the stored Activity of x.");
-    expect(readingLine("ask", "x", [live("Root"), live("Sam"), live("Kim"), live("Lee")])).toBe("Root, Sam and 2 more Admins are reading your waiting plan.");
+    expect(readingLine("ask", "x", [live("Root"), live("Sam"), live("Kim"), live("Lee")])).toBe("Root, Sam and 2 more Admins are reading your waiting plan, question or tool request.");
     expect(readingRest([live("Root"), live("Sam")])).toBe("Only you and Admins can open it. The notice clears about 30 seconds after the last of them stops.");
-    expect(readRecordLine("ask", "x", read("Root", at(14, 2)), NOW)).toBe("Root (an Admin) opened your waiting plan on 14:02.");
+    expect(readRecordLine("ask", "x", read("Root", at(14, 2)), NOW)).toBe("Root (an Admin) opened your waiting plan, question or tool request on 14:02.");
     expect(readingLabel("activity")).toBe("Admin reading your stored Activity");
     expect(recordLabel("activity", "x", read("Root", at(14, 2)))).toBe("Root (an Admin) read the stored Activity of x");
   });

@@ -8,8 +8,8 @@ import { FocusHeader } from "./FocusHeader";
 import { PlanFoldTab } from "./PlanFoldTab";
 import { PlanPanel, type PlanTab } from "./PlanPanel";
 import { RecordingLayer } from "./RecordingLayer";
-import { stateKind } from "./Chips";
 import { SessionReadNotes } from "./SessionReadNotes";
+import { stateKind } from "./Chips";
 import { StatusBand } from "./StatusBand";
 import { usePlanFolded } from "../usePanes";
 
@@ -55,7 +55,8 @@ export function FocusView(props: {
         <FactsBar s={s} now={now} onAgent={props.onAgent} blow={{ open, onToggle: () => setOpenFor(open ? null : s.id), controls: detailId }} />
         <RecordingLayer s={s} now={now} />
         <StatusBand s={s} kind={kind} delegates={delegates} now={now} config={config} onRemove={props.onRemove} />
-        <SessionReadNotes kind="activity" session={s} placement="band" />
+        <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
+        <SessionReadNotes kind="activity" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
       </div>
       <div className={`two${folded ? " folded" : tab === "files" ? " wide" : ""}`}>
         <div className={`fold-col${folded ? " shut" : ""}${tab === "files" ? " files" : ""}`}>
