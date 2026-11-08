@@ -120,7 +120,7 @@ describe('the person is told', () => {
     expect(changed).toHaveBeenCalledTimes(1);
     // the reporter callout names the Admin and the session, and nothing else
     const told = (await report()).adminNotices ?? [];
-    expect(told.map((n) => n.text)).toEqual([`Boss (an Admin) is reading your waiting plan on ${name}.`]);
+    expect(told.map((n) => n.text)).toEqual([`Boss (an Admin) is reading your waiting plan, question or tool request on ${name}.`]);
     // the console's live readers: the owner sees the Admin, the Admin sees nothing of Ed's
     const live = await e.get('/api/fleet/respond/session-reads').set(H);
     expect(live.body.readers.ask[SID]).toEqual([{ admin: 'Boss', since: T0, until: T0 + LIVE_MS }]);
@@ -144,7 +144,7 @@ describe('the person is told', () => {
     const b = await signedIn(app, 'Boss', boss.token);
     await b.post(`${BASE}/ask/reading`).set(H).send({});
     (fleet.chat.adminReads as unknown as { known: Map<string, unknown> }).known.clear();
-    expect(((await report()).adminNotices ?? []).map((n) => n.text)).toEqual([`Boss (an Admin) is reading your waiting plan on ${name}.`]);
+    expect(((await report()).adminNotices ?? []).map((n) => n.text)).toEqual([`Boss (an Admin) is reading your waiting plan, question or tool request on ${name}.`]);
   });
 
   it('keeps a read less than 30 minutes after the last as one record and starts another after', async () => {

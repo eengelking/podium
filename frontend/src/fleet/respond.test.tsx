@@ -10,6 +10,7 @@ import { RespondButton, RespondModal } from "./components/Respond";
 import { TopBar } from "./components/TopBar";
 import { ActivityFeed } from "./components/ActivityFeed";
 import { RespondError, type RespondApi } from "./respondApi";
+import { PING_MS, SessionReadsProvider } from "./sessionReads";
 import type { Ask, AskDetail, AskSummary, RespondMe, SessionView } from "./types";
 
 const T0 = 1_800_000_000_000;
@@ -624,5 +625,78 @@ describe("the quoted answer keeps another harness's (Recommended) label (#853)",
   it("strips it for Claude Code and leaves it for OpenCode", () => {
     expect(deliverySummary(d, { kind: "question", id: "x", at: 0, answers: [{ options: [0] }] } as never, "claude-code")).toBe("Fixed 50");
     expect(deliverySummary(d, { kind: "question", id: "x", at: 0, answers: [{ options: [0] }] } as never, "opencode")).toBe("Fixed 50 (Recommended)");
+  });
+});
+
+describe("an Admin's read of a waiting ask (#1073)", () => {
+  const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
+  const readingApi = (me: RespondMe, readers: Record<string, { admin: string; since: number; until: number }[]> = {}) =>
+    fakeApi(
+      {
+        sessionReads: vi.fn(async () => ({ ok: true as const, serverTime: Date.now(), readers: { ask: readers } })),
+        sessionReadRecords: vi.fn(async () => ({ ok: true as const, serverTime: Date.now(), adminReads: [], adminReading: [] })),
+        sessionReading: vi.fn(async () => ({ ok: true as const })),
+      },
+      me,
+    );
+
+  async function openWith(api: RespondApi, s: SessionView) {
+    function Opener() {
+      const ctx = useRespond();
+      return ctx?.openFor ? <RespondModal s={s} now={T0 + 42_000} adminFeedOn /> : <button onClick={() => ctx?.open(s.id)}>open</button>;
+    }
+    const r = render(
+      <RespondProvider api={api} flagsOn>
+        <SessionReadsProvider rev={1}>
+          <Opener />
+        </SessionReadsProvider>
+      </RespondProvider>,
+    );
+    await flush();
+    fireEvent.click(screen.getByText("open"));
+    await flush();
+    return r;
+  }
+
+  it("keeps pinging every 15 seconds while an Admin has someone else's ask open, and stops when it closes", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const api = readingApi(ADMIN);
+    const r = await openWith(api, session());
+    expect(api.ask).toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(PING_MS * 2);
+    });
+    expect(api.sessionReading).toHaveBeenCalledTimes(2);
+    expect(api.sessionReading).toHaveBeenCalledWith("sess-ed", "ask", undefined);
+    r.unmount();
+    vi.advanceTimersByTime(PING_MS * 2);
+    expect(api.sessionReading).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("sends no ping for the owner's own ask, and none for an Admin of a session the Admin owns", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const own = readingApi(ME);
+    await openWith(own, session());
+    const mine = readingApi(ADMIN);
+    await openWith(mine, session({ owner: "Root" }));
+    await act(async () => {
+      vi.advanceTimersByTime(PING_MS * 2);
+    });
+    expect(own.sessionReading).not.toHaveBeenCalled();
+    expect(mine.sessionReading).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("shows the owner the red notice above the ask while an Admin has it open, and an Admin who is not the owner nothing", async () => {
+    const reading = { admin: "Root", since: Date.now() - 20_000, until: Date.now() + 25_000 };
+    const owner = await openWith(readingApi(ME, { "sess-ed": [reading] }), session());
+    const note = document.querySelector("[data-testid='read-notice']")!;
+    expect(note.textContent).toContain("Root (an Admin) is reading your waiting plan, question or tool request.");
+    expect(note.closest(".read-notes.above")).not.toBeNull();
+    expect(note.compareDocumentPosition(document.querySelector("section.ask")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+    const admin = await openWith(readingApi(ADMIN, { "sess-ed": [reading] }), session());
+    expect(document.querySelector("[data-testid='read-notice']")).toBeNull();
   });
 });
