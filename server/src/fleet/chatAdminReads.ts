@@ -107,12 +107,15 @@ export class AdminReads {
   async noticesFor(sessionId: string): Promise<AdminNotice[]> {
     const live = this.core.host.peers.messages.live(sessionId);
     const held = this.core.notices.for(sessionId);
+    // Every session reports often: with no recent record there is nothing to tell, and the stored session is not looked up for it.
+    const recent = await this.store.recent(this.core.host.now() - NOTICE_TTL_MS);
+    if (!recent.length) return held;
     // A session read is told to a session peer messaging does not know too (the stored session's owner); a chat thread needs the live peer.
     const owner = live?.owner ?? (await this.core.host.sessionOf(sessionId))?.owner ?? null;
     if (owner === null) return held;
     const person = nameKey(owner);
     const out: AdminNotice[] = [];
-    for (const r of await this.store.recent(this.core.host.now() - NOTICE_TTL_MS)) {
+    for (const r of recent) {
       const subject = await this.subjectOf(r.thread);
       if (!subject || !subject.owners.includes(person)) continue;
       if (!live && subject.scope !== 'session') continue;

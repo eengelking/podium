@@ -140,16 +140,27 @@ export const recordLabel = (kind: SessionReadKind, session: string, r: AdminRead
 
 export const readingKey = (kind: SessionReadKind, sessionId: string, admin: string, start: number): string => `${kind}|${sessionId}|${admin}|${start}`;
 
+/** Sent on the window when a reading is dismissed, so every notice on the page (the band, the Respond window) drops it at once. */
+const DISMISSED_EVENT = "podium:sessionreads-dismissed";
+
 /** The readings this browser's person has dismissed, and a way to dismiss one. Nothing leaves the browser. */
 export function useDismissed(): { has: (key: string) => boolean; dismiss: (key: string) => void } {
   const [keys, setKeys] = useState<string[]>(() => readJson<string[]>(KEY, []));
+  useEffect(() => {
+    const again = () => setKeys(readJson<string[]>(KEY, []));
+    window.addEventListener(DISMISSED_EVENT, again);
+    window.addEventListener("storage", again);
+    return () => {
+      window.removeEventListener(DISMISSED_EVENT, again);
+      window.removeEventListener("storage", again);
+    };
+  }, []);
   const has = useCallback((key: string) => keys.includes(key), [keys]);
   const dismiss = useCallback((key: string) => {
-    setKeys((old) => {
-      const next = [...old.filter((k) => k !== key), key].slice(-KEEP);
-      writeJson(KEY, next);
-      return next;
-    });
+    const next = [...readJson<string[]>(KEY, []).filter((k) => k !== key), key].slice(-KEEP);
+    writeJson(KEY, next);
+    setKeys(next);
+    window.dispatchEvent(new Event(DISMISSED_EVENT));
   }, []);
   return { has, dismiss };
 }

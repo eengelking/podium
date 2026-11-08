@@ -22,8 +22,8 @@ export const SESSION_READ_KINDS = Object.keys(KINDS) as SessionReadKind[];
 
 export const isSessionReadKind = (v: unknown): v is SessionReadKind => typeof v === 'string' && Object.hasOwn(KINDS, v);
 
-/** A loop is a short id (an agent's, or the orchestrator's); the thread is split on its colons, so it holds none. */
-export const LOOP_ID = /^[\w.@-]{1,80}$/;
+/** A loop is an agent's id (up to the protocol's 200 characters, of any kind) or the orchestrator's; the thread is split on its last colon, so it holds none. */
+export const LOOP_ID = /^[^:\s]{1,200}$/;
 
 /** Whether a read of this kind is recorded per loop, so it must name one. */
 export const readNeedsLoop = (kind: SessionReadKind): boolean => KINDS[kind].loop;

@@ -697,7 +697,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     // An Administrator is a person (personId set): reading the conversation of their own agents is not noticed. The admin secret has no person.
     const sid = readCookie(req, COOKIE);
     const personId = (sid ? sessions.get(sid)?.personId : null) ?? null;
-    if (!await opts.noteConversationRead({ name: actor.name, actor: actor.name, admin: true, personId },req.params.a, req.params.b)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
+    if (!await opts.noteConversationRead({ name: actor.name, actor: actor.name, admin: true, personId }, req.params.a, req.params.b)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
   }));
 

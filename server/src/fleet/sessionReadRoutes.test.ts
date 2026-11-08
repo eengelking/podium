@@ -160,6 +160,16 @@ describe('the person is told', () => {
     expect((await e.get(`${BASE}/ask`)).body.adminReads).toHaveLength(2);
   });
 
+  it('takes any loop id the protocol allows (up to 200 characters, no colon or space), and refuses the rest', async () => {
+    const { app, fleet, boss } = await setup();
+    const b = await signedIn(app, 'Boss', boss.token);
+    const odd = `toolu_01/a+b${'x'.repeat(150)}`;
+    expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: odd })).status).toBe(200);
+    expect((await fleet.chat.adminReads.list(`activity:${SID}:${odd}`)).map((r) => r.admin)).toEqual(['Boss']);
+    expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: 'x'.repeat(201) })).status).toBe(400);
+    expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: 'a b' })).status).toBe(400);
+  });
+
   it('tells for each loop of the Activity read, as one reader of the session, with every loop in the record', async () => {
     const { app, fleet, ed, boss, name, report } = await setup();
     const b = await signedIn(app, 'Boss', boss.token);
