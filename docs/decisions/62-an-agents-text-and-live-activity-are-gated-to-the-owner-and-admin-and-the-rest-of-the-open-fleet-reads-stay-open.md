@@ -46,5 +46,5 @@ This entry records the decision. It builds no gate. The work is its own issue.
 <!-- nav:start -->
 ---
 
-Previous: [61. Chat keeps each audience in its own table, and a person may write to another person's agent only with its owner's approval (#1034)](61-chat-keeps-each-audience-in-its-own-table-and-a-person-may-write-to.md) · Up: [Decisions](README.md)
+Previous: [61. Chat keeps each audience in its own table, and a person may write to another person's agent only with its owner's approval (#1034)](61-chat-keeps-each-audience-in-its-own-table-and-a-person-may-write-to.md) · Up: [Decisions](README.md) · Next: [63. A call that returns a person's content must be listed in a registry, or the build fails (#1080)](63-a-route-that-returns-a-persons-content-must-be-listed-in-a-registry-or-the-build-fails.md)
 <!-- nav:end -->
