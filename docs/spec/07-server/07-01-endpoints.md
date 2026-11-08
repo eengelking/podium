@@ -72,6 +72,12 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   404 for an unknown loop and 400 for a bad `before` or `limit`. It works for a session that has ended and does not
   need the `respond` flag: sign-in is open to the owner and an Admin whenever a keep policy is on and a token is
   set. `Cache-Control: no-store`. The text is never logged.
+- An Admin's read of another person's stored Activity is never quiet (#1074). Once the request has passed every check
+  above, and before a page is sent, the read is recorded per session and loop (`activity:<session>:<loop>`, one
+  record per Admin per reading session), the Admin log gets one `activity_admin_read` line per reading session
+  (who, whose, session, loop; never an entry), and the owner is told in the console and in `podium-reporter`
+  (see `session-reads` below). A record that cannot be made stops the read with a `5xx` and no page. The owner's own
+  read, an Admin's read of their own session and a session owned by `Admin` or nobody record and tell no one.
 
 **`GET /api/fleet/respond/sessions/:id/files/diff?path=&ahead=1`** (#319, #631)
 - The console's request for one file's diff. It needs a respond session ([7.7](07-07-hardening.md), *File diff*),

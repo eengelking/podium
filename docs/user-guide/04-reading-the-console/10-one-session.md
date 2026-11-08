@@ -135,6 +135,10 @@ whether or not anyone is watching, until the Admin's period ends.
 - It also works for a session that has ended, until its entries are purged.
 - Only the session's owner and the Admin can read stored history. Anyone else sees a line saying so, and no entries. You
   need to be signed in (the same sign-in as responding and file diffs).
+- When an Admin pages through your stored history, you are told. Your page shows a red notice under the status band
+  while the Admin reads, naming the Admin, and a quiet line with the time after. Your session shows a callout too. Close
+  either with its X; that hides it on your screen only, and the record and the Admin log stay. Reading your own history
+  tells no one.
 - It is a record of what the reporter sent, not a complete one: the mod keeps 20 entries per loop between reports, so a
   busy session can miss some. Secrets are removed on your machine before anything is sent, and the Admin can delete
   stored history at any time ([Stored activity](../05-admin/11-stored-activity.md)).

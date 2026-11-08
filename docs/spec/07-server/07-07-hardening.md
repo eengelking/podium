@@ -191,6 +191,11 @@ Stored activity is reported text and can hold anything an agent read or ran, so 
   server and can already delete it; unlike the file diff, this is not limited to the owner. A session owned by
   `Admin` is read with the admin secret. A session with no owner can be read only by an Admin. Everyone else gets
   `403`, and the live route's `history.canRead` is false for them.
+- An Admin never reads it in silence (#1074). When an Admin reads the stored Activity of a session that is not their own
+  and has an owner, the read is recorded before the page is sent (a failure to record stops the read), the Admin log
+  writes `activity_admin_read` once per reading session with who, whose, session and loop and never entry text, the
+  owner's console shows a red notice under the status band while the Admin reads and a quiet line after, and each of
+  the owner's live reporter sessions shows a callout that is never sent to the model.
 - Only the Admin changes the policy, previews it, lists what is stored and deletes it, through the Admin API
   ([7.1](07-01-endpoints.md)), which needs the unlocked Admin session. Each change and each delete is written to the
   admin log (`activity_history_changed`, `activity_deleted`), and each purge run that removes something is
@@ -314,7 +319,8 @@ A file's diff is source code. Reads are open by design, so this is the one read 
   turned on or off, background sessions shown or hidden), the model prices (a price set, a price reset), a
   reporter taken off the list (`reporter_removed`) and the Activity history (#432: a policy saved,
   `activity_history_changed`; entries deleted by the Admin, `activity_deleted`; a purge run that removed
-  something, `activity_purged`, one entry per run, with counts and sizes and never text) and session recording
+  something, `activity_purged`, one entry per run, with counts and sizes and never text; an Admin's reading of
+  another person's stored Activity, `activity_admin_read`, once per reading session, #1074) and session recording
   (#353: `recording_started`, `recording_stopped`, `recording_deleted`, `recording_limit`, `recording_read`,
   `recording_settings_changed` and `recording_purged`, never text; [7.7](#session-recording-353)), each with the source
   address.
