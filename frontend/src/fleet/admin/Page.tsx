@@ -2,12 +2,19 @@
 import type { ReactNode } from "react";
 import { RailFoot } from "../components/Rail";
 
-/** `actions` sit at the right of the header, such as a report's Export buttons (#484). */
-export function PageHeader({ title, lead, actions }: { title: string; lead: string; actions?: ReactNode }) {
+/** `actions` sit at the right of the header, such as a report's Export buttons (#484). `titleAfter` sits on the title's line, such as Chat's (i) (#1099). */
+export function PageHeader({ title, lead, actions, titleAfter }: { title: string; lead: string; actions?: ReactNode; titleAfter?: ReactNode }) {
   return (
     <div className="page-h">
       <div>
-        <h1>{title}</h1>
+        {titleAfter ? (
+          <div className="ttl-row">
+            <h1>{title}</h1>
+            {titleAfter}
+          </div>
+        ) : (
+          <h1>{title}</h1>
+        )}
         <p className="lead">{lead}</p>
       </div>
       {actions}

@@ -295,10 +295,52 @@ describe("the page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Chat" })).toBeInTheDocument();
   });
 
-  it("says in its rules who reads a conversation with another person's agent", async () => {
+  // #1099: the rules left the bottom of the page for a modal that the (i) beside the title opens.
+  it("keeps the rules out of the page and opens them from the (i) beside the title", async () => {
     page();
     await flush();
-    expect(screen.getByText(/A conversation with another person's agent is read by that person, the agent's owner and an Admin/)).toBeInTheDocument();
+    const info = screen.getByRole("button", { name: "Chat privacy and controls" });
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    expect(info.closest(".ttl-row")).toContainElement(screen.getByRole("heading", { level: 1, name: "Chat" }));
+    expect(screen.queryByText(/A conversation with another person's agent is read by that person/)).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(info);
+    const dialog = screen.getByRole("dialog", { name: "Chat privacy and controls" });
+    expect(info).toHaveAttribute("aria-expanded", "true");
+    for (const group of ["Who reads what", "How agents act", "Stopping a session", "Admins"]) expect(within(dialog).getByRole("heading", { level: 3, name: group })).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(8);
+    expect(within(dialog).getByText(/A conversation with another person's agent is read by that person, the agent's owner and an Admin/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/While an Admin reads, the person sees a red notice at the top of the thread/)).toBeInTheDocument();
+  });
+
+  it("closes the rules with the X, Esc or the dimmed area, and gives focus back to the (i)", async () => {
+    page();
+    await flush();
+    const info = screen.getByRole("button", { name: "Chat privacy and controls" });
+    fireEvent.click(info);
+    fireEvent.click(screen.getByRole("button", { name: "Close (Esc)" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(info).toHaveFocus();
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(info);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(info).toHaveFocus();
+    fireEvent.click(info);
+    const scrim = document.querySelector(".scrim") as HTMLElement;
+    fireEvent.mouseDown(scrim);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(info).toHaveFocus();
+  });
+
+  it("has no (i) while messaging is off or nobody is signed in", async () => {
+    page({ peersFlag: false });
+    await flush();
+    expect(screen.queryByRole("button", { name: "Chat privacy and controls" })).toBeNull();
+    cleanup();
+    page({ me: OUT });
+    await flush();
+    expect(screen.queryByRole("button", { name: "Chat privacy and controls" })).toBeNull();
   });
 
   it("says messaging is off, and asks a signed-out browser to sign in without reading anything", async () => {

@@ -148,3 +148,22 @@
 .ch-body .feed li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
 .ch-rec svg { width: 12px; height: 12px; flex: none; }
 .podium .ch-nav .tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; white-space: nowrap; }
+
+/* Chat privacy and controls (#1099, mockup/podium-chat-rules-modal.html): the (i) beside the title and the rules in the modal it opens. */
+.page-h .ttl-row { display: flex; align-items: center; gap: 8px; }
+/* The (i) is the standard button.info (fleet.css, as the Wall toolbar uses it). In the toolbar it only shows where words do not fit,
+   so here it is shown always, and its tooltip opens to the right of the button instead of ending under it. */
+.podium .page-h button.info { display: inline-flex; order: 0; margin-left: 0; cursor: pointer; }
+.podium .page-h button.info .tip { right: auto; left: 0; }
+.podium .page-h button.info[aria-expanded="true"] { color: var(--ink); background: var(--sel); }
+.podium .page-h button.info:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+
+/* The modal body: rules grouped by what they answer, one row each, the same icons the sidebar uses. */
+.podium .modal .mb.rl { padding: 6px 20px 20px; }
+.rl h3 { margin: 14px 0 0; font-size: 12px; font-weight: 650; color: var(--muted); letter-spacing: .01em; }
+.rl h3:first-child { margin-top: 12px; }
+.rl ul { list-style: none; margin: 0; padding: 0; }
+.rl li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; margin: 0; padding: 7px 0; border-top: 1px solid var(--grid); }
+.rl h3 + ul li:first-child { border-top: 0; }
+.rl li .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--ink2); }
+.rl li p { margin: 0; max-width: 64ch; }

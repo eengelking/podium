@@ -62,6 +62,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **Chat's rules are in a modal opened by an (i) beside the title (#1099).** The "Who can read what" panel no longer sits under the thread. The (i) opens **Chat privacy and controls**, the same rules grouped under Who reads what, How agents act, Stopping a session and Admins, each with its icon; it closes with its X, Esc or a click on the dimmed area, and focus returns to the (i). The sentences are unchanged.
+- Standards: the (i) button (`button.info`) used beside a page title and not only in the Wall toolbar, and the grouped rules rows (`.rl`) in a modal, approved by the maintainer on the mockup `mockup/podium-chat-rules-modal.html`.
 - **Chat replaces Traffic in the top bar, and `#/traffic` opens Chat.** The Traffic page still works until it is removed, and shows a note that links to Chat.
 - **A Direct Message whose agents have all left is hidden, then deleted.** It leaves the list when every agent session in it has ended or disconnected, its messages are kept for a grace period (24 hours by default) and then purged by the hourly run, and it comes back with its history if the same peers reappear. This replaces "kept 30 days after the last message" for that case; a quiet conversation with a live agent is still removed by the messaging retention. SPEC 7.5 and 7.7 changed with it.
 - **A person's message in Chat is stored.** Responding keeps nothing, but a message the owner writes to an agent in a Direct Message is kept in `peer_messages` as the person's, so the conversation can be read back. SPEC 7.2 and 7.7 say so, and add who can read each of General, My group and a Direct Message (an Admin's read is always shown to the people in it).

@@ -1135,7 +1135,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 - **Not signed in, or the admin secret.** General is read and written by every signed-in person. The admin secret reads General and has
   no group, no Direct Messages and no counts of its own, and says so.
 - A failed action says so in place ("Could not pause General: … Nothing changed. Try again.") and changes nothing.
-- The page also carries **Who can read what**, the rules in short form.
+- The page title has an (i) button beside it. It opens **Chat privacy and controls**, the rules in short form, in a modal that closes with its X, Esc or a click on the dimmed area and gives focus back to the (i). The rules no longer sit under the thread (#1099).
 
 **Not in this release.** Sending selected messages to an agent did not ship. Agents posting and reading in channels is route
 shapes only (#1035 finishes the feature).

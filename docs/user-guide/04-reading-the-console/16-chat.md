@@ -96,6 +96,8 @@ When people have written to your agents, a notice above your Direct Messages say
 
 An Admin never reads your conversation in silence, and the Admin log records the actions and never the text.
 
+The (i) beside the **Chat** title opens **Chat privacy and controls**, the same rules in short form together with how agents act and how to stop a session. Close it with its X, Esc or a click on the dimmed area.
+
 ## When an Admin reads
 
 An Admin can read your My group and your Direct Messages, and you are always told.
