@@ -41,6 +41,7 @@ import type { RailPeople } from "./components/Rail";
 import { APP_NAME, type ActivityView } from "./types";
 import { reportersLive, type FleetState } from "./store";
 import { RespondProvider, useRespond } from "./useRespond";
+import { ReplayReadsProvider } from "./replayReads";
 import { peersApi, type PeersApi, type RespondApi } from "./respondApi";
 import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
@@ -144,6 +145,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
     <ActivityOutputFlag.Provider value={props.state.features["activity-output"] === true}>
       <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
         <SessionReadsProvider rev={props.state.readsRev}>
+        <ReplayReadsProvider rev={props.state.replayRev}>
           <FleetViewBody
             state={props.state}
             updateEvery={props.updateEvery}
@@ -156,6 +158,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
             chat={props.chat}
             chatApi={props.chatApi}
           />
+        </ReplayReadsProvider>
         </SessionReadsProvider>
       </RespondProvider>
     </ActivityOutputFlag.Provider>

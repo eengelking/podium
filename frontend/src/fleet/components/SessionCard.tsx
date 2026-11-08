@@ -12,6 +12,7 @@ import { OwnerLine } from "./People";
 import { SessionId } from "./SessionId";
 import { IconPin } from "./Icons";
 import { bandWords } from "../recording";
+import { replayersCard, useReplayReads } from "../replayReads";
 import { harnessOfSession } from "../harness";
 import { updateSentence } from "../reporterUpdate";
 
@@ -203,6 +204,8 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   const hasNotes = detached || hooks || vNote !== null;
   // A recording that is capturing is announced on the card, and cannot be closed (#353).
   const recBand = s.recording ? bandWords(s.recording, now) : null;
+  // While an Admin replays the recording, its owner's card says so on its second line (#1075). The readers are the signed-in person's own sessions only.
+  const replayers = useReplayReads()?.readers(s.id) ?? [];
   // The card is one big button, so Remove sits beside it in a slot rather than inside it.
   return (
     <div className={`card-slot${props.leaving ? " leave" : ""}${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
@@ -323,7 +326,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <span className="dot" aria-hidden="true" />
           <span className="bl">
             {recBand.head}
-            <small>{recBand.small}</small>
+            <small>{recBand.small}{replayers.length > 0 ? ` ${replayersCard(replayers)}` : ""}</small>
           </span>
         </div>
       )}

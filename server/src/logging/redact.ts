@@ -38,8 +38,12 @@ const AUTH_SCHEME = /\b(Bearer|Basic)(\s+)([A-Za-z0-9._~+/=-]{8,})/g;
  * word characters, dots and dashes is read in linear time: with an open-ended prefix a text of `a.a.a.…` backtracked from every
  * start and 60,000 characters took seconds (#1051).
  */
-const SECRET_ASSIGNMENT =
-  /((?:["']?)[\w.-]{0,40}(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)(?:["']?)\s*)(=\s*|(?<=["'])\s*:\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s&,;"'}\])]+)/gi;
+const SECRET_HEAD = String.raw`((?:["']?)[\w.-]{0,40}(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)(?:["']?)\s*)(=\s*|(?<=["'])\s*:\s*)`;
+const SECRET_ASSIGNMENT = new RegExp(`${SECRET_HEAD}("(?:[^"\\\\]|\\\\.)*"|'[^']*'|[^\\s&,;"'}\\])]+)`, 'gi');
+
+/** The head of a quoted secret value, up to and including its opening quote, and the whole quoted value from that quote (#1064). */
+const SECRET_QUOTE_OPEN = new RegExp(`${SECRET_HEAD}(?=["'])`, 'gi');
+const QUOTED_VALUE = /"(?:[^"\\]|\\.)*"|'[^']*'/y;
 
 /** URL userinfo: the `user:pass@` in `https://user:pass@host/`. */
 const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi;
@@ -69,7 +73,21 @@ function credentialShaped(tok: string): boolean {
 }
 
 /** One pattern pass: the regex and what a match becomes. A match is the exec result (`m[0]` whole, `m[1]`… groups). */
-type Pass = readonly [RegExp, (m: readonly string[]) => string];
+type Pass = readonly [RegExp, (m: readonly string[]) => string, ((slice: string, limit: number) => boolean)?];
+
+/**
+ * True when a quoted secret value starts before `limit` in `slice` and its closing quote is not in `slice`. The assignment pattern does not
+ * match such a value at all, so nothing reaches the end of the slice to widen it, and a long value would go unredacted (#1064).
+ */
+function quoteUnclosed(slice: string, limit: number): boolean {
+  SECRET_QUOTE_OPEN.lastIndex = 0;
+  for (let h = SECRET_QUOTE_OPEN.exec(slice); h && h.index < limit; h = SECRET_QUOTE_OPEN.exec(slice)) {
+    QUOTED_VALUE.lastIndex = h.index + h[0].length;
+    if (!QUOTED_VALUE.test(slice)) return true;
+    SECRET_QUOTE_OPEN.lastIndex = Math.max(SECRET_QUOTE_OPEN.lastIndex, QUOTED_VALUE.lastIndex);
+  }
+  return false;
+}
 
 /** The passes of `scrubPatterns`, in order. */
 const PASSES: readonly Pass[] = [
@@ -82,6 +100,7 @@ const PASSES: readonly Pass[] = [
       const bare = m[3].replace(/^["']|["']$/g, '');
       return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}`;
     },
+    quoteUnclosed,
   ],
 ];
 
@@ -128,9 +147,10 @@ const STORED_LOOKAHEAD = 500;
  * One pass over a long text, a window at a time, so no regex run reads more than about STORED_WINDOW + the lookahead characters. A window
  * accepts only matches that START in its first STORED_WINDOW characters, and the next window starts where the last accepted match ended
  * (or at STORED_WINDOW), so a match is never split between two windows. A match that reaches the end of the slice may be cut short, so the
- * slice is widened (the lookahead doubles, which keeps the total linear) until the match ends inside it. Same result as one pass over the whole text.
+ * slice is widened (the lookahead doubles, which keeps the total linear) until the match ends inside it; so is a slice with a quoted value
+ * that opens in the window and is not closed in the slice, which the pattern does not match at all (#1064). Same result as one pass over the whole text.
  */
-function replaceWindowed(value: string, [re, fn]: Pass): string {
+function replaceWindowed(value: string, [re, fn, unclosed]: Pass): string {
   if (value.length <= STORED_WINDOW) return value.replace(re, (...a) => fn(a as string[]));
   let out = '';
   for (let at = 0; at < value.length; ) {
@@ -152,6 +172,7 @@ function replaceWindowed(value: string, [re, fn]: Pass): string {
         acc += s.slice(used, m.index) + fn(m);
         used = m.index + m[0].length;
       }
+      if (!final && !widen && unclosed?.(s, STORED_WINDOW)) widen = true;
       if (widen) {
         look *= 2;
         continue;

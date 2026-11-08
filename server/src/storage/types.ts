@@ -441,8 +441,10 @@ export interface ChatSettingsApi {
  * What an Admin record says: `read` (an Admin read the thread), or one of the Admin's stops that stay on the record for good (#1034): `cleared` (removed all
  * messages), `paused` and `resumed` (a link or a group). Only `read` has a session and a live window; the others are one moment (`lastSeenAt` equals `startedAt`).
  */
-export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected';
-export const ADMIN_READ_KINDS: readonly AdminReadKind[] = ['read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected'];
+export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName;
+/** An Admin's stop or delete of something of a person's, kept on the person's `act:` thread (#1078). */
+export type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed';
+export const ADMIN_READ_KINDS: readonly AdminReadKind[] = ['read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted', 'reporter_removed'];
 
 export interface AdminReadRow {
   admin: string;

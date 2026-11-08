@@ -1381,6 +1381,10 @@ body.modal-open #root { filter: blur(5px); }
 /* ---- Session recording (#353, mockup/podium-recording.html) ----
    The notice is not a wall notice: a band on the card and a layer on the orchestrator page, with no X and no switch, because
    consent cannot be dismissed. The replay is a page of the Activity feed's own rows, oldest first. */
+/* .rec-notes (#1075): what an Admin's replay tells the owner, under the recording layer: the red notice while it is open and a quiet line for each replay
+   after (.ch-nav.ro, chat.css). Placement only: flush with the layer, full width, the X (.x) at the far right. */
+.podium .rec-notes .ch-nav.ro { margin: 0; border-radius: 0; border-width: 1px 0 0; align-items: center; }
+.podium .rec-notes .ch-nav .x { margin-left: auto; margin-block: -4px; }
 /* .band.recording: the card's band in the critical color, a filled dot, the words and who started it. */
 .podium .band.recording { --c: var(--crit); --c-text: var(--crit-text); }
 .podium .band.recording .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); flex: none; }

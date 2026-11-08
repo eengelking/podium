@@ -528,6 +528,16 @@ as the Activity history, [7.7](07-07-hardening.md#activity-history-432)): `401` 
   on open to say, before Start, that the owner has not allowed recording, and `keepHours` to say how long a recording
   is kept (it states no number until the answer arrives or if it fails). It carries no text and needs no recording to exist. The wall's `SessionView` is sent to everyone, so
   the owner's option is not put there; this route is how the owner and an Admin learn it. Same access as the rest.
+  For the session's own owner it also carries `adminReads` (the Admins who replayed it: `{ admin, startedAt, lastSeenAt }`,
+  oldest first, never any text) and `adminReading` (who is replaying it now: `{ admin, since, until }`), and loading it
+  marks those records seen (#1075). An Admin who is not the owner gets neither.
+- **`GET /api/fleet/respond/recording-reads`**: the Admins replaying the signed-in person's own recorded sessions now,
+  `200 { ok: true, serverTime, sessions: { <session id>: [{ admin, since, until }] } }`. Only the person's own
+  sessions, so it names nobody else's: an Admin gets the sessions that are theirs, like anyone. `401` signed out, `404`
+  when recording is off. The console reads it when the stream's `replay` counter moves (#1075).
+- **`POST /api/fleet/respond/sessions/:id/recording/reading`**: an Admin's open replay of a session that is not theirs
+  pings this every 15 seconds so the owner's notice stays; `200 { ok: true }`. `403` for anyone who is not an Admin and
+  for the owner's own replay (#1075).
 - **`PUT /api/fleet/respond/sessions/:id/recording`**: start, or change which loops are recorded. Body:
   `RecordingStartRequest`, `{ loops }`, 1 or more loop ids of the session. `200 { ok: true, grant }`. Loops added
   later are recorded from that moment on; nothing before it is kept. `409` when the disk budget has no headroom (7.7) or the

@@ -707,6 +707,13 @@ becomes a standard in the release-prep PR, not in the feature PR.
 - On the orchestrator page, a layer inside the page's surface above its band (`.rec-bar`) says what is kept, who
   started it, which loops are recorded and which are not (in words, not on the agent table), and when it is deleted,
   with **Stop recording**, **Open replay** and **Delete recording** for the owner and an Admin.
+- When an Admin opens a replay of a session that is not theirs, its owner is told (#1075, `mockup/podium-replay-notice.html`).
+  Under the layer, a red notice (`.ch-nav.ro.crit`, an eye and words) names the Admin, says only the owner and Admins can
+  open it and that it clears about 30 seconds after the Admin stops, and the card's recording band gains a second line,
+  "`<Admin>` (an Admin) is replaying it now." After the replay a quiet line stays for each one, newest first, three at
+  most: "`<Admin>` (an Admin) replayed this recording on `<time>`, for `<n>` minutes." The notice and each line have an
+  X (`.x`) at the far right that hides it in that browser. Only the owner sees them, and so only the owner can close
+  them (an Admin for a session of their own). The band's line has no X.
 - The terminal shows the same text ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#session-recording-from-the-reporter-353)).
 
 **Stopped, ended and limit**

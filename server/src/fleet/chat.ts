@@ -3,6 +3,7 @@
 // retention purge). The two sides stay apart on purpose: see `chatChannels.ts` and `chatDirect.ts`.
 import { nameKey } from '../storage/rows.js';
 import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
+import { ACT_PREFIX } from './adminActs.js';
 import { AdminReads, LIST_PHRASE, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
@@ -226,7 +227,7 @@ export class ChatService {
   /** The person's unseen records of conversations that are gone, named and marked seen: loading the overview with them on it is seeing them. */
   private async goneReadsOf(name: string): Promise<GoneRead[]> {
     const exist = await this.direct.threads();
-    const unseen = (await this.adminReads.unseenFor(name)).filter((r) => r.thread.startsWith('dm:') && !exist.has(r.thread));
+    const unseen = (await this.adminReads.unseenFor(name)).filter((r) => r.thread.startsWith(ACT_PREFIX) || (r.thread.startsWith('dm:') && !exist.has(r.thread)));
     // "Seen" is marked per thread, so a thread is shown whole or not at all: whole threads, newest first, while they fit in GONE_RECORDS (the
     // first is always whole, however long). A thread left for the next load stays unseen, so a record the person was not shown is never lost.
     const byThread = new Map<string, typeof unseen>();
@@ -239,7 +240,8 @@ export class ChatService {
       marked.push(thread);
     }
     const out: GoneRead[] = [];
-    for (const r of shown) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: await this.partyNames(r.thread, name) });
+    // An Admin's stop or delete of the person's own things (#1078) has no other party; the console words it from the kind.
+    for (const r of shown) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: r.thread.startsWith(ACT_PREFIX) ? '' : await this.partyNames(r.thread, name) });
     for (const thread of marked) await this.adminReads.seen(thread, name);
     return out;
   }

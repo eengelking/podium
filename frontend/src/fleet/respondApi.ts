@@ -38,6 +38,22 @@ export async function call<T>(method: string, url: string, body?: unknown): Prom
 
 const callRespond = <T,>(method: string, path: string, body?: unknown) => call<T>(method, `${BASE}${path}`, body);
 
+/** What the owner's own look at a recording's consent returns (#353), and who replayed it (#1075): the record lines and who is replaying now. Never any text. */
+export interface RecordingConsent {
+  ok: true;
+  grant: RecordingGrant;
+  keepHours?: number;
+  adminReads?: AdminRead[];
+  adminReading?: AdminReading[];
+}
+
+/** The Admins replaying the signed-in person's own recorded sessions now, by session id, and the server's clock (#1075). */
+export interface RecordingReads {
+  ok: true;
+  serverTime: number;
+  sessions: Record<string, AdminReading[]>;
+}
+
 const sessionPath = (sessionId: string) => `/sessions/${encodeURIComponent(sessionId)}`;
 
 export const respondApi = {
@@ -70,7 +86,11 @@ export const respondApi = {
     return callRespond<RecordingPage>("GET", `${sessionPath(sessionId)}/recording${qs ? `?${qs}` : ""}`);
   },
   /** The consent as it stands before Start (#353): `grant.consent.owner` says whether the session's reporter allows recording; `keepHours` is the Admin's keep time. */
-  recordingConsent: (sessionId: string) => callRespond<{ ok: true; grant: RecordingGrant; keepHours?: number }>("GET", `${sessionPath(sessionId)}/recording/consent`),
+  recordingConsent: (sessionId: string) => callRespond<RecordingConsent>("GET", `${sessionPath(sessionId)}/recording/consent`),
+  /** The Admins replaying the signed-in person's own recorded sessions now, by session (#1075). Content-free. */
+  recordingReads: () => callRespond<RecordingReads>("GET", "/recording-reads"),
+  /** An Admin's open replay of someone else's session keeps its owner's notice alive; sent every 15 seconds while it is open (#1075). */
+  recordingReading: (sessionId: string) => callRespond<{ ok: true }>("POST", `${sessionPath(sessionId)}/recording/reading`),
   /** Chooses the loops to record from now on (#353). */
   recordingStart: (sessionId: string, loops: string[]) => callRespond<{ ok: true; grant: RecordingGrant }>("PUT", `${sessionPath(sessionId)}/recording`, { loops }),
   /** Ends capture and keeps what was recorded. */
@@ -103,7 +123,7 @@ export interface SessionReadRecordsReply {
 }
 
 /** The recording routes (#353). Optional so a test's fake can leave them out; the real one has them. */
-type RecordingCalls = "recordingPage" | "recordingConsent" | "recordingStart" | "recordingStop" | "recordingDelete";
+type RecordingCalls = "recordingPage" | "recordingConsent" | "recordingReads" | "recordingReading" | "recordingStart" | "recordingStop" | "recordingDelete";
 
 /** The session-read routes (#1073, #1074). Optional so a test's fake can leave them out; the real one has them. */
 type SessionReadCalls = "sessionReads" | "sessionReadRecords" | "sessionReading";

@@ -225,6 +225,18 @@ as it happens.
   only). Everyone else gets `403`. The owner and an Admin are equals here: either can start, stop and delete, and an
   Admin can do it without the owner's knowing, which is why the notice cannot be hidden and the owner's terminal is
   told, by the mod, every time.
+- **An Admin's replay is told to the owner (#1075).** An Admin who opens a replay of a session that is not theirs (a
+  session owned by `Admin`, or a person's own, is not) is recorded in `chat_admin_reads` under the thread
+  `replay:<session id>`: who and when, never any text, one record for all the reads of one Admin less than 30 minutes
+  apart, so paging back is the same record. The owner is told in two places and the Admin log keeps `recording_read`. (1)
+  The console shows the owner a red notice on the orchestrator page and on the card's recording band while the replay
+  is live (30 seconds after the Admin's last read or ping), and a quiet line for each earlier replay, newest first,
+  three at most, until the owner has seen it. Each has an X that hides it in that browser, and only the owner (an Admin
+  only for a session of their own) can use it; the record, the log line and the callout stay. (2) The reporter's
+  next report reply carries one content-free callout, `<Admin> (an Admin) is replaying your recorded Podium session
+  <name>.`, for the person only and never for the model, even when peer messaging is off. The stream carries only the
+  `replay` change counter ([7.6](07-06-sse-stream.md)); the owner's console reads who is replaying from
+  `GET /api/fleet/respond/recording-reads` ([7.1](07-01-endpoints.md)).
 - **Everyone** who can open the console sees that a session is recorded: the state, who started it, which loops are and
   are not recorded and when it goes (`SessionView.recording`, [7.4](07-04-view-types.md)), and never any content. This is
   not a wall notice and has no way to be closed ([8.1](../08-ui/08-01-what-the-ui-must-do.md#session-recording-353-mockuppodium-recordinghtml)).
@@ -721,6 +733,16 @@ report carries them as `adminNotices` ([6.1](../06-reporter-protocol/06-01-endpo
 every time a session reports, for every Admin who read a thread of that person in the last 5 minutes, whichever of the person's sessions reports and
 whenever it began, so a restart of the server or a session that started late loses none; the reporter shows each id once. An Admin's stop is held by
 the server for 5 minutes, at most 8 for a session. They are for the person only and are never sent to the model.
+
+**An Admin's stop or delete of a person's things (#1078).** An Admin who stops a recording, deletes a recording or stored activity, deletes a session
+with the admin secret, revokes a person's token or certificate, deletes a person, or removes one of a person's reporters tells that person, as a read does.
+Each act writes a record on the person's `act:<name>` thread (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
+`access_revoked`, `reporter_removed`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
+callout to every live reporter session of that person ("<Admin> (an Admin) stopped the recording of your session <name>."), through `adminNotices` as above. A
+server with no sign-in has no Admin to name and tells no one; a session or reporter with no owner, or on the admin secret, has no person to tell; an Admin
+acting on their own things tells no one. Revoking or deleting a person is told after it succeeds, because a refusal (the last Administrator) must not leave a
+false notice: the person's token is then dead, so the callout cannot reach a session that already reports with it, and a deleted person has no overview to
+show a record on, so for those two the Admin log is the lasting record.
 
 **Stopping a session.** A channel's menu is the stop button for a runaway session. **Pause** holds messages and keeps access,
 **Disconnect** takes the agents' access away, and **Remove all messages** deletes the history. In My group the person and an Admin can

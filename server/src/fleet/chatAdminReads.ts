@@ -39,6 +39,15 @@ export interface ReadSubject {
   person?: string;
 }
 
+/** Whose recorded session an Admin is replaying: the person told, and what the callout says. */
+export type ReplaySubject = Omit<ReadSubject, 'scope'> & { scope: 'replay' };
+
+/** The thread an Admin's replay of a person's recorded session is recorded under (#1075). */
+export const replayThread = (sessionId: string): string => `replay:${sessionId}`;
+
+/** What the callout says of a replay of a recorded session. */
+export const replayPhrase = (name: string): string => `is replaying your recorded Podium session ${name}`;
+
 /** The thread an Admin's look at a person's list of conversations is recorded under. */
 export const listThread = (owner: string): string => `list:${nameKey(owner)}`;
 
@@ -49,11 +58,18 @@ function codeOf(text: string): string {
   return h.toString(36);
 }
 
+/** A thread that records a read of a session's content: a replay (#1075), an ask or stored Activity (#1073, #1074). A session peer messaging does not know is told of these. */
+const isSessionRead = (thread: string): boolean => thread.startsWith('replay:') || parseSessionThread(thread) !== null;
+
 export class AdminReads {
   /** What a thread's callout says, from the last time it was noted or looked up, so a report costs no scan of the conversations. */
-  private readonly known = new Map<string, { subject: ReadSubject; at: number }>();
+  private readonly known = new Map<string, { subject: ReadSubject | ReplaySubject; at: number }>();
   /** Replaced by the Chat service: what a direct-message thread's callout says, from the conversation. Null when there is none. */
   resolve: (thread: string) => Promise<ReadSubject | null> = async () => null;
+
+  /** When a replay was last read or noted, and whether the records have been scanned for one since this server started. */
+  private replayAt = 0;
+  private replayScanned = false;
 
   constructor(private readonly core: ChatCore) {}
 
@@ -79,16 +95,54 @@ export class AdminReads {
     if (got.started || ping) for (const owner of new Set(s.owners)) this.core.signal({ scope: s.scope === 'dm' ? 'dm' : 'group', owner });
   }
 
+  /**
+   * `viewer`, an Admin, opened or paged a replay of a recorded session that belongs to someone else (#1075). Records it first, like `note`, so a replay is never
+   * opened without a record; a replay of the Admin's own or of a session nobody owns tells no one and records nothing. Paging back inside one replay is
+   * the same record (reads of one thread by one Admin less than 30 minutes apart are one session). The Admin log line is the route's (`recording_read`), so this
+   * writes no Chat event. Returns whether a person was told, so the route can wake that person's console.
+   */
+  async noteReplay(viewer: ChatViewer, session: { id: string; name: string; owner: string | null }): Promise<boolean> {
+    if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return false;
+    const subject: ReplaySubject = { scope: 'replay', thread: replayThread(session.id), owners: [nameKey(session.owner)], phrase: replayPhrase(session.name) };
+    await this.store.touch(subject.thread, viewer.actor, SESSION_GAP_MS, subject.owners);
+    this.known.set(subject.thread, { subject, at: this.core.host.now() });
+    this.replayAt = this.core.host.now();
+    return true;
+  }
+
+  /**
+   * The Admins replaying `person`'s recorded sessions now (#1075), by session id: those whose last read was in the last 30 seconds. Only the person's own
+   * sessions, so what the person's console reads names nobody else's. Never any text.
+   */
+  async replayersOf(person: string): Promise<Map<string, AdminReading[]>> {
+    const now = this.core.host.now();
+    const key = nameKey(person);
+    const out = new Map<string, AdminReading[]>();
+    for (const r of await this.store.recent(now - LIVE_MS)) {
+      if (!r.thread.startsWith('replay:')) continue;
+      const subject = await this.subjectOf(r.thread);
+      if (!subject || !subject.owners.includes(key)) continue;
+      const id = r.thread.slice('replay:'.length);
+      const list = out.get(id) ?? [];
+      list.push({ admin: r.admin, since: r.startedAt, until: r.lastSeenAt + LIVE_MS });
+      out.set(id, list);
+    }
+    return out;
+  }
+
   /** A thread's subject, from memory or the conversation; null when it has none (the conversation is gone, or the thread is not one that is read-recorded). */
-  private async subjectOf(thread: string): Promise<ReadSubject | null> {
+  private async subjectOf(thread: string): Promise<ReadSubject | ReplaySubject | null> {
     const now = this.core.host.now();
     const hit = this.known.get(thread);
     if (hit && now - hit.at < NOTICE_TTL_MS) return hit.subject;
-    let subject: ReadSubject | null = null;
+    let subject: ReadSubject | ReplaySubject | null = null;
     if (thread.startsWith('group:')) subject = { scope: 'group', thread, owners: [thread.slice('group:'.length)], phrase: 'is reading your Podium group' };
     else if (thread.startsWith('list:')) subject = { scope: 'list', thread, owners: [thread.slice('list:'.length)], phrase: LIST_PHRASE };
     else if (thread.startsWith('dm:')) subject = await this.resolve(thread);
-    else {
+    else if (thread.startsWith('replay:')) {
+      const row = await this.core.host.sessionOf(thread.slice('replay:'.length));
+      if (row && row.owner !== null && row.owner !== ADMIN_OWNER) subject = { scope: 'replay', thread, owners: [nameKey(row.owner)], phrase: replayPhrase(row.name) };
+    } else {
       // A session read (an ask, stored Activity): whose it is comes from the stored session, so a session peer messaging does not know is still told.
       const parsed = parseSessionThread(thread);
       const row = parsed ? await this.core.host.sessionOf(parsed.sessionId) : null;
@@ -107,18 +161,21 @@ export class AdminReads {
   async noticesFor(sessionId: string): Promise<AdminNotice[]> {
     const live = this.core.host.peers.messages.live(sessionId);
     const held = this.core.notices.for(sessionId);
-    // Every session reports often: with no recent record there is nothing to tell, and the stored session is not looked up for it.
-    const recent = await this.store.recent(this.core.host.now() - NOTICE_TTL_MS);
-    if (!recent.length) return held;
-    // A session read is told to a session peer messaging does not know too (the stored session's owner); a chat thread needs the live peer.
+    // A session that peers do not know costs nothing on its report unless a read of a session's content (a replay, an ask, stored Activity) is on record: once one scan
+    // has found none, or only old ones, it is skipped until the next one is noted. A restart scans once more, so a read from the minutes before it is not lost (#1075).
+    if (!live && this.replayScanned && this.core.host.now() - this.replayAt >= NOTICE_TTL_MS) return held;
+    // A read of a session's content is recorded whether or not peer messaging is on, so a session that peers do not know still hears of it, from the stored session's owner.
     const owner = live?.owner ?? (await this.core.host.sessionOf(sessionId))?.owner ?? null;
     if (owner === null) return held;
     const person = nameKey(owner);
     const out: AdminNotice[] = [];
+    const recent = await this.store.recent(this.core.host.now() - NOTICE_TTL_MS);
+    for (const r of recent) if (isSessionRead(r.thread)) this.replayAt = Math.max(this.replayAt, r.lastSeenAt);
+    this.replayScanned = true;
     for (const r of recent) {
+      if (!live && !isSessionRead(r.thread)) continue;
       const subject = await this.subjectOf(r.thread);
       if (!subject || !subject.owners.includes(person)) continue;
-      if (!live && subject.scope !== 'session') continue;
       out.push({ id: `rd-${r.startedAt.toString(36)}-${codeOf(`${r.thread}|${nameKey(r.admin)}`)}`, at: r.startedAt, text: `${this.whoIs(r.admin)} ${subject.phrase}.` });
     }
     return [...out.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)), ...held];
@@ -137,6 +194,7 @@ export class AdminReads {
     if (readNeedsLoop(kind) && !(loop && LOOP_ID.test(loop))) throw new Error(`a ${kind} read needs a loop id`);
     const s = sessionSubject(kind, { id: session.id, name: session.name, owner: session.owner }, loop);
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, [s.owner]);
+    this.replayAt = this.core.host.now();
     this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], phrase: s.phrase }, at: this.core.host.now() });
     return { told: true, changed: got.started || ping };
   }
@@ -229,6 +287,11 @@ export class AdminReads {
     await this.store.mark(thread, viewer.actor, kind, people);
     const verb = kind === 'cleared' ? 'removed all messages in' : kind;
     for (const t of tells) this.tell(t.sessionId, `${this.who(viewer)} ${verb} ${t.about}.`);
+  }
+
+  /** Records an Admin's act on a person's things (#1078) on `thread`, owed to `people` until they have seen it. */
+  record(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[]): Promise<AdminReadRow> {
+    return this.store.mark(thread, admin, kind, people);
   }
 
   /** The records `person` is owed and has not seen, of every thread, newest first. */

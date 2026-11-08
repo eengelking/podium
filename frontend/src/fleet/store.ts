@@ -34,6 +34,8 @@ export interface FleetState {
   chatRev: number;
   /** Counts the server's content-free `reads` signals and every snapshot: the person reads again who is reading their sessions (#1073, #1074). */
   readsRev: number;
+  /** The console's content-free `replay` signal (#1075): when it moves, the person reads again who is replaying their recordings. */
+  replayRev: number;
 }
 
 export type FleetAction =
@@ -44,6 +46,7 @@ export type FleetAction =
   | { type: "wall"; wall: WallSettingsView }
   | { type: "chat" }
   | { type: "reads" }
+  | { type: "replay" }
   | { type: "tick"; serverTime: number; kpis: Kpis }
   | { type: "disconnected"; at: number }
   | { type: "error"; message: string }
@@ -65,6 +68,7 @@ export const initialState: FleetState = {
   features: {},
   chatRev: 0,
   readsRev: 0,
+  replayRev: 0,
 };
 
 function capEvents(list: ActivityView[]): ActivityView[] {
@@ -98,6 +102,7 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
         ...live(),
         chatRev: state.chatRev + 1,
         readsRev: state.readsRev + 1,
+        replayRev: state.replayRev + 1,
         serverTime: action.body.serverTime,
         config: action.body.config ?? state.config,
         sessions,
@@ -146,6 +151,8 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
       return { ...state, chatRev: state.chatRev + 1 };
     case "reads":
       return { ...state, readsRev: state.readsRev + 1 };
+    case "replay":
+      return { ...state, replayRev: state.replayRev + 1 };
     case "wall":
       return { ...state, ...live(), wall: action.wall };
     case "tick":

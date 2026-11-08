@@ -411,6 +411,19 @@ describe("useFleet", () => {
     expect(result.current.readsRev).toBe(before + 1);
   });
 
+  it("counts the stream's content-free replay event, for the owner to read who is replaying again (#1075)", async () => {
+    vi.useFakeTimers();
+    const fetchState = vi.fn().mockResolvedValue(makeState());
+    const { result } = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const before = result.current.replayRev;
+    act(() => FakeSource.last!.emit("replay", { rev: 1 }));
+    expect(result.current.replayRev).toBe(before + 1);
+    expect(result.current.chatRev).toBe(before);
+  });
+
   it("reopens a stream the browser closed on error", () => {
     vi.useFakeTimers();
     FakeSource.opened = 0;
