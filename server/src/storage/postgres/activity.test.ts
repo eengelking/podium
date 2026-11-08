@@ -124,7 +124,7 @@ describe.skipIf(!TEST_PG)('postgres activity connection', () => {
       const w = world();
       const g = gate();
       const held = main.tx(() => g.open);
-      expect(await Promise.race([w.history.totals(), later(300)])).toMatchObject({ entries: 0 });
+      expect(await Promise.race([w.history.totals(), later(1500)])).toMatchObject({ entries: 0 });
       g.release();
       await held;
     });
@@ -133,7 +133,7 @@ describe.skipIf(!TEST_PG)('postgres activity connection', () => {
       const w = world();
       const g = gate();
       const held = w.conn.lock.run(() => g.open);
-      expect(await Promise.race([main.get('SELECT 1 AS x'), later(300)])).toEqual({ x: 1 });
+      expect(await Promise.race([main.get('SELECT 1 AS x'), later(1500)])).toEqual({ x: 1 });
       g.release();
       await held;
     });

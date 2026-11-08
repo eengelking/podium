@@ -90,6 +90,26 @@ describe('accessibility (axe): orchestrator page, dialogs and Admin', () => {
         cy.checkA11y();
       });
     }
+    // A reporter is "silent" after an hour without a report, which a seeded server never reaches on its own (and a machine that was
+    // asleep can reach by surprise, #1098). So the list is answered with the first reporter silent, and axe always checks that state.
+    for (const mode of ['light', 'dark']) {
+      for (const width of [1440, 400]) {
+        it(`Reporters with a silent reporter, ${mode}, ${width} px`, () => {
+          cy.intercept('GET', '**/reporters?*', (req) =>
+            req.continue((res) => {
+              res.body.rows[0].state = 'silent';
+            }),
+          );
+          cy.atWidth(width);
+          cy.unlockAdmin();
+          cy.visit('/#/admin', { onBeforeLoad: theme(mode) });
+          cy.adminPage('Reporters');
+          cy.get('main h1').should('have.text', 'Reporters');
+          cy.get('.rstate.silent').should('have.length.at.least', 1);
+          cy.checkA11y();
+        });
+      }
+    }
     for (const page of ['People', 'Settings', 'Reporters']) {
       it(`${page}, 400 px`, () => {
         cy.atWidth(400);
