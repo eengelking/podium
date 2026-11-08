@@ -93,5 +93,5 @@ same two places, choose another file; with no file nothing changes. The client s
   source of this folder and `plugin/core/`.
 - `npm run test:mod:opencode` builds with the tests and runs them with vitest on the built folder. `npm run typecheck:mod:opencode`
   checks this folder against `@opencode/plugin` (the version pinned in `scripts/podium-opencode-typecheck.sh`).
-- `scripts/opencode-reporter.test.ts` replays the recorded streams in `docs/fixtures/opencode/` through the reporter and every
+- `scripts/opencode-reporter.test.ts` replays the synthetic streams built in `scripts/opencode-streams.ts` (DECISIONS 64) through the reporter and every
   report through the server's validator and ingest.

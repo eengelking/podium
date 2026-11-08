@@ -79,7 +79,7 @@ scripts/podium-peers-e2e.sh down --dir "$LIVE" --tmux liveoc
 tmux ls; lsof -nP -iTCP:4382 -sTCP:LISTEN; ls -d "$LIVE"      # all three show nothing of yours
 ```
 
-Check the real `~/.podium` and `~/.config/opencode` have no new file from the run.
+Check the real `~/.podium` and `~/.config/opencode` have no new file from the run. A run that records its event stream may write it under `docs/fixtures/opencode/` (ignored by git): compare `git status --ignored --short` with the copy taken before `up`, remove what the run added, and list it in the report (SKILL.md, "Shut down").
 
 ## Troubleshooting
 
