@@ -168,6 +168,17 @@ describe("the quiet record lines after a read", () => {
     expect(container.querySelectorAll("[data-testid='read-notice']")).toHaveLength(1);
   });
 
+  it("shows an Admin who reads now once, whatever loop the record is of, and a line only for those who stopped", async () => {
+    const { container } = await notes(
+      fakeApi({ readers: { activity: { s1: [live("Root", at(14, 29, 40))] } }, records: [read("Root", at(14, 29, 40)), read("Root", at(14, 29, 55)), read("Mia", at(14, 20))] }),
+      "activity",
+    );
+    expect(container.querySelectorAll("[data-testid='read-notice']")).toHaveLength(1);
+    const lines = [...container.querySelectorAll("[data-testid='read-record']")].map((l) => l.textContent ?? "");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("Mia");
+  });
+
   it("reads the records again when the stream's counter moves", async () => {
     const api = fakeApi();
     const { again } = await notes(api, "ask", SESSION, 1);

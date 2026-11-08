@@ -87,7 +87,7 @@ describe('noteSession', () => {
     expect(await reads.list(`ask:${SID}`)).toEqual([]);
     expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: true });
     expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: false });
-    expect(await reads.noteSession(viewer('Boss', true), 'ask', s, undefined, true)).toEqual({ told: true, changed: true });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: false });
     expect((await reads.list(`ask:${SID}`)).map((r) => r.admin)).toEqual(['Boss']);
     expect(boss.person.name).toBe('Boss');
     expect(alex.person.name).toBe('Alex');
@@ -125,10 +125,11 @@ describe('the person is told', () => {
     const live = await e.get('/api/fleet/respond/session-reads').set(H);
     expect(live.body.readers.ask[SID]).toEqual([{ admin: 'Boss', since: T0, until: T0 + LIVE_MS }]);
     expect((await b.get('/api/fleet/respond/session-reads')).body.readers).toEqual({});
-    // a ping keeps it live and wakes the console again; a quiet interval ends it
+    // a ping keeps it live and wakes no console (the owner's re-reads when its end passes); a quiet interval ends it
     clock.now += 20_000;
     await b.post(`${BASE}/ask/reading`).set(H).send({});
-    expect(changed).toHaveBeenCalledTimes(2);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect((await e.get('/api/fleet/respond/session-reads')).body.readers.ask[SID]).toEqual([{ admin: 'Boss', since: T0, until: T0 + 20_000 + LIVE_MS }]);
     clock.now += 40_000;
     expect((await e.get('/api/fleet/respond/session-reads')).body.readers).toEqual({});
     // the record stays for the owner, with who and when, and loading it is seeing it
@@ -137,6 +138,20 @@ describe('the person is told', () => {
     expect(rec.body.adminReading).toEqual([]);
     expect(JSON.stringify(rec.body)).not.toMatch(/text|plan/i);
     expect(await fleet.chat.adminReads.unseenFor('Ed')).toEqual([]);
+  });
+
+  it('wakes the consoles again when a read that lapsed resumes inside the same record', async () => {
+    const { app, fleet, clock, boss } = await setup();
+    const changed = vi.spyOn(fleet, 'sessionReadsChanged');
+    const b = await signedIn(app, 'Boss', boss.token);
+    await b.post(`${BASE}/ask/reading`).set(H).send({});
+    expect(changed).toHaveBeenCalledTimes(1);
+    clock.now += LIVE_MS + 10_000;
+    await b.post(`${BASE}/ask/reading`).set(H).send({});
+    expect(changed).toHaveBeenCalledTimes(2);
+    clock.now += 5_000;
+    await b.post(`${BASE}/ask/reading`).set(H).send({});
+    expect(changed).toHaveBeenCalledTimes(2);
   });
 
   it('is still told after the server forgot what it knew, from the stored session', async () => {
@@ -161,9 +176,14 @@ describe('the person is told', () => {
   });
 
   it('takes any loop id the protocol allows (up to 200 characters, no colon or space), and refuses the rest', async () => {
-    const { app, fleet, boss } = await setup();
+    const { app, fleet, ed, boss } = await setup();
     const b = await signedIn(app, 'Boss', boss.token);
     const odd = `toolu_01/a+b${'x'.repeat(150)}`;
+    const r: Report = fixtureReport();
+    r.session = { ...r.session, id: SID };
+    r.userName = 'Ed';
+    r.agents = [...r.agents, { ...r.agents[0]!, id: odd }];
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(r)).status).toBe(200);
     expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: odd })).status).toBe(200);
     expect((await fleet.chat.adminReads.list(`activity:${SID}:${odd}`)).map((r) => r.admin)).toEqual(['Boss']);
     expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: 'x'.repeat(201) })).status).toBe(400);
@@ -179,6 +199,9 @@ describe('the person is told', () => {
     expect((await b.post(`${BASE}/ask/reading`).set(H).send({ loop: 'a1' })).status).toBe(400);
     expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: MAIN_LOOP })).status).toBe(200);
     expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: 'a1' })).status).toBe(200);
+    // a loop the session does not have is refused and leaves no record and no notice
+    expect((await b.post(`${BASE}/activity/reading`).set(H).send({ loop: 'ghost' })).status).toBe(404);
+    expect(await fleet.chat.adminReads.list(`activity:${SID}:ghost`)).toEqual([]);
     expect((await fleet.chat.adminReads.list(`activity:${SID}:a1`)).map((r) => r.admin)).toEqual(['Boss']);
     const texts = ((await report()).adminNotices ?? []).map((n) => n.text);
     expect(texts).toEqual([`Boss (an Admin) is paging through the stored Activity of ${name}.`, `Boss (an Admin) is paging through the stored Activity of ${name}.`]);

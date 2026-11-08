@@ -43,9 +43,10 @@ export function SessionReadNotes({ kind, session, placement = "band" }: { kind: 
   const key = (admin: string, start: number) => readingKey(kind, session.id, admin, start);
   const all = reads.readers(kind, session.id);
   const readers = all.filter((r) => !dismissed.has(key(r.admin, r.since)));
-  const liveStarts = new Set(all.map((r) => key(r.admin, r.since)));
+  // An Admin who reads now (any loop of the session) is the one red notice; their records are plain lines only once they stop.
+  const liveAdmins = new Set(all.map((r) => nameKey(r.admin)));
   const lines = records
-    .filter((r) => !liveStarts.has(key(r.admin, r.startedAt)) && !dismissed.has(key(r.admin, r.startedAt)))
+    .filter((r) => !liveAdmins.has(nameKey(r.admin)) && !dismissed.has(key(r.admin, r.startedAt)))
     .sort((a, b) => b.startedAt - a.startedAt)
     .slice(0, SHOWN);
   if (!readers.length && !lines.length) return null;

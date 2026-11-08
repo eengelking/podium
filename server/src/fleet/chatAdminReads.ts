@@ -185,10 +185,10 @@ export class AdminReads {
    * `viewer`, an Admin, opened or paged content of a session that belongs to someone else (#1073, #1074): `kind` says what (an ask, or one loop's stored Activity,
    * which needs `loop`). Records it first, like `note`, so nothing is read without a record: a failure here stops the read. A read of the Admin's own session,
    * of a session nobody owns or the shared Admin name owns, or by a viewer who is not an Admin, tells no one and records nothing. Reads of one thread by
-   * one Admin less than 30 minutes apart are one record; `ping` keeps a read that stays open live. The Admin log line is the route's own, so this writes none.
-   * Returns whether a person is told and whether the read just began or was pinged, so the route can wake that person's console.
+   * one Admin less than 30 minutes apart are one record; a ping keeps a read that stays open live and wakes no console, because a console re-reads when the end it holds passes. The Admin log line is the route's own, so this writes none.
+   * Returns whether a person is told and whether the read just began, so the route can wake that person's console.
    */
-  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null }, loop?: string, ping = false): Promise<{ told: boolean; changed: boolean }> {
+  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null }, loop?: string): Promise<{ told: boolean; changed: boolean }> {
     const none = { told: false, changed: false };
     if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return none;
     if (readNeedsLoop(kind) && !(loop && LOOP_ID.test(loop))) throw new Error(`a ${kind} read needs a loop id`);
@@ -196,7 +196,9 @@ export class AdminReads {
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, [s.owner]);
     this.replayAt = this.core.host.now();
     this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], phrase: s.phrase }, at: this.core.host.now() });
-    return { told: true, changed: got.started || ping };
+    // a read that lapsed (no ping for LIVE_MS) and resumes is live again, which no console holds an end for, so it wakes them like a start
+    const resumed = got.previousSeenAt !== null && this.core.host.now() - got.previousSeenAt > LIVE_MS;
+    return { told: true, changed: got.started || resumed };
   }
 
   /**
