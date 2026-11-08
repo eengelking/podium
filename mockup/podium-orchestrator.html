@@ -7,27 +7,17 @@
 <title>Podium orchestrator page</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
 <!-- Mockup for issue #165, for approval. A consistency pass: the orchestrator page takes on what the fleet card did in #144. The summary is one surface of three layers (who and what it is doing, the status band, the facts), then the plan and the agent tree. Token values are copied from frontend/src/fleet/fleet.css. -->
-<style>
-/* Layout: a review page for issue #165. Page chrome is neutral and follows the viewer's theme; the specimens carry Podium's own dark and light tokens, copied from frontend/src/fleet/fleet.css, so what is approved is what gets built. */
-:root {
-  --pg-bg: #eef0f2; --pg-panel: #ffffff; --pg-ink: #16181b; --pg-ink2: #4a4f57; --pg-muted: #6a707a; --pg-line: #d9dde2; --pg-accent: #1c6fd1;
-  --pg-warn-bg: #fff4d6; --pg-warn-line: #e3b341;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; --pg-accent: #6aa8f0; --pg-warn-bg: #2b2412; --pg-warn-line: #7a6320; color-scheme: dark; }
-}
-:root[data-theme="dark"] { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; --pg-accent: #6aa8f0; --pg-warn-bg: #2b2412; --pg-warn-line: #7a6320; color-scheme: dark; }
-body { margin: 0; background: var(--pg-bg); color: var(--pg-ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Layout: a review page for issue #165. Page chrome is neutral and follows the viewer's theme; the specimens carry Podium's own dark and light tokens, copied from frontend/src/fleet/fleet.css, so what is approved is what gets built. */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
 .page > section { min-width: 0; }
 h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
 h2 { font-size: 20px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.005em; text-wrap: balance; }
-p { margin: 0; max-width: 70ch; color: var(--pg-ink2); }
-.lede { font-size: 16.5px; color: var(--pg-ink); max-width: 66ch; }
+p { margin: 0; max-width: 70ch; color: var(--ink2); }
+.lede { font-size: 16.5px; color: var(--ink); max-width: 66ch; }
 .sub { margin-bottom: 18px; }
-.meta-line { color: var(--pg-muted); font: 12.5px var(--font-mono); margin-bottom: 14px; }
+.meta-line { color: var(--muted); font: 12.5px var(--font-mono); margin-bottom: 14px; }
 code, .mono { font-family: var(--font-mono); }
 
 /* ---------- Podium tokens (verbatim from fleet.css) ---------- */
@@ -45,7 +35,7 @@ code, .mono { font-family: var(--font-mono); }
   --eff-low: #d9601f; --eff-medium: #2f8f3a; --eff-high: #1f78c8; --eff-xhigh: #7a3fe0;
   color-scheme: light;
 }
-.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--pg-line); border-radius: 10px; padding: 16px; min-width: 0; font: 13px/1.4 var(--font-ui); }
+.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; font: 13px/1.4 var(--font-ui); }
 .wall > .tag { font: 11.5px var(--font-mono); color: var(--muted); margin: 0 0 10px; }
 
 /* ---------- The orchestrator page specimen ---------- */
@@ -109,7 +99,7 @@ button { font: inherit; color: inherit; }
 .fc.copy .cp { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .fc.copy:hover .v { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 button.fc { cursor: pointer; }
-button.fc:focus-visible, .btn:focus-visible, .lk:focus-visible, .tab:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
+button.fc:focus-visible, .btn:focus-visible, .lk:focus-visible, .tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
 .fbtn { display: inline-flex; align-items: center; gap: 4px; color: var(--crit-text); font: 600 12px var(--font-mono); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .fbtn svg, .badge svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .badge { display: inline-flex; align-items: center; gap: 4px; }
@@ -211,10 +201,10 @@ button.fc:focus-visible, .btn:focus-visible, .lk:focus-visible, .tab:focus-visib
 }
 
 /* ---------- Review page furniture ---------- */
-.panel { background: var(--pg-panel); border: 1px solid var(--pg-line); border-radius: 10px; padding: 20px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-width: 0; }
 .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .cmp h3, .anat-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-.cmp .cap { font-size: 13px; color: var(--pg-muted); margin-bottom: 12px; max-width: 52ch; }
+.cmp .cap { font-size: 13px; color: var(--muted); margin-bottom: 12px; max-width: 52ch; }
 .mini { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; gap: 6px; padding: 10px; min-height: 280px; }
 .mini .ln { height: 6px; border-radius: 3px; background: var(--grid); }
 .mini .ln.w1 { width: 40%; background: var(--axis); height: 9px; }
@@ -233,33 +223,33 @@ button.fc:focus-visible, .btn:focus-visible, .lk:focus-visible, .tab:focus-visib
 .mini .sumbox .c i:first-child { border-left: 0; }
 .anat { display: grid; grid-template-columns: minmax(0, 760px) minmax(0, 1fr); gap: 28px; align-items: start; }
 .notes-col { position: relative; min-height: 100px; }
-.note { position: absolute; left: 0; right: 0; padding-left: 16px; border-left: 2px solid var(--pg-accent); }
+.note { position: absolute; left: 0; right: 0; padding-left: 16px; border-left: 2px solid var(--sonnet); }
 .note b { display: block; font-size: 14px; }
-.note span { color: var(--pg-ink2); font-size: 13.5px; display: block; max-width: 54ch; }
-.view-ctl { display: inline-flex; border: 1px solid var(--pg-line); border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
-.view-ctl label { padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--pg-ink2); background: var(--pg-panel); border-left: 1px solid var(--pg-line); }
+.note span { color: var(--ink2); font-size: 13.5px; display: block; max-width: 54ch; }
+.view-ctl { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
+.view-ctl label { padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--ink2); background: var(--surface); border-left: 1px solid var(--border); }
 .view-ctl label:first-child { border-left: 0; }
 .view-ctl input { position: absolute; opacity: 0; pointer-events: none; }
-.view-ctl label:has(input:checked) { background: var(--pg-ink); color: var(--pg-bg); }
-.view-ctl label:has(input:focus-visible) { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
+.view-ctl label:has(input:checked) { background: var(--ink); color: var(--bg); }
+.view-ctl label:has(input:focus-visible) { outline: 2px solid var(--sonnet); outline-offset: -2px; }
 .states { display: flex; flex-direction: column; gap: 36px; }
 .state { min-width: 0; }
 .state h3 { margin: 0 0 2px; font-size: 15px; }
-.state .why { font-size: 13.5px; color: var(--pg-ink2); max-width: 78ch; margin-bottom: 10px; }
+.state .why { font-size: 13.5px; color: var(--ink2); max-width: 78ch; margin-bottom: 10px; }
 .state .spec { display: flex; flex-direction: column; gap: 12px; }
 .gallery[data-view="dark"] .wall.th-light, .gallery[data-view="light"] .wall.th-dark { display: none; }
 .narrow-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
 .narrow-row .wall { width: 400px; max-width: 100%; flex: none; }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tbl { overflow-x: auto; }
-th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--pg-line); }
-th { font-weight: 600; color: var(--pg-muted); font-size: 12.5px; white-space: nowrap; }
-td { color: var(--pg-ink2); min-width: 150px; }
-td:first-child { font-weight: 600; color: var(--pg-ink); min-width: 0; white-space: nowrap; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+td { color: var(--ink2); min-width: 150px; }
+td:first-child { font-weight: 600; color: var(--ink); min-width: 0; white-space: nowrap; }
 .dec { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; padding: 0; margin: 0; }
-.dec li { list-style: none; padding: 12px 14px; border: 1px solid var(--pg-line); border-radius: 8px; background: var(--pg-panel); color: var(--pg-ink2); font-size: 14px; }
-.dec li b { display: block; color: var(--pg-ink); margin-bottom: 2px; }
-.ask { margin-top: 16px; padding: 14px 16px; background: var(--pg-warn-bg); border: 1px solid var(--pg-warn-line); border-radius: 8px; color: var(--pg-ink); max-width: none; }
+.dec li { list-style: none; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink2); font-size: 14px; }
+.dec li b { display: block; color: var(--ink); margin-bottom: 2px; }
+.ask { margin-top: 16px; padding: 14px 16px; background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid var(--warn); border-radius: 8px; color: var(--ink); max-width: none; }
 @media (max-width: 860px) {
   .cmp, .anat, .dec { grid-template-columns: 1fr; }
   .note { position: static; margin-bottom: 12px; }

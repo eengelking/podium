@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { inventory, literalProblems, type Deferred } from "./standards-inventory";
+import { inventory, literalProblems, mockupProblems, type Deferred } from "./standards-inventory";
 
 // #354: the checks that keep the design system honest. They run in npm test and in CI.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,5 +47,25 @@ describe("design system guard", () => {
     expect(literalProblems(inv.literals.slice(1), deferred)).toEqual([expect.stringContaining("but found")]);
     const twice = [...inv.literals, { file: "fleet.css", line: 3, text: "#123456" }, { file: "fleet.css", line: 4, text: "#123456" }];
     expect(literalProblems(twice, deferred)[0]).toContain("and 1 more");
+  });
+});
+
+describe("mockups", () => {
+  // #1053: PROJECT.md says a mockup links tokens.css and has no :root block of its own.
+  const dir = join(ROOT, "mockup");
+  const pages = readdirSync(dir).filter((f) => f.endsWith(".html"));
+
+  it("links tokens.css and carries no :root block on every page", () => {
+    expect(pages.length).toBeGreaterThan(0);
+    expect(pages.flatMap((f) => mockupProblems(f, readFileSync(join(dir, f), "utf8")))).toEqual([]);
+  });
+
+  it("reports a page that has its own :root or no link, and ignores a comment that names one", () => {
+    const link = '<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">';
+    expect(mockupProblems("a.html", `${link}<style>/* no :root here */ body{}</style>`)).toEqual([]);
+    expect(mockupProblems("b.html", `<link rel="stylesheet" href="../frontend/src/fleet/fleet.css"><!-- :root -->`)).toEqual([]);
+    expect(mockupProblems("e.html", `${link}<!<!-- x -->-- <style>:root { --bg: #fff; }</style> -->`)).toEqual([]); // nested comment openers are stripped until none is left
+    expect(mockupProblems("c.html", `${link}<style>:root { --bg: #fff; }</style>`)).toEqual(["c.html: carries a :root block of its own"]);
+    expect(mockupProblems("d.html", "<style>body{}</style>")).toEqual(["d.html: does not link frontend/src/fleet/tokens.css (or fleet.css)"]);
   });
 });

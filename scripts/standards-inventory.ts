@@ -255,3 +255,23 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       );
   }
 }
+
+/**
+ * Problems with one mockup page (#1053): it must link tokens.css (directly, or through fleet.css, which imports it) and must not
+ * carry a :root block of its own. Comments are ignored, and so is page text, so a note saying "this file has no :root block" is not a hit.
+ */
+export function mockupProblems(name: string, html: string): string[] {
+  // Strip until nothing changes, so a comment opener left behind by one pass is caught by the next.
+  let t = html;
+  for (let prev = ""; prev !== t; ) {
+    prev = t;
+    t = t.replaceAll(/<!--[\s\S]*?-->/g, "");
+  }
+  const out: string[] = [];
+  const linked = [...t.matchAll(/<link\b[^>]*>/gi)].some((m) => /rel=["']stylesheet["']/i.test(m[0]) && /href=["'][^"']*frontend\/src\/fleet\/(?:tokens|fleet)\.css["']/i.test(m[0]));
+  if (!linked) out.push(`${name}: does not link frontend/src/fleet/tokens.css (or fleet.css)`);
+  const css = [...t.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1].replaceAll(/\/\*[\s\S]*?\*\//g, ""))
+    .join("\n");
+  if (/:root\b/.test(css)) out.push(`${name}: carries a :root block of its own`);
+  return out;
+}

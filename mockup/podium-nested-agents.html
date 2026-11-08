@@ -7,25 +7,8 @@
 <!-- Mockup for issue #101: agents that launch agents. Uses Podium's own tokens (fleet.css) and the existing
      agent tree, agent panel, activity row and card strip patterns. Nothing here is a new visual language:
      the changes are wording, tooltips, one dl row pair in the panel, and a wider Task column for deep trees. -->
-<style>
-:root {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --sel: rgba(11,11,11,.07);
-  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --deleg: #0a7fb8; --deleg-text: #07608c; --good: #0ca30c;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --sel: rgba(255,255,255,.08);
-    --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --deleg: #2fa4e0; --deleg-text: #5cbcf0; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --sel: rgba(255,255,255,.08);
-  --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --deleg: #2fa4e0; --deleg-text: #5cbcf0; color-scheme: dark;
-}
-body { background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, sans-serif; padding: 20px 16px; max-width: 900px; margin: 0 auto; }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>body { background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, sans-serif; padding: 20px 16px; max-width: 900px; margin: 0 auto; }
 h1 { font-size: 16px; margin: 0 0 4px; }
 h2 { font-size: 13px; margin: 28px 0 8px; color: var(--ink2); font-weight: 600; }
 p.note { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; max-width: 70ch; }

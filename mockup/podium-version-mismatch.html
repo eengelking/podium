@@ -5,22 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium version mismatch</title>
 <!-- Mockup for issue #49. Uses Podium's own tokens (fleet.css) and existing .pill, .chip, .callout patterns, so nothing here is a new visual language. Three places: the top bar, a session card, and the session's page. -->
-<style>
-:root {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --border: rgba(0,0,0,.14); --good: #1f9d55; --warn: #b7791f; --warn-text: #8a5a0c; --crit: #c53030;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d0d0d; --surface: #1a1a19; --raised: #232321; --ink: #f0efec; --ink2: #b3b2ac; --muted: #8f8e88;
-    --border: rgba(240,239,236,.14); --good: #3ecf7a; --warn: #fab219; --warn-text: #fab219; --crit: #d03b3b; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0d0d0d; --surface: #1a1a19; --raised: #232321; --ink: #f0efec; --ink2: #b3b2ac; --muted: #8f8e88;
-  --border: rgba(240,239,236,.14); --good: #3ecf7a; --warn: #fab219; --warn-text: #fab219; --crit: #d03b3b; color-scheme: dark;
-}
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; padding-inline: 16px; padding-block: 20px; max-width: 760px; margin: 0 auto; }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; padding-inline: 16px; padding-block: 20px; max-width: 760px; margin: 0 auto; }
 h1 { font-size: 16px; margin: 0 0 4px; }
 h2 { font-size: 13px; margin: 28px 0 8px; color: var(--ink2); font-weight: 600; }
 p.note { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; max-width: 62ch; }

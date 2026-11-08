@@ -5,26 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium wall notices</title>
 <!-- Mockup for issue #114. Informational notices sit at the bottom of the wall, one per row, each with an X. Closing one shows a confirmation that links to Admin > Settings, where every notice has an on/off switch. Tokens are copied from fleet.css (dark is the base). The switcher and the "rules" section are mockup scaffolding, not product UI. -->
-<style>
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Demo-only values, built from the app tokens. */
+body { --info: var(--sonnet); --switch-off: var(--axis); }
 /* Layout: one Podium window framed in the page; a switcher above it flips between the wall and Admin > Settings.
    Tokens are taken from Podium's own fleet.css so the mockup matches the product (dark first). */
-:root {
-  --bg: #0d0d0d; --surface: #151514; --raised: #1c1c1a; --border: #2b2b28; --axis: #3a3a36;
-  --ink: #f0efec; --ink2: #c3c2b7; --muted: #8d8c84; --warn: #fab219; --good: #3fb27f; --info: #4c8dff;
-  --sel: #232321; --switch-off: #3a3a36;
-  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --border: #dcdbd5; --axis: #c9c8c1;
-  --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64; --warn: #a96b00; --good: #1c7a54; --info: #1f5fd1;
-  --sel: #ebeae5; --switch-off: #c9c8c1; color-scheme: light; } }
-:root[data-theme="light"] {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --border: #dcdbd5; --axis: #c9c8c1;
-  --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64; --warn: #a96b00; --good: #1c7a54; --info: #1f5fd1;
-  --sel: #ebeae5; --switch-off: #c9c8c1; color-scheme: light;
-}
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); padding-inline: 16px; padding-block: 20px 40px; max-width: 1100px; margin-inline: auto; }

@@ -3,9 +3,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-/* Layout: the top bar with the new theme control, shown live at desktop width and inside a phone-width frame, above a swatch grid of every shipped theme in both modes and a sample of the wall (cards, chips, status, failure box) that restyles with the picked theme. The page itself is neutral so the sample is what changes. */
-:root { --font-ui: "Schibsted Grotesk", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace; }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Layout: the top bar with the new theme control, shown live at desktop width and inside a phone-width frame, above a swatch grid of every shipped theme in both modes and a sample of the wall (cards, chips, status, failure box) that restyles with the picked theme. The page itself is neutral so the sample is what changes. */
 * { box-sizing: border-box; }
 body { margin: 0; font: 13px/1.4 var(--font-ui); background: #e8e8e6; color: #1b1b1a; -webkit-font-smoothing: antialiased; }
 @media (prefers-color-scheme: dark) { body { background: #111; color: #e8e8e6; } }

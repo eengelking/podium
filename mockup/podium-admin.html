@@ -7,30 +7,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Demo-only values, built from the app tokens. */
+body { --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; }
 /* Layout: the console's own tokens and faces; a grouped side menu replaces six tabs, and every page is header + sections + panels. */
-:root {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-  --sonnet: #2a78d6; --good: #0ca30c; --good-text: #006300; --warn: #b87a00; --serious: #c4501f; --crit-text: #b52a2a;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.045); --sel: rgba(255,255,255,0.08);
-    --sonnet: #3987e5; --good: #0ca30c; --good-text: #3dbb3d; --warn: #fab219; --serious: #ec835a; --crit-text: #ee6a6a;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.045); --sel: rgba(255,255,255,0.08);
-  --sonnet: #3987e5; --good: #0ca30c; --good-text: #3dbb3d; --warn: #fab219; --serious: #ec835a; --crit-text: #ee6a6a;
-  color-scheme: dark;
-}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); -webkit-font-smoothing: antialiased; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px; }
 button, input, select { font: inherit; color: inherit; }
