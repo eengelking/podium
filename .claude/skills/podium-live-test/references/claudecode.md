@@ -44,7 +44,7 @@ sleep 4; tmux capture-pane -p -t live:planner | grep -E 'fleet console|Home fold
 | C9 | Open a second window with `"respond": "off"` in the settings (below). The card sends `respond:{level:"off",accepts:[],limits}`, so the console says "Responding … is turned off". |
 | C10 | Cost is estimated: no `costSource`, and `null` for a model family the reporter does not know. `usageByModel` is stored. Rate limits are reported. |
 | C11 | Full prompts need `fullPrompts` in the settings and a restart (see Start). Subagent kinds are subagent, fork and teammate. A subagent's own permission ask carries `agentId`. |
-| C15 | A main-loop tool failure makes no `fail` event, and a subagent whose Bash you denied still ends `done`. A `fail` needs a stop-failure or API error or an exhausted context, which was not provoked cheaply: report NOT RUN unless you can. |
+| C15 | A main-loop tool failure makes no `fail` event, and a subagent whose Bash you denied still ends `done` with `failure: null` (#1021). A `fail` needs a stop-failure or API error or an exhausted context, which was not provoked cheaply: report NOT RUN unless you can. |
 | C16 | A title-only call gives `plan.title` X with `source` `podium_plan` and no steps, as on OpenCode (#1012); before any call `plan` is `null`. |
 | C17 | Resume with `claude --resume <id>` in a new tmux window in the same folder, with the same `--plugin-dir` and `--settings`. |
 | C19 | The messaging tools (`podium_peers`, `podium_send`, `podium_request_access`) are not withdrawn; once registered they stay and refuse their calls. Assert the refusal. |

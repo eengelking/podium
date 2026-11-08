@@ -645,7 +645,32 @@ describe('failure detail', () => {
     apply(s, ev('session.tool.input.started', { sessionID: KID, id, name: tool }, t), t);
     apply(s, ev('session.tool.called', { sessionID: KID, id, input }, t + 1), t + 1);
   };
-  const failureOf = (s: ReturnType<typeof setup>) => buildReport(s.roots.get(ROOT)!, [], meta).agents[0]!.failure!;
+  // The record the agent holds, which a report carries only once the agent has failed (#1021); the detail tests read it directly.
+  const failureOf = (s: ReturnType<typeof setup>) => s.roots.get(ROOT)!.sessions.get(KID)!.failure!;
+  const reported = (s: ReturnType<typeof setup>) => buildReport(s.roots.get(ROOT)!, [], meta).agents[0]!;
+
+  it('reports no failure for an agent that hit a failing call and finished normally, nor while it still runs (#1021)', () => {
+    const s = setup();
+    apply(s, ev('session.execution.started', { sessionID: KID }, 3), 3);
+    call(s, 'c1', 'read', { filePath: '/nonexistent/file.txt' }, 4);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'ENOENT' } }, 6), 6);
+    expect(reported(s)).toMatchObject({ status: 'running', failure: null });
+    apply(s, ev('session.execution.succeeded', { sessionID: KID }, 8), 8);
+    expect(reported(s)).toMatchObject({ status: 'done', failure: null });
+    // The call stays the candidate, so a later real failure is still blamed on it (#986).
+    expect(s.roots.get(ROOT)!.sessions.get(KID)!.candidate).not.toBeNull();
+  });
+
+  it('still reports the failure of an agent whose run fails or is interrupted, with its class (#1021)', () => {
+    const s = setup();
+    call(s, 'c1', 'bash', { command: 'false' }, 4);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'exit code 1' } }, 6), 6);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'stopped' } }, 7), 7);
+    expect(reported(s)).toMatchObject({ status: 'failed', failure: { class: 'Tool error', tool: 'Bash' } });
+    const t = setup();
+    apply(t, ev('session.execution.interrupted', { sessionID: KID }, 7), 7);
+    expect(reported(t)).toMatchObject({ status: 'aborted', failure: { class: 'Aborted' } });
+  });
 
   it('keeps the error text of a failed run and of a failed step', () => {
     const s = setup();

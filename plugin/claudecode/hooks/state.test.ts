@@ -242,6 +242,16 @@ describe('reducers', () => {
     expect(s.agents.a).toMatchObject({ status: 'done', failure: null, candidate: null })
   })
 
+  test('a running agent that holds a failure record reports none; a failed one reports it (#1021)', () => {
+    let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
+    s = toolResult(s, { agentId: 'a', tool: 'Bash', input: { command: 'false' }, result: { isError: true, text: 'Exit code 1' } }, T0 + 1)
+    const held = { ...s.agents.a!, failure: { at: T0, class: 'Tool error', tool: 'Bash', call: 'false', exitCode: 1, outputTail: [], evidence: [], retriedAs: null, explanation: null } as never }
+    expect(agentReport(held)).toMatchObject({ status: 'running', failure: null })
+    expect(agentReport({ ...held, status: 'failed' }).failure).toMatchObject({ class: 'Tool error' })
+    s = turnComplete(s, { agentId: 'a', reason: 'answer', answer: 'fine' }, T0 + 2)
+    expect(agentReport(s.agents.a!)).toMatchObject({ status: 'done', failure: null })
+  })
+
   test('aborted and refused agents', () => {
     let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
     s = agentSpawned(s, { toolUseId: 'u', agentId: 'b', model: 'opus', subagentType: 'x', description: 'e', prompt: 'p', fork: false }, T0)
