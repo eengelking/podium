@@ -113,6 +113,7 @@ holds only the code patterns.
 | The wall is live over one stream | Wall state comes from a single `EventSource` on `/api/fleet/stream`, applied by a pure reducer. Live fields are never traded for fetch-on-open. | `frontend/src/fleet/useFleet.ts:38` | `frontend/src/fleet/store.test.ts`; no check stops a second stream |
 | Text from a session is a text node | Never `dangerouslySetInnerHTML` or `innerHTML`. Markdown builds elements, and a link must match `SAFE_HREF`. | `frontend/src/fleet/components/Markdown.tsx:8` | `frontend/src/fleet/components/Markdown.test.tsx` |
 | Colors are tokens | A color comes from `tokens.css`. A literal needs an entry with a reason in `docs/standards/deferred.json`. | `frontend/src/fleet/tokens.css` | `scripts/standards-guard.test.ts` |
+| A mockup links `tokens.css` and has no `:root` | Every page in `mockup/` links `frontend/src/fleet/tokens.css` (or `fleet.css`, which imports it) and carries no `:root` rule in a `<style>` block. Demo-only values are built from the tokens. | `mockup/` | `scripts/standards-guard.test.ts` |
 | A new theme goes in three places | `themes.ts`, the token blocks in `tokens.css`, and the id in the inline script in `frontend/index.html`. See [the gotcha](gotchas/new-color-theme-has-no-effect.md). | `frontend/src/fleet/themes.ts` | `frontend/src/fleet/themes.test.ts` |
 | Collapse and open controls are `EdgeTab` | One pill for the top bar, the KPI rows, the fold and both panes. | `frontend/src/fleet/components/EdgeTab.tsx` | `frontend/src/fleet/edgeTabSize.test.ts` |
 | Standards change only through release-prep | A feature PR adds a `Standards:` line under `[Unreleased]` and never edits `docs/standards/`. | `CHANGELOG.md` | `npm run standards:parity` |
@@ -162,7 +163,6 @@ The survey for this page found places where the code does not follow a candidate
 | What | Issue |
 |---|---|
 | Four write routes on the fleet router have no token and no test lists them | [#1052](https://github.com/eengelking/podium/issues/1052) |
-| 33 of 74 mockups carry their own `:root`, and 32 do not link `tokens.css` | [#1053](https://github.com/eengelking/podium/issues/1053) |
 | `useRespond` polls while the page is hidden | [#1054](https://github.com/eengelking/podium/issues/1054) |
 | Reporter helpers are copied between harnesses instead of living in `plugin/core/` | [#1055](https://github.com/eengelking/podium/issues/1055) |
 | E2E specs use a real sleep and clock-derived data | [#1056](https://github.com/eengelking/podium/issues/1056) |

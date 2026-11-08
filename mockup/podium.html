@@ -2,50 +2,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-/* Layout: three-pane ops console. Left rail lists every live orchestrator; centre is the fleet wall or one orchestrator's plan + agent tree; right is the activity stream or the selected agent's detail. */
-:root {
-  --bg: #0d0d0d;
-  --surface: #1a1a19;
-  --raised: #222220;
-  --ink: #f0efec;
-  --ink2: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --axis: #383835;
-  --border: rgba(255,255,255,0.10);
-  --hover: rgba(255,255,255,0.045);
-  --sel: rgba(255,255,255,0.08);
-  --opus: #9085e9;
-  --sonnet: #3987e5;
-  --haiku: #199e70;
-  --fable: #d95926;
-  --good: #0ca30c;
-  --good-text: #3dbb3d;
-  --warn: #fab219;
-  --serious: #ec835a;
-  --crit: #d03b3b;
-  --crit-text: #ee6a6a;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834;
-    --good-text: #006300; --crit-text: #b52a2a;
-    color-scheme: light;
-  }
-}
-:root[data-theme="light"] {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834;
-  --good-text: #006300; --crit-text: #b52a2a;
-  color-scheme: light;
-}
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Layout: three-pane ops console. Left rail lists every live orchestrator; centre is the fleet wall or one orchestrator's plan + agent tree; right is the activity stream or the selected agent's detail. */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); -webkit-font-smoothing: antialiased; }

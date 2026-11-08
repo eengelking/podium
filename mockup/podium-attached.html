@@ -5,27 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Podium detached sessions mockup</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
-<style>
-/* Mockup for #45: how the wall shows sessions nobody is attached to. Tokens copied from frontend/src/fleet/fleet.css. */
-:root {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --sel: rgba(11,11,11,.07);
-  --opus: #6250d6; --sonnet: #2a78d6; --good: #0ca30c; --good-text: #006300; --warn: #a86d00;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --sel: rgba(255,255,255,.08);
-    --opus: #9085e9; --sonnet: #3987e5; --good-text: #3dbb3d; --warn: #fab219; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --sel: rgba(255,255,255,.08);
-  --opus: #9085e9; --sonnet: #3987e5; --good-text: #3dbb3d; --warn: #fab219; color-scheme: dark;
-}
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Mockup for #45: how the wall shows sessions nobody is attached to. Tokens copied from frontend/src/fleet/fleet.css. */
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-ui); padding-inline: 16px; padding-block: 24px 48px; }
 main { max-width: 1040px; margin-inline: auto; display: flex; flex-direction: column; gap: 36px; }

@@ -6,27 +6,17 @@
 <title>Podium card redesign</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
 <!-- Mockup for issue #144, approved 2026-10-14. The fleet card is four fixed layers (who, what it is doing, cost and health, status band). The status band is always last and full width. Token values are copied from frontend/src/fleet/fleet.css. -->
-<style>
-/* Layout: a review page for issue #144. Page chrome is neutral and follows the viewer's theme; the card specimens carry Podium's own dark and light tokens, copied from frontend/src/fleet/fleet.css, so what is approved is what gets built. */
-:root {
-  --pg-bg: #eef0f2; --pg-panel: #ffffff; --pg-ink: #16181b; --pg-ink2: #4a4f57; --pg-muted: #6a707a; --pg-line: #d9dde2; --pg-accent: #1c6fd1;
-  --pg-warn-bg: #fff4d6; --pg-warn-line: #e3b341;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; --pg-accent: #6aa8f0; --pg-warn-bg: #2b2412; --pg-warn-line: #7a6320; color-scheme: dark; }
-}
-:root[data-theme="dark"] { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; --pg-accent: #6aa8f0; --pg-warn-bg: #2b2412; --pg-warn-line: #7a6320; color-scheme: dark; }
-body { margin: 0; background: var(--pg-bg); color: var(--pg-ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Layout: a review page for issue #144. Page chrome is neutral and follows the viewer's theme; the card specimens carry Podium's own dark and light tokens, copied from frontend/src/fleet/fleet.css, so what is approved is what gets built. */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
 .page > section { min-width: 0; }
 h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
 h2 { font-size: 20px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.005em; text-wrap: balance; }
-p { margin: 0; max-width: 70ch; color: var(--pg-ink2); }
-.lede { font-size: 16.5px; color: var(--pg-ink); max-width: 66ch; }
+p { margin: 0; max-width: 70ch; color: var(--ink2); }
+.lede { font-size: 16.5px; color: var(--ink); max-width: 66ch; }
 .sub { margin-bottom: 18px; }
-.meta-line { color: var(--pg-muted); font: 12.5px var(--font-mono); margin-bottom: 14px; }
+.meta-line { color: var(--muted); font: 12.5px var(--font-mono); margin-bottom: 14px; }
 code, .mono { font-family: var(--font-mono); }
 
 /* ---------- Podium tokens (verbatim from fleet.css, plus two text tokens for light) ---------- */
@@ -44,7 +34,7 @@ code, .mono { font-family: var(--font-mono); }
   --eff-low: #d9601f; --eff-medium: #2f8f3a; --eff-high: #1f78c8; --eff-xhigh: #7a3fe0;
   color-scheme: light;
 }
-.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--pg-line); border-radius: 10px; padding: 16px; min-width: 0; font: 13px/1.4 var(--font-ui); }
+.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; font: 13px/1.4 var(--font-ui); }
 .wall > .tag { font: 11.5px var(--font-mono); color: var(--muted); margin: 0 0 10px; }
 
 /* ---------- The card ---------- */
@@ -127,10 +117,10 @@ code, .mono { font-family: var(--font-mono); }
 .k-done     { --c: var(--muted);   --c-text: var(--muted); }
 
 /* ---------- Review page furniture ---------- */
-.panel { background: var(--pg-panel); border: 1px solid var(--pg-line); border-radius: 10px; padding: 20px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-width: 0; }
 .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .cmp h3, .anat-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-.cmp .cap { font-size: 13px; color: var(--pg-muted); margin-bottom: 12px; max-width: 52ch; }
+.cmp .cap { font-size: 13px; color: var(--muted); margin-bottom: 12px; max-width: 52ch; }
 .mini-wall { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .mini { height: 196px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; gap: 6px; padding: 8px; overflow: hidden; }
 .mini .ln { height: 6px; border-radius: 3px; background: var(--grid); }
@@ -146,38 +136,38 @@ code, .mono { font-family: var(--font-mono); }
 .mini.after .bn.deleg { border-top-color: color-mix(in srgb, var(--deleg) 60%, transparent); }
 .anat { display: grid; grid-template-columns: minmax(0, 392px) minmax(0, 1fr); gap: 28px; align-items: start; }
 .notes-col { position: relative; min-height: 100px; }
-.note { position: absolute; left: 0; right: 0; padding-left: 16px; border-left: 2px solid var(--pg-accent); }
+.note { position: absolute; left: 0; right: 0; padding-left: 16px; border-left: 2px solid var(--sonnet); }
 .note b { display: block; font-size: 14px; }
-.note span { color: var(--pg-ink2); font-size: 13.5px; display: block; max-width: 54ch; }
-.note em { font-style: normal; color: var(--pg-muted); font: 12px var(--font-mono); }
-.view-ctl { display: inline-flex; border: 1px solid var(--pg-line); border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
-.view-ctl label { padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--pg-ink2); background: var(--pg-panel); border-left: 1px solid var(--pg-line); }
+.note span { color: var(--ink2); font-size: 13.5px; display: block; max-width: 54ch; }
+.note em { font-style: normal; color: var(--muted); font: 12px var(--font-mono); }
+.view-ctl { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
+.view-ctl label { padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--ink2); background: var(--surface); border-left: 1px solid var(--border); }
 .view-ctl label:first-child { border-left: 0; }
 .view-ctl input { position: absolute; opacity: 0; pointer-events: none; }
-.view-ctl label:has(input:checked) { background: var(--pg-ink); color: var(--pg-bg); }
-.view-ctl label:has(input:focus-visible) { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
+.view-ctl label:has(input:checked) { background: var(--ink); color: var(--bg); }
+.view-ctl label:has(input:focus-visible) { outline: 2px solid var(--sonnet); outline-offset: -2px; }
 .states { display: flex; flex-direction: column; gap: 28px; }
 .state { min-width: 0; }
 .state h3 { margin: 0 0 2px; font-size: 15px; }
-.state .why { font-size: 13.5px; color: var(--pg-ink2); max-width: 78ch; margin-bottom: 10px; }
+.state .why { font-size: 13.5px; color: var(--ink2); max-width: 78ch; margin-bottom: 10px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .gallery[data-view="dark"] .states, .gallery[data-view="light"] .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(392px, 1fr)); gap: 28px 20px; }
 .gallery[data-view="dark"] .pair, .gallery[data-view="light"] .pair { grid-template-columns: 1fr; }
 .gallery[data-view="dark"] .wall.th-light, .gallery[data-view="light"] .wall.th-dark { display: none; }
-.dens-scroll { overflow-x: auto; border: 1px solid var(--pg-line); border-radius: 10px; }
+.dens-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
 .dens { display: grid; grid-template-columns: repeat(4, 360px); gap: 12px; padding: 16px; width: max-content; background: var(--bg); }
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tbl { overflow-x: auto; }
-th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--pg-line); }
-th { font-weight: 600; color: var(--pg-muted); font-size: 12.5px; white-space: nowrap; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 td:first-child { font-weight: 600; white-space: nowrap; }
-td { color: var(--pg-ink2); min-width: 150px; }
-td:first-child { color: var(--pg-ink); min-width: 0; }
+td { color: var(--ink2); min-width: 150px; }
+td:first-child { color: var(--ink); min-width: 0; }
 .dec { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; counter-reset: d; }
-.dec li { list-style: none; padding: 12px 14px; border: 1px solid var(--pg-line); border-radius: 8px; background: var(--pg-panel); color: var(--pg-ink2); font-size: 14px; }
-.dec li b { display: block; color: var(--pg-ink); margin-bottom: 2px; }
+.dec li { list-style: none; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink2); font-size: 14px; }
+.dec li b { display: block; color: var(--ink); margin-bottom: 2px; }
 .dec { padding: 0; margin: 0; }
-.ask { margin-top: 16px; padding: 14px 16px; background: var(--pg-warn-bg); border: 1px solid var(--pg-warn-line); border-radius: 8px; color: var(--pg-ink); max-width: none; }
+.ask { margin-top: 16px; padding: 14px 16px; background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid var(--warn); border-radius: 8px; color: var(--ink); max-width: none; }
 @media (max-width: 860px) {
   .cmp, .anat, .pair, .dec { grid-template-columns: 1fr; }
   .note { position: static; margin-bottom: 12px; }

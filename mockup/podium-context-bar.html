@@ -6,21 +6,12 @@
 <title>Podium context bar at 80%</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
 <!-- Mockup for issue #213. A context bar is amber from 75% to 79% and red from 80%. Token values are copied from frontend/src/fleet/fleet.css (Podium dark and light). Red is --crit, the token the blowout level 2 badge uses. -->
-<style>
-:root {
-  --pg-bg: #eef0f2; --pg-panel: #ffffff; --pg-ink: #16181b; --pg-ink2: #4a4f57; --pg-muted: #6a707a; --pg-line: #d9dde2;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; color-scheme: dark; }
-}
-:root[data-theme="dark"] { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; color-scheme: dark; }
-body { margin: 0; background: var(--pg-bg); color: var(--pg-ink); font: 15px/1.55 var(--font-ui); padding: 32px max(16px, env(safe-area-inset-left, 0px)) 72px; }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-ui); padding: 32px max(16px, env(safe-area-inset-left, 0px)) 72px; }
 .page { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
 h1 { font-size: 28px; line-height: 1.15; margin: 0 0 8px; text-wrap: balance; }
 h2 { font-size: 18px; margin: 0 0 4px; }
-p { margin: 0; max-width: 68ch; color: var(--pg-ink2); }
+p { margin: 0; max-width: 68ch; color: var(--ink2); }
 code { font-family: var(--font-mono); font-size: 13px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 
@@ -32,7 +23,7 @@ code { font-family: var(--font-mono); font-size: 13px; }
   --bg: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64; --grid: #e1e0d9; --border: rgba(11,11,11,0.10);
   --sonnet: #2a78d6; --warn: #fab219; --crit: #d03b3b; --crit-text: #b52a2a;
 }
-.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--pg-line); border-radius: 10px; padding: 14px; font: 13px/1.4 var(--font-ui); }
+.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font: 13px/1.4 var(--font-ui); }
 .wall .tag { font: 11.5px var(--font-mono); color: var(--muted); margin-bottom: 10px; }
 .gray { filter: grayscale(1); }
 .row { display: grid; grid-template-columns: 1fr 44px; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--grid); }

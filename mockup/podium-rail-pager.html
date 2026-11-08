@@ -7,35 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-/* Issue #242: the left panel pages its orchestrator list once the list would need a scrollbar. The pager is Podium's own
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Issue #242: the left panel pages its orchestrator list once the list would need a scrollbar. The pager is Podium's own
    page footer (the Files and Plan tabs use it), pinned to the bottom of the panel, directly above the credits footer.
    A page is as many rows as fit the panel's height, so a tall window shows more per page than a short one (the page size
    below is measured from each frame's height, the way the real rail will measure). With the people view on, pages hold
    rows, and a band that continues onto a page gets its header repeated, marked "continued". The "All orchestrators" row
    and the selected row stay reachable: a selection on another page shows a pointer line in the pager saying which page.
    Example data only. */
-:root {
-  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.045); --sel: rgba(255,255,255,0.08);
-  --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --fable: #d95926;
-  --good: #0ca30c; --warn: #fab219; --serious: #ec835a;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; color-scheme: light;
-  }
-}
-:root[data-theme="light"] {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; color-scheme: light;
-}
 * { box-sizing: border-box; }
 body { margin: 0; padding: 20px 16px 40px; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
@@ -84,9 +63,7 @@ h1 { font-size: 17px; margin: 0 0 4px; letter-spacing: -0.01em; }
 .rail-foot a { color: var(--ink2); text-decoration: underline; text-underline-offset: 2px; }
 .live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .note { max-width: 78ch; color: var(--ink2); }
-.note li { margin-bottom: 4px; }
-:root[data-theme="dark"] { color-scheme: dark; }
-</style>
+.note li { margin-bottom: 4px; }</style>
 </head>
 <body>
 <div id="app"></div>
