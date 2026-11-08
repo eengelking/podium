@@ -63,9 +63,11 @@ describe("the notice under the status band", () => {
     expect(note.classList.contains("crit")).toBe(true);
     const osum = container.querySelector(".osum")!;
     expect(osum.lastElementChild!.getAttribute("data-testid")).toBe("read-notes-activity");
-    expect(osum.querySelector(".band")!.nextElementSibling).toBe(osum.lastElementChild);
+    // The ask notes (#1073) come first and the Activity notes after them, both after the band.
+    const kids = [...osum.children];
+    expect(kids.indexOf(osum.querySelector("[data-testid='read-notes-activity']")!)).toBeGreaterThan(kids.indexOf(osum.querySelector(".band")!));
     const quiet = await page(api(DANA, {}));
-    expect(quiet.container.querySelector("[data-testid='read-record']")!.textContent).toContain("Root (an Admin) read the stored Activity of stored-run on");
+    expect(quiet.container.querySelector("[data-testid='read-notes-activity'] [data-testid='read-record']")!.textContent).toContain("Root (an Admin) read the stored Activity of stored-run on");
   });
 
   it("hides on the X for that reading only", async () => {
