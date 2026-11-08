@@ -254,7 +254,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await reads.threads('activity:sa:')).toEqual(['activity:sa:a1']);
       expect(await reads.list('group:ed')).toEqual([{ admin: 'Root', startedAt: T0 - MIN, lastSeenAt: T0 - MIN, kind: 'read' }]);
       // The new records are owed to the person, the older one owes nothing.
-      expect((await reads.unseenFor('ed')).map((r) => r.thread).sort()).toEqual(['activity:sa:a1', 'ask:sa']);
+      expect((await reads.unseenFor('ed')).map((r) => r.thread).sort((a, b) => a.localeCompare(b))).toEqual(['activity:sa:a1', 'ask:sa']);
       expect(await reads.seen('ask:sa', 'ed')).toBe(1);
       expect(await reads.forget('activity:sa:a1')).toBe(0);
       expect(await reads.forget('ask:sa')).toBe(1);
