@@ -64,6 +64,42 @@ describe('chat: the page', () => {
     cy.contains('Everyone signed in to this server can read and post here.');
   });
 
+  it('explains the privacy rules in a modal behind the (i) beside the title, and the thread has no "Who can read what" panel (#1099)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-split').should('exist');
+    cy.contains('h2', 'Who can read what').should('not.exist');
+    cy.get('main[aria-label=Chat] h1').should('have.text', 'Chat');
+    cy.get('main[aria-label=Chat]').find('button.info').should('have.attr', 'aria-label', 'Chat privacy and controls').and('have.attr', 'aria-haspopup', 'dialog').and('have.attr', 'aria-expanded', 'false');
+    cy.get('main[aria-label=Chat]').contains('.tip', 'Click to learn about chat privacy and controls');
+    cy.get('[role=dialog]').should('not.exist');
+    const opener = () => cy.get('main[aria-label=Chat] button.info');
+    const open = () => {
+      opener().click().should('have.attr', 'aria-expanded', 'true');
+      cy.get('[role=dialog]').should('be.visible');
+    };
+    const closed = () => {
+      cy.get('[role=dialog]').should('not.exist');
+      opener().should('have.attr', 'aria-expanded', 'false').and('have.focus');
+    };
+    open();
+    cy.get('[role=dialog]').within(() => {
+      cy.contains('Chat privacy and controls');
+      ['Who reads what', 'How agents act', 'Stopping a session', 'Admins'].forEach((h) => cy.contains('h3', h));
+      cy.get('h3').should('have.length', 4);
+      cy.get('li').should('have.length', 8);
+      cy.contains('li', "A conversation with another person's agent is read by that person, the agent's owner and an Admin");
+    });
+    cy.get('body').type('{esc}');
+    closed();
+    open();
+    cy.get('[role=dialog]').find('button[aria-label="Close (Esc)"]').click();
+    closed();
+    open();
+    cy.get('.scrim').trigger('mousedown', 'topLeft', { force: true });
+    closed();
+  });
+
   it('colors a People and agents row by the agent\'s state when it is pointed at, with the state said in words', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
