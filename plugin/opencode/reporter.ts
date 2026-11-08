@@ -540,6 +540,8 @@ export class Reporter {
       for (const s of root.sessions.values()) {
         // Only an agent's failure reaches a report, as in Claude Code; the root session's would be explained for nobody (#1012).
         if (s.id === root.id) continue;
+        // Nor an agent that finished normally after a failing call: its report carries no failure (#1021).
+        if (s.end !== 'failed' && s.end !== 'aborted') continue;
         const f = s.failure;
         if (!f || f.explanation || s.explainedAt === f.at) continue;
         if (this.explaining >= EXPLAIN_AT_ONCE) return;

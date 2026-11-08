@@ -60,6 +60,18 @@ describe('explaining failures (#969)', () => {
     expect(explain).not.toHaveBeenCalled();
   });
 
+  it('does not explain an agent that hit a failing call and then finished normally, with the consent on (#1021)', async () => {
+    const explain = vi.fn(async () => 'x');
+    const { r, reports } = rig(explain);
+    for (const e of failing().slice(0, 3)) r.handle(e);
+    r.handle(ev('session.execution.succeeded', { sessionID: KID }, 110));
+    expect(r.store.roots.get(ROOT)!.sessions.get(KID)!.failure).not.toBeNull();
+    await r.tick();
+    await r.tick();
+    expect(explain).not.toHaveBeenCalled();
+    expect(kidOf(reports.at(-1)!)).toMatchObject({ status: 'done', failure: null });
+  });
+
   it('builds the prompt from the redacted failure record and names OpenCode', async () => {
     let prompt = '';
     const { r } = rig(async (p) => { prompt = p; return 'x'; });

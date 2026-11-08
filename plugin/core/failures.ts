@@ -1,5 +1,5 @@
 // Failure classification, excerpts and redaction (SPEC 6.4). Pure: no `$` here.
-import type { Failure, FailureClass } from './protocol.ts';
+import type { AgentStatus, Failure, FailureClass } from './protocol.ts';
 import { redactBounded } from './diffRedact.ts';
 
 export const LIMITS = {
@@ -231,6 +231,15 @@ export function evidence(i: EvidenceInput): string[] {
   }
   if (i.denyText) out.push(clip(`permission denied: ${i.denyText}`, LIMITS.line));
   return out.slice(0, LIMITS.evidenceLines);
+}
+
+/**
+ * The failure a report carries for an agent (#1021): only one that ended `failed` or `aborted`. An agent that is running, queued or done
+ * reports none, whatever record the reporter holds, so a call that failed and was worked around never reads as a failed agent. Both
+ * reporters keep the record and the failure candidate (#986) so a later real failure is still blamed on that call.
+ */
+export function reportedFailure(status: AgentStatus, failure: Failure | null): Failure | null {
+  return status === 'failed' || status === 'aborted' ? failure : null;
 }
 
 export function buildFailure(cls: FailureClass, candidate: FailureCandidate | null, ev: string[], at: number, extra: { tool?: string; call?: string } = {}): Failure {

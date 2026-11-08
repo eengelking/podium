@@ -1,6 +1,6 @@
 // A Root as a v2 report (#855). Pure. The harness block, the capabilities and the session's `harness` come from here;
 // everything shared (the report types, redaction, the plan) comes from core.
-import { cap, clip, excerpt, whole, LIMITS } from '../core/failures.ts';
+import { cap, clip, excerpt, whole, LIMITS, reportedFailure } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
 import { toPlan } from '../core/plan.ts';
@@ -113,7 +113,7 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     ...(meta.fullText && s.promptText && !s.promptSent ? { promptText: s.promptText } : {}),
     ...(meta.fullText && s.answerText && !s.answerSent ? { answerText: s.answerText } : {}),
     ...(meta.activity && s.activity.length ? { activity: feedOf(s.activity, meta.activityOutput === true) } : {}),
-    failure: s.failure,
+    failure: reportedFailure(agentStatus(s), s.failure),
   };
 }
 
