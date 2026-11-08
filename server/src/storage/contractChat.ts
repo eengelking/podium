@@ -210,6 +210,44 @@ export function chatCases(o: Openers): void {
     expect(t.get('flags (a name with a bar)')).toEqual({ paused: true, disconnected: true, pausedByAdmin: 'a|b' });
   });
 
+  it('agrees on every adapter for the Admin read records of a person\'s session (#1073, #1074): an ask and each loop of the Activity are threads of their own, listed by prefix, live, owed and seen', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      // Session ids hold characters a prefix match must not treat as a pattern.
+      await rec('touch (an ask)', reads.touch('ask:s_1', 'Root', GAP, ['ed']));
+      await rec('touch (an ask of a session that only starts alike)', reads.touch('ask:s_10', 'Root', GAP, ['eve']));
+      await rec('touch (an ask of a session with a wildcard)', reads.touch('ask:s%', 'Root', GAP, ['zoe']));
+      await rec('touch (activity, one loop)', reads.touch('activity:s_1:@orchestrator', 'Root', GAP, ['ed']));
+      await rec('touch (activity, another loop)', reads.touch('activity:s_1:a1', 'Zoe', GAP, ['ed']));
+      clock.now += 10 * MIN;
+      await rec('touch (the same ask, 10 minutes on: one record)', reads.touch('ask:s_1', 'root', GAP, ['ed']));
+      await rec('list (the ask)', reads.list('ask:s_1'));
+      await rec('threads (activity of one session)', reads.threads('activity:s_1:'));
+      await rec('threads (ask prefix)', reads.threads('ask:s_1'));
+      await rec('live (only what was read in the last 30 seconds)', reads.live(['ask:s_1', 'activity:s_1:a1', 'activity:s_1:@orchestrator'], clock.now - 30_000));
+      await rec('unseen (Ed)', reads.unseenFor('ed').then((l) => l.map((r) => `${r.thread}|${r.admin}`)));
+      await rec('seen (the ask, by Ed)', reads.seen('ask:s_1', 'ED'));
+      await rec('unseen (Ed, after the ask)', reads.unseenFor('ed').then((l) => l.map((r) => `${r.thread}|${r.admin}`)));
+      await rec('seen (the ask again)', reads.seen('ask:s_1', 'ed'));
+      await rec('forget (the ask)', reads.forget('ask:s_1'));
+      await rec('threads (after forgetting the ask)', reads.threads('ask:'));
+    });
+    expect(t.get('touch (an ask)')).toMatchObject({ started: true, record: { admin: 'Root', startedAt: T0, kind: 'read' } });
+    expect(t.get('touch (the same ask, 10 minutes on: one record)')).toMatchObject({ started: false, previousSeenAt: T0 });
+    expect(t.get('threads (activity of one session)')).toEqual(['activity:s_1:@orchestrator', 'activity:s_1:a1']);
+    expect(t.get('threads (ask prefix)')).toEqual(['ask:s_1', 'ask:s_10']);
+    expect(t.get('live (only what was read in the last 30 seconds)')).toMatchObject([{ thread: 'ask:s_1', admin: 'Root' }]);
+    expect(t.get('unseen (Ed)')).toHaveLength(3);
+    expect(t.get('seen (the ask, by Ed)')).toBe(1);
+    expect(t.get('unseen (Ed, after the ask)')).toHaveLength(2);
+    expect(t.get('seen (the ask again)')).toBe(0);
+    expect(t.get('forget (the ask)')).toBe(1);
+    expect(t.get('threads (after forgetting the ask)')).toEqual(['ask:s%', 'ask:s_10']);
+  });
+
   it('agrees on every adapter for the Admin read records: one per reading session, the live window, forgetting a thread and retention', async () => {
     const MIN = 60_000;
     const GAP = 30 * MIN;
@@ -364,6 +402,31 @@ export function chatCases(o: Openers): void {
     expect(t.get('seen (Ed, the conversation)')).toBe(2);
     expect(t.get('Ed after seeing it')).toEqual([`group:ed:Root:read:${2 * MIN}`]);
     expect(t.get('Eve after Ed saw it')).toEqual(['dm:a|b:Root:read:0']);
+  });
+
+  it('leaves a record owed to the owner for an Admin\'s read of a conversation between two agents, and none for the owner\'s own (#1072)', async () => {
+    const MIN = 60_000;
+    const GAP = 30 * MIN;
+    const thread = 'dm:sess-dev|sess-tester';
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await rec('list (before any read)', reads.list(thread));
+      await rec('the Admin reads', reads.touch(thread, 'Admin secret', GAP, ['ed']));
+      clock.now += MIN;
+      await rec('the Admin reads again', reads.touch(thread, 'Admin secret', GAP, ['ed']));
+      await rec('list', reads.list(thread));
+      await rec('owed to the owner', reads.unseenFor('Ed').then((l) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}`)));
+      await rec('owed to someone else', reads.unseenFor('alex').then((l) => l.length));
+      await rec('live', reads.live([thread], clock.now - 30_000).then((l) => l.map((r) => r.admin)));
+    });
+    expect(t.get('list (before any read)')).toEqual([]);
+    expect((t.get('the Admin reads') as { started: boolean }).started).toBe(true);
+    expect((t.get('the Admin reads again') as { started: boolean }).started).toBe(false);
+    expect(t.get('list')).toEqual([{ admin: 'Admin secret', startedAt: T0, lastSeenAt: T0 + MIN, kind: 'read' }]);
+    expect(t.get('owed to the owner')).toEqual([`${thread}:Admin secret:read`]);
+    expect(t.get('owed to someone else')).toBe(0);
+    expect(t.get('live')).toEqual(['Admin secret']);
   });
 
   it('removes the Admin records owed only to a deleted person, keeps those owed to others too, and leaves a record that names nobody (#1051)', async () => {

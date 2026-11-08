@@ -559,6 +559,15 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown ask' });
       return;
     }
+    // An Admin opening an ask that is not their own shows them the question, plan or tool input in full (#1073): the read is recorded before it is sent, the
+    // Admin log hears of it (who, whose, which ask, never the text) and the owner is told in the console and in their reporter. The owner's own open is not noticed.
+    const read = await fleet.chat.adminReads.noteSession(got.v, 'ask', got.row);
+    // The Admin log gets one line per reading session, as Chat does: when the read begins, not at every fetch of it.
+    if (read.changed) {
+      await people?.log('ask_read', `${got.v.name} opened an ask of ${got.row.owner} in ${got.row.name} (${shortId(got.row.id)}) [${req.params.askId}]`, sourceOf(req), now(), got.v.actor);
+      logger.info('respond.ask_read', `podium: an Admin opened an ask in session ${got.row.id}`, { session_id: got.row.id, ask_id: req.params.askId ?? null, by: got.v.actor, owner: got.row.owner, source: sourceOf(req) });
+      fleet.sessionReadsChanged();
+    }
     res.json(detail);
   }));
 
@@ -637,6 +646,13 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     if (!read.ok) {
       res.status(400).json({ ok: false, error: read.error, path: '$.query' });
       return;
+    }
+    // An Admin reading a person's stored Activity: recorded first (a failure stops the read, so nothing is read without a record), the person told, and one
+    // content-free Admin log line per reading session. The owner's own read, and a session nobody owns, tell no one (#1074).
+    const told = await fleet.chat.adminReads.noteSession(v, 'activity', row, loop);
+    if (told.changed) {
+      await people?.log('activity_admin_read', `${v.actor} read the stored Activity of ${row.name} (${shortId(row.id)}), loop ${loop}, owned by ${row.owner ?? ''}`, sourceOf(req), now(), v.actor);
+      fleet.sessionReadsChanged();
     }
     const limit = Math.min(Math.max(read.value.limit ?? ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
     const page: ActivityHistoryPage = await fleet.activityHistory.page(row.id, loop, read.value.before, limit);

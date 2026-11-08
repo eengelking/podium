@@ -818,6 +818,16 @@ export class Fleet {
     if (this.live.has(sessionId)) this.scheduleSession(sessionId);
   }
 
+  private sessionReadsRev = 0;
+
+  /**
+   * An Admin opened, paged or left content of someone's session (#1073, #1074): open consoles are told with a counter and nothing else, so the owner's console
+   * reads who is reading and nobody else's learns anything. The stream never names the Admin, the person or the session.
+   */
+  sessionReadsChanged(): void {
+    void this.emit(() => ['reads', { rev: ++this.sessionReadsRev }]);
+  }
+
   private replayRev = 0;
 
   /**

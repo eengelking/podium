@@ -21,6 +21,10 @@ freed. Each delete is written to the Admin log with who did it and how much went
 the database only; copies of the database you made earlier are not changed. To remove something private that leaked,
 delete the session's history, or use the date range to remove just the minutes concerned across sessions.
 
+Reading it is not quiet. When you page through another person's stored Activity (on their session's page), the person
+is told in the console and in their session, and the Admin log records `activity_admin_read` once per reading session
+with who, whose and when, and never an entry. This list shows counts only, so it tells no one.
+
 <!-- nav:start -->
 ---
 

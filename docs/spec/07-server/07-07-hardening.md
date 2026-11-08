@@ -191,6 +191,11 @@ Stored activity is reported text and can hold anything an agent read or ran, so 
   server and can already delete it; unlike the file diff, this is not limited to the owner. A session owned by
   `Admin` is read with the admin secret. A session with no owner can be read only by an Admin. Everyone else gets
   `403`, and the live route's `history.canRead` is false for them.
+- An Admin never reads it in silence (#1074). When an Admin reads the stored Activity of a session that is not their own
+  and has an owner, the read is recorded before the page is sent (a failure to record stops the read), the Admin log
+  writes `activity_admin_read` once per reading session with who, whose, session and loop and never entry text, the
+  owner's console shows a red notice under the status band while the Admin reads and a quiet line after, and each of
+  the owner's live reporter sessions shows a callout that is never sent to the model.
 - Only the Admin changes the policy, previews it, lists what is stored and deletes it, through the Admin API
   ([7.1](07-01-endpoints.md)), which needs the unlocked Admin session. Each change and each delete is written to the
   admin log (`activity_history_changed`, `activity_deleted`), and each purge run that removes something is
@@ -326,7 +331,8 @@ A file's diff is source code. Reads are open by design, so this is the one read 
   turned on or off, background sessions shown or hidden), the model prices (a price set, a price reset), a
   reporter taken off the list (`reporter_removed`) and the Activity history (#432: a policy saved,
   `activity_history_changed`; entries deleted by the Admin, `activity_deleted`; a purge run that removed
-  something, `activity_purged`, one entry per run, with counts and sizes and never text) and session recording
+  something, `activity_purged`, one entry per run, with counts and sizes and never text; an Admin's reading of
+  another person's stored Activity, `activity_admin_read`, once per reading session, #1074) and session recording
   (#353: `recording_started`, `recording_stopped`, `recording_deleted`, `recording_limit`, `recording_read`,
   `recording_settings_changed` and `recording_purged`, never text; [7.7](#session-recording-353)), each with the source
   address.
@@ -496,6 +502,7 @@ This is the only way anything reaches a session from Podium, so every rule here 
   a row always pairs with its `respond_sent` by id (DECISIONS 34).
 - A delivery that already has a result is not written again, and one that is dropped twice (a session that
   ended, then was deleted) is written once.
+- An Admin opening an ask that is not their own (`GET …/asks/:askId`) is written as `ask_read` (#1073): actor, the owner, the session (its name and the first 8 characters of its id) and the ask's id, never the question, plan or tool input. One row for a reading session (opens less than 30 minutes apart are one), written after the read is recorded and before the ask is sent. The owner is told in the console and in `podium-reporter` (see [7.1](07-01-endpoints.md#browser-routes-for-an-admins-read-of-a-persons-session-1073-1074)); the owner's own open writes nothing.
 - The server log has the same as `respond.sent`, `respond.result` and `respond.dropped`, and each refusal as
   `respond.refused` with its reason.
 - The text of an answer, a message, a question, a plan or a tool's input is never logged, shipped or stored on
@@ -661,8 +668,9 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   `404` whether the conversation exists or not, so the answer does not say who talks to whom. No group-facing or agent-facing
   route can return a `peer_messages` row, and a static test fails if one could. The older routes no longer return a person's Chat:
   Traffic (`GET /api/fleet/peers/traffic`) leaves out every conversation with a person at one end, and the routes that return one conversation's
-  text (`GET peers/conversations/:a/:b`, for an owner and for an Admin) answer an Admin who is not its owner with a `403` that points to Chat, where the read is
-  recorded and its people are told. The admin secret, which has no person, can read General and name a
+  text (`GET peers/conversations/:a/:b`, for an owner and for an Admin) answer an Admin who is not its owner with a `403` that points to Chat when a person is
+  at one end, where the read is recorded and its people are told. A conversation between two agents is read on those routes, and the Admin's read is recorded
+  and its owner told the same way (#1072). The admin secret, which has no person, can read General and name a
   person's group as an Admin does, and it has no counts of its own.
 - **An Admin never reads in silence** (#1034). When an Admin reads a person's My group or a Direct Message, including a conversation
   across owners, the people in it are told, and it stays on the conversation's record. This replaces the earlier rule that an Admin

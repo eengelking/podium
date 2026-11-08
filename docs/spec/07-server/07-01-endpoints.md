@@ -72,6 +72,12 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   404 for an unknown loop and 400 for a bad `before` or `limit`. It works for a session that has ended and does not
   need the `respond` flag: sign-in is open to the owner and an Admin whenever a keep policy is on and a token is
   set. `Cache-Control: no-store`. The text is never logged.
+- An Admin's read of another person's stored Activity is never quiet (#1074). Once the request has passed every check
+  above, and before a page is sent, the read is recorded per session and loop (`activity:<session>:<loop>`, one
+  record per Admin per reading session), the Admin log gets one `activity_admin_read` line per reading session
+  (who, whose, session, loop; never an entry), and the owner is told in the console and in `podium-reporter`
+  (see `session-reads` below). A record that cannot be made stops the read with a `5xx` and no page. The owner's own
+  read, an Admin's read of their own session and a session owned by `Admin` or nobody record and tell no one.
 
 **`GET /api/fleet/respond/sessions/:id/files/diff?path=&ahead=1`** (#319, #631)
 - The console's request for one file's diff. It needs a respond session ([7.7](07-07-hardening.md), *File diff*),
@@ -330,7 +336,8 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 - `GET /api/fleet/respond/peers/conversations?range=`: the person's conversations, as Traffic's read.
 - `GET /api/fleet/respond/peers/conversations/:a/:b`: one conversation's messages with their text, oldest first, for its
   owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
-  stateAt, why, approved }`. `403` for anyone else, `404` when there is none.
+  stateAt, why, approved }`. `403` for anyone else, `404` when there is none. An Admin who is not its owner is recorded
+  before the text is answered, and the owner is told in the console and in every live `podium-reporter` session (#1072).
 
 ## Routes for Chat (#1034)
 
@@ -545,6 +552,16 @@ as the Activity history, [7.7](07-07-hardening.md#activity-history-432)): `401` 
   `grant` of a person who may not read it is never sent: the state shown on a card is the session view's
   `recording` ([7.4](07-04-view-types.md)), which carries no text.
 
+## Browser routes for an Admin's read of a person's session (#1073, #1074)
+
+An Admin never reads in silence. When an Admin reads the content of a session that is not their own (a waiting ask, kind `ask`; one loop's stored Activity, kind `activity`), the read is recorded before anything is sent, the Admin log gets a line from the route that serves the read, the owner's console shows a red notice while the read is live and a quiet line after, and the owner's reporter sessions show a one-line callout (`Root (an Admin) is reading your waiting plan on history-paging.`). A session owned by the shared Admin name, or by no one, has no person to tell, and an owner's own read tells no one. A record is a row of `chat_admin_reads` under the thread `ask:<session>` or `activity:<session>:<loop>`, with the owner in `people`; reads of one thread by one Admin less than 30 minutes apart are one record. It holds a name and a time, never any text.
+
+On responding's `/respond` router, with its sign-in and `X-Podium-Respond: 1` on a change; `404` while authentication is off, `401` without a sign-in, `400` for a kind other than `ask` or `activity`, `404` for an unknown session.
+
+- **`GET /api/fleet/respond/session-reads`**: `{ ok, serverTime, readers }`, where `readers` is `{ <kind>: { <sessionId>: [{ admin, since, until }] } }` for the signed-in person's own sessions only: the Admins who read in the last 30 seconds. The console reads it when the stream's `reads` event, which carries a counter and nothing else, moves.
+- **`GET /api/fleet/respond/sessions/:id/admin-reads/:kind`**: the session's owner only (`403` for anyone else, an Admin included). `{ ok, serverTime, adminReads, adminReading }`: the records of that kind (every loop for `activity`), oldest first, and who reads now. Loading it is the owner seeing the records.
+- **`POST /api/fleet/respond/sessions/:id/admin-reads/:kind/reading`**: an Admin's open read pings this every 15 seconds so the owner keeps seeing it. Body `{ loop }` for `activity` (one loop id, no colon), none for `ask`. It records the read if it has not begun. Admin only (`403`); an Admin's own session tells no one.
+
 ## Admin API
 
 The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
@@ -682,7 +699,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`; `409` for a level at or below
     the stored right, since a proposal only raises one), `PUT reporters/:key/peers/pause`
     (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once). Pause all links records the Admin as the pauser of each link it pauses (`pausedBy` `admin`, `pausedByAdmin` the Admin's name), so only an Admin resumes it. A pause, resume or removal is never quiet: every live reporter session of the person gets one `adminNotices` callout naming the Admin, once for a bulk change, and the Admin log gets `peer_links_paused`, `peer_links_resumed` or `peer_link_removed` with who and whose reporter, never text.
-  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner.
+  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner. Reading one conversation's text is never quiet (#1072): the read is recorded on the conversation's `dm:` thread before the text is answered (a record that cannot be written stops the read), the Admin log gets `chat_admin_read` with who and whose and never text, and the owner is told in the console and in their reporter sessions, as for an Admin's read in Chat.
   - `GET log`.
 - Lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return
   `{ total, page, pageSize, rows }`. The reporters list also takes `state`, `sort` and `dir` and adds `counts`

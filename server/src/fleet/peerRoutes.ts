@@ -405,6 +405,8 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!v.admin && !owns) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
     // An Admin reads a person's Chat only in Chat, where the read is recorded and the people in it are told (#1051). This route does neither.
     if (!owns && isPersonChat(rows)) return void refuse(req, res, 403, CHAT_ONLY);
+    // An Admin who is not its owner is recorded before the text is answered, and the owner is told in the console and in podium-reporter (#1072).
+    if (!owns && !await fleet.chat.noteConversationRead(v, req.params.a!, req.params.b!)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
   }));
 }

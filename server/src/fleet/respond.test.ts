@@ -999,3 +999,70 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
   });
 });
+
+describe('an Admin opening a waiting ask (#1073)', () => {
+  const askUrl = '/api/fleet/respond/sessions/sess-ed/asks/toolu_q';
+
+  async function withAsk() {
+    const s = await setup();
+    await request(s.app).post('/api/fleet/report').set('X-Podium-Token', s.ed.token).send(report('Ed'));
+    expect((await request(s.app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').set('X-Podium-Token', s.ed.token).send(QUESTION)).status).toBe(200);
+    const boss = await s.people.createPerson('Boss');
+    await s.people.setGroup(boss.person.id, await s.people.administratorsGroupId());
+    return { ...s, boss };
+  }
+
+  it('records the read before sending the ask, logs it without the text, and tells the owner in the reporter reply and on the console', async () => {
+    const { app, fleet, people, ed, boss } = await withAsk();
+    const changed = vi.spyOn(fleet, 'sessionReadsChanged');
+    const b = await signedIn(app, 'Boss', boss.token);
+    const e = await signedIn(app, 'Ed', ed.token);
+    const got = await b.get(askUrl);
+    expect(got.status).toBe(200);
+    expect(got.body).toMatchObject({ ask: QUESTION });
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toMatchObject([{ admin: 'Boss', kind: 'read' }]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.actor).toBe('Boss');
+    expect(rows[0]!.detail).toContain('Ed');
+    expect(rows[0]!.detail).toContain('toolu_q');
+    expect(JSON.stringify(rows)).not.toContain('Page size');
+    // the owner's reporter hears of it on its next report, by words that name the Admin and the session, never the question
+    const reply = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
+    const texts = (reply.body.adminNotices ?? []).map((n: { text: string }) => n.text);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatch(/^Boss \(an Admin\) is reading your waiting plan, question or tool request on /);
+    expect(texts[0]).not.toContain('Page size');
+    expect((await e.get('/api/fleet/respond/session-reads')).body.readers.ask['sess-ed']).toHaveLength(1);
+    // opening it again in the same reading session is not a new record or a new log line
+    await b.get(askUrl);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read')).toHaveLength(1);
+  });
+
+  it('does not notice the owner\'s own open, an unknown ask, or an ask of a session the shared Admin name owns', async () => {
+    const { app, fleet, people, ed } = await withAsk();
+    const e = await signedIn(app, 'Ed', ed.token);
+    expect((await e.get(askUrl)).status).toBe(200);
+    expect((await e.get(askUrl.replace('toolu_q', 'nope'))).status).toBe(404);
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toEqual([]);
+    const admin = await signedIn(app, 'Admin', SECRET);
+    expect((await admin.get(askUrl.replace('toolu_q', 'nope'))).status).toBe(404);
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toEqual([]);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...report('Admin', 'sess-admin'), userName: 'Admin' });
+    expect((await request(app).put('/api/fleet/sessions/sess-admin/asks/toolu_q').set('X-Podium-Token', SECRET).send(QUESTION)).status).toBe(200);
+    expect((await admin.get('/api/fleet/respond/sessions/sess-admin/asks/toolu_q')).status).toBe(200);
+    expect(await fleet.chat.adminReads.list('ask:sess-admin')).toEqual([]);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read')).toEqual([]);
+  });
+
+  it('sends nothing when the read cannot be recorded', async () => {
+    const { app, fleet, boss } = await withAsk();
+    const b = await signedIn(app, 'Boss', boss.token);
+    vi.spyOn(fleet.chat.adminReads, 'noteSession').mockRejectedValue(new Error('disk full'));
+    const got = await b.get(askUrl);
+    expect(got.status).toBe(500);
+    expect(JSON.stringify(got.body)).not.toContain('Page size');
+  });
+});

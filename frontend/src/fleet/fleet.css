@@ -1478,3 +1478,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .scrub input[type="range"] { flex: 1 1 200px; min-width: 120px; accent-color: var(--ink); }
 .podium .scrub input[type="range"]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
 .podium .scrub .hint { white-space: nowrap; color: var(--muted); }
+
+/* .read-notes (#1073, #1074): what an Admin's read of the person's own session tells the person, as .ch-nav.ro (chat.css) lines. Placement only:
+   `band` sits flush under the status band of the orchestrator page, full width; `above` sits over the ask in the Respond window. The X (.x) is at the far right. */
+.podium .read-notes .ch-nav .x { margin-left: auto; margin-block: -4px; }
+.podium .read-notes.band .ch-nav.ro { margin: 0; border-radius: 0; border-width: 1px 0 0; align-items: center; }
+.podium .read-notes.above { margin: 0 0 10px; }
+.podium .read-notes.above .ch-nav.ro { margin: 0 0 6px; align-items: center; }

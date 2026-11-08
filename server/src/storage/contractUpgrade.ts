@@ -242,6 +242,26 @@ export function upgradeCases(o: UpgradeOpeners): void {
       await s.close();
     }
   });
+  it('takes a record of a read of a person\'s session beside the records an older database holds, owed to the person and kept apart by thread, when the database is upgraded (#1073, #1074)', async () => {
+    const MIN = 60_000;
+    const old: LegacyAdminRead = { thread: 'group:ed', adminKey: 'root', admin: 'Root', startedAt: T0 - MIN, lastSeenAt: T0 - MIN };
+    const s = await o.openUpgraded([], [], [], [], [], [old]);
+    try {
+      const reads = s.chat({ now: () => T0 + MIN }).adminReads;
+      expect(await reads.touch('ask:sa', 'Root', 30 * MIN, ['ed'])).toMatchObject({ started: true, record: { startedAt: T0 + MIN, kind: 'read' } });
+      expect(await reads.touch('activity:sa:a1', 'Root', 30 * MIN, ['ed'])).toMatchObject({ started: true });
+      expect(await reads.threads('ask:')).toEqual(['ask:sa']);
+      expect(await reads.threads('activity:sa:')).toEqual(['activity:sa:a1']);
+      expect(await reads.list('group:ed')).toEqual([{ admin: 'Root', startedAt: T0 - MIN, lastSeenAt: T0 - MIN, kind: 'read' }]);
+      // The new records are owed to the person, the older one owes nothing.
+      expect((await reads.unseenFor('ed')).map((r) => r.thread).sort((a, b) => a.localeCompare(b))).toEqual(['activity:sa:a1', 'ask:sa']);
+      expect(await reads.seen('ask:sa', 'ed')).toBe(1);
+      expect(await reads.forget('activity:sa:a1')).toBe(0);
+      expect(await reads.forget('ask:sa')).toBe(1);
+    } finally {
+      await s.close();
+    }
+  });
   it('reads an Admin\'s record made before a record had a kind as a reading, in order, that live and touch treat as a reading, when the database is upgraded (#1034)', async () => {
     const MIN = 60_000;
     const read = (adminKey: string, admin: string, startedAt: number, lastSeenAt: number, thread = 'group:ed'): LegacyAdminRead => ({ thread, adminKey, admin, startedAt, lastSeenAt });
