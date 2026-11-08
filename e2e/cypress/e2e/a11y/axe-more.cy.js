@@ -63,6 +63,7 @@ describe('accessibility (axe): orchestrator page, dialogs and Admin', () => {
     });
 
     it('the activity dialog', () => {
+      cy.signIn('Ed');
       cy.openConsole('#/?open=e2e-s-invoice');
       cy.get('#row-e2e-a-port').click();
       cy.get('#podium-side-body').contains('button', 'Expand').click();

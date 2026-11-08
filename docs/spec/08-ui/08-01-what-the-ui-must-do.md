@@ -1607,7 +1607,7 @@ the loop's recent tool calls and the text it writes ([6.4](../06-reporter-protoc
   `podium.activityEvery`, with try/catch).
 - *Fetching.* The panel fetches `GET /api/fleet/sessions/:id/agents/:agentId/activity`
   ([7.1](../07-server/07-01-endpoints.md)) at once and then on that interval, only while the panel or its modal is open and the
-  tab is visible. Each fetch renews the server's lease.
+  tab is visible. Each fetch renews the server's lease. The route needs a sign-in as the session's owner or an Admin (#1082): on a 401 or 403 the panel shows, in place of the entries, that the live activity is open to the owner and the Admin (and to sign in on a 401), says "Not shown" in the footer and asks again at the next poll. An Admin whose fetch succeeds for another person's loop pings `POST /respond/sessions/:id/admin-reads/live/reading` every 15 seconds so the owner's notice lasts. The Report buttons' full text is the same: a 401 or 403 keeps the 400-character excerpt and says who can open the rest.
 - *Starting empty.* A viewer sees only what arrived after their first fetch, so it starts with "Watching from
   now. Earlier activity is not kept, and nothing is kept after you close this."
 - *Footer.* One row that keeps its height whatever the text says (each text on one line; the count is cut with

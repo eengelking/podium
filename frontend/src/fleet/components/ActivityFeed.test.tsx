@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
-import { ActivityFeed, feedEmpty } from "./ActivityFeed";
+import { ActivityFeed, feedEmpty, refusedEmpty } from "./ActivityFeed";
 import { fmtDay } from "../format";
 import { RespondError, type RespondApi } from "../respondApi";
 import { RespondProvider } from "../useRespond";
@@ -800,5 +800,46 @@ describe("a Bash call's output arriving after its entry (#431)", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: /Bash/ }));
     expect(within(dialog).getByText("ok")).toBeInTheDocument();
+  });
+});
+
+describe("the live feed when the server refuses it (#1082)", () => {
+  const refusing = (status: 401 | 403) => vi.fn(async () => {
+    throw new RespondError(status, { ok: false });
+  });
+  const mount = (status: 401 | 403, owner = "Ed") => {
+    const s = makeSession({ owner, reporterVersion: "0.13.0", activityFeed: true, agents: [makeAgent({ id: "a1", startedAt: T0 })] });
+    return render(<ActivityFeed s={s} loop="a1" title="t" startedAt={T0} active now={T0} adminOn fetchActivity={refusing(status)} />);
+  };
+
+  it("says to sign in on a 401, in place of the entries, and not that the server cannot be reached", async () => {
+    mount(401);
+    await flush();
+    expect(screen.getByText("The live activity is open to Ed and the Admin. Sign in as Ed or an Admin to see it.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing to show")).toBeInTheDocument();
+    expect(screen.getByText("Not shown")).toBeInTheDocument();
+    expect(screen.queryByText("Could not reach the server, retrying")).toBeNull();
+  });
+
+  it("says who can open it on a 403", async () => {
+    mount(403);
+    await flush();
+    expect(screen.getByText("The live activity is open to Ed and the Admin only.")).toBeInTheDocument();
+  });
+
+  it("asks again at the next poll", async () => {
+    const s = makeSession({ owner: "Ed", reporterVersion: "0.13.0", activityFeed: true, agents: [makeAgent({ id: "a1", startedAt: T0 })] });
+    const f = vi.fn(async () => {
+      throw new RespondError(401, { ok: false });
+    });
+    render(<ActivityFeed s={s} loop="a1" title="t" startedAt={T0} active now={T0} adminOn fetchActivity={f} />);
+    await flush();
+    await wait(5000);
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it("words the refusal for a session the shared Admin owns", () => {
+    expect(refusedEmpty(401, "Admin")).toBe("The live activity is open to the session's Admin. Sign in as an Admin to see it.");
+    expect(refusedEmpty(403, null)).toBe("The live activity is open to an Admin only.");
   });
 });

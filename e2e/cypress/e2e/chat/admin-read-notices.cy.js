@@ -2,6 +2,8 @@
 // an agent-to-agent conversation (through the Admin route and through the owner-or-Admin route: Ed's Chat shows the red banner, then the record line), a waiting ask (a red
 // notice under the status band of the orchestrator page and above the ask in the Respond window, then a quiet record line; the Admin log gets `ask_read`) and the stored Activity
 // (a red notice under the band, then a record line; the Admin log gets `activity_admin_read`). The X hides a notice on that browser only, the owner's own read tells no one.
+// An agent's whole prompt and answer (`text`) and its live Activity (`live`) are the same (#1082): an Admin's read of Ed's agent is a red notice under the band and then a record
+// line, and the Admin log gets `text_admin_read` and `live_admin_read`; Ed's own read tells no one. Who may read at all (401, 403) is in orchestrator/agent-read-gate.cy.js.
 // The callout shown to the person in the terminal is the reporter's and is not in the console (docs/e2e/COVERAGE.md). An Administrator who owns the agents is not noticed: that is
 // covered by the server's own tests, because no seeded Administrator owns a session.
 // Order: the tests run in order on one server, and a later one reads what an earlier one left (named where it matters).
@@ -19,6 +21,7 @@ const MAIN = '@orchestrator';
 // The admin secret signs in as the actor "Admin secret", and that is the name the person is told.
 const ADMIN = 'Admin secret';
 const AS_ADMIN = `${ADMIN} (an Admin)`;
+const AGENT = 'e2e-a-map';
 const ASK_WORDS = 'your waiting plan, question or tool request';
 
 const ok = (req) => cy.request({ log: false, ...req }).its('status', { log: false }).should('be.oneOf', [200, 202]);
@@ -41,7 +44,11 @@ const notes = (kind) => cy.get(`[data-testid="read-notes-${kind}"]`);
 const records = (kind, session) => cy.request({ url: `${RESPOND}/sessions/${session}/admin-reads/${kind}`, log: false }).its('body.adminReads', { log: false });
 
 describe('an Admin never reads in silence: what the person is told', () => {
-  before(() => cy.resetServer({ seedArgs: '--talk --stored' }));
+  before(() => {
+    cy.resetServer({ seedArgs: '--talk --stored' });
+    // The seed's agent has an excerpt only; its full answer is what an Admin's read of the whole text opens (#1082).
+    cy.reportAgain('invoice', {}, { [AGENT]: { answerText: 'Found 42 call sites across 9 modules. Every one is listed in the full answer.' } });
+  });
 
   it('tells no one when the owner reads their own ask and stored Activity', () => {
     cy.signIn('Ed');
@@ -135,5 +142,36 @@ describe('an Admin never reads in silence: what the person is told', () => {
     cy.get('[data-testid="connection-pill"]', { timeout: 15000 }).should('have.attr', 'data-state', 'live');
     notes('activity').should('not.exist');
     records('activity', id).should('have.length', 1);
+  });
+  it('tells no one when the owner reads the whole text and the live activity of his own agent', () => {
+    cy.signIn('Ed');
+    const id = seeded().sessions.invoice;
+    ok({ url: `/api/fleet/sessions/${id}/agents/${AGENT}/text` });
+    ok({ url: `/api/fleet/sessions/${id}/agents/${MAIN}/activity?every=5` });
+    records('text', id).should('have.length', 0);
+    records('live', id).should('have.length', 0);
+    cy.openConsole(`#/?open=${id}`);
+    notes('text').should('not.exist');
+    notes('live').should('not.exist');
+  });
+
+  it('shows Ed a red notice under the band while an Admin reads the whole text and watches the live activity of his agent, then record lines, and logs both', () => {
+    const id = seeded().sessions.invoice;
+    cy.signIn('Admin');
+    ok({ url: `/api/fleet/sessions/${id}/agents/${AGENT}/text` });
+    ok({ method: 'POST', url: `${RESPOND}/sessions/${id}/admin-reads/text/reading`, headers: H, body: { loop: AGENT } });
+    ok({ url: `/api/fleet/sessions/${id}/agents/${MAIN}/activity?every=5` });
+    ok({ method: 'POST', url: `${RESPOND}/sessions/${id}/admin-reads/live/reading`, headers: H, body: { loop: MAIN } });
+    cy.signIn('Ed');
+    cy.openConsole(`#/?open=${id}`);
+    notes('text').find('[data-testid=read-notice]').should('have.attr', 'role', 'status').and('contain.text', `${AS_ADMIN} is reading the whole prompt and answer of an agent in invoice-v2.`).and('contain.text', `The notice clears about 30 seconds after ${ADMIN} stops.`);
+    notes('live').find('[data-testid=read-notice]').should('contain.text', `${AS_ADMIN} is watching the live activity of an agent in invoice-v2.`);
+    // They clear about 30 seconds after the last ping; the record lines stay and never hold the text.
+    cy.tid('read-notice', { timeout: 60000 }).should('not.exist');
+    notes('text').find('[data-testid=read-record]').should('have.length', 1).and('contain.text', `${AS_ADMIN} read the whole prompt and answer of an agent in invoice-v2 on `);
+    notes('live').find('[data-testid=read-record]').should('have.length', 1).and('contain.text', `${AS_ADMIN} watched the live activity of an agent in invoice-v2 on `);
+    cy.openAdmin('Admin log');
+    cy.contains('td', `read the whole prompt and answer of agent ${AGENT} in invoice-v2`).should('contain.text', 'owned by Ed');
+    cy.contains('td', `read the live Activity of agent ${MAIN} in invoice-v2`).should('contain.text', 'owned by Ed');
   });
 });

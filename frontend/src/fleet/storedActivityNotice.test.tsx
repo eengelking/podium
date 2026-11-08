@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FocusView } from "./components/FocusView";
 import { ActivityFeed } from "./components/ActivityFeed";
+import { ReportDocs } from "./components/ReportDocs";
 import { makeAgent, makeSession } from "./fixtures";
 import { PING_MS, SessionReadsProvider } from "./sessionReads";
 import { RespondProvider } from "./useRespond";
@@ -62,7 +63,8 @@ describe("the notice under the status band", () => {
     expect(note.textContent).toContain("Root (an Admin) is paging through the stored Activity of stored-run.");
     expect(note.classList.contains("crit")).toBe(true);
     const osum = container.querySelector(".osum")!;
-    expect(osum.lastElementChild!.getAttribute("data-testid")).toBe("read-notes-activity");
+    // The agent's whole text and live Activity notes (#1082) come last.
+    expect(osum.lastElementChild!.getAttribute("data-testid")).toBe("read-notes-live");
     // The ask notes (#1073) come first and the Activity notes after them, both after the band.
     const kids = [...osum.children];
     expect(kids.indexOf(osum.querySelector("[data-testid='read-notes-activity']")!)).toBeGreaterThan(kids.indexOf(osum.querySelector(".band")!));
@@ -118,11 +120,48 @@ describe("the ping of an Admin's open stored Activity", () => {
     expect(a.sessionReading).toHaveBeenCalledWith("s1", "activity", "a1");
   });
 
+  it("pings the live feed too (#1082): an Admin whose live fetch came back reads another person's agent, even when the stored history cannot be read", async () => {
+    const a = await feed(ROOT, "Dana", false);
+    expect(a.sessionReading).toHaveBeenCalledWith("s1", "live", "a1");
+    expect(a.sessionReading).not.toHaveBeenCalledWith("s1", "activity", "a1");
+  });
+
   it("does not ping for the owner, for an Admin reading their own session, or when the history cannot be read", async () => {
     expect((await feed(DANA, "Dana")).sessionReading).not.toHaveBeenCalled();
     cleanup();
     expect((await feed(ROOT, "Root")).sessionReading).not.toHaveBeenCalled();
     cleanup();
-    expect((await feed(ROOT, "Dana", false)).sessionReading).not.toHaveBeenCalled();
+    expect((await feed(ROOT, "Dana", false)).sessionReading).not.toHaveBeenCalledWith("s1", "activity", "a1");
+  });
+});
+
+describe("the ping of an Admin's open whole-text view (#1082)", () => {
+  async function docs(me: RespondMe, owner: string) {
+    vi.useFakeTimers();
+    const a = api(me);
+    const agent = makeAgent({ id: "a1", promptChars: 20, startedAt: NOW });
+    const s = makeSession({ id: "s1", owner, agents: [agent] });
+    render(
+      <RespondProvider api={a} flagsOn>
+        <ReportDocs s={s} a={agent} fetchText={async () => ({ prompt: "p", answer: null })} />
+      </RespondProvider>,
+    );
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: /Task prompt/ }));
+    await flush();
+    await act(async () => {
+      vi.advanceTimersByTime(PING_MS + 1);
+    });
+    return a;
+  }
+
+  it("pings the agent while an Admin has another person's full text open", async () => {
+    expect((await docs(ROOT, "Dana")).sessionReading).toHaveBeenCalledWith("s1", "text", "a1");
+  });
+
+  it("does not ping for the owner or for an Admin's own session", async () => {
+    expect((await docs(DANA, "Dana")).sessionReading).not.toHaveBeenCalled();
+    cleanup();
+    expect((await docs(ROOT, "Root")).sessionReading).not.toHaveBeenCalled();
   });
 });

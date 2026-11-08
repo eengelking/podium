@@ -42,7 +42,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 
 **`GET /api/fleet/sessions/:id/agents/:agentId/text`**
 - Body: `{ prompt: string | null, answer: string | null }`.
-- 404 if the server holds neither. No token, like the other reads.
+- 404 if the server holds neither. Needs a sign-in as the session's owner or an Admin (#1082): 401 with no sign-in, 403 for anyone else, so the text is never sent to them, and it is refused the same on a server where no feature offers a sign-in. An Admin who reads another person's agent is recorded before the text is sent (a failure stops the read), the owner is told in the console and in `podium-reporter`, and the Admin log keeps `text_admin_read` (who, whose and when, never the text). The owner's own read, and a session nobody owns, tell no one.
 
 **`GET /api/fleet/sessions/:id/agents/:agentId/activity?every=`**
 - Body: `{ entries: (ActivityEntry & { seq })[], since, live, enabled, serverTime }`. `@orchestrator` is the main
@@ -50,6 +50,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   [6.2](../06-reporter-protocol/06-02-the-report.md) (`id`, `command`, `output`, `done`, `exitCode`, `failed` and the cut flags, #431); `output`
   only while the Admin's `activity-output` flag is on. `done`, `exitCode` and `failed` are not output and are served
   with the feed whatever that flag says (#598).
+- Needs a sign-in as the session's owner or an Admin (#1082), checked before any lease is taken: 401 with no sign-in, 403 for anyone else. An Admin who reads another person's loop is recorded like `/text` (Admin log `live_admin_read`, one line per reading session), and the owner is told in the console and in `podium-reporter`.
 - Each call takes or renews a lease on that loop for `every` seconds (5, 10, 20, 30 or 60; anything else is 5)
   plus 15 seconds. While a lease is live, the reply to each report lists the loop in `watch`.
 - For a session that is not live it answers `live: false`, `since: null` and no entries, and takes no lease.

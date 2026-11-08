@@ -57,6 +57,8 @@ export function FocusView(props: {
         <StatusBand s={s} kind={kind} delegates={delegates} now={now} config={config} onRemove={props.onRemove} />
         <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
         <SessionReadNotes kind="activity" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
+        <SessionReadNotes kind="text" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
+        <SessionReadNotes kind="live" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
       </div>
       <div className={`two${folded ? " folded" : tab === "files" ? " wide" : ""}`}>
         <div className={`fold-col${folded ? " shut" : ""}${tab === "files" ? " files" : ""}`}>

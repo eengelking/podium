@@ -31,7 +31,8 @@ export const LIVE_KEPT = 500;
 
 const defaultFetch: FetchActivity = async (sessionId, loop, every) => {
   const res = await fetch(`/api/fleet/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(loop)}/activity?every=${every}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  // The live feed is the person's own content: only the session's owner or an Admin, signed in, gets it (#1082).
+  if (!res.ok) throw new RespondError(res.status, (await res.json().catch(() => ({}))) as Record<string, unknown>);
   return (await res.json()) as ActivityReply;
 };
 
@@ -81,10 +82,12 @@ export interface FeedState {
   live: boolean;
   /** The last reply said the Admin has turned the feed off for this server. */
   adminOff: boolean;
+  /** The server refused the live feed: 401 when nobody is signed in, 403 for a person who is not the owner or an Admin (#1082). Null otherwise. */
+  refused: 401 | 403 | null;
 }
 
 type Live = Omit<FeedState, "stored" | "loadOlder">;
-const EMPTY: Live = { entries: [], seen: 0, fetchedAt: null, failed: false, live: true, adminOff: false };
+const EMPTY: Live = { entries: [], seen: 0, fetchedAt: null, failed: false, live: true, adminOff: false, refused: null };
 const NO_OLDER = async () => {};
 
 /** What a stored page holds, keyed apart from the live feed. */
@@ -231,7 +234,7 @@ export function useActivityFeed(opts: {
         // happened before this viewer was watching, so it is skipped rather than backfilled.
         if (!c || c.since !== r.since) {
           cursor.current = { since: r.since, seq: top };
-          setState((st) => ({ ...st, fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false }));
+          setState((st) => ({ ...st, fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false, refused: null }));
           return;
         }
         const fresh = r.entries.filter((e) => e.seq > c.seq);
@@ -250,9 +253,17 @@ export function useActivityFeed(opts: {
           failed: false,
           live: r.live,
           adminOff: false,
+          refused: null,
         }));
-      } catch {
-        if (!cancelled) setState((st) => ({ ...st, failed: true }));
+      } catch (err) {
+        if (cancelled) return;
+        // Refused: nothing of the feed is shown, and the next poll asks again, so a sign-in made meanwhile opens it.
+        if (err instanceof RespondError && (err.status === 401 || err.status === 403)) {
+          cursor.current = null;
+          loaded.current = "none";
+          setStore(null);
+          setState({ ...EMPTY, fetchedAt: Date.now(), refused: err.status });
+        } else setState((st) => ({ ...st, failed: true }));
       }
     };
     void tick();

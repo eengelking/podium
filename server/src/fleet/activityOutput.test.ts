@@ -9,6 +9,10 @@ import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.j
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { createFleetRouter } from './routes.js';
+import { Lockout } from './lockout.js';
+import { createRespondBridge } from './respondBridge.js';
+
+const ADMIN = 'admin-secret-for-the-feed';
 import { fixtureReport } from './testing.js';
 import { createLogger } from '../logging/logger.js';
 
@@ -49,7 +53,7 @@ async function server(flags: { output?: boolean } = { output: true }) {
   const seen: string[] = [];
   fleet.hub.add({ write: (c: string) => void seen.push(c), end: () => {} });
   const app = express();
-  app.use('/api/fleet', createFleetRouter(fleet, { token: null, log: (l) => lines.push(l) }));
+  app.use('/api/fleet', createFleetRouter(fleet, { token: ADMIN, people: storage.people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: (l) => lines.push(l) }));
   const live = (agent: ActivityEntry[], opt: boolean | null = true): Report => {
     const r = fixtureReport();
     r.sentAt = clock;
@@ -58,8 +62,11 @@ async function server(flags: { output?: boolean } = { output: true }) {
     r.agents[0]!.activity = agent;
     return r;
   };
-  const send = (r: Report) => request(app).post('/api/fleet/report').send(r);
-  const feed = (loop = AID) => request(app).get(`/api/fleet/sessions/${encodeURIComponent(fixtureReport().session.id)}/agents/${encodeURIComponent(loop)}/activity?every=5`);
+  const send = (r: Report) => request(app).post('/api/fleet/report').set('X-Podium-Token', ADMIN).send(r);
+  // The live feed is the person's own content (#1082): read it signed in with the admin secret, as an Admin does.
+  const viewer = request.agent(app);
+  expect((await viewer.post('/api/fleet/respond/sign-in').set('X-Podium-Respond', '1').send({ name: 'Admin', token: ADMIN })).status).toBe(200);
+  const feed = (loop = AID) => viewer.get(`/api/fleet/sessions/${encodeURIComponent(fixtureReport().session.id)}/agents/${encodeURIComponent(loop)}/activity?every=5`);
   return { fleet, app, seen, live, send, feed, logger };
 }
 

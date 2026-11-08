@@ -250,7 +250,7 @@ see it (7.7). Migration 33 names the Admin who paused a link and adds one table;
 ```sql
 ALTER TABLE peer_rights ADD COLUMN paused_by_admin TEXT;   -- the Admin's name while paused_by is 'admin'; NULL otherwise
 CREATE TABLE chat_admin_reads (   -- one row per Admin and thread and reading session; never any text
-  thread TEXT NOT NULL,           -- 'dm:<a>|<b>' for a conversation, 'group:<person>' for a group, 'public' for General (only an Admin's stops, never a reading), 'ask:<session>' and 'activity:<session>:<loop>' for an Admin's read of a person's waiting ask or stored Activity (#1073, #1074)
+  thread TEXT NOT NULL,           -- 'dm:<a>|<b>' for a conversation, 'group:<person>' for a group, 'public' for General (only an Admin's stops, never a reading), 'ask:<session>', 'activity:<session>:<loop>', 'text:<session>:<agent>' and 'live:<session>:<loop>' for an Admin's read of a person's waiting ask, stored Activity, an agent's whole prompt and answer, or its live Activity (#1073, #1074, #1082)
   admin_key TEXT NOT NULL,        -- the Admin's name, folded
   admin TEXT NOT NULL,            -- the name as shown ("Admin secret" for the admin secret)
   started_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,

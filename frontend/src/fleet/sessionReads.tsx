@@ -113,6 +113,8 @@ interface Words {
 const WORDS: Record<SessionReadKind, Words> = {
   ask: { doing: () => "reading your waiting plan, question or tool request", did: () => "opened your waiting plan, question or tool request", label: "your waiting plan, question or tool request" },
   activity: { doing: (s) => `paging through the stored Activity of ${s}`, did: (s) => `read the stored Activity of ${s}`, label: "your stored Activity" },
+  text: { doing: (s) => `reading the whole prompt and answer of an agent in ${s}`, did: (s) => `read the whole prompt and answer of an agent in ${s}`, label: "your agent's whole prompt and answer" },
+  live: { doing: (s) => `watching the live activity of an agent in ${s}`, did: (s) => `watched the live activity of an agent in ${s}`, label: "your agent's live activity" },
 };
 
 const more = (n: number) => `${n} more Admin${n === 1 ? "" : "s"}`;

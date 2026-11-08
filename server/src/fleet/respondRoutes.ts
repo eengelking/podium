@@ -108,6 +108,12 @@ export interface RespondAccess {
    * refuses or throws, so a route that has no sign-in of its own can ask without changing who it answers.
    */
   reader: (req: Request) => Promise<(row: SessionRow) => boolean>;
+  /**
+   * The gate of an agent's whole prompt and answer (`text`) and its live Activity (`live`), #1082. Only the session's owner or an Admin, signed in: otherwise it
+   * answers 401 or 403 and returns null. An unknown session or agent answers 404. An Admin's read is recorded first (a failure stops the read), the person is
+   * told, and one content-free Admin log line is written per reading session. Returns the session when the read may go on, after which the route sends it.
+   */
+  agentRead: (req: Request, res: Response, kind: 'text' | 'live', sessionId: string, agentId: string) => Promise<SessionRow | null>;
 }
 
 export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAccess {
@@ -659,9 +665,36 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     res.json(page);
   }));
 
+  /** See RespondAccess.agentRead. Sign-in comes first, so a signed-out request learns nothing about which sessions exist. */
+  const agentRead: RespondAccess['agentRead'] = async (req, res, kind, sessionId, agentId) => {
+    const v = await viewerOf(req);
+    if (!v) {
+      refuse(req, res, 401, kind === 'text' ? 'sign in to open the full text' : 'sign in to open the live activity');
+      return null;
+    }
+    const row = await fleet.db.getSession(sessionId);
+    const known = row && ((kind === 'live' && agentId === MAIN_LOOP) || (await fleet.db.getAgents(sessionId)).some((a) => a.id === agentId));
+    if (!row || !known) {
+      res.status(404).json({ ok: false, error: kind === 'text' ? 'no full text for this agent' : 'unknown session or agent', path: '$.agentId' });
+      return null;
+    }
+    if (!viewerOwns(v, row)) {
+      refuse(req, res, 403, 'not your session', { owner: row.owner });
+      return null;
+    }
+    const told = await fleet.chat.adminReads.noteSession(v, kind, row, agentId);
+    if (told.changed) {
+      const what = kind === 'text' ? 'the whole prompt and answer' : 'the live Activity';
+      await people?.log(`${kind}_admin_read`, `${v.actor} read ${what} of agent ${agentId} in ${row.name} (${shortId(row.id)}), owned by ${row.owner ?? ''}`, sourceOf(req), now(), v.actor);
+      fleet.sessionReadsChanged();
+    }
+    return row;
+  };
+
   d.extendBrowser?.(browser, { viewerOf });
   router.use('/respond', browser);
   return {
+    agentRead,
     reader: async (req) => {
       const v = await viewerOf(req);
       return (row) => v !== null && viewerOwns(v, row);

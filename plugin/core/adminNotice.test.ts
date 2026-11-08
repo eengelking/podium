@@ -42,6 +42,16 @@ describe('the callout an Admin\'s reading shows the person (#1034)', () => {
   });
 });
 
+describe('the callouts of an agent\'s whole text and live Activity (#1082)', () => {
+  test('reach the person as the server words them, on one line and with nothing added', () => {
+    for (const text of ['Root (an Admin) is reading the whole prompt and answer of an agent in stored-run.', 'Root (an Admin) is watching the live activity of an agent in stored-run.']) {
+      expect(isAdminNotice(n('rd-1-t', text))).toBe(true);
+      expect(adminNoticeLine(n('rd-1-t', text))).toBe(text);
+      expect(adminNoticeToast(n('rd-1-t', text))).toBe(`Podium: ${text}`);
+    }
+  });
+});
+
 describe('the transport carries the callouts of a reply', () => {
   async function reply(extra: object): Promise<Transport> {
     const t = new Transport(async () => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, ackedEvents: 0, ...extra }) }), { serverUrl: 'http://h:1', token: '', heartbeatMs: 5000, version: '0.11.0' });

@@ -2,6 +2,8 @@
 describe('agent panel', () => {
   before(() => cy.resetServer());
   beforeEach(() => {
+    // An agent's whole text and live activity are the owner's and the Admin's (#1082): Ed owns invoice-v2. The refusals are in agent-read-gate.cy.js.
+    cy.signIn('Ed');
     cy.openConsole('#/');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');

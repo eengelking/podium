@@ -41,7 +41,7 @@ This entry records the decision. It builds no gate. The work is its own issue.
 
 - The console no longer opens an agent's text or live activity for a viewer who has not signed in. A viewer who is not the owner or an Admin sees a refusal in place of the text.
 - R7's event lines are not audited. If one is found to hold content that the wall does not show, it is filed as its own issue and moves to the gated side.
-- Until the build issue merges, R5 and R6 stay open, and SECURITY.md says so.
+- R5 and R6 were built in #1082: both routes answer 401 or 403 before anything is read or leased, and an Admin's read is recorded under the threads `text:<session>:<agent>` and `live:<session>:<loop>`, with Admin log kinds `text_admin_read` and `live_admin_read`. The gate holds on a server where no feature offers a sign-in, so such a server shows no full text or live feed to anyone until a feature that needs the sign-in is on.
 
 <!-- nav:start -->
 ---

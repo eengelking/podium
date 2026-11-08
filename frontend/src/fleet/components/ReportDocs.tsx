@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { nameKey } from "../respond";
+import { RespondError } from "../respondApi";
+import { useReadingPing } from "../sessionReads";
+import { useRespond } from "../useRespond";
 import { reporterBelow } from "../logic";
 import type { AgentView, SessionView } from "../types";
 import { Markdown } from "./Markdown";
@@ -19,13 +23,14 @@ export const FULL_TEXT_REPORTER_MINOR = 10;
 
 const defaultFetchText: FetchText = async (sessionId, agentId) => {
   const res = await fetch(`/api/fleet/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/text`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  // The whole text is the person's own content: only the session's owner or an Admin, signed in, gets it (#1082).
+  if (!res.ok) throw new RespondError(res.status, (await res.json().catch(() => ({}))) as Record<string, unknown>);
   return (await res.json()) as AgentTexts;
 };
 
 const TITLE: Record<Kind, string> = { prompt: "Task prompt", answer: "Final answer" };
 
-type Load = { state: "idle" } | { state: "loading" } | { state: "ready"; texts: AgentTexts } | { state: "failed" };
+type Load = { state: "idle" } | { state: "loading" } | { state: "ready"; texts: AgentTexts } | { state: "failed" } | { state: "refused"; status: 401 | 403 };
 
 function chars(a: AgentView, kind: Kind): number {
   return (kind === "prompt" ? a.promptChars : a.answerChars) ?? 0;
@@ -70,6 +75,10 @@ export function ReportDocs(props: { s: SessionView; a: AgentView; fetchText?: Fe
   const fetchRef = useRef(fetchText);
   fetchRef.current = fetchText;
   const request = useRef(0);
+  // An Admin's open read of another person's agent keeps that person's notice alive (#1082); the fetch itself was recorded by the route.
+  const me = useRespond()?.me;
+  const readingOthers = open !== null && load.state === "ready" && !!me?.signedIn && me.admin === true && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  useReadingPing("text", s.id, a.id, readingOthers);
 
   const onOpen = useCallback(
     (kind: Kind, from: HTMLButtonElement) => {
@@ -80,7 +89,10 @@ export function ReportDocs(props: { s: SessionView; a: AgentView; fetchText?: Fe
         setLoad({ state: "loading" });
         fetchRef.current(s.id, a.id).then(
           (texts) => mine === request.current && setLoad({ state: "ready", texts }),
-          () => mine === request.current && setLoad({ state: "failed" }),
+          (err) => {
+            if (mine !== request.current) return;
+            setLoad(err instanceof RespondError && (err.status === 401 || err.status === 403) ? { state: "refused", status: err.status } : { state: "failed" });
+          },
         );
       } else {
         request.current++;
@@ -115,6 +127,13 @@ export function ReportDocs(props: { s: SessionView; a: AgentView; fetchText?: Fe
   );
 }
 
+/** Why the full text is not shown (#1082): nobody is signed in (401), or the person is neither the session's owner nor an Admin (403). The excerpt stays. */
+export function refusedNote(status: 401 | 403, owner: string | null): string {
+  const adminOwned = owner === null || owner === "Admin";
+  const who = adminOwned ? "an Admin" : `${owner} or an Admin`;
+  return status === 401 ? `Sign in as ${who} to open the full text. Showing the first 400 characters.` : `Only ${adminOwned ? "an Admin" : `${owner} and the Admin`} can open the full text. Showing the first 400 characters.`;
+}
+
 function DocModal(props: { kind: Kind; s: SessionView; a: AgentView; load: Load; onClose: () => void }) {
   const { kind, s, a, load } = props;
   const [copied, setCopied] = useState(false);
@@ -136,6 +155,7 @@ function DocModal(props: { kind: Kind; s: SessionView; a: AgentView; load: Load;
 
   let note: string | null = null;
   if (load.state === "failed") note = "Could not load the full text. Showing the first 400 characters.";
+  else if (load.state === "refused") note = refusedNote(load.status, s.owner);
   else if (isExcerpt && excerpt) {
     note = "Showing the first 400 characters.";
     if (s.reporter === "mod") {
