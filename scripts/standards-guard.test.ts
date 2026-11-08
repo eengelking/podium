@@ -64,6 +64,7 @@ describe("mockups", () => {
     const link = '<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">';
     expect(mockupProblems("a.html", `${link}<style>/* no :root here */ body{}</style>`)).toEqual([]);
     expect(mockupProblems("b.html", `<link rel="stylesheet" href="../frontend/src/fleet/fleet.css"><!-- :root -->`)).toEqual([]);
+    expect(mockupProblems("e.html", `${link}<!<!-- x -->-- <style>:root { --bg: #fff; }</style> -->`)).toEqual([]); // nested comment openers are stripped until none is left
     expect(mockupProblems("c.html", `${link}<style>:root { --bg: #fff; }</style>`)).toEqual(["c.html: carries a :root block of its own"]);
     expect(mockupProblems("d.html", "<style>body{}</style>")).toEqual(["d.html: does not link frontend/src/fleet/tokens.css (or fleet.css)"]);
   });
