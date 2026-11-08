@@ -113,18 +113,20 @@ function registerTasks(on, config) {
       stopDiffs = null;
       return null;
     },
-    /** The text of the newest file the browser downloaded (an export) whose name holds `name`; waits up to 8 s for it. */
+    /** The text of the newest file the browser downloaded (an export) whose name holds `name`; waits up to 8 s for it to exist and hold content (a file the browser has created but not yet written reads as empty). */
     async 'download:read'(name) {
       const dir = '/out/downloads';
       for (let i = 0; i < 80; i++) {
-        const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.includes(name) && !f.endsWith('.crdownload')) : [];
+        const files = fs.existsSync(dir)
+          ? fs.readdirSync(dir).filter((f) => f.includes(name) && !f.endsWith('.crdownload') && fs.statSync(path.join(dir, f)).size > 0)
+          : [];
         if (files.length) {
           files.sort((a, b) => fs.statSync(path.join(dir, b)).mtimeMs - fs.statSync(path.join(dir, a)).mtimeMs);
           return { name: files[0], text: fs.readFileSync(path.join(dir, files[0]), 'utf8') };
         }
         await sleep(100);
       }
-      throw new Error(`no downloaded file with "${name}" in its name`);
+      throw new Error(`no downloaded file with "${name}" in its name and content`);
     },
     'download:clear'() {
       fs.rmSync('/out/downloads', { recursive: true, force: true });
