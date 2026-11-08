@@ -9,6 +9,10 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "../scripts/**/*.test.ts", "../plugin/core/**/*.test.ts", "../plugin/opencode/**/*.test.ts", "../plugin/claudecode/hooks/{fileDiff,transport,peers}.test.ts"],
     setupFiles: ["src/testSetup.ts"],
+    // The limits are for a hung test, not a slow one. The slowest PostgreSQL step takes about 1 s on a quiet laptop, CI runs 3 to 4 times
+    // slower, and a laptop with other suites running was seen 10 times slower (#1098), so the vitest defaults (5 s and 10 s) failed it.
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     // Fails the run when an adapter's test server is not configured (unless PODIUM_TEST_ONLY limits the run, and then it says what was NOT RUN) or does not answer (#891, #1008).
     globalSetup: ["src/storage/postgres/globalSetup.ts"],
     // Only `npm run test:coverage` turns this on. The lcov file is what SonarCloud reads (sonar-project.properties).

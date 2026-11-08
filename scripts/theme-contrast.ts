@@ -9,7 +9,8 @@ Usage: npx tsx scripts/theme-contrast.ts [options]
 Reads the token blocks in frontend/src/fleet/tokens.css (Podium first, then the other themes).
 Checks, on --bg and --surface:
   text     ink, ink2, muted, good-text, crit-text,
-           deleg-text, admin-text                                     need 4.5:1
+           deleg-text, admin-text, serious-text                       need 4.5:1
+                                                           (serious-text is fleet.css's 60% serious + 40% ink)
   marks    good, warn, serious, crit, deleg, opus,
            sonnet, haiku, fable                                    need 3:1, or Podium's own ratio for the
                                                            same mode when that is lower (parity)
@@ -84,6 +85,8 @@ function oklab(hex: string): [number, number, number] {
   const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
   return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
 }
+// fleet.css defines --serious-text as color-mix(in srgb, var(--serious) 60%, var(--ink)); the Admin "silent" state word uses it (#1098).
+const mixHex = (a: string, b: string, pa: number) => '#' + rgb(a).map((v, i) => Math.round((v * pa + rgb(b)[i] * (1 - pa)) * 255).toString(16).padStart(2, '0')).join('');
 const dist = (a: string, b: string) => Math.hypot(...oklab(a).map((v, i) => v - oklab(b)[i]) as [number, number, number]);
 
 type Result = { palette: string; check: string; value: number; need: number; ok: boolean };
@@ -97,6 +100,7 @@ for (const [name, t] of Object.entries({ ...base, ...others() })) {
   for (const bgName of ['bg', 'surface']) {
     const bg = t[bgName];
     for (const k of ['ink', 'ink2', 'muted', 'good-text', 'crit-text', 'deleg-text', 'admin-text']) add(name, `${k} on ${bgName}`, ratio(t[k], bg), 4.5);
+    add(name, `serious-text on ${bgName}`, ratio(mixHex(t.serious, t.ink, 0.6), bg), 4.5);
     for (const k of MARKS) add(name, `${k} on ${bgName}`, ratio(t[k], bg), Math.min(3, Math.floor(ratio(ref[k], ref[bgName]) * 100) / 100));
   }
   const m = ['opus', 'sonnet', 'haiku', 'fable'];

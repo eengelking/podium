@@ -156,7 +156,7 @@
 .adminv .rdot.restart { background: transparent; border: 2px solid var(--muted); }
 .adminv .rstate { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12.5px; font-weight: 400; }
 .adminv .rstate.reporting, .adminv .rstate.idle { color: var(--good-text); }
-.adminv .rstate.silent { color: var(--serious); }
+.adminv .rstate.silent { color: var(--serious-text); }
 .adminv .rstate.restart { color: var(--muted); }
 .adminv .thbtn { display: inline-flex; gap: 4px; align-items: center; color: inherit; font-weight: inherit; }
 .adminv .thbtn:hover { color: var(--ink); }
