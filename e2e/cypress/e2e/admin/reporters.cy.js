@@ -15,12 +15,13 @@ describe('admin: reporters', () => {
 
   it('counts the reporters in each state filter', () => {
     cy.get('[role=group][aria-label="Filter by state"]').within(() => {
-      const n = (name) => cy.contains('button', name).invoke('text').then((t) => Number(/(\d+)\s*$/.exec(t.trim())[1]));
-      n('All reporters').should('eq', 4);
-      n('Reporting').should('eq', 4);
-      n('Idle').should('eq', 0);
-      n('Silent').should('eq', 0);
-      n('Not since restart').should('eq', 0);
+      // The button's text retries until the count has rendered, so a busy machine cannot read it too early.
+      const count = (name, want) => cy.contains('button', name).should(($b) => expect($b.text().trim(), `${name} count`).to.match(new RegExp(`(^|\\D)${want}\\s*$`)));
+      count('All reporters', 4);
+      count('Reporting', 4);
+      count('Idle', 0);
+      count('Silent', 0);
+      count('Not since restart', 0);
       cy.contains('button', 'Idle').click();
     });
     cy.get('table tbody tr').should('not.exist');
