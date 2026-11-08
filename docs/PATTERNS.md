@@ -166,7 +166,6 @@ The survey for this page found places where the code does not follow a candidate
 | `useRespond` polls while the page is hidden | [#1054](https://github.com/eengelking/podium/issues/1054) |
 | Reporter helpers are copied between harnesses instead of living in `plugin/core/` | [#1055](https://github.com/eengelking/podium/issues/1055) |
 | E2E specs use a real sleep and clock-derived data | [#1056](https://github.com/eengelking/podium/issues/1056) |
-| `PROJECT.md` says CI runs only `test:core` | [#1057](https://github.com/eengelking/podium/issues/1057) |
 
 ## Related
 
