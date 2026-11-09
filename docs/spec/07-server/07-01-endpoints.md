@@ -611,7 +611,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         stored sessions still exist (30 days), `sessionIds` (at most 10) for the History link.
       - `tools` (#720): the tool calls of every harness that reports (Claude Code, OpenCode, any added later), never only one.
         `harness` narrows the rows to one harness; the reply's `harnesses` lists every harness the period holds, before that filter.
-        `breakdown` is `tool` (default), `session` or `version`, and each is one table.
+        `breakdown` is `tool` (default), `session`, `version`, `failures`, `prompts` or `duration`, and each is one table.
         Only tool names and counts are read or stored, never a tool's input, a path or a command. `oldestDay` is the first day the
         tool counts cover, which is later than the other reports' when the tool counts were added after them, so a period before it is `partial`.
         - `tool`: rows `period, harness, server, tool, calls`. An MCP tool named `mcp__<server>__<tool>` has `server` and `tool` split
@@ -621,6 +621,18 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
           100 and at most 10, then 100, calls high beyond it. `total` is `{ sessions, median, p90 }` over the whole period, and
           `byHarness` has the same three for each harness. A session with no tool counts is left out of every figure here: one stored
           before counts were kept and one that called no tool look the same, so neither is a session of zero calls.
+        - `failures` (#721): rows `period, harness, server, tool, calls, failed, rate, stored` and, for the stored sessions a failure was
+          recorded in (30 days), `sessionIds` (at most 10) for the History link. `rate` is `failed` over `calls` in percent to one
+          decimal. `stored` counts those sessions in all; a row with `stored` above 0 and no `sessionIds` is one whose sessions the viewer
+          may not open, and shows counts and no link (the route's `mayOpenSession`, which an Admin always passes). `total` is `{ calls, failed }`.
+          A tool with calls and no failures is a row too, so the rate has its denominator.
+        - `prompts` (#721): rows `period, harness, server, tool, calls, asked, allowed, denied, noAnswer, podium` for the tools that asked.
+          `noAnswer` is `asked` less `allowed` and `denied`, never below 0: the session ended or the ask was withdrawn first.
+          `total` is `{ calls, asked, allowed, denied, noAnswer, podium }`, with `calls` for every tool, asking or not.
+        - `duration` (#721): rows `period, harness, server, tool, timed, p50Ms, p95Ms`, read from the call length buckets (within 10% of a
+          call's real length). `total` is the same three over the whole period, `byTool` has them for the whole period for each tool and
+          for each MCP server (a server's row is read from all its calls, with an empty `tool`), slowest first, and `timedHarnesses` lists
+          the harnesses that gave times, so the page can say which did not.
         - `version`: rows `period, harness, version, reporters, newest`. `reporters` is the most reporters on that version on any one
           day in the bucket. `newest` is `Newest seen` for the highest version of the harness in the reply and `Older` for the rest;
           versions are compared as dotted numbers, and only within a harness. `behind` is `[{ harness, newest, behind, reporters }]`,

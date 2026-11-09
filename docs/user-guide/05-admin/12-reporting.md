@@ -72,10 +72,21 @@ counts are kept: never the arguments, a file path or a command.
 - **Calls per session** gives the middle session and the busier tenth, for each period and for the whole period by harness.
   Sessions with more than 100 calls are grouped, so those figures can be a few calls off. A session with no tool counts is
   left out, so older sessions do not pull the middle down to zero.
+- **Tool failures** shows how many calls of each tool failed and what share of its calls that is, most failures first, with
+  the biggest as bars. A tool a person or a rule refused did not run, so it is not a failure. An MCP server opens to its tools.
+  The **History** column opens the sessions that recorded the failure while Podium still holds them (30 days). A failure
+  older than that, or in a session you cannot open, shows counts only.
+- **Permission prompts** shows how often each tool asked before it ran, and how the ask ended: allowed, denied, or no answer
+  (the session ended first). **Answered in Podium** counts the asks answered from the console, whether allowed or denied. A tool
+  you have already allowed does not ask, so it is not counted. A plan's approval and a question are not permission prompts.
+- **Call duration** shows the middle call (median) and the slower twentieth (95th percentile) of each tool, slowest first. A
+  call is timed from when it starts running to when it ends, so a call that waited for an answer to its permission prompt
+  includes the wait, and a Task call lasts as long as the agent it launches. The lengths are grouped in steps of 10%, so a figure
+  is within 10% of the real one. A harness that does not report call times is left out, and the page says which.
 - **Harness versions** shows how many reporters ran each version in each period, and how many run an older version than the
   newest Podium has seen for that harness. A harness is only compared with itself.
 
-The tool counts start when Podium is upgraded to this release and fill in for the sessions it still holds (30 days), so a
+Calls include the orchestrator's own as well as its agents'. The tool counts start when Podium is upgraded to this release and fill in for the sessions it still holds (30 days), so a
 longer period says "Podium has no history before ..." instead of showing zeros.
 
 ## Failures

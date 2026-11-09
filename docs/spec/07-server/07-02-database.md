@@ -159,6 +159,19 @@ CREATE TABLE harness_versions_daily ( -- how many reporters ran a version of a h
 );
 ```
 
+Migration 38 (#721; PostgreSQL main step 14) adds what each tool did, under the same rule. `agents.tool_stats_json` is the agent's `toolStats`
+as JSON (NULL from a reporter that does not send it); the main loop's own are in `sessions.loop_json`. The same migration makes the tool
+counts above include the main loop's own calls, which `tools_daily` read from the agents only until then.
+
+```sql
+CREATE TABLE tool_stats_daily (      -- one row per day, harness and tool that has any of it
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  failed INTEGER NOT NULL, asked INTEGER NOT NULL, allowed INTEGER NOT NULL, denied INTEGER NOT NULL, podium INTEGER NOT NULL,
+  times_json TEXT NOT NULL,          -- JSON of call length bucket to calls: a bucket is a step of 10%, so a median and a 95th percentile survive being added across days
+  PRIMARY KEY (day, harness, tool)
+);
+```
+
 The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
 sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
 
@@ -386,7 +399,7 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily` and `harness_versions_daily` from the rows still stored (a day that began before the session retention is
+  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily` and `tool_stats_daily` from the rows still stored (a day that began before the session retention is
   skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
   has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
   partly built), in one transaction, so a run twice gives the
