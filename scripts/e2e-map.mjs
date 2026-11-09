@@ -110,12 +110,18 @@ export function mapProblems(root) {
   const defined = new Set();
   for (const f of sources(root, "frontend/src")) for (const m of readFileSync(f, "utf8").matchAll(/data-testid=["{]\s*["'`]?([A-Za-z0-9_-]+)/g)) defined.add(m[1]);
   for (const s of specs) for (const id of testIdsUsed(root, s)) if (!defined.has(id)) problems.push(`${s} uses data-testid "${id}", which no frontend source defines`);
+  for (const s of specs) {
+    const lines = readFileSync(join(root, s), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (/\bcy\.wait\(\s*(?!['"`]@)(?=\S)/.test(line)) problems.push(`${s}:${i + 1} waits on something other than a named request: use a retrying assertion, never cy.wait(<time>) (#1056)`);
+    });
+  }
   return problems;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (process.argv.includes("-h") || process.argv.includes("--help")) {
-    console.log("Usage: node scripts/e2e-map.mjs\nChecks docs/e2e/COVERAGE.md against the repository: every file, route and test id it names exists, and every spec is named.");
+    console.log("Usage: node scripts/e2e-map.mjs\nChecks docs/e2e/COVERAGE.md against the repository: every file, route and test id it names exists, every spec is named, and no spec calls cy.wait with a time.");
     process.exit(0);
   }
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");

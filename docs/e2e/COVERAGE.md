@@ -67,7 +67,7 @@ to green. By hand:
 2. Start with `before(() => cy.resetServer())`. It restarts the server on an empty database and seeds it, so a spec file never depends on another. `cy.resetServer({ seedArgs: '--bulk 30' })`, `{ env: ['STALE_AFTER_MS=2000'] }` and `{ noSeed: true }` change the data or the server's timings. The test-only timings (`PODIUM_TEST_TIMINGS=1` with `PODIUM_TEST_ADMIN_IDLE_MS`, `PODIUM_TEST_SIGN_IN_IDLE_MS` or `PODIUM_TEST_LOCK_MS`) go in `env` the same way (DECISIONS 50).
 3. Open a page with `cy.openConsole('#/board')` (it waits until the stream is live). Sign in with `cy.signIn('Ed')` or `cy.signIn('Admin')`, unlock Admin with `cy.unlockAdmin()` or `cy.openAdmin('Settings')`. They set the cookie with a request: the admin secret is never typed into a field and never logged.
 4. Make a change happen with `cy.reportAgain('api', { costUsd: 7.25 })` (a reporter's next report), `cy.setFlags({ respond: false })`, `cy.task('server:pause')` and `server:resume`.
-5. Assert with Cypress's retrying queries. Never `cy.wait(ms)`, never read a clock-derived value, never rely on a count that can still be changing. The config has `retries: 0` on purpose.
+5. Assert with Cypress's retrying queries. Never `cy.wait(ms)` (`npm run e2e:map` fails on one), never read a clock-derived value, never rely on a count that can still be changing. The config has `retries: 0` on purpose.
 6. Add the feature to the map below, with the spec file in a code span. Then `node scripts/e2e-map.mjs` and the whole suite.
 
 A violation axe finds is passed to `cy.checkA11y({ known })` only when it is real, tracked and not yet fixed; the call

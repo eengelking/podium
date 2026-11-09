@@ -1,4 +1,5 @@
 // SPEC 8.1 Orchestrator page > agent tree rows, Right panel > Agent detail, Report group, Tools used, Activity section.
+const AT = 4102444800000; // 2100-01-01, a fixed moment: the server drops an entry older than the moment the panel opened, so a past one would never show (#1056)
 describe('agent panel', () => {
   before(() => cy.resetServer());
   beforeEach(() => {
@@ -103,7 +104,7 @@ describe('agent panel', () => {
     row('e2e-a-port').click();
     side().contains('Watching from now. Earlier activity is not kept, and nothing is kept after you close this.');
     side().contains('Nothing yet');
-    cy.reportAgain('invoice', {}, { 'e2e-a-port': { activity: [{ at: Date.now(), kind: 'tool', text: 'Edit src/invoice/totals.ts' }, { at: Date.now() + 1, kind: 'text', text: 'Renamed sum to total.' }] } });
+    cy.reportAgain('invoice', {}, { 'e2e-a-port': { activity: [{ at: AT, kind: 'tool', text: 'Edit src/invoice/totals.ts' }, { at: AT + 1, kind: 'text', text: 'Renamed sum to total.' }] } });
     side().contains('Edit src/invoice/totals.ts', { timeout: 15000 });
     side().contains('Renamed sum to total.');
     side().contains('Last 2 of 2 since you started watching');
@@ -113,7 +114,7 @@ describe('agent panel', () => {
   it('shows a Bash call sent without done as running after its text, in the panel and in Expand, and ends it in place (#899)', () => {
     row('e2e-a-port').click();
     side().contains('Nothing yet');
-    const at = Date.now();
+    const at = AT + 100; // later than the first test's entries, which the server keeps ordered
     const text = { at, kind: 'text', text: 'Running the invoice tests now.' };
     // The reporter sends the call from its start, with no done; the same id comes back with done when it ends.
     const bash = (over = {}) => ({ at: at + 1, kind: 'tool', text: 'Bash npm test -- invoice', id: `toolu_e2e_running_${at}`, command: 'npm test -- invoice', ...over });
