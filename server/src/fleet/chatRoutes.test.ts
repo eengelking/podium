@@ -821,6 +821,38 @@ describe('direct messages', () => {
     expect(await readState.list('ed')).toEqual([]);
   });
 
+  it('keeps a closed conversation for the days its harness lets a person resume the session, brings it back on resume, and purges it after (#1113)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    const url = `${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`;
+    const close = async () => {
+      await tester(s, { status: 'done', waitReason: null, resumeWindowDays: 7 });
+      await dev(s, { status: 'done', waitReason: null, resumeWindowDays: 7 });
+      s.tick(10_000);
+      await s.fleet.sweep();
+    };
+    await close();
+    // Two days on is past the Admin's 24 hour grace period, but inside the window.
+    s.tick(2 * 24 * 3_600_000);
+    await s.fleet.retain();
+    const again = await signedIn(s, 'Ed', s.ed.token);
+    expect((await again.get(url)).body.messages).toHaveLength(1);
+    expect((await again.get(CH)).body.directs).toEqual([]);
+    // Resumed within the window: it returns to the list with its content.
+    await tester(s, { resumeWindowDays: 7 });
+    expect((await again.get(CH)).body.directs[0]).toMatchObject({ messages: 1 });
+    // Closed again and left past the window: the content is gone.
+    await close();
+    s.tick(8 * 24 * 3_600_000);
+    await s.fleet.retain();
+    const later = await signedIn(s, 'Ed', s.ed.token);
+    expect((await later.get(url)).status).toBe(404);
+    // A new session for the same agent shows none of the old session's content.
+    await post(s, s.ed.token, report('Ed', 'sess-tester-new', 'Tester', LINUX, { resumeWindowDays: 7 }));
+    expect((await later.get(CH)).body.directs).toEqual([]);
+  });
+
   it('deletes a conversation on request, keeps the link, and writes chat_deleted without the text', async () => {
     const s = await world();
     await linkedConversation(s);

@@ -5,6 +5,7 @@
 
 import { parseBuild } from './parseBuild.js';
 import { stripFormat } from '../storage/peerText.js';
+import { resumeWindowDays } from '../../../plugin/core/resumeWindow.js';
 import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
 import { CAPABILITY_KEYS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
@@ -872,6 +873,8 @@ function session(v: unknown, path: string, version: ReportVersion, harnessId: st
     waitNote: strOrNull(o.waitNote, `${path}.waitNote`, LIMITS.waitNote),
     endReason: strOrNull(o.endReason, `${path}.endReason`, LIMITS.short),
     resumeId: strOrNull(o.resumeId, `${path}.resumeId`, LIMITS.id),
+    // A window is clamped, never refused: an odd number must not drop the whole report (#1113). Absent from a reporter too old to send it.
+    ...(o.resumeWindowDays === undefined || o.resumeWindowDays === null ? {} : { resumeWindowDays: resumeWindowDays(o.resumeWindowDays) }),
     startedAt: whole(o.startedAt, `${path}.startedAt`),
     cwd: str(o.cwd, `${path}.cwd`, LIMITS.path),
     projectRoot: strOrNull(o.projectRoot, `${path}.projectRoot`, LIMITS.path),

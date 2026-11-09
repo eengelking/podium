@@ -171,6 +171,8 @@ export function sessionReport(who, machine, id, name, over = {}, extra = {}) {
       loop: { skills: [], lastTool: 'Read', toolCalls: 4, toolCounts: { Read: 4 }, steps: { done: 6, total: null } },
       files: null, attached: true, activityFeed: true,
       respond: { level: 'everything', accepts: ALL_KINDS, limits: [] },
+      // The days its harness lets a person resume the session (#1113): a closed conversation is kept that long.
+      resumeWindowDays: 30,
       ...over,
     },
     agents: extra.agents ?? [],

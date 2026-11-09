@@ -4,6 +4,7 @@ import { pct } from '../../core/contextFill.ts';
 import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
 import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
+import { resumeWindowDays } from '../../core/resumeWindow.ts';
 import { family, windowOf } from './models.ts';
 import { toPlan } from '../../core/plan.ts';
 import type { ActivityEntry, ActivityEvent, AgentReport, Ask, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
@@ -28,6 +29,8 @@ export interface ReportMeta {
   claudeName?: string | null;
   /** The `sessionName` option. */
   optionName: string | null;
+  /** The days Claude Code lets a person resume a closed session (its `cleanupPeriodDays`, #1113); absent means the default. */
+  resumeWindowDays?: number | null;
   /** The `userName` option: the person this reporter is configured as. The server checks it against the token. */
   userName?: string | null;
   /** This machine; sent only together with a userName. */
@@ -151,6 +154,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       waitNote: s.status === 'waiting' && s.waitNote ? clip(s.waitNote, 160) : null,
       endReason: s.status === 'done' ? s.endReason : null,
       resumeId: s.resumeId,
+      resumeWindowDays: resumeWindowDays(meta.resumeWindowDays),
       startedAt: s.startedAt,
       cwd: s.cwd,
       projectRoot: s.projectRoot,

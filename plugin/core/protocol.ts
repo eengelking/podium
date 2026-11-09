@@ -343,6 +343,8 @@ export interface SessionReport {
   waitNote: string | null;
   endReason: string | null;
   resumeId: string | null;
+  /** The days the harness lets a person resume this session once it is closed (#1113). Podium keeps the session's chat that long. Absent when the reporter is too old to send it. */
+  resumeWindowDays?: number;
   startedAt: number;
   cwd: string;
   projectRoot: string | null;

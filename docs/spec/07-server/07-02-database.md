@@ -294,9 +294,9 @@ Admin log and General keep their name as text.
 - **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt }` ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
 - **Order.** A page orders by `created_at, seq` in both adapters (`seq` is the insertion number, so a tie is decided the same
   way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
-- **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md).
+- **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md). How long it is kept follows the harness's resume window, which `sessions.resume_window_days` holds (NULL when no report has said).
 - **Settings rows**, all in `settings`: `chat.retainDays` (days a channel keeps its messages, default 30, 1 to 365),
-  `chat.graceHours` (hours a hidden conversation is kept, default 24, 1 to 720), `chat.maxChars` (the longest channel message, message to another person's agent,
+  `chat.graceHours` (hours a hidden conversation is kept when none of its agents has a resume window, default 24, 1 to 720), `chat.maxChars` (the longest channel message, message to another person's agent,
   or message to one's own agent from Chat, default 4,000, 1 to 20,000) and `chat.perMinute` (posts or messages a minute for one author, default 6, 1
   to 600). A value outside its range is ignored on read and refused on write. `chat.flag.<scope>` holds a channel's flags as
   letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<name>`
@@ -352,8 +352,8 @@ The sweeper runs this hourly:
 - Admin log rows older than 90 days are deleted, except that the newest 100 rows are always kept, so a quiet
   server keeps some history (#303).
 - Chat (#1034): a channel message older than the Admin's `retainDays` (30 days unless the Admin sets another) is deleted from
-  General and every group, and the messages of a Direct Message hidden for longer than `graceHours` (24 unless set) are
-  deleted ([7.5](07-05-lifecycle-timers.md)). A Direct Message with a live agent is still removed by the messaging rule below.
+  General and every group, and the messages of a Direct Message hidden for longer than the longest resume window of its agents (#1113, 30 days unless
+  the harness says another) are deleted, or longer than `graceHours` (24 unless set) when neither agent has a window ([7.5](07-05-lifecycle-timers.md)). A Direct Message with a live agent is still removed by the messaging rule below.
 - Orchestrator messages on a link whose newest message is older than the Admin's period (30 days unless the Admin
   sets another) are deleted, as are the messages of a session the server no longer holds and closed requests past the
   same period. Rights and requests about a reporter that has been removed go too. Deleting a session deletes its

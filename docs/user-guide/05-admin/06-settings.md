@@ -44,7 +44,7 @@ These settings apply to every browser and stay after a restart.
 - **Address @group and @everyone in Chat** (`chat-everyone`) is off by default and needs Orchestrator messaging on. Turned on, a
   message in [Chat](../04-reading-the-console/16-chat.md) can address `@group` (every agent in the sender's group) or `@everyone`.
   Turned off, a message that uses either is refused and nothing is sent. Addressing one agent as `name@location` is always allowed.
-  Chat's limits (how many days a channel keeps its messages, how long a Direct Message with no agents left is kept, the longest
+  Chat's limits (how many days a channel keeps its messages, how long a Direct Message with no agents left is kept when its harness gave no resume window, the longest
   message and the posts a minute) are settings in the Admin API (`chat`, [SPEC 7.1](../../spec/07-server/07-01-endpoints.md)); this page has no
   boxes for them yet.
 
