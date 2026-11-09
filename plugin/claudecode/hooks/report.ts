@@ -1,7 +1,7 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
 import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
-import { cap, clip, excerpt, LIMITS } from '../../core/failures.ts';
+import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
 import { family, windowOf } from './models.ts';
 import { toPlan } from '../../core/plan.ts';
@@ -127,7 +127,7 @@ export function agentReport(a: AgentState, fullText = false, activity = false, a
     ...(fullText && a.promptText && !a.promptSent ? { promptText: a.promptText } : {}),
     ...(fullText && a.answerText && !a.answerSent ? { answerText: a.answerText } : {}),
     ...(activity && a.activity.length ? { activity: feed(a.activity, activityOutput) } : {}),
-    failure: cleanFailure(a.failure),
+    failure: cleanFailure(reportedFailure(a.status, a.failure)),
   };
 }
 

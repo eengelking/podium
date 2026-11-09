@@ -30,6 +30,7 @@ Module: `failures.ts` (pure).
 - `evidence` lines are factual and generated, never invented: blowout count and times, repeated identical
   failing calls ("same call failed 3 times"), repeated reads of one file, the permission denial text.
 - A loop with a failure candidate that later ends `done` is `done`. The candidate is discarded.
+- A report carries an agent's `failure` only when the agent ended `failed` or `aborted`. An agent that is running, queued or `done` reports `failure: null`, on every harness, even if one of its calls failed on the way (#1021). A reporter that keeps the record or the candidate internally so a later real failure is blamed on that call still sends `null`, and an agent that ended `done` is not explained.
 
 ## Redaction and excerpts
 

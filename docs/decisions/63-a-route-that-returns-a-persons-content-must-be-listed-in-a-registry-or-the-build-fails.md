@@ -46,5 +46,5 @@ The development pattern is added to `docs/PATTERNS.md`.
 <!-- nav:start -->
 ---
 
-Previous: [62. An agent's text and live activity are gated to the owner and an Admin, and the other open fleet reads stay open (#1076)](62-an-agents-text-and-live-activity-are-gated-to-the-owner-and-admin-and-the-rest-of-the-open-fleet-reads-stay-open.md) · Up: [Decisions](README.md)
+Previous: [62. An agent's text and live activity are gated to the owner and an Admin, and the other open fleet reads stay open (#1076)](62-an-agents-text-and-live-activity-are-gated-to-the-owner-and-admin-and-the-rest-of-the-open-fleet-reads-stay-open.md) · Up: [Decisions](README.md) · Next: [64. The OpenCode replay test reads synthetic streams built in code, and recorded streams stay out of the repository (#1025)](64-the-opencode-replay-test-reads-synthetic-streams-built-in-code-and-recorded-streams-stay-out-of-the-repository.md)
 <!-- nav:end -->

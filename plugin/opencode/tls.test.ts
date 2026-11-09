@@ -970,6 +970,8 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
       { id: `${dir}3`, type: 'session.tool.input.started', data: { sessionID: `ses_${dir}k`, id: 'c1', name: 'bash' }, created: at, location: { directory: `/loc/${dir}` } },
       { id: `${dir}4`, type: 'session.tool.called', data: { sessionID: `ses_${dir}k`, id: 'c1', input: { command: 'npm test' } }, created: at, location: { directory: `/loc/${dir}` } },
       { id: `${dir}5`, type: 'session.tool.failed', data: { sessionID: `ses_${dir}k`, id: 'c1', error: { message: 'exit code 2' } }, created: at, location: { directory: `/loc/${dir}` } },
+      // Only an agent whose run ended failed is explained (#1021).
+      { id: `${dir}6`, type: 'session.execution.failed', data: { sessionID: `ses_${dir}k` }, created: at, location: { directory: `/loc/${dir}` } },
     ]);
     await withPodium({}, async () => {
       await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_EXPLAIN_FAILURES: 'true', PODIUM_SERVER: 'http://podium.test:4317' }, async () => {

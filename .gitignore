@@ -14,3 +14,6 @@ plugin/claudecode/.claude-plugin/types/
 .claude/worktrees/
 server/build.json
 dist-zips/
+
+# A recording of a live OpenCode run is never committed (#1025); the replay test builds its streams in scripts/opencode-streams.ts.
+docs/fixtures/opencode/
