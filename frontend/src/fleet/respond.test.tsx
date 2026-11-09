@@ -700,3 +700,53 @@ describe("an Admin's read of a waiting ask (#1073)", () => {
     expect(document.querySelector("[data-testid='read-notice']")).toBeNull();
   });
 });
+
+describe("the sign-in check while the tab is hidden (#1054)", () => {
+  const setHidden = (hidden: boolean) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  afterEach(() => {
+    setHidden(false);
+    vi.useRealTimers();
+  });
+
+  it("makes no request while hidden, and asks once when the tab is shown again", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const api = fakeApi();
+    render(
+      <RespondProvider api={api} flagsOn>
+        <div />
+      </RespondProvider>,
+    );
+    await flush();
+    expect(api.me).toHaveBeenCalledTimes(1);
+    act(() => setHidden(true));
+    await act(async () => {
+      vi.advanceTimersByTime(180_000);
+    });
+    expect(api.me).toHaveBeenCalledTimes(1);
+    await act(async () => setHidden(false));
+    await flush();
+    expect(api.me).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(api.me).toHaveBeenCalledTimes(3);
+  });
+
+  it("makes no request when the console is opened in a hidden tab, until the tab is shown", async () => {
+    setHidden(true);
+    const api = fakeApi();
+    render(
+      <RespondProvider api={api} flagsOn>
+        <div />
+      </RespondProvider>,
+    );
+    await flush();
+    expect(api.me).not.toHaveBeenCalled();
+    await act(async () => setHidden(false));
+    await flush();
+    expect(api.me).toHaveBeenCalledTimes(1);
+  });
+});

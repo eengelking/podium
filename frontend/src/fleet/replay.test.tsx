@@ -121,9 +121,11 @@ describe("an Admin's open replay of someone else's session (#1075)", () => {
   it("sends nothing while the page is hidden, and pings again once it is shown", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     const recordingReading = vi.fn(async () => ({ ok: true as const }));
-    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const api = fakeApi({ me: vi.fn(async () => ADMIN), recordingReading });
     await replay(api);
+    recordingReading.mockClear();
+    // The sign-in check itself pauses while hidden (#1054), so the page is hidden only after it has answered.
+    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
