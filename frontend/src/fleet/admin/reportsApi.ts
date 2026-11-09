@@ -4,7 +4,7 @@ import { fmtDur, fmtTok } from "../format";
 import { readJson, writeJson } from "../storage";
 import { AdminError, type AdminApi } from "./adminApi";
 
-export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "activity";
+export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "activity";
 export type By = "day" | "week" | "month";
 
 export interface ReportColumn {
@@ -32,6 +32,12 @@ export interface ReportReply {
   partial?: boolean;
   /** The Admin activity report only: the log held more entries than the report returns, so these are the newest. */
   truncated?: boolean;
+  /** The Tools report only (#720): every harness the period holds, before the harness filter, in id order. */
+  harnesses?: string[];
+  /** The Tools report, calls per session: the whole period for each harness. */
+  byHarness?: { harness: string; sessions: number; median: number; p90: number }[];
+  /** The Tools report, versions: how many reporters of each harness run an older version than its newest, in its last period. */
+  behind?: { harness: string; newest: string; behind: number; reporters: number }[];
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }
@@ -163,6 +169,8 @@ export interface ReportPrefs {
   person: string;
   group: string;
   model: string;
+  /** The Tools report: a harness id, or "" for every harness. */
+  harness: string;
   kind: string;
   pageSize: number;
 }
@@ -194,6 +202,7 @@ export function readReportPrefs(report: string, defaultBreakdown = ""): ReportPr
     person: str(o.person, ""),
     group: str(o.group, ""),
     model: str(o.model, ""),
+    harness: str(o.harness, ""),
     kind: str(o.kind, ""),
     pageSize: PAGE_SIZES.includes(o.pageSize as number) ? (o.pageSize as number) : PAGE_SIZES[0]!,
   };
@@ -315,4 +324,9 @@ export function saveFile(name: string, type: string, text: string): void {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** The name a harness goes by on the page; one the page does not know keeps its id. */
+export function harnessName(id: string): string {
+  return id === "claude-code" ? "Claude Code" : id === "opencode" ? "OpenCode" : id;
 }

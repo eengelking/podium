@@ -582,9 +582,9 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Reports (#484, [8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
-    `failures` and `activity`, and `GET reports/retention` for the Data page's tables.
+    `failures`, `tools` and `activity`, and `GET reports/retention` for the Data page's tables.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
-      (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them.
+      (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`, and a `person`, `group` or `model` is a `400`, since the tool counts are not kept per person).
       A bad value is a `400`.
     - Reply: `{ report, from, to, by, tz, basedOn, oldestDay, columns: [{ key, label, unit }], rows, total }`.
       `oldestDay` is the first day the rollups hold (today when there are none yet). `partial` is `true` whenever `from` is
@@ -609,6 +609,22 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         avgDurationS, maxDurationS, agentsPerSession, blowouts, maxContextPct`.
       - `failures`: `breakdown` is `class` (default), `tool` or `person`. Rows: `period, key, count, people` and, while the
         stored sessions still exist (30 days), `sessionIds` (at most 10) for the History link.
+      - `tools` (#720): the tool calls of every harness that reports (Claude Code, OpenCode, any added later), never only one.
+        `harness` narrows the rows to one harness; the reply's `harnesses` lists every harness the period holds, before that filter.
+        `breakdown` is `tool` (default), `session` or `version`, and each is one table.
+        Only tool names and counts are read or stored, never a tool's input, a path or a command. `oldestDay` is the first day the
+        tool counts cover, which is later than the other reports' when the tool counts were added after them, so a period before it is `partial`.
+        - `tool`: rows `period, harness, server, tool, calls`. An MCP tool named `mcp__<server>__<tool>` has `server` and `tool` split
+          out; every other name has an empty `server`. `total` is `{ calls }`.
+        - `session`: rows `period, harness, sessions, median, p90`, the calls a session made, read from sessions sorted into classes by
+          their calls (their own number up to 100, then the next ten up to 1,000, then the next hundred), so a figure is exact up to
+          100 and at most 10, then 100, calls high beyond it. `total` is `{ sessions, median, p90 }` over the whole period, and
+          `byHarness` has the same three for each harness. A session with no tool counts is left out of every figure here: one stored
+          before counts were kept and one that called no tool look the same, so neither is a session of zero calls.
+        - `version`: rows `period, harness, version, reporters, newest`. `reporters` is the most reporters on that version on any one
+          day in the bucket. `newest` is `Newest seen` for the highest version of the harness in the reply and `Older` for the rest;
+          versions are compared as dotted numbers, and only within a harness. `behind` is `[{ harness, newest, behind, reporters }]`,
+          the reporters on an older version in the harness's last period.
       - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
         at most 1,000. It has no `by`. `truncated` is `true` when the log held more than 1,000 entries in the period, and
         the page then says "Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest."

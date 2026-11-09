@@ -23,10 +23,11 @@ afterEach(() => {
 
 const TODAY = '2026-10-20';
 const NOW = new Date(2026, 9, 20, 15).getTime();
-const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
 const dump = (file: string): string => {
   const db = openDb(file);
-  const out = JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY 1, 2, 3, 4, 5`).all()));
+  // ordered by every column up to the fifth, so two runs compare row for row
+  const out = JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY ${[1, 2, 3, 4, 5].slice(0, Math.min(5, db.prepare(`PRAGMA table_info(${t})`).all().length)).join(', ')}`).all()));
   db.close();
   return out;
 };
@@ -122,6 +123,13 @@ describe('podium-seed-history: the history', () => {
     const versions = new Set((db.prepare('SELECT reporter_versions_json AS j FROM fleet_daily').all() as { j: string }[]).flatMap((r) => Object.keys(JSON.parse(r.j))));
     expect(versions.size).toBeGreaterThanOrEqual(3);
     expect(n("SELECT COUNT(DISTINCT kind) FROM admin_log WHERE source = 'seed-history'")).toBeGreaterThan(5);
+    // The tool counts (#720): both harnesses, an MCP server's tools, every session sized, and two harnesses' versions.
+    expect(n('SELECT COUNT(DISTINCT harness) FROM tools_daily')).toBe(2);
+    expect(n("SELECT COUNT(DISTINCT tool) FROM tools_daily WHERE tool LIKE 'mcp\\_\\_github\\_\\_%' ESCAPE '\\'")).toBe(2);
+    expect(n("SELECT COUNT(*) FROM tools_daily WHERE harness = 'opencode' AND (tool = 'Agent' OR tool LIKE 'mcp%playwright%')")).toBe(0);
+    expect(n('SELECT SUM(sessions) FROM tool_sessions_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
+    expect(n('SELECT COUNT(DISTINCT harness) FROM harness_versions_daily')).toBe(2);
+    expect(n("SELECT COUNT(DISTINCT version) FROM harness_versions_daily WHERE harness = 'opencode'")).toBe(2);
     // Rollups hold no content: only counts, tokens, cost and names.
     expect(JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t}`).all()))).not.toMatch(/prompt|answer|\/Users/);
     db.close();

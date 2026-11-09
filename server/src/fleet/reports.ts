@@ -19,7 +19,10 @@ import {
   type DayRollups,
   type FailureDay,
   type FleetDay,
+  type HarnessVersionDay,
   type SessionsDay,
+  type ToolDay,
+  type ToolSessionDay,
   type UsageDay,
 } from './rollups.js';
 
@@ -35,10 +38,10 @@ export interface ReportDeps {
 /** A report was asked for something it cannot give: the route answers 400 with the message. */
 export class ReportError extends Error {}
 
-export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'activity';
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
 
-export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'activity'];
+export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'activity'];
 
 export interface Column {
   key: string;
@@ -65,10 +68,11 @@ export interface ReportReply {
 
 export const MAX_SPAN_DAYS = 400;
 const NAME_MAX = 200;
-export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures', readonly string[]> = {
+export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools', readonly string[]> = {
   spend: ['none', 'person', 'group', 'model', 'project'],
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
+  tools: ['tool', 'session', 'version'],
 };
 
 const round = (n: number, places = 6): number => Math.round(n * 10 ** places) / 10 ** places;
@@ -116,7 +120,7 @@ function parseParams(q: Query, today: string): Params {
   return { from, to, by, person: filterOf(q, 'person'), group: filterOf(q, 'group'), model: filterOf(q, 'model'), today };
 }
 
-function pick(q: Query, name: 'spend' | 'sessions' | 'failures'): string {
+function pick(q: Query, name: 'spend' | 'sessions' | 'failures' | 'tools'): string {
   const v = one(q, 'breakdown') ?? BREAKDOWNS[name][0]!;
   if (!BREAKDOWNS[name].includes(v)) throw new ReportError(`breakdown must be ${BREAKDOWNS[name].join(', ')}`);
   return v;
@@ -138,6 +142,9 @@ interface Facts {
   sessions: SessionsDay[];
   failures: FailureDay[];
   fleet: FleetDay[];
+  tools: ToolDay[];
+  toolSessions: ToolSessionDay[];
+  harnessVersions: HarnessVersionDay[];
   oldestDay: string;
   live: DayRollups;
 }
@@ -148,6 +155,10 @@ const usageOf = (r: Raw): UsageDay => ({ day: String(r.day), owner: String(r.own
 const sessionsOf = (r: Raw): SessionsDay => ({ day: String(r.day), outcome: String(r.outcome), model: String(r.model), effort: String(r.effort), plan: String(r.plan), sessions: Number(r.sessions), durationS: Number(r.duration_s), maxDurationS: Number(r.max_duration_s), agents: Number(r.agents), blowouts: Number(r.blowouts), maxContextPct: Number(r.max_context_pct) });
 const failureOf = (r: Raw): FailureDay => ({ day: String(r.day), owner: String(r.owner), cls: String(r.class), tool: String(r.tool), count: Number(r.count) });
 const fleetOf = (r: Raw): FleetDay => ({ day: String(r.day), activePeople: Number(r.active_people), activeReporters: Number(r.active_reporters), sessionsStarted: Number(r.sessions_started), peakLive: Number(r.peak_live_sessions), reporterVersions: JSON.parse(String(r.reporter_versions_json)) as Record<string, number>, engineVersions: JSON.parse(String(r.engine_versions_json)) as Record<string, number> });
+
+const toolOf = (r: Raw): ToolDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), calls: Number(r.calls) });
+const toolSessionOf = (r: Raw): ToolSessionDay => ({ day: String(r.day), harness: String(r.harness), bucket: Number(r.bucket), sessions: Number(r.sessions) });
+const harnessVersionOf = (r: Raw): HarnessVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), reporters: Number(r.reporters) });
 
 const select = (db: FleetStore, table: RollupTable, from: string, to: string): Promise<RollupRaw[]> => db.rollupRows(table, from, to);
 
@@ -161,15 +172,20 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
   return oldest;
 }
 
-async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false): Promise<Facts> {
+async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
     f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
     f.failures = (await select(db, 'failures_daily', from, stored)).map(failureOf);
     f.fleet = (await select(db, 'fleet_daily', from, stored)).map(fleetOf);
+    if (withTools) {
+      f.tools = (await select(db, 'tools_daily', from, stored)).map(toolOf);
+      f.toolSessions = (await select(db, 'tool_sessions_daily', from, stored)).map(toolSessionOf);
+      f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
+    }
   }
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
   const floor = addDays(today, -31);
@@ -181,6 +197,11 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
     f.usage.push(...f.live.usage.filter((r) => keep(r.day)));
     f.sessions.push(...f.live.sessions.filter((r) => keep(r.day)));
     f.failures.push(...f.live.failures.filter((r) => keep(r.day)));
+    if (withTools) {
+      f.tools.push(...f.live.tools.filter((r) => keep(r.day)));
+      f.toolSessions.push(...f.live.toolSessions.filter((r) => keep(r.day)));
+      f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
+    }
     const storedPeak = (await db.storedPeak(today)) ?? 0;
     const liveFleet = f.live.fleet.find((r) => keep(r.day));
     if (liveFleet) f.fleet.push({ ...liveFleet, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0) });
@@ -401,6 +422,165 @@ async function failuresReport(deps: ReportDeps, q: Query, cost: CostOf): Promise
   return envelope(p, 'failures', p.by, f, [col('period', 'Period', 'date'), col('key', heading, 'text'), col('count', 'Failures', 'count'), col('people', 'People', 'count'), col('sessionIds', 'Sessions', 'text')], rows, { count: total, people: everyone.size });
 }
 
+// ---- tools (#720) -----------------------------------------------------------------------------------
+
+const HARNESS_ID = /^[a-z0-9][a-z0-9._-]{0,39}$/;
+
+function harnessFilter(q: Query): string | null {
+  const v = one(q, 'harness');
+  if (v === undefined || v === '') return null;
+  if (!HARNESS_ID.test(v)) throw new ReportError('harness must be the id of a harness, such as claude-code or opencode');
+  return v;
+}
+
+/** An MCP tool is `mcp__<server>__<tool>`; every other name has no server. */
+export function mcpSplit(name: string): { server: string; tool: string } {
+  if (!name.startsWith('mcp__')) return { server: '', tool: name };
+  const end = name.indexOf('__', 5);
+  return end > 5 && end + 2 < name.length ? { server: name.slice(5, end), tool: name.slice(end + 2) } : { server: '', tool: name };
+}
+
+const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Dotted parts compared one by one: numbers as numbers (2.1.10 is after 2.1.9), anything else as text, a missing part as 0. */
+function compareParts(pa: string[], pb: string[]): number {
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? '0';
+    const y = pb[i] ?? '0';
+    const nx = /^\d+$/.test(x) ? Number(x) : null;
+    const ny = /^\d+$/.test(y) ? Number(y) : null;
+    const c = nx !== null && ny !== null ? nx - ny : byCode(x, y);
+    if (c !== 0) return c < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+/** `a` against `b` as versions: 2.1.10 is after 2.1.9, and a release is after its own pre-release (2.1.0 after 2.1.0-beta). Build metadata after `+` is ignored. */
+export function compareVersions(a: string, b: string): number {
+  const [coreA = '', preA] = a.split('+')[0]!.split(/-(.*)/s);
+  const [coreB = '', preB] = b.split('+')[0]!.split(/-(.*)/s);
+  const core = compareParts(coreA.split('.'), coreB.split('.'));
+  if (core !== 0) return core;
+  if (preA === undefined && preB === undefined) return 0;
+  if (preA === undefined) return 1;
+  if (preB === undefined) return -1;
+  return compareParts(preA.split('.'), preB.split('.'));
+}
+
+/** The calls-per-session class that holds the `share` of sessions, counting from the smallest (the nearest rank). */
+function nearestRank(sizes: Map<number, number>, share: number): number {
+  let total = 0;
+  for (const n of sizes.values()) total += n;
+  if (total === 0) return 0;
+  const need = Math.ceil(total * share);
+  let seen = 0;
+  for (const bucket of [...sizes.keys()].sort((a, b) => a - b)) {
+    seen += sizes.get(bucket)!;
+    if (seen >= need) return bucket;
+  }
+  return 0;
+}
+
+const addSizes = (into: Map<number, number>, bucket: number, sessions: number): void => void into.set(bucket, (into.get(bucket) ?? 0) + sessions);
+
+/** The oldest day the tool counts cover, or today when none exist yet: they started later than the other rollups, and a gap is never drawn as zeros. */
+async function oldestToolDay(db: FleetStore, today: string): Promise<string> {
+  let oldest = today;
+  for (const t of ['tools_daily', 'tool_sessions_daily', 'harness_versions_daily'] as const) {
+    const d = await db.rollupOldestDay(t);
+    if (d !== null && d < oldest) oldest = d;
+  }
+  return oldest;
+}
+
+async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+  const p = parseParams(q, localDay(deps.now()));
+  // The tool counts are kept per harness and day, not per person, so a person, group or model filter cannot be honored and is not ignored quietly.
+  if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the tools report cannot be filtered by person, group or model');
+  const breakdown = pick(q, 'tools');
+  const harness = harnessFilter(q);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, true);
+  f.oldestDay = await oldestToolDay(deps.db, p.today);
+  const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness)])].sort(byCode);
+  const keep = (h: string): boolean => harness === null || h === harness;
+  const extra = { harnesses };
+
+  if (breakdown === 'session') {
+    const sizes = new Map<string, { period: string; harness: string; sizes: Map<number, number>; sessions: number }>();
+    const whole = new Map<number, number>();
+    const perHarness = new Map<string, Map<number, number>>();
+    let sessions = 0;
+    for (const r of f.toolSessions) {
+      if (!keep(r.harness)) continue;
+      const period = bucketOf(r.day, p.by);
+      const k = `${period}\u0000${r.harness}`;
+      let b = sizes.get(k);
+      if (!b) sizes.set(k, (b = { period, harness: r.harness, sizes: new Map(), sessions: 0 }));
+      addSizes(b.sizes, r.bucket, r.sessions);
+      b.sessions += r.sessions;
+      addSizes(whole, r.bucket, r.sessions);
+      const h = perHarness.get(r.harness) ?? new Map<number, number>();
+      addSizes(h, r.bucket, r.sessions);
+      perHarness.set(r.harness, h);
+      sessions += r.sessions;
+    }
+    const count = (m: Map<number, number>): number => [...m.values()].reduce((n, v) => n + v, 0);
+    const rows: Row[] = [...sizes.values()]
+      .sort((a, b) => byCode(a.period, b.period) || byCode(a.harness, b.harness))
+      .map((b) => ({ period: b.period, harness: b.harness, sessions: b.sessions, median: nearestRank(b.sizes, 0.5), p90: nearestRank(b.sizes, 0.9) }));
+    const byHarness: Row[] = [...perHarness].sort(([a], [b]) => byCode(a, b)).map(([h, m]) => ({ harness: h, sessions: count(m), median: nearestRank(m, 0.5), p90: nearestRank(m, 0.9) }));
+    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('sessions', 'Sessions', 'count'), col('median', 'Median calls', 'count'), col('p90', '90th percentile calls', 'count')];
+    return { ...envelope(p, 'tools', p.by, f, cols, rows, { sessions, median: nearestRank(whole, 0.5), p90: nearestRank(whole, 0.9) }), ...extra, byHarness };
+  }
+
+  if (breakdown === 'version') {
+    const seen = new Map<string, { period: string; harness: string; version: string; reporters: number }>();
+    for (const r of f.harnessVersions) {
+      if (!keep(r.harness)) continue;
+      const period = bucketOf(r.day, p.by);
+      const k = `${period}\u0000${r.harness}\u0000${r.version}`;
+      const b = seen.get(k) ?? { period, harness: r.harness, version: r.version, reporters: 0 };
+      // the most reporters on one day: a reporter seen on two days of a period is still one
+      b.reporters = Math.max(b.reporters, r.reporters);
+      seen.set(k, b);
+    }
+    const newestOf = new Map<string, string>();
+    for (const b of seen.values()) {
+      const have = newestOf.get(b.harness);
+      if (have === undefined || compareVersions(b.version, have) > 0) newestOf.set(b.harness, b.version);
+    }
+    const ordered = [...seen.values()].sort((a, b) => byCode(a.period, b.period) || byCode(a.harness, b.harness) || compareVersions(a.version, b.version) || byCode(a.version, b.version));
+    const rows: Row[] = ordered.map((b) => ({ period: b.period, harness: b.harness, version: b.version, reporters: b.reporters, newest: b.version === newestOf.get(b.harness) ? 'Newest seen' : 'Older' }));
+    // how many reporters of each harness run an older version than its newest, in the last period that harness reported in
+    const behind: Row[] = [...newestOf].sort(([a], [b]) => byCode(a, b)).map(([h, newest]) => {
+      const mine = ordered.filter((b) => b.harness === h);
+      const last = mine[mine.length - 1]!.period;
+      const inLast = mine.filter((b) => b.period === last);
+      return { harness: h, newest, behind: inLast.filter((b) => b.version !== newest).reduce((n, b) => n + b.reporters, 0), reporters: inLast.reduce((n, b) => n + b.reporters, 0) };
+    });
+    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('version', 'Version', 'text'), col('reporters', 'Reporters', 'count'), col('newest', 'Newest', 'text')];
+    return { ...envelope(p, 'tools', p.by, f, cols, rows, {}), ...extra, behind };
+  }
+
+  const calls = new Map<string, { period: string; harness: string; server: string; tool: string; calls: number }>();
+  let total = 0;
+  for (const r of f.tools) {
+    if (!keep(r.harness)) continue;
+    const period = bucketOf(r.day, p.by);
+    const { server, tool } = mcpSplit(r.tool);
+    const k = `${period}\u0000${r.harness}\u0000${server}\u0000${tool}`;
+    const b = calls.get(k) ?? { period, harness: r.harness, server, tool, calls: 0 };
+    b.calls += r.calls;
+    calls.set(k, b);
+    total += r.calls;
+  }
+  const rows: Row[] = [...calls.values()]
+    .sort((a, b) => byCode(a.period, b.period) || byCode(a.harness, b.harness) || byCode(a.server, b.server) || byCode(a.tool, b.tool))
+    .map((b) => ({ period: b.period, harness: b.harness, server: b.server, tool: b.tool, calls: b.calls }));
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('calls', 'Calls', 'count')];
+  return { ...envelope(p, 'tools', p.by, f, cols, rows, { calls: total }), ...extra };
+}
+
 /** The most entries the Admin activity report returns; a longer log is cut and says so (`truncated`). */
 const ACTIVITY_MAX = 1000;
 
@@ -451,6 +631,8 @@ function reportOf(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportR
       return sessionsReport(deps, q, cost);
     case 'failures':
       return failuresReport(deps, q, cost);
+    case 'tools':
+      return toolsReport(deps, q, cost);
     default:
       return activityReport(deps, q);
   }

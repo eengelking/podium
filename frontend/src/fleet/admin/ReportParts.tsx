@@ -10,6 +10,7 @@ import {
   PERIODS,
   chartPoints,
   formatCell,
+  harnessName,
   isNumericColumn,
   type PeriodId,
   type ReportColumn,
@@ -120,6 +121,27 @@ function NameSelect(props: { label: string; all: string; none: string; value: st
   );
 }
 
+/** The Tools report's harness filter: every harness the period holds, by the name it goes by. */
+function HarnessSelect(props: { value: string; ids: string[]; onChange: (v: string) => void }) {
+  const id = useId();
+  const ids = props.value && !props.ids.includes(props.value) ? [props.value, ...props.ids] : props.ids;
+  return (
+    <div className="f">
+      <label className="lab" htmlFor={id}>
+        Harness
+      </label>
+      <select className="field" id={id} value={props.value} onChange={(e) => props.onChange(e.target.value)}>
+        <option value="">All harnesses</option>
+        {ids.map((h) => (
+          <option key={h} value={h}>
+            {harnessName(h)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 const BUCKET: Record<string, string> = { day: "Days are in", week: "Weeks start Monday, in", month: "Months are in" };
 
 /** What the figures are based on, and how far back the data goes. */
@@ -199,6 +221,7 @@ export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportS
         )}
         {cfg.filters.includes("person") && <NameSelect label="Person" all="Everyone" none="No owner" value={prefs.person} names={choices.people} onChange={(person) => setPrefs({ person })} />}
         {cfg.filters.includes("group") && <NameSelect label="Group" all="All groups" none="No group" value={prefs.group} names={choices.groups} onChange={(group) => setPrefs({ group })} />}
+        {cfg.filters.includes("harness") && <HarnessSelect value={prefs.harness} ids={r.reply?.harnesses ?? []} onChange={(harness) => setPrefs({ harness })} />}
         {cfg.filters.includes("model") && <NameSelect label="Model" all="All models" none="Unknown model" value={prefs.model} names={choices.models} onChange={(model) => setPrefs({ model })} />}
         {cfg.kinds && (
           <div className="f">

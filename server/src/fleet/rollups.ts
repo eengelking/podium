@@ -100,11 +100,49 @@ export interface FleetDay {
   engineVersions: Record<string, number>;
 }
 
+/** Calls of one tool by one harness on a day (#720). A name and a count: never a tool's input, a path or a command. */
+export interface ToolDay {
+  day: string;
+  harness: string;
+  tool: string;
+  calls: number;
+}
+
+/** How many sessions of one harness made about `bucket` tool calls on a day (#720), so a median and a 90th percentile can be read across days. */
+export interface ToolSessionDay {
+  day: string;
+  harness: string;
+  bucket: number;
+  sessions: number;
+}
+
+/** How many reporters ran one version of one harness on a day (#720). */
+export interface HarnessVersionDay {
+  day: string;
+  harness: string;
+  version: string;
+  reporters: number;
+}
+
+/**
+ * The size class a session's tool calls are counted in: its own number up to 100, then the next ten up to 1,000, then the next hundred.
+ * A median or percentile read from the classes is exact up to 100 calls and at most 10 (then 100) calls above the truth beyond that.
+ */
+export function callsBucket(n: number): number {
+  const calls = Math.max(0, Math.floor(n));
+  if (calls <= 100) return calls;
+  if (calls <= 1000) return Math.ceil(calls / 10) * 10;
+  return Math.ceil(calls / 100) * 100;
+}
+
 export interface DayRollups {
   usage: UsageDay[];
   sessions: SessionsDay[];
   failures: FailureDay[];
   fleet: FleetDay[];
+  tools: ToolDay[];
+  toolSessions: ToolSessionDay[];
+  harnessVersions: HarnessVersionDay[];
   /** Which stored sessions had each failure (not kept in a rollup; the History link reads it while the sessions last). */
   failureSessions: { day: string; owner: string; cls: string; tool: string; sessionId: string }[];
 }
@@ -145,6 +183,15 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const reporterOf = new Map<string, string>();
   for (const r of await db.reporterKeysSince(fromMs)) reporterOf.set(r.id, r.k);
   const failureRows = await db.failureRowsSince(fromMs);
+  // Each session's tool calls by name, added up over its agents (#720). Only names and counts are read, from a column that holds only those.
+  const callsOf = new Map<string, Map<string, number>>();
+  for (const r of await db.toolCountsSince(fromMs)) {
+    const counts = safeParse<Record<string, unknown> | null>(r.c, null);
+    if (!counts || typeof counts !== 'object') continue;
+    const into = callsOf.get(r.id) ?? new Map<string, number>();
+    for (const [tool, n] of Object.entries(counts)) if (typeof n === 'number' && Number.isFinite(n) && n > 0) into.set(tool, (into.get(tool) ?? 0) + n);
+    callsOf.set(r.id, into);
+  }
   const failuresOf = new Map<string, { cls: string; tool: string }[]>();
   for (const r of failureRows) {
     const f = safeParse<{ class?: string; tool?: string | null } | null>(r.f, null);
@@ -158,6 +205,9 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const sess = new Map<string, SessionsDay>();
   const fail = new Map<string, FailureDay>();
   const failSessions: DayRollups['failureSessions'] = [];
+  const tools = new Map<string, ToolDay>();
+  const toolSessions = new Map<string, ToolSessionDay>();
+  const harnessReporters = new Map<string, { day: string; harness: string; version: string; reporters: Set<string> }>();
   interface FleetAcc {
     people: Set<string>;
     reporters: Set<string>;
@@ -217,11 +267,36 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
       failSessions.push({ day, owner, cls: f.cls, tool: f.tool, sessionId: s.id });
     }
 
+    const harness = s.harness;
+    const calls = callsOf.get(s.id);
+    let total = 0;
+    for (const [tool, n] of calls ?? []) {
+      const tk = `${day}\u0000${harness}\u0000${tool}`;
+      const row = tools.get(tk) ?? ({ day, harness, tool, calls: 0 } satisfies ToolDay);
+      row.calls += n;
+      tools.set(tk, row);
+      total += n;
+    }
+    // A session with no tool counts is left out: one stored before they were kept and one that called no tool look the same, so it is not a session of zero calls.
+    if (calls) {
+      const bucket = callsBucket(total);
+      const bk = `${day}\u0000${harness}\u0000${bucket}`;
+      const sized = toolSessions.get(bk) ?? ({ day, harness, bucket, sessions: 0 } satisfies ToolSessionDay);
+      sized.sessions += 1;
+      toolSessions.set(bk, sized);
+    }
+
     const fl = fleetOf(day);
     if (owner) fl.people.add(owner);
     const machine = safeParse<{ id?: string } | null>(s.machine_json, null)?.id;
     const reporter = reporterOf.get(s.id) ?? (machine ? `${machine}#${owner}` : null);
     if (reporter) {
+      if (s.engine_version) {
+        const vk = `${day}\u0000${harness}\u0000${s.engine_version}`;
+        const v = harnessReporters.get(vk) ?? { day, harness, version: s.engine_version, reporters: new Set<string>() };
+        v.reporters.add(reporter);
+        harnessReporters.set(vk, v);
+      }
       fl.reporters.add(reporter);
       for (const [version, into] of [
         [s.reporter_version, fl.rv],
@@ -246,6 +321,9 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     sessions: [...sess.values()],
     failures: [...fail.values()],
     fleet: [...fleet].sort(([a], [b]) => a.localeCompare(b)).map(([day, f]) => ({ day, activePeople: f.people.size, activeReporters: f.reporters.size, sessionsStarted: f.started, peakLive: 0, reporterVersions: counts(f.rv), engineVersions: counts(f.ev) })),
+    tools: [...tools.values()],
+    toolSessions: [...toolSessions.values()],
+    harnessVersions: [...harnessReporters.values()].map((v) => ({ day: v.day, harness: v.harness, version: v.version, reporters: v.reporters.size })),
     failureSessions: failSessions,
   };
 }
@@ -316,6 +394,9 @@ export function writeRollups(storage: Storage, now: number, cost: CostOf, p: Rol
       await db.insertUsage(built.usage.filter((r) => wanted(r.day)));
       await db.insertSessionsDaily(built.sessions.filter((r) => wanted(r.day)));
       await db.insertFailures(built.failures.filter((r) => wanted(r.day)));
+      await db.insertToolsDaily(built.tools.filter((r) => wanted(r.day)));
+      await db.insertToolSessionsDaily(built.toolSessions.filter((r) => wanted(r.day)));
+      await db.insertHarnessVersionsDaily(built.harnessVersions.filter((r) => wanted(r.day)));
       const days = built.fleet.filter((f) => wanted(f.day));
       await db.upsertFleetDays(days.map((f) => ({ day: f, peak: peaks.get(f.day) ?? 0 })));
       rebuilt += days.length;

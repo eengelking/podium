@@ -59,6 +59,25 @@ which reporter and engine versions are in use.
 Counts by outcome, model, effort or plan, with average and longest duration, agents launched per session, and how many
 sessions hit a context blowout.
 
+## Tools
+
+Which tools sessions call, how many calls a session makes, and which versions of each harness are running. It covers every
+harness that reports (Claude Code and OpenCode today), and the **Harness** filter narrows it to one. Only tool names and
+counts are kept: never the arguments, a file path or a command.
+
+- **Tool calls** shows the calls in each day, week or month, with the number of sessions and the median and 90th percentile of
+  calls per session.
+- **Calls by tool** lists each tool with a column for each harness. An MCP server is one row with its total; open it to see
+  its tools, which add up to the row. **CSV** and **JSON** download this table, with the harness in every row.
+- **Calls per session** gives the middle session and the busier tenth, for each period and for the whole period by harness.
+  Sessions with more than 100 calls are grouped, so those figures can be a few calls off. A session with no tool counts is
+  left out, so older sessions do not pull the middle down to zero.
+- **Harness versions** shows how many reporters ran each version in each period, and how many run an older version than the
+  newest Podium has seen for that harness. A harness is only compared with itself.
+
+The tool counts start when Podium is upgraded to this release and fill in for the sessions it still holds (30 days), so a
+longer period says "Podium has no history before ..." instead of showing zeros.
+
 ## Failures
 
 Counts of failures by class, tool or person over time, to help find a root cause. For sessions Podium still holds (30

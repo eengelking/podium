@@ -263,6 +263,24 @@ ALTER TABLE chat_admin_reads ADD COLUMN seen TXT NOT NULL DEFAULT '[]';
     // The days the harness lets a person resume a session once it is closed (#1113), as SQLite migration 36 keeps it. NULL means no report has said: the default of 30 days applies.
     sql: typed('ALTER TABLE sessions ADD COLUMN resume_window_days INT;'),
   },
+  {
+    version: 13,
+    // The tool counts behind Admin > Reporting > Tools (#720), as SQLite migration 37 keeps them: names and counts only, per harness.
+    sql: typed(`
+CREATE TABLE tools_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL, calls INT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+CREATE TABLE tool_sessions_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, bucket INT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, harness, bucket)
+);
+CREATE TABLE harness_versions_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, version TXT NOT NULL, reporters INT NOT NULL,
+  PRIMARY KEY (day, harness, version)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

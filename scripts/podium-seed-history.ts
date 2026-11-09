@@ -2,7 +2,8 @@
 // Seeds about 45 days of daily rollups into a throwaway Podium database, so a person running the simulator can look at
 // Admin > Reporting, the Spend projection and the long-period reports (#484, #483) without waiting for weeks of history.
 //
-// It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily),
+// It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily, and the
+// tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, for Claude Code and OpenCode),
 // plus a few people, groups, reporters and Admin log entries, through the server's own migrations. Every random choice
 // comes from a seeded generator, so one seed and one "today" always give the same rows.
 //
@@ -80,6 +81,9 @@ const FAILURES: { cls: string; tool: string }[] = [
 /** The reporter version a day runs, as people upgrade: [first day offset from the start as a share of the span, version]. */
 const REPORTER_RELEASES: [number, string][] = [[0, '1.1.0'], [0.35, '1.2.0'], [0.7, '1.2.2']];
 const ENGINE_VERSIONS = ['2.1.288', '2.1.296', '2.1.301'];
+const OPENCODE_VERSIONS = ['1.3.9', '1.4.2'];
+/** The tools a seeded session calls, and how often (a share of its calls); an MCP server's tools carry `mcp__server__tool`. */
+const TOOLS: [string, number][] = [['Bash', 25], ['Read', 21], ['Edit', 16], ['Grep', 10], ['Write', 5], ['Agent', 3], ['mcp__github__search_code', 6], ['mcp__github__get_file', 3], ['mcp__playwright__navigate', 3], ['mcp__playwright__click', 2], ['WebFetch', 2], ['TodoWrite', 4]];
 
 /** Paths the server's real database could live at: seeding any of them is refused. */
 export function protectedFolders(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): { files: string[]; folders: string[] } {
@@ -154,10 +158,15 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
+    const putTool = db.prepare('INSERT INTO tools_daily (day, harness, tool, calls) VALUES (?, ?, ?, ?)');
+    const putSize = db.prepare('INSERT INTO tool_sessions_daily (day, harness, bucket, sessions) VALUES (?, ?, ?, ?)');
+    const putHarnessVersion = db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
+    // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them.
+    const toolRng = new Rng(opt.seed + 720);
     const putFleet = db.prepare('INSERT INTO fleet_daily (day, active_people, active_reporters, sessions_started, peak_live_sessions, reporter_versions_json, engine_versions_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
     // Two agent-heavy days, and the two days Sam works (both in the last two weeks, so the projection's window sees 2 of 14).
@@ -171,6 +180,8 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       const sess = new Map<string, { outcome: string; model: string; effort: string; plan: string; sessions: number; dur: number; maxDur: number; agents: number; blow: number; ctx: number }>();
       const fail = new Map<string, { owner: string; cls: string; tool: string; n: number }>();
       const active = new Set<string>();
+      const toolCalls = new Map<string, number>();
+      const sizes = new Map<string, number>();
       let started = 0;
       const weekend = isWeekend(day);
       for (const owner of PEOPLE) {
@@ -218,6 +229,20 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
           s.ctx = Math.max(s.ctx, ctx);
           sess.set(sk, s);
 
+          // One in four sessions runs under OpenCode. Calls grow with the agents and the length of the session.
+          const harness = toolRng.next() < 0.25 ? 'opencode' : 'claude-code';
+          const calls = Math.round((5 + toolRng.next() * 90) * (1 + agents / 3) * (toolRng.next() < 0.08 ? 4 : 1));
+          const weightTotal = TOOLS.reduce((s, [, w]) => s + w, 0);
+          for (let c = 0; c < calls; c++) {
+            let at = toolRng.next() * weightTotal;
+            const [tool] = TOOLS.find(([, w]) => (at -= w) < 0) ?? TOOLS[0]!;
+            // OpenCode has no Agent tool here, and no Playwright server
+            const name = harness === 'opencode' && (tool === 'Agent' || tool.startsWith('mcp__playwright')) ? 'Bash' : tool;
+            toolCalls.set(`${harness}\u0000${name}`, (toolCalls.get(`${harness}\u0000${name}`) ?? 0) + 1);
+          }
+          const bucket = calls <= 100 ? calls : calls <= 1000 ? Math.ceil(calls / 10) * 10 : Math.ceil(calls / 100) * 100;
+          sizes.set(`${harness}\u0000${bucket}`, (sizes.get(`${harness}\u0000${bucket}`) ?? 0) + 1);
+
           if (outcome === 'error' || rng.next() < 0.1) {
             const f = FAILURES[Math.floor(rng.next() * FAILURES.length)]!;
             const fk = `${owner}\u0000${f.cls}\u0000${f.tool}`;
@@ -251,6 +276,23 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
         rv[v] = (rv[v] ?? 0) + 1;
         const e = ENGINE_VERSIONS[Math.min(2, ahead + (r % 2))]!;
         ev[e] = (ev[e] ?? 0) + 1;
+      }
+      for (const [k, n] of toolCalls) {
+        const [harness, tool] = k.split('\u0000') as [string, string];
+        putTool.run(day, harness, tool, n);
+      }
+      for (const [k, n] of sizes) {
+        const [harness, bucket] = k.split('\u0000') as [string, string];
+        putSize.run(day, harness, Number(bucket), n);
+      }
+      // Claude Code's versions are the engine versions above; one reporter in four runs OpenCode, which moves from 1.3.9 to 1.4.2 two thirds in.
+      const hv = new Map<string, number>();
+      for (const [v, n] of Object.entries(ev)) hv.set(`claude-code\u0000${v}`, n);
+      const opencode = Math.min(reporters, Math.max(active.size > 0 ? 1 : 0, Math.round(reporters / 4)));
+      if (opencode > 0) hv.set(`opencode\u0000${OPENCODE_VERSIONS[share >= 0.66 ? 1 : 0]}`, opencode);
+      for (const [k, n] of hv) {
+        const [harness, version] = k.split('\u0000') as [string, string];
+        putHarnessVersion.run(day, harness, version, n);
       }
       putFleet.run(day, active.size, reporters, started, started === 0 ? 0 : Math.max(1, Math.min(8, Math.round(started / 2 + rng.next() * 2))), JSON.stringify(rv), JSON.stringify(ev));
     });

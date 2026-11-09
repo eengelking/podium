@@ -88,6 +88,16 @@ export const REPORT_CONFIGS: Record<Exclude<ReportId, "spend">, ReportConfig> = 
     ],
     help: "Each row opens History for sessions from the last 30 days. Older ones have counts only.",
   },
+  tools: {
+    report: "tools",
+    title: "Tools",
+    lead: "Which tools sessions call, how many calls a session makes, and which harness versions are in use. Counts and names only.",
+    hasBy: true,
+    filters: ["harness"],
+    chart: { key: "calls", unit: "Tool calls" },
+    summary: [],
+    help: "All harnesses. Only tool names and counts are kept: no arguments, paths or commands",
+  },
   activity: {
     report: "activity",
     title: "Admin activity",
