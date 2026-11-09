@@ -9,6 +9,7 @@ import type { PeerDelivery, PeerRequest, PeerResult } from '../core/protocol.ts'
 import { sessionPath, type Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
+import { isLaunchId } from '../core/launch.ts';
 import {
   accessAnswer, answerPaused, channelArgument, channelSendAnswer, channelSendTarget, chatReadAnswer, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
   refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
@@ -79,7 +80,12 @@ export class Peers {
     t.peerDeliveries = [];
     t.peerRequests = [];
     if (!this.on(root, t)) return;
-    for (const d of deliveries) this.deliver(root, d);
+    // The launch placeholder (#1112) is no OpenCode session, so a message cannot be given to it: the sender is told it was refused at once.
+    if (isLaunchId(root.id)) {
+      for (const d of deliveries) if (this.d.responder.markActed(d.id)) this.result(root, d.id, 'refused');
+    } else {
+      for (const d of deliveries) this.deliver(root, d);
+    }
     this.show(requests);
   }
 

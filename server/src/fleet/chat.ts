@@ -293,6 +293,8 @@ export class ChatService {
     if (!owner) return;
     await this.channels.sessionLeft(sessionId, owner);
     await this.direct.sessionChanged(sessionId, owner);
+    // An agent that left without ever being on the wall sent no stream message either, so an open page is told its list changed (#1112).
+    this.core.signal({ scope: 'group', owner: nameKey(owner) });
   }
 
   /** The live sessions whose hidden conversations were already shown again, so a report (every few seconds) costs a lookup and not a scan of the conversations. */
@@ -306,6 +308,9 @@ export class ChatService {
     if (this.seen.has(sessionId)) return;
     await this.direct.sessionSeen(sessionId, owner);
     this.seen.add(sessionId);
+    // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
+    // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
+    this.core.signal({ scope: 'group', owner: nameKey(owner) });
   }
 
   /** The hourly housekeeping: conversations against the live set, then retention for both channels and the hidden conversations. */

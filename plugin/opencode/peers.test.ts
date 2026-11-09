@@ -26,7 +26,7 @@ interface Server {
   adminNotices: AdminNotice[];
 }
 
-function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { prompt?: ((s: string, id: string, text: string) => Promise<void>) | null; peerCallMs?: number; log?: (line: string) => void; attached?: () => boolean } = {}) {
+function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { prompt?: ((s: string, id: string, text: string) => Promise<void>) | null; peerCallMs?: number; log?: (line: string) => void; attached?: () => boolean; launch?: boolean } = {}) {
   const server: Server = { peers: true, deliveries: [], requests: [], calls: [], reports: [], adminNotices: [], answer: () => ({ status: 200, text: '{"peers":[],"leftOut":[]}' }) };
   const fetch: FetchLike = async (url, init) => {
     const path = url.replace('http://podium.test', '');
@@ -51,8 +51,12 @@ function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { pro
     { fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: over.log ?? (() => undefined), notify: (l, o) => void (toasts.push(l), toastMs.push(o?.durationMs), toastOpts.push(o)), ...(over.attached ? { attached: over.attached } : {}), ...(prompt ? { prompt } : {}), ...(over.peerCallMs ? { peerCallMs: over.peerCallMs } : {}) },
     { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', PODIUM_USER: 'Ed', ...env }), machine: { name: 'mac', id: 'm1' }, idleMs: 600_000 },
   );
-  r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }));
-  r.handle(ev('session.created', { sessionID: KID, parentID: ROOT }));
+  // A launch before any session (#1112): only the placeholder exists.
+  if (over.launch) r.announce('/work/project');
+  else {
+    r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }));
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT }));
+  }
   return { r, t, server, prompts, toasts, toastMs, toastOpts };
 }
 const last = (s: Server): Report => s.reports[s.reports.length - 1]!;
@@ -62,6 +66,23 @@ async function reported(x: ReturnType<typeof rig>): Promise<void> {
   x.t.now += 6000;
 }
 const flushed = () => new Promise((res) => setTimeout(res, 5));
+
+describe('the launch placeholder takes no part in messaging (#1112)', () => {
+  it('offers no tool for it, refuses a message sent to it, and still shows an access request', async () => {
+    const x = rig({ PODIUM_PEERS: 'true' }, { launch: true });
+    x.server.deliveries = [message()];
+    x.server.requests = [request()];
+    await reported(x);
+    await x.r.tick();
+    await flushed();
+    expect(x.r.offersMessaging).toBe(false);
+    expect(x.prompts).toEqual([]);
+    const refused = x.server.calls.filter((c) => c.path.endsWith('/deliveries/pd1/result'));
+    expect(refused).toHaveLength(1);
+    expect(refused[0]!.body).toMatchObject({ result: 'refused' });
+    expect(x.toasts.some((t) => t.includes('build-pi'))).toBe(true);
+  });
+});
 
 describe('messaging is the person\'s to allow (#969)', () => {
   it('offers only the plan tool, takes nothing from the server and says nothing about peers while PODIUM_PEERS is off', async () => {

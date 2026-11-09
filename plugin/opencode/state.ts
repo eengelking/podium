@@ -1,6 +1,7 @@
 // What the OpenCode reporter knows about its sessions (#855). Pure: no engine API, no clock of its own, no network.
 // `apply` folds one bus event into a Store; report.ts turns a Root into a v2 report. A root session and the child
 // sessions it launched are one Root and one report; a child is an agent in that report.
+import { isLaunchId } from '../core/launch.ts';
 import { activityText, clip, whole, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
@@ -617,6 +618,19 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   return root;
 }
 
+/**
+ * The placeholder root a launch announces (#1112): OpenCode makes no session until the first prompt, so there is nothing to report under until then.
+ * It has done nothing, so the server keeps it off the wall (`isUnused`) while the chat lists it. `title` is what the chat calls it.
+ */
+export function announce(store: Store, id: string, cwd: string | null, at: number, title: string): Root {
+  const root = newRoot(id, cwd, at);
+  root.sessions.get(id)!.title = title;
+  store.roots.set(id, root);
+  store.rootOf.set(id, id);
+  emit(root, at, 'start', null, 'launched');
+  return root;
+}
+
 /** Marks a root done. Everything it launched that still runs is finished with it. */
 export function finish(root: Root, at: number, reason: string): void {
   if (root.done) return;
@@ -646,7 +660,8 @@ export function sweep(store: Store, now: number, idleMs: number, hold = false): 
   const out: Root[] = [];
   if (hold) return out;
   for (const r of store.roots.values()) {
-    if (idleFor(r, now, idleMs)) {
+    // The launch placeholder (#1112) stands for an open OpenCode with no session yet: it ends when a real session starts or on shutdown, never for being quiet.
+    if (!isLaunchId(r.id) && idleFor(r, now, idleMs)) {
       finish(r, now, 'idle');
       out.push(r);
     }

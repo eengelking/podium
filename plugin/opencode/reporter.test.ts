@@ -1256,3 +1256,73 @@ describe('Reporter: /podium name (#987)', () => {
     expect(bodies.at(-1)!.session.name).toBe('OpenCode title');
   });
 });
+
+describe('Reporter: the launch announce (#1112)', () => {
+  const bodies = (): { list: Report[]; fetch: FetchLike } => {
+    const list: Report[] = [];
+    return { list, fetch: async (_u, init) => { list.push(JSON.parse(init.body!) as Report); return okReply; } };
+  };
+
+  it('reports a placeholder session at launch, before any session exists', async () => {
+    const { list, fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.announce('/work/podium');
+    await r.tick();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.session).toMatchObject({ status: 'waiting', name: 'podium', cwd: '/work/podium', costUsd: 0, harness: 'opencode' });
+    expect(list[0]!.session.id.startsWith('launch-')).toBe(true);
+    expect(list[0]!.session.tokens.input).toBe(0);
+    expect(list[0]!.agents).toEqual([]);
+  });
+
+  it('announces once, however often it is asked', async () => {
+    const { list, fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.announce('/work/podium');
+    r.announce('/work/podium');
+    await r.tick();
+    expect(list).toHaveLength(1);
+  });
+
+  it('announces nothing when a real session is already known', async () => {
+    const { list, fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.announce('/work/podium');
+    await r.tick();
+    expect(list.map((b) => b.session.id)).toEqual([ROOT]);
+  });
+
+  it('ends the placeholder when the first real session starts, so the chat lists one agent', async () => {
+    const { list, fetch } = bodies();
+    const { r, t } = reporter(fetch);
+    r.announce('/work/podium');
+    await r.tick();
+    const launched = list[0]!.session.id;
+    t.now += 1_000;
+    r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }, t.now));
+    await r.tick();
+    const last = new Map(list.map((b) => [b.session.id, b.session]));
+    expect(last.get(launched)).toMatchObject({ status: 'done', endReason: 'launched' });
+    expect(last.get(ROOT)).toMatchObject({ status: 'waiting' });
+  });
+
+  it('does not end the placeholder for being quiet: it stands for an open OpenCode until a session starts or it shuts down', async () => {
+    const { list, fetch } = bodies();
+    const { r, t } = reporter(fetch);
+    r.announce('/work/podium');
+    await r.tick();
+    t.now += 3_600_000;
+    await r.tick();
+    expect(list.at(-1)!.session.status).toBe('waiting');
+    expect(list.every((b) => b.session.status !== 'done')).toBe(true);
+  });
+
+  it('does not ask OpenCode about the placeholder`s permissions on a reload', () => {
+    const { fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.announce('/work/podium');
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    expect(r.sessionIds()).toEqual([ROOT]);
+  });
+});

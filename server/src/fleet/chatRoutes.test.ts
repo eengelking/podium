@@ -1512,6 +1512,45 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(sse.join('')).not.toContain(MSG_FROM_ED);
   });
 
+  // ---- A launched agent reaches an open console (#1112) -----------------------------------------------------------------
+
+  it('signals the consoles when an agent that has done nothing joins and when it leaves, so an open Chat page reads its list again', async () => {
+    const w = await world();
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const chatEvents = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).length;
+    // A session nobody has prompted: no cost, tokens, context, plan or agent, so the wall's stream says nothing of it.
+    const untouched = { costUsd: null, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, context: { tokens: null, window: null, percent: null }, blowouts: 0, plan: null };
+    const fresh = report('Ed', 'sess-fresh', 'fresh', MAC, untouched);
+    fresh.agents = [];
+    fresh.events = [];
+    expect((await post(w, w.ed.token, fresh)).status).toBe(200);
+    await w.fleet.flush();
+    await settle();
+    expect(sse.join('')).not.toContain('"id":"sess-fresh"');
+    expect(chatEvents()).toBeGreaterThan(0);
+    // It is in the person's list, which is what the page reads again.
+    expect(((await w.edB.get(CH)).body.agents as { sessionId: string }[]).map((a) => a.sessionId)).toContain('sess-fresh');
+    // A routine report of the same session is not a change.
+    const before = chatEvents();
+    expect((await post(w, w.ed.token, fresh)).status).toBe(200);
+    await w.fleet.flush();
+    await settle();
+    expect(chatEvents()).toBe(before);
+    // It ends: the page reads again, and the list no longer has it.
+    const done = structuredClone(fresh);
+    done.session = { ...done.session, status: 'done', endReason: 'launched' };
+    expect((await post(w, w.ed.token, done)).status).toBe(200);
+    await w.fleet.flush();
+    await settle();
+    // An ended agent leaves the live set when the sweep removes it, as a card leaves the wall; that is when the page is told.
+    w.tick(10_000);
+    await w.fleet.sweep();
+    await settle();
+    expect(chatEvents()).toBeGreaterThan(before);
+    expect(((await w.edB.get(CH)).body.agents as { sessionId: string }[]).map((a) => a.sessionId)).not.toContain('sess-fresh');
+  });
+
   it('refuses a person on the admin secret, and an agent that does not take part in messaging', async () => {
     const w = await world();
     const admin = await signedIn(w, 'Admin', SECRET);
