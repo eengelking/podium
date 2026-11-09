@@ -5,6 +5,7 @@ import { cap, clip, excerpt, whole, LIMITS, reportedFailure } from '../core/fail
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
 import { DEFAULT_RESUME_WINDOW_DAYS } from '../core/resumeWindow.ts';
+import { reportStats } from '../core/toolStats.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
@@ -103,6 +104,7 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     lastTool: s.lastTool,
     toolCalls: s.toolCalls,
     toolCounts: { ...s.toolCounts },
+    toolStats: reportStats(s.toolStats, (k) => cap(k, 120)),
     blowouts: s.blowouts,
     steps: { done: s.steps, total: null },
     promptExcerpt: excerpt(s.prompt),
@@ -166,7 +168,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       blowouts: main.blowouts,
       // A plan with steps came from the todo tool; one the plan tool only named is its title alone, which core's `toPlan` already makes (#1012).
       plan: plan?.steps.length ? { ...plan, source: 'todowrite' } : plan,
-      loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, steps: { done: main.steps, total: null } },
+      loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, toolStats: reportStats(main.toolStats, (k) => cap(k, 120)), steps: { done: main.steps, total: null } },
       files: root.files ? { ...root.files, files: root.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) } : null,
       fileDiff: meta.fileDiff === true,
       fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,

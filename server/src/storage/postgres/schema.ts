@@ -281,6 +281,18 @@ CREATE TABLE harness_versions_daily (
 );
 `),
   },
+  {
+    version: 14,
+    // What each tool did beyond being called (#721), as SQLite migration 38 keeps it: the agent's per-tool stats as JSON, and the day's totals per harness and tool.
+    sql: typed(`
+ALTER TABLE agents ADD COLUMN tool_stats_json TXT;
+CREATE TABLE tool_stats_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL,
+  failed INT NOT NULL, asked INT NOT NULL, allowed INT NOT NULL, denied INT NOT NULL, podium INT NOT NULL, times_json TXT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

@@ -155,6 +155,40 @@ export interface Failure {
 }
 
 /**
+ * What one tool did in one loop, as counts only (#721): never an argument, a path, a command or an error's text. Every field is omitted when it is 0.
+ * `asked` is the permission prompts the tool raised; `allowed` and `denied` are how they ended, and an ask with neither is still open or never
+ * answered. `podium` is the asks answered from Podium, whether it allowed or denied. `times` is calls by length: a key is a `timeBucket` and the value
+ * is how many calls fell in it.
+ */
+export interface ToolStat {
+  failed?: number;
+  asked?: number;
+  allowed?: number;
+  denied?: number;
+  podium?: number;
+  times?: Record<string, number>;
+}
+
+/** Each call length bucket is this much longer than the one before, so a percentile read from the buckets is within 10% of the call's real length. */
+export const TIME_BUCKET_RATIO = 1.1;
+/** The longest call that is told apart: an hour. Longer calls count in the last bucket. */
+export const TIME_BUCKET_MAX_MS = 3_600_000;
+
+/** The bucket a call of `ms` milliseconds counts in: 0 up to 1 ms, then one step for each 10% more. */
+export function timeBucket(ms: number): number {
+  const capped = Math.min(Math.max(ms, 0), TIME_BUCKET_MAX_MS);
+  return capped <= 1 ? 0 : Math.ceil(Math.log(capped) / Math.log(TIME_BUCKET_RATIO));
+}
+
+/** The length a bucket stands for: the longest call that counts in it, in milliseconds. */
+export function bucketMs(bucket: number): number {
+  return bucket <= 0 ? 1 : Math.round(TIME_BUCKET_RATIO ** bucket);
+}
+
+/** The number of buckets there are, so a report that names more is refused. */
+export const TIME_BUCKETS = timeBucket(TIME_BUCKET_MAX_MS) + 1;
+
+/**
  * What the orchestrator's main loop reports about its own work, in the shapes an AgentReport uses for
  * the fields of the same name. Calls made by agents it launched are not counted here.
  */
@@ -163,6 +197,8 @@ export interface LoopReport {
   lastTool: string | null;
   toolCalls: number;
   toolCounts: Record<string, number>;
+  /** What each tool did beyond being called (#721). Absent from a reporter that does not send it. */
+  toolStats?: Record<string, ToolStat>;
   steps: { done: number; total: null };
 }
 
@@ -295,6 +331,8 @@ export interface AgentReport {
   toolCalls: number;
   /** Finished calls per tool name. null when the reporter is too old to send it. */
   toolCounts: Record<string, number> | null;
+  /** What each tool did beyond being called (#721). Absent from a reporter that does not send it. */
+  toolStats?: Record<string, ToolStat>;
   blowouts: number;
   steps: { done: number; total: number | null } | null;
   promptExcerpt: string;

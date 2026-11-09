@@ -10,9 +10,10 @@ import { ReportChart, ReportExport, ReportFilters } from "./ReportParts";
 import { resultsHeading } from "./ReportPages";
 import { formatCell, harnessName, reportErrorText, type ReportReply, type ReportRow, type ReportsClient } from "./reportsApi";
 import { useReport, type ReportConfig, type ReportState } from "./useReport";
+import { DurationSection, FailuresSection, PromptsSection, ToolSection } from "./ToolStatsSections";
 
 /** One more answer of the same report (calls per session, versions) for the period and filters the page has. */
-function useBreakdown(client: ReportsClient, r: ReportState, breakdown: "session" | "version", onLocked: () => void): { reply: ReportReply | null; error: string | null } {
+function useBreakdown(client: ReportsClient, r: ReportState, breakdown: "session" | "version" | "failures" | "prompts" | "duration", onLocked: () => void): { reply: ReportReply | null; error: string | null } {
   const [state, setState] = useState<{ reply: ReportReply | null; error: string | null }>({ reply: null, error: null });
   const path = r.path === null ? null : `${r.path}${r.path.includes("?") ? "&" : "?"}breakdown=${breakdown}`;
   const lock = useRef(onLocked);
@@ -310,6 +311,9 @@ export function ToolsPage({ cfg, client, onLocked }: { cfg: ReportConfig; client
   const r = useReport(client, cfg, onLocked);
   const sessions = useBreakdown(client, r, "session", onLocked);
   const versions = useBreakdown(client, r, "version", onLocked);
+  const failures = useBreakdown(client, r, "failures", onLocked);
+  const prompts = useBreakdown(client, r, "prompts", onLocked);
+  const duration = useBreakdown(client, r, "duration", onLocked);
   const head = resultsHeading(r);
   const reply = r.reply;
   const calls = reply?.columns.find((c) => c.key === "calls") ?? { key: "calls", label: "Calls", unit: "count" as const };
@@ -364,6 +368,21 @@ export function ToolsPage({ cfg, client, onLocked }: { cfg: ReportConfig; client
           </Waiting>
         </Panel>
       </Section>
+      <ToolSection id="rep-tools-x" title="Tool failures" help="Failures divided by calls, per tool. The bars show the number of failures, and the figure after each is its share of that tool's calls. Only counts are kept: no error text, arguments or paths.">
+        <Waiting reply={failures.reply} error={failures.error} problem={r.problem} empty="No tool was called in this period.">
+          {(rep) => <FailuresSection r={r} reply={rep} />}
+        </Waiting>
+      </ToolSection>
+      <ToolSection id="rep-tools-p" title="Permission prompts" help="How often a tool asked before it ran, and how the ask ended.">
+        <Waiting reply={prompts.reply} error={prompts.error} problem={r.problem} empty="No tool asked for permission in this period.">
+          {(rep) => <PromptsSection reply={rep} />}
+        </Waiting>
+      </ToolSection>
+      <ToolSection id="rep-tools-d" title="Call duration" help="The middle call and the slower twentieth of calls, per tool, slowest first.">
+        <Waiting reply={duration.reply} error={duration.error} problem={r.problem} empty={r.prefs.harness === "" ? "No harness reported call times in this period." : `${harnessName(r.prefs.harness)} reported no call times in this period.`}>
+          {(rep) => <DurationSection reply={rep} />}
+        </Waiting>
+      </ToolSection>
       <Section id="rep-tools-s" title="Calls per session" help="The middle session and the busier tenth, so one long session does not hide the rest.">
         <Panel>
           <Waiting reply={sessions.reply} error={sessions.error} problem={r.problem} empty="No sessions in this period.">

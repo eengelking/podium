@@ -1,13 +1,14 @@
 import { describe, test, expect } from 'claude-code/testing'
 import { agentReport, buildReport } from './report.ts'
+import { timeBucket } from '../../core/protocol.ts'
 import { scriptedReport, scriptedState, T0 } from './scripted.ts'
 import { MAIN_LOOP } from '../../core/protocol.ts'
-import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
+import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, permissionAsked, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
 
 // The key sets of docs/fixtures/report.sample.json, so a built Report has the shared fixture's shape.
 const REPORT_KEYS = ['adminNotices', 'agents', 'events', 'reporter', 'sentAt', 'session', 'v']
 const SESSION_KEYS = ['activityFeed', 'activityOutput', 'attached', 'blowouts', 'context', 'costUsd', 'cwd', 'effort', 'endReason', 'fileDiff', 'fileDiffPreload', 'files', 'git', 'id', 'loop', 'model', 'name', 'peers', 'plan', 'projectRoot', 'rateLimits', 'repoName', 'resumeId', 'resumeWindowDays', 'sessionRecording', 'startedAt', 'status', 'tokens', 'usageByModel', 'waitNote', 'waitReason']
-const AGENT_KEYS = ['answerExcerpt', 'blowouts', 'context', 'costUsdEst', 'description', 'effort', 'effortSource', 'endedAt', 'failure', 'id', 'kind', 'lastTool', 'model', 'name', 'parentId', 'promptExcerpt', 'skills', 'startedAt', 'status', 'steps', 'tokens', 'toolCalls', 'toolCounts', 'type', 'usageByModel']
+const AGENT_KEYS = ['answerExcerpt', 'blowouts', 'context', 'costUsdEst', 'description', 'effort', 'effortSource', 'endedAt', 'failure', 'id', 'kind', 'lastTool', 'model', 'name', 'parentId', 'promptExcerpt', 'skills', 'startedAt', 'status', 'steps', 'tokens', 'toolCalls', 'toolCounts', 'toolStats', 'type', 'usageByModel']
 const FAILURE_KEYS = ['at', 'call', 'class', 'evidence', 'exitCode', 'explanation', 'outputTail', 'retriedAs', 'tool']
 const STEP_KEYS = ['activeText', 'id', 'ownerAgentId', 'ownerLabel', 'state', 'text']
 const keys = (o: object) => Object.keys(o).sort()
@@ -39,6 +40,7 @@ describe('scripted session -> Report', () => {
       lastTool: 'TaskUpdate',
       toolCalls: 3,
       toolCounts: { TaskCreate: 2, TaskUpdate: 1 },
+      toolStats: {},
       steps: { done: 1, total: null },
     })
   })
@@ -842,5 +844,50 @@ describe('activity command and output (#431)', () => {
     let s = watched()
     s = addActivity(s, 'a1', bash('c1'))
     expect(buildReport(s, [], meta).agents[0]!.activity![0]!.command).toBe('ls')
+  })
+})
+
+describe('what each tool did (#721)', () => {
+  const meta = { version: '0.0.0', engineVersion: null, hostSurface: null, now: T0 + 10, storedName: null, optionName: null }
+  const base = () => newSession({ id: 's', cwd: '/x', startedAt: T0, model: 'claude-opus-5-5' })
+  const stats = (s: ReturnType<typeof base>) => s.main.toolStats
+
+  test('a call that ends in an error counts as failed, and one that was denied or blocked does not', () => {
+    let s = toolResult(base(), { tool: 'Bash', input: { command: 'false' }, result: { isError: true, text: 'Exit code 1' } }, T0 + 1)
+    s = toolResult(s, { tool: 'Bash', input: { command: 'ls' }, result: { text: 'ok' } }, T0 + 2)
+    s = toolResult(s, { tool: 'Edit', input: {}, result: { deny: 'blocked by a hook' } }, T0 + 3)
+    s = toolResult(s, { tool: 'Edit', input: {}, result: { isError: true, text: 'no' }, ask: { denied: true, podium: false } }, T0 + 4)
+    expect(stats(s)).toEqual({ Bash: { failed: 1 }, Edit: { denied: 1 } })
+  })
+
+  test('a call is counted in the bucket of how long it took', () => {
+    const s = toolResult(base(), { tool: 'Read', input: {}, result: {}, ms: 40 }, T0 + 1)
+    expect(stats(s)).toEqual({ Read: { times: { [String(timeBucket(40))]: 1 } } })
+  })
+
+  test('a permission ask counts when it is raised and again, as allowed or denied, when the call ends', () => {
+    let s = permissionAsked(base(), undefined, 'Bash')
+    s = toolResult(s, { tool: 'Bash', input: {}, result: {}, ask: { denied: false, podium: true } }, T0 + 1)
+    s = permissionAsked(s, undefined, 'Bash')
+    s = toolResult(s, { tool: 'Bash', input: {}, result: { isError: true }, ask: { denied: true, podium: false } }, T0 + 2)
+    s = permissionAsked(s, undefined, 'Bash')
+    expect(stats(s)).toEqual({ Bash: { asked: 3, allowed: 1, denied: 1, podium: 1 } })
+  })
+
+  test('an agent keeps its own, and the report sends them for the agent and for the main loop', () => {
+    let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
+    s = toolResult(s, { agentId: 'a', tool: 'Bash', input: {}, result: { isError: true } }, T0 + 1)
+    s = toolResult(s, { tool: 'Read', input: {}, result: {}, ms: 5 }, T0 + 2)
+    expect(s.agents.a!.toolStats).toEqual({ Bash: { failed: 1 } })
+    const r = buildReport(s, [], meta)
+    expect(r.agents[0]!.toolStats).toEqual({ Bash: { failed: 1 } })
+    expect(r.session.loop!.toolStats).toEqual({ Read: { times: { [String(timeBucket(5))]: 1 } } })
+  })
+
+  test('a report built before the count changed is not changed by it', () => {
+    let s = toolResult(base(), { tool: 'Bash', input: {}, result: {}, ms: 5 }, T0 + 1)
+    const r = buildReport(s, [], meta)
+    s = toolResult(s, { tool: 'Bash', input: {}, result: { isError: true }, ms: 5 }, T0 + 2)
+    expect(r.session.loop!.toolStats).toEqual({ Bash: { times: { [String(timeBucket(5))]: 1 } } })
   })
 })

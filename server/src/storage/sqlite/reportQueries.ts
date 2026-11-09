@@ -1,10 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { FailureDay, FleetDay, HarnessVersionDay, SessionsDay, ToolDay, ToolSessionDay, UsageDay } from '../../fleet/rollups.js';
+import type { FailureDay, FleetDay, HarnessVersionDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { ReportQueries, RollupRaw, RollupTable, StoredSession } from '../reportQueries.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table is upserted, so its peak never goes down). */
-const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily'];
 
 /** The columns after `day` that make a rollup row unique, so rows of one day come back in one order everywhere. */
 const ROW_KEY: Record<RollupTable, string> = {
@@ -15,6 +15,7 @@ const ROW_KEY: Record<RollupTable, string> = {
   tools_daily: ', harness, tool',
   tool_sessions_daily: ', harness, bucket',
   harness_versions_daily: ', harness, version',
+  tool_stats_daily: ', harness, tool',
 };
 
 /** The SQL the reports and rollups ran from reports.ts and rollups.ts, moved here unchanged. */
@@ -84,6 +85,10 @@ export class SqliteReportQueries implements ReportQueries {
     return this.db.prepare(`SELECT session_id AS id, tool_counts_json AS c FROM agents WHERE tool_counts_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; c: string }[];
   }
 
+  toolStatsSince(fromMs: number): { id: string; s: string }[] {
+    return this.db.prepare(`SELECT session_id AS id, tool_stats_json AS s FROM agents WHERE tool_stats_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; s: string }[];
+  }
+
   sampleSpans(): { a: number; b: number }[] {
     return this.db.prepare('SELECT MIN(t) AS a, MAX(t) AS b FROM samples GROUP BY session_id ORDER BY session_id').all() as unknown as { a: number; b: number }[];
   }
@@ -132,6 +137,11 @@ export class SqliteReportQueries implements ReportQueries {
   insertHarnessVersionsDaily(rows: HarnessVersionDay[]): void {
     const put = this.db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
     for (const r of rows) put.run(r.day, r.harness, r.version, r.reporters);
+  }
+
+  insertToolStatsDaily(rows: ToolStatDay[]): void {
+    const put = this.db.prepare('INSERT INTO tool_stats_daily (day, harness, tool, failed, asked, allowed, denied, podium, times_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.tool, r.failed, r.asked, r.allowed, r.denied, r.podium, r.timesJson);
   }
 
   upsertFleetDays(rows: { day: FleetDay; peak: number }[]): void {
