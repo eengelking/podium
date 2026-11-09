@@ -427,6 +427,12 @@ CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);`,
 ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';`,
   },
+  {
+    version: 36,
+    // The days the harness lets a person resume a session once it is closed (#1113), which is how long its chat is kept. NULL means no report has said, as for every
+    // session stored before this: the default of 30 days applies.
+    sql: 'ALTER TABLE sessions ADD COLUMN resume_window_days INTEGER;',
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

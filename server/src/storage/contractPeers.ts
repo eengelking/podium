@@ -13,6 +13,7 @@ const T0 = 1_800_000_000_000;
 const ED: Actor = { name: 'ed', admin: false };
 const ADMIN: Actor = { name: 'Admin', admin: true };
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 const SERVER_LIMITS = { roundTrips: 10, perMinute: 6, maxChars: 20_000 };
 
 const seen = (id: string, name: string, owner: string, sessionId: string): ReporterSeen => ({
@@ -299,13 +300,13 @@ export function peerCases(o: Openers): void {
       await rec('owner conversations (hidden left out)', m.ownerConversations('ed'));
       await rec('owner conversations (hidden included)', m.ownerConversations('ed', { includeHidden: true }));
       await rec('page (hidden, still readable)', m.page('ed', 'sa', 'sb', { limit: 1 }));
-      await rec('purge (not yet old enough)', m.purgeHidden(clock.now - 10));
+      await rec('purge (not yet old enough)', m.purgeHidden(clock.now, 10));
       await rec('show', m.showConversation('ed', 'sa', 'sb'));
       await rec('owner conversations (shown)', m.ownerConversations('ed'));
-      await rec('purge (nothing hidden)', m.purgeHidden(clock.now + DAY));
+      await rec('purge (nothing hidden)', m.purgeHidden(clock.now + DAY, 0));
       clock.now += 100;
       await m.hideConversation('ed', 'sa', 'sb');
-      await rec('purge (a day on)', m.purgeHidden(clock.now + 1));
+      await rec('purge (a day on)', m.purgeHidden(clock.now + 1, 0));
       await rec('conversation (purged)', m.conversation('sa', 'sb'));
       await rec('owner conversations (purged)', m.ownerConversations('ed', { includeHidden: true }));
     });
@@ -339,6 +340,44 @@ export function peerCases(o: Openers): void {
     expect(t.get('purge (a day on)')).toBe(4);
     expect(t.get('conversation (purged)')).toEqual([]);
     expect((t.get('owner conversations (purged)') as { a: { sessionId: string } }[]).map((c) => c.a.sessionId)).toEqual(['person:ed']);
+  });
+
+  it('keeps a hidden conversation for the longest resume window of its agents, and for the grace period when no window is known (#1113)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      const windows = async (sa: number | null, sb: number | null) => {
+        await s.fleet.upsertSession(session({ id: 'sa', owner: 'ed', resume_window_days: sa }));
+        await s.fleet.upsertSession(session({ id: 'sb', owner: 'ed', resume_window_days: sb }));
+      };
+      // The agents' harnesses let a person resume them for 7 and 3 days, so the conversation stays 7 days, whatever the grace period says.
+      await windows(7, 3);
+      await m.send('sa', 'beta@box-b', 'one');
+      await m.hideConversation('ed', 'sa', 'sb');
+      await rec('purge: 2 days on, grace one hour', m.purgeHidden(T0 + 2 * DAY, HOUR));
+      await rec('purge: 6 days on', m.purgeHidden(T0 + 6 * DAY, HOUR));
+      await rec('conversation kept', m.conversation('sa', 'sb'));
+      await rec('purge: past 7 days', m.purgeHidden(T0 + 7 * DAY + 1, HOUR));
+      await rec('conversation purged', m.conversation('sa', 'sb'));
+      // No window known (a session stored before it was reported): the grace period decides, as before.
+      clock.now = T0 + 10 * DAY;
+      await windows(null, null);
+      await m.send('sa', 'beta@box-b', 'two');
+      await m.hideConversation('ed', 'sa', 'sb');
+      await rec('purge: half the grace period on', m.purgeHidden(clock.now + HOUR / 2, HOUR));
+      await rec('purge: past the grace period', m.purgeHidden(clock.now + 2 * HOUR, HOUR));
+      await rec('conversation purged by the grace period', m.conversation('sa', 'sb'));
+    });
+    expect(t.get('purge: 2 days on, grace one hour')).toBe(0);
+    expect(t.get('purge: 6 days on')).toBe(0);
+    expect((t.get('conversation kept') as unknown[]).length).toBeGreaterThan(0);
+    expect(t.get('purge: past 7 days')).toBeGreaterThan(0);
+    expect(t.get('conversation purged')).toEqual([]);
+    expect(t.get('purge: half the grace period on')).toBe(0);
+    expect(t.get('purge: past the grace period')).toBeGreaterThan(0);
+    expect(t.get('conversation purged by the grace period')).toEqual([]);
   });
 
   it('does not count a person\'s message as a round trip, nor let it reset the cap', async () => {

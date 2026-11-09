@@ -271,6 +271,8 @@ export interface SessionRow {
   model_label: string | null;
   /** The company or service behind the model (#940); NULL when no report has given one. */
   model_provider: string | null;
+  /** The days the harness lets a person resume this session once it is closed (#1113); chat is kept that long. NULL when no report has said (every session stored before this, or an old reporter): the default of 30 days applies. */
+  resume_window_days?: number | null;
 }
 
 export interface AgentRow {

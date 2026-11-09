@@ -115,6 +115,12 @@ function dropReason(m: MessageRow, why: Exclude<DropWhy, 'messaging-off'>): stri
 }
 
 const HELD_SQL = HELD_STATES.map((s) => `'${s}'`).join(', ');
+/**
+ * A hidden conversation is due for deletion when it has been hidden longer than the longest resume window of its two agents (#1113): the days the
+ * harness lets a person resume them, which `sessions.resume_window_days` holds. When neither agent has a known window (a session stored before it was
+ * reported, or a person's end of a conversation) the grace period decides. The two placeholders are `now` and `now - graceMs`.
+ */
+const HIDDEN_DUE_SQL = `hidden_at IS NOT NULL AND hidden_at < COALESCE(CAST(? AS BIGINT) - (SELECT MAX(resume_window_days) FROM sessions WHERE id IN (from_session, to_session)) * 86400000, CAST(? AS BIGINT))`;
 const TRIP_COLS = 'from_session, state, approved, author';
 const PAIR_WHERE = '(from_session = ? AND to_session = ?) OR (from_session = ? AND to_session = ?)';
 
@@ -690,8 +696,8 @@ export class PeerMessages implements PeerMessagesApi {
     return Number(this.stmt(`UPDATE peer_messages SET hidden_at = NULL WHERE hidden_at IS NOT NULL AND (${PAIR_WHERE})`).run(a, b, b, a).changes);
   }
 
-  purgeHidden(olderThan: number): number {
-    for (const m of this.rows(`SELECT * FROM peer_messages WHERE hidden_at IS NOT NULL AND hidden_at < ? AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, olderThan)) this.rights.closeMessageRequest(m.id, 'dropped');
-    return Number(this.stmt('DELETE FROM peer_messages WHERE hidden_at IS NOT NULL AND hidden_at < ?').run(olderThan).changes);
+  purgeHidden(now: number, graceMs: number): number {
+    for (const m of this.rows(`SELECT * FROM peer_messages WHERE ${HIDDEN_DUE_SQL} AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, now, now - graceMs)) this.rights.closeMessageRequest(m.id, 'dropped');
+    return Number(this.stmt(`DELETE FROM peer_messages WHERE ${HIDDEN_DUE_SQL}`).run(now, now - graceMs).changes);
   }
 }

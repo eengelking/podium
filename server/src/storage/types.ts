@@ -278,8 +278,8 @@ export interface PeerStoreApi {
     hideConversation(owner: string, a: string, b: string): Promise<number>;
     /** Shows a hidden conversation again: the same peers are back, and the history with them. Returns how many rows it cleared. */
     showConversation(owner: string, a: string, b: string): Promise<number>;
-    /** Deletes the messages of every conversation hidden before `olderThan`. Returns how many. */
-    purgeHidden(olderThan: number): Promise<number>;
+    /** Deletes the messages of every conversation hidden longer than the longest resume window of its two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
+    purgeHidden(now: number, graceMs: number): Promise<number>;
   };
   /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
   note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void>;

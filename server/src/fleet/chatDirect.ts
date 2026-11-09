@@ -630,8 +630,8 @@ export class DirectChat {
     return new Set((await this.peers.conversations({})).map((c) => dmThread(c.a.sessionId, c.b.sessionId)));
   }
 
-  /** Deletes the messages of conversations hidden longer than the grace period. */
+  /** Deletes the messages of conversations hidden longer than their agents' resume window, or the grace period when no window is known (#1113). */
   async purge(graceMs: number): Promise<number> {
-    return this.peers.purgeHidden(this.core.host.now() - graceMs);
+    return this.peers.purgeHidden(this.core.host.now(), graceMs);
   }
 }

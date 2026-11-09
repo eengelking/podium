@@ -1256,3 +1256,11 @@ describe('Reporter: /podium name (#987)', () => {
     expect(bodies.at(-1)!.session.name).toBe('OpenCode title');
   });
 });
+
+// #1113: OpenCode has no session expiry, so it reports the shared 30 day resume window.
+describe('report: the resume window (#1113)', () => {
+  it('is the 30 day default', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1))
+    expect(buildReport(s.roots.get(ROOT)!, [], { now: 9, version: VERSION, engineVersion: null, hostSurface: null }).session.resumeWindowDays).toBe(30)
+  })
+})

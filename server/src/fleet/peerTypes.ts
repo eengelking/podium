@@ -486,6 +486,6 @@ export interface PeerMessagesApi {
   hideConversation(owner: string, a: string, b: string): number;
   /** Shows a hidden conversation again (the same peers are back). Returns how many it cleared. */
   showConversation(owner: string, a: string, b: string): number;
-  /** Deletes the messages of conversations hidden before `olderThan`. Returns how many. */
-  purgeHidden(olderThan: number): number;
+  /** Deletes the messages of conversations hidden longer than the longest resume window of their two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
+  purgeHidden(now: number, graceMs: number): number;
 }
