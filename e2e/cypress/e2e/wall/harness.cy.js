@@ -1,5 +1,6 @@
 // Harness badge, neutral labels and capability-driven fields (#853). One sequence on one server: a wall of one harness first, then the same
 // new session reported by OpenCode (a report v2 with a harness block) so the wall holds two harnesses. A session never changes harness, so it is a new id.
+const ENDED_AT = 1760000000000; // a fixed moment, so the data is the same on every run (#1056)
 describe('harness badge and neutral labels', () => {
   before(() => cy.resetServer());
 
@@ -93,7 +94,7 @@ describe('harness badge and neutral labels', () => {
   });
 
   it('keeps them in History after the session ends', () => {
-    cy.reportAgain('api', { id: NC, name: 'acme-session', harness: 'acme', ...gpt, status: 'done', endReason: 'prompt_input_exit', endedAt: Date.now() }, undefined, undefined, acme);
+    cy.reportAgain('api', { id: NC, name: 'acme-session', harness: 'acme', ...gpt, status: 'done', endReason: 'prompt_input_exit', endedAt: ENDED_AT }, undefined, undefined, acme);
     cy.visit('/#/history');
     cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((day) => {
       cy.contains('tr', 'acme-session').and('contain.text', 'GPT-5.1');
@@ -196,7 +197,7 @@ describe('harness badge and neutral labels', () => {
   });
 
   it('keeps the tree without Context and Effort in History after the session ends', () => {
-    cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme', status: 'done', endReason: 'prompt_input_exit', endedAt: Date.now() }, undefined, undefined, bare);
+    cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme', status: 'done', endReason: 'prompt_input_exit', endedAt: ENDED_AT }, undefined, undefined, bare);
     cy.visit('/#/history');
     cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((day) => {
       cy.visit(`/#/history?day=${day}&page=1&size=50&open=${TR}`);
