@@ -1,11 +1,13 @@
 // The report and rollup queries behind Admin > Reporting on PostgreSQL (#822): the SQLite `SqliteReportQueries` over `PgDb`. Every ordering
 // SQLite got from a primary-key index or a group is stated here.
-import type { FailureDay, FleetDay, SessionsDay, UsageDay } from '../../fleet/rollups.js';
+import type { FailureDay, FleetDay, HarnessVersionDay, SessionsDay, ToolDay, ToolSessionDay, UsageDay } from '../../fleet/rollups.js';
 import type { RollupRaw, RollupTable, StoredSession, ReportQueries } from '../reportQueries.js';
 import type { Async } from '../types.js';
 import type { PgDb } from './conn.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
+/** The tables that are rebuilt from the stored sessions (the fleet table is upserted, so its peak never goes down). */
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
 
 /** Each rollup table's primary key, which is the order SQLite read a day range in. */
 const ORDER: Record<RollupTable, string> = {
@@ -13,6 +15,9 @@ const ORDER: Record<RollupTable, string> = {
   sessions_daily: 'day, outcome, model, effort, plan',
   failures_daily: 'day, owner, class, tool',
   fleet_daily: 'day',
+  tools_daily: 'day, harness, tool',
+  tool_sessions_daily: 'day, harness, bucket',
+  harness_versions_daily: 'day, harness, version',
 };
 
 /** Only the sessions chosen by the period, so the cost of a report follows its period and not the whole history (#529). */
@@ -78,6 +83,10 @@ export class PgReportQueries implements Async<ReportQueries> {
     return this.db.all<{ id: string; f: string }>(`SELECT session_id AS id, failure_json AS f FROM agents WHERE failure_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`, [fromMs]);
   }
 
+  toolCountsSince(fromMs: number): Promise<{ id: string; c: string }[]> {
+    return this.db.all<{ id: string; c: string }>(`SELECT session_id AS id, tool_counts_json AS c FROM agents WHERE tool_counts_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`, [fromMs]);
+  }
+
   sampleSpans(): Promise<{ a: number; b: number }[]> {
     return this.db.all<{ a: number; b: number }>('SELECT MIN(t) AS a, MAX(t) AS b FROM samples GROUP BY session_id ORDER BY session_id');
   }
@@ -95,7 +104,7 @@ export class PgReportQueries implements Async<ReportQueries> {
   }
 
   async deleteRollupsFrom(day: string): Promise<void> {
-    for (const table of ['usage_daily', 'sessions_daily', 'failures_daily']) await this.db.run(`DELETE FROM ${table} WHERE day >= ?`, [day]);
+    for (const table of REBUILT) await this.db.run(`DELETE FROM ${table} WHERE day >= ?`, [day]);
   }
 
   insertUsage(rows: UsageDay[]): Promise<void> {
@@ -123,6 +132,24 @@ export class PgReportQueries implements Async<ReportQueries> {
   insertFailures(rows: FailureDay[]): Promise<void> {
     return this.db.tx(async () => {
       for (const f of rows) await this.db.run('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)', [f.day, f.owner, f.cls, f.tool, f.count]);
+    });
+  }
+
+  insertToolsDaily(rows: ToolDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO tools_daily (day, harness, tool, calls) VALUES (?, ?, ?, ?)', [r.day, r.harness, r.tool, r.calls]);
+    });
+  }
+
+  insertToolSessionsDaily(rows: ToolSessionDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO tool_sessions_daily (day, harness, bucket, sessions) VALUES (?, ?, ?, ?)', [r.day, r.harness, r.bucket, r.sessions]);
+    });
+  }
+
+  insertHarnessVersionsDaily(rows: HarnessVersionDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)', [r.day, r.harness, r.version, r.reporters]);
     });
   }
 

@@ -36,7 +36,7 @@ export interface ReportDeps {
 export class ReportError extends Error {}
 
 export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
 
 export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'activity'];
 
@@ -164,7 +164,7 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
 async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
     f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);

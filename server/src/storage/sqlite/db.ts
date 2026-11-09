@@ -433,6 +433,26 @@ ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';`,
     // session stored before this: the default of 30 days applies.
     sql: 'ALTER TABLE sessions ADD COLUMN resume_window_days INTEGER;',
   },
+  {
+    version: 37,
+    // The tool counts behind Admin > Reporting > Tools (#720), from every harness. Names and counts only: never a tool's input, a path or a
+    // command. `tools_daily` is calls per tool; `tool_sessions_daily` is how many sessions made about that many calls (a bucket, so a
+    // median and a 90th percentile survive being added across days); `harness_versions_daily` is how many reporters ran each version of a
+    // harness. A day is a calendar day in the server's time zone and a session counts on the day it was last seen, as in migration 22.
+    sql: `
+CREATE TABLE IF NOT EXISTS tools_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+CREATE TABLE IF NOT EXISTS tool_sessions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, bucket INTEGER NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, bucket)
+);
+CREATE TABLE IF NOT EXISTS harness_versions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, reporters INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

@@ -1,7 +1,7 @@
 // The report and rollup queries behind Admin > Reporting (#484, #313). They were SQL written inside reports.ts and
 // rollups.ts; here they are named methods of the fleet store, so the reports read through the same async interface as
 // everything else and nothing outside an adapter names a table's SQL.
-import type { FailureDay, FleetDay, SessionsDay, UsageDay } from '../fleet/rollups.js';
+import type { FailureDay, FleetDay, HarnessVersionDay, SessionsDay, ToolDay, ToolSessionDay, UsageDay } from '../fleet/rollups.js';
 import type { SessionRow } from './rows.js';
 
 /** One rollup table row as stored. */
@@ -10,8 +10,8 @@ export type RollupRaw = Record<string, string | number | null>;
 /** A stored session with the name of its owner's group. */
 export type StoredSession = SessionRow & { grp: string | null };
 
-/** The four daily rollup tables. */
-export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily';
+/** The daily rollup tables. The last three are the tool counts (#720): names and counts only, kept per harness. */
+export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily';
 
 export interface ReportQueries {
   /** Rows of a rollup table for the days `from` to `to`, oldest first. */
@@ -36,6 +36,8 @@ export interface ReportQueries {
   agentCountsSince(fromMs: number): { id: string; n: number }[];
   reporterKeysSince(fromMs: number): { id: string; k: string }[];
   failureRowsSince(fromMs: number): { id: string; f: string }[];
+  /** Each agent's tool counts (a JSON object of tool name to calls) for the sessions seen at or after `fromMs`, in session then agent order. An agent with none is left out. */
+  toolCountsSince(fromMs: number): { id: string; c: string }[];
   /** The first and last sample second of every session. */
   sampleSpans(): { a: number; b: number }[];
   /** When the oldest stored session was last seen, or null with no sessions. */
@@ -47,6 +49,9 @@ export interface ReportQueries {
   insertUsage(rows: UsageDay[]): void;
   insertSessionsDaily(rows: SessionsDay[]): void;
   insertFailures(rows: FailureDay[]): void;
+  insertToolsDaily(rows: ToolDay[]): void;
+  insertToolSessionsDaily(rows: ToolSessionDay[]): void;
+  insertHarnessVersionsDaily(rows: HarnessVersionDay[]): void;
   /** Writes each day's fleet row with its peak of live sessions (a stored peak never goes down). */
   upsertFleetDays(rows: { day: FleetDay; peak: number }[]): void;
   /** Deletes the rollup rows older than `day`; returns how many went. */

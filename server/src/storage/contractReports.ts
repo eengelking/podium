@@ -1,4 +1,4 @@
-// Contract cases for the report and rollup queries behind Admin > Reporting (#890): the four daily rollup tables, the stored sessions
+// Contract cases for the report and rollup queries behind Admin > Reporting (#890): the seven daily rollup tables (the last three are the tool counts of #720), the stored sessions
 // the reports read, the people and counts beside them, and the Admin log. One scenario runs over every adapter
 // (`sameOnAll`). Several rows share a day, an owner or a time on purpose, so the order of ties is part of what is compared.
 import { it, expect } from 'vitest';
@@ -8,7 +8,7 @@ import type { AgentRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
 
 const T0 = 1_800_000_000_000;
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
   day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
@@ -33,6 +33,19 @@ export function reportCases(o: Openers): void {
         { day: '2026-10-02', owner: 'ann', cls: 'timeout', tool: 'Bash', count: 2 }, { day: '2026-10-02', owner: 'Ann', cls: 'denied', tool: 'Read', count: 1 },
         { day: '2026-10-02', owner: 'ann', cls: 'timeout', tool: '', count: 4 },
       ]);
+      // the tool counts (#720): names and counts only, one row per harness and tool, per harness and size of session, per harness and version
+      await f.insertToolsDaily([
+        { day: '2026-10-02', harness: 'opencode', tool: 'Bash', calls: 4 }, { day: '2026-10-02', harness: 'claude-code', tool: 'mcp__github__search_code', calls: 7 },
+        { day: '2026-10-02', harness: 'claude-code', tool: 'Bash', calls: 9 }, { day: '2026-10-02', harness: 'claude-code', tool: 'bash', calls: 1 }, { day: '2026-10-01', harness: 'claude-code', tool: 'Read', calls: 3 },
+      ]);
+      await f.insertToolSessionsDaily([
+        { day: '2026-10-02', harness: 'opencode', bucket: 12, sessions: 1 }, { day: '2026-10-02', harness: 'claude-code', bucket: 12, sessions: 2 }, { day: '2026-10-02', harness: 'claude-code', bucket: 0, sessions: 1 },
+        { day: '2026-10-01', harness: 'claude-code', bucket: 300, sessions: 1 },
+      ]);
+      await f.insertHarnessVersionsDaily([
+        { day: '2026-10-02', harness: 'opencode', version: '1.4.2', reporters: 1 }, { day: '2026-10-02', harness: 'claude-code', version: '2.1.319', reporters: 2 },
+        { day: '2026-10-02', harness: 'claude-code', version: '2.1.305', reporters: 1 }, { day: '2026-10-01', harness: 'claude-code', version: '2.1.305', reporters: 3 },
+      ]);
       const fleetDay = (day: string, peakLive: number) => ({ day, activePeople: 2, activeReporters: 3, sessionsStarted: 5, peakLive, reporterVersions: { '1.0.0': 2, '0.9.0': 1 }, engineVersions: {} });
       await f.upsertFleetDays([{ day: fleetDay('2026-10-02', 3), peak: 3 }, { day: fleetDay('2026-10-01', 1), peak: 1 }]);
       await rec('peak stored', f.storedPeak('2026-10-02'));
@@ -53,6 +66,8 @@ export function reportCases(o: Openers): void {
       await rec('rows (after)', f.rollupRows('usage_daily', '2026-10-01', '2026-10-31'));
     });
     expect((t.get('rows usage_daily') as unknown[]).length).toBe(6);
+    expect((t.get('rows tools_daily') as unknown[]).length).toBe(5);
+    expect((t.get('rows harness_versions_daily') as unknown[]).length).toBe(4);
     expect(t.get('peak never goes down')).toBe(3);
   });
 
@@ -79,7 +94,8 @@ export function reportCases(o: Openers): void {
       for (const [id, owner, seenAt] of [['s3', 'ann', T0 + 30], ['s1', 'ann', T0 + 30], ['s2', 'bob', T0 + 30], ['old', null, T0 - 10], ['s4', 'ghost', T0 + 31]] as const) {
         await f.upsertSession(session({ id, owner, last_seen_at: seenAt, started_at: seenAt - 5 }));
       }
-      for (const a of [agent('s1', 'x1'), agent('s1', 'x2'), agent('s2', 'x3')]) await f.upsertAgent(a);
+      const counted = (a: AgentRow, counts: object): AgentRow => ({ ...a, tool_counts_json: JSON.stringify(counts) });
+      for (const a of [counted(agent('s1', 'x1'), { Bash: 3, Read: 1 }), counted(agent('s1', 'x2'), { Bash: 2, mcp__github__search_code: 4 }), agent('s2', 'x3')]) await f.upsertAgent(a);
       await f.upsertSample({ session_id: 's1', t: 10, tokens_total: 1, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's1', t: 90, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's2', t: 20, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
@@ -93,6 +109,8 @@ export function reportCases(o: Openers): void {
       await rec('agent counts', f.agentCountsSince(T0));
       await rec('reporter keys', f.reporterKeysSince(T0));
       await rec('failure rows', f.failureRowsSince(T0));
+      await rec('tool counts', f.toolCountsSince(T0));
+      await rec('tool counts (nothing that recent)', f.toolCountsSince(T0 + 1_000_000));
       await rec('sample spans', f.sampleSpans());
       await rec('owner group names', f.ownerGroupNames());
       await rec('known people', f.knownPeople());
@@ -106,5 +124,7 @@ export function reportCases(o: Openers): void {
       await rec('admin log (none)', f.adminLogRows(T0 + 200, T0 + 300, undefined, 10));
     });
     expect((t.get('sessions since') as unknown[]).length).toBeGreaterThan(0);
+    // the agent with no counts (x3) is left out, and the two that have them come back in a fixed order
+    expect(t.get('tool counts')).toEqual([{ id: 's1', c: '{"Bash":3,"Read":1}' }, { id: 's1', c: '{"Bash":2,"mcp__github__search_code":4}' }]);
   });
 }
