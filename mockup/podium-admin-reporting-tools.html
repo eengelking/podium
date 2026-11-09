@@ -33,12 +33,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 /* report-only pieces */
 .note-line { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
 .note-line b { color: var(--ink); font-weight: 600; }
-.chart { padding: 12px 16px 4px; }
-.chart svg { display: block; width: 100%; height: 150px; }
-.chart .gl { stroke: var(--grid); stroke-width: 1; }
-.chart .ax { stroke: var(--axis); stroke-width: 1; }
-.chart .rbar { fill: var(--ink2); }
-.chart .tx { fill: var(--muted); font: 10px var(--font-mono); }
 .exp { display: inline-flex; gap: 6px; align-items: flex-end; }
 .partial { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
 .hb .shr { min-width: 3.5em; }
@@ -135,12 +129,17 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
             <div><span class="big mono">203</span><span class="cap">90th percentile</span></div>
           </div>
         </div>
-        <div class="chart"><svg viewBox="0 0 600 150" role="img" aria-label="Tool calls per week: 4,820, 5,610, 6,930, 5,180, and 1,740 so far this week" preserveAspectRatio="none">
-          <line class="gl" x1="40" x2="600" y1="20" y2="20"/><line class="gl" x1="40" x2="600" y1="70" y2="70"/><line class="ax" x1="40" x2="600" y1="120" y2="120"/>
-          <text class="tx" x="0" y="23">8,000</text><text class="tx" x="0" y="73">4,000</text><text class="tx" x="24" y="123">0</text>
-          <rect class="rbar" x="70" y="60" width="70" height="60"/><rect class="rbar" x="190" y="50" width="70" height="70"/><rect class="rbar" x="310" y="33" width="70" height="87"/><rect class="rbar" x="430" y="55" width="70" height="65"/><rect class="rbar" x="550" y="98" width="40" height="22"/>
-          <text class="tx" x="85" y="138">09-21</text><text class="tx" x="205" y="138">09-28</text><text class="tx" x="325" y="138">10-05</text><text class="tx" x="445" y="138">10-12</text><text class="tx" x="548" y="138">10-19*</text>
-        </svg></div>
+        <div class="chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">6,930</span><span style="top:70px">3,465</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" role="img" aria-label="Tool calls per week: 5 weeks from 2026-09-21 to 2026-10-19, highest 6,930" preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+              <rect class="rbar" x="18" y="47.4" width="84" height="62.6"/><rect class="rbar" x="138" y="37.1" width="84" height="72.9"/><rect class="rbar" x="258" y="20" width="84" height="90"/><rect class="rbar" x="378" y="42.7" width="84" height="67.3"/><rect class="rbar" x="498" y="87.4" width="84" height="22.6"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div>
+          <div class="hint" aria-hidden="true">2026-09-21 to 2026-10-19. Highest: 6,930.</div>
+        </div>
       </div>
     </section>
 
