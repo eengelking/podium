@@ -1,0 +1,251 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Admin Reporting: Tools</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #720 (Tools), built on the page shape of #484. Admin gets a Reporting menu group (seven pages here; since #432 Data kept is Admin > Server > Data, so six); Spend moves into it from Activity, and the old
+   "Reporting and security" page is renamed Security so two entries do not both say "Reporting". Colors and fonts come
+   from tokens.css through fleet.css; this file has no :root block. Only the demo chrome (.demo, .stage, .notes) and the
+   few report-only pieces (.rbar, .note-line, .chart, .exp) are the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 760px; max-width: 100%; background: var(--bg); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv[hidden] { display: none; }
+/* report-only pieces */
+.note-line { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
+.note-line b { color: var(--ink); font-weight: 600; }
+.chart { padding: 12px 16px 4px; }
+.chart svg { display: block; width: 100%; height: 150px; }
+.chart .gl { stroke: var(--grid); stroke-width: 1; }
+.chart .ax { stroke: var(--axis); stroke-width: 1; }
+.chart .rbar { fill: var(--ink2); }
+.chart .tx { fill: var(--muted); font: 10px var(--font-mono); }
+.exp { display: inline-flex; gap: 6px; align-items: flex-end; }
+.partial { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
+.hb .shr { min-width: 3.5em; }
+.rowbtn { display: inline-flex; align-items: center; gap: 8px; text-align: left; border-radius: 4px; min-height: 28px; }
+.rowbtn:hover { background: var(--hover); }
+.rowbtn[aria-expanded="true"] { background: var(--sel); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.klink { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+@media print { .demo, .nav, .notes, .banner, .exp { display: none; } .frame { height: auto; border: 0; } }
+.mtool td:first-child { padding-left: 28px; }
+.mtool { background: var(--raised); }
+.chev { width: 12px; height: 12px; flex: none; }
+.rowbtn[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.srvnote { color: var(--ink2); }
+</style>
+
+<div class="demo">
+  <b>Admin Reporting: Tools (#720)</b>
+  <span class="grp" role="group" aria-label="State">State
+    <button type="button" data-st="full" aria-pressed="true">Full history</button>
+    <button type="button" data-st="partial" aria-pressed="false">Partial history</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn" data-nav="tools" aria-current="page">Tools</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+              </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>  <div class="apage"><div class="apage-in">
+    <div class="page-h"><div><h1>Tools</h1><p class="lead">Which tools sessions call, how many calls a session makes, and which harness versions are in use. Counts and names only.</p></div>
+      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+
+    <section class="asec" aria-labelledby="t-f"><div class="asec-h"><div><h2 id="t-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="t-per">Period</label><select class="field" id="t-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="t-h">Harness</label><select class="field" id="t-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="partial" id="partial" role="status" hidden>Podium has no history before 2026-10-05. The figures below cover 2026-10-05 to 2026-10-20.</div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Counts come from every harness that reports: Claude Code and OpenCode.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="t-c"><div class="asec-h"><div><h2 id="t-c">Tool calls by week</h2><p class="hint">All harnesses, 2026-09-21 to 2026-10-20. Only tool names and counts are kept: no arguments, paths or commands.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum" style="margin-left:0;text-align:left">
+            <div><span class="big mono">24,280</span><span class="cap">tool calls</span></div>
+            <div><span class="big mono">312</span><span class="cap">sessions</span></div>
+            <div><span class="big mono">55</span><span class="cap">median calls per session</span></div>
+            <div><span class="big mono">203</span><span class="cap">90th percentile</span></div>
+          </div>
+        </div>
+        <div class="chart"><svg viewBox="0 0 600 150" role="img" aria-label="Tool calls per week: 4,820, 5,610, 6,930, 5,180, and 1,740 so far this week" preserveAspectRatio="none">
+          <line class="gl" x1="40" x2="600" y1="20" y2="20"/><line class="gl" x1="40" x2="600" y1="70" y2="70"/><line class="ax" x1="40" x2="600" y1="120" y2="120"/>
+          <text class="tx" x="0" y="23">8,000</text><text class="tx" x="0" y="73">4,000</text><text class="tx" x="24" y="123">0</text>
+          <rect class="rbar" x="70" y="60" width="70" height="60"/><rect class="rbar" x="190" y="50" width="70" height="70"/><rect class="rbar" x="310" y="33" width="70" height="87"/><rect class="rbar" x="430" y="55" width="70" height="65"/><rect class="rbar" x="550" y="98" width="40" height="22"/>
+          <text class="tx" x="85" y="138">09-21</text><text class="tx" x="205" y="138">09-28</text><text class="tx" x="325" y="138">10-05</text><text class="tx" x="445" y="138">10-12</text><text class="tx" x="548" y="138">10-19*</text>
+        </svg></div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="t-t"><div class="asec-h"><div><h2 id="t-t">Calls by tool</h2><p class="hint">An MCP server shows its total, and opens to the tools under it.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Calls by tool">
+        <thead><tr><th scope="col">Tool</th><th scope="col" class="n">Claude Code</th><th scope="col" class="n">OpenCode</th><th scope="col" class="n">Calls</th><th scope="col" class="n">Share</th></tr></thead>
+        <tbody>
+          <tr><td class="who mono">Bash</td><td class="n mono">4,310</td><td class="n mono">1,594</td><td class="n mono">5,904</td><td class="n mono">24.3%</td></tr>
+          <tr><td class="who mono">Read</td><td class="n mono">3,602</td><td class="n mono">1,518</td><td class="n mono">5,120</td><td class="n mono">21.1%</td></tr>
+          <tr><td class="who mono">Edit</td><td class="n mono">2,970</td><td class="n mono">920</td><td class="n mono">3,890</td><td class="n mono">16.0%</td></tr>
+          <tr><td class="who mono">Grep</td><td class="n mono">1,800</td><td class="n mono">510</td><td class="n mono">2,310</td><td class="n mono">9.5%</td></tr>
+          <tr>
+            <td class="who"><button type="button" class="rowbtn" aria-expanded="true" aria-controls="m-gh"><svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4-4 4"/></svg><span class="mono">github</span><span class="srvnote"> MCP server, 3 tools</span></button></td>
+            <td class="n mono">1,550</td><td class="n mono">430</td><td class="n mono">1,980</td><td class="n mono">8.2%</td></tr>
+          <tr class="mtool" data-grp="m-gh"><td class="mono">search_code</td><td class="n mono">900</td><td class="n mono">220</td><td class="n mono">1,120</td><td class="n mono">4.6%</td></tr>
+          <tr class="mtool" data-grp="m-gh"><td class="mono">get_file</td><td class="n mono">400</td><td class="n mono">210</td><td class="n mono">610</td><td class="n mono">2.5%</td></tr>
+          <tr class="mtool" data-grp="m-gh"><td class="mono">create_issue</td><td class="n mono">250</td><td class="n mono">0</td><td class="n mono">250</td><td class="n mono">1.0%</td></tr>
+          <tr>
+            <td class="who"><button type="button" class="rowbtn" aria-expanded="false" aria-controls="m-pw"><svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4-4 4"/></svg><span class="mono">playwright</span><span class="srvnote"> MCP server, 3 tools</span></button></td>
+            <td class="n mono">1,420</td><td class="n mono">0</td><td class="n mono">1,420</td><td class="n mono">5.8%</td></tr>
+          <tr class="mtool" data-grp="m-pw" hidden><td class="mono">navigate</td><td class="n mono">620</td><td class="n mono">0</td><td class="n mono">620</td><td class="n mono">2.6%</td></tr>
+          <tr class="mtool" data-grp="m-pw" hidden><td class="mono">click</td><td class="n mono">480</td><td class="n mono">0</td><td class="n mono">480</td><td class="n mono">2.0%</td></tr>
+          <tr class="mtool" data-grp="m-pw" hidden><td class="mono">snapshot</td><td class="n mono">320</td><td class="n mono">0</td><td class="n mono">320</td><td class="n mono">1.3%</td></tr>
+          <tr><td class="who mono">Write</td><td class="n mono">870</td><td class="n mono">376</td><td class="n mono">1,246</td><td class="n mono">5.1%</td></tr>
+          <tr><td class="who mono">Task</td><td class="n mono">610</td><td class="n mono">130</td><td class="n mono">740</td><td class="n mono">3.0%</td></tr>
+          <tr><td class="who">Other, 14 tools</td><td class="n mono">1,070</td><td class="n mono">600</td><td class="n mono">1,670</td><td class="n mono">6.9%</td></tr>
+        </tbody>
+        <tfoot><tr><th scope="row">Total</th><td class="n mono">18,202</td><td class="n mono">6,078</td><td class="n mono">24,280</td><td class="n mono">100%</td></tr></tfoot>
+      </table></div>
+      <div class="apager"><span class="hint" role="status">Showing 1 to 9 of 9</span><span class="row2"><label class="hint" for="t-size">Rows per page</label><select class="field sm" id="t-size"><option>50</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="t-s"><div class="asec-h"><div><h2 id="t-s">Calls per session</h2><p class="hint">The middle session and the busier tenth, so one long session does not hide the rest.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Calls per session by week">
+        <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Median</th><th scope="col" class="n">90th percentile</th></tr></thead>
+        <tbody>
+          <tr><td class="who">2026-10-19 (so far)</td><td class="n mono">20</td><td class="n mono">49</td><td class="n mono">160</td></tr>
+          <tr><td class="who">2026-10-12</td><td class="n mono">69</td><td class="n mono">54</td><td class="n mono">198</td></tr>
+          <tr><td class="who">2026-10-05</td><td class="n mono">88</td><td class="n mono">60</td><td class="n mono">221</td></tr>
+          <tr><td class="who">2026-09-28</td><td class="n mono">74</td><td class="n mono">57</td><td class="n mono">201</td></tr>
+          <tr><td class="who">2026-09-21</td><td class="n mono">61</td><td class="n mono">52</td><td class="n mono">190</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><th scope="row">Whole period, all harnesses</th><td class="n mono">312</td><td class="n mono">55</td><td class="n mono">203</td></tr>
+          <tr><th scope="row">Claude Code</th><td class="n mono">241</td><td class="n mono">58</td><td class="n mono">214</td></tr>
+          <tr><th scope="row">OpenCode</th><td class="n mono">71</td><td class="n mono">49</td><td class="n mono">171</td></tr>
+        </tfoot>
+      </table></div>
+      <div class="note-line">Medians and percentiles come from sessions grouped by number of calls, so they can be a few calls off for sessions above 100 calls.</div></div>
+    </section>
+
+    <section class="asec" aria-labelledby="t-v"><div class="asec-h"><div><h2 id="t-v">Harness versions</h2><p class="hint">Reporters on each version, per week. Each harness is compared only with its own newest version.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum" style="margin-left:0;text-align:left">
+            <div><span class="big mono">2 of 6</span><span class="cap">Claude Code reporters older than 2.1.319</span></div>
+            <div><span class="big mono">0 of 2</span><span class="cap">OpenCode reporters older than 1.4.2</span></div>
+          </div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Reporters by harness version and week">
+          <thead><tr><th scope="col">Harness and version</th><th scope="col" class="n">09-21</th><th scope="col" class="n">09-28</th><th scope="col" class="n">10-05</th><th scope="col" class="n">10-12</th><th scope="col" class="n">10-19*</th><th scope="col">Now</th></tr></thead>
+          <tbody>
+            <tr><td class="who mono">Claude Code 2.1.319</td><td class="n mono">0</td><td class="n mono">0</td><td class="n mono">2</td><td class="n mono">5</td><td class="n mono">4</td><td>Newest seen</td></tr>
+            <tr><td class="who mono">Claude Code 2.1.305</td><td class="n mono">4</td><td class="n mono">5</td><td class="n mono">5</td><td class="n mono">3</td><td class="n mono">2</td><td>Older</td></tr>
+            <tr><td class="who mono">Claude Code 2.1.288</td><td class="n mono">6</td><td class="n mono">5</td><td class="n mono">4</td><td class="n mono">2</td><td class="n mono">0</td><td>Older</td></tr>
+            <tr><td class="who mono">OpenCode 1.4.2</td><td class="n mono">0</td><td class="n mono">0</td><td class="n mono">2</td><td class="n mono">3</td><td class="n mono">2</td><td>Newest seen</td></tr>
+            <tr><td class="who mono">OpenCode 1.3.9</td><td class="n mono">2</td><td class="n mono">4</td><td class="n mono">2</td><td class="n mono">0</td><td class="n mono">0</td><td>Older</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Reporters</th><td class="n mono">12</td><td class="n mono">14</td><td class="n mono">15</td><td class="n mono">13</td><td class="n mono">8</td><td></td></tr></tfoot>
+        </table></div>
+        <div class="note-line">A reporter counts in the week it reported. People and groups keeps its own list of the versions in use today.</div>
+      </div>
+    </section>
+  </div></div>
+</div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li>A <b>Tools</b> page in the Reporting group, built like the other report pages: Period and filters, the "based on" line, a summary, one neutral-ink chart, tables, the pager, and CSV / JSON / Print.</li>
+    <li><b>All harnesses.</b> Figures cover every harness that reports (Claude Code and OpenCode today, any added later). A Harness filter narrows them. The tool table shows one column per harness beside the total, and the exports carry a harness column. The version table compares each harness with its own newest version only.</li>
+    <li><b>MCP servers</b> are a row with their total and a chevron button; opening it shows the server's tools, indented, adding up to the server row.</li>
+    <li><b>Calls per session</b> is a median and a 90th percentile, per period and for the whole period by harness, not only an average.</li>
+    <li><b>Partial history</b> shows the existing "Podium has no history before ..." line and never draws zeros for the missing days.</li>
+    <li>Only tool names and counts are stored; the page says so under the chart heading.</li>
+    <li>Not new: the colors, fonts, table, segmented control, pager, summary figures and the rowbtn all exist already. The one small addition is the indented sub-row of an opened MCP server (<code>.mtool</code>), to be added to the standards if the maintainer accepts the page.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  document.querySelectorAll("[data-st]").forEach(function (b) { b.addEventListener("click", function () { var s = b.getAttribute("data-st"); document.getElementById("partial").hidden = s !== "partial"; press("[data-st]", "data-st", s); }); });
+  document.querySelectorAll(".rowbtn[aria-controls]").forEach(function (b) { b.addEventListener("click", function () {
+    var open = b.getAttribute("aria-expanded") !== "true"; b.setAttribute("aria-expanded", String(open));
+    document.querySelectorAll('[data-grp="' + b.getAttribute("aria-controls") + '"]').forEach(function (r) { r.hidden = !open; });
+  }); });
+  root.setAttribute("data-theme", "dark");
+})();
+</script>
