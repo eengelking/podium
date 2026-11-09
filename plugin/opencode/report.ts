@@ -1,5 +1,6 @@
 // A Root as a v2 report (#855). Pure. The harness block, the capabilities and the session's `harness` come from here;
 // everything shared (the report types, redaction, the plan) comes from core.
+import { pct } from '../core/contextFill.ts';
 import { cap, clip, excerpt, whole, LIMITS, reportedFailure } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
@@ -43,11 +44,6 @@ export interface ReportMeta {
   sessionRecording?: boolean;
   /** The `PODIUM_PEERS` consent: this orchestrator may message the person's others (#347). Always stated: `false` when off, so the server reads a session with messaging off as "messaging off", not as one that cannot message (SPEC 6.2). */
   peers?: boolean;
-}
-
-function pct(tokens: number | null, window: number | null): number | null {
-  if (tokens === null || !window) return null;
-  return Math.round(Math.min(100, (tokens / window) * 100) * 10) / 10;
 }
 
 function contextOf(s: Sess, meta: ReportMeta): ContextFill {

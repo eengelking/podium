@@ -1,6 +1,7 @@
 // What the OpenCode reporter tells the person (#969): the transport's notices as console lines said once, the text of `/podium`, and the
 // toast the TUI part shows when the connection changes. Pure; index.ts and tui.ts only carry the text to where it is shown.
 import { connectionLine } from '../core/podiumCommand.ts';
+import { podiumSays, SERVER_FLAG_OFF } from '../core/messagingStatus.ts';
 import { ADMIN_NOTICE_TOAST_MS } from '../core/adminNotice.ts';
 import type { NoticeEvent } from './bridge.ts';
 import type { Summary } from './reporter.ts';
@@ -41,14 +42,14 @@ export function messagingOffReason(m: Summary['messaging'], signedIn: boolean): 
   if (!m.canPrompt) return 'this OpenCode cannot submit a prompt, so no message could enter a session';
   if (!signedIn) return "there is no per-person token with a user name, or reporter config file: messaging is only between one person's own reporters, so set both";
   if (!m.reported) return 'no session has reported yet: send it a prompt';
-  if (!m.serverSays) return "Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret, which belongs to no person";
+  if (!m.serverSays) return SERVER_FLAG_OFF;
   return null;
 }
 
 /** The `Messaging:` line of `/podium`: the verdict, then each fact behind it. */
 export function messagingLine(m: Summary['messaging'], signedIn: boolean): string {
   const why = messagingOffReason(m, signedIn);
-  const says = !m.reported ? 'nothing yet' : m.serverSays ? 'takes part' : 'does not take part';
+  const says = podiumSays(m.reported, m.serverSays);
   return `Messaging: ${why === null ? 'on' : `off, because ${why}`}. PODIUM_PEERS: ${m.option ? 'on' : 'off'}; Podium says: ${says}`;
 }
 
