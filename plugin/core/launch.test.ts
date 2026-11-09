@@ -24,6 +24,13 @@ describe('launchId', () => {
     expect(launchId('abcdefghijklmnopqrstuvw-xyz').endsWith('-')).toBe(false);
   });
 
+  it('trims a long run of hyphens in linear time', () => {
+    const t = Date.now();
+    expect(launchId('-'.repeat(20_000))).toBe('launch-');
+    expect(launchId('a' + '-'.repeat(20_000))).toBe('launch-a');
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+
   it('does not mistake a real session id for a launch one', () => {
     expect(isLaunchId('ses_abc')).toBe(false);
     expect(isLaunchId('seed-dev-1')).toBe(false);

@@ -11,7 +11,11 @@ const RANDOM_MAX = 24;
 
 /** The placeholder's session id for a harness that has none at launch. `random` is any unique text; characters the server refuses in an id are dropped. */
 export function launchId(random: string): string {
-  return `${LAUNCH_PREFIX}${random.replaceAll(/[^A-Za-z0-9_-]/g, '').slice(0, RANDOM_MAX).replace(/-+$/, '')}`;
+  const cut = random.replaceAll(/[^A-Za-z0-9_-]/g, '').slice(0, RANDOM_MAX);
+  // A hyphen left at the end by the cut is dropped by hand: a regular expression for it backtracks (S8786).
+  let end = cut.length;
+  while (end > 0 && cut[end - 1] === '-') end--;
+  return `${LAUNCH_PREFIX}${cut.slice(0, end)}`;
 }
 
 /** Whether `id` is a placeholder from `launchId`, never a session the harness made. */
