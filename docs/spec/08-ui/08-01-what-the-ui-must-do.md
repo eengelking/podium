@@ -510,6 +510,15 @@ menu and the page scroll on their own.
     title line, as the Spend projection does. The Harness filter narrows these four sections. The report above them is not kept per harness, so it is never sent the
     filter and the page says it covers every harness. A Person, Group or Model filter holds the four sections back with a line that says why. Where waiting was not
     recorded yet (it is recorded from the upgrade on) the period shows a dash and the page says from which day it is. Durations use the app's duration format.
+    Since #723 (`mockup/podium-admin-reporting-cost-tokens.html`) the page adds two more after them: *Model and effort mix* (the share of sessions on each model, or at each effort with
+    **Mix of**, in each day, week or month, the long tail as one column) and *Context fullness at the end* (sessions that ended under 50%, from 50% to 80% and above 80% full, and how many
+    compacted on their own or continued after a `/clear`, with a row for each harness). Each has its own CSV and JSON, follows the Harness filter and is held back by a Person, Group or Model
+    filter with the same line. A session with no context size is counted in a line under the table, not in a row.
+  - **Tools** (#720 to #723): since #723 two sections follow *Calls by tool*: *Cost per tool call and per session* (by model and harness, with the priced total; a model without a price
+    shows a dash and its calls are counted apart) and *What sessions that used a tool cost* (the average priced spend of a session that called each tool, paged, labelled as not the
+    tool's own cost, which Podium cannot measure). Each has its own CSV and JSON and follows the Harness filter.
+  - **Spend** (#723): a fourth section, *Tokens and cache hit rate*, after Spend over time: the four token counts and the cache hit rate in each period as a chart and a table, with a row for the
+    whole period and for each harness. It has its own Harness filter and CSV and JSON, and says that cache hit rate is cache read over all input.
   - **Failures**: counts by failure class and tool, over time and by person, each class row linking to History
     filtered to those sessions while they are within the 30 days History keeps. It is the root-cause report.
   - **Admin activity**: the Admin log filtered by kind and period, read from `admin_log` (90 days).

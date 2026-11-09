@@ -1,4 +1,4 @@
-// Contract cases for the report and rollup queries behind Admin > Reporting (#890): the eleven daily rollup tables (three are the tool counts of #720, four the session time, agents, people and hours of #722), the stored sessions
+// Contract cases for the report and rollup queries behind Admin > Reporting (#890): the thirteen daily rollup tables (three are the tool counts of #720, four the session time, agents, people and hours of #722, two the cost and context of #723), the stored sessions
 // the reports read, the people and counts beside them, and the Admin log. One scenario runs over every adapter
 // (`sameOnAll`). Several rows share a day, an owner or a time on purpose, so the order of ties is part of what is compared.
 import { it, expect } from 'vitest';
@@ -8,7 +8,7 @@ import type { AgentRow, SessionWaitRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
 
 const T0 = 1_800_000_000_000;
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
   day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
@@ -64,6 +64,16 @@ export function reportCases(o: Openers): void {
         { day: '2026-10-02', owner: 'zed', group: '', harness: 'opencode', sessions: 1 }, { day: '2026-10-02', owner: 'Ann', group: 'Crew', harness: 'claude-code', sessions: 2 }, { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'claude-code', sessions: 1 },
         { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'opencode', sessions: 4 }, { day: '2026-10-01', owner: '', group: '', harness: 'claude-code', sessions: 1 },
       ]);
+      // what sessions cost and how they ended, by harness, model and effort, and by tool (#723): ties on every key but one, and a model with no price (cost 0, none priced)
+      const cost = (day: string, harness: string, model: string, effort: string, over: object = {}) => ({ day, harness, model, effort, sessions: 2, pricedSessions: 2, calls: 10, pricedCalls: 10, costUsd: 0.1 + 0.2, callCostUsd: 0.25, tokIn: 5, tokOut: 6, tokCr: 7, tokCw: 8, endedLow: 1, endedMid: 0, endedHigh: 1, endedUnknown: 0, compacted: 1, cleared: 0, ...over });
+      await f.insertCostDaily([
+        cost('2026-10-02', 'opencode', 'opus', 'high'), cost('2026-10-02', 'claude-code', 'opus', 'low'), cost('2026-10-02', 'claude-code', 'Opus', 'low', { sessions: 1 }), cost('2026-10-02', 'claude-code', 'opus', 'high'),
+        cost('2026-10-02', 'claude-code', 'mystery', '', { pricedSessions: 0, pricedCalls: 0, costUsd: 0, callCostUsd: 0, cleared: 1 }), cost('2026-10-01', 'claude-code', 'opus', 'high'),
+      ]);
+      await f.insertToolCostDaily([
+        { day: '2026-10-02', harness: 'opencode', tool: 'Bash', sessions: 2, pricedSessions: 2, costUsd: 0.5, calls: 9 }, { day: '2026-10-02', harness: 'claude-code', tool: 'Bash', sessions: 3, pricedSessions: 1, costUsd: 0.25, calls: 12 },
+        { day: '2026-10-02', harness: 'claude-code', tool: 'bash', sessions: 1, pricedSessions: 1, costUsd: 0.1 + 0.2, calls: 1 }, { day: '2026-10-01', harness: 'claude-code', tool: 'Edit', sessions: 1, pricedSessions: 0, costUsd: 0, calls: 4 },
+      ]);
       await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 3 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 1 }, { day: '2026-10-02', harness: 'claude-code', hour: 9, peak: 2 }, { day: '2026-10-01', harness: '', hour: 0, peak: 1 }]);
       await rec('hour peaks stored', f.rollupRows('hour_peaks_daily', '2026-10-01', '2026-10-31'));
       await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 2 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 5 }]);
@@ -94,6 +104,8 @@ export function reportCases(o: Openers): void {
     expect((t.get('rows session_time_daily') as unknown[]).length).toBe(4);
     expect((t.get('rows agents_daily') as unknown[]).length).toBe(5);
     expect((t.get('rows person_sessions_daily') as unknown[]).length).toBe(5);
+    expect((t.get('rows cost_daily') as unknown[]).length).toBe(6);
+    expect((t.get('rows tool_cost_daily') as unknown[]).length).toBe(4);
     expect(t.get('peak never goes down')).toBe(3);
     const hours = t.get('hour peak never goes down, and a higher one is kept') as { harness: string; hour: number; peak: number }[];
     expect(hours.map((r) => `${r.harness || 'all'}/${r.hour}=${r.peak}`)).toEqual(['all/14=3', 'claude-code/9=2', 'opencode/14=5']);

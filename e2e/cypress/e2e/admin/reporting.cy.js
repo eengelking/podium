@@ -282,4 +282,94 @@ describe('admin: reporting', () => {
     cy.get('table[aria-label="Sessions per person per day"]').should('not.exist');
     cy.get('[role=alert]').should('not.exist');
   });
+
+  // Cost and tokens (#723): every harness. The seed has only today's live figures and no seed option reports costs per model, so the shape, the exports, the filters, the
+  // held-back line and the empty period are what is checked. Each section settles to a table, its empty line or a blank partial period, and never to an error.
+  const settled = (id, table, empty) =>
+    cy.get(`section[aria-labelledby="${id}"]`).should(($s) => {
+      const text = $s.text();
+      expect(text, `${id} has settled`).not.to.contain('Loading');
+      expect($s.find('[role=alert]').length, `${id} shows no error`).to.equal(0);
+      expect($s.find(`table[aria-label="${table}"]`).length > 0 || text.includes(empty) || $s.find('.empty').length === 0, `${id} shows its table, its empty line or nothing`).to.equal(true);
+    });
+
+  it('Tools: shows what a tool call and a session cost, and what sessions that used each tool cost', () => {
+    cy.openAdmin('Tools');
+    cy.contains('h2', 'Cost per tool call and per session');
+    cy.contains('h2', 'What sessions that used a tool cost');
+    cy.contains('says where heavy sessions use a tool, not what the tool cost', { matchCase: false }).should('exist');
+    settled('rep-costs-m', 'Cost per call by model', 'No sessions in this period.');
+    settled('rep-costs-t', 'Sessions that used each tool', 'No tool calls in this period.');
+    for (const noun of ['cost per call', 'sessions by tool']) {
+      cy.get(`button[aria-label="Download ${noun} CSV"]`).should('exist');
+      cy.get(`button[aria-label="Download ${noun} JSON"]`).should('exist');
+    }
+  });
+
+  it('Tools: a period before the history reads as empty in the cost sections, not as an error', () => {
+    cy.openAdmin('Tools');
+    cy.contains('label', 'Period').parent().find('select').select('Last month');
+    cy.contains('h2', 'Cost per tool call and per session').should('exist');
+    cy.get('table[aria-label="Cost per call by model"]').should('not.exist');
+    cy.get('table[aria-label="Sessions that used each tool"]').should('not.exist');
+    cy.get('[role=alert]').should('not.exist');
+  });
+
+  it('Spend: shows tokens and cache hit rate with a Harness filter of its own, and exports its table', () => {
+    cy.openAdmin('Spend');
+    cy.contains('h2', 'Tokens and cache hit rate');
+    settled('rep-costs-k', 'Tokens by period', 'No sessions in this period.');
+    sectionOf('Tokens and cache hit rate').within(() => {
+      cy.contains('label', 'Harness').parent().find('select').find('option').first().should('have.text', 'All harnesses');
+      cy.get('button[aria-label="Download tokens CSV"]').should('exist');
+      cy.get('button[aria-label="Download tokens JSON"]').should('exist');
+    });
+  });
+
+  it('Spend: the tokens section keeps its Harness choice and does not error', () => {
+    cy.openAdmin('Spend');
+    settled('rep-costs-k', 'Tokens by period', 'No sessions in this period.');
+    sectionOf('Tokens and cache hit rate').within(() => {
+      cy.contains('label', 'Harness').parent().find('select').find('option').should('have.length.greaterThan', 1);
+      cy.contains('label', 'Harness').parent().find('select').find('option').eq(1).invoke('text').then((name) => cy.contains('label', 'Harness').parent().find('select').select(name));
+    });
+    settled('rep-costs-k', 'Tokens by period', 'No sessions in this period.');
+    cy.get('[role=alert]').should('not.exist');
+  });
+
+  it('Sessions: shows the model and effort mix with a Mix of choice, and how full the context was at the end', () => {
+    cy.openAdmin('Sessions');
+    cy.contains('h2', 'Model and effort mix');
+    cy.contains('h2', 'Context fullness at the end');
+    settled('rep-costs-x', 'Model mix by period', 'No sessions in this period.');
+    settled('rep-costs-c', 'Context fullness at the end', 'No sessions in this period.');
+    sectionOf('Model and effort mix').within(() => {
+      cy.get('[role=group][aria-label="Mix of"]').contains('button', 'Model').should('have.attr', 'aria-pressed', 'true');
+      cy.get('[role=group][aria-label="Mix of"]').contains('button', 'Effort').click().should('have.attr', 'aria-pressed', 'true');
+      cy.get('button[aria-label="Download effort mix CSV"]').should('exist');
+    });
+    settled('rep-costs-x', 'Effort mix by period', 'No sessions in this period.');
+    for (const noun of ['effort mix', 'context at the end']) {
+      cy.get(`button[aria-label="Download ${noun} CSV"]`).should('exist');
+      cy.get(`button[aria-label="Download ${noun} JSON"]`).should('exist');
+    }
+  });
+
+  it('Sessions: a Model filter holds the mix and context sections back and says why', () => {
+    cy.openAdmin('Sessions');
+    cy.contains('label', 'Model').parent().find('select').select('claude-opus-5-5');
+    sectionOf('Model and effort mix').contains('are not shown while a Person, Group or Model filter is set.').should('exist');
+    sectionOf('Context fullness at the end').contains('are not shown while a Person, Group or Model filter is set.').should('exist');
+    cy.get('table[aria-label="Context fullness at the end"]').should('not.exist');
+    cy.contains('label', 'Model').parent().find('select').select('All models');
+    settled('rep-costs-c', 'Context fullness at the end', 'No sessions in this period.');
+  });
+
+  it('Sessions: a period before the history reads as empty in the mix and context sections, not as an error', () => {
+    cy.openAdmin('Sessions');
+    cy.contains('label', 'Period').parent().find('select').select('Last month');
+    cy.contains('h2', 'Context fullness at the end').should('exist');
+    cy.get('table[aria-label="Context fullness at the end"]').should('not.exist');
+    cy.get('[role=alert]').should('not.exist');
+  });
 });

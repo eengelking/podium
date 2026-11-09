@@ -11,6 +11,7 @@ import { Pager } from "./Pager";
 import { ExportButtons, ReportBody, ReportChart, ReportExport, ReportFilters } from "./ReportParts";
 import { resultsHeading } from "./ReportPages";
 import { formatCell, harnessName, reportErrorText, saveFile, type ReportColumn, type ReportReply, type ReportRow, type ReportsClient } from "./reportsApi";
+import { MixSections } from "./CostSections";
 import { Waiting } from "./ToolsPage";
 import { useReport, type ReportConfig, type ReportState } from "./useReport";
 
@@ -32,16 +33,20 @@ const andList = (items: string[]): string => (items.length < 2 ? items.join("") 
 /** The figures beside a chart of seconds, short enough for the 44 px they have: 20h, 45m. */
 const hoursAxis = (v: number): string => (v >= 3600 ? `${Math.round(v / 3600)}h` : v >= 60 ? `${Math.round(v / 60)}m` : `${Math.round(v)}s`);
 
-interface SectionState {
+export interface SectionState {
   reply: ReportReply | null;
   error: string | null;
   exportAs: (format: "csv" | "json") => Promise<void>;
   exportError: string | null;
 }
 
-interface Spec {
-  report: "sessiontime" | "workload";
+export interface Spec {
+  report: "sessiontime" | "workload" | "costs";
   breakdown: string;
+  /** The Harness filter, when the page has none of its own to send (#723). */
+  harness?: string;
+  /** The costs report's mix: by model or by effort. */
+  mixof?: string;
   /** Whether the report is cut into days, weeks or months. */
   by?: boolean;
   /** Whether the page's Group filter is sent. */
@@ -51,7 +56,7 @@ interface Spec {
 }
 
 /** One more answer for the period and the Harness filter the page has, with the export of exactly that answer. */
-function useSection(client: ReportsClient, r: ReportState, spec: Spec, onLocked: () => void): SectionState {
+export function useSection(client: ReportsClient, r: ReportState, spec: Spec, onLocked: () => void): SectionState {
   const [state, setState] = useState<{
     reply: ReportReply | null;
     error: string | null;
@@ -62,8 +67,8 @@ function useSection(client: ReportsClient, r: ReportState, spec: Spec, onLocked:
     () =>
       problem || spec.blocked
         ? null
-        : `/reports/${spec.report}${query({ from: range.from, to: range.to, by: spec.by ? prefs.by : undefined, breakdown: spec.breakdown, harness: prefs.harness, group: spec.group ? prefs.group : undefined })}`,
-    [problem, spec.blocked, spec.report, spec.breakdown, spec.by, spec.group, range.from, range.to, prefs.by, prefs.harness, prefs.group],
+        : `/reports/${spec.report}${query({ from: range.from, to: range.to, by: spec.by ? prefs.by : undefined, breakdown: spec.breakdown, mixof: spec.mixof, harness: spec.harness ?? prefs.harness, group: spec.group ? prefs.group : undefined })}`,
+    [problem, spec.blocked, spec.report, spec.breakdown, spec.mixof, spec.harness, spec.by, spec.group, range.from, range.to, prefs.by, prefs.harness, prefs.group],
   );
   const lock = useRef(onLocked);
   lock.current = onLocked;
@@ -102,7 +107,7 @@ function useSection(client: ReportsClient, r: ReportState, spec: Spec, onLocked:
 }
 
 /** A section whose title line carries the CSV and JSON of its own table, as the Spend projection's does. */
-function DataSection({ id, title, help, noun, s, children }: { id: string; title: string; help?: string; noun: string; s: SectionState; children: React.ReactNode }) {
+export function DataSection({ id, title, help, noun, s, children }: { id: string; title: string; help?: string; noun: string; s: SectionState; children: React.ReactNode }) {
   return (
     <section className="asec" aria-labelledby={id}>
       <div className="asec-h">
@@ -117,7 +122,7 @@ function DataSection({ id, title, help, noun, s, children }: { id: string; title
   );
 }
 
-const BLOCKED = "These figures are kept for every person, group and model together, so they are not shown while a Person, Group or Model filter is set.";
+export const BLOCKED = "These figures are kept for every person, group and model together, so they are not shown while a Person, Group or Model filter is set.";
 
 // ---- Sessions ---------------------------------------------------------------------------------------
 
@@ -520,6 +525,7 @@ export function SessionsPage({ cfg, client, onLocked }: { cfg: ReportConfig; cli
               </Waiting>
             )}
           </DataSection>
+          <MixSections client={client} r={r} onLocked={onLocked} />
         </>
       )}
     </>

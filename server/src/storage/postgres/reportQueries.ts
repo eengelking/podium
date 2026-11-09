@@ -1,14 +1,14 @@
 // The report and rollup queries behind Admin > Reporting on PostgreSQL (#822): the SQLite `SqliteReportQueries` over `PgDb`. Every ordering
 // SQLite got from a primary-key index or a group is stated here.
-import type { AgentDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
+import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { RollupRaw, RollupTable, StoredSession, ReportQueries } from '../reportQueries.js';
 import type { SessionWaitRow } from '../rows.js';
 import type { Async } from '../types.js';
 import type { PgDb } from './conn.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
-const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily'];
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily'];
 
 /** Each rollup table's primary key, which is the order SQLite read a day range in. */
 const ORDER: Record<RollupTable, string> = {
@@ -24,6 +24,8 @@ const ORDER: Record<RollupTable, string> = {
   agents_daily: 'day, harness, type, depth',
   person_sessions_daily: 'day, owner, harness',
   hour_peaks_daily: 'day, harness, hour',
+  cost_daily: 'day, harness, model, effort',
+  tool_cost_daily: 'day, harness, tool',
 };
 
 /** Only the sessions chosen by the period, so the cost of a report follows its period and not the whole history (#529). */
@@ -201,6 +203,23 @@ export class PgReportQueries implements Async<ReportQueries> {
   insertPersonSessionsDaily(rows: PersonDay[]): Promise<void> {
     return this.db.tx(async () => {
       for (const r of rows) await this.db.run('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)', [r.day, r.owner, r.group, r.harness, r.sessions]);
+    });
+  }
+
+  insertCostDaily(rows: CostDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) {
+        await this.db.run(
+          'INSERT INTO cost_daily (day, harness, model, effort, sessions, priced_sessions, calls, priced_calls, cost_usd, call_cost_usd, tok_in, tok_out, tok_cr, tok_cw, ended_low, ended_mid, ended_high, ended_unknown, compacted, cleared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [r.day, r.harness, r.model, r.effort, r.sessions, r.pricedSessions, r.calls, r.pricedCalls, r.costUsd, r.callCostUsd, r.tokIn, r.tokOut, r.tokCr, r.tokCw, r.endedLow, r.endedMid, r.endedHigh, r.endedUnknown, r.compacted, r.cleared],
+        );
+      }
+    });
+  }
+
+  insertToolCostDaily(rows: ToolCostDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)', [r.day, r.harness, r.tool, r.sessions, r.pricedSessions, r.costUsd, r.calls]);
     });
   }
 

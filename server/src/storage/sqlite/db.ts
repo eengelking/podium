@@ -498,6 +498,26 @@ CREATE TABLE IF NOT EXISTS hour_peaks_daily (
   PRIMARY KEY (day, harness, hour)
 );`,
   },
+  {
+    version: 40,
+    // What sessions cost and how they ended (#723), behind Admin > Reporting > Tools, Spend and Sessions. `cost_daily` is a day's sessions of one harness, model and
+    // effort: their count, the calls they made, the priced cost, the token split and how full their context was when they ended. `tool_cost_daily` is the sessions that
+    // called one tool and what they cost. Counts, tokens and names only: never a prompt, a tool's input or a path. Written by the hourly retention like the other rollups.
+    sql: `
+CREATE TABLE IF NOT EXISTS cost_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, calls INTEGER NOT NULL, priced_calls INTEGER NOT NULL, cost_usd REAL NOT NULL, call_cost_usd REAL NOT NULL,
+  tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL,
+  ended_low INTEGER NOT NULL, ended_mid INTEGER NOT NULL, ended_high INTEGER NOT NULL, ended_unknown INTEGER NOT NULL,
+  compacted INTEGER NOT NULL, cleared INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, model, effort)
+);
+CREATE TABLE IF NOT EXISTS tool_cost_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, cost_usd REAL NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

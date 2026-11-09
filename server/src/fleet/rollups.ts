@@ -199,6 +199,53 @@ export interface HourPeakDay {
   peak: number;
 }
 
+/**
+ * The sessions of one harness, model and effort last seen on a day, and what they cost and how they ended (#723): how many, how many had a price, the tool
+ * calls they made (and those of the priced ones, for a cost per call), the priced cost, the token split, how full the context window was when they ended
+ * (under 50%, 50% to 80%, above 80%, or not reported), how many compacted on their own and how many continued after a /clear. Counts, tokens and names only.
+ */
+export interface CostDay {
+  day: string;
+  harness: string;
+  model: string;
+  effort: string;
+  sessions: number;
+  pricedSessions: number;
+  calls: number;
+  pricedCalls: number;
+  costUsd: number;
+  /** The priced cost of the sessions that have tool counts, so a cost per call is not inflated by a session that has none (one stored before counts were kept). */
+  callCostUsd: number;
+  tokIn: number;
+  tokOut: number;
+  tokCr: number;
+  tokCw: number;
+  endedLow: number;
+  endedMid: number;
+  endedHigh: number;
+  endedUnknown: number;
+  compacted: number;
+  cleared: number;
+}
+
+/** The sessions of one harness that called one tool on a day, with their priced cost and the calls of that tool (#723). A tool has no cost of its own: this is what the sessions that used it cost. */
+export interface ToolCostDay {
+  day: string;
+  harness: string;
+  tool: string;
+  sessions: number;
+  pricedSessions: number;
+  costUsd: number;
+  calls: number;
+}
+
+/** How full a context window was when a session ended: under 50%, 50% to 80% (included), above 80%, or not reported. */
+export function contextEnd(percent: number | null): 'low' | 'mid' | 'high' | 'unknown' {
+  if (percent === null || !Number.isFinite(percent)) return 'unknown';
+  if (percent < 50) return 'low';
+  return percent > 80 ? 'high' : 'mid';
+}
+
 /** A day's session time while it is added up: the waiting in milliseconds, rounded to seconds once at the end. */
 interface TimeAcc extends SessionTimeDay {
   ms: Record<WaitKind, number>;
@@ -236,6 +283,8 @@ export interface DayRollups {
   sessionTime: SessionTimeDay[];
   agentTypes: AgentDay[];
   personDays: PersonDay[];
+  costDays: CostDay[];
+  toolCosts: ToolCostDay[];
   /** Which stored sessions had each failure (not kept in a rollup; the History link reads it while the sessions last). */
   failureSessions: { day: string; owner: string; cls: string; tool: string; sessionId: string; harness: string }[];
 }
@@ -322,6 +371,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const reporterOf = new Map<string, string>();
   for (const r of await db.reporterKeysSince(fromMs)) reporterOf.set(r.id, r.k);
   const failureRows = await db.failureRowsSince(fromMs);
+  // Sessions that compacted on their own (#723): counted from the events, which are kept 30 days, so a day older than that is not rebuilt.
+  const compactionsOf = await db.countAutoCompactionsOf(sessions.map((s) => s.id));
   // Waiting on a person (#722) and who launched each agent: names, times and links only.
   const waitsOf = new Map((await db.waitsSince(fromMs)).map((w) => [w.session_id, w] as const));
   const linksOf = new Map<string, { agent: string; parent: string | null; type: string }[]>();
@@ -373,6 +424,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const timeAcc = new Map<string, TimeAcc>();
   const agentTypes = new Map<string, AgentDay>();
   const personDays = new Map<string, PersonDay>();
+  const costDays = new Map<string, CostDay>();
+  const toolCosts = new Map<string, ToolCostDay>();
   interface FleetAcc {
     people: Set<string>;
     reporters: Set<string>;
@@ -505,6 +558,46 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     pd.sessions += 1;
     personDays.set(pk, pd);
 
+    // What the session cost and how it ended, by model and effort, and by each tool it called (#723).
+    const priced = c !== null;
+    const ck = `${day}\u0000${harness}\u0000${model}\u0000${effort}`;
+    const cd =
+      costDays.get(ck) ??
+      ({ day, harness, model, effort, sessions: 0, pricedSessions: 0, calls: 0, pricedCalls: 0, costUsd: 0, callCostUsd: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0, endedLow: 0, endedMid: 0, endedHigh: 0, endedUnknown: 0, compacted: 0, cleared: 0 } satisfies CostDay);
+    cd.sessions += 1;
+    cd.calls += total;
+    if (priced) {
+      cd.pricedSessions += 1;
+      cd.costUsd += c;
+      if (calls) {
+        cd.pricedCalls += total;
+        cd.callCostUsd += c;
+      }
+    }
+    cd.tokIn += s.tok_in ?? 0;
+    cd.tokOut += s.tok_out ?? 0;
+    cd.tokCr += s.tok_cr ?? 0;
+    cd.tokCw += s.tok_cw ?? 0;
+    const ended = contextEnd(s.context_percent);
+    if (ended === 'low') cd.endedLow += 1;
+    else if (ended === 'mid') cd.endedMid += 1;
+    else if (ended === 'high') cd.endedHigh += 1;
+    else cd.endedUnknown += 1;
+    if ((compactionsOf.get(s.id) ?? 0) > 0) cd.compacted += 1;
+    if (s.cleared_from) cd.cleared += 1;
+    costDays.set(ck, cd);
+    for (const [tool, n] of calls ?? []) {
+      const tck = `${day}\u0000${harness}\u0000${tool}`;
+      const tc = toolCosts.get(tck) ?? ({ day, harness, tool, sessions: 0, pricedSessions: 0, costUsd: 0, calls: 0 } satisfies ToolCostDay);
+      tc.sessions += 1;
+      tc.calls += n;
+      if (priced) {
+        tc.pricedSessions += 1;
+        tc.costUsd += c;
+      }
+      toolCosts.set(tck, tc);
+    }
+
     const fl = fleetOf(day);
     if (owner) fl.people.add(owner);
     const machine = safeParse<{ id?: string } | null>(s.machine_json, null)?.id;
@@ -547,6 +640,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     sessionTime: [...timeAcc.values()].map(({ ms, ...row }) => ({ ...row, permissionS: Math.round(ms.permission / 1000), questionS: Math.round(ms.question / 1000), planS: Math.round(ms.plan / 1000) })),
     agentTypes: [...agentTypes.values()],
     personDays: [...personDays.values()],
+    costDays: [...costDays.values()],
+    toolCosts: [...toolCosts.values()],
     failureSessions: failSessions,
   };
 }
@@ -667,6 +762,8 @@ export function writeRollups(storage: Storage, now: number, cost: CostOf, p: Rol
       await db.insertSessionTimeDaily(built.sessionTime.filter((r) => wanted(r.day)));
       await db.insertAgentsDaily(built.agentTypes.filter((r) => wanted(r.day)));
       await db.insertPersonSessionsDaily(built.personDays.filter((r) => wanted(r.day)));
+      await db.insertCostDaily(built.costDays.filter((r) => wanted(r.day)));
+      await db.insertToolCostDaily(built.toolCosts.filter((r) => wanted(r.day)));
       // the peak of an hour never goes down, as the peak of a day does not: the samples that made it are kept only a day
       await db.upsertHourPeaks((await peaksByHour(db)).filter((r) => wanted(r.day)));
       const days = built.fleet.filter((f) => wanted(f.day));

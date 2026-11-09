@@ -122,7 +122,7 @@ function NameSelect(props: { label: string; all: string; none: string; value: st
 }
 
 /** The Tools report's harness filter: every harness the period holds, by the name it goes by. */
-function HarnessSelect(props: { value: string; ids: string[]; onChange: (v: string) => void }) {
+export function HarnessSelect(props: { value: string; ids: string[]; onChange: (v: string) => void }) {
   const id = useId();
   const ids = props.value && !props.ids.includes(props.value) ? [props.value, ...props.ids] : props.ids;
   return (

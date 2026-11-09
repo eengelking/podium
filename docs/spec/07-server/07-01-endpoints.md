@@ -582,7 +582,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Reports (#484, [8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
-    `failures`, `tools`, `sessiontime`, `workload` and `activity`, and `GET reports/retention` for the Data page's tables.
+    `failures`, `tools`, `sessiontime`, `workload`, `costs` and `activity`, and `GET reports/retention` for the Data page's tables.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
       (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`, and a `person`, `group` or `model` is a `400`, since the tool counts are not kept per person; `sessiontime` and `workload` take `harness` too, see below).
       A bad value is a `400`.
@@ -664,6 +664,21 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
           sessions live at once in that hour on any day of the period. The peak of every harness together is not the sum of the peaks of the parts.
           A `group` is a `400`, since the peak counts every session. `total` is `{ peak, busiestHour }`, the first hour that reached the peak. The last day
           is read from the per-second samples (kept 24 hours), and the stored hour peaks never go down.
+      - `costs` (#723): what sessions cost and how they ended, for every harness that reports. `harness` narrows the rows to one harness and the reply's `harnesses` lists every
+        harness the period holds. A `person` or `group` is a `400`, since the figures are kept per harness, model and effort and not per person (a `model` narrows every breakdown
+        but `tool`, where it is a `400`). `oldestDay` is the first day these tables cover and a period before it is `partial`. `breakdown` is `model` (default), `tool`, `tokens`, `mix` or `context`.
+        A model with no price has no spend: a `null`, never zero, left out of every cost total and counted in `unpricedCalls`. A tool has no cost of its own and none is invented.
+        - `model`: rows `model, harness, sessions, calls, spendUsd, perCallUsd, perSessionUsd`, the most spend first. `models` is the same with every harness together. `total` is
+          `{ sessions, pricedSessions, pricedCalls, unpricedCalls, spendUsd, perCallUsd, perSessionUsd }`: per call is the priced spend over the calls of the priced sessions that have tool counts (a session stored before counts were kept is not a session of zero calls).
+        - `tool`: rows `tool, harness, sessions, avgSpendUsd, avgCalls`, the tool called by most sessions first. `avgSpendUsd` is the average priced spend of a session that called the tool
+          at least once: it says where heavy sessions use a tool, not what the tool cost. `tools` is the same with every harness together.
+        - `tokens`: rows `period, harness, tokIn, tokOut, tokCr, tokCw, cacheHitPct`. The cache hit rate is cache read over input, cache read and cache write, `null` with no input. `periods`
+          has each period for every harness together, `byHarness` the whole period for each harness, and `total` the whole period.
+        - `mix`: `mixof` is `model` (default) or `effort`. Rows `period, harness, <model or effort>, sessions, sharePct`, the share being of that period and harness. `combined` is the same with every
+          harness together, `periods` has the sessions in each period, and `total` is `{ sessions }`.
+        - `context`: rows `period, harness, sessions, endedLow, endedMid, endedHigh, endedUnknown, endedHighPct, compacted, cleared`. A session ended low under 50% of its context window, mid from 50%
+          to 80% and high above 80%, or unknown when its last report gave no size. `compacted` counts sessions Claude Code compacted on its own (a `compact` event with trigger `auto`, so a day older
+          than the 30 days events are kept is not rebuilt), and `cleared` counts sessions that continue after a `/clear` (`cleared_from` is set). `byHarness` has the whole period for each harness.
       - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
         at most 1,000. It has no `by`. `truncated` is `true` when the log held more than 1,000 entries in the period, and
         the page then says "Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest."

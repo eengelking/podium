@@ -206,6 +206,27 @@ CREATE TABLE hour_peaks_daily (     -- harness '' is every harness together: the
 );
 ```
 
+Migration 40 (#723; PostgreSQL main step 16) adds what sessions cost and how they ended, kept per harness: counts, tokens and names only, never a prompt, a tool's input or a path.
+
+```sql
+CREATE TABLE cost_daily (           -- one row per day, harness, model and effort; a session counts on the day it was last seen
+  day TEXT NOT NULL, harness TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, calls INTEGER NOT NULL, priced_calls INTEGER NOT NULL, cost_usd REAL NOT NULL, call_cost_usd REAL NOT NULL,   -- cost_usd is the priced sessions' only; priced_calls and call_cost_usd are those of the priced sessions that have tool counts, so a cost per call is not inflated by one that has none
+  tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL,
+  ended_low INTEGER NOT NULL, ended_mid INTEGER NOT NULL, ended_high INTEGER NOT NULL, ended_unknown INTEGER NOT NULL,   -- context window used at the end: under 50%, 50% to 80%, above 80%, not reported
+  compacted INTEGER NOT NULL, cleared INTEGER NOT NULL,   -- sessions that compacted on their own, and that continue after a /clear
+  PRIMARY KEY (day, harness, model, effort)
+);
+CREATE TABLE tool_cost_daily (      -- the sessions that called one tool on a day: a tool has no cost of its own, so this is what those sessions cost
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, cost_usd REAL NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+```
+
+Both fill from the rows still stored on each run, like the other rebuilt tables. Compactions are counted from the stored `compact` events, which are kept 30 days, and a day older than
+that is not rebuilt. A database upgraded to this migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...".
+
 The four daily tables fill from the rows still stored on each run, except `hour_peaks_daily`, which is upserted so an hour's stored peak never goes down once the
 samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
 the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
@@ -434,7 +455,7 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily`, `tool_stats_daily`, `session_time_daily`, `agents_daily`, `person_sessions_daily` and `hour_peaks_daily` from the rows still stored (a day that began before the session retention is
+  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily`, `tool_stats_daily`, `session_time_daily`, `agents_daily`, `person_sessions_daily`, `hour_peaks_daily`, `cost_daily` and `tool_cost_daily` from the rows still stored (a day that began before the session retention is
   skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
   has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
   partly built), in one transaction, so a run twice gives the
