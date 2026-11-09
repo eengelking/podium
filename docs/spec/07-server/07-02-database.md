@@ -141,6 +141,27 @@ CREATE TABLE fleet_daily (      -- one row per day for the fleet as a whole
 );
 ```
 
+Migration 37 (#720; PostgreSQL main step 13) adds the tool counts of every harness to the rollups, under the same rule: names and
+counts, never a tool's input, a path or a command. A session counts on the day it was last seen, under the harness stored on it.
+
+```sql
+CREATE TABLE tools_daily (          -- one row per day, harness and tool; an MCP tool keeps its `mcp__<server>__<tool>` name
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+CREATE TABLE tool_sessions_daily (  -- how many sessions made about `bucket` calls; a session with none is bucket 0
+  day TEXT NOT NULL, harness TEXT NOT NULL, bucket INTEGER NOT NULL, sessions INTEGER NOT NULL,   -- bucket: the calls up to 100, then the next ten up to 1,000, then the next hundred
+  PRIMARY KEY (day, harness, bucket)
+);
+CREATE TABLE harness_versions_daily ( -- how many reporters ran a version of a harness that day
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, reporters INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version)
+);
+```
+
+The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
+sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
+
 Migration 15 (#206) links a session to the one it continues after a `/clear` (5.8):
 
 ```sql
@@ -365,7 +386,7 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily` and `fleet_daily` from the rows still stored (a day that began before the session retention is
+  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily` and `harness_versions_daily` from the rows still stored (a day that began before the session retention is
   skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
   has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
   partly built), in one transaction, so a run twice gives the
