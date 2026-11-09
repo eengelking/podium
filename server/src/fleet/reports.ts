@@ -1035,6 +1035,8 @@ async function costsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   const breakdown = pick(q, 'costs');
   const mixOf = one(q, 'mixof') ?? 'model';
   if (!(MIX_OF as readonly string[]).includes(mixOf)) throw new ReportError('mixof must be model or effort');
+  // one of two literals, so no request value is ever used as a property name
+  const mixKey: 'model' | 'effort' = mixOf === 'effort' ? 'effort' : 'model';
   const harness = harnessFilter(q);
   const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, false, false, true);
   f.oldestDay = await oldestDayOf(deps.db, COST_TABLES, p.today);
@@ -1104,7 +1106,7 @@ async function costsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   }
 
   if (breakdown === 'mix') {
-    const keyOf = (r: CostDay): string => (mixOf === 'model' ? r.model : r.effort);
+    const keyOf = (r: CostDay): string => (mixKey === 'model' ? r.model : r.effort);
     interface Cell { period: string; harness: string; key: string; sessions: number }
     const cells = (withHarness: boolean): Cell[] =>
       [...groupRows(days, (r) => `${bucketOf(r.day, p.by)}\u0000${withHarness ? r.harness : ''}\u0000${keyOf(r)}`).values()].map((l) => ({ period: bucketOf(l[0]!.day, p.by), harness: withHarness ? l[0]!.harness : '', key: keyOf(l[0]!), sessions: sessionsOf(l) }));
@@ -1113,13 +1115,13 @@ async function costsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
       for (const c of list) totals.set(`${c.period}\u0000${c.harness}`, (totals.get(`${c.period}\u0000${c.harness}`) ?? 0) + c.sessions);
       return list
         .sort((a, b) => byCode(a.period, b.period) || byCode(a.harness, b.harness) || b.sessions - a.sessions || byCode(a.key, b.key))
-        .map((c) => ({ period: c.period, ...(withHarness ? { harness: c.harness } : {}), [mixOf]: label(c.key), sessions: c.sessions, sharePct: shareOf(c.sessions, totals.get(`${c.period}\u0000${c.harness}`) ?? 0) }));
+        .map((c) => ({ period: c.period, ...(withHarness ? { harness: c.harness } : {}), ...(mixKey === 'model' ? { model: label(c.key) } : { effort: label(c.key) }), sessions: c.sessions, sharePct: shareOf(c.sessions, totals.get(`${c.period}\u0000${c.harness}`) ?? 0) }));
     };
     const rows = shared(cells(true), true);
     const combined = shared(cells(false), false);
     const periods = [...groupRows(days, (r) => bucketOf(r.day, p.by)).entries()].sort(([a], [b]) => byCode(a, b)).map(([period, l]) => ({ period, sessions: sessionsOf(l) }));
-    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col(mixOf, mixOf === 'model' ? 'Model' : 'Effort', 'text'), col('sessions', 'Sessions', 'count'), col('sharePct', 'Share of sessions', 'percent')];
-    return { ...envelope(p, 'costs', p.by, f, cols, rows, { sessions: sessionsOf(days) }), ...extra, mixOf, combined, periods };
+    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col(mixKey, mixKey === 'model' ? 'Model' : 'Effort', 'text'), col('sessions', 'Sessions', 'count'), col('sharePct', 'Share of sessions', 'percent')];
+    return { ...envelope(p, 'costs', p.by, f, cols, rows, { sessions: sessionsOf(days) }), ...extra, mixOf: mixKey, combined, periods };
   }
 
   // how full the context was at the end, and how many sessions compacted on their own or continued after a /clear
