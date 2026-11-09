@@ -54,5 +54,5 @@ no history.
 <!-- nav:start -->
 ---
 
-Previous: [65. Closing the last OpenCode TUI ends the sessions that are quiet at once (#1029)](65-closing-the-last-opencode-tui-ends-the-sessions-that-are-quiet-at-once.md) · Up: [Decisions](README.md)
+Previous: [65. Closing the last OpenCode TUI ends the sessions that are quiet at once (#1029)](65-closing-the-last-opencode-tui-ends-the-sessions-that-are-quiet-at-once.md) · Up: [Decisions](README.md) · Next: [67. A PR adds a changelog fragment, and release-prep assembles the fragments](67-a-pr-adds-a-changelog-fragment-and-release-prep-assembles-them.md)
 <!-- nav:end -->

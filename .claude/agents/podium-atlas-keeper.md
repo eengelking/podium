@@ -1,6 +1,6 @@
 ---
 name: podium-atlas-keeper
-description: Updates the Podium atlas (docs/atlas/podium-atlas.html and docs/atlas/ATLAS.md) after a structural or architectural change, or audits it against the code. Use it when a branch adds, removes or renames a part, reporter hook or timer, route, middleware in the request chain, table, listener or port, deployment mode, flow, consent option or Admin flag, changes a default timing or limit the atlas quotes, or moves a file the atlas names; in the release-prep PR for the version and line counts; and when the atlas test or `node scripts/atlas-functions.mjs --check` fails. It edits only the two atlas files, plus CHANGELOG.md's [Unreleased] line for them, and reports. It commits nothing, pushes nothing and merges nothing.
+description: Updates the Podium atlas (docs/atlas/podium-atlas.html and docs/atlas/ATLAS.md) after a structural or architectural change, or audits it against the code. Use it when a branch adds, removes or renames a part, reporter hook or timer, route, middleware in the request chain, table, listener or port, deployment mode, flow, consent option or Admin flag, changes a default timing or limit the atlas quotes, or moves a file the atlas names; in the release-prep PR for the version and line counts; and when the atlas test or `node scripts/atlas-functions.mjs --check` fails. It edits only the two atlas files, plus a changelog fragment in changelog.d/ for them, and reports. It commits nothing, pushes nothing and merges nothing.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 ---
