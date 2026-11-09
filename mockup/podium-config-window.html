@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium settings window: /podium config</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
-<!-- Mockup for issue #1001, approved 2026-11-08. Colors are tokens from frontend/src/fleet/tokens.css; this page has no :root block of its own. A terminal frame uses the viewer's tokens as a stand-in for the terminal's own palette, which a harness decides. Frames are drawn from the real captures of the spike (Claude Code 2.1.319, OpenCode 2.2.5), with the copy changed where the spike's wording was a prototype. -->
+<!-- Mockup for issue #1001, approved 2026-11-08; the three open questions were decided the same day. Colors are tokens from frontend/src/fleet/tokens.css; this page has no :root block of its own. A terminal frame uses the viewer's tokens as a stand-in for the terminal's own palette, which a harness decides. Frames are drawn from the real captures of the spike (Claude Code 2.1.319, OpenCode 2.2.5), with the copy changed where the spike's wording was a prototype. -->
 <link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
 <style>
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding: 32px 16px 72px; }
@@ -79,9 +79,9 @@ ul.tight li { margin: 3px 0; }
   <div class="tablewrap"><table>
     <thead><tr><th>Group</th><th>Settings</th><th>Takes effect</th></tr></thead>
     <tbody>
-      <tr><th scope="row">Consent (yours)</th><td>Respond from Podium (<code>respond</code>), Message my other orchestrators (<code>peers</code>), Share the activity feed (<code>activityFeed</code>)</td><td>Claude Code: on reload. OpenCode: next start.</td></tr>
+      <tr><th scope="row">Consent (yours)</th><td>Respond from Podium (<code>respond</code>), Message my other orchestrators (<code>peers</code>), Share the activity feed (<code>activityFeed</code>)</td><td>Next start</td></tr>
       <tr><th scope="row">Connection</th><td>Server, your name. The token is never shown or set here.</td><td>Next start</td></tr>
-      <tr><th scope="row">Timing</th><td>Report interval, heartbeat, idle time</td><td>Claude Code: on reload. OpenCode: next start.</td></tr>
+      <tr><th scope="row">Timing</th><td>Report interval, heartbeat, idle time</td><td>Next start</td></tr>
       <tr><th scope="row">Context</th><td>Which Podium context this session uses (list, use)</td><td>Next start</td></tr>
     </tbody>
   </table></div>
@@ -99,14 +99,14 @@ ul.tight li { margin: 3px 0; }
 <div class="box">
 <div class="row title"><span>Podium settings</span><span>Esc closes</span></div>
 <div class="row sec">Consent <span class="dim">(your choice)</span></div>
-<div class="row sel">  Respond from Podium        everything ▾   <span class="dim">on reload</span></div>
-<div class="row">  Message my other orchestrators   on ▾   <span class="dim">on reload</span></div>
+<div class="row sel">  Respond from Podium        everything ▾   <span class="dim">next start</span></div>
+<div class="row">  Message my other orchestrators   on ▾   <span class="dim">next start</span></div>
 <div class="row sec">Connection</div>
 <div class="row">  Server     <span class="dim">https://podium.local:4317</span></div>
 <div class="row">  Your name  <span class="dim">eengelking</span></div>
 <div class="row dim">  Token and server: /plugin configure podium-reporter</div>
 <div class="row sec">Timing</div>
-<div class="row">  Report interval (ms)       1000   <span class="dim">on reload</span></div>
+<div class="row">  Report interval (ms)       1000   <span class="dim">next start</span></div>
 </div>
 </div>
     </div>
@@ -140,7 +140,7 @@ ul.tight li { margin: 3px 0; }
 <div class="row">  Peers     on ▾</div>
 <div class="row sec">Timing</div>
 <div class="row">  Interval (ms)   1000</div>
-<div class="row dim">  Takes effect on reload.</div>
+<div class="row dim">  Takes effect at the next start.</div>
 </div>
 </div>
     </div>
@@ -265,7 +265,7 @@ ul.tight li { margin: 3px 0; }
     <tbody>
       <tr><th scope="row">Shape</th><td>One pane, all rows visible</td><td>A stack of modal dialogs</td></tr>
       <tr><th scope="row">Saved to</th><td><code>~/.claude/settings.json</code>, by the person's press</td><td><code>~/.podium/config.env</code> (0600), through an allow-list</td></tr>
-      <tr><th scope="row">Takes effect</th><td>On the engine's reload (checked for the report interval, not yet for a consent option)</td><td>At the next start</td></tr>
+      <tr><th scope="row">Takes effect</th><td>Next start. A reload was seen for the report interval only, so it is not promised yet.</td><td>At the next start</td></tr>
       <tr><th scope="row">Token, server, name</th><td>Not editable here: the token is never listed</td><td>Not drawn: the spike's allow-list did not include them</td></tr>
       <tr><th scope="row">Keyboard</th><td>Needed a mouse click to focus the pane</td><td>Works from the keyboard</td></tr>
       <tr><th scope="row">Narrow</th><td>Wraps</td><td>Cuts a long line</td></tr>
@@ -274,11 +274,11 @@ ul.tight li { margin: 3px 0; }
 </section>
 
 <section>
-  <h2>For the owner to decide</h2>
+  <h2>Decided</h2>
   <ul class="tight">
-    <li>Server and your name: the issue lists them as settings the window changes. The spike found Claude Code keeps them in <code>/plugin configure</code>. Show them read-only with a pointer, as drawn, or build a way to edit them?</li>
-    <li>Claude Code focus: accept "click to focus" for now, or find a keyboard route first?</li>
-    <li>OpenCode's "next start" versus Claude Code's "on reload": show the difference, as drawn, or say "next start" everywhere until the reload is checked for consent options?</li>
+    <li>Server and your name are read-only, with a pointer to <code>/plugin configure podium-reporter</code> in Claude Code. The token is never shown.</li>
+    <li>Claude Code focus: a keyboard route is tried first. If there is none, the limit is documented and <code>/plugin configure</code> stays the way in.</li>
+    <li>Every setting says "next start" in both harnesses until a reload is shown to apply a consent option live.</li>
   </ul>
 </section>
 
