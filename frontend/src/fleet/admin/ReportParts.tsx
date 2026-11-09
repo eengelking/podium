@@ -163,7 +163,8 @@ export function partialText(reply: ReportReply): string | null {
 }
 
 /** Period and filters: the controls, the partial-history message and the time-zone line. No panel of its own. */
-export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportState }) {
+/** `harnesses` are the ids the Harness filter offers, when the report the page is built on does not name them (#722). */
+export function ReportFilters({ client, r, harnesses }: { client: ReportsClient; r: ReportState; harnesses?: string[] }) {
   const { cfg, prefs, setPrefs, problem, reply } = r;
   const periodId = useId();
   const fromId = useId();
@@ -221,7 +222,7 @@ export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportS
         )}
         {cfg.filters.includes("person") && <NameSelect label="Person" all="Everyone" none="No owner" value={prefs.person} names={choices.people} onChange={(person) => setPrefs({ person })} />}
         {cfg.filters.includes("group") && <NameSelect label="Group" all="All groups" none="No group" value={prefs.group} names={choices.groups} onChange={(group) => setPrefs({ group })} />}
-        {cfg.filters.includes("harness") && <HarnessSelect value={prefs.harness} ids={r.reply?.harnesses ?? []} onChange={(harness) => setPrefs({ harness })} />}
+        {cfg.filters.includes("harness") && <HarnessSelect value={prefs.harness} ids={harnesses ?? r.reply?.harnesses ?? []} onChange={(harness) => setPrefs({ harness })} />}
         {cfg.filters.includes("model") && <NameSelect label="Model" all="All models" none="Unknown model" value={prefs.model} names={choices.models} onChange={(model) => setPrefs({ model })} />}
         {cfg.kinds && (
           <div className="f">
@@ -264,7 +265,8 @@ export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportS
 }
 
 /** The bars: one per period, in a neutral ink (hues mean model and status). An unknown period is a gap, not a zero. */
-export function ReportChart({ rows, valueKey, column, unit, by }: { rows: ReportRow[]; valueKey: string; column: ReportColumn; unit: string; by?: string }) {
+/** `axis` writes the figures beside the plot when the exact one is too long for the 44 px beside it, such as 20h for 20h 06m; the labels read by a screen reader keep the exact figure. */
+export function ReportChart({ rows, valueKey, column, unit, by, axis }: { rows: ReportRow[]; valueKey: string; column: ReportColumn; unit: string; by?: string; axis?: (v: number) => string }) {
   const points = chartPoints(rows, valueKey);
   if (points.length === 0) return null;
   const known = points.filter((p) => p.value !== null) as { period: string; value: number }[];
@@ -273,6 +275,7 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
   const top = known.find((p) => p.value === max)!;
   const sum = known.reduce((n, p) => n + p.value, 0);
   const fmt = (v: number) => formatCell(column, v);
+  const tick = axis ?? fmt;
   const label = `${unit}${by ? ` per ${by}` : ""}: ${points.length} ${points.length === 1 ? "period" : "periods"} from ${points[0]!.period} to ${points[points.length - 1]!.period}, highest ${fmt(max)} on ${top.period}, ${fmt(sum)} in all.`;
   const W = 600;
   const slot = W / points.length;
@@ -283,9 +286,9 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
     <div className="chart">
       <div className="plot">
         <div className="yl" aria-hidden="true">
-          <span style={{ top: 20 }}>{fmt(max)}</span>
-          <span style={{ top: 70 }}>{fmt(max / 2)}</span>
-          <span style={{ top: 110 }}>{fmt(0)}</span>
+          <span style={{ top: 20 }}>{tick(max)}</span>
+          <span style={{ top: 70 }}>{tick(max / 2)}</span>
+          <span style={{ top: 110 }}>{tick(0)}</span>
         </div>
         <svg viewBox="0 0 600 120" role="img" aria-label={label} preserveAspectRatio="none">
           <line className="gl" x1="0" x2={W} y1="20" y2="20" />

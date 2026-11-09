@@ -25,6 +25,11 @@ import {
   type ToolSessionDay,
   type ToolStatDay,
   type UsageDay,
+  type AgentDay,
+  type HourPeakDay,
+  type PersonDay,
+  type SessionTimeDay,
+  peaksByHour,
 } from './rollups.js';
 import { bucketMs } from './protocol.js';
 
@@ -45,10 +50,10 @@ export interface ReportDeps {
 /** A report was asked for something it cannot give: the route answers 400 with the message. */
 export class ReportError extends Error {}
 
-export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily'];
+export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload' | 'activity';
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 
-export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'activity'];
+export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'sessiontime', 'workload', 'activity'];
 
 export interface Column {
   key: string;
@@ -75,11 +80,15 @@ export interface ReportReply {
 
 export const MAX_SPAN_DAYS = 400;
 const NAME_MAX = 200;
-export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools', readonly string[]> = {
+export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload', readonly string[]> = {
   spend: ['none', 'person', 'group', 'model', 'project'],
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
   tools: ['tool', 'session', 'version', 'failures', 'prompts', 'duration'],
+  // how long sessions ran and waited by period, what they waited for, which agents they launched, how deep the chains went (#722)
+  sessiontime: ['time', 'reason', 'agents', 'depth'],
+  // each person's sessions per active day, and the most sessions live at once in each hour of the day (#722)
+  workload: ['person', 'hour'],
 };
 
 const round = (n: number, places = 6): number => Math.round(n * 10 ** places) / 10 ** places;
@@ -127,7 +136,7 @@ function parseParams(q: Query, today: string): Params {
   return { from, to, by, person: filterOf(q, 'person'), group: filterOf(q, 'group'), model: filterOf(q, 'model'), today };
 }
 
-function pick(q: Query, name: 'spend' | 'sessions' | 'failures' | 'tools'): string {
+function pick(q: Query, name: 'spend' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload'): string {
   const v = one(q, 'breakdown') ?? BREAKDOWNS[name][0]!;
   if (!BREAKDOWNS[name].includes(v)) throw new ReportError(`breakdown must be ${BREAKDOWNS[name].join(', ')}`);
   return v;
@@ -153,6 +162,10 @@ interface Facts {
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
   toolStats: ToolStatDay[];
+  sessionTime: SessionTimeDay[];
+  agentTypes: AgentDay[];
+  personDays: PersonDay[];
+  hourPeaks: HourPeakDay[];
   oldestDay: string;
   live: DayRollups;
 }
@@ -167,6 +180,10 @@ const fleetOf = (r: Raw): FleetDay => ({ day: String(r.day), activePeople: Numbe
 const toolOf = (r: Raw): ToolDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), calls: Number(r.calls) });
 const toolSessionOf = (r: Raw): ToolSessionDay => ({ day: String(r.day), harness: String(r.harness), bucket: Number(r.bucket), sessions: Number(r.sessions) });
 const toolStatOf = (r: Raw): ToolStatDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), failed: Number(r.failed), asked: Number(r.asked), allowed: Number(r.allowed), denied: Number(r.denied), podium: Number(r.podium), timesJson: String(r.times_json) });
+const sessionTimeOf = (r: Raw): SessionTimeDay => ({ day: String(r.day), harness: String(r.harness), sessions: Number(r.sessions), durationS: Number(r.duration_s), maxDurationS: Number(r.max_duration_s), trackedSessions: Number(r.tracked_sessions), trackedS: Number(r.tracked_s), permissionS: Number(r.permission_s), permissionN: Number(r.permission_n), questionS: Number(r.question_s), questionN: Number(r.question_n), planS: Number(r.plan_s), planN: Number(r.plan_n) });
+const agentOf = (r: Raw): AgentDay => ({ day: String(r.day), harness: String(r.harness), type: String(r.type), depth: Number(r.depth), agents: Number(r.agents) });
+const personDayOf = (r: Raw): PersonDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), sessions: Number(r.sessions) });
+const hourPeakOf = (r: Raw): HourPeakDay => ({ day: String(r.day), harness: String(r.harness), hour: Number(r.hour), peak: Number(r.peak) });
 const harnessVersionOf = (r: Raw): HarnessVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), reporters: Number(r.reporters) });
 
 const select = (db: FleetStore, table: RollupTable, from: string, to: string): Promise<RollupRaw[]> => db.rollupRows(table, from, to);
@@ -181,10 +198,10 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
   return oldest;
 }
 
-async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false): Promise<Facts> {
+async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
     f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
@@ -196,6 +213,23 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
       f.toolStats = (await select(db, 'tool_stats_daily', from, stored)).map(toolStatOf);
     }
+    if (withTime) {
+      f.sessionTime = (await select(db, 'session_time_daily', from, stored)).map(sessionTimeOf);
+      f.agentTypes = (await select(db, 'agents_daily', from, stored)).map(agentOf);
+      f.personDays = (await select(db, 'person_sessions_daily', from, stored)).map(personDayOf);
+    }
+    if (withHours) f.hourPeaks = (await select(db, 'hour_peaks_daily', from, stored)).map(hourPeakOf);
+  }
+  // The samples of the last day have not been rolled up yet: the peak of each hour in them is read live, and the larger of it and the stored one counts.
+  if (withHours && to >= addDays(today, -1)) {
+    const merged = new Map<string, HourPeakDay>(f.hourPeaks.map((r) => [`${r.day}\u0000${r.harness}\u0000${r.hour}`, r]));
+    for (const r of await peaksByHour(db)) {
+      if (r.day < from || r.day > to) continue;
+      const k = `${r.day}\u0000${r.harness}\u0000${r.hour}`;
+      const have = merged.get(k);
+      merged.set(k, have ? { ...have, peak: Math.max(have.peak, r.peak) } : r);
+    }
+    f.hourPeaks = [...merged.values()];
   }
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
   const floor = addDays(today, -31);
@@ -212,6 +246,11 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.toolSessions.push(...f.live.toolSessions.filter((r) => keep(r.day)));
       f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
       f.toolStats.push(...f.live.toolStats.filter((r) => keep(r.day)));
+    }
+    if (withTime) {
+      f.sessionTime.push(...f.live.sessionTime.filter((r) => keep(r.day)));
+      f.agentTypes.push(...f.live.agentTypes.filter((r) => keep(r.day)));
+      f.personDays.push(...f.live.personDays.filter((r) => keep(r.day)));
     }
     const storedPeak = (await db.storedPeak(today)) ?? 0;
     const liveFleet = f.live.fleet.find((r) => keep(r.day));
@@ -711,6 +750,224 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   return { ...envelope(p, 'tools', p.by, f, cols, rows, { calls: total }), ...extra };
 }
 
+// ---- session time and workload (#722) ------------------------------------------------------------------
+
+const TIME_TABLES: readonly RollupTable[] = ['session_time_daily', 'agents_daily'];
+const WORKLOAD_TABLES: readonly RollupTable[] = ['person_sessions_daily', 'hour_peaks_daily'];
+
+/** The oldest day any of `tables` covers, or today when none does yet: they started later than the other rollups, and a gap is never drawn as zeros. */
+async function oldestDayOf(db: FleetStore, tables: readonly RollupTable[], today: string): Promise<string> {
+  let oldest = today;
+  for (const t of tables) {
+    const d = await db.rollupOldestDay(t);
+    if (d !== null && d < oldest) oldest = d;
+  }
+  return oldest;
+}
+
+const shareOf = (part: number, whole: number): number | null => (whole > 0 ? round((part / whole) * 100, 1) : null);
+
+/** The first day any session had its waiting recorded (stored days and today), or null when none has yet. */
+async function waitRecordedSince(deps: ReportDeps, f: Facts, today: string): Promise<string | null> {
+  let first: string | null = null;
+  for (const r of (await select(deps.db, 'session_time_daily', '0000-01-01', addDays(today, -1))).map(sessionTimeOf)) if (r.trackedSessions > 0 && (first === null || r.day < first)) first = r.day;
+  for (const r of f.live.sessionTime) if (r.trackedSessions > 0 && r.day === today && (first === null || r.day < first)) first = r.day;
+  return first;
+}
+
+const REASONS = ['permission', 'question', 'plan'] as const;
+type Reason = (typeof REASONS)[number];
+const waitOf = (r: SessionTimeDay, k: Reason): { s: number; n: number } => (k === 'permission' ? { s: r.permissionS, n: r.permissionN } : k === 'question' ? { s: r.questionS, n: r.questionN } : { s: r.planS, n: r.planN });
+
+async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+  const p = parseParams(q, localDay(deps.now()));
+  // Time, agents and waits are kept per harness and day, not per person, group or model, so those filters cannot be honored and are not ignored quietly.
+  if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the session time report cannot be filtered by person, group or model');
+  const breakdown = pick(q, 'sessiontime');
+  const harness = harnessFilter(q);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true);
+  f.oldestDay = await oldestDayOf(deps.db, TIME_TABLES, p.today);
+  const harnesses = [...new Set([...f.sessionTime.map((r) => r.harness), ...f.agentTypes.map((r) => r.harness)])].sort(byCode);
+  const keep = (h: string): boolean => harness === null || h === harness;
+  const extra = { harnesses };
+
+  if (breakdown === 'reason') {
+    interface Acc { reason: Reason; harness: string; waits: number; waitS: number }
+    const acc = new Map<string, Acc>();
+    for (const r of f.sessionTime) {
+      if (!keep(r.harness)) continue;
+      for (const reason of REASONS) {
+        const w = waitOf(r, reason);
+        const k = `${reason}\u0000${r.harness}`;
+        const a = acc.get(k) ?? { reason, harness: r.harness, waits: 0, waitS: 0 };
+        a.waits += w.n;
+        a.waitS += w.s;
+        acc.set(k, a);
+      }
+    }
+    const all = [...acc.values()];
+    const totalS = all.reduce((n, a) => n + a.waitS, 0);
+    const totalN = all.reduce((n, a) => n + a.waits, 0);
+    const rows: Row[] = all
+      .filter((a) => a.waits > 0 || a.waitS > 0)
+      .sort((a, b) => REASONS.indexOf(a.reason) - REASONS.indexOf(b.reason) || byCode(a.harness, b.harness))
+      .map((a) => ({ reason: a.reason, harness: a.harness, waits: a.waits, waitS: a.waitS, avgWaitS: a.waits ? Math.round(a.waitS / a.waits) : null, sharePct: shareOf(a.waitS, totalS) }));
+    const byReason: Row[] = REASONS.map((reason) => {
+      const mine = all.filter((a) => a.reason === reason);
+      const waits = mine.reduce((n, a) => n + a.waits, 0);
+      const waitS = mine.reduce((n, a) => n + a.waitS, 0);
+      return { reason, waits, waitS, avgWaitS: waits ? Math.round(waitS / waits) : null, sharePct: shareOf(waitS, totalS) };
+    });
+    const cols = [col('reason', 'Waiting for', 'text'), col('harness', 'Harness', 'text'), col('waits', 'Waits', 'count'), col('waitS', 'Time waiting', 'seconds'), col('avgWaitS', 'Average wait', 'seconds'), col('sharePct', 'Share', 'percent')];
+    return { ...envelope(p, 'sessiontime', null, f, cols, rows, { waits: totalN, waitS: totalS, avgWaitS: totalN ? Math.round(totalS / totalN) : null }), ...extra, byReason };
+  }
+
+  if (breakdown === 'agents') {
+    const acc = new Map<string, { type: string; harness: string; agents: number }>();
+    for (const r of f.agentTypes) {
+      if (!keep(r.harness)) continue;
+      const k = `${r.type}\u0000${r.harness}`;
+      const a = acc.get(k) ?? { type: r.type, harness: r.harness, agents: 0 };
+      a.agents += r.agents;
+      acc.set(k, a);
+    }
+    const total = [...acc.values()].reduce((n, a) => n + a.agents, 0);
+    const perType = new Map<string, number>();
+    for (const a of acc.values()) perType.set(a.type, (perType.get(a.type) ?? 0) + a.agents);
+    const rows: Row[] = [...acc.values()]
+      .sort((a, b) => (perType.get(b.type) ?? 0) - (perType.get(a.type) ?? 0) || byCode(a.type, b.type) || byCode(a.harness, b.harness))
+      .map((a) => ({ type: label(a.type), harness: a.harness, agents: a.agents, sharePct: shareOf(a.agents, total) }));
+    const sessions = f.sessionTime.filter((r) => keep(r.harness)).reduce((n, r) => n + r.sessions, 0);
+    const cols = [col('type', 'Agent type', 'text'), col('harness', 'Harness', 'text'), col('agents', 'Agents launched', 'count'), col('sharePct', 'Share', 'percent')];
+    return { ...envelope(p, 'sessiontime', null, f, cols, rows, { agents: total, sessions, agentsPerSession: sessions ? round(total / sessions, 1) : null }), ...extra };
+  }
+
+  if (breakdown === 'depth') {
+    // a chain of three or more levels is one row; `deepest` says how far the longest one went
+    const acc = new Map<string, { depth: number; harness: string; agents: number }>();
+    let deepest = 0;
+    for (const r of f.agentTypes) {
+      if (!keep(r.harness)) continue;
+      deepest = Math.max(deepest, r.depth);
+      const depth = Math.min(r.depth, 3);
+      const k = `${depth}\u0000${r.harness}`;
+      const a = acc.get(k) ?? { depth, harness: r.harness, agents: 0 };
+      a.agents += r.agents;
+      acc.set(k, a);
+    }
+    const total = [...acc.values()].reduce((n, a) => n + a.agents, 0);
+    const rows: Row[] = [...acc.values()].sort((a, b) => a.depth - b.depth || byCode(a.harness, b.harness)).map((a) => ({ depth: a.depth, harness: a.harness, agents: a.agents, sharePct: shareOf(a.agents, total) }));
+    const cols = [col('depth', 'Chain depth (3 is three or deeper)', 'count'), col('harness', 'Harness', 'text'), col('agents', 'Agents', 'count'), col('sharePct', 'Share', 'percent')];
+    return { ...envelope(p, 'sessiontime', null, f, cols, rows, { agents: total, deepest }), ...extra };
+  }
+
+  // length and waiting, by period and harness
+  interface Acc { period: string; harness: string; sessions: number; durationS: number; maxS: number; tracked: number; waitS: number }
+  const fresh = (period: string, h: string): Acc => ({ period, harness: h, sessions: 0, durationS: 0, maxS: 0, tracked: 0, waitS: 0 });
+  const add = (a: Acc, r: SessionTimeDay): void => {
+    a.sessions += r.sessions;
+    a.durationS += r.durationS;
+    a.maxS = Math.max(a.maxS, r.maxDurationS);
+    a.tracked += r.trackedSessions;
+    a.waitS += r.permissionS + r.questionS + r.planS;
+  };
+  // the time the tracked sessions ran, which a share of waiting is taken over, is kept apart from the duration of every session
+  const trackedS = new Map<Acc, number>();
+  const accFor = (m: Map<string, Acc>, k: string, make: () => Acc): Acc => {
+    let a = m.get(k);
+    if (!a) m.set(k, (a = make()));
+    return a;
+  };
+  const byPeriod = new Map<string, Acc>();
+  const periods = new Map<string, Acc>();
+  const perHarness = new Map<string, Acc>();
+  const whole = fresh('', '');
+  for (const r of f.sessionTime) {
+    if (!keep(r.harness)) continue;
+    const period = bucketOf(r.day, p.by);
+    for (const a of [accFor(byPeriod, `${period}\u0000${r.harness}`, () => fresh(period, r.harness)), accFor(periods, period, () => fresh(period, '')), accFor(perHarness, r.harness, () => fresh('', r.harness)), whole]) {
+      add(a, r);
+      trackedS.set(a, (trackedS.get(a) ?? 0) + r.trackedS);
+    }
+  }
+  const row = (a: Acc, withPeriod: boolean, withHarness: boolean): Row => ({
+    ...(withPeriod ? { period: a.period } : {}),
+    ...(withHarness ? { harness: a.harness } : {}),
+    sessions: a.sessions,
+    avgDurationS: a.sessions ? Math.round(a.durationS / a.sessions) : null,
+    maxDurationS: a.maxS,
+    // no session of the period had its waiting recorded: a dash, never zero
+    waitS: a.tracked > 0 ? a.waitS : null,
+    waitSharePct: a.tracked > 0 ? shareOf(a.waitS, trackedS.get(a) ?? 0) : null,
+  });
+  const rows: Row[] = [...byPeriod.values()].sort((a, b) => byCode(a.period, b.period) || byCode(a.harness, b.harness)).map((a) => row(a, true, true));
+  const periodRows: Row[] = [...periods.values()].sort((a, b) => byCode(a.period, b.period)).map((a) => row(a, true, false));
+  const byHarness: Row[] = [...perHarness.values()].sort((a, b) => byCode(a.harness, b.harness)).map((a) => row(a, false, true));
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('sessions', 'Sessions', 'count'), col('avgDurationS', 'Average length', 'seconds'), col('maxDurationS', 'Longest', 'seconds'), col('waitS', 'Time waiting on people', 'seconds'), col('waitSharePct', 'Share of time waiting', 'percent')];
+  // the first day any session had its waiting recorded: only this table says where waiting begins, so only this answer looks it up
+  return { ...envelope(p, 'sessiontime', p.by, f, cols, rows, row(whole, false, false)), ...extra, waitSince: await waitRecordedSince(deps, f, p.today), periods: periodRows, byHarness };
+}
+
+async function workloadReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+  const p = parseParams(q, localDay(deps.now()));
+  if (p.person !== null || p.model !== null) throw new ReportError('the workload report cannot be filtered by person or model');
+  const breakdown = pick(q, 'workload');
+  const harness = harnessFilter(q);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true, breakdown === 'hour');
+  const harnesses = [...new Set([...f.personDays.map((r) => r.harness), ...f.hourPeaks.map((r) => r.harness).filter((h) => h !== '')])].sort(byCode);
+  const extra = { harnesses };
+
+  if (breakdown === 'hour') {
+    // the peak of an hour counts every session, so it cannot be cut by group
+    if (p.group !== null) throw new ReportError('the busiest hours cannot be filtered by group');
+    f.oldestDay = await oldestDayOf(deps.db, ['hour_peaks_daily'], p.today);
+    const want = harness ?? '';
+    const peak = new Array<number>(24).fill(0);
+    for (const r of f.hourPeaks) if (r.harness === want && r.hour >= 0 && r.hour < 24) peak[r.hour] = Math.max(peak[r.hour]!, r.peak);
+    const most = Math.max(...peak);
+    const hh = (h: number): string => `${String(h).padStart(2, '0')}:00`;
+    const rows: Row[] = peak.map((v, h) => ({ hour: hh(h), harness: want === '' ? 'all' : want, peak: v }));
+    const cols = [col('hour', 'Hour', 'text'), col('harness', 'Harness', 'text'), col('peak', 'Most sessions live at once', 'count')];
+    return { ...envelope(p, 'workload', null, f, cols, rows, { peak: most, busiestHour: most > 0 ? hh(peak.indexOf(most)) : null }), ...extra };
+  }
+
+  f.oldestDay = await oldestDayOf(deps.db, ['person_sessions_daily'], p.today);
+  interface Acc { owner: string; group: string; lastDay: string; days: Map<string, number> }
+  const people = new Map<string, Acc>();
+  const everyone = new Map<string, number>();
+  for (const r of f.personDays) {
+    if (harness !== null && r.harness !== harness) continue;
+    if (p.group !== null && r.group !== p.group) continue;
+    const a = people.get(r.owner) ?? { owner: r.owner, group: r.group, lastDay: r.day, days: new Map<string, number>() };
+    // the group a person is in now is the one on their latest day
+    if (r.day >= a.lastDay) {
+      a.lastDay = r.day;
+      a.group = r.group;
+    }
+    a.days.set(r.day, (a.days.get(r.day) ?? 0) + r.sessions);
+    people.set(r.owner, a);
+    everyone.set(r.day, (everyone.get(r.day) ?? 0) + r.sessions);
+  }
+  const busiest = (days: Map<string, number>): { day: string; sessions: number } | null => {
+    let best: { day: string; sessions: number } | null = null;
+    for (const [day, sessions] of [...days].sort(([a], [b]) => byCode(a, b))) if (best === null || sessions > best.sessions) best = { day, sessions };
+    return best;
+  };
+  const stats = (a: Acc): { sessions: number; activeDays: number } => ({ sessions: [...a.days.values()].reduce((n, v) => n + v, 0), activeDays: a.days.size });
+  const rows: Row[] = [...people.values()]
+    .map((a) => ({ a, ...stats(a) }))
+    .sort((x, y) => y.sessions - x.sessions || byCode(x.a.owner, y.a.owner))
+    .map(({ a, sessions, activeDays }) => {
+      const b = busiest(a.days);
+      return { person: label(a.owner), group: label(a.group), activeDays, sessions, perActiveDay: activeDays ? round(sessions / activeDays, 1) : null, busiestDay: b?.day ?? null, busiestDaySessions: b?.sessions ?? null };
+    });
+  const personDays = rows.reduce((n, r) => n + Number(r.activeDays), 0);
+  const sessions = rows.reduce((n, r) => n + Number(r.sessions), 0);
+  const top = busiest(everyone);
+  const cols = [col('person', 'Person', 'text'), col('group', 'Group', 'text'), col('activeDays', 'Days active', 'count'), col('sessions', 'Sessions', 'count'), col('perActiveDay', 'Per active day', 'count'), col('busiestDay', 'Busiest day', 'date'), col('busiestDaySessions', 'Sessions on busiest day', 'count')];
+  return { ...envelope(p, 'workload', null, f, cols, rows, { people: rows.length, activeDays: personDays, sessions, perActiveDay: personDays ? round(sessions / personDays, 1) : null, busiestDay: top?.day ?? null, busiestDaySessions: top?.sessions ?? null }), ...extra };
+}
+
 /** The most entries the Admin activity report returns; a longer log is cut and says so (`truncated`). */
 const ACTIVITY_MAX = 1000;
 
@@ -763,6 +1020,10 @@ function reportOf(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportR
       return failuresReport(deps, q, cost);
     case 'tools':
       return toolsReport(deps, q, cost);
+    case 'sessiontime':
+      return sessionTimeReport(deps, q, cost);
+    case 'workload':
+      return workloadReport(deps, q, cost);
     default:
       return activityReport(deps, q);
   }

@@ -180,4 +180,106 @@ describe('admin: reporting', () => {
     }
     cy.contains('Podium has no history before').should('exist');
   });
+
+  // Session time and workload (#722): every harness. The seed has only today's live figures, so the shape, the empty period, the held-back line and the exports are what is checked.
+  const sectionOf = (title) => cy.contains('h2', title).closest('section');
+  const harnessSelect = () => cy.contains('label', 'Harness').parent().find('select');
+
+  it('Sessions: shows length and waiting, what sessions waited for, agents launched and chain depth', () => {
+    cy.openAdmin('Sessions');
+    for (const h of ['Length and waiting by day', 'What sessions waited for', 'Agents launched', 'How deep agent chains go']) cy.contains('h2', h);
+    cy.get('table[aria-label="Length and waiting by period"]').should('exist');
+    cy.get('table[aria-label="Waiting by reason"]').should('exist');
+    cy.get('table[aria-label="Agents launched by type"]').should('exist');
+    cy.get('table[aria-label="Agent chain depth"]').should('exist');
+    cy.contains('button', 'Week').should('exist');
+    harnessSelect().find('option').first().should('have.text', 'All harnesses');
+  });
+
+  it('Sessions: each new table has its own CSV and JSON, as the table shows it', () => {
+    cy.openAdmin('Sessions');
+    cy.get('table[aria-label="Waiting by reason"]').should('exist');
+    cy.task('download:clear');
+    cy.get('button[aria-label="Download waiting by reason CSV"]').should('be.enabled').click();
+    cy.task('download:read', '.csv').then(({ text }) => {
+      const lines = text.trim().split(/\r?\n/);
+      expect(lines.length, 'a header and a row').to.be.at.least(2);
+    });
+    cy.get('button[aria-label="Download waiting by reason JSON"]').should('be.enabled').click();
+    cy.task('download:read', '.json').then(({ text }) => {
+      const doc = JSON.parse(text);
+      expect(doc.rows.length).to.be.at.least(1);
+    });
+    for (const noun of ['length and waiting', 'agents by type', 'chain depth']) {
+      cy.get(`button[aria-label="Download ${noun} CSV"]`).should('exist');
+      cy.get(`button[aria-label="Download ${noun} JSON"]`).should('exist');
+    }
+  });
+
+  it('Sessions: a Harness choice keeps the new sections and says the first report covers every harness', () => {
+    cy.openAdmin('Sessions');
+    harnessSelect().find('option').should('have.length.greaterThan', 1);
+    harnessSelect().find('option').eq(1).invoke('text').then((name) => harnessSelect().select(name));
+    cy.contains('This section is not kept per harness, so it covers every harness.').should('exist');
+    cy.contains('h2', 'What sessions waited for').should('exist');
+    cy.get('[role=alert]').should('not.exist');
+  });
+
+  it('Sessions: a Model filter holds the new sections back and says why', () => {
+    cy.openAdmin('Sessions');
+    cy.contains('label', 'Model').parent().find('select').select('claude-opus-5-5');
+    cy.contains('are not shown while a Person, Group or Model filter is set.').should('exist');
+    cy.get('table[aria-label="Waiting by reason"]').should('not.exist');
+    cy.get('table[aria-label="Agent chain depth"]').should('not.exist');
+    cy.contains('label', 'Model').parent().find('select').select('All models');
+    cy.get('table[aria-label="Waiting by reason"]').should('exist');
+  });
+
+  it('Sessions: a period before the history reads as empty, not as an error', () => {
+    cy.openAdmin('Sessions');
+    cy.contains('label', 'Period').parent().find('select').select('Last month');
+    // The period ends before Podium's history begins, so the page says so and the sections hold no table.
+    cy.contains('so there is nothing to show').should('exist');
+    cy.contains('h2', 'What sessions waited for').should('exist');
+    cy.get('table[aria-label="Agents launched by type"]').should('not.exist');
+    cy.get('table[aria-label="Waiting by reason"]').should('not.exist');
+    cy.get('[role=alert]').should('not.exist');
+  });
+
+  it('Usage: shows sessions per person per day and the busiest hours, with a Chart and Table switch', () => {
+    cy.openAdmin('Usage');
+    cy.contains('h2', 'Sessions per person per day');
+    cy.contains('h2', 'Busiest hours');
+    cy.get('table[aria-label="Sessions per person per day"]').should('exist');
+    harnessSelect().find('option').first().should('have.text', 'All harnesses');
+    sectionOf('Busiest hours').within(() => {
+      cy.get('svg[role=img]').should('exist');
+      cy.get('[role=group][aria-label="Show as"]').contains('button', 'Table').click().should('have.attr', 'aria-pressed', 'true');
+      cy.get('table[aria-label="Most sessions live at once by hour of day"] tbody tr').should('have.length', 24);
+      cy.get('svg[role=img]').should('not.exist');
+    });
+  });
+
+  it('Usage: exports sessions per person and busiest hours as their own files', () => {
+    cy.openAdmin('Usage');
+    cy.get('table[aria-label="Sessions per person per day"]').should('exist');
+    cy.task('download:clear');
+    cy.get('button[aria-label="Download sessions per person CSV"]').should('be.enabled').click();
+    cy.task('download:read', '.csv').then(({ text }) => {
+      expect(text.trim().split(/\r?\n/).length, 'a header and a row').to.be.at.least(2);
+    });
+    cy.get('button[aria-label="Download busiest hours JSON"]').should('be.enabled').click();
+    cy.task('download:read', '.json').then(({ text }) => {
+      expect(JSON.parse(text).rows.length, 'one row for each hour of the day').to.eq(24);
+    });
+  });
+
+  it('Usage: a period before the history reads as empty, not as an error', () => {
+    cy.openAdmin('Usage');
+    cy.contains('label', 'Period').parent().find('select').select('Last month');
+    cy.contains('so there is nothing to show').should('exist');
+    cy.contains('h2', 'Sessions per person per day').should('exist');
+    cy.get('table[aria-label="Sessions per person per day"]').should('not.exist');
+    cy.get('[role=alert]').should('not.exist');
+  });
 });

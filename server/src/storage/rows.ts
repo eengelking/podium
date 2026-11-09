@@ -338,6 +338,24 @@ export interface BlowoutRow {
   tokens_after: number | null;
 }
 
+/**
+ * The time one session has spent blocked on its person (#722), added up as its reports arrive. Only names and times: never a question, a plan or a
+ * tool's input. A row exists from the first report stored after the upgrade (`tracked_since`), so a session older than that is told apart from one
+ * that never waited. An open wait is the one in progress (`open_kind` since `open_since`, server milliseconds); it closes on the next report.
+ */
+export interface SessionWaitRow {
+  session_id: string;
+  permission_ms: number;
+  permission_n: number;
+  question_ms: number;
+  question_n: number;
+  plan_ms: number;
+  plan_n: number;
+  tracked_since: number;
+  open_kind: 'permission' | 'question' | 'plan' | null;
+  open_since: number | null;
+}
+
 export interface SampleRow {
   session_id: string;
   t: number;

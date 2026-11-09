@@ -1,7 +1,7 @@
 // The fleet store on PostgreSQL (#822): sessions, agents, events, blowouts, samples and spend, and the report and rollup queries. It is
 // the SQLite `FleetDb` over `PgDb`: the same SQL where PostgreSQL allows it, the same spend and cost arithmetic in code. A method that
 // reads and then writes is one transaction, which is what the SQLite lock gave it.
-import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
+import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
 import type { FleetStore, FleetStoreApi } from '../types.js';
 import type { PgDb, Param, Params } from './conn.js';
 import { PgReportQueries } from './reportQueries.js';
@@ -57,6 +57,20 @@ export class PgFleetStore implements FleetStoreApi {
 
   getSession(id: string): Promise<SessionRow | undefined> {
     return this.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', [id]);
+  }
+
+  getSessionWait(id: string): Promise<SessionWaitRow | undefined> {
+    return this.db.get<SessionWaitRow>('SELECT * FROM session_waits WHERE session_id = ?', [id]);
+  }
+
+  async putSessionWait(row: SessionWaitRow): Promise<void> {
+    await this.db.run(
+      `INSERT INTO session_waits (session_id, permission_ms, permission_n, question_ms, question_n, plan_ms, plan_n, tracked_since, open_kind, open_since)
+       VALUES (:session_id, :permission_ms, :permission_n, :question_ms, :question_n, :plan_ms, :plan_n, :tracked_since, :open_kind, :open_since)
+       ON CONFLICT(session_id) DO UPDATE SET permission_ms = excluded.permission_ms, permission_n = excluded.permission_n, question_ms = excluded.question_ms, question_n = excluded.question_n,
+         plan_ms = excluded.plan_ms, plan_n = excluded.plan_n, tracked_since = excluded.tracked_since, open_kind = excluded.open_kind, open_since = excluded.open_since`,
+      row as unknown as Params,
+    );
   }
 
   /** `getSession` for many ids in one statement per thousand, in the order given (#906). */

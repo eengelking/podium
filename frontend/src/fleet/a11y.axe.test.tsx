@@ -106,6 +106,28 @@ describe("axe on the console's pages (#636)", () => {
     expect(await violations(container, [])).toEqual([]);
   });
 
+  it("Admin > Reporting > Sessions, with its length, waiting, agent and depth sections (#722)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Sessions" }));
+    await findByRole("table", { name: "Agent chain depth" });
+    await findByRole("table", { name: "Waiting by reason" });
+    expect(getByRole("img", { name: /Time waiting on people/ })).toBeTruthy();
+    expect(await violations(container, [])).toEqual([]);
+  });
+
+  it("Admin > Reporting > Usage, with people per day and the busiest hours as a chart and as a table (#722)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Usage" }));
+    await findByRole("table", { name: "Sessions per person per day" });
+    await findByRole("img", { name: /Most sessions live at once by hour of day/ });
+    expect(await violations(container, [])).toEqual([]);
+    fireEvent.click(getByRole("button", { name: "Table" }));
+    await findByRole("table", { name: "Most sessions live at once by hour of day" });
+    expect(await violations(container, [])).toEqual([]);
+  });
+
   it("the Admin lock screen", async () => {
     fakeServer();
     const { container, findByLabelText } = render(<AdminView />);

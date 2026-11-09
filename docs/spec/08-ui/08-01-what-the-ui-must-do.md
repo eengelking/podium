@@ -457,6 +457,10 @@ menu and the page scroll on their own.
 - The pages:
   - **Usage**: active people, active reporters, sessions started and the peak of sessions live at once, per
     period.
+    Since #722 the page adds two sections after that report: *Sessions per person per day* (each person's active days, sessions, sessions per active day and busiest
+    day, with a Total row for everyone in the filter, paged) and *Busiest hours* (the most sessions live at once in each hour of the day, as a chart with a Chart and
+    Table switch). Each has its own CSV and JSON. The Harness filter narrows both and the report above them is not sent it, as on Sessions. The Group filter narrows the
+    people table; the hours count every session, so the page says the Group filter does not apply to them.
   - **Spend**: total, and by person, group, model or project (**Break down by**), per period. It keeps the
     content of the old Admin > Activity > Spend page: *Spend today, by person* and *by group* as Chart or Table,
     now the first section of this page with its `podium.adminSpend` choices unchanged, above the report. Figures
@@ -499,6 +503,13 @@ menu and the page scroll on their own.
     not reported (quiet for the period, or never); the reporter versions and engine versions in use.
   - **Sessions**: counts by outcome, model, effort and plan; average and longest duration; agents launched per
     session; and how many sessions hit a context blowout and how full the window got.
+    Since #722 (`mockup/podium-admin-reporting-session-time.html`) the page adds four sections after that report, for every harness:
+    *Length and waiting by day, week or month* (sessions, average and longest length, time waiting on people and its share of session time, a chart of the
+    waiting, and a row for the whole period and for each harness), *What sessions waited for* (permission, question or plan: waits, time, average wait, share),
+    *Agents launched* (by type, a column for each harness, the long tail as one row) and *How deep agent chains go*. Each table has its own CSV and JSON in its
+    title line, as the Spend projection does. The Harness filter narrows these four sections. The report above them is not kept per harness, so it is never sent the
+    filter and the page says it covers every harness. A Person, Group or Model filter holds the four sections back with a line that says why. Where waiting was not
+    recorded yet (it is recorded from the upgrade on) the period shows a dash and the page says from which day it is. Durations use the app's duration format.
   - **Failures**: counts by failure class and tool, over time and by person, each class row linking to History
     filtered to those sessions while they are within the 30 days History keeps. It is the root-cause report.
   - **Admin activity**: the Admin log filtered by kind and period, read from `admin_log` (90 days).

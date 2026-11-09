@@ -293,7 +293,7 @@ function VersionTable({ reply }: { reply: ReportReply }) {
 }
 
 /** A section's panel while its answer is not here yet, or failed, or has nothing in it. */
-function Waiting({ reply, error, problem, empty, children }: { reply: ReportReply | null; error: string | null; problem: string | null; empty: string; children: (reply: ReportReply) => React.ReactNode }) {
+export function Waiting({ reply, error, problem, empty, children }: { reply: ReportReply | null; error: string | null; problem: string | null; empty: string; children: (reply: ReportReply) => React.ReactNode }) {
   if (problem) return <div className="empty">Fix the period above to see the report.</div>;
   if (error) {
     return (

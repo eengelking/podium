@@ -5,7 +5,8 @@
 // was last seen, so one that runs past midnight is not split. The hourly retention writes the rollups before it deletes
 // anything (`writeRollups`); the reports read today straight from the live tables with the same builder (`buildRollups`).
 import { repriced } from './derive.js';
-import { ROLLUP_KEEP_MS, type CostOf, type SessionRow } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, type CostOf, type SessionRow, type SessionWaitRow } from '../storage/rows.js';
+import { waitOfOpen, type WaitKind } from './waits.js';
 import type { FleetStore, Storage } from '../storage/types.js';
 import type { Pricing } from './pricing.js';
 
@@ -151,6 +152,78 @@ export function callsBucket(n: number): number {
   return Math.ceil(calls / 100) * 100;
 }
 
+/**
+ * How long the sessions of one harness ran, and how long they waited on a person, on a day (#722). Waiting is recorded from the upgrade on, so only the
+ * sessions with a wait record (`trackedSessions`) say how long they waited, and `trackedS` is how long those ran since the record began: a share of time
+ * is waiting over `trackedS`, never over the whole duration. Names and times only.
+ */
+export interface SessionTimeDay {
+  day: string;
+  harness: string;
+  sessions: number;
+  durationS: number;
+  maxDurationS: number;
+  trackedSessions: number;
+  trackedS: number;
+  permissionS: number;
+  permissionN: number;
+  questionS: number;
+  questionN: number;
+  planS: number;
+  planN: number;
+}
+
+/** How many agents of one type a harness launched on a day, and how many levels down the chain they sit (#722). 1 is launched by the session itself. */
+export interface AgentDay {
+  day: string;
+  harness: string;
+  type: string;
+  depth: number;
+  agents: number;
+}
+
+/** How many sessions one person ran on a harness on a day (#722). A session counts on the day it was last seen. */
+export interface PersonDay {
+  day: string;
+  owner: string;
+  group: string;
+  harness: string;
+  sessions: number;
+}
+
+/** The most sessions live at once in one hour of one day (#722). `harness` is '' for all of them together: the peak of the whole is not the sum of the peaks of the parts. */
+export interface HourPeakDay {
+  day: string;
+  harness: string;
+  hour: number;
+  peak: number;
+}
+
+/** A day's session time while it is added up: the waiting in milliseconds, rounded to seconds once at the end. */
+interface TimeAcc extends SessionTimeDay {
+  ms: Record<WaitKind, number>;
+}
+
+/** The deepest an agent chain is told apart: a chain deeper than this is stored as this. */
+export const MAX_AGENT_DEPTH = 10;
+
+/** How many levels down each agent sits, from the links of one session's agents. A parent that is not stored counts as one level (it is at least a child). */
+export function agentDepths(links: { agent: string; parent: string | null }[]): Map<string, number> {
+  const parentOf = new Map(links.map((l) => [l.agent, l.parent] as const));
+  const depth = new Map<string, number>();
+  for (const { agent } of links) {
+    let d = 1;
+    let at = parentOf.get(agent) ?? null;
+    // a loop of parents (a report that names itself) stops at the cap
+    while (at !== null && d < MAX_AGENT_DEPTH) {
+      d += 1;
+      at = parentOf.get(at) ?? null;
+    }
+    depth.set(agent, d);
+  }
+  return depth;
+}
+
 export interface DayRollups {
   usage: UsageDay[];
   sessions: SessionsDay[];
@@ -160,6 +233,9 @@ export interface DayRollups {
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
   toolStats: ToolStatDay[];
+  sessionTime: SessionTimeDay[];
+  agentTypes: AgentDay[];
+  personDays: PersonDay[];
   /** Which stored sessions had each failure (not kept in a rollup; the History link reads it while the sessions last). */
   failureSessions: { day: string; owner: string; cls: string; tool: string; sessionId: string; harness: string }[];
 }
@@ -246,6 +322,14 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const reporterOf = new Map<string, string>();
   for (const r of await db.reporterKeysSince(fromMs)) reporterOf.set(r.id, r.k);
   const failureRows = await db.failureRowsSince(fromMs);
+  // Waiting on a person (#722) and who launched each agent: names, times and links only.
+  const waitsOf = new Map((await db.waitsSince(fromMs)).map((w) => [w.session_id, w] as const));
+  const linksOf = new Map<string, { agent: string; parent: string | null; type: string }[]>();
+  for (const r of await db.agentLinksSince(fromMs)) {
+    const list = linksOf.get(r.id) ?? [];
+    list.push({ agent: r.agent, parent: r.parent, type: r.type });
+    linksOf.set(r.id, list);
+  }
   // Each session's tool calls by name, added up over its agents (#720). Only names and counts are read, from a column that holds only those.
   const callsOf = new Map<string, Map<string, number>>();
   for (const r of await db.toolCountsSince(fromMs)) {
@@ -286,6 +370,9 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const toolSessions = new Map<string, ToolSessionDay>();
   const toolStats = new Map<string, StatAcc & { day: string; harness: string; tool: string }>();
   const harnessReporters = new Map<string, { day: string; harness: string; version: string; reporters: Set<string> }>();
+  const timeAcc = new Map<string, TimeAcc>();
+  const agentTypes = new Map<string, AgentDay>();
+  const personDays = new Map<string, PersonDay>();
   interface FleetAcc {
     people: Set<string>;
     reporters: Set<string>;
@@ -376,6 +463,48 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
       toolSessions.set(bk, sized);
     }
 
+    // How long it ran and waited, per harness (#722). A wait still open counts to the last time the session was seen.
+    const tk = `${day}\u0000${harness}`;
+    const t =
+      timeAcc.get(tk) ??
+      ({ day, harness, sessions: 0, durationS: 0, maxDurationS: 0, trackedSessions: 0, trackedS: 0, permissionS: 0, permissionN: 0, questionS: 0, questionN: 0, planS: 0, planN: 0, ms: { permission: 0, question: 0, plan: 0 } } satisfies TimeAcc);
+    t.sessions += 1;
+    t.durationS += d;
+    t.maxDurationS = Math.max(t.maxDurationS, d);
+    const wr: SessionWaitRow | undefined = waitsOf.get(s.id);
+    if (wr) {
+      t.trackedSessions += 1;
+      t.trackedS += Math.max(0, Math.round(((s.ended_at ?? s.last_seen_at) - wr.tracked_since) / 1000));
+      t.ms.permission += wr.permission_ms;
+      t.ms.question += wr.question_ms;
+      t.ms.plan += wr.plan_ms;
+      t.permissionN += wr.permission_n;
+      t.questionN += wr.question_n;
+      t.planN += wr.plan_n;
+      const open = waitOfOpen(wr, s.last_seen_at);
+      if (open) {
+        t.ms[open.kind] += open.ms;
+        t[`${open.kind}N`] += 1;
+      }
+    }
+    timeAcc.set(tk, t);
+
+    // Agents by type and how deep their chain is (#722).
+    const links = linksOf.get(s.id) ?? [];
+    const depth = agentDepths(links);
+    for (const l of links) {
+      const ak = `${day}\u0000${harness}\u0000${l.type}\u0000${depth.get(l.agent)}`;
+      const a = agentTypes.get(ak) ?? ({ day, harness, type: l.type, depth: depth.get(l.agent) ?? 1, agents: 0 } satisfies AgentDay);
+      a.agents += 1;
+      agentTypes.set(ak, a);
+    }
+
+    // Sessions per person per day (#722).
+    const pk = `${day}\u0000${owner}\u0000${harness}`;
+    const pd = personDays.get(pk) ?? ({ day, owner, group: s.grp ?? '', harness, sessions: 0 } satisfies PersonDay);
+    pd.sessions += 1;
+    personDays.set(pk, pd);
+
     const fl = fleetOf(day);
     if (owner) fl.people.add(owner);
     const machine = safeParse<{ id?: string } | null>(s.machine_json, null)?.id;
@@ -415,6 +544,9 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     toolSessions: [...toolSessions.values()],
     toolStats: [...toolStats.values()].map((a) => ({ day: a.day, harness: a.harness, tool: a.tool, failed: a.failed, asked: a.asked, allowed: a.allowed, denied: a.denied, podium: a.podium, timesJson: timesJson(a.times) })),
     harnessVersions: [...harnessReporters.values()].map((v) => ({ day: v.day, harness: v.harness, version: v.version, reporters: v.reporters.size })),
+    sessionTime: [...timeAcc.values()].map(({ ms, ...row }) => ({ ...row, permissionS: Math.round(ms.permission / 1000), questionS: Math.round(ms.question / 1000), planS: Math.round(ms.plan / 1000) })),
+    agentTypes: [...agentTypes.values()],
+    personDays: [...personDays.values()],
     failureSessions: failSessions,
   };
 }
@@ -445,6 +577,49 @@ export async function peakLiveByDay(db: FleetStore): Promise<Map<string, number>
     out.set(day, peak);
   }
   return out;
+}
+
+/** The most sessions live at once in each local hour of each day the samples cover, for each harness and for all together (#722). */
+export async function peaksByHour(db: FleetStore): Promise<HourPeakDay[]> {
+  // one window for each real hour, told apart by when it starts: on a day the clocks go back the hour 01:00 happens twice, and the two are not one stretch of time
+  const windows = new Map<number, { day: string; hour: number; spans: { lo: number; hi: number; harness: string }[] }>();
+  for (const { a, b, harness } of await db.sampleSpansByHarness()) {
+    // one piece for each local hour the span touches; the clock, not 3,600 seconds, ends an hour, so a day with 23 or 25 hours still has 24 of them
+    for (let at = a * 1000; at <= b * 1000; ) {
+      const d = new Date(at);
+      const hour = d.getHours();
+      // the start of the hour that `at` is in: step back to the top of the hour, which is a whole hour before except where an offset is not
+      const start = at - (d.getMinutes() * 60 + d.getSeconds()) * 1000 - d.getMilliseconds();
+      const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour + 1).getTime();
+      const w = windows.get(start) ?? { day: localDay(start), hour, spans: [] };
+      w.spans.push({ lo: Math.max(a, Math.floor(start / 1000)), hi: Math.min(b, Math.floor(end / 1000) - 1), harness });
+      windows.set(start, w);
+      at = Math.max(end, at + 1000);
+    }
+  }
+  const peakOf = (spans: { lo: number; hi: number }[]): number => {
+    const edges = spans.flatMap(({ lo, hi }) => [[lo, 1] as const, [hi + 1, -1] as const]).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    let now = 0;
+    let peak = 0;
+    for (const [, delta] of edges) {
+      now += delta;
+      peak = Math.max(peak, now);
+    }
+    return peak;
+  };
+  // the larger peak of the two windows that share a clock hour counts, never their sum
+  const folded = new Map<string, HourPeakDay>();
+  const put = (day: string, harness: string, hour: number, peak: number): void => {
+    const k = `${day}\u0000${harness}\u0000${hour}`;
+    const have = folded.get(k);
+    if (!have || peak > have.peak) folded.set(k, { day, harness, hour, peak });
+  };
+  for (const w of windows.values()) {
+    put(w.day, '', w.hour, peakOf(w.spans));
+    // a session with no harness counts in the whole and has no row of its own, which '' already names
+    for (const harness of new Set(w.spans.map((x) => x.harness).filter((h) => h !== ''))) put(w.day, harness, w.hour, peakOf(w.spans.filter((x) => x.harness === harness)));
+  }
+  return [...folded.values()].sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : x.hour - y.hour || (x.harness < y.harness ? -1 : x.harness > y.harness ? 1 : 0)));
 }
 
 // ---- writing ------------------------------------------------------------------------------------
@@ -489,6 +664,11 @@ export function writeRollups(storage: Storage, now: number, cost: CostOf, p: Rol
       await db.insertToolSessionsDaily(built.toolSessions.filter((r) => wanted(r.day)));
       await db.insertHarnessVersionsDaily(built.harnessVersions.filter((r) => wanted(r.day)));
       await db.insertToolStatsDaily(built.toolStats.filter((r) => wanted(r.day)));
+      await db.insertSessionTimeDaily(built.sessionTime.filter((r) => wanted(r.day)));
+      await db.insertAgentsDaily(built.agentTypes.filter((r) => wanted(r.day)));
+      await db.insertPersonSessionsDaily(built.personDays.filter((r) => wanted(r.day)));
+      // the peak of an hour never goes down, as the peak of a day does not: the samples that made it are kept only a day
+      await db.upsertHourPeaks((await peaksByHour(db)).filter((r) => wanted(r.day)));
       const days = built.fleet.filter((f) => wanted(f.day));
       await db.upsertFleetDays(days.map((f) => ({ day: f, peak: peaks.get(f.day) ?? 0 })));
       rebuilt += days.length;

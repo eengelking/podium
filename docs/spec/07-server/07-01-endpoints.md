@@ -582,9 +582,9 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Reports (#484, [8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
-    `failures`, `tools` and `activity`, and `GET reports/retention` for the Data page's tables.
+    `failures`, `tools`, `sessiontime`, `workload` and `activity`, and `GET reports/retention` for the Data page's tables.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
-      (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`, and a `person`, `group` or `model` is a `400`, since the tool counts are not kept per person).
+      (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`, and a `person`, `group` or `model` is a `400`, since the tool counts are not kept per person; `sessiontime` and `workload` take `harness` too, see below).
       A bad value is a `400`.
     - Reply: `{ report, from, to, by, tz, basedOn, oldestDay, columns: [{ key, label, unit }], rows, total }`.
       `oldestDay` is the first day the rollups hold (today when there are none yet). `partial` is `true` whenever `from` is
@@ -637,6 +637,33 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
           day in the bucket. `newest` is `Newest seen` for the highest version of the harness in the reply and `Older` for the rest;
           versions are compared as dotted numbers, and only within a harness. `behind` is `[{ harness, newest, behind, reporters }]`,
           the reporters on an older version in the harness's last period.
+      - `sessiontime` (#722): how long sessions ran and waited on a person, and which agents they launched, for every harness that reports.
+        `harness` narrows the rows to one harness; the reply's `harnesses` lists every harness the period holds, before that filter. A `person`,
+        `group` or `model` is a `400`, since these figures are kept per harness and day, not per person. Waiting is recorded from the upgrade on, so `oldestDay` is the first
+        day these tables cover and a period before it is `partial`, and the `time` reply carries `waitSince`, the first day any session had its waiting recorded (`null` before one has). `breakdown` is `time` (default), `reason`, `agents` or `depth`, and each is one table.
+        - `time`: rows `period, harness, sessions, avgDurationS, maxDurationS, waitS, waitSharePct`. `waitS` and `waitSharePct` are `null` for a period in
+          which no session had its waiting recorded, never zero. The share is the waiting over the time the sessions with a record ran, not over every
+          session. `total` has the same keys over the whole period, `periods` has each period with every selected harness together, and `byHarness`
+          has the whole period for each harness.
+        - `reason`: no `period`. Rows `reason, harness, waits, waitS, avgWaitS, sharePct`, where `reason` is `permission`, `question` or `plan`.
+          `byReason` has the three kinds with every harness together, and `total` is `{ waits, waitS, avgWaitS }`.
+        - `agents`: rows `type, harness, agents, sharePct`, the largest type first. `total` is `{ agents, sessions, agentsPerSession }`.
+        - `depth`: rows `depth, harness, agents, sharePct`. Depth 1 is an agent the session launched itself, 2 one that an agent launched, and 3 means
+          three or more. `total` is `{ agents, deepest }`, the levels of the longest chain.
+        Waiting is the time a session reported `waiting` on a tool's permission, a question or a plan, counted to the report that no longer shows it, and to no more than two minutes past the last report before a silence (a session that was offline is not waiting). A session idle at the prompt is reported as
+        waiting too (reason `input`, no note) and is not counted, and neither is a wait for background work or a timer. The kind comes from the report's
+        fields: a permission whose note starts with `ExitPlanMode` is a plan and one that starts with `AskUserQuestion` is a question, any other
+        permission is a permission, and `input` with a note is a question (OpenCode asks that way). `input` sent by the settings hooks (the `hooks`
+        reporter) is never counted, because its idle prompt carries a message. Only the kind and the time are kept, never the note.
+      - `workload` (#722): `breakdown` is `person` (default) or `hour`. `harness` narrows the rows to one harness; the reply's `harnesses` lists every harness
+        the period holds. A `person` or `model` is a `400`.
+        - `person`: one row per person, no `period`: `person, group, activeDays, sessions, perActiveDay, busiestDay, busiestDaySessions`. A day is
+          active for a person when a session of theirs was last seen on it. `group` narrows the rows to one group. `total` is
+          `{ people, activeDays, sessions, perActiveDay, busiestDay, busiestDaySessions }` over everyone in the filter, not one page.
+        - `hour`: always 24 rows, `hour` (`00:00` to `23:00`, in the server's time zone), `harness` (`all` or the one asked for) and `peak`, the most
+          sessions live at once in that hour on any day of the period. The peak of every harness together is not the sum of the peaks of the parts.
+          A `group` is a `400`, since the peak counts every session. `total` is `{ peak, busiestHour }`, the first hour that reached the peak. The last day
+          is read from the per-second samples (kept 24 hours), and the stored hour peaks never go down.
       - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
         at most 1,000. It has no `by`. `truncated` is `true` when the log held more than 1,000 entries in the period, and
         the page then says "Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest."

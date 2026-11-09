@@ -24,6 +24,7 @@ import { OnceBox, type Created } from "./OnceBox";
 import { ReportersTab, type ReporterPaging } from "./ReportersTab";
 import { DataPage } from "./DataPage";
 import { REPORT_CONFIGS, ReportPage, SPEND_CONFIG } from "./ReportPages";
+import { SessionsPage, UsagePage } from "./TimePages";
 import { ToolsPage } from "./ToolsPage";
 import { ReportingTab } from "./ReportingTab";
 import { makeReportsClient } from "./reportsApi";
@@ -282,9 +283,9 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "certs" && <CertificatesTab api={api} onLocked={onLocked} />}
                   {tab === "prices" && <ModelPricesTab api={api} onLocked={onLocked} />}
                   {tab === "spend" && <SpendPage client={client} fleetOptions={fleetOptions} onCount={onCountSpend} onLocked={onLocked} />}
-                  {tab === "usage" && <ReportPage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}
+                  {tab === "usage" && <UsagePage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}
                   {tab === "rpeople" && <ReportPage cfg={REPORT_CONFIGS.people} client={client} onLocked={onLocked} />}
-                  {tab === "sessions" && <ReportPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
+                  {tab === "sessions" && <SessionsPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
                   {tab === "failures" && <ReportPage cfg={REPORT_CONFIGS.failures} client={client} onLocked={onLocked} />}
                   {tab === "tools" && <ToolsPage cfg={REPORT_CONFIGS.tools} client={client} onLocked={onLocked} />}
                   {tab === "activity" && <ReportPage cfg={REPORT_CONFIGS.activity} client={client} onLocked={onLocked} />}

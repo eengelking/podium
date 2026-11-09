@@ -160,10 +160,12 @@ describe("Usage, the shared report page", () => {
     const s = fakeServer({ unlocked: true });
     s.reports.usage = { report: "usage", from: FROM, to: TO, by: "day", tz: "UTC", basedOn: "daily rollups", oldestDay: "2026-03-02", columns: [{ key: "period", label: "Day" }], rows: [], total: null };
     await openPage("Usage", s);
-    expect(await screen.findByText("Nothing was recorded in this period.")).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.queryByText(/Showing/)).toBeNull();
+    // the page's own section: the sections the Usage page adds after it (#722) have their own tables and charts
+    const results = await screen.findByRole("region", { name: "Usage by day" });
+    expect(await within(results).findByText("Nothing was recorded in this period.")).toBeInTheDocument();
+    expect(within(results).queryByRole("table")).toBeNull();
+    expect(within(results).queryByRole("img")).toBeNull();
+    expect(within(results).queryByText(/Showing/)).toBeNull();
   });
 
   it("describes a basis other than rollups in the server's words", async () => {
@@ -177,7 +179,7 @@ describe("Usage, the shared report page", () => {
     const s = fakeServer({ unlocked: true });
     s.reportStatus = 500;
     await openPage("Usage", s);
-    const alert = await screen.findByRole("alert");
+    const alert = await within(await screen.findByRole("region", { name: "Usage by day" })).findByRole("alert");
     expect(alert).toHaveTextContent("Could not load this report. Check that the server is running, then try again.");
     expect(alert.textContent).not.toMatch(/500|HTTP|nope/);
     s.reportStatus = 0;
@@ -189,7 +191,7 @@ describe("Usage, the shared report page", () => {
     const s = fakeServer({ unlocked: true });
     s.reportStatus = 400;
     await openPage("Usage", s);
-    expect(await screen.findByRole("alert")).toHaveTextContent("did not accept that period or filter");
+    expect(await within(await screen.findByRole("region", { name: "Usage by day" })).findByRole("alert")).toHaveTextContent("did not accept that period or filter");
   });
 
   it("goes back to the lock screen when the session has ended", async () => {

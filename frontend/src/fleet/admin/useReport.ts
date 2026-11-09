@@ -23,6 +23,11 @@ export interface ReportConfig {
   /** Whether the report is cut into days, weeks or months. The Admin activity and People and groups reports are not. */
   hasBy: boolean;
   filters: FilterId[];
+  /**
+   * The page offers the Harness filter for the sections it adds (#722), not for the report it is built on, which is not kept per harness. The filter is
+   * never sent with that report, and the page says so.
+   */
+  extraHarness?: boolean;
   /** A `breakdown` the page can ask for: [value, label]. The first is the default and is not sent when it is `none`. */
   breakdowns?: [string, string][];
   /** The Admin activity report is filtered by the kind of entry. */
@@ -94,7 +99,7 @@ export function useReport(client: ReportsClient, cfg: ReportConfig, onLocked: ()
       person: cfg.filters.includes("person") ? prefs.person : undefined,
       group: cfg.filters.includes("group") ? prefs.group : undefined,
       model: cfg.filters.includes("model") ? prefs.model : undefined,
-      harness: cfg.filters.includes("harness") ? prefs.harness : undefined,
+      harness: cfg.filters.includes("harness") && !cfg.extraHarness ? prefs.harness : undefined,
       kind: cfg.kinds ? prefs.kind : undefined,
     })}`;
   }, [problem, cfg, prefs, range.from, range.to]);

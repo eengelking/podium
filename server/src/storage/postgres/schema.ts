@@ -293,6 +293,36 @@ CREATE TABLE tool_stats_daily (
 );
 `),
   },
+  {
+    version: 15,
+    // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), as SQLite migration 39 keeps them:
+    // names, counts and times only. `session_waits` goes with its session.
+    sql: typed(`
+CREATE TABLE session_waits (
+  session_id TXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  permission_ms INT NOT NULL, permission_n INT NOT NULL, question_ms INT NOT NULL, question_n INT NOT NULL, plan_ms INT NOT NULL, plan_n INT NOT NULL,
+  tracked_since INT NOT NULL, open_kind TXT, open_since INT
+);
+CREATE TABLE session_time_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, sessions INT NOT NULL, duration_s INT NOT NULL, max_duration_s INT NOT NULL,
+  tracked_sessions INT NOT NULL, tracked_s INT NOT NULL,
+  permission_s INT NOT NULL, permission_n INT NOT NULL, question_s INT NOT NULL, question_n INT NOT NULL, plan_s INT NOT NULL, plan_n INT NOT NULL,
+  PRIMARY KEY (day, harness)
+);
+CREATE TABLE agents_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, type TXT NOT NULL, depth INT NOT NULL, agents INT NOT NULL,
+  PRIMARY KEY (day, harness, type, depth)
+);
+CREATE TABLE person_sessions_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, group_name TXT NOT NULL, harness TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness)
+);
+CREATE TABLE hour_peaks_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, hour INT NOT NULL, peak INT NOT NULL,
+  PRIMARY KEY (day, harness, hour)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

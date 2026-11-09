@@ -4,7 +4,7 @@ import { fmtDur, fmtTok } from "../format";
 import { readJson, writeJson } from "../storage";
 import { AdminError, type AdminApi } from "./adminApi";
 
-export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "activity";
+export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "sessiontime" | "workload" | "activity";
 export type By = "day" | "week" | "month";
 
 export interface ReportColumn {
@@ -41,6 +41,11 @@ export interface ReportReply {
   byHarness?: { harness: string; sessions: number; median: number; p90: number }[];
   /** The Tools report, versions: how many reporters of each harness run an older version than its newest, in its last period. */
   behind?: { harness: string; newest: string; behind: number; reporters: number }[];
+  /** The session time report only (#722), length and waiting: each period for every harness together, and the first day any session recorded its waiting (null before one has). */
+  periods?: ReportRow[];
+  waitSince?: string | null;
+  /** The session time report, waiting by reason: each of the three kinds for every harness together. */
+  byReason?: ReportRow[];
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }

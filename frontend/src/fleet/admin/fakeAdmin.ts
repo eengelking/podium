@@ -191,6 +191,66 @@ function fakeReport(report: string, url: URL) {
     const rows = all.filter((x) => harness === "" || x.harness === harness);
     return { ...base, by, harnesses, columns: [{ key: "period", label: "Period", unit: "date" }, { key: "harness", label: "Harness", unit: "text" }, { key: "server", label: "MCP server", unit: "text" }, { key: "tool", label: "Tool", unit: "text" }, { key: "calls", label: "Calls", unit: "count" }], rows, total: { calls: rows.reduce((n, x) => n + x.calls, 0) } };
   }
+  if (report === "sessiontime") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const breakdown = url.searchParams.get("breakdown") ?? "time";
+    const harnesses = ["claude-code", "opencode"];
+    const keep = <T extends { harness: string }>(all: T[]): T[] => all.filter((x) => harness === "" || x.harness === harness);
+    const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+    const extra = { harnesses, waitSince: "2026-10-12" };
+    if (breakdown === "reason") {
+      return {
+        ...base, ...extra, by: null, columns: [col("reason", "Waiting for", "text"), col("harness", "Harness", "text"), col("waits", "Waits", "count"), col("waitS", "Time waiting", "seconds"), col("avgWaitS", "Average wait", "seconds"), col("sharePct", "Share", "percent")],
+        rows: keep([{ reason: "permission", harness: "claude-code", waits: 640, waitS: 1865, avgWaitS: 175, sharePct: 56 }, { reason: "question", harness: "opencode", waits: 186, waitS: 1120, avgWaitS: 361, sharePct: 34 }]),
+        total: { waits: 826, waitS: 2985, avgWaitS: 217 },
+        byReason: [{ reason: "permission", waits: 640, waitS: 1865, avgWaitS: 175, sharePct: 62.5 }, { reason: "question", waits: 186, waitS: 1120, avgWaitS: 361, sharePct: 37.5 }, { reason: "plan", waits: 0, waitS: 0, avgWaitS: null, sharePct: 0 }],
+      };
+    }
+    if (breakdown === "agents") {
+      const rows = keep([
+        { type: "general-purpose", harness: "claude-code", agents: 520, sharePct: 42.8 }, { type: "general-purpose", harness: "opencode", agents: 96, sharePct: 7.9 }, { type: "Explore", harness: "claude-code", agents: 310, sharePct: 25.5 },
+        { type: "Plan", harness: "claude-code", agents: 96, sharePct: 7.9 }, { type: "Review", harness: "claude-code", agents: 60, sharePct: 4.9 }, { type: "build", harness: "opencode", agents: 46, sharePct: 3.8 },
+      ]);
+      return { ...base, ...extra, by: null, columns: [col("type", "Agent type", "text"), col("harness", "Harness", "text"), col("agents", "Agents launched", "count"), col("sharePct", "Share", "percent")], rows, total: { agents: rows.reduce((n, x) => n + x.agents, 0), sessions: 312, agentsPerSession: 3.9 } };
+    }
+    if (breakdown === "depth") {
+      const rows = keep([{ depth: 1, harness: "claude-code", agents: 1010, sharePct: 83 }, { depth: 1, harness: "opencode", agents: 124, sharePct: 10.2 }, { depth: 2, harness: "claude-code", agents: 58, sharePct: 4.8 }, { depth: 3, harness: "opencode", agents: 2, sharePct: 0.2 }]);
+      return { ...base, ...extra, by: null, columns: [col("depth", "Chain depth", "count"), col("harness", "Harness", "text"), col("agents", "Agents", "count"), col("sharePct", "Share", "percent")], rows, total: { agents: rows.reduce((n, x) => n + x.agents, 0), deepest: 4 } };
+    }
+    const all = [
+      { period: "2026-10-05", harness: "claude-code", sessions: 60, avgDurationS: 3400, maxDurationS: 25_500, waitS: 72_360, waitSharePct: 24 }, { period: "2026-10-12", harness: "claude-code", sessions: 50, avgDurationS: 3000, maxDurationS: 17_700, waitS: 39_240, waitSharePct: 19 },
+      { period: "2026-10-12", harness: "opencode", sessions: 19, avgDurationS: 2700, maxDurationS: 13_200, waitS: 9000, waitSharePct: 17 },
+    ];
+    const rows = keep(all);
+    return {
+      ...base, ...extra, by, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("sessions", "Sessions", "count"), col("avgDurationS", "Average length", "seconds"), col("maxDurationS", "Longest", "seconds"), col("waitS", "Time waiting on people", "seconds"), col("waitSharePct", "Share of time waiting", "percent")],
+      rows, total: { sessions: 129, avgDurationS: 3100, maxDurationS: 25_500, waitS: 120_600, waitSharePct: 21 },
+      periods: [{ period: "2026-10-05", sessions: 60, avgDurationS: 3400, maxDurationS: 25_500, waitS: 72_360, waitSharePct: 24 }, { period: "2026-10-12", sessions: 69, avgDurationS: 2950, maxDurationS: 17_700, waitS: 48_240, waitSharePct: 18 }],
+      byHarness: keep([{ harness: "claude-code", sessions: 110, avgDurationS: 3200, maxDurationS: 25_500, waitS: 111_600, waitSharePct: 21 }, { harness: "opencode", sessions: 19, avgDurationS: 2700, maxDurationS: 13_200, waitS: 9000, waitSharePct: 17 }]),
+    };
+  }
+  if (report === "workload") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const group = url.searchParams.get("group") ?? "";
+    const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+    const harnesses = ["claude-code", "opencode"];
+    if (url.searchParams.get("breakdown") === "hour") {
+      const peaks = [0, 0, 0, 0, 0, 0, 1, 2, 4, 7, 8, 9, 6, 7, 9, 8, 7, 5, 3, 2, 2, 1, 1, 0];
+      const rows = peaks.map((p, h) => ({ hour: `${String(h).padStart(2, "0")}:00`, harness: harness === "" ? "all" : harness, peak: harness === "opencode" ? Math.round(p * 0.3) : p }));
+      return { ...base, harnesses, by: null, columns: [col("hour", "Hour", "text"), col("harness", "Harness", "text"), col("peak", "Most sessions live at once", "count")], rows, total: { peak: 9, busiestHour: "11:00" } };
+    }
+    const all = [
+      { person: "Maya Okafor", group: "Platform", activeDays: 22, sessions: 118, perActiveDay: 5.4, busiestDay: "2026-10-07", busiestDaySessions: 11 },
+      { person: "Jonas Weber", group: "Research", activeDays: 19, sessions: 74, perActiveDay: 3.9, busiestDay: "2026-10-14", busiestDaySessions: 8 },
+      { person: "Cai Lindqvist", group: "Platform", activeDays: 9, sessions: 31, perActiveDay: 3.4, busiestDay: "2026-10-02", busiestDaySessions: 7 },
+      { person: "-", group: "-", activeDays: 6, sessions: 14, perActiveDay: 2.3, busiestDay: "2026-10-09", busiestDaySessions: 4 },
+    ];
+    const rows = all.filter((x) => group === "" || x.group === group);
+    return {
+      ...base, harnesses, by: null, columns: [col("person", "Person", "text"), col("group", "Group", "text"), col("activeDays", "Days active", "count"), col("sessions", "Sessions", "count"), col("perActiveDay", "Per active day", "count"), col("busiestDay", "Busiest day", "date"), col("busiestDaySessions", "Sessions on busiest day", "count")],
+      rows: harness === "opencode" ? rows.slice(0, 1) : rows, total: { people: rows.length, activeDays: 56, sessions: 237, perActiveDay: 4.2, busiestDay: "2026-10-07", busiestDaySessions: 21 },
+    };
+  }
   if (report === "failures") {
     return {
       ...base,

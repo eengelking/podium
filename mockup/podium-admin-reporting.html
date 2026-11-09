@@ -9,9 +9,10 @@
 <link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
 <style>
 /* Mockup for #484. Admin gets a Reporting menu group (seven pages here; since #432 Data kept is Admin > Server > Data, so six); Spend moves into it from Activity, and the old
-   "Reporting and security" page is renamed Security so two entries do not both say "Reporting". Colors and fonts come
-   from tokens.css through fleet.css; this file has no :root block. Only the demo chrome (.demo, .stage, .notes) and the
-   few report-only pieces (.rbar, .note-line, .chart, .exp) are the mockup's own. */
+   "Reporting and security" page is renamed Security so two entries do not both say "Reporting". Colors, fonts and every
+   report class (.exp-wrap, .note-line, .partial, .chart, .rowbtn, .klink, .cut and the rest) come from tokens.css, fleet.css
+   and admin.css, so the page renders what the app renders; this file has no :root block and no rule that restyles one of them.
+   Only the demo chrome (.demo, .stage, .frame, .notes) and the page switcher (.pgv) are the mockup's own. */
 html, body { height: auto; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
 .demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
@@ -28,26 +29,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
 .notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
 .notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* A page's header and sections must be direct children of .apage-in, which spaces them (24px, 16px when narrow). This wrapper only
+   switches pages, so it takes no box of its own. */
+.pgv { display: contents; }
 .pgv[hidden] { display: none; }
-/* report-only pieces */
-.note-line { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
-.note-line b { color: var(--ink); font-weight: 600; }
-.chart { padding: 12px 16px 4px; }
-.chart svg { display: block; width: 100%; height: 150px; }
-.chart .gl { stroke: var(--grid); stroke-width: 1; }
-.chart .ax { stroke: var(--axis); stroke-width: 1; }
-.chart .rbar { fill: var(--ink2); }
-.chart .tx { fill: var(--muted); font: 10px var(--font-mono); }
-.exp { display: inline-flex; gap: 6px; align-items: flex-end; }
-.partial { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
-.hb .shr { min-width: 3.5em; }
-.rowbtn { display: inline-flex; align-items: center; gap: 8px; text-align: left; border-radius: 4px; min-height: 28px; }
-.rowbtn:hover { background: var(--hover); }
-.rowbtn[aria-expanded="true"] { background: var(--sel); }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.klink { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-@media print { .demo, .nav, .notes, .banner, .exp { display: none; } .frame { height: auto; border: 0; } }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
 </style>
 
 <div class="demo">
@@ -112,7 +98,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <!-- Usage -->
   <div class="pgv" id="pg-usage">
     <div class="page-h"><div><h1>Usage</h1><p class="lead">Who used Podium, how many sessions they started, and how many ran at once.</p></div>
-      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
     <section class="asec" aria-labelledby="u-f"><div class="asec-h"><div><h2 id="u-f">Period and filters</h2></div></div>
       <div class="panel">
         <div class="tool">
@@ -126,19 +112,24 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <section class="asec" aria-labelledby="u-r"><div class="asec-h"><div><h2 id="u-r">Usage by week</h2><p class="hint">Sessions started and people who reported, 2026-09-21 to 2026-10-20.</p></div></div>
       <div class="panel">
         <div class="tool alone">
-          <div class="sum" style="margin-left:0;text-align:left">
+          <div class="sum left">
             <div><span class="big mono">11</span><span class="cap">active people</span></div>
             <div><span class="big mono">16</span><span class="cap">active reporters</span></div>
             <div><span class="big mono">312</span><span class="cap">sessions started</span></div>
             <div><span class="big mono">9</span><span class="cap">most live at once</span></div>
           </div>
         </div>
-        <div class="chart"><svg viewBox="0 0 600 150" role="img" aria-label="Sessions started per week: 61, 74, 88, 69, 20 so far this week" preserveAspectRatio="none">
-          <line class="gl" x1="30" x2="600" y1="20" y2="20"/><line class="gl" x1="30" x2="600" y1="70" y2="70"/><line class="ax" x1="30" x2="600" y1="120" y2="120"/>
-          <text class="tx" x="0" y="23">100</text><text class="tx" x="0" y="73">50</text><text class="tx" x="14" y="123">0</text>
-          <rect class="rbar" x="60" y="59" width="70" height="61"/><rect class="rbar" x="180" y="46" width="70" height="74"/><rect class="rbar" x="300" y="32" width="70" height="88"/><rect class="rbar" x="420" y="51" width="70" height="69"/><rect class="rbar" x="540" y="100" width="50" height="20"/>
-          <text class="tx" x="75" y="138">09-21</text><text class="tx" x="195" y="138">09-28</text><text class="tx" x="315" y="138">10-05</text><text class="tx" x="435" y="138">10-12</text><text class="tx" x="545" y="138">10-19*</text>
-        </svg></div>
+        <div class="chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">88</span><span style="top:70px">44</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" role="img" aria-label="Sessions started per week: 5 periods from 2026-09-21 to 2026-10-19, highest 88 on 2026-10-05, 312 in all." preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+              <rect class="rbar" x="18" y="47.6" width="84" height="62.4"/><rect class="rbar" x="138" y="34.3" width="84" height="75.7"/><rect class="rbar" x="258" y="20" width="84" height="90"/><rect class="rbar" x="378" y="39.4" width="84" height="70.6"/><rect class="rbar" x="498" y="89.5" width="84" height="20.5"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div>
+          <div class="hint" aria-hidden="true">2026-09-21 to 2026-10-19. Highest: 88.</div>
+        </div>
         <div class="tw2"><table class="ptab" aria-label="Usage by week">
           <thead><tr><th scope="col">Week of</th><th scope="col" class="n">People</th><th scope="col" class="n">Reporters</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Most live</th></tr></thead>
           <tbody>
@@ -158,7 +149,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <!-- Spend -->
   <div class="pgv" id="pg-spend" hidden>
     <div class="page-h"><div><h1>Spend</h1><p class="lead">What was spent, by person, group, model or project. Estimated from tokens, not a bill.</p></div>
-      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
     <section class="asec" aria-labelledby="s-t"><div class="asec-h"><div><h2 id="s-t">Spend today, by person</h2></div></div>
       <div class="panel">
         <div class="tool"><div class="f"><span class="lab" aria-hidden="true">Group by</span><span class="seg" role="group" aria-label="Group by"><button type="button" aria-pressed="true">People</button><button type="button" aria-pressed="false">Groups</button></span></div>
@@ -175,7 +166,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <section class="asec" aria-labelledby="bd-h" id="bd"><div class="asec-h"><div><h2 id="bd-h" tabindex="-1">Maya Okafor, spend today</h2><p class="hint">$16.40 since midnight, cut three ways. Each cut adds up to the row.</p></div><button type="button" class="btn sm">Close</button></div>
       <div class="panel">
         <div class="tw2"><table class="ptab" aria-label="By session">
-          <thead><tr><th scope="col">Session</th><th scope="col">Model</th><th scope="col" class="n">Spent today</th><th scope="col" class="n">Share</th><th scope="col"><span class="sr">History</span></th></tr></thead>
+          <thead><tr><th scope="col">Session</th><th scope="col">Model</th><th scope="col" class="n">Spent today</th><th scope="col" class="n">Share</th><th scope="col"><span class="sr-only">History</span></th></tr></thead>
           <tbody>
             <tr><td class="who">api-refactor</td><td>Opus 5.5</td><td class="n mono">$9.12</td><td class="n mono">56%</td><td><a class="klink" href="#">Open</a></td></tr>
             <tr><td class="who">docs-sweep</td><td>Sonnet 5.5</td><td class="n mono">$4.28</td><td class="n mono">26%</td><td><a class="klink" href="#">Open</a></td></tr>
@@ -184,10 +175,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           </tbody>
           <tfoot><tr><th scope="row">Total</th><td></td><td class="n mono">$16.40</td><td class="n mono">100%</td><td></td></tr></tfoot>
         </table></div>
-        <div class="tool alone" style="border-top:1px solid var(--border);align-items:flex-start;gap:24px 40px">
-          <div class="f" style="min-width:220px"><span class="lab">By model</span>
+        <div class="tool alone cuts">
+          <div class="f cut"><span class="lab">By model</span>
             <div class="mono">Opus 5.5 <b>$9.12</b> (56%)<br>Sonnet 5.5 <b>$7.28</b> (44%)<br><span class="muted">mystery-model –</span></div></div>
-          <div class="f" style="min-width:220px"><span class="lab">Orchestrator and agents</span>
+          <div class="f cut"><span class="lab">Orchestrator and agents</span>
             <div class="mono">Orchestrator <b>$11.90</b> (73%)<br>Agents <b>$4.50</b> (27%)</div></div>
         </div>
         <div class="note-line">Plus 1 session on a model without a price. It is left out of the sums, so the priced parts add up to $16.40.</div>
@@ -239,7 +230,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <!-- Failures, period reaches before the first rollup day -->
   <div class="pgv" id="pg-failures" hidden>
     <div class="page-h"><div><h1>Failures</h1><p class="lead">What failed, how often and for whom, to find a root cause.</p></div>
-      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
     <section class="asec" aria-labelledby="f-f"><div class="asec-h"><div><h2 id="f-f">Period and filters</h2></div></div>
       <div class="panel"><div class="tool">
         <div class="f"><label class="lab" for="f-per">Period</label><select class="field" id="f-per"><option>Custom…</option></select></div>

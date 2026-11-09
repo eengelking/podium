@@ -1,0 +1,347 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Admin Reporting: Session time and busiest hours</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #722 (session duration, wait time, agent types, concurrency by hour), built on the report shape of #484 and
+   the Tools page of #720 (mockup/podium-admin-reporting-tools.html). Colors, fonts and every report class come from
+   tokens.css, fleet.css and admin.css; this file has no :root block and restyles none of them. Only the demo chrome
+   (.demo, .stage, .frame, .notes) and the page switcher (.pgv, which takes no box so .apage-in keeps spacing the sections) are the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 760px; max-width: 100%; background: var(--bg); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv { display: contents; }
+.pgv[hidden] { display: none; }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Admin Reporting: session time and busiest hours (#722)</b>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-pg="sessions" aria-pressed="true">Sessions</button>
+    <button type="button" data-pg="usage" aria-pressed="false">Usage</button>
+  </span>
+  <span class="grp" role="group" aria-label="State">State
+    <button type="button" data-st="full" aria-pressed="true">Full history</button>
+    <button type="button" data-st="since" aria-pressed="false">Wait time starts mid-period</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn" data-nav="usage">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn" data-nav="sessions" aria-current="page">Sessions</button>
+        <button type="button" class="navbtn">Tools</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+
+  <!-- Sessions -->
+  <div class="pgv" id="pg-sessions">
+    <div class="page-h"><div><h1>Sessions</h1><p class="lead">How sessions ended, on which model, effort and plan, how long they ran and waited on people, which agents they launched, and how often the context window overflowed.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+
+    <section class="asec" aria-labelledby="s-f"><div class="asec-h"><div><h2 id="s-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="s-per">Period</label><select class="field" id="s-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="s-p">Person</label><select class="field" id="s-p"><option>Everyone</option></select></div>
+          <div class="f"><label class="lab" for="s-g">Group</label><select class="field" id="s-g"><option>All groups</option></select></div>
+          <div class="f"><label class="lab" for="s-m">Model</label><select class="field" id="s-m"><option>All models</option></select></div>
+          <div class="f"><label class="lab" for="s-h">Harness</label><select class="field" id="s-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Counts come from every harness that reports: Claude Code and OpenCode.</div>
+        <div class="note-line" id="since-note" hidden><b>Waiting time is recorded from 2026-10-05,</b> when Podium was upgraded to this release. Earlier weeks show a dash, and the totals below count only the weeks that have it.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="s-d"><div class="asec-h"><div><h2 id="s-d">Length and waiting by week</h2><p class="hint">How long sessions ran, and how much of that they spent waiting on a person to answer a question, approve a plan or allow a tool. 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum left">
+            <div><span class="big mono">312</span><span class="cap">sessions</span></div>
+            <div><span class="big mono">51m</span><span class="cap">average length</span></div>
+            <div><span class="big mono" data-f="55h 30m" data-s="33h 12m">55h 30m</span><span class="cap" data-f="waiting on people" data-s="waiting on people, since 2026-10-05">waiting on people</span></div>
+            <div><span class="big mono">21%</span><span class="cap">of session time spent waiting</span></div>
+          </div>
+        </div>
+        <div class="chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">20h</span><span style="top:70px">10h</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" role="img" aria-label="Time waiting on people per week: 5 periods from 2026-09-21 to 2026-10-19, highest 20h 06m on 2026-10-05, 55h 30m in all." preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+              <rect class="rbar" x="18" y="70.6" width="84" height="39.4"/><rect class="rbar" x="138" y="49.6" width="84" height="60.4"/><rect class="rbar" x="258" y="20" width="84" height="90"/><rect class="rbar" x="378" y="61.2" width="84" height="48.8"/><rect class="rbar" x="498" y="100.2" width="84" height="9.8"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div>
+          <div class="hint" aria-hidden="true">2026-09-21 to 2026-10-19. Highest: 20h 06m.</div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Length and waiting by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Average length</th><th scope="col" class="n">Longest</th><th scope="col" class="n">Waiting on people</th><th scope="col" class="n">Share of time</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19 (so far)</td><td class="n mono">20</td><td class="n mono">41m</td><td class="n mono">3h 10m</td><td class="n mono">2h 12m</td><td class="n mono">16%</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">69</td><td class="n mono">50m</td><td class="n mono">4h 55m</td><td class="n mono">10h 54m</td><td class="n mono">19%</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">88</td><td class="n mono">57m</td><td class="n mono">7h 05m</td><td class="n mono">20h 06m</td><td class="n mono">24%</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono">74</td><td class="n mono">52m</td><td class="n mono">5h 40m</td><td class="n mono wt" data-f="13h 30m" data-s="–">13h 30m</td><td class="n mono wt" data-f="21%" data-s="–">21%</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono">61</td><td class="n mono">48m</td><td class="n mono">6h 12m</td><td class="n mono wt" data-f="8h 48m" data-s="–">8h 48m</td><td class="n mono wt" data-f="18%" data-s="–">18%</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><th scope="row">Whole period, all harnesses</th><td class="n mono">312</td><td class="n mono">51m</td><td class="n mono">7h 05m</td><td class="n mono" data-f="55h 30m" data-s="33h 12m">55h 30m</td><td class="n mono" data-f="21%" data-s="21%">21%</td></tr>
+            <tr><th scope="row">Claude Code</th><td class="n mono">241</td><td class="n mono">53m</td><td class="n mono">7h 05m</td><td class="n mono" data-f="45h 10m" data-s="27h 40m">45h 10m</td><td class="n mono" data-f="21%" data-s="22%">21%</td></tr>
+            <tr><th scope="row">OpenCode</th><td class="n mono">71</td><td class="n mono">45m</td><td class="n mono">3h 40m</td><td class="n mono" data-f="10h 20m" data-s="5h 32m">10h 20m</td><td class="n mono" data-f="19%" data-s="19%">19%</td></tr>
+          </tfoot>
+        </table></div>
+        <div class="note-line">Length is from a session's start to its last report. Waiting is the time a session reported that it waited on a person, so it is counted to the reporting interval, and a wait for background work or a timer is not counted.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="s-w"><div class="asec-h"><div><h2 id="s-w">What sessions waited for</h2><p class="hint">Each wait is a question, a plan to approve, or a tool asking for permission. Together they add up to the waiting above.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Waiting by reason">
+        <thead><tr><th scope="col">Waiting for</th><th scope="col" class="n">Waits</th><th scope="col" class="n">Time waiting</th><th scope="col" class="n">Average wait</th><th scope="col" class="n">Share</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Permission for a tool</td><td class="n mono" data-f="640" data-s="352">640</td><td class="n mono" data-f="31h 05m" data-s="18h 36m">31h 05m</td><td class="n mono" data-f="2m 55s" data-s="3m 10s">2m 55s</td><td class="n mono" data-f="56%" data-s="56%">56%</td></tr>
+          <tr><td class="who">An answer to a question</td><td class="n mono" data-f="186" data-s="104">186</td><td class="n mono" data-f="18h 40m" data-s="11h 12m">18h 40m</td><td class="n mono" data-f="6m 01s" data-s="6m 28s">6m 01s</td><td class="n mono" data-f="34%" data-s="34%">34%</td></tr>
+          <tr><td class="who">Approval of a plan</td><td class="n mono" data-f="52" data-s="29">52</td><td class="n mono" data-f="5h 45m" data-s="3h 24m">5h 45m</td><td class="n mono" data-f="6m 38s" data-s="7m 02s">6m 38s</td><td class="n mono" data-f="10%" data-s="10%">10%</td></tr>
+        </tbody>
+        <tfoot><tr><th scope="row">Total</th><td class="n mono" data-f="878" data-s="485">878</td><td class="n mono" data-f="55h 30m" data-s="33h 12m">55h 30m</td><td class="n mono" data-f="3m 48s" data-s="4m 07s">3m 48s</td><td class="n mono">100%</td></tr></tfoot>
+      </table></div></div>
+    </section>
+
+    <section class="asec" aria-labelledby="s-a"><div class="asec-h"><div><h2 id="s-a">Agents launched</h2><p class="hint">By agent type, with a column for each harness. 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum left">
+            <div><span class="big mono">1,216</span><span class="cap">agents launched</span></div>
+            <div><span class="big mono">3.9</span><span class="cap">agents per session</span></div>
+            <div><span class="big mono">4</span><span class="cap">levels deep at most</span></div>
+          </div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Agents launched by type">
+          <thead><tr><th scope="col">Agent type</th><th scope="col" class="n">Claude Code</th><th scope="col" class="n">OpenCode</th><th scope="col" class="n">Launched</th><th scope="col" class="n">Share</th></tr></thead>
+          <tbody>
+            <tr><td class="who mono">general-purpose</td><td class="n mono">520</td><td class="n mono">96</td><td class="n mono">616</td><td class="n mono">51%</td></tr>
+            <tr><td class="who mono">Explore</td><td class="n mono">310</td><td class="n mono">0</td><td class="n mono">310</td><td class="n mono">25%</td></tr>
+            <tr><td class="who mono">Plan</td><td class="n mono">96</td><td class="n mono">0</td><td class="n mono">96</td><td class="n mono">8%</td></tr>
+            <tr><td class="who">Other, 6 types</td><td class="n mono">148</td><td class="n mono">46</td><td class="n mono">194</td><td class="n mono">16%</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Total</th><td class="n mono">1,074</td><td class="n mono">142</td><td class="n mono">1,216</td><td class="n mono">100%</td></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="s-c"><div class="asec-h"><div><h2 id="s-c">How deep agent chains go</h2><p class="hint">An agent that launches another agent makes a chain. Depth 1 is an agent the session launched itself.</p></div></div>
+      <div class="panel">
+        <div class="tw2"><table class="ptab" aria-label="Agent chain depth">
+          <thead><tr><th scope="col">Chain depth</th><th scope="col" class="n">Claude Code</th><th scope="col" class="n">OpenCode</th><th scope="col" class="n">Agents</th><th scope="col" class="n">Share</th></tr></thead>
+          <tbody>
+            <tr><td class="who">1, launched by the session itself</td><td class="n mono">1,010</td><td class="n mono">124</td><td class="n mono">1,134</td><td class="n mono">93%</td></tr>
+            <tr><td class="who">2, launched by an agent</td><td class="n mono">58</td><td class="n mono">16</td><td class="n mono">74</td><td class="n mono">6%</td></tr>
+            <tr><td class="who">3 or deeper</td><td class="n mono">6</td><td class="n mono">2</td><td class="n mono">8</td><td class="n mono">1%</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Total</th><td class="n mono">1,074</td><td class="n mono">142</td><td class="n mono">1,216</td><td class="n mono">100%</td></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Usage -->
+  <div class="pgv" id="pg-usage" hidden>
+    <div class="page-h"><div><h1>Usage</h1><p class="lead">Who used Podium, how many sessions they started, and how many ran at once.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+
+    <section class="asec" aria-labelledby="u-f"><div class="asec-h"><div><h2 id="u-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="u-per">Period</label><select class="field" id="u-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="u-grp">Group</label><select class="field" id="u-grp"><option>All groups</option></select></div>
+          <div class="f"><label class="lab" for="u-h">Harness</label><select class="field" id="u-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Counts come from every harness that reports: Claude Code and OpenCode.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="u-p"><div class="asec-h"><div><h2 id="u-p">Sessions per person per day</h2><p class="hint">How many sessions each person started on a day they used Podium, 2026-09-21 to 2026-10-20. The Usage by week section above it is unchanged.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Sessions per person per day">
+        <thead><tr><th scope="col">Person</th><th scope="col">Group</th><th scope="col" class="n">Days active</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Per active day</th><th scope="col">Busiest day</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Maya Okafor</td><td>Platform</td><td class="n mono">22</td><td class="n mono">118</td><td class="n mono">5.4</td><td class="mono">2026-10-07, 11 sessions</td></tr>
+          <tr><td class="who">Jonas Weber</td><td>Research</td><td class="n mono">19</td><td class="n mono">74</td><td class="n mono">3.9</td><td class="mono">2026-10-14, 8 sessions</td></tr>
+          <tr><td class="who">Cai Lindqvist</td><td>Platform</td><td class="n mono">9</td><td class="n mono">31</td><td class="n mono">3.4</td><td class="mono">2026-10-02, 7 sessions</td></tr>
+          <tr><td class="who">Admin</td><td class="muted">None</td><td class="n mono">6</td><td class="n mono">14</td><td class="n mono">2.3</td><td class="mono">2026-10-09, 4 sessions</td></tr>
+        </tbody>
+        <tfoot><tr><th scope="row">All 11 people</th><td></td><td class="n mono">76</td><td class="n mono">312</td><td class="n mono">4.1</td><td class="mono">2026-10-07, 21 sessions</td></tr></tfoot>
+      </table></div>
+      <div class="apager"><span class="hint" role="status">Showing 1 to 4 of 11</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 3</span><button type="button" class="btn sm">Next</button></span></div>
+      <div class="note-line">A day counts for a person when they started at least one session on it. Person and group follow the Group filter; the Total row always counts everyone in the filter, not just this page.</div></div>
+    </section>
+
+    <section class="asec" aria-labelledby="u-h2"><div class="asec-h"><div><h2 id="u-h2">Busiest hours</h2><p class="hint">The most sessions live at once in each hour of the day, across the period. Hours are Europe/Berlin time.</p></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><span class="lab" aria-hidden="true">Show as</span><span class="seg" role="group" aria-label="Show as"><button type="button" data-view="chart" aria-pressed="true">Chart</button><button type="button" data-view="table" aria-pressed="false">Table</button></span></div>
+          <div class="sum"><div><span class="big mono">9</span><span class="cap">most live at once</span></div><div><span class="big mono">11:00</span><span class="cap">busiest hour, first reached</span></div></div>
+        </div>
+        <div class="chart" id="hr-chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">10</span><span style="top:65px">5</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" id="hr-svg" role="img" aria-label="Most sessions live at once by hour of day. Busiest at 11:00 and 14:00 with 9. Almost none from 22:00 to 06:00." preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="65" y2="65"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+          <div class="hint" aria-hidden="true">Most sessions live at once, by hour of day. Highest: 9, at 11:00 and 14:00.</div>
+        </div>
+        <div class="tw2" id="hr-table" hidden><table class="ptab" aria-label="Most sessions live at once by hour of day">
+          <thead><tr><th scope="col">Hour</th><th scope="col" class="n">Most live at once</th></tr></thead>
+          <tbody id="hr-body"></tbody>
+        </table></div>
+        <div class="note-line">An hour counts a session from its first report to its last. The peak is read from the per-second samples Podium keeps for 24 hours, and the daily summary keeps one peak for each hour of each day.</div>
+      </div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>Where the figures go.</b> #722 says "Usage or Reporting sessions, whichever already holds the neighbouring figures". Sessions already holds duration and agents per session, so <b>length, waiting and agent types</b> go there as three new sections. Usage already holds "most live at once", so <b>sessions per person per day</b> and <b>busiest hours</b> go there. No new page and no new menu entry.</li>
+    <li><b>Same shape as the other reports.</b> Period and filters (with the Harness filter #1031 asks for), the "based on" line, summary figures, one neutral-ink chart, the table, the pager, and CSV, JSON and Print. Both pages' exports carry a harness column for every row.</li>
+    <li><b>Length and waiting by week</b> shows how long sessions ran and how much of that was spent waiting on a person. The chart is the new figure (hours waiting per week); the table holds the rest and a footer row for each harness. Waiting is a question, a plan or a tool's permission, never a wait for background work or a timer.</li>
+    <li><b>What sessions waited for</b> splits the same waiting three ways (permission, question, plan) and adds up to the figure above it.</li>
+    <li><b>Agents launched</b> counts by agent type with a column for each harness, and <b>How deep agent chains go</b> counts them by how many levels down they sit. Both harnesses report which agent launched an agent (an agent the session launched itself has no parent, in <code>plugin/opencode/report.ts</code> as in Claude Code), so depth covers every harness and there is no gap to state. (An earlier version of this mockup said OpenCode did not report it; that was wrong.)</li>
+    <li><b>Sessions per person per day</b> gives each person's active days, sessions, sessions per active day and busiest day. The Total row counts everyone in the filter, as the Spend table does.</li>
+    <li><b>Busiest hours</b> is the highest number of sessions live at once in each of the 24 hours, as a chart and, with Show as, a table. A chart has a table view, as on Spend.</li>
+    <li><b>The state toggle</b> shows the new gap: waiting time is recorded only from the upgrade, so earlier weeks show a dash and the totals say which weeks they cover, instead of drawing zeros. The existing "Podium has no history before ..." line is unchanged and not redrawn.</li>
+  </ul>
+  <h2>What it needs underneath (not drawn)</h2>
+  <ul>
+    <li>Today's daily summaries hold session count, total and longest duration and agents per session. They hold no waiting time, no agent type or depth, and no per-hour peak, and the per-second samples last 24 hours. So the build adds summary rows for waiting (by reason), agents (by type and depth, per harness) and the peak per hour, in <b>every storage adapter</b> in the same PR, with the retention the other summaries have (395 days). Only counts, durations and names are stored: never a question's text, a plan, a tool's input or a path.</li>
+    <li>Waiting time comes from the status a session already reports (waiting, with a reason), which both harnesses send, so no reporter change is needed. A session idle at the prompt is reported as waiting too (reason <code>input</code>, no note) and is not counted: only a tool's permission, a question and a plan approval are. Plan and question approvals arrive as a permission dialog on Claude Code, told apart by the tool's name.</li>
+    <li>#721 is built in parallel and changes the Tools page and the reporter protocol. This page touches neither.</li>
+  </ul>
+  <h2>Where the build differs from what was drawn</h2>
+  <ul>
+    <li><b>Durations</b> use the app's own format (<code>51:30</code> under an hour, <code>8h 48m</code> to a day, <code>1d 09h</code> after), as the Average duration column on this page already does, not <code>51m</code>.</li>
+    <li><b>Each new table has its own CSV and JSON</b> in its section's title line, as the Spend projection does (no Print), so every new figure can be exported. The page's own buttons still download the report the page had.</li>
+    <li><b>The Harness filter</b> narrows the new sections. The older report on each page (sessions by outcome, usage by week) is not kept per harness, so it is not sent the filter and the page says it covers every harness. A Person, Group or Model filter on Sessions holds the new sections back with a line that says why, because they are not kept by those.</li>
+    <li>The first column of a period table is not marked "(so far)" for the current period: no other report table in the app does that.</li>
+  </ul>
+  <h2>Not new</h2>
+  <ul>
+    <li>Every class on the page exists already (<code>.sum</code>, <code>.chart</code>, <code>.ptab</code>, <code>.seg</code>, <code>.apager</code>, <code>.note-line</code>). The two bar charts use the same ink bars as Tools. No color, component or pattern is added, so no <code>standards</code> fragment is needed.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function page(id) {
+    document.querySelectorAll(".pgv").forEach(function (p) { p.hidden = p.id !== "pg-" + id; });
+    document.querySelectorAll("[data-nav]").forEach(function (b) { if (b.getAttribute("data-nav") === id) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    press("[data-pg]", "data-pg", id);
+  }
+  function state(s) {
+    var since = s === "since";
+    document.getElementById("since-note").hidden = !since;
+    document.querySelectorAll(".wt").forEach(function (el) { el.classList.toggle("muted", since); });
+    document.querySelectorAll("[data-f]").forEach(function (el) { el.textContent = el.getAttribute(since ? "data-s" : "data-f"); });
+    press("[data-st]", "data-st", s);
+  }
+  document.querySelectorAll("[data-pg]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-pg")); }); });
+  document.querySelectorAll("[data-nav]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-nav")); }); });
+  document.querySelectorAll("[data-st]").forEach(function (b) { b.addEventListener("click", function () { state(b.getAttribute("data-st")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  document.querySelectorAll("[data-view]").forEach(function (b) { b.addEventListener("click", function () {
+    var v = b.getAttribute("data-view");
+    document.getElementById("hr-chart").hidden = v !== "chart"; document.getElementById("hr-table").hidden = v !== "table";
+    press("[data-view]", "data-view", v);
+  }); });
+
+  // Busiest hours: most sessions live at once in each hour of the day (one array draws the chart and the table).
+  var peak = [0, 0, 0, 0, 0, 0, 1, 2, 4, 7, 8, 9, 6, 7, 9, 8, 7, 5, 3, 2, 2, 1, 1, 0];
+  var svg = document.getElementById("hr-svg"), body = document.getElementById("hr-body"), ns = "http://www.w3.org/2000/svg";
+  peak.forEach(function (v, h) {
+    if (v > 0) {
+      var r = document.createElementNS(ns, "rect"), ht = v * 9;
+      r.setAttribute("class", "rbar"); r.setAttribute("x", String(h * 25 + 4)); r.setAttribute("y", String(110 - ht)); r.setAttribute("width", "17"); r.setAttribute("height", String(ht));
+      svg.appendChild(r);
+    }
+    var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    var tr = document.createElement("tr");
+    tr.innerHTML = '<td class="who mono">' + pad(h) + ":00 to " + pad((h + 1) % 24) + ':00</td><td class="n mono">' + v + "</td>";
+    body.appendChild(tr);
+  });
+
+  root.setAttribute("data-theme", "dark");
+  page("sessions"); state("full");
+})();
+</script>
