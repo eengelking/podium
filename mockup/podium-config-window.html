@@ -85,7 +85,7 @@ ul.tight li { margin: 3px 0; }
       <tr><th scope="row">Context</th><td>Which Podium context this session uses (list, use)</td><td>Next start</td></tr>
     </tbody>
   </table></div>
-  <div class="note">A consent option is the person's own choice. A change is made only from this window, in the person's own session, and a project's files are never read for one. A setting that an environment variable already decides is marked <span class="mono">set by PODIUM_RESPOND</span> and cannot be changed here.</div>
+  <div class="note">A consent option is the person's own choice. A change is made only from this window, in the person's own session, and a project's files are never read for one. A setting that something else already decides is marked and cannot be changed here: <span class="mono">set by PODIUM_RESPOND</span> in OpenCode, <span class="mono">set by managed settings</span> in Claude Code (which ignores PODIUM_* variables).</div>
 </section>
 
 <section id="claude">
@@ -131,7 +131,7 @@ ul.tight li { margin: 3px 0; }
   </div>
   <div class="grid2" style="margin-top:20px">
     <div>
-      <p class="cap">Narrow (50 columns)</p>
+      <p class="cap">Narrow (50 columns): the real pane is cut at about 14 rows and does not scroll</p>
 <div class="term narrow" role="img" aria-label="Claude Code settings pane, narrow">
 <div class="box">
 <div class="row title"><span>Podium settings</span><span>Esc</span></div>
@@ -150,7 +150,7 @@ ul.tight li { margin: 3px 0; }
 <div class="box">
 <div class="row title"><span>Podium settings</span><span>Esc closes</span></div>
 <div class="row sec">Consent <span class="dim">(your choice)</span></div>
-<div class="row">  Respond from Podium   everything   <span class="warnt">▲ set by PODIUM_RESPOND</span></div>
+<div class="row">  Respond from Podium   everything   <span class="warnt">▲ set by managed settings</span></div>
 <div class="row dim">  Change it where it is set. This window cannot.</div>
 </div>
 </div>
@@ -202,7 +202,7 @@ ul.tight li { margin: 3px 0; }
   </div>
   <div class="grid2" style="margin-top:20px">
     <div>
-      <p class="cap">Narrow (50 columns)</p>
+      <p class="cap">Narrow (50 columns): the real pane is cut at about 14 rows and does not scroll</p>
 <div class="term narrow" role="img" aria-label="OpenCode settings menu, narrow">
 <div class="box">
 <div class="row title"><span>Podium settings</span><span>esc</span></div>

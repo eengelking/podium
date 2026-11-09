@@ -9,8 +9,18 @@ const deps = (): CommandDeps & { calls: string[] } => {
     name: async (n) => (calls.push(`name ${n}`), 'named'),
     context: async (a) => (calls.push(`context${a}`), 'context said'),
     status: () => (calls.push('status'), 'status text'),
+    config: async () => (calls.push('config'), ''),
   };
 };
+
+describe('/podium config in OpenCode (#1001)', () => {
+  it('opens the settings window for the word alone, and anything after it is the status', async () => {
+    const d = deps();
+    expect(await runPodium(' config', d)).toBe('');
+    expect(await runPodium(' config now', d)).toBe('status text');
+    expect(d.calls).toEqual(['config', 'status']);
+  });
+});
 
 describe('/podium words in OpenCode (#987)', () => {
   it('strips the command word, with or without the slash', () => {

@@ -143,7 +143,7 @@ See [what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts), 
 
 The OpenCode reporter reads these from the environment and `~/.podium/config.env`. A variable that is set, even to nothing, wins over the file. Each
 switch is off unless it is exactly `true`; `PODIUM_RESPOND` is the one that also takes a level name. Nothing here is read from `opencode.json`, except the
-five plugin options at the end of the table.
+five plugin options at the end of the table. `/podium config` changes four of them in the file from the terminal UI (see [The settings window](#the-settings-window)).
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -197,6 +197,7 @@ off the wall, because Claude Code's background daemon also runs idle twins and s
     read such a text as true, so a consent option is never turned on by a stray value; it uses the default and the line
     says which option to fix.
 - In OpenCode `/podium` shows the same `Sign-in:`, `Messaging:` and `Context:` lines, and ends with the two commands below. `Messaging:` gives the reason it is off, the first that applies: `PODIUM_PEERS` is off, OpenCode cannot submit a prompt, there is no per-person token with a user name and no reporter config file, no session has reported yet, or Podium says no. There is no `interactive` fact and no `Option problem:` line. The answer is a toast, because the command has no way to print a reply. The status line also stays in the prompt's footer, not only as a toast on change.
+- `/podium config` opens the settings window, in Claude Code and in OpenCode (see [The settings window](#the-settings-window)).
 - `/podium name <text>` gives the session a display name. OpenCode keeps it in its plugin storage, so it survives a restart, and it wins over the title OpenCode gives the session and the `sessionName` option. Without one, a name you gave the session in Claude
   Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The title the Claude
   desktop app shows for the session comes next, read from `claude agents --json` about every 30 seconds (#595); it is
@@ -223,12 +224,48 @@ The status line under the prompt reads:
 Claude Code puts a `⚠` and the mod's name in front of the line. That is how it draws every mod's status
 line, not a Podium warning (see [docs/gotchas/](gotchas/README.md)).
 
+## The settings window
+
+`/podium config` opens a settings window (#1001). It shows the same groups in the same order with the same words in every harness:
+Consent (Respond from Podium, Message my other orchestrators, Share the activity feed), Connection (the server and your name), Timing and
+Context. Every change takes effect at the next start of the reporter, and each row says so. The token is never shown or set in it.
+
+| | Claude Code | OpenCode |
+|---|---|---|
+| What opens | A pane under the prompt, one control per setting; each control saves on its own. Esc closes it | A stack of the terminal UI's dialogs: the menu, then a list or a value for the row you pick. Esc closes each |
+| What you can change | `respond`, `peers`, `activityFeed`, `flushIntervalMs` (at least 200) and `heartbeatMs` (at least 1000) | `PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_ACTIVITY_FEED` and `PODIUM_IDLE_SECONDS` (at least 5) |
+| Where it writes | Where Claude Code keeps the plugin's options, through its own settings call, as the `/config` menu does | `~/.podium/config.env`, mode `0600` in a `0700` folder. Only those four keys; every other line, the token's included, is kept as it was |
+| Shown only | The server and your name (change them with `/plugin configure podium-reporter`), and the context (`/podium context use <name>`) | The server and your name (`PODIUM_SERVER` and `PODIUM_USER` in `~/.podium/config.env`), and the context |
+| A row it cannot change | A row your organization's managed settings own says `set by managed settings` | A row a `PODIUM_*` variable decides says `set by PODIUM_X` and shows the value the reporter runs with, not the file's. An `idleSeconds` in `opencode.json` wins over both and says `set by opencode.json` |
+| With no window | `claude -p`, or any mode with no surface to draw a pane: the command says `No settings window in this mode. Run /plugin configure podium-reporter.` | No terminal UI part attached: the command says the window needs the terminal UI, that your settings are in `~/.podium/config.env`, to edit it or set the `PODIUM_*` variables, and that they are read at the next start. Under `opencode run` the command is not run at all and the text goes to the model |
+
+A change is made only from your own pick in the window, in your own session. A project's files are never read for a consent option, and the
+reporter gives the model no tool that changes one. In OpenCode the terminal UI part writes the file itself; there is no RPC method that writes a setting (see
+[what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts)). It writes only when it runs on the same machine, with the same home,
+as the reporter: a terminal UI attached from another machine is told where the file is and changes nothing.
+
+Limits found so far:
+
+- **Claude Code keyboard.** The pane asks for the keyboard when it opens and again about 150 ms after the command returns. In a live run
+  (Claude Code 2.1.319) the keys reached the pane with no click when the person waited about a second with an empty composer; a key typed in
+  the first moment went to the composer and the pane never took the keyboard. `ctrl+x`, then `Tab`, moves the keyboard into the pane at any time.
+  The footer also names `/plugin configure podium-reporter`.
+- **When a change takes effect.** Claude Code reloads the mod when one of its options changes. That was seen to apply the report interval,
+  but not shown for a consent option, so the window promises only the next start. The OpenCode reporter reads its settings at its start only.
+- **Desktop and web apps.** The Claude desktop app, VS Code and OpenCode's desktop and web apps have not been checked (#1122).
+- **Narrow terminals.** Below 60 columns both windows use short labels (`Respond`, `Peers`). An OpenCode dialog cuts a long line rather
+  than wrapping it. At 50 columns Claude Code draws the pane as a bottom pane of about 14 rows that does not scroll, so the last rows and the
+  footer are cut off; `/plugin configure podium-reporter` shows them all.
+- **Environment variables in Claude Code.** Claude Code ignores `PODIUM_*` variables, so its pane marks a row only when managed settings decide
+  it ("set by managed settings"). OpenCode marks a row a `PODIUM_*` variable decides.
+
 ## Options
 
 Set the mod's options with `/plugin configure podium-reporter@eengelking-marketplace`, or in
 `~/.claude/settings.json` under `pluginConfigs`, `podium-reporter@eengelking-marketplace`, `options`
 (`podium-reporter` for a copy loaded with `--plugin-dir`). Claude Code keeps `token` in its secure storage
-instead. Everything except `token` also has a row in the `/config` menu.
+instead. Everything except `token` also has a row in the `/config` menu. `/podium config` changes the consent and timing options from a
+pane (see [The settings window](#the-settings-window)).
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -545,6 +582,14 @@ When messaging is on, framing that says a message came from another orchestrator
 **The TUI part.** Answering a question needs a second part of the plugin that runs in the terminal UI (`plugin/opencode/tui.ts`). It talks only to the server part, over
 OpenCode's plugin RPC for the same project, and it reads nothing from Podium. It replies to a form only when the server part hands it an answer, which the server part does
 only for an answer Podium delivered with the Admin's flags and `PODIUM_RESPOND` on.
+
+**The settings window.** `/podium config` (#1001) is drawn by the TUI part, and the TUI part writes `~/.podium/config.env` itself, only after the
+person picks a row and a value in its dialogs, and only the four keys on the allow-list in `plugin/core/settingsWindow.ts`, to a value that has no
+line break. The server part only sends it the rows as an event. There is deliberately no RPC method that writes a setting: a plugin RPC method is a
+route on OpenCode's HTTP API (`POST /api/rpc/podium-reporter/<method>`), which any other plugin, and any process that can reach that API with its
+password, can call. An event changes nothing, so a forged one can at most open the window with wrong values; the write still needs the person's pick,
+and goes to the file the TUI part finds in its own home, never to a path the event names. As said above, a plugin in the same process can write the
+file directly; the window does not change that.
 
 **A repo that removes the reporter.** A project can list the plugin as removed (`"plugins":["-podium.reporter"]`). A session that was already reporting then
 stops, and the console shows it going stale like any other session whose reporter went quiet. The limit: a session that never loaded the reporter never reported, so
