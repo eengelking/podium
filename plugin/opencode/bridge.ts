@@ -44,6 +44,20 @@ export const BRIDGE = {
         required: ['message'],
       },
     },
+    // `/podium config` (#1001): the reporter's live settings, for the TUI part to show in its settings window (configWindow.ts). It opens the
+    // window and changes nothing; there is deliberately no method that writes a setting, as any caller of OpenCode's API could call one.
+    config: {
+      schema: {
+        type: 'object',
+        properties: {
+          sessionID: { type: 'string' },
+          host: { type: 'string' },
+          path: { type: ['string', 'null'] },
+          rows: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, value: { type: 'string' }, lock: { type: ['string', 'null'] } }, required: ['id', 'value', 'lock'] } },
+        },
+        required: ['host', 'path', 'rows'],
+      },
+    },
     // The connection's status line for the prompt's footer (#987), sent when its text changes (an empty text clears it) and when a TUI part attaches, so one that attaches late has it too (#999).
     status: {
       schema: {

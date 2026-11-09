@@ -3,11 +3,13 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
+import { settingsPath } from '../core/settings.ts';
 import { Attachments, tuiId } from './attachment.ts';
 import { BRIDGE, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
+import { configEvent, openConfigWindow, type ConfigEvent } from './configWindow.ts';
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
 import { runContext } from './contextVerb.ts';
@@ -94,6 +96,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     tuis: new Attachments(),
     emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>),
     notify: undefined as undefined | ((n: NoticeEvent) => Promise<void>),
+    config: undefined as undefined | ((c: ConfigEvent) => Promise<void>),
     status: new StatusRelay(),
     reporter: undefined as Reporter | undefined,
   };
@@ -148,9 +151,10 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     shown: async (input) => { const id = (input as { id?: unknown } | null)?.id; if (typeof id === 'string') reporter.adminShown(id); return { ok: true }; },
   }).then(
     (reg) => {
-      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status', data: AnswerEvent | NoticeEvent | StatusEvent) => Promise<void> } }).events;
+      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status' | 'config', data: AnswerEvent | NoticeEvent | StatusEvent | ConfigEvent) => Promise<void> } }).events;
       bridge.emit = async (e) => events.emit('answer', e);
       bridge.notify = async (n) => events.emit('notice', n);
+      bridge.config = async (c) => events.emit('config', c);
       bridge.status.send = async (s) => events.emit('status', s);
       bridge.status.attached();
     },
@@ -162,7 +166,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   void ctx.command.transform((editor) =>
     editor.add({
       name: 'podium',
-      description: 'Show where Podium reports go and how the connection is; name this session (name <text>); choose the Podium server (context); answer a messaging request with allow, decline or deliver and its id',
+      description: 'Show where Podium reports go and how the connection is; open the settings window (config); name this session (name <text>); choose the Podium server (context); answer a messaging request with allow, decline or deliver and its id',
       execute: async (invocation) => {
         const sessionID = invocation.sessionID;
         const message = await runPodium(argsOf(invocation?.prompt?.text), {
@@ -174,6 +178,16 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
             return `Podium: this session is now named "${name}".`;
           },
           context: (args) => runContext(args, homeOf(process.env), process.env.PODIUM_REPORTER_CONTEXT || undefined),
+          // `/podium config` (#1001): the TUI part draws the window from the live settings; with none attached, where the settings are.
+          config: async () => {
+            const path = settingsPath(homedir());
+            return openConfigWindow({
+              attached: bridge.tuis.attached(Date.now()),
+              emit: bridge.config,
+              path,
+              event: () => configEvent({ options, env: process.env, projectOptions: ctx.options, context: link?.context ?? (options.reporterContext || null), host: hostname(), path, ...(sessionID ? { sessionID } : {}) }),
+            });
+          },
           status: () => {
             const status = podiumText(reporter.summary(), {
               serverUrl: options.serverUrl,
@@ -189,7 +203,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
             return waiting ? `${status}\n${waiting}` : status;
           },
         });
-        return show({ title: 'Podium', message, variant: 'info' });
+        // An empty answer is a window the TUI part opened: there is nothing to say on top of it.
+        return message ? show({ title: 'Podium', message, variant: 'info' }) : undefined;
       },
     }),
   ).catch(() => undefined);

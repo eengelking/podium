@@ -19,7 +19,7 @@ For a local model, name its provider block in a JSON file and pass `--opencode-c
 
 ## Wiring (C1)
 
-Source the helpers (`LIVE`, `B`, `T` set) and `live_signin`. OpenCode shows a completion list first: the first Enter accepts it, the second runs it. Read the toast within a few seconds:
+Source the helpers (`LIVE`, `B`, `T` set) and `live_signin`. OpenCode shows a completion list first. For a bare `/podium` the first Enter accepts the completion and the second runs it; for `/podium config` typed in full the first Enter runs it, and a second Enter picks the first row of the window. Read the toast within a few seconds:
 
 ```sh
 say '/podium'; sleep 1; tmux send-keys -t "$T" C-m; sleep 1; tmux capture-pane -p -t "$T" | grep -E 'fleet console|Home folder|Connection|Reports sent'

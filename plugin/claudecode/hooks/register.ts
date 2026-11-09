@@ -60,6 +60,8 @@ import { Responder, newResponderState, sessionPath } from '../../core/respond.ts
 import { findLinkConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { readHome } from '../../core/tls/findConfig.ts';
 import { contextArgs } from '../../core/podiumCommand.ts';
+import { isConfigArgs } from '../../core/settingsWindow.ts';
+import { registerConfigPane } from './configPane.tsx';
 import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
 import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
@@ -1888,8 +1890,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     // immediate: an answer to a request typed during a turn runs at once, not when the turn ends (#411). The other verbs run mid-turn too.
     await $.command.register({
       name: 'podium',
-      description: 'Podium fleet console: link, connection state, naming this session, which Podium server (context), and answering a messaging request',
-      argumentHint: '[name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
+      description: 'Podium fleet console: link, connection state, the settings window (config), naming this session, which Podium server (context), and answering a messaging request',
+      argumentHint: '[config | name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
       immediate: true,
     });
   } catch (err) {
@@ -2463,5 +2465,7 @@ export const register: Register = (on, rawOptions) => {
     return next(e);
   }).catch(($, e, next) => next(e));
 
-  on('command.run', { command: 'podium' }, async ($, e) => ({ text: await podiumCommand($, e.args ?? '') }));
+  // `/podium config` (#1001) is the settings pane's (configPane.tsx); each hook hands the other's word on, whichever runs first.
+  on('command.run', { command: 'podium' }, async ($, e, next) => (isConfigArgs(e.args) ? next(e) : { text: await podiumCommand($, e.args ?? '') }));
+  registerConfigPane(on, () => ({ serverUrl: serverBase(), userName: who.userName, context: linkContext.name }));
 };

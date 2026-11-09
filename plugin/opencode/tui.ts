@@ -2,8 +2,11 @@
 // this part, which lives in the terminal UI, can. It tells the server part it is attached, and when the server part hands it an
 // answer from Podium it replies to the form with `session.form.reply`. It reads nothing from Podium and sends nothing to it.
 import { randomUUID } from 'node:crypto';
+import { homedir, hostname } from 'node:os';
 import type { Plugin } from '@opencode/plugin/tui';
+import { settingsPath } from '../core/settings.ts';
 import { ATTACH_EVERY_MS, BRIDGE, BRIDGE_ID, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
+import { fileIO, showConfig, type ConfigEvent, type ConfigUi } from './configWindow.ts';
 import { AdminBoard, ToastKeeper } from './notice.ts';
 import { mountBanner, mountStatus, type StatusLine, type StatusParts } from './statusSlot.ts';
 
@@ -14,7 +17,7 @@ const plugin: Plugin.Definition = {
       attach: (input: { id: string }, options?: { location?: unknown }) => Promise<unknown>;
       detach: (input: { id: string }, options?: { location?: unknown }) => Promise<unknown>;
       shown: (input: { id: string }, options?: { location?: unknown }) => Promise<unknown>;
-      events: { on: <N extends 'answer' | 'notice' | 'status'>(name: N, handler: (e: { data: N extends 'answer' ? AnswerEvent : N extends 'status' ? StatusEvent : NoticeEvent }) => Promise<void> | void) => () => void };
+      events: { on: <N extends 'answer' | 'notice' | 'status' | 'config'>(name: N, handler: (e: { data: N extends 'answer' ? AnswerEvent : N extends 'status' ? StatusEvent : N extends 'config' ? ConfigEvent : NoticeEvent }) => Promise<void> | void) => () => void };
     };
     // Said now and again well within the server part's time limit; a failed call (the server part is not there) is tried again next time.
     // The server part registers the bridge in its project's location, so the call names the location this TUI is in.
@@ -51,6 +54,14 @@ const plugin: Plugin.Definition = {
       }
       void Promise.resolve(rpc.shown({ id: n.id }, { location: ctx.data.location.default() })).catch(() => undefined);
     });
+    // `/podium config` (#1001): the settings window, in this terminal only when the command came from the session it shows. The person's
+    // own press in a dialog is the only thing that writes a setting, and only to the file the reporter reads (configWindow.ts).
+    const ui = ctx.ui as unknown as ConfigUi;
+    const offConfig = rpc.events.on('config', (e) => {
+      const here = { host: hostname(), path: settingsPath(homedir()), columns: process.stdout?.columns ?? null };
+      // Not awaited: the window stays open as long as the person likes, and the event stream must not wait on it.
+      void showConfig(ui, e.data, here, fileIO);
+    });
     // The status line stays in the prompt's footer (#987). The pieces come from the host's own runtime; where it has none the toast is all there is.
     // The specifiers are literal: the host resolves a literal one to its own copy, and cannot resolve a name held in a variable (a live run failed on that).
     const load = async (): Promise<StatusParts> => ({ solid: (await import('solid-js')) as StatusParts['solid'], jsx: (await import('@opentui/solid/jsx-runtime')) as StatusParts['jsx'] });
@@ -67,6 +78,7 @@ const plugin: Plugin.Definition = {
       clearInterval(timer);
       off();
       offNotice();
+      offConfig();
       offStatus();
       line?.dispose();
       clearInterval(boardTimer);
