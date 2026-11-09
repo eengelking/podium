@@ -149,7 +149,7 @@ CREATE TABLE tools_daily (          -- one row per day, harness and tool; an MCP
   day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL, calls INTEGER NOT NULL,
   PRIMARY KEY (day, harness, tool)
 );
-CREATE TABLE tool_sessions_daily (  -- how many sessions made about `bucket` calls; a session with none is bucket 0
+CREATE TABLE tool_sessions_daily (  -- how many sessions made about `bucket` calls; a session with no tool counts is left out, not counted as zero calls
   day TEXT NOT NULL, harness TEXT NOT NULL, bucket INTEGER NOT NULL, sessions INTEGER NOT NULL,   -- bucket: the calls up to 100, then the next ten up to 1,000, then the next hundred
   PRIMARY KEY (day, harness, bucket)
 );

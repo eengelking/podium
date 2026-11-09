@@ -584,7 +584,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
   - Reports (#484, [8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
     `failures`, `tools` and `activity`, and `GET reports/retention` for the Data page's tables.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
-      (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`).
+      (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`, and a `person`, `group` or `model` is a `400`, since the tool counts are not kept per person).
       A bad value is a `400`.
     - Reply: `{ report, from, to, by, tz, basedOn, oldestDay, columns: [{ key, label, unit }], rows, total }`.
       `oldestDay` is the first day the rollups hold (today when there are none yet). `partial` is `true` whenever `from` is
@@ -619,7 +619,8 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         - `session`: rows `period, harness, sessions, median, p90`, the calls a session made, read from sessions sorted into classes by
           their calls (their own number up to 100, then the next ten up to 1,000, then the next hundred), so a figure is exact up to
           100 and at most 10, then 100, calls high beyond it. `total` is `{ sessions, median, p90 }` over the whole period, and
-          `byHarness` has the same three for each harness.
+          `byHarness` has the same three for each harness. A session with no tool counts is left out of every figure here: one stored
+          before counts were kept and one that called no tool look the same, so neither is a session of zero calls.
         - `version`: rows `period, harness, version, reporters, newest`. `reporters` is the most reporters on that version on any one
           day in the bucket. `newest` is `Newest seen` for the highest version of the harness in the reply and `Older` for the rest;
           versions are compared as dotted numbers, and only within a harness. `behind` is `[{ harness, newest, behind, reporters }]`,

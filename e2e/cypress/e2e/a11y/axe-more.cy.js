@@ -73,7 +73,7 @@ describe('accessibility (axe): orchestrator page, dialogs and Admin', () => {
   });
 
   context('Admin', () => {
-    const PAGES = ['People', 'Groups', 'Reporters', 'Settings', 'Model prices', 'Security', 'Certificates', 'Data', 'Stored activity', 'About', 'Usage', 'Spend', 'People and groups', 'Sessions', 'Failures', 'Admin activity', 'Admin log'];
+    const PAGES = ['People', 'Groups', 'Reporters', 'Settings', 'Model prices', 'Security', 'Certificates', 'Data', 'Stored activity', 'About', 'Usage', 'Spend', 'People and groups', 'Sessions', 'Tools', 'Failures', 'Admin activity', 'Admin log'];
     for (const page of PAGES) {
       it(`${page}, light, 1440 px`, () => {
         cy.openAdmin(page);

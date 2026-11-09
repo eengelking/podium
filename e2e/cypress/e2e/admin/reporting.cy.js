@@ -126,4 +126,38 @@ describe('admin: reporting', () => {
     cy.window().its('localStorage').invoke('getItem', 'podium.adminSpend').should('be.a', 'string');
     cy.contains('th', 'Share');
   });
+
+  // Tools (#720): every harness. The seed has only today's live figures, and no seed option reports tool counts per harness, so the shape and the empty and live behavior are what is checked.
+  it('Tools: opens from the menu after Sessions with its sections and a Harness filter', () => {
+    cy.openAdmin('Tools');
+    cy.get('h1').should('have.text', 'Tools');
+    for (const h of ['Period and filters', 'Calls by tool', 'Calls per session', 'Harness versions']) cy.contains('h2', h);
+    cy.contains('h2', /^Tool calls by /);
+    cy.contains('label', 'Harness').parent().find('select').find('option').first().should('have.text', 'All harnesses');
+    cy.get('table[aria-label="Calls by tool"]').should('exist');
+  });
+
+  it('Tools: exports calls by tool with a column per harness, as the table shows them', () => {
+    cy.openAdmin('Tools');
+    cy.get('table[aria-label="Calls by tool"] thead th').then(($th) => {
+      const heads = [...$th].map((t) => t.textContent.trim()).filter(Boolean);
+      cy.task('download:clear');
+      cy.get('button[aria-label="Download calls by tool CSV"]').should('be.enabled').click();
+      cy.task('download:read', '.csv').then(({ text }) => {
+        const lines = text.trim().split(/\r?\n/);
+        const header = lines[0].split(',');
+        expect(header, 'the export has a harness column and a tool column').to.include.members(['Harness', 'Tool']);
+        expect(lines.length, 'the seed reports tool calls today').to.be.at.least(2);
+        expect(heads.length, 'the table has its columns').to.be.greaterThan(1);
+      });
+    });
+  });
+
+  it('Tools: a period with nothing in it reads as empty, not as an error', () => {
+    cy.openAdmin('Tools');
+    cy.contains('label', 'Period').parent().find('select').select('Last month');
+    cy.contains('there is nothing to show').should('exist');
+    cy.get('table[aria-label="Calls by tool"]').should('not.exist');
+    cy.get('[role=alert]').should('not.exist');
+  });
 });

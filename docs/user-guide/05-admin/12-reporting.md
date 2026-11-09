@@ -70,7 +70,8 @@ counts are kept: never the arguments, a file path or a command.
 - **Calls by tool** lists each tool with a column for each harness. An MCP server is one row with its total; open it to see
   its tools, which add up to the row. **CSV** and **JSON** download this table, with the harness in every row.
 - **Calls per session** gives the middle session and the busier tenth, for each period and for the whole period by harness.
-  Sessions with more than 100 calls are grouped, so those figures can be a few calls off.
+  Sessions with more than 100 calls are grouped, so those figures can be a few calls off. A session with no tool counts is
+  left out, so older sessions do not pull the middle down to zero.
 - **Harness versions** shows how many reporters ran each version in each period, and how many run an older version than the
   newest Podium has seen for that harness. A harness is only compared with itself.
 

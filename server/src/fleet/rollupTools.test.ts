@@ -41,13 +41,15 @@ describe('buildRollups tool counts', () => {
     expect(rows).toEqual(['claude-code/Bash=5', 'claude-code/Read=1', 'claude-code/mcp__github__search_code=4', 'opencode/Bash=4', 'opencode/Edit=1']);
   });
 
-  it('sizes every session, a session with no tool calls included', async () => {
+  it('sizes each session that has tool counts, and leaves out one with none, which is not a session with zero calls', async () => {
     const w = world();
     await populateTools(w);
+    // a session with no tool counts at all: one stored before they were kept, or one that called no tool
+    await w.fdb.upsertSession(session({ id: 'c0', owner: 'Priya', last_seen_at: at(2, 14), started_at: at(2, 9), harness: 'claude-code' }));
     const b = await buildRollups(w.fdb, costFn(w.deps.pricing()), dayStart(addDays(TODAY, -5)));
     const day = addDays(TODAY, -2);
     const sizes = b.toolSessions.filter((t) => t.day === day).map((t) => `${t.harness}/${t.bucket}=${t.sessions}`).sort();
-    expect(sizes).toEqual(['claude-code/0=1', 'claude-code/10=1', 'opencode/5=1']);
+    expect(sizes).toEqual(['claude-code/10=1', 'opencode/5=1']);
   });
 
   it('counts the reporters on each version of each harness', async () => {
@@ -79,7 +81,8 @@ describe('writeRollups tool counts', () => {
     expect(first.length).toBe(5);
     await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), policy);
     expect(await w.fdb.rollupRows('tools_daily', '2026-01-01', '2026-12-31')).toEqual(first);
-    expect((await w.fdb.rollupRows('tool_sessions_daily', '2026-01-01', '2026-12-31')).length).toBe(3);
+    // c2 has no tool counts, so it is not sized
+    expect((await w.fdb.rollupRows('tool_sessions_daily', '2026-01-01', '2026-12-31')).length).toBe(2);
     expect((await w.fdb.rollupRows('harness_versions_daily', '2026-01-01', '2026-12-31')).length).toBe(3);
   });
 

@@ -442,10 +442,8 @@ export function mcpSplit(name: string): { server: string; tool: string } {
 
 const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
-/** `a` against `b` as dotted numbers (2.1.10 is after 2.1.9); a part that is not a number is compared as text. */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[.+-]/);
-  const pb = b.split(/[.+-]/);
+/** Dotted parts compared one by one: numbers as numbers (2.1.10 is after 2.1.9), anything else as text, a missing part as 0. */
+function compareParts(pa: string[], pb: string[]): number {
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const x = pa[i] ?? '0';
     const y = pb[i] ?? '0';
@@ -455,6 +453,18 @@ export function compareVersions(a: string, b: string): number {
     if (c !== 0) return c < 0 ? -1 : 1;
   }
   return 0;
+}
+
+/** `a` against `b` as versions: 2.1.10 is after 2.1.9, and a release is after its own pre-release (2.1.0 after 2.1.0-beta). Build metadata after `+` is ignored. */
+export function compareVersions(a: string, b: string): number {
+  const [coreA = '', preA] = a.split('+')[0]!.split(/-(.*)/s);
+  const [coreB = '', preB] = b.split('+')[0]!.split(/-(.*)/s);
+  const core = compareParts(coreA.split('.'), coreB.split('.'));
+  if (core !== 0) return core;
+  if (preA === undefined && preB === undefined) return 0;
+  if (preA === undefined) return 1;
+  if (preB === undefined) return -1;
+  return compareParts(preA.split('.'), preB.split('.'));
 }
 
 /** The calls-per-session class that holds the `share` of sessions, counting from the smallest (the nearest rank). */
@@ -485,6 +495,8 @@ async function oldestToolDay(db: FleetStore, today: string): Promise<string> {
 
 async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
+  // The tool counts are kept per harness and day, not per person, so a person, group or model filter cannot be honored and is not ignored quietly.
+  if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the tools report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'tools');
   const harness = harnessFilter(q);
   const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, true);

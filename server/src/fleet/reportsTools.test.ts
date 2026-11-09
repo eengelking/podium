@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createAdminRouter } from '../admin/adminRouter.js';
-import { toCsv, type ReportReply } from './reports.js';
+import { compareVersions, toCsv, type ReportReply } from './reports.js';
 import { addDays, costFn, writeRollups } from './rollups.js';
 import { DAY_MS, NOW, TODAY, agent, at, session, world, type World } from '../storage/sqlite/rollupFixtures.js';
 
@@ -78,10 +78,10 @@ describe('tools: calls per session', () => {
     const r = (await get(`tools?breakdown=session&from=${addDays(TODAY, -5)}&to=${TODAY}&by=day`)).body as ReportReply;
     expect(r.columns.map((c) => c.key)).toEqual(['period', 'harness', 'sessions', 'median', 'p90']);
     const d3 = addDays(TODAY, -3);
-    // day -3: Claude Code sessions of 21 and 30 calls, OpenCode one of 5; today: Claude Code sessions of 10 and 0 calls
-    expect(rowsOf(r)).toEqual([`${d3}|claude-code|2|21|30`, `${d3}|opencode|1|5|5`, `${TODAY}|claude-code|2|0|10`]);
-    expect(r.total).toEqual({ sessions: 5, median: 10, p90: 30 });
-    expect(r.byHarness).toEqual([{ harness: 'claude-code', sessions: 4, median: 10, p90: 30 }, { harness: 'opencode', sessions: 1, median: 5, p90: 5 }]);
+    // day -3: Claude Code sessions of 21 and 30 calls, OpenCode one of 5; today: one of 10 calls (c4 has no tool counts and is left out)
+    expect(rowsOf(r)).toEqual([`${d3}|claude-code|2|21|30`, `${d3}|opencode|1|5|5`, `${TODAY}|claude-code|1|10|10`]);
+    expect(r.total).toEqual({ sessions: 4, median: 10, p90: 30 });
+    expect(r.byHarness).toEqual([{ harness: 'claude-code', sessions: 3, median: 21, p90: 30 }, { harness: 'opencode', sessions: 1, median: 5, p90: 5 }]);
   });
 });
 
@@ -117,6 +117,19 @@ describe('tools: the period and the request', () => {
     expect(r.partial).toBe(true);
     expect(r.oldestDay > r.from).toBe(true);
     expect(r.rows.every((x) => String(x.period) >= addDays(TODAY, -9) && Number(x.calls) > 0)).toBe(true);
+  });
+
+  it('compares a release with its pre-release as a person would: the release is the newer', async () => {
+    expect([compareVersions('2.1.0', '2.1.0-beta'), compareVersions('2.1.0-beta', '2.1.0'), compareVersions('2.1.0-beta.2', '2.1.0-beta.10'), compareVersions('2.1.9', '2.1.10'), compareVersions('2.1', '2.1.0')]).toEqual([1, -1, -1, -1, 0]);
+  });
+
+  it('refuses a person, group or model filter, which the tool counts cannot be cut by', async () => {
+    const { get } = await api(await filled());
+    for (const q of ['tools?person=ann', 'tools?group=Crew', 'tools?model=opus']) {
+      const res = await get(q);
+      expect([q, res.status]).toEqual([q, 400]);
+      expect(res.body.error).toMatch(/cannot be filtered by person, group or model/);
+    }
   });
 
   it('answers 400 to a breakdown or a harness it does not know', async () => {

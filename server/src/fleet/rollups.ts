@@ -277,11 +277,14 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
       tools.set(tk, row);
       total += n;
     }
-    const bucket = callsBucket(total);
-    const bk = `${day}\u0000${harness}\u0000${bucket}`;
-    const sized = toolSessions.get(bk) ?? ({ day, harness, bucket, sessions: 0 } satisfies ToolSessionDay);
-    sized.sessions += 1;
-    toolSessions.set(bk, sized);
+    // A session with no tool counts is left out: one stored before they were kept and one that called no tool look the same, so it is not a session of zero calls.
+    if (calls) {
+      const bucket = callsBucket(total);
+      const bk = `${day}\u0000${harness}\u0000${bucket}`;
+      const sized = toolSessions.get(bk) ?? ({ day, harness, bucket, sessions: 0 } satisfies ToolSessionDay);
+      sized.sessions += 1;
+      toolSessions.set(bk, sized);
+    }
 
     const fl = fleetOf(day);
     if (owner) fl.people.add(owner);
