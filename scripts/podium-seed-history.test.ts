@@ -23,7 +23,7 @@ afterEach(() => {
 
 const TODAY = '2026-10-20';
 const NOW = new Date(2026, 9, 20, 15).getTime();
-const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
+const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 const dump = (file: string): string => {
   const db = openDb(file);
   // ordered by every column up to the fifth, so two runs compare row for row
@@ -130,7 +130,17 @@ describe('podium-seed-history: the history', () => {
     expect(n('SELECT SUM(sessions) FROM tool_sessions_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
     expect(n('SELECT COUNT(DISTINCT harness) FROM harness_versions_daily')).toBe(2);
     expect(n("SELECT COUNT(DISTINCT version) FROM harness_versions_daily WHERE harness = 'opencode'")).toBe(2);
-    // Rollups hold no content: only counts, tokens, cost and names.
+    // Session time, agents, people and hours (#722): both harnesses, every session timed, waiting only from part way through, chains to depth 4, and 24 hours at most.
+    expect(n('SELECT COUNT(DISTINCT harness) FROM session_time_daily')).toBe(2);
+    expect(n('SELECT SUM(sessions) FROM session_time_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
+    expect(n('SELECT SUM(sessions) FROM person_sessions_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
+    expect(n('SELECT SUM(agents) FROM agents_daily')).toBe(n('SELECT SUM(agents) FROM sessions_daily'));
+    expect(n('SELECT COUNT(*) FROM session_time_daily WHERE tracked_sessions = 0')).toBeGreaterThan(0);
+    expect(n('SELECT COUNT(*) FROM session_time_daily WHERE tracked_sessions > 0')).toBeGreaterThan(0);
+    expect(n('SELECT MAX(depth) FROM agents_daily')).toBeGreaterThanOrEqual(3);
+    expect(n("SELECT COUNT(DISTINCT hour) FROM hour_peaks_daily WHERE harness = ''")).toBeLessThanOrEqual(24);
+    expect(n("SELECT COUNT(*) FROM hour_peaks_daily WHERE harness != '' AND peak > (SELECT peak FROM hour_peaks_daily a WHERE a.day = hour_peaks_daily.day AND a.hour = hour_peaks_daily.hour AND a.harness = '')")).toBe(0);
+    // Rollups hold no content: only counts, tokens, cost, times and names.
     expect(JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t}`).all()))).not.toMatch(/prompt|answer|\/Users/);
     db.close();
   });

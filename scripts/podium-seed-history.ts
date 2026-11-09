@@ -3,7 +3,8 @@
 // Admin > Reporting, the Spend projection and the long-period reports (#484, #483) without waiting for weeks of history.
 //
 // It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily, and the
-// tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, for Claude Code and OpenCode),
+// tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, and the session time, agents, people and hours of #722:
+// session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, for Claude Code and OpenCode),
 // plus a few people, groups, reporters and Admin log entries, through the server's own migrations. Every random choice
 // comes from a seeded generator, so one seed and one "today" always give the same rows.
 //
@@ -85,6 +86,16 @@ const OPENCODE_VERSIONS = ['1.3.9', '1.4.2'];
 /** The tools a seeded session calls, and how often (a share of its calls); an MCP server's tools carry `mcp__server__tool`. */
 const TOOLS: [string, number][] = [['Bash', 25], ['Read', 21], ['Edit', 16], ['Grep', 10], ['Write', 5], ['Agent', 3], ['mcp__github__search_code', 6], ['mcp__github__get_file', 3], ['mcp__playwright__navigate', 3], ['mcp__playwright__click', 2], ['WebFetch', 2], ['TodoWrite', 4]];
 
+/** The agent types a seeded session launches, and how often. OpenCode names its own. */
+const AGENT_TYPES: Record<string, [string, number][]> = {
+  'claude-code': [['general-purpose', 46], ['Explore', 34], ['Plan', 10], ['code-reviewer', 6], ['statusline-setup', 4]],
+  opencode: [['general', 60], ['explore', 30], ['build', 10]],
+};
+/** How busy each hour of the day is, as a share of the day's busiest (hours 0 to 23), so the seeded peaks rise at mid-morning and after lunch. */
+const HOUR_CURVE = [0, 0, 0, 0, 0, 0.1, 0.2, 0.45, 0.8, 0.95, 1, 0.9, 0.55, 0.8, 1, 0.85, 0.7, 0.5, 0.3, 0.2, 0.2, 0.1, 0.1, 0];
+/** From this share of the span on, the seeded sessions have their waiting recorded: it is kept only from the upgrade, so the first part has none. */
+const WAIT_FROM = 0.4;
+
 /** Paths the server's real database could live at: seeding any of them is refused. */
 export function protectedFolders(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): { files: string[]; folders: string[] } {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -158,15 +169,20 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
     const putTool = db.prepare('INSERT INTO tools_daily (day, harness, tool, calls) VALUES (?, ?, ?, ?)');
     const putSize = db.prepare('INSERT INTO tool_sessions_daily (day, harness, bucket, sessions) VALUES (?, ?, ?, ?)');
     const putHarnessVersion = db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
-    // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them.
+    const putTime = db.prepare('INSERT INTO session_time_daily (day, harness, sessions, duration_s, max_duration_s, tracked_sessions, tracked_s, permission_s, permission_n, question_s, question_n, plan_s, plan_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const putAgent = db.prepare('INSERT INTO agents_daily (day, harness, type, depth, agents) VALUES (?, ?, ?, ?, ?)');
+    const putPerson = db.prepare('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putHour = db.prepare('INSERT INTO hour_peaks_daily (day, harness, hour, peak) VALUES (?, ?, ?, ?)');
+    // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them. So do the session times (#722).
     const toolRng = new Rng(opt.seed + 720);
+    const timeRng = new Rng(opt.seed + 722);
     const putFleet = db.prepare('INSERT INTO fleet_daily (day, active_people, active_reporters, sessions_started, peak_live_sessions, reporter_versions_json, engine_versions_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
     // Two agent-heavy days, and the two days Sam works (both in the last two weeks, so the projection's window sees 2 of 14).
@@ -182,6 +198,10 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       const active = new Set<string>();
       const toolCalls = new Map<string, number>();
       const sizes = new Map<string, number>();
+      interface Time { sessions: number; dur: number; maxDur: number; tracked: number; trackedS: number; perm: number; permN: number; ask: number; askN: number; plan: number; planN: number }
+      const times = new Map<string, Time>();
+      const agentRows = new Map<string, number>();
+      const personRows = new Map<string, { owner: string; harness: string; n: number }>();
       let started = 0;
       const weekend = isWeekend(day);
       for (const owner of PEOPLE) {
@@ -243,6 +263,40 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
           const bucket = calls <= 100 ? calls : calls <= 1000 ? Math.ceil(calls / 10) * 10 : Math.ceil(calls / 100) * 100;
           sizes.set(`${harness}\u0000${bucket}`, (sizes.get(`${harness}\u0000${bucket}`) ?? 0) + 1);
 
+          // How long it ran and waited on a person (recorded only from the upgrade), the agents it launched and how deep, and who ran it (#722).
+          const t = times.get(harness) ?? { sessions: 0, dur: 0, maxDur: 0, tracked: 0, trackedS: 0, perm: 0, permN: 0, ask: 0, askN: 0, plan: 0, planN: 0 };
+          t.sessions += 1;
+          t.dur += dur;
+          t.maxDur = Math.max(t.maxDur, dur);
+          if (di / Math.max(1, dayList.length - 1) >= WAIT_FROM) {
+            const wait = Math.round(dur * (0.08 + timeRng.next() * 0.3));
+            const perm = Math.round(wait * 0.56);
+            const ask = Math.round(wait * 0.34);
+            t.tracked += 1;
+            t.trackedS += dur;
+            t.perm += perm;
+            t.permN += Math.max(1, Math.round(perm / 175));
+            t.ask += ask;
+            t.askN += ask > 0 ? Math.max(1, Math.round(ask / 360)) : 0;
+            t.plan += wait - perm - ask;
+            t.planN += wait - perm - ask > 0 ? 1 : 0;
+          }
+          times.set(harness, t);
+          const kinds = AGENT_TYPES[harness]!;
+          const kindTotal = kinds.reduce((sum, [, w]) => sum + w, 0);
+          for (let a = 0; a < agents; a++) {
+            let r = timeRng.next() * kindTotal;
+            const [type] = kinds.find(([, w]) => (r -= w) < 0) ?? kinds[0]!;
+            const d = timeRng.next();
+            const depth = d < 0.93 ? 1 : d < 0.99 ? 2 : 3 + (timeRng.next() < 0.2 ? 1 : 0);
+            const ak = `${harness}\u0000${type}\u0000${depth}`;
+            agentRows.set(ak, (agentRows.get(ak) ?? 0) + 1);
+          }
+          const pk = `${owner}\u0000${harness}`;
+          const pr = personRows.get(pk) ?? { owner, harness, n: 0 };
+          pr.n += 1;
+          personRows.set(pk, pr);
+
           if (outcome === 'error' || rng.next() < 0.1) {
             const f = FAILURES[Math.floor(rng.next() * FAILURES.length)]!;
             const fk = `${owner}\u0000${f.cls}\u0000${f.tool}`;
@@ -293,6 +347,24 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       for (const [k, n] of hv) {
         const [harness, version] = k.split('\u0000') as [string, string];
         putHarnessVersion.run(day, harness, version, n);
+      }
+      for (const [harness, t] of times) putTime.run(day, harness, t.sessions, t.dur, t.maxDur, t.tracked, t.trackedS, t.perm, t.permN, t.ask, t.askN, t.plan, t.planN);
+      for (const [k, n] of agentRows) {
+        const [harness, type, depth] = k.split('\u0000') as [string, string, string];
+        putAgent.run(day, harness, type, Number(depth), n);
+      }
+      for (const p of personRows.values()) putPerson.run(day, p.owner, groupOf(p.owner), p.harness, p.n);
+      // The most sessions live at once in each hour: the day's busiest follows its sessions, the hours follow the curve, and OpenCode is a share of it.
+      if (started > 0) {
+        const top = Math.max(1, Math.min(9, Math.round(started / 2 + timeRng.next() * 2)));
+        HOUR_CURVE.forEach((c, hour) => {
+          const all = Math.round(top * c);
+          if (all <= 0) return;
+          putHour.run(day, '', hour, all);
+          const oc = Math.round(all * 0.3);
+          putHour.run(day, 'claude-code', hour, Math.max(1, all - oc));
+          if (oc > 0) putHour.run(day, 'opencode', hour, oc);
+        });
       }
       putFleet.run(day, active.size, reporters, started, started === 0 ? 0 : Math.max(1, Math.min(8, Math.round(started / 2 + rng.next() * 2))), JSON.stringify(rv), JSON.stringify(ev));
     });
