@@ -8,6 +8,7 @@ import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, channelMenu, dmMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
 import { StateIcon, stateKind, type StateKind } from "./Chips";
+import { useLeaving } from "../useLeaving";
 
 export const STATE_WORD: Record<StateKind, string> = {
   running: "running",
@@ -71,6 +72,8 @@ export interface SidebarProps {
 export function ChatSidebar(p: SidebarProps) {
   const { overview: o } = p;
   const person = o.me.person;
+  // An agent whose session ended leaves with the wall's own animation, and is not offered while it does (#1110).
+  const agentRows = useLeaving(o.agents, (a) => a.sessionId);
   const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean }) => {
     const on = p.selected === key;
     const ctx = (e: MouseEvent) => {
@@ -134,7 +137,7 @@ export function ChatSidebar(p: SidebarProps) {
     ), { open: () => p.onDm(d), aria: `Actions for ${name}` });
   };
 
-  const agentRow = (a: ChatAgent) => {
+  const agentRow = ({ item: a, leaving }: { item: ChatAgent; leaving: boolean }) => {
     const kind = agentState(p.sessions, a.sessionId, a.status);
     return row(`a:${a.sessionId}`, agentMenu(a.name, a.sessionId, kind, true), (
       <>
@@ -144,7 +147,7 @@ export function ChatSidebar(p: SidebarProps) {
           <span className="sub">Orchestrator on <bdi>{a.machine}</bdi>, {STATE_WORD[kind]}</span>
         </span>
       </>
-    ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, cls: `hl-${kind}`, title: `Message ${a.name}` });
+    ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, cls: `hl-${kind}${leaving ? " leave" : ""}`, title: `Message ${a.name}` });
   };
 
   const reading = p.readAs !== null;
@@ -178,7 +181,7 @@ export function ChatSidebar(p: SidebarProps) {
           <section className="ch-sec" aria-labelledby="sec-pe">
             <h2 id="sec-pe">People and agents</h2>
             <ul className="ch-list">
-              {o.agents.length ? o.agents.map(agentRow) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
+              {agentRows.length ? agentRows.map(agentRow) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
             </ul>
           </section>
         </>

@@ -7,7 +7,7 @@ import { render, screen, fireEvent, cleanup, act, within } from "@testing-librar
 import { FleetView } from "./FleetApp";
 import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
-import { fleetReducer } from "./store";
+import { fleetReducer, LEAVE_MS } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
 import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
@@ -259,7 +259,12 @@ function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersF
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
   const props = { chat: true, respondApi: respondApi(opts.me ?? ED), peersApi: peersApi(), chatApi: chat.api };
   const view = render(<FleetView {...props} state={state} />);
-  const signal = () => view.rerender(<FleetView {...props} state={fleetReducer(state, { type: "chat" })} />);
+  // Each signal moves the state on from the last one, so a second signal in a test is a new signal and not the same one again.
+  let current = state;
+  const signal = () => {
+    current = fleetReducer(current, { type: "chat" });
+    view.rerender(<FleetView {...props} state={current} />);
+  };
   return { chat, state, signal, ...view };
 }
 
@@ -479,6 +484,45 @@ describe("the sidebar", () => {
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
     expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels"]);
     expect(nav.getByText(/belong to a person/)).toBeInTheDocument();
+  });
+});
+
+describe("an agent that leaves People and agents (#1110)", () => {
+  it("fades out with the wall's leave class for the wall's leave time, then goes, and does not offer its row while it does", async () => {
+    const jest = vi.useFakeTimers({ toFake: ["Date", "setInterval", "setTimeout"] });
+    jest.setSystemTime(T0);
+    const p = page();
+    await flush();
+    expect(row("a:s-notes")).not.toHaveClass("leave");
+    p.chat.w.overview.agents = p.chat.w.overview.agents.filter((a) => a.sessionId !== "s-notes");
+    p.signal();
+    await flush();
+    expect(row("a:s-notes")).toHaveClass("leave");
+    expect(row("a:s-dash")).not.toHaveClass("leave");
+    await act(async () => {
+      vi.advanceTimersByTime(LEAVE_MS + 1);
+    });
+    expect(screen.queryByTestId("chat-row-a:s-notes")).toBeNull();
+    expect(row("a:s-dash")).toBeInTheDocument();
+  });
+
+  it("keeps a row that came back before its animation ended", async () => {
+    const jest = vi.useFakeTimers({ toFake: ["Date", "setInterval", "setTimeout"] });
+    jest.setSystemTime(T0);
+    const p = page();
+    await flush();
+    const notes = p.chat.w.overview.agents.find((a) => a.sessionId === "s-notes")!;
+    p.chat.w.overview.agents = p.chat.w.overview.agents.filter((a) => a !== notes);
+    p.signal();
+    await flush();
+    expect(row("a:s-notes")).toHaveClass("leave");
+    p.chat.w.overview.agents = [...p.chat.w.overview.agents, notes];
+    p.signal();
+    await flush();
+    await act(async () => {
+      vi.advanceTimersByTime(LEAVE_MS + 1);
+    });
+    expect(row("a:s-notes")).not.toHaveClass("leave");
   });
 });
 
