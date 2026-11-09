@@ -23,8 +23,10 @@ import {
   type SessionsDay,
   type ToolDay,
   type ToolSessionDay,
+  type ToolStatDay,
   type UsageDay,
 } from './rollups.js';
+import { bucketMs } from './protocol.js';
 
 export interface ReportDeps {
   db: FleetStore;
@@ -33,13 +35,18 @@ export interface ReportDeps {
   now: () => number;
   pricing: () => Pricing | undefined;
   retention: RetentionPolicy;
+  /**
+   * Whether the viewer may open a stored session in History (#721). A failure row links only to the sessions the viewer may open, and shows its count
+   * without a link when it may open none. Absent means the viewer may open every session, as the Admin may.
+   */
+  mayOpenSession?: (sessionId: string) => boolean;
 }
 
 /** A report was asked for something it cannot give: the route answers 400 with the message. */
 export class ReportError extends Error {}
 
 export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily'];
 
 export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'activity'];
 
@@ -72,7 +79,7 @@ export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools', rea
   spend: ['none', 'person', 'group', 'model', 'project'],
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
-  tools: ['tool', 'session', 'version'],
+  tools: ['tool', 'session', 'version', 'failures', 'prompts', 'duration'],
 };
 
 const round = (n: number, places = 6): number => Math.round(n * 10 ** places) / 10 ** places;
@@ -145,6 +152,7 @@ interface Facts {
   tools: ToolDay[];
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
+  toolStats: ToolStatDay[];
   oldestDay: string;
   live: DayRollups;
 }
@@ -158,6 +166,7 @@ const fleetOf = (r: Raw): FleetDay => ({ day: String(r.day), activePeople: Numbe
 
 const toolOf = (r: Raw): ToolDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), calls: Number(r.calls) });
 const toolSessionOf = (r: Raw): ToolSessionDay => ({ day: String(r.day), harness: String(r.harness), bucket: Number(r.bucket), sessions: Number(r.sessions) });
+const toolStatOf = (r: Raw): ToolStatDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), failed: Number(r.failed), asked: Number(r.asked), allowed: Number(r.allowed), denied: Number(r.denied), podium: Number(r.podium), timesJson: String(r.times_json) });
 const harnessVersionOf = (r: Raw): HarnessVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), reporters: Number(r.reporters) });
 
 const select = (db: FleetStore, table: RollupTable, from: string, to: string): Promise<RollupRaw[]> => db.rollupRows(table, from, to);
@@ -175,7 +184,7 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
 async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
     f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
@@ -185,6 +194,7 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.tools = (await select(db, 'tools_daily', from, stored)).map(toolOf);
       f.toolSessions = (await select(db, 'tool_sessions_daily', from, stored)).map(toolSessionOf);
       f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
+      f.toolStats = (await select(db, 'tool_stats_daily', from, stored)).map(toolStatOf);
     }
   }
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
@@ -201,6 +211,7 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.tools.push(...f.live.tools.filter((r) => keep(r.day)));
       f.toolSessions.push(...f.live.toolSessions.filter((r) => keep(r.day)));
       f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
+      f.toolStats.push(...f.live.toolStats.filter((r) => keep(r.day)));
     }
     const storedPeak = (await db.storedPeak(today)) ?? 0;
     const liveFleet = f.live.fleet.find((r) => keep(r.day));
@@ -486,11 +497,127 @@ const addSizes = (into: Map<number, number>, bucket: number, sessions: number): 
 /** The oldest day the tool counts cover, or today when none exist yet: they started later than the other rollups, and a gap is never drawn as zeros. */
 async function oldestToolDay(db: FleetStore, today: string): Promise<string> {
   let oldest = today;
-  for (const t of ['tools_daily', 'tool_sessions_daily', 'harness_versions_daily'] as const) {
+  for (const t of ['tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily'] as const) {
     const d = await db.rollupOldestDay(t);
     if (d !== null && d < oldest) oldest = d;
   }
   return oldest;
+}
+
+/** One row per period, harness and tool, with the calls beside what a breakdown adds up. */
+interface ToolKey {
+  period: string;
+  harness: string;
+  server: string;
+  tool: string;
+  name: string;
+}
+const toolKeyOf = (period: string, harness: string, name: string): ToolKey => ({ period, harness, name, ...mcpSplit(name) });
+const toolRowOrder = (a: ToolKey, b: ToolKey): number => byCode(a.period, b.period) || byCode(a.harness, b.harness) || byCode(a.server, b.server) || byCode(a.tool, b.tool);
+
+/** The share of `whole` that `part` is, in percent to one decimal place; 0 when there is no whole. */
+const pct = (part: number, whole: number): number => (whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0);
+
+/** The failure rate (#721) and the permission prompts (#721) of each tool: both are counts beside the tool's calls. */
+function toolOutcomesReport(deps: ReportDeps, p: Params, f: Facts, breakdown: 'failures' | 'prompts', extra: Record<string, unknown>, keep: (h: string) => boolean): ReportReply {
+  interface Acc extends ToolKey {
+    calls: number;
+    failed: number;
+    asked: number;
+    allowed: number;
+    denied: number;
+    podium: number;
+    ids: Set<string>;
+    stored: Set<string>;
+  }
+  const acc = new Map<string, Acc>();
+  const at = (period: string, h: string, name: string): Acc => {
+    const k = `${period}\u0000${h}\u0000${name}`;
+    let a = acc.get(k);
+    if (!a) acc.set(k, (a = { ...toolKeyOf(period, h, name), calls: 0, failed: 0, asked: 0, allowed: 0, denied: 0, podium: 0, ids: new Set(), stored: new Set() }));
+    return a;
+  };
+  for (const r of f.tools) if (keep(r.harness)) at(bucketOf(r.day, p.by), r.harness, r.tool).calls += r.calls;
+  for (const r of f.toolStats) {
+    if (!keep(r.harness)) continue;
+    const a = at(bucketOf(r.day, p.by), r.harness, r.tool);
+    a.failed += r.failed;
+    a.asked += r.asked;
+    a.allowed += r.allowed;
+    a.denied += r.denied;
+    a.podium += r.podium;
+  }
+  if (breakdown === 'failures') {
+    // The sessions that recorded a failure in a tool and are still stored: the row links to those the viewer may open, and counts them either way.
+    for (const s of f.live.failureSessions) {
+      if (s.day < p.from || s.day > p.to || !keep(s.harness) || s.tool === '') continue;
+      const a = acc.get(`${bucketOf(s.day, p.by)}\u0000${s.harness}\u0000${s.tool}`);
+      if (!a) continue;
+      a.stored.add(s.sessionId);
+      if (a.ids.size < SESSION_IDS_MAX && (deps.mayOpenSession?.(s.sessionId) ?? true)) a.ids.add(s.sessionId);
+    }
+  }
+  const noAnswer = (a: { asked: number; allowed: number; denied: number }): number => Math.max(0, a.asked - a.allowed - a.denied);
+  const all = [...acc.values()].sort(toolRowOrder);
+  let calls = 0;
+  for (const a of all) calls += a.calls;
+  if (breakdown === 'failures') {
+    const rows: Row[] = all.map((a) => ({ period: a.period, harness: a.harness, server: a.server, tool: a.tool, calls: a.calls, failed: a.failed, rate: pct(a.failed, a.calls), stored: a.stored.size, ...(a.ids.size ? { sessionIds: [...a.ids] } : {}) }));
+    const failed = all.reduce((n, a) => n + a.failed, 0);
+    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('calls', 'Calls', 'count'), col('failed', 'Failures', 'count'), col('rate', 'Failure rate', 'percent'), col('stored', 'Sessions in History', 'count'), col('sessionIds', 'Sessions', 'text')];
+    return { ...envelope(p, 'tools', p.by, f, cols, rows, { calls, failed }), ...extra };
+  }
+  const asking = all.filter((a) => a.asked > 0 || a.allowed > 0 || a.denied > 0);
+  const rows: Row[] = asking.map((a) => ({ period: a.period, harness: a.harness, server: a.server, tool: a.tool, calls: a.calls, asked: a.asked, allowed: a.allowed, denied: a.denied, noAnswer: noAnswer(a), podium: a.podium }));
+  const sum = (k: 'asked' | 'allowed' | 'denied' | 'podium'): number => asking.reduce((n, a) => n + a[k], 0);
+  const total = { calls, asked: sum('asked'), allowed: sum('allowed'), denied: sum('denied'), noAnswer: asking.reduce((n, a) => n + noAnswer(a), 0), podium: sum('podium') };
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('calls', 'Calls', 'count'), col('asked', 'Asked', 'count'), col('allowed', 'Allowed', 'count'), col('denied', 'Denied', 'count'), col('noAnswer', 'No answer', 'count'), col('podium', 'Answered in Podium', 'count')];
+  return { ...envelope(p, 'tools', p.by, f, cols, rows, total), ...extra };
+}
+
+/** The call lengths (#721) as a median and a 95th percentile per tool, read from buckets, so they are within 10% of the real length. */
+function toolDurationReport(p: Params, f: Facts, extra: Record<string, unknown>, keep: (h: string) => boolean): ReportReply {
+  const parse = (json: string): Map<number, number> => {
+    const out = new Map<number, number>();
+    let o: unknown = null;
+    try {
+      o = JSON.parse(json);
+    } catch {
+      return out;
+    }
+    if (o && typeof o === 'object') for (const [b, n] of Object.entries(o)) if (Number.isInteger(Number(b)) && typeof n === 'number' && n > 0) out.set(Number(b), n);
+    return out;
+  };
+  const add = (into: Map<number, number>, from: Map<number, number>): void => void from.forEach((n, b) => into.set(b, (into.get(b) ?? 0) + n));
+  const size = (m: Map<number, number>): number => [...m.values()].reduce((n, v) => n + v, 0);
+  const lengths = (m: Map<number, number>): { timed: number; p50Ms: number; p95Ms: number } => ({ timed: size(m), p50Ms: bucketMs(nearestRank(m, 0.5)), p95Ms: bucketMs(nearestRank(m, 0.95)) });
+  const per = new Map<string, ToolKey & { m: Map<number, number> }>();
+  const byTool = new Map<string, { server: string; tool: string; m: Map<number, number> }>();
+  const whole = new Map<number, number>();
+  const timedBy = new Set<string>();
+  for (const r of f.toolStats) {
+    if (!keep(r.harness)) continue;
+    const m = parse(r.timesJson);
+    if (m.size === 0) continue;
+    timedBy.add(r.harness);
+    const key = toolKeyOf(bucketOf(r.day, p.by), r.harness, r.tool);
+    const k = `${key.period}\u0000${key.harness}\u0000${r.tool}`;
+    const a = per.get(k) ?? { ...key, m: new Map<number, number>() };
+    add(a.m, m);
+    per.set(k, a);
+    const t = byTool.get(r.tool) ?? { server: key.server, tool: key.tool, m: new Map<number, number>() };
+    add(t.m, m);
+    byTool.set(r.tool, t);
+    add(whole, m);
+  }
+  const rows: Row[] = [...per.values()].sort(toolRowOrder).map((a) => ({ period: a.period, harness: a.harness, server: a.server, tool: a.tool, ...lengths(a.m) }));
+  // An MCP server has a row of its own, read from every call of its tools: a percentile of the server is not a figure of its tools.
+  const servers = new Map<string, Map<number, number>>();
+  for (const t of byTool.values()) if (t.server !== '') add(servers.get(t.server) ?? servers.set(t.server, new Map()).get(t.server)!, t.m);
+  const slowest = [...[...byTool.values()].map((t) => ({ server: t.server, tool: t.tool, m: t.m })), ...[...servers].map(([server, m]) => ({ server, tool: '', m }))]
+    .map((t) => ({ server: t.server, tool: t.tool, ...lengths(t.m) })).sort((a, b) => b.p95Ms - a.p95Ms || b.timed - a.timed || byCode(a.server, b.server) || byCode(a.tool, b.tool));
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('timed', 'Calls timed', 'count'), col('p50Ms', 'Median (ms)', 'count'), col('p95Ms', '95th percentile (ms)', 'count')];
+  return { ...envelope(p, 'tools', p.by, f, cols, rows, whole.size ? lengths(whole) : { timed: 0, p50Ms: 0, p95Ms: 0 }), ...extra, byTool: slowest, timedHarnesses: [...timedBy].sort(byCode) };
 }
 
 async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
@@ -499,9 +626,9 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the tools report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'tools');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, true);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, breakdown === 'failures', true);
   f.oldestDay = await oldestToolDay(deps.db, p.today);
-  const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness)])].sort(byCode);
+  const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness), ...f.toolStats.map((r) => r.harness)])].sort(byCode);
   const keep = (h: string): boolean => harness === null || h === harness;
   const extra = { harnesses };
 
@@ -561,6 +688,9 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
     const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('version', 'Version', 'text'), col('reporters', 'Reporters', 'count'), col('newest', 'Newest', 'text')];
     return { ...envelope(p, 'tools', p.by, f, cols, rows, {}), ...extra, behind };
   }
+
+  if (breakdown === 'failures' || breakdown === 'prompts') return toolOutcomesReport(deps, p, f, breakdown, extra, keep);
+  if (breakdown === 'duration') return toolDurationReport(p, f, extra, keep);
 
   const calls = new Map<string, { period: string; harness: string; server: string; tool: string; calls: number }>();
   let total = 0;

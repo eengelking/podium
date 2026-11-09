@@ -6,6 +6,7 @@ import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures
 import { lastSegment } from '../../core/git.ts';
 import { resumeWindowDays } from '../../core/resumeWindow.ts';
 import { family, windowOf } from './models.ts';
+import { reportStats } from '../../core/toolStats.ts';
 import { toPlan } from '../../core/plan.ts';
 import type { ActivityEntry, ActivityEvent, AgentReport, Ask, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
@@ -91,6 +92,7 @@ function loopFields(l: LoopStats): LoopReport {
     lastTool: l.lastTool,
     toolCalls: l.toolCalls,
     toolCounts: Object.fromEntries(Object.entries(l.toolCounts).map(([k, n]) => [cap(k, 120), n])),
+    toolStats: reportStats(l.toolStats, (k) => cap(k, 120)),
     steps: { done: l.steps, total: null },
   };
 }

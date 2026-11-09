@@ -309,10 +309,10 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
   );
 }
 
-const OLDER = "Older than 30 days";
+export const OLDER = "Older than 30 days";
 
 /** A failure row's links to History for the sessions it counts, while those sessions are still stored. */
-function historyHref(period: unknown, id: string): string {
+export function historyHref(period: unknown, id: string): string {
   const p = typeof period === "string" ? period : "";
   const day = /^\d{4}-\d{2}$/.test(p) ? `${p}-01` : p;
   return `#/history?day=${encodeURIComponent(day)}&page=1&size=50&open=${encodeURIComponent(id)}`;

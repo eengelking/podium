@@ -6,7 +6,8 @@ import { activityText, clip, whole, excerpt, cap, candidateFrom, classify, build
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
-import { MAIN_LOOP, type ActivityEntry, type BackgroundWait, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
+import { MAIN_LOOP, type ToolStat, type ActivityEntry, type BackgroundWait, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
+import { bumpStat, MAX_TOOL_NAMES } from '../core/toolStats.ts';
 import { Recorder } from '../core/recording.ts';
 import { canonical, entryFor, finishedEntry, toolName } from './activity.ts';
 
@@ -36,6 +37,10 @@ export interface Call {
   done: boolean;
   /** The `seq` the recording gave the call, so its result and a decision about it point back to it; null when it was not recorded. */
   recSeq?: number | null;
+  /** When the call began to run (its `called` event): what its length is measured from (#721). */
+  ranAt?: number;
+  /** A person refused a permission this call asked for, so its failing is the refusal and not a failed call (#721). */
+  refused?: boolean;
 }
 
 export type SessEnd = 'running' | 'done' | 'failed' | 'aborted';
@@ -63,6 +68,8 @@ export interface Sess {
   calls: Map<string, Call>;
   toolCalls: number;
   toolCounts: Record<string, number>;
+  /** What each tool did beyond being called (#721): failed calls, permission asks and call lengths. */
+  toolStats: Record<string, ToolStat>;
   lastTool: string | null;
   steps: number;
   /** Automatic compactions: OpenCode compacts by itself when the context nears its limit. */
@@ -110,6 +117,8 @@ export interface Ask {
   sessionId: string;
   openedAt: number;
   note: string;
+  /** The tool the permission is for (#721): its call's name when OpenCode names the call, else its action. */
+  tool?: string;
   /** The tool call a permission is for, when OpenCode names it: a recording points its decision at that call. */
   callId?: string;
   /** A permission's action and the resources it names. */
@@ -181,6 +190,8 @@ export interface Root {
   sentFromPodium: { framed: string; text: string }[];
   /** The `/compact` Podium is running, once: the mark it makes in the recording is its sender's. */
   podiumCompact: string | null;
+  /** The permissions Podium answered and OpenCode has not yet announced as replied, so the count of asks answered from Podium is right (#721). */
+  podiumAnswered: Set<string>;
 }
 
 export interface Store {
@@ -213,7 +224,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
   return {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
-    toolCounts: {}, lastTool: null, steps: 0, blowouts: 0, blowoutTimes: [], prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
+    toolCounts: {}, toolStats: {}, lastTool: null, steps: 0, blowouts: 0, blowoutTimes: [], prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
     activity: [], promptText: null, answerText: null, promptSent: false, answerSent: false,
   };
 }
@@ -224,7 +235,7 @@ function newRoot(id: string, cwd: string | null, at: number): Root {
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
     asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, storedName: null, background: null, placeFor: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
-    watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null,
+    watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null, podiumAnswered: new Set(),
   };
 }
 
@@ -372,7 +383,8 @@ const shellExit = (tool: string, d: Record<string, any>): number | null => (tool
 function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, failedEvent: boolean): void {
   const id = str(d.id);
   if (!id) return;
-  const call = s.calls.get(id) ?? { id, tool: 'tool', input: {}, at, done: false };
+  const known = s.calls.get(id);
+  const call = known ?? { id, tool: 'tool', input: {}, at, done: false };
   // OpenCode 2.2.5 reports a shell call that exits non-zero as a success, with the code in its metadata; for Claude Code that is a failed call.
   const exit = shellExit(call.tool, d);
   const failed = failedEvent || (exit !== null && exit !== 0);
@@ -389,6 +401,8 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   s.toolCalls++;
   s.lastTool = call.tool;
   s.toolCounts[call.tool] = (s.toolCounts[call.tool] ?? 0) + 1;
+  // A call whose start was never seen has no length, and one a person refused did not fail: the refusal is counted with its ask (#721).
+  bumpStat(s.toolStats, call.tool, { failed: failed && call.refused !== true, ms: known ? at - (known.ranAt ?? known.at) : undefined }, MAX_TOOL_NAMES);
   if (!failed) {
     if (call.tool === 'Skill') skillLoaded(root, s, str(d.metadata?.name) ?? str(call.input.skill), at);
     return;
@@ -538,6 +552,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const c = canonical(call.tool, d.input && typeof d.input === 'object' ? d.input : {});
       call.tool = c.tool;
       call.input = c.input;
+      call.ranAt ??= t;
       s.calls.set(id, call);
       if (call.recSeq === undefined) {
         addActivity(root, s, entryFor(call.tool, call.input, id, t));
@@ -560,17 +575,24 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const id = str(d.id);
       // Only the string resources: a structured one would read as "[object Object]" in the note (#1012).
       const resources: string[] = Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [];
-      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, ...(str(d.source?.id) ? { callId: str(d.source.id)! } : {}), note: clip([str(d.action), ...resources.slice(0, 2)].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources });
+      const tool = (str(d.source?.id) ? s.calls.get(str(d.source.id)!)?.tool : undefined) ?? cap(str(d.action) ?? 'permission', 120);
+      // A permission announced again under the same id is one ask, not two.
+      if (id && !root.asks.has(id)) bumpStat(s.toolStats, tool, { asked: true }, MAX_TOOL_NAMES);
+      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, tool, ...(str(d.source?.id) ? { callId: str(d.source.id)! } : {}), note: clip([str(d.action), ...resources.slice(0, 2)].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources });
       break;
     }
     case 'permission.replied': {
       const open = root.asks.get(String(d.requestID ?? ''));
       // A refused permission is the likeliest cause of what fails next in that session.
+      const owner = open ? (root.sessions.get(open.sessionId) ?? s) : s;
+      if (open?.tool) bumpStat(owner.toolStats, open.tool, { allowed: d.reply !== 'reject', denied: d.reply === 'reject', podium: root.podiumAnswered.has(open.id) }, MAX_TOOL_NAMES);
       if (open && d.reply === 'reject') {
-        const owner = root.sessions.get(open.sessionId) ?? s;
+        const refused = open.callId ? owner.calls.get(open.callId) : undefined;
+        if (refused) refused.refused = true;
         owner.candidate = candidateFrom(open.action ?? 'permission', { resources: (open.resources ?? []).join(' ') }, { deny: 'permission rejected' }, t);
       }
       root.asks.delete(String(d.requestID ?? ''));
+      root.podiumAnswered.delete(String(d.requestID ?? ''));
       break;
     }
     case 'form.created': {

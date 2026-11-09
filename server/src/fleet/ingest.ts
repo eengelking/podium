@@ -196,6 +196,7 @@ function agentRow(sessionId: string, a: AgentReport, fromHarness: boolean, prev:
     last_tool: a.lastTool,
     tool_calls: a.toolCalls,
     tool_counts_json: a.toolCounts ? JSON.stringify(a.toolCounts) : null,
+    tool_stats_json: a.toolStats ? JSON.stringify(a.toolStats) : null,
     usage_json: fromHarness ? null : json(a.usageByModel ?? null),
     blowouts: a.blowouts,
     steps_done: a.steps ? a.steps.done : null,

@@ -96,12 +96,13 @@ describe("axe on the console's pages (#636)", () => {
     expect(await violations(container, [])).toEqual([]);
   });
 
-  it("Admin > Reporting > Tools, with an MCP server opened (#720)", async () => {
+  it("Admin > Reporting > Tools, with an MCP server opened in the calls and in the failures (#720, #721)", async () => {
     fakeServer({ unlocked: true });
-    const { container, findByRole, getByRole } = render(<AdminView />);
+    const { container, findByRole, getAllByRole } = render(<AdminView />);
     fireEvent.click(await findByRole("button", { name: "Tools" }));
     await findByRole("table", { name: "Reporters by harness version and period" });
-    fireEvent.click(getByRole("button", { name: /github/ }));
+    await findByRole("table", { name: "Call duration by tool" });
+    for (const server of getAllByRole("button", { name: /github/ })) fireEvent.click(server);
     expect(await violations(container, [])).toEqual([]);
   });
 
