@@ -10,7 +10,7 @@ order: 65
 
 # 65. Closing the last OpenCode TUI ends the sessions that are quiet at once (#1029)
 
-*Adds to [59](59-an-opencode-session-stays-open-and-reachable-while-a-tui-is-attached.md): a TUI that is attached still holds a quiet session open, and one that has closed no longer holds it for the time limit.*
+*Adds to [59](59-an-opencode-session-stays-open-while-a-tui-is-attached.md): a TUI that is attached still holds a quiet session open, and one that has closed no longer holds it for the time limit.*
 
 ## Context
 
