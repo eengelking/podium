@@ -26,13 +26,15 @@ export const SPEND_CONFIG: ReportConfig = {
   help: "A session counts on the day it was last seen. A model without a price shows a dash.",
 };
 
-export const REPORT_CONFIGS: Record<Exclude<ReportId, "spend">, ReportConfig> = {
+/** The pages built on a report of their own. `sessiontime` and `workload` are the sections the Sessions and Usage pages add (#722), not pages. */
+export const REPORT_CONFIGS: Record<Exclude<ReportId, "spend" | "sessiontime" | "workload">, ReportConfig> = {
   usage: {
     report: "usage",
     title: "Usage",
     lead: "Who used Podium, how many sessions they started, and how many ran at once. Reporters is the most heard from on any one day of a period.",
     hasBy: true,
-    filters: ["group"],
+    filters: ["group", "harness"],
+    extraHarness: true,
     chart: { key: "sessions", unit: "Sessions started" },
     summary: [
       { key: "people", caption: "active people" },
@@ -56,7 +58,8 @@ export const REPORT_CONFIGS: Record<Exclude<ReportId, "spend">, ReportConfig> = 
     title: "Sessions",
     lead: "How sessions ended, on which model, effort and plan, how long they ran, and how often the context window overflowed.",
     hasBy: true,
-    filters: ["person", "group", "model"],
+    filters: ["person", "group", "model", "harness"],
+    extraHarness: true,
     breakdowns: [
       ["outcome", "Outcome"],
       ["model", "Model"],
