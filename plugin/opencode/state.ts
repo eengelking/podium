@@ -576,7 +576,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       // Only the string resources: a structured one would read as "[object Object]" in the note (#1012).
       const resources: string[] = Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [];
       const tool = (str(d.source?.id) ? s.calls.get(str(d.source.id)!)?.tool : undefined) ?? cap(str(d.action) ?? 'permission', 120);
-      if (id) bumpStat(s.toolStats, tool, { asked: true }, MAX_TOOL_NAMES);
+      // A permission announced again under the same id is one ask, not two.
+      if (id && !root.asks.has(id)) bumpStat(s.toolStats, tool, { asked: true }, MAX_TOOL_NAMES);
       if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, tool, ...(str(d.source?.id) ? { callId: str(d.source.id)! } : {}), note: clip([str(d.action), ...resources.slice(0, 2)].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources });
       break;
     }

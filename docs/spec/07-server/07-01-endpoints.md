@@ -624,7 +624,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         - `failures` (#721): rows `period, harness, server, tool, calls, failed, rate, stored` and, for the stored sessions a failure was
           recorded in (30 days), `sessionIds` (at most 10) for the History link. `rate` is `failed` over `calls` in percent to one
           decimal. `stored` counts those sessions in all; a row with `stored` above 0 and no `sessionIds` is one whose sessions the viewer
-          may not open, and shows counts and no link (the route's `mayOpenSession`, which an Admin always passes). `total` is `{ calls, failed }`.
+          may not open, and shows counts and no link (`ReportDeps.mayOpenSession`; absent for the Admin, who may open every session, and there for a later report that serves a person only their own, #726). `total` is `{ calls, failed }`.
           A tool with calls and no failures is a row too, so the rate has its denominator.
         - `prompts` (#721): rows `period, harness, server, tool, calls, asked, allowed, denied, noAnswer, podium` for the tools that asked.
           `noAnswer` is `asked` less `allowed` and `denied`, never below 0: the session ended or the ask was withdrawn first.

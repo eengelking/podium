@@ -87,11 +87,11 @@ interface Plan {
 // What one tool did in one loop (#721): counts only, never an argument, a path, a command or an error's text. A field is left out when it is 0.
 // Every harness's reporter counts these the same way (plugin/core/toolStats.ts), so a figure reads the same whichever harness ran the session.
 interface ToolStat {
-  failed?: number;                      // finished calls that ended in an error. A call a person or a rule refused did not run and is counted under `denied`, not here
+  failed?: number;                      // finished calls that ended in an error. A call refused at its permission prompt did not run: it is counted under `denied`, not here. A call a rule refused with no prompt did not run either and is counted in neither
   asked?: number;                       // permission prompts the tool raised. A plan's approval and a question are not permission prompts
   allowed?: number;                     // asks that ended with the call allowed
   denied?: number;                      // asks that ended with the call refused
-  podium?: number;                      // asks answered from Podium, allowed or denied, so it never exceeds allowed + denied. An ask with neither answer is still open or never answered: the report shows it as "no answer"
+  podium?: number;                      // (Claude Code matches an ask to the call that ends by loop and tool name, so two calls of one tool running at once in one loop can swap their outcomes.) asks answered from Podium, allowed or denied, so it never exceeds allowed + denied. An ask with neither answer is still open or never answered: the report shows it as "no answer"
   times?: Record<string, number>;       // call lengths: a key is a bucket (0 for 1 ms or less, then one for each 10% longer, up to an hour at 159) and the value is the calls in it
 }
 

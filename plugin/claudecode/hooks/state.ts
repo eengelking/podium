@@ -16,7 +16,7 @@ import {
 } from '../../core/failures.ts';
 import { costOf, shortName, windowOf } from './models.ts';
 import { assignOwners, emptyPlan, setTitle, taskCreate, taskUpdate, todoWrite, type PlanState } from '../../core/plan.ts';
-import { bumpStat, copyStats } from '../../core/toolStats.ts';
+import { bumpStat, copyStats, MAX_TOOL_NAMES } from '../../core/toolStats.ts';
 import { backgroundSummary, MAIN_LOOP, type ToolStat, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from '../../core/protocol.ts';
 
 export const BLOWOUT_DEDUP_MS = 2000;
@@ -103,8 +103,8 @@ export function mergeUsage(...sets: (Record<string, ModelUsage> | undefined)[]):
   return [...out.values()].sort((a, b) => (a.model < b.model ? -1 : a.model > b.model ? 1 : a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0));
 }
 
-/** The most distinct tool names kept per loop; later new names count in toolCalls only. */
-export const MAX_TOOL_NAMES = 100;
+/** The most distinct tool names kept per loop; later new names count in toolCalls only. Defined in core with the stats that share the cap. */
+export { MAX_TOOL_NAMES };
 
 export interface LoopStats {
   model: string | null;

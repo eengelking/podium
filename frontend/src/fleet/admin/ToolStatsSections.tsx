@@ -209,7 +209,7 @@ export function FailuresSection({ r, reply }: { r: ReportState; reply: ReportRep
                 <Fragment key={e.key}>
                   <tr>
                     <td className="who">
-                      <button type="button" className="rowbtn" aria-expanded={open.has(e.key)} aria-controls={`fail-${e.name}`} onClick={() => toggle(e.key)}>
+                      <button type="button" className="rowbtn" aria-expanded={open.has(e.key)} aria-controls={open.has(e.key) ? e.tools.map((t) => `fail-${t.key}`).join(" ") : undefined} onClick={() => toggle(e.key)}>
                         <Chevron />
                         <span className="mono">{e.name}</span>
                         <ServerNote tools={e.tools.length} />
@@ -220,7 +220,7 @@ export function FailuresSection({ r, reply }: { r: ReportState; reply: ReportRep
                   </tr>
                   {open.has(e.key) &&
                     e.tools.map((t) => (
-                      <tr key={t.key} id={`fail-${e.name}`} className="mtool">
+                      <tr key={t.key} id={`fail-${t.key}`} className="mtool">
                         <td className="mono">{t.name}</td>
                         {figures(t)}
                         <HistoryCell e={t} failed={t.n.failed ?? 0} older={older} />
@@ -250,7 +250,7 @@ export function FailuresSection({ r, reply }: { r: ReportState; reply: ReportRep
 }
 
 export function PromptsSection({ reply }: { reply: ReportReply }) {
-  const entries = useMemo(() => sumByTool(reply.rows.map((x) => ({ ...x, server: text(x.server) })), ["calls", "asked", "allowed", "denied", "noAnswer", "podium"], "asked"), [reply.rows]);
+  const entries = useMemo(() => sumByTool(reply.rows, ["calls", "asked", "allowed", "denied", "noAnswer", "podium"], "asked"), [reply.rows]);
   const t = reply.total ?? {};
   const asked = num(t.asked);
   return (

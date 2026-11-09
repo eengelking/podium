@@ -558,7 +558,7 @@ function statsOrUndefined(v: unknown, path: string, max: number): Record<string,
     if (o.times !== undefined) {
       for (const [b, n] of Object.entries(obj(o.times, `${at}.times`))) {
         const bucket = Number(b);
-        if (!Number.isInteger(bucket) || bucket < 0 || bucket >= TIME_BUCKETS) throw new Invalid(`${at}.times.${b}`, 'expected a call length bucket');
+        if (!Number.isInteger(bucket) || bucket < 0 || bucket >= LIMITS.toolTimeBuckets) throw new Invalid(`${at}.times.${b}`, 'expected a call length bucket');
         m.times.set(bucket, (m.times.get(bucket) ?? 0) + int(n, `${at}.times.${b}`));
       }
     }
