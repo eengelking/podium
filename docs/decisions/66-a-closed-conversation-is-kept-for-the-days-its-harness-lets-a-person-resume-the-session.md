@@ -48,6 +48,7 @@ no history.
 - A window longer than the server's own session retention (`RETAIN_SESSIONS_MS`, 30 days by default) does not keep chat past it, because
   deleting a session deletes its messages. An operator who wants a longer window raises that setting too.
 - A Claude Desktop or Cowork session has no expiry unless the person sets one, and no expiry is reported as 30 days, not as for ever.
+- The Claude Code reporter reads `cleanupPeriodDays` from the user's `settings.json` once when it starts. A value set only in a project's settings or by a managed policy, or changed during a running session, is not seen, and the default of 30 is reported.
 - Group and General messages are not tied to one session, so they stay on the Admin's `retainDays`.
 
 <!-- nav:start -->

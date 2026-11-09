@@ -4,7 +4,7 @@ import { pct } from '../core/contextFill.ts';
 import { cap, clip, excerpt, whole, LIMITS, reportedFailure } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
-import { resumeWindowDays } from '../core/resumeWindow.ts';
+import { DEFAULT_RESUME_WINDOW_DAYS } from '../core/resumeWindow.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
@@ -147,7 +147,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       endReason: st.status === 'done' ? root.endReason : null,
       resumeId: null,
       // OpenCode has no session expiry, so its sessions stay until the person deletes them and the shared default applies (#1113).
-      resumeWindowDays: resumeWindowDays(null),
+      resumeWindowDays: DEFAULT_RESUME_WINDOW_DAYS,
       startedAt: root.startedAt,
       cwd,
       projectRoot: root.place?.projectRoot ?? (cwd || null),
