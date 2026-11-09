@@ -499,6 +499,8 @@ describe("an agent that leaves People and agents (#1110)", () => {
     await flush();
     expect(row("a:s-notes")).toHaveClass("leave");
     expect(row("a:s-dash")).not.toHaveClass("leave");
+    expect(within(row("a:s-notes")).getAllByRole("button").every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+    expect(within(row("a:s-dash")).getAllByRole("button").some((b) => (b as HTMLButtonElement).disabled)).toBe(false);
     await act(async () => {
       vi.advanceTimersByTime(LEAVE_MS + 1);
     });

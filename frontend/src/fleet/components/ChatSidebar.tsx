@@ -74,7 +74,7 @@ export function ChatSidebar(p: SidebarProps) {
   const person = o.me.person;
   // An agent whose session ended leaves with the wall's own animation, and is not offered while it does (#1110).
   const agentRows = useLeaving(o.agents, (a) => a.sessionId);
-  const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean }) => {
+  const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean; leaving?: boolean }) => {
     const on = p.selected === key;
     const ctx = (e: MouseEvent) => {
       if (!spec) return;
@@ -83,11 +83,11 @@ export function ChatSidebar(p: SidebarProps) {
     };
     return (
       <li key={key} className={`ch-item${on ? " on" : ""}${opts.cls ? ` ${opts.cls}` : ""}`} onContextMenu={ctx} data-testid={`chat-row-${key}`}>
-        <button type="button" className="ch-row" onClick={opts.open} aria-current={on ? "true" : undefined} title={opts.title}>
+        <button type="button" className="ch-row" disabled={opts.leaving} onClick={opts.open} aria-current={on ? "true" : undefined} title={opts.title}>
           {content}
         </button>
         {spec && (
-          <button type="button" className="ch-more" data-more={key} aria-haspopup="menu" aria-expanded={p.menu === key} aria-label={opts.aria} onClick={(e) => {
+          <button type="button" className="ch-more" disabled={opts.leaving} data-more={key} aria-haspopup="menu" aria-expanded={p.menu === key} aria-label={opts.aria} onClick={(e) => {
             e.stopPropagation();
             p.onMenu(p.menu === key ? null : key, "button");
           }}>
@@ -147,7 +147,7 @@ export function ChatSidebar(p: SidebarProps) {
           <span className="sub">Orchestrator on <bdi>{a.machine}</bdi>, {STATE_WORD[kind]}</span>
         </span>
       </>
-    ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, cls: `hl-${kind}${leaving ? " leave" : ""}`, title: `Message ${a.name}` });
+    ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, leaving, cls: `hl-${kind}${leaving ? " leave" : ""}`, title: `Message ${a.name}` });
   };
 
   const reading = p.readAs !== null;
