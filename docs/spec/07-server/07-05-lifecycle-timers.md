@@ -17,6 +17,8 @@ Module: `sweeper.ts`. It runs every second, and all values are env-configurable.
 | `status = done` for `LINGER_MS` | Removed from the live set, event `end` "session ended" | 8,000 |
 | `attached = false` for `DETACHED_HIDE_AFTER_MS` | The wall sets the card aside behind a "N background sessions hidden" note (client-side; the session stays live, in History and in the totals). A client attaching again clears it at once | 60,000 |
 
+An OpenCode session adds one more way to end: when its last terminal UI part closes, the reporter sends `done` with `endReason: detached` for each session that is quiet (not running, asking or compacting) at once, and the card then leaves after `LINGER_MS`, so about 10 seconds after the terminal closes with the defaults above (DECISIONS 65). The server's timers do not change, and no other harness is affected.
+
 A stale session that reports again immediately returns to its stored status. A dropped session that reports again is revived (clear `dropped_at`, `ended_at`). On server start the sweeper treats every stored non-done session as stale until it reports. SSE broadcasts `removed` when a session leaves the live set.
 
 `SessionView.dropAt` is when a stale session leaves the live set by itself: `max(last_seen + staleAfter, server start if not heard since) + DROP_AFTER_MS` (`staleAfter` is `STALE_AFTER_MS`, or `HOOK_STALE_AFTER_MS` for a hook-only session). The sweep and the view use the same calculation, so a heartbeat-lost card shows a countdown that matches what happens, including after a restart.

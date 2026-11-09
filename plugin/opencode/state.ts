@@ -654,6 +654,21 @@ export function sweep(store: Store, now: number, idleMs: number, hold = false): 
   return out;
 }
 
+/**
+ * Finishes every root that is quiet right now, without the idle wait: the last TUI part left (#1029), so nobody has the session open. A root that runs,
+ * asks, or compacts is kept, because work that is still going is not over because a terminal closed. Returns the roots it finished.
+ */
+export function endQuiet(store: Store, now: number, reason: string): Root[] {
+  const out: Root[] = [];
+  for (const r of store.roots.values()) {
+    if (idleFor(r, now, 0)) {
+      finish(r, now, reason);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
 /** One job `experimental.idle` lists: a shell has a `command`, a subagent a `description`. */
 export interface IdleJob {
   kind: string;

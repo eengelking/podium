@@ -11,8 +11,14 @@ export const ATTACH_EVERY_MS = 30_000;
 export const BRIDGE = {
   id: BRIDGE_ID,
   methods: {
+    // `id` names the TUI part, so the server part knows when the last one has left (#1029). A TUI part with no id counts as one.
     attach: {
-      input: { type: 'object', properties: {}, additionalProperties: false },
+      input: { type: 'object', properties: { id: { type: 'string' } }, additionalProperties: false },
+      output: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false },
+    },
+    // The TUI part is closing (#1029): when it was the last one, the server part ends the sessions that are quiet at once, not after the attach time limit and the idle wait.
+    detach: {
+      input: { type: 'object', properties: { id: { type: 'string' } }, additionalProperties: false },
       output: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false },
     },
     // The TUI part says it showed the Admin callout `id` (#1051): until it does, the server part offers the callout again, so a toast sent to a TUI part
