@@ -1,6 +1,7 @@
 // The TUI part of the plugin (#858). It exists for one thing: OpenCode's server-side plugin API cannot answer a question form, and
 // this part, which lives in the terminal UI, can. It tells the server part it is attached, and when the server part hands it an
 // answer from Podium it replies to the form with `session.form.reply`. It reads nothing from Podium and sends nothing to it.
+import { randomUUID } from 'node:crypto';
 import type { Plugin } from '@opencode/plugin/tui';
 import { ATTACH_EVERY_MS, BRIDGE, BRIDGE_ID, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
 import { AdminBoard, ToastKeeper } from './notice.ts';
@@ -10,13 +11,15 @@ const plugin: Plugin.Definition = {
   id: `${BRIDGE_ID}-tui`,
   async setup(ctx) {
     const rpc = ctx.client.rpc(BRIDGE) as unknown as {
-      attach: (input: Record<string, never>, options?: { location?: unknown }) => Promise<unknown>;
+      attach: (input: { id: string }, options?: { location?: unknown }) => Promise<unknown>;
+      detach: (input: { id: string }, options?: { location?: unknown }) => Promise<unknown>;
       shown: (input: { id: string }, options?: { location?: unknown }) => Promise<unknown>;
       events: { on: <N extends 'answer' | 'notice' | 'status'>(name: N, handler: (e: { data: N extends 'answer' ? AnswerEvent : N extends 'status' ? StatusEvent : NoticeEvent }) => Promise<void> | void) => () => void };
     };
     // Said now and again well within the server part's time limit; a failed call (the server part is not there) is tried again next time.
     // The server part registers the bridge in its project's location, so the call names the location this TUI is in.
-    const attach = (): void => void Promise.resolve(rpc.attach({}, { location: ctx.data.location.default() })).catch(() => undefined);
+    const id = randomUUID();
+    const attach = (): void => void Promise.resolve(rpc.attach({ id }, { location: ctx.data.location.default() })).catch(() => undefined);
     attach();
     const timer = setInterval(attach, ATTACH_EVERY_MS);
     const off = rpc.events.on('answer', async (e) => {
@@ -59,6 +62,8 @@ const plugin: Plugin.Definition = {
     // The first attach above ran before this listener existed, so the status it triggered was lost; say it again now that the listener is there (#999).
     attach();
     return () => {
+      // Closing the terminal says so, so the server part need not wait out the attach time limit and the idle wait to end this session's card (#1029). Best effort: a TUI killed outright cannot.
+      void Promise.resolve(rpc.detach({ id }, { location: ctx.data.location.default() })).catch(() => undefined);
       clearInterval(timer);
       off();
       offNotice();

@@ -15,7 +15,7 @@ import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { announce as announceRoot, apply, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
+import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -524,6 +524,12 @@ export class Reporter {
     } catch {
       // The console keeps asking while the owner waits; nothing to undo here.
     }
+  }
+
+  /** The last TUI part left (#1029): every root that is quiet now is over, and the next tick reports it, without the idle wait. */
+  detached(): void {
+    if (this.closed) return;
+    endQuiet(this.store, this.deps.now(), 'detached');
   }
 
   /**

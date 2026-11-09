@@ -6,7 +6,7 @@ import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
 import { setTitle } from '../core/plan.ts';
-import { apply, finish, idleFor, newStore, sweep, tokensOf, type BusEvent } from './state.ts';
+import { apply, endQuiet, finish, idleFor, newStore, sweep, tokensOf, type BusEvent } from './state.ts';
 import { VERSION } from './version.ts';
 
 let n = 0;
@@ -141,6 +141,22 @@ describe('state: done after idle, at once on delete or archive, and reopening', 
     expect(root.done).toBe(true);
     expect(root.events.map((e) => e.text)).not.toContain('session reopened');
     expect(root.events.filter((e) => e.kind === 'end')).toHaveLength(1);
+  });
+
+  it('ends every root that is quiet right now when the last TUI part detaches, and none that is running, asking or compacting (#1029)', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1000),
+      ev('session.created', { sessionID: 'ses_busy' }, 1000),
+      ev('session.execution.started', { sessionID: 'ses_busy' }, 1001),
+    );
+    const quiet = s.roots.get(ROOT)!;
+    const busy = s.roots.get('ses_busy')!;
+    // Quiet for one second only: the idle wait does not apply to a person who closed the terminal.
+    expect(endQuiet(s, 2000, 'detached')).toEqual([quiet]);
+    expect(quiet.done).toBe(true);
+    expect(quiet.endReason).toBe('detached');
+    expect(busy.done).toBe(false);
+    expect(endQuiet(s, 3000, 'detached')).toEqual([]);
   });
 
   it('does not sweep a quiet root while a TUI is attached (#984)', () => {
@@ -349,6 +365,22 @@ describe('Reporter', () => {
     t.now += 5000;
     await r.tick();
     expect(bodies.at(-1)!.session).toMatchObject({ status: 'done', endReason: 'idle' });
+  });
+
+  it('reports a quiet root done when the last TUI part detaches, long before the idle wait, and keeps a running one (#1029)', async () => {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined, attached: () => true }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(ev('session.created', { sessionID: 'ses_busy' }, 10_000));
+    r.handle(ev('session.execution.started', { sessionID: 'ses_busy' }, 10_001));
+    await r.tick();
+    t.now += 2000;
+    r.detached();
+    await r.tick();
+    const last = (id: string) => bodies.filter((b) => b.session.id === id).at(-1)!.session;
+    expect(last(ROOT)).toMatchObject({ status: 'done', endReason: 'detached' });
+    expect(last('ses_busy').status).not.toBe('done');
   });
 
   it('sends a heartbeat only while a root is open, and forgets a long-done root', async () => {
