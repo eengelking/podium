@@ -27,6 +27,14 @@ Every Reporting page works the same way:
 
 Active people, active reporters, sessions started and the most sessions live at once, for each day, week or month.
 
+Two sections follow it, for every harness that reports. The **Harness** filter narrows them, and the report above them is not kept per harness, so it
+covers every harness and the page says so.
+
+- **Sessions per person per day** gives each person's days active, sessions, sessions per active day and their busiest day. The last row counts
+  everyone in the filter. The **Group** filter narrows it.
+- **Busiest hours** is the most sessions live at once in each hour of the day, over the period, as a chart or a table. It counts every session, so
+  the Group filter does not apply to it.
+
 ## Spend
 
 Three sections.
@@ -58,6 +66,21 @@ which reporter and engine versions are in use.
 
 Counts by outcome, model, effort or plan, with average and longest duration, agents launched per session, and how many
 sessions hit a context blowout.
+
+Four sections follow it, for every harness that reports. The **Harness** filter narrows them. The report above them is not kept per harness, so it
+covers every harness and the page says so. These four are kept for everyone together, so while a **Person**, **Group** or **Model** filter is set the page
+says that and leaves them out.
+
+- **Length and waiting** shows how long sessions ran and how much of that they spent blocked on a person: a tool asking for permission, a plan waiting for approval
+  or a question waiting for an answer. A session sitting at the prompt is not counted, and neither is a wait for background work or a timer. It gives the average and
+  longest length, the time waiting and its share of session time, for each day, week or month, with a row for the whole period and for each harness. Waiting is
+  measured from the reports a session sends, so it is counted to the reporting interval.
+- **What sessions waited for** splits that waiting into permission, question and plan: how many waits, how long they took and the average.
+- **Agents launched** counts agents by type, with a column for each harness.
+- **How deep agent chains go** counts agents by how many levels down they sit. Depth 1 is an agent the session launched itself.
+
+Waiting is recorded from the release that added it, so earlier days show a dash and the page says from which day it starts. Each table has its own **CSV**
+and **JSON** in its title line. Only the kind of wait and the time are kept, never what the question, plan or tool was.
 
 ## Tools
 

@@ -162,6 +162,41 @@ CREATE TABLE harness_versions_daily ( -- how many reporters ran a version of a h
 The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
 sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
 
+Migration 38 (#722; PostgreSQL main step 14) adds how long sessions ran and waited on a person, which agents they launched and how deep the chains went, who ran
+sessions on a day, and the peak of live sessions in each hour. Names, counts and times only: never a question, a plan, a tool's input, a note or a path. They are
+kept per harness, and a session counts on the day it was last seen, as in migration 22.
+
+```sql
+CREATE TABLE session_waits (        -- what one session has waited on its person for, added up as its reports arrive; goes with its session
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  permission_ms INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_ms INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_ms INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  tracked_since INTEGER NOT NULL,   -- the first report stored after the upgrade: a session older than this has no row, which is not the same as a session that never waited
+  open_kind TEXT, open_since INTEGER  -- the wait in progress, closed by the first report that no longer shows it
+);
+CREATE TABLE session_time_daily (   -- one row per day and harness
+  day TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL,
+  tracked_sessions INTEGER NOT NULL, tracked_s INTEGER NOT NULL,   -- the sessions that have a session_waits row, and how long they ran since it began
+  permission_s INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_s INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_s INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  PRIMARY KEY (day, harness)
+);
+CREATE TABLE agents_daily (         -- agents launched; depth 1 is launched by the session itself, capped at 10
+  day TEXT NOT NULL, harness TEXT NOT NULL, type TEXT NOT NULL, depth INTEGER NOT NULL, agents INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, type, depth)
+);
+CREATE TABLE person_sessions_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness)
+);
+CREATE TABLE hour_peaks_daily (     -- harness '' is every harness together: the peak of the whole is not the sum of the parts
+  day TEXT NOT NULL, harness TEXT NOT NULL, hour INTEGER NOT NULL, peak INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, hour)
+);
+```
+
+The four daily tables fill from the rows still stored on each run, except `hour_peaks_daily`, which is upserted so an hour's stored peak never goes down once the
+samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
+the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
+
 Migration 15 (#206) links a session to the one it continues after a `/clear` (5.8):
 
 ```sql
@@ -386,7 +421,7 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily` and `harness_versions_daily` from the rows still stored (a day that began before the session retention is
+  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily`, `session_time_daily`, `agents_daily`, `person_sessions_daily` and `hour_peaks_daily` from the rows still stored (a day that began before the session retention is
   skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
   has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
   partly built), in one transaction, so a run twice gives the
