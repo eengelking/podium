@@ -1,7 +1,5 @@
-// The OpenCode reporter against the recorded OpenCode 2.2.5 event streams (docs/fixtures/opencode, #848): each fixture is replayed
+// The OpenCode reporter against synthetic OpenCode 2.2.5 event streams (scripts/opencode-streams.ts, #1025; #848 recorded the shapes): each stream is replayed
 // through the reporter, and every report it sends goes through the server's validator and then its ingest (#855).
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULTS, Reporter } from '../plugin/opencode/reporter.ts';
 import { optionsOf } from '../plugin/opencode/options.ts';
@@ -9,25 +7,18 @@ import type { BusEvent } from '../plugin/opencode/state.ts';
 import { openSqliteStorage } from '../server/src/storage/sqlite/index.ts';
 import { ingestReport } from '../server/src/fleet/ingest.ts';
 import { validateReport } from '../server/src/fleet/protocol.ts';
-import { REPO_ROOT } from '../server/src/fleet/testing.ts';
+import { STREAM_NAMES, streamOf, type StreamName } from './opencode-streams.ts';
 
-const DIR = path.join(REPO_ROOT, 'docs', 'fixtures', 'opencode');
-const load = (name: string): BusEvent[] =>
-  fs
-    .readFileSync(path.join(DIR, `${name}.events.jsonl`), 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => JSON.parse(l) as BusEvent);
 
 /** Replays a fixture, then lets the root go quiet and end, and returns every body the reporter posted. */
-async function replay(name: string): Promise<{ bodies: unknown[]; reporter: Reporter }> {
+async function replay(name: StreamName): Promise<{ bodies: unknown[]; reporter: Reporter }> {
   const bodies: unknown[] = [];
   const clock = { now: 0 };
   const reporter = new Reporter(
     { fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!)); return { status: 200, ok: true, text: '{}' }; }, now: () => clock.now, runIn: () => async () => ({ exitCode: 1, stdout: "" }), log: () => undefined },
     { ...optionsOf({ serverUrl: 'http://podium.test' }, null, {}), idleMs: 60_000 },
   );
-  for (const e of load(name)) {
+  for (const e of streamOf(name)) {
     clock.now = e.created ?? clock.now;
     reporter.handle(e);
   }
@@ -38,7 +29,7 @@ async function replay(name: string): Promise<{ bodies: unknown[]; reporter: Repo
   return { bodies, reporter };
 }
 
-describe.each(['short-session', 'subagent', 'permission', 'question', 'compaction'])('OpenCode fixture %s', (name) => {
+describe.each(STREAM_NAMES)('OpenCode fixture %s', (name) => {
   it('turns into reports the server validates and ingests', async () => {
     const { bodies } = await replay(name);
     expect(bodies.length).toBeGreaterThanOrEqual(2);
@@ -81,7 +72,7 @@ describe('OpenCode fixtures: what the wall shows', () => {
 
   it('waits on the permission and on the question while they are open', async () => {
     for (const [name, reason] of [['permission', 'permission'], ['question', 'input']] as const) {
-      const events = load(name);
+      const events = streamOf(name);
       const clock = { now: 0 };
       const seen: string[] = [];
       const reporter = new Reporter(
@@ -109,7 +100,7 @@ describe('OpenCode fixtures: what the wall shows', () => {
 // #1007: the server rejects a fractional time or token count with a 400 for the whole report. Every number OpenCode puts on an event
 // (its `created` time, the `tokens` of a step, a usage update or a compaction, its cost) and the model's context window come from the
 // host, so each fixture is replayed with half added to all of them and every report must still validate with whole numbers.
-describe.each(['short-session', 'subagent', 'permission', 'question', 'compaction'])('OpenCode fixture %s with fractions from the host (#1007)', (name) => {
+describe.each(STREAM_NAMES)('OpenCode fixture %s with fractions from the host (#1007)', (name) => {
   const frac = (v: unknown): unknown => (typeof v === 'number' ? v + 0.5 : Array.isArray(v) ? v.map(frac) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, frac(x)])) : v);
   const fractional = (e: BusEvent): BusEvent => {
     const d = (e.data ?? {}) as Record<string, unknown>;
@@ -124,7 +115,7 @@ describe.each(['short-session', 'subagent', 'permission', 'question', 'compactio
       { fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!)); return { status: 200, ok: true, text: '{}' }; }, now: () => clock.now, runIn: () => async () => ({ exitCode: 1, stdout: "" }), log: () => undefined, windowOf: async () => 200_000.5 },
       { ...optionsOf({ serverUrl: 'http://podium.test' }, null, {}), idleMs: 60_000 },
     );
-    for (const e of load(name)) {
+    for (const e of streamOf(name)) {
       clock.now = e.created ?? clock.now;
       reporter.handle(fractional(e));
       await Promise.resolve();

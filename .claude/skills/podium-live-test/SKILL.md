@@ -103,6 +103,8 @@ One run can hold windows of several harnesses reporting to one throwaway server.
 
 Run this even after a failure. Each reference gives its exact `down` line; it removes the server, the tmux server, the scratch-home links and the work folder, and refuses a folder `up` did not make. Add `--keep` to read the database and `server.log` first. A killed session can write one last folder into the work folder after `down`, so check it is gone, and check the maintainer's real `~/.podium` and each harness's config folder have no new file from the run.
 
+**Leave the repository as it was (#1025).** Before `up`, save `git status --ignored --short` (and `git ls-files -o --exclude-standard`) to a file in the scratchpad. After `down`, run it again and compare. List every path the run added, such as a recording written into `docs/fixtures/opencode/`, and remove each one that was not in the first list, an ignored file included. Never remove a file that was in the repository or in the first list. Name each removed path in the report.
+
 ## Report
 
 Say which harness and model, which scenarios passed, which exclusions held, and each failure with its prompt, ask, answer and screen. Name any divergence you saw between harnesses on something the wall shows: that is a finding even when every scenario passed (PROJECT.md, "A reporter change considers every harness").
