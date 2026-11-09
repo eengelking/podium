@@ -49,6 +49,8 @@ interface Entry {
 }
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
+/** Ids and ISO periods compared by code unit, the order the server answers in. */
+const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** The rows of the calls-by-tool reply, added up over the whole period: each tool, and each MCP server with the tools under it. */
 export function toolEntries(rows: ReportRow[]): Entry[] {
@@ -87,7 +89,7 @@ const percent = (n: number, whole: number): string => (whole > 0 ? `${((n / whol
 function ToolTable({ r, reply }: { r: ReportState; reply: ReportReply }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const entries = useMemo(() => toolEntries(reply.rows), [reply.rows]);
-  const harnesses = useMemo(() => [...new Set(reply.rows.map((x) => String(x.harness)))].sort(), [reply.rows]);
+  const harnesses = useMemo(() => [...new Set(reply.rows.map((x) => String(x.harness)))].sort(byCode), [reply.rows]);
   const grand = num(reply.total?.calls);
   const { page, prefs } = r;
   const shown = entries.slice((page - 1) * prefs.pageSize, page * prefs.pageSize);
@@ -234,7 +236,7 @@ function SessionTable({ reply, harness }: { reply: ReportReply; harness: string 
 }
 
 function VersionTable({ reply }: { reply: ReportReply }) {
-  const periods = [...new Set(reply.rows.map((x) => String(x.period)))].sort();
+  const periods = [...new Set(reply.rows.map((x) => String(x.period)))].sort(byCode);
   const lines = [...new Set(reply.rows.map((x) => `${x.harness}\u0000${x.version}`))].map((k) => k.split("\u0000") as [string, string]);
   const at = (h: string, v: string, p: string) => reply.rows.find((x) => x.harness === h && x.version === v && x.period === p);
   const newest = (h: string, v: string) => reply.rows.some((x) => x.harness === h && x.version === v && x.newest === "Newest seen");
