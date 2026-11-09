@@ -120,7 +120,7 @@ holds only the code patterns.
 | Standards change only through release-prep | A feature PR adds a `Standards:` line under `[Unreleased]` and never edits `docs/standards/`. | `CHANGELOG.md` | `npm run standards:parity` |
 | A new page or large state gets an accessibility case | Axe runs in the test; contrast and target size are checked in a real browser. | `frontend/src/fleet/a11y.axe.test.tsx` | `frontend/src/fleet/a11y.axe.test.tsx` |
 | A form resets its draft during render | A mount effect copying saved values would overwrite a user edit. See [the gotcha](gotchas/frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md). | `frontend/src/fleet/` | none |
-| A poll pauses while the page is hidden | Timers are cleaned up in the effect. | `frontend/src/fleet/useMyPeers.ts` | none (see [findings](#findings-not-patterns)) |
+| A poll pauses while the page is hidden | Timers are cleaned up in the effect. | `frontend/src/fleet/useMyPeers.ts` | `frontend/src/fleet/respond.test.tsx` for `useRespond` only; the other polls have none (see [findings](#findings-not-patterns)) |
 
 ## Tests
 
@@ -164,7 +164,6 @@ The survey for this page found places where the code does not follow a candidate
 | What | Issue |
 |---|---|
 | Four write routes on the fleet router have no token and no test lists them | [#1052](https://github.com/eengelking/podium/issues/1052) |
-| `useRespond` polls while the page is hidden | [#1054](https://github.com/eengelking/podium/issues/1054) |
 | Reporter helpers are copied between harnesses instead of living in `plugin/core/` | [#1055](https://github.com/eengelking/podium/issues/1055) |
 | E2E specs use a real sleep and clock-derived data | [#1056](https://github.com/eengelking/podium/issues/1056) |
 

@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { respondApi, RespondError, type RespondApi } from "./respondApi";
 import type { RespondMe } from "./types";
+import { usePageVisible } from "./usePageVisible";
 
 export type SignInResult = "ok" | "wrong" | "empty" | "locked";
 
@@ -50,6 +51,7 @@ export function RespondProvider(props: { children: ReactNode; api?: RespondApi; 
   const [openFor, setOpenFor] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const signedIn = useRef(false);
+  const visible = usePageVisible();
 
   const refresh = useCallback(async () => {
     try {
@@ -70,10 +72,12 @@ export function RespondProvider(props: { children: ReactNode; api?: RespondApi; 
       setMe(null);
       return;
     }
+    // A hidden tab asks nothing; showing it again re-runs this effect, which asks once and starts the timer (#1054).
+    if (!visible) return;
     void refresh();
     const t = setInterval(() => void refresh(), CHECK_MS);
     return () => clearInterval(t);
-  }, [refresh, props.flagsOn, props.diffOn, props.peersOn, props.historyOn, props.recordingOn]);
+  }, [refresh, visible, props.flagsOn, props.diffOn, props.peersOn, props.historyOn, props.recordingOn]);
 
   const signIn = useCallback(
     async (name: string, token: string): Promise<SignInResult> => {
