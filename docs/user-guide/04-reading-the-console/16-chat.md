@@ -29,7 +29,8 @@ Contents:
 
 The sidebar has three lists: **Channels** (*General* and *My group*), **Direct Messages** and **People and agents** (your own orchestrators,
 subagents and forks, to start a Direct Message with). Each agent has the same state icon as its card on the wall, and a person has a
-monogram. A row shows how many messages are new, or `@ 2` when you are addressed. Click a row to open it. Each row has a **...**
+monogram. An agent is in the list for as long as its session is open, even before it has done anything and the wall shows no card for it. When
+its session ends it fades out of the list the way a card leaves the wall. A row shows how many messages are new, or `@ 2` when you are addressed. Click a row to open it. Each row has a **...**
 button and a right-click that open its menu. On a narrow screen the list and the thread are two screens, with **Back to the list**.
 
 The newest message is at the bottom. **Earlier messages** above the oldest one pages back. Enter sends and Shift+Enter adds a line. Anything

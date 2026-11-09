@@ -1088,7 +1088,8 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   addressed to the person. A Direct Message row also shows when part of its conversation has ended ("Tester ended"). A row that
   is an agent shows the app's own state icon (running, waiting for you, delegating, idle on background work, heartbeat lost,
   done) in the same shape and color as the session cards, and a person shows a monogram. A People and agents row takes its state's
-  color when pointed at or focused. A row opens with a click or Enter, and has a **...** button and a right-click that open its menu.
+  color when pointed at or focused. People and agents lists every live session of the person, including one the wall keeps off because it has
+  done nothing yet, and a session that ends leaves it by the wall's own leave animation (one class, one time, and the same reduced-motion rule) (#1110). A row opens with a click or Enter, and has a **...** button and a right-click that open its menu.
   Above the Direct Messages a notice row says how many messages from other people wait for the person's approval in My reporters,
   and links there.
 - **Thread.** The header names the conversation, says who can read it, and lists who is in it as chips (an agent with its state

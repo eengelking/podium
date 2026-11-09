@@ -202,6 +202,9 @@ describe('chat: a conversation whose agents have left', () => {
     remove('tester');
     cy.openConsole('#/chat');
     cy.chatRow(DM).should('contain.text', 'Tester ended');
+    // The agent that left is gone from People and agents (it fades out for the wall's leave time first, #1110, and is then removed); the other stays.
+    cy.chatRow(`a:${seeded().sessions.tester}`).should('not.exist');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('exist');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-thread').should('contain.text', 'Tester ended');
     cy.tid('chat-box').should('not.be.disabled');
@@ -213,6 +216,7 @@ describe('chat: a conversation whose agents have left', () => {
     remove('invoice');
     cy.openConsole('#/chat');
     cy.chatRow(DM).should('not.exist');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('not.exist');
     cy.get('#th-h').should('have.text', 'General');
     cy.contains('No conversations. Start one from People and agents.');
   });

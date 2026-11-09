@@ -2841,3 +2841,14 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     expect(limited).toBeGreaterThan(0);
   });
 });
+
+describe('the agents list follows the live set (#1110)', () => {
+  it('drops an agent from the list once its session has ended and left', async () => {
+    const s = await world();
+    expect((await dev(s, { status: 'done', waitReason: null, endReason: 'other' })).status).toBe(200);
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    const res = await s.edB.get(CH);
+    expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01']);
+  });
+});
