@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { assemble, parseName, readFragments } from "./changelog-assemble.mjs";
+import { assemble, parseName, readFragments, run } from "./changelog-assemble.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "changelog-assemble.mjs");
@@ -20,7 +20,6 @@ function repo(files: Record<string, string>, changelog: string): string {
   for (const [name, text] of Object.entries(files)) writeFileSync(join(root, "changelog.d", name), text);
   return root;
 }
-const run = (root: string, ...args: string[]) => spawnSync(process.execPath, [SCRIPT, "--root", root, ...args], { encoding: "utf8" });
 
 const BASE = `# Changelog\n\n## [Unreleased]\n\n### Added\n\n- old one\n\n### Fixed\n\n- old fix\n\n## [1.0.0] - 2026-01-01\n\n### Added\n\n- shipped\n`;
 const frag = (id: string, type: string, text: string) => ({ id, type, file: `${id}.${type}.md`, text });
@@ -95,36 +94,51 @@ describe("readFragments", () => {
 });
 
 describe("the command", () => {
+  const go = (root: string, ...args: string[]) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const status = run(["--root", root, ...args], (m: string) => out.push(m), (m: string) => err.push(m));
+    return { status, out: out.join("\n"), err: err.join("\n") };
+  };
   it("assembles, rewrites CHANGELOG.md and deletes the fragments", () => {
     const root = repo({ "1.added.md": "new one" }, BASE);
-    const r = run(root);
+    const r = go(root);
     expect(r.status).toBe(0);
+    expect(r.out).toContain("Assembled 1 fragment");
     expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain("- old one\n- new one");
     expect(existsSync(join(root, "changelog.d", "1.added.md"))).toBe(false);
   });
   it("--check changes nothing", () => {
     const root = repo({ "1.added.md": "new one" }, BASE);
-    const r = run(root, "--check");
+    const r = go(root, "--check");
     expect(r.status).toBe(0);
+    expect(r.out).toContain("1 fragment(s) ok");
     expect(existsSync(join(root, "changelog.d", "1.added.md"))).toBe(true);
     expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toBe(BASE);
   });
   it("fails and names a bad fragment, in both modes", () => {
     const root = repo({ "1.nope.md": "x" }, BASE);
     for (const args of [[], ["--check"]]) {
-      const r = run(root, ...args);
+      const r = go(root, ...args);
       expect(r.status).toBe(1);
-      expect(r.stderr).toContain("1.nope.md");
+      expect(r.err).toContain("1.nope.md");
     }
   });
   it("--root with no folder says so and exits 1", () => {
-    const r = spawnSync(process.execPath, [SCRIPT, "--root"], { encoding: "utf8" });
-    expect(r.status).toBe(1);
-    expect(r.stderr).toContain("--root needs a folder");
+    const err: string[] = [];
+    expect(run(["--root"], () => {}, (m: string) => err.push(m))).toBe(1);
+    expect(err.join("")).toContain("--root needs a folder");
   });
   it("says so when there is nothing to assemble, and prints --help", () => {
-    expect(run(repo({}, BASE)).stdout).toContain("No fragments");
-    expect(run(repo({}, BASE), "--help").stdout).toContain("Usage:");
+    expect(go(repo({}, BASE)).out).toContain("No fragments");
+    const out: string[] = [];
+    expect(run(["--help"], (m: string) => out.push(m))).toBe(0);
+    expect(out.join("")).toContain("Usage:");
+  });
+  it("runs as a script", () => {
+    const r = spawnSync(process.execPath, [SCRIPT, "--root", repo({ "1.added.md": "x" }, BASE), "--check"], { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("1 fragment(s) ok");
   });
 });
 

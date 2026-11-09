@@ -78,26 +78,25 @@ export function assemble(changelog, fragments) {
   return lines.join("\n");
 }
 
-function main(argv) {
-  if (argv.includes("--help") || argv.includes("-h")) return console.log(HELP);
+/** The command. Returns the exit status, and writes through `out` and `err` so a test can read what it said. */
+export function run(argv, out = console.log, err = console.error) {
+  if (argv.includes("--help") || argv.includes("-h")) return out(HELP), 0;
   const ri = argv.indexOf("--root");
-  if (ri >= 0 && !argv[ri + 1]) {
-    console.error("--root needs a folder");
-    process.exit(1);
-  }
+  if (ri >= 0 && !argv[ri + 1]) return err("--root needs a folder"), 1;
   const root = ri >= 0 ? argv[ri + 1] : join(fileURLToPath(import.meta.url), "../..");
   const dir = join(root, "changelog.d");
   const { fragments, problems } = readFragments(dir);
   if (problems.length) {
-    for (const p of problems) console.error(`changelog.d/${p}`);
-    process.exit(1);
+    for (const p of problems) err(`changelog.d/${p}`);
+    return 1;
   }
-  if (argv.includes("--check")) return console.log(`${fragments.length} fragment(s) ok`);
-  if (!fragments.length) return console.log("No fragments to assemble.");
+  if (argv.includes("--check")) return out(`${fragments.length} fragment(s) ok`), 0;
+  if (!fragments.length) return out("No fragments to assemble."), 0;
   const path = join(root, "CHANGELOG.md");
   writeFileSync(path, assemble(readFileSync(path, "utf8"), fragments));
   for (const f of fragments) rmSync(join(dir, f.file));
-  console.log(`Assembled ${fragments.length} fragment(s) into [Unreleased].`);
+  out(`Assembled ${fragments.length} fragment(s) into [Unreleased].`);
+  return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main(process.argv.slice(2));
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exitCode = run(process.argv.slice(2));
