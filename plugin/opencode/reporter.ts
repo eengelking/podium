@@ -4,6 +4,7 @@
 import { excerpt, explainPrompt } from '../core/failures.ts';
 import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
+import { isLaunchId, LAUNCH_ENDED, launchId, launchName } from '../core/launch.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
 import type { AdminNotice, DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
 import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
@@ -14,7 +15,7 @@ import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { apply, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
+import { announce as announceRoot, apply, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -177,6 +178,33 @@ export class Reporter {
     this.peers = opts.peers && deps.prompt ? new Peers({ responder: this.responder, prompt: deps.prompt, notify: deps.notify, now: deps.now, owner: () => opts.userName, machine: () => opts.machine?.name ?? null, callMs: deps.peerCallMs, log: deps.log }) : null;
   }
 
+  /** The placeholder session reported at launch (#1112), while it is open; null before it and after it ended. */
+  private launchRoot: string | null = null;
+  /** Whether the launch was announced: it is announced once, and never again after the first real session. */
+  private announced = false;
+
+  /**
+   * Announces this launch to the chat before any session exists (#1112): a placeholder session that has done nothing, so the server lists it in
+   * People and agents and keeps it off the wall. It ends when the first real session starts. Nothing is sent from here: the timer sends it.
+   */
+  announce(cwd: string | null): void {
+    if (this.closed || this.announced || [...this.store.roots.values()].some((r) => !isLaunchId(r.id))) return;
+    this.announced = true;
+    const now = this.deps.now();
+    const root = announceRoot(this.store, launchId(globalThis.crypto.randomUUID()), cwd, now, launchName(cwd, 'OpenCode'));
+    this.launchRoot = root.id;
+    this.refreshGit(root, now);
+  }
+
+  /** The first real session has started, so the placeholder has done its work: it ends and the chat lists the real one. */
+  private retireLaunch(now: number): void {
+    const root = this.launchRoot ? this.store.roots.get(this.launchRoot) : undefined;
+    this.launchRoot = null;
+    if (!root) return;
+    finish(root, now, LAUNCH_ENDED);
+    this.queue(root);
+  }
+
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */
   handle(ev: BusEvent): void {
     if (this.closed) return;
@@ -190,6 +218,7 @@ export class Reporter {
     const root = apply(this.store, ev, this.deps.now());
     if (ev.type === 'session.step.started') this.wantWindow(ev.data?.model?.providerID, ev.data?.model?.id);
     if (root) {
+      if (this.launchRoot && !isLaunchId(root.id)) this.retireLaunch(this.deps.now());
       this.queue(root);
       if (!root.done) {
         this.refreshGit(root, this.deps.now());
@@ -277,7 +306,7 @@ export class Reporter {
 
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */
   sessionIds(): string[] {
-    return [...this.store.rootOf.keys()];
+    return [...this.store.rootOf.keys()].filter((id) => !isLaunchId(id));
   }
 
   /** Permissions that were open when the plugin reloaded (`ctx.permission.list`): the bus will not announce them again. */
@@ -519,7 +548,9 @@ export class Reporter {
     await Promise.all(sends);
     await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));
     if (this.peers) {
-      for (const root of this.store.roots.values()) this.peers.take(root, this.transportOf(root));
+      // A real session first: the placeholder (#1112) only refuses what a real one did not take.
+      const roots = [...this.store.roots.values()].sort((a, b) => Number(isLaunchId(a.id)) - Number(isLaunchId(b.id)));
+      for (const root of roots) this.peers.take(root, this.transportOf(root));
       await this.responder.flush();
     }
     for (const root of this.store.roots.values()) this.handleDiffs(root, this.transportOf(root));
@@ -572,7 +603,8 @@ export class Reporter {
    * that it takes part. Claude Code's mod shows its tools on the same word. The tools come and go with it (`ctx.tool.reload`).
    */
   get offersMessaging(): boolean {
-    return this.peers !== null && [...this.transports.values()].some((t) => t.peers);
+    // The launch placeholder's word does not count (#1112): it is no session a tool could run in, and its transport outlives it until it is forgotten.
+    return this.peers !== null && [...this.transports].some(([id, t]) => t.peers && !isLaunchId(id));
   }
 
   /**

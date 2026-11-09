@@ -136,6 +136,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     options,
   );
   bridge.reporter = reporter;
+  // OpenCode makes no session until the first prompt, so announce this launch to the chat now (#1112): a placeholder the wall does not show.
+  reporter.announce(String((ctx.location as { directory?: string } | undefined)?.directory ?? process.cwd()));
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
   void ctx.rpc.register(BRIDGE, {
     attach: async () => { bridge.seenAt = Date.now(); bridge.status.attached(); return { ok: true }; },

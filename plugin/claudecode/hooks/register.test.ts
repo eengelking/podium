@@ -75,6 +75,8 @@ const GIT: Record<string, string> = {
 /** Everything beneath the plugin: the engine's answers, from memory. */
 /** The context tokens the stubbed host answers `session.usage` with; world() resets it. */
 let hostTokens = 120_000
+/** The cost the stubbed host answers `session.usage` with; world() resets it. */
+let hostCost = 1.25
 
 function world(on: On, store: Record<string, unknown> = {}, files: Record<string, string> = {}): World {
   const posts: Report[] = []
@@ -101,6 +103,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const devBuild: World['devBuild'] = { value: null }
   const hosts: World['hosts'] = { hostname: 'Devs-MBP.local\n', local: null }
   hostTokens = 120_000
+  hostCost = 1.25
   const agents: World['agents'] = { value: null }
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
@@ -119,7 +122,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('session.root', () => ({ value: place.root }))
   on('session.repo', () => ({ value: place.repo }))
   on('session.version', () => ({ value: { version: '2.1.296' } }))
-  on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: hostTokens, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: 1.25 } } }))
+  on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: hostTokens, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: hostCost } } }))
   on('session.surfaces', () => {
     if (surfaces.fail) throw new Error('no roster')
     return { value: surfaces.value }
@@ -728,6 +731,20 @@ describe('podium-reporter end to end', () => {
     await $.classic.SessionStart({ source: 'startup', cwd: '/Users/dev/notes' })
     await w.clock.advance(10_000)
     expect(w.posts.at(-1)!.session).toMatchObject({ name: 'notes', cwd: '/Users/dev/notes', projectRoot: '/Users/dev/notes', repoName: 'notes', git: null })
+  })
+
+  test('announces the session at launch, before any prompt, as one that has done nothing (#1112)', async ($, on) => {
+    const w = world(on)
+    // A session nobody has prompted: the host knows no cost and no context yet.
+    hostTokens = 0
+    hostCost = 0
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await $.classic.SessionStart({ source: 'startup', cwd: CWD })
+    await w.clock.advance(1000)
+    // The chat lists a reported session at once; the wall's server keeps one with no cost, tokens, agents or plan off it, so this report must be that shape.
+    expect(w.posts).toHaveLength(1)
+    expect(w.posts[0]!.session).toMatchObject({ status: 'waiting', costUsd: 0, plan: null, tokens: { input: 0, output: 0 }, context: { tokens: 0 } })
+    expect(w.posts[0]!.agents).toEqual([])
   })
 
   test('reports whether any client is attached, from the roster', async ($, on) => {
