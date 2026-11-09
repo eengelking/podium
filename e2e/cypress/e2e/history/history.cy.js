@@ -6,6 +6,7 @@ describe('history', () => {
     // server was reset (cy.clock with only Date faked, so no timer is touched), so the day the page opens on is the day they ended however long
     // the file runs; a run does not depend on crossing midnight after the reset. The one moment left is a reset that itself straddles midnight
     // (the seed takes about a second), which nothing in a browser can hold still; the day is read from the page's own date field either way.
+    // The one clock read left in the suite (#1056): the seeded sessions are stamped with the server's real day, so no fixed moment can stand for it.
     let day = '';
     let seededAt = 0;
     before(() => {

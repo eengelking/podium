@@ -1,7 +1,7 @@
 import { seeded } from '../../../support/commands';
 
 // SPEC 8.1 Admin and Responding > Signing in: five wrong tries lock an address out of Admin's unlock and the sign-in to respond together (#206, #791). The server is
-// restarted with the 15 minutes cut to 20 seconds (PODIUM_TEST_TIMINGS, DECISIONS 50). The wait for the lock to lift is the time the server itself says (retryAfterSec).
+// restarted with the 15 minutes cut to 20 seconds (PODIUM_TEST_TIMINGS, DECISIONS 50). The lock lifting is waited for by a retrying assertion, not a sleep (#1056).
 const H_ADMIN = { 'X-Podium-Admin': '1' };
 
 describe('lockout after five wrong tries', () => {
@@ -34,14 +34,19 @@ describe('lockout after five wrong tries', () => {
 
   it('lets the right secret in again once the lock has lifted', () => {
     cy.env(['ADMIN_SECRET']).then(({ ADMIN_SECRET }) => {
-      // Still locked: the answer says for how long, and that is how long to wait.
+      // Still locked: the answer says for how long. Then the right secret is tried until the server lets it in, as a retrying assertion with the lock's own
+      // 20 seconds as its limit, never a fixed sleep (#1056). The try is synchronous, because Cypress retries a callback but not a command.
       cy.request({ method: 'POST', url: '/api/admin/unlock', headers: H_ADMIN, body: { name: 'Admin', token: ADMIN_SECRET }, failOnStatusCode: false, log: false }).then((res) => {
-        if (res.status === 429) {
-          expect(res.body.retryAfterSec).to.be.within(1, 20);
-          cy.wait(res.body.retryAfterSec * 1000 + 500);
-        }
+        if (res.status === 429) expect(res.body.retryAfterSec).to.be.within(1, 20);
       });
-      cy.request({ method: 'POST', url: '/api/admin/unlock', headers: H_ADMIN, body: { name: 'Admin', token: ADMIN_SECRET }, log: false }).its('status').should('eq', 200);
+      cy.wrap(null, { timeout: 30000, log: false }).should(() => {
+        const x = new XMLHttpRequest();
+        x.open('POST', '/api/admin/unlock', false);
+        x.setRequestHeader('Content-Type', 'application/json');
+        x.setRequestHeader('X-Podium-Admin', '1');
+        x.send(JSON.stringify({ name: 'Admin', token: ADMIN_SECRET }));
+        expect(x.status).to.eq(200);
+      });
     });
     cy.visit('/#/admin');
     cy.get('nav[aria-label="Admin sections"]').should('be.visible');
