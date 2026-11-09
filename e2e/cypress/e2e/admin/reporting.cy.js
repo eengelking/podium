@@ -131,7 +131,7 @@ describe('admin: reporting', () => {
   it('Tools: opens from the menu after Sessions with its sections and a Harness filter', () => {
     cy.openAdmin('Tools');
     cy.get('h1').should('have.text', 'Tools');
-    for (const h of ['Period and filters', 'Calls by tool', 'Calls per session', 'Harness versions']) cy.contains('h2', h);
+    for (const h of ['Period and filters', 'Calls by tool', 'Tool failures', 'Permission prompts', 'Call duration', 'Calls per session', 'Harness versions']) cy.contains('h2', h);
     cy.contains('h2', /^Tool calls by /);
     cy.contains('label', 'Harness').parent().find('select').find('option').first().should('have.text', 'All harnesses');
     cy.get('table[aria-label="Calls by tool"]').should('exist');
@@ -159,5 +159,25 @@ describe('admin: reporting', () => {
     cy.contains('there is nothing to show').should('exist');
     cy.get('table[aria-label="Calls by tool"]').should('not.exist');
     cy.get('[role=alert]').should('not.exist');
+  });
+
+  // #721: the seed reports no failures, prompts or call times per tool, and its history starts today, so a period that reaches back before it is partial: a section with no rows is then left blank, the page's note says why, and a section with rows shows its table. Either way no section errors.
+  it('Tools: failures, permission prompts and call duration each show their table, their empty line or a blank partial period', () => {
+    cy.openAdmin('Tools');
+    const sections = [
+      ['rep-tools-x', 'Failures by tool', 'No tool was called in this period.'],
+      ['rep-tools-p', 'Permission prompts by tool', 'No tool asked for permission in this period.'],
+      ['rep-tools-d', 'Call duration by tool', 'reported no call times in this period.'],
+    ];
+    for (const [id, table, empty] of sections) {
+      cy.get(`section[aria-labelledby="${id}"]`).should(($s) => {
+        const text = $s.text();
+        expect(text, `${id} has settled`).not.to.contain('Loading');
+        expect($s.find('[role=alert]').length, `${id} shows no error`).to.equal(0);
+        const ok = $s.find(`table[aria-label="${table}"]`).length > 0 || text.includes(empty) || $s.find('.empty').length === 0;
+        expect(ok, `${id} shows its table, its empty line or nothing`).to.equal(true);
+      });
+    }
+    cy.contains('Podium has no history before').should('exist');
   });
 });
