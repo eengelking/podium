@@ -229,4 +229,19 @@ describe('chat: a conversation whose agents have left', () => {
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 4);
   });
+
+  // #1113: the seed's reports carry resumeWindowDays 30, so a closed conversation is kept for the harness's resume window and not the Admin's 24 hours. Past that window the purge
+  // is in the hourly sweep and no test-only clock reaches days, so it is covered in server/src/fleet/chatRoutes.test.ts (see docs/e2e/COVERAGE.md).
+  it('shows none of the old conversation for a new session of the same agent', () => {
+    cy.reportAgain('tester', { id: 'e2e-s-tester-resumed-new', name: 'Tester' });
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow('a:e2e-s-tester-resumed-new').should('exist');
+    // The new session has its own conversation, and it holds nothing yet: no row pairs it with the other agent.
+    cy.chatRow('d:dm:e2e-s-invoice|e2e-s-tester-resumed-new').should('not.exist');
+    cy.chatRow('d:dm:e2e-s-tester-resumed-new|e2e-s-invoice').should('not.exist');
+    // The old conversation is still its own, with what it held.
+    cy.chatRow(DM).should('exist').find('button.ch-row').click();
+    cy.tid('chat-message').should('have.length', 4);
+  });
 });
