@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
+import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 
@@ -453,6 +453,37 @@ CREATE TABLE IF NOT EXISTS harness_versions_daily (
   PRIMARY KEY (day, harness, version)
 );`,
   },
+  {
+    version: 38,
+    // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), behind Admin > Reporting
+    // > Sessions and Usage. Names, counts and times only: never a question, a plan, a tool's input or a path.
+    // `session_waits` is added up as reports arrive (a session is blocked on its person for a permission, a question or a plan) and goes with its session.
+    // The four daily tables are written by the hourly retention like the others, per harness; the peak of an hour is upserted, so it never goes down.
+    sql: `
+CREATE TABLE IF NOT EXISTS session_waits (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  permission_ms INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_ms INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_ms INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  tracked_since INTEGER NOT NULL, open_kind TEXT, open_since INTEGER
+);
+CREATE TABLE IF NOT EXISTS session_time_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL,
+  tracked_sessions INTEGER NOT NULL, tracked_s INTEGER NOT NULL,
+  permission_s INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_s INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_s INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  PRIMARY KEY (day, harness)
+);
+CREATE TABLE IF NOT EXISTS agents_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, type TEXT NOT NULL, depth INTEGER NOT NULL, agents INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, type, depth)
+);
+CREATE TABLE IF NOT EXISTS person_sessions_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness)
+);
+CREATE TABLE IF NOT EXISTS hour_peaks_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, hour INTEGER NOT NULL, peak INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, hour)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -553,6 +584,19 @@ export class FleetDb {
     return this.stmt('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
   }
 
+  getSessionWait(id: string): SessionWaitRow | undefined {
+    return this.stmt('SELECT * FROM session_waits WHERE session_id = ?').get(id) as SessionWaitRow | undefined;
+  }
+
+  putSessionWait(row: SessionWaitRow): void {
+    this.stmt(
+      `INSERT INTO session_waits (session_id, permission_ms, permission_n, question_ms, question_n, plan_ms, plan_n, tracked_since, open_kind, open_since)
+       VALUES (:session_id, :permission_ms, :permission_n, :question_ms, :question_n, :plan_ms, :plan_n, :tracked_since, :open_kind, :open_since)
+       ON CONFLICT(session_id) DO UPDATE SET permission_ms = excluded.permission_ms, permission_n = excluded.permission_n, question_ms = excluded.question_ms, question_n = excluded.question_n,
+         plan_ms = excluded.plan_ms, plan_n = excluded.plan_n, tracked_since = excluded.tracked_since, open_kind = excluded.open_kind, open_since = excluded.open_since`,
+    ).run(row as unknown as Params);
+  }
+
   /** `getSession` for many ids, in the order given (#906), in one statement per 500. */
   getSessions(ids: string[]): SessionRow[] {
     const found = new Map<string, SessionRow>();
@@ -581,6 +625,7 @@ export class FleetDb {
       this.stmt('DELETE FROM samples WHERE session_id = ?').run(id);
       this.stmt('DELETE FROM agents WHERE session_id = ?').run(id);
       this.stmt('DELETE FROM agent_texts WHERE session_id = ?').run(id);
+      this.stmt('DELETE FROM session_waits WHERE session_id = ?').run(id);
       return Number(this.stmt('DELETE FROM sessions WHERE id = ?').run(id).changes) > 0;
     });
   }
@@ -1054,6 +1099,7 @@ export class FleetDb {
         this.stmt('DELETE FROM samples WHERE session_id = ?').run(id);
         this.stmt('DELETE FROM agents WHERE session_id = ?').run(id);
         this.stmt('DELETE FROM agent_texts WHERE session_id = ?').run(id);
+        this.stmt('DELETE FROM session_waits WHERE session_id = ?').run(id);
         this.stmt('DELETE FROM sessions WHERE id = ?').run(id);
       }
       const adminLog = Number(

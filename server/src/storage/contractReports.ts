@@ -1,14 +1,14 @@
-// Contract cases for the report and rollup queries behind Admin > Reporting (#890): the seven daily rollup tables (the last three are the tool counts of #720), the stored sessions
+// Contract cases for the report and rollup queries behind Admin > Reporting (#890): the eleven daily rollup tables (three are the tool counts of #720, four the session time, agents, people and hours of #722), the stored sessions
 // the reports read, the people and counts beside them, and the Admin log. One scenario runs over every adapter
 // (`sameOnAll`). Several rows share a day, an owner or a time on purpose, so the order of ties is part of what is compared.
 import { it, expect } from 'vitest';
 import { sameOnAll, type Openers } from './contractSame.js';
 import { session } from './contract.js';
-import type { AgentRow } from './rows.js';
+import type { AgentRow, SessionWaitRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
 
 const T0 = 1_800_000_000_000;
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
   day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
@@ -46,6 +46,21 @@ export function reportCases(o: Openers): void {
         { day: '2026-10-02', harness: 'opencode', version: '1.4.2', reporters: 1 }, { day: '2026-10-02', harness: 'claude-code', version: '2.1.319', reporters: 2 },
         { day: '2026-10-02', harness: 'claude-code', version: '2.1.305', reporters: 1 }, { day: '2026-10-01', harness: 'claude-code', version: '2.1.305', reporters: 3 },
       ]);
+      // how long sessions ran and waited, which agents they launched, who ran sessions and the peak of each hour (#722): names, counts and times only
+      const time = (day: string, harness: string, over: object = {}) => ({ day, harness, sessions: 2, durationS: 120, maxDurationS: 90, trackedSessions: 1, trackedS: 60, permissionS: 10, permissionN: 2, questionS: 5, questionN: 1, planS: 0, planN: 0, ...over });
+      await f.insertSessionTimeDaily([time('2026-10-02', 'opencode'), time('2026-10-02', 'claude-code'), time('2026-10-02', 'Claude-code', { sessions: 1 }), time('2026-10-01', 'claude-code', { trackedSessions: 0, trackedS: 0 })]);
+      await f.insertAgentsDaily([
+        { day: '2026-10-02', harness: 'opencode', type: 'general', depth: 1, agents: 2 }, { day: '2026-10-02', harness: 'claude-code', type: 'Explore', depth: 2, agents: 1 },
+        { day: '2026-10-02', harness: 'claude-code', type: 'Explore', depth: 1, agents: 3 }, { day: '2026-10-02', harness: 'claude-code', type: 'explore', depth: 1, agents: 1 }, { day: '2026-10-01', harness: 'claude-code', type: '', depth: 10, agents: 1 },
+      ]);
+      await f.insertPersonSessionsDaily([
+        { day: '2026-10-02', owner: 'zed', group: '', harness: 'opencode', sessions: 1 }, { day: '2026-10-02', owner: 'Ann', group: 'Crew', harness: 'claude-code', sessions: 2 }, { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'claude-code', sessions: 1 },
+        { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'opencode', sessions: 4 }, { day: '2026-10-01', owner: '', group: '', harness: 'claude-code', sessions: 1 },
+      ]);
+      await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 3 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 1 }, { day: '2026-10-02', harness: 'claude-code', hour: 9, peak: 2 }, { day: '2026-10-01', harness: '', hour: 0, peak: 1 }]);
+      await rec('hour peaks stored', f.rollupRows('hour_peaks_daily', '2026-10-01', '2026-10-31'));
+      await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 2 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 5 }]);
+      await rec('hour peak never goes down, and a higher one is kept', f.rollupRows('hour_peaks_daily', '2026-10-02', '2026-10-02'));
       const fleetDay = (day: string, peakLive: number) => ({ day, activePeople: 2, activeReporters: 3, sessionsStarted: 5, peakLive, reporterVersions: { '1.0.0': 2, '0.9.0': 1 }, engineVersions: {} });
       await f.upsertFleetDays([{ day: fleetDay('2026-10-02', 3), peak: 3 }, { day: fleetDay('2026-10-01', 1), peak: 1 }]);
       await rec('peak stored', f.storedPeak('2026-10-02'));
@@ -68,7 +83,12 @@ export function reportCases(o: Openers): void {
     expect((t.get('rows usage_daily') as unknown[]).length).toBe(6);
     expect((t.get('rows tools_daily') as unknown[]).length).toBe(5);
     expect((t.get('rows harness_versions_daily') as unknown[]).length).toBe(4);
+    expect((t.get('rows session_time_daily') as unknown[]).length).toBe(4);
+    expect((t.get('rows agents_daily') as unknown[]).length).toBe(5);
+    expect((t.get('rows person_sessions_daily') as unknown[]).length).toBe(5);
     expect(t.get('peak never goes down')).toBe(3);
+    const hours = t.get('hour peak never goes down, and a higher one is kept') as { harness: string; hour: number; peak: number }[];
+    expect(hours.map((r) => `${r.harness || 'all'}/${r.hour}=${r.peak}`)).toEqual(['all/14=3', 'claude-code/9=2', 'opencode/14=5']);
   });
 
   it('agrees on every adapter for the stored sessions a report reads, the people beside them, and the Admin log', async () => {
@@ -82,6 +102,10 @@ export function reportCases(o: Openers): void {
       const f = s.fleet;
       await rec('no sessions: oldest', f.oldestSessionSeen());
       await rec('no sessions: spans', f.sampleSpans());
+      await rec('no sessions: spans by harness', f.sampleSpansByHarness());
+      await rec('no sessions: waits', f.waitsSince(0));
+      await rec('no sessions: agent links', f.agentLinksSince(0));
+      await rec('no wait record', f.getSessionWait('s1'));
       await rec('no people', f.knownPeople());
       await rec('no reporters', f.countReporters());
       const crew = await s.people.createGroup('Crew', T0);
@@ -95,7 +119,8 @@ export function reportCases(o: Openers): void {
         await f.upsertSession(session({ id, owner, last_seen_at: seenAt, started_at: seenAt - 5 }));
       }
       const counted = (a: AgentRow, counts: object): AgentRow => ({ ...a, tool_counts_json: JSON.stringify(counts) });
-      for (const a of [counted(agent('s1', 'x1'), { Bash: 3, Read: 1 }), counted(agent('s1', 'x2'), { Bash: 2, mcp__github__search_code: 4 }), agent('s2', 'x3')]) await f.upsertAgent(a);
+      // agents that were launched by another agent, and one whose parent is not stored (#722)
+      for (const a of [counted(agent('s1', 'x1'), { Bash: 3, Read: 1 }), counted(agent('s1', 'x2'), { Bash: 2, mcp__github__search_code: 4 }), agent('s2', 'x3'), { ...agent('s1', 'x4'), parent_id: 'x1', type: 'Plan' }, { ...agent('s2', 'x5'), parent_id: 'gone' }]) await f.upsertAgent(a);
       await f.upsertSample({ session_id: 's1', t: 10, tokens_total: 1, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's1', t: 90, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's2', t: 20, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
@@ -112,6 +137,20 @@ export function reportCases(o: Openers): void {
       await rec('tool counts', f.toolCountsSince(T0));
       await rec('tool counts (nothing that recent)', f.toolCountsSince(T0 + 1_000_000));
       await rec('sample spans', f.sampleSpans());
+      await rec('sample spans by harness', f.sampleSpansByHarness());
+      // waiting on the person (#722): a record is written, read back, changed in place, and goes with its session
+      const waitRow = (id: string, over: Partial<SessionWaitRow> = {}): SessionWaitRow => ({ session_id: id, permission_ms: 1500, permission_n: 2, question_ms: 0, question_n: 0, plan_ms: 40, plan_n: 1, tracked_since: T0, open_kind: null, open_since: null, ...over });
+      await f.putSessionWait(waitRow('s1'));
+      await f.putSessionWait(waitRow('s3', { open_kind: 'question', open_since: T0 + 9 }));
+      await f.putSessionWait(waitRow('old'));
+      await rec('wait record', f.getSessionWait('s1'));
+      await f.putSessionWait(waitRow('s1', { permission_ms: 9000, permission_n: 3, open_kind: 'plan', open_since: T0 + 5 }));
+      await rec('wait record (changed in place)', f.getSessionWait('s1'));
+      await rec('waits since', f.waitsSince(T0));
+      await rec('waits since (nothing that recent)', f.waitsSince(T0 + 1_000_000));
+      await rec('agent links', f.agentLinksSince(T0));
+      await f.deleteSession('old');
+      await rec('wait record (its session deleted)', f.getSessionWait('old'));
       await rec('owner group names', f.ownerGroupNames());
       await rec('known people', f.knownPeople());
       await rec('reporters', f.countReporters());
@@ -126,5 +165,8 @@ export function reportCases(o: Openers): void {
     expect((t.get('sessions since') as unknown[]).length).toBeGreaterThan(0);
     // the agent with no counts (x3) is left out, and the two that have them come back in a fixed order
     expect(t.get('tool counts')).toEqual([{ id: 's1', c: '{"Bash":3,"Read":1}' }, { id: 's1', c: '{"Bash":2,"mcp__github__search_code":4}' }]);
+    expect(t.get('wait record (its session deleted)')).toBeUndefined();
+    expect((t.get('waits since') as { session_id: string }[]).map((r) => r.session_id)).toEqual(['s1', 's3']);
+    expect((t.get('agent links') as { agent: string; parent: string | null }[]).filter((r) => r.parent !== null).map((r) => `${r.agent}<${r.parent}`)).toEqual(['x4<x1', 'x5<gone']);
   });
 }

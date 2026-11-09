@@ -588,3 +588,40 @@ describe('ingestReport with a model that has no price (#66)', () => {
     });
   });
 });
+
+describe('ingestReport waiting on the person (#722)', () => {
+  const waiting = (reason: 'permission' | 'input' | null, note: string | null, status: 'running' | 'waiting' | 'done' = 'waiting'): Report => {
+    const r = fixtureReport();
+    return { ...r, session: { ...r.session, status, waitReason: reason, waitNote: note } };
+  };
+
+  it('adds up the time of each kind of wait as the reports show it open and closed', async () => {
+    const id = fixtureReport().session.id;
+    await ingestReport(storage, waiting(null, null, 'running'), T0);
+    expect(await f.getSessionWait(id)).toMatchObject({ tracked_since: T0, open_kind: null, permission_ms: 0 });
+    await ingestReport(storage, waiting('permission', 'Bash(npm test)'), T0 + 10_000);
+    // a second report in the same wait writes nothing new
+    await ingestReport(storage, waiting('permission', 'Bash(npm test)'), T0 + 15_000);
+    expect(await f.getSessionWait(id)).toMatchObject({ open_kind: 'permission', open_since: T0 + 10_000, permission_ms: 0 });
+    await ingestReport(storage, waiting(null, null, 'running'), T0 + 40_000);
+    expect(await f.getSessionWait(id)).toMatchObject({ open_kind: null, permission_ms: 30_000, permission_n: 1 });
+    await ingestReport(storage, waiting('permission', 'AskUserQuestion(Which one?)'), T0 + 50_000);
+    await ingestReport(storage, waiting('permission', 'ExitPlanMode'), T0 + 60_000);
+    await ingestReport(storage, waiting(null, null, 'done'), T0 + 100_000);
+    expect(await f.getSessionWait(id)).toMatchObject({ question_ms: 10_000, question_n: 1, plan_ms: 40_000, plan_n: 1, open_kind: null });
+  });
+
+  it('does not count a session idle at the prompt, which every harness reports as waiting on input with no note', async () => {
+    const id = fixtureReport().session.id;
+    await ingestReport(storage, waiting('input', null), T0);
+    await ingestReport(storage, waiting('input', null), T0 + 600_000);
+    await ingestReport(storage, waiting(null, null, 'done'), T0 + 900_000);
+    expect(await f.getSessionWait(id)).toMatchObject({ permission_ms: 0, question_ms: 0, plan_ms: 0, open_kind: null });
+  });
+
+  it('keeps no note, tool or text: the record holds a kind and a time', async () => {
+    const id = fixtureReport().session.id;
+    await ingestReport(storage, waiting('permission', 'Bash(curl https://secret.example/token)'), T0);
+    expect(JSON.stringify(await f.getSessionWait(id))).not.toMatch(/secret|curl|Bash/);
+  });
+});

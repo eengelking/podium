@@ -13,7 +13,7 @@ import type { ReportQueries } from './reportQueries.js';
 import type {
   AdminPeersView, ActivityHistoryOpts, AgentRow, BlowoutRow, CostOf, EventRow, ForgetSetting, GroupListRow, IgnoreKind, IgnoreRule, IgnoreTarget, LogRow, Paged,
   PeerReply, PeerServerSettings, PersonListRow, PersonRow, PurgeRecordingsResult, RecordingMeta, RecordingTotals, RecordingsOpts, RemoveResult, ReporterDetail, ReporterList,
-  ReporterSeen, ReporterState, ReporterVersionCount, RetentionPolicy, SampleRow, SessionRow, SessionSpend, StoredState, OwnerPeersView, PageIn, PurgeResult, SessionMeta, RecordingTrail, StorageInfo,
+  ReporterSeen, ReporterState, ReporterVersionCount, RetentionPolicy, SampleRow, SessionRow, SessionSpend, SessionWaitRow, StoredState, OwnerPeersView, PageIn, PurgeResult, SessionMeta, RecordingTrail, StorageInfo,
 } from './rows.js';
 import type { PeerLimits } from './settings.js';
 
@@ -26,6 +26,9 @@ export type Async<T> = {
 export interface FleetStoreApi {
   upsertSession(row: SessionRow): Promise<void>;
   getSession(id: string): Promise<SessionRow | undefined>;
+  /** What the session has waited on its person for (#722), or undefined before its first report was stored after the upgrade. */
+  getSessionWait(id: string): Promise<SessionWaitRow | undefined>;
+  putSessionWait(row: SessionWaitRow): Promise<void>;
   /**
    * The rows of the sessions among `ids`, in the order the ids were given; an id with no session is left out. One read for all of
    * them (#906). The `...Of` methods below do the same for one kind of row: each answers with a key for every id asked, an empty

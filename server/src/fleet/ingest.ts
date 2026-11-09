@@ -3,6 +3,7 @@ import type { AgentReport, Plan, PlanStepView, PlanView, Report, TokenCounts } f
 import { SAME_USAGE, type AgentRow, type EventRow, type SampleRow, type SessionRow } from '../storage/rows.js';
 import type { Storage } from '../storage/types.js';
 import { family } from './derive.js';
+import { advanceWait, waitKindOf } from './waits.js';
 
 // An older reporter prices a non-Claude model as Sonnet; Podium has no price for it, so drop the figure. A non-Claude model has no ledger price, and a loop that has not reported a model yet has no spend worth showing
 // as $0.00: both stay unknown (null) here. The Admin's prices apply on read, from the usage (issue #117).
@@ -231,6 +232,9 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     if (prev && namedHarness(report) !== null && prev.harness !== namedHarness(report)) throw new HarnessConflict('session belongs to another harness');
     const row = sessionRow(report, prev, serverTime, owner);
     await f.upsertSession(row);
+    // What the session waits on its person for, added up as reports arrive (#722). Nothing is written while the state is the same.
+    const wait = advanceWait(await f.getSessionWait(sid), waitKindOf({ waitReason: row.wait_reason, waitNote: row.wait_note, reporterVersion: row.reporter_version }), sid, serverTime);
+    if (wait) await f.putSessionWait(wait);
     const ended = report.session.status === 'done';
     const revived = !!prev && !ended && (prev.ended_at !== null || prev.dropped_at !== null);
 
