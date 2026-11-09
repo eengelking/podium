@@ -23,7 +23,7 @@ afterEach(() => {
 
 const TODAY = '2026-10-20';
 const NOW = new Date(2026, 9, 20, 15).getTime();
-const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 const dump = (file: string): string => {
   const db = openDb(file);
   // ordered by every column up to the fifth, so two runs compare row for row
@@ -130,6 +130,13 @@ describe('podium-seed-history: the history', () => {
     expect(n('SELECT SUM(sessions) FROM tool_sessions_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
     expect(n('SELECT COUNT(DISTINCT harness) FROM harness_versions_daily')).toBe(2);
     expect(n("SELECT COUNT(DISTINCT version) FROM harness_versions_daily WHERE harness = 'opencode'")).toBe(2);
+    // What each tool did (#721): never more failures than calls, answers that add up to the asks, and lengths for both harnesses.
+    expect(n('SELECT COUNT(*) FROM tool_stats_daily s JOIN tools_daily t USING (day, harness, tool) WHERE s.failed > t.calls OR s.asked > t.calls')).toBe(0);
+    expect(n('SELECT COUNT(*) FROM tool_stats_daily WHERE allowed + denied > asked OR podium > allowed + denied')).toBe(0);
+    expect(n('SELECT COUNT(*) FROM tool_stats_daily s LEFT JOIN tools_daily t USING (day, harness, tool) WHERE t.calls IS NULL')).toBe(0);
+    expect(n('SELECT SUM(failed) FROM tool_stats_daily')).toBeGreaterThan(0);
+    expect(n('SELECT SUM(asked) FROM tool_stats_daily')).toBeGreaterThan(0);
+    expect(n("SELECT COUNT(DISTINCT harness) FROM tool_stats_daily WHERE times_json != '{}'")).toBe(2);
     // Session time, agents, people and hours (#722): both harnesses, every session timed, waiting only from part way through, chains to depth 4, and 24 hours at most.
     expect(n('SELECT COUNT(DISTINCT harness) FROM session_time_daily')).toBe(2);
     expect(n('SELECT SUM(sessions) FROM session_time_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));

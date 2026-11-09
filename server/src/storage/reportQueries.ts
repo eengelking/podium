@@ -1,7 +1,7 @@
 // The report and rollup queries behind Admin > Reporting (#484, #313). They were SQL written inside reports.ts and
 // rollups.ts; here they are named methods of the fleet store, so the reports read through the same async interface as
 // everything else and nothing outside an adapter names a table's SQL.
-import type { AgentDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, UsageDay } from '../fleet/rollups.js';
+import type { AgentDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../fleet/rollups.js';
 import type { SessionRow, SessionWaitRow } from './rows.js';
 
 /** One rollup table row as stored. */
@@ -11,11 +11,11 @@ export type RollupRaw = Record<string, string | number | null>;
 export type StoredSession = SessionRow & { grp: string | null };
 
 /**
- * The daily rollup tables. `tools_daily`, `tool_sessions_daily` and `harness_versions_daily` are the tool counts (#720). `session_time_daily`, `agents_daily`,
- * `person_sessions_daily` and `hour_peaks_daily` are how long sessions ran and waited, which agents they launched, who ran them and when they overlapped (#722).
- * Names, counts and times only, kept per harness.
+ * The daily rollup tables. `tools_daily`, `tool_sessions_daily` and `harness_versions_daily` are the tool counts (#720), and `tool_stats_daily` how each tool failed, asked and
+ * took (#721). `session_time_daily`, `agents_daily`, `person_sessions_daily` and `hour_peaks_daily` are how long sessions ran and waited, which agents they launched, who ran them
+ * and when they overlapped (#722). Names, counts and times only, kept per harness.
  */
-export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily' | 'session_time_daily' | 'agents_daily' | 'person_sessions_daily' | 'hour_peaks_daily';
+export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily' | 'tool_stats_daily' | 'session_time_daily' | 'agents_daily' | 'person_sessions_daily' | 'hour_peaks_daily';
 
 export interface ReportQueries {
   /** Rows of a rollup table for the days `from` to `to`, oldest first. */
@@ -42,6 +42,8 @@ export interface ReportQueries {
   failureRowsSince(fromMs: number): { id: string; f: string }[];
   /** Each agent's tool counts (a JSON object of tool name to calls) for the sessions seen at or after `fromMs`, in session then agent order. An agent with none is left out. */
   toolCountsSince(fromMs: number): { id: string; c: string }[];
+  /** Each agent's per-tool stats (#721, a JSON object of tool name to counts) for the sessions seen at or after `fromMs`, in session then agent order. An agent with none is left out. */
+  toolStatsSince(fromMs: number): { id: string; s: string }[];
   /** The first and last sample second of every session. */
   sampleSpans(): { a: number; b: number }[];
   /** The same, with the harness of the session, in session order (#722). */
@@ -62,6 +64,7 @@ export interface ReportQueries {
   insertToolsDaily(rows: ToolDay[]): void;
   insertToolSessionsDaily(rows: ToolSessionDay[]): void;
   insertHarnessVersionsDaily(rows: HarnessVersionDay[]): void;
+  insertToolStatsDaily(rows: ToolStatDay[]): void;
   insertSessionTimeDaily(rows: SessionTimeDay[]): void;
   insertAgentsDaily(rows: AgentDay[]): void;
   insertPersonSessionsDaily(rows: PersonDay[]): void;

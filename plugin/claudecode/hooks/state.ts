@@ -16,7 +16,8 @@ import {
 } from '../../core/failures.ts';
 import { costOf, shortName, windowOf } from './models.ts';
 import { assignOwners, emptyPlan, setTitle, taskCreate, taskUpdate, todoWrite, type PlanState } from '../../core/plan.ts';
-import { backgroundSummary, MAIN_LOOP, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from '../../core/protocol.ts';
+import { bumpStat, copyStats, MAX_TOOL_NAMES } from '../../core/toolStats.ts';
+import { backgroundSummary, MAIN_LOOP, type ToolStat, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from '../../core/protocol.ts';
 
 export const BLOWOUT_DEDUP_MS = 2000;
 /** An automatic compaction counts as a blowout only when the context was at least this full (#803). Claude Code also compacts early, after a quiet stretch. */
@@ -102,8 +103,8 @@ export function mergeUsage(...sets: (Record<string, ModelUsage> | undefined)[]):
   return [...out.values()].sort((a, b) => (a.model < b.model ? -1 : a.model > b.model ? 1 : a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0));
 }
 
-/** The most distinct tool names kept per loop; later new names count in toolCalls only. */
-export const MAX_TOOL_NAMES = 100;
+/** The most distinct tool names kept per loop; later new names count in toolCalls only. Defined in core with the stats that share the cap. */
+export { MAX_TOOL_NAMES };
 
 export interface LoopStats {
   model: string | null;
@@ -119,6 +120,8 @@ export interface LoopStats {
   toolCalls: number;
   /** Finished calls per tool name; at most MAX_TOOL_NAMES distinct names. */
   toolCounts: Record<string, number>;
+  /** What each tool did beyond being called (#721): failed calls, permission asks and call lengths; the same names as toolCounts, at most MAX_TOOL_NAMES. */
+  toolStats: Record<string, ToolStat>;
   lastTool: string | null;
   /** When the loop last took a step or ran a tool; read to say how long it was quiet before a compaction (#803). */
   lastActiveAt: number | null;
@@ -219,6 +222,7 @@ export function emptyLoop(model: string | null = null): LoopStats {
     steps: 0,
     toolCalls: 0,
     toolCounts: {},
+    toolStats: {},
     lastTool: null,
     lastActiveAt: null,
     skills: [],
@@ -774,6 +778,10 @@ export interface ToolResultInput {
   tool: string;
   input: Record<string, unknown>;
   result: { deny?: string; isError?: boolean; text?: string; result?: unknown };
+  /** How long the call took, in milliseconds (#721). */
+  ms?: number;
+  /** Set when the call raised a permission prompt (#721): how it ended, and whether Podium answered it. */
+  ask?: { denied: boolean; podium: boolean } | null;
 }
 
 /** A tool call finished: counts, failure candidates, skills and the plan. */
@@ -786,6 +794,11 @@ export function toolResult(s0: SessionState, i: ToolResultInput, now: number): S
     if (Object.hasOwn(loop.toolCounts, tool) || Object.keys(loop.toolCounts).length < MAX_TOOL_NAMES) {
       next.toolCounts = { ...loop.toolCounts, [tool]: (Object.hasOwn(loop.toolCounts, tool) ? loop.toolCounts[tool]! : 0) + 1 };
     }
+    // A call that was denied, at the prompt or by a rule, is not a failed call: it did not run.
+    const denied = typeof i.result.deny === 'string' || i.ask?.denied === true;
+    const stats = copyStats(loop.toolStats);
+    bumpStat(stats, tool, { failed: i.result.isError === true && !denied, ms: i.ms, allowed: i.ask ? !i.ask.denied : false, denied: i.ask?.denied === true, podium: i.ask?.podium === true }, MAX_TOOL_NAMES);
+    next.toolStats = stats;
     if (i.tool === 'Read' && typeof i.input.file_path === 'string') {
       const f = cap(i.input.file_path, 200);
       next.reads = { ...loop.reads, [f]: (loop.reads[f] ?? 0) + 1 };
@@ -830,6 +843,15 @@ export function skillLoaded(s: SessionState, agentId: string | undefined, skill:
   const next = putLoop(s, agentId, { ...loop, skills: [...loop.skills, cap(skill, 120)].slice(-50) });
   const where = agentId ? (s.agents[agentId]?.kind === 'fork' ? 'fork' : s.agents[agentId]?.type ?? 'agent') : 'orchestrator';
   return addEvent(next, 'skill', agentId ?? null, `${skill} loaded into ${where}`, now, { skill });
+}
+
+/** A call of `tool` raised a permission prompt in a loop (#721). How it ended is counted when the call does. */
+export function permissionAsked(s: SessionState, agentId: string | undefined, tool: string): SessionState {
+  const loop = loopOf(s, agentId);
+  if (!loop) return s;
+  const stats = copyStats(loop.toolStats);
+  bumpStat(stats, cap(tool, 120), { asked: true }, MAX_TOOL_NAMES);
+  return putLoop(s, agentId, { ...loop, toolStats: stats });
 }
 
 /** The engine raised a permission dialog. */

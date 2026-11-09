@@ -301,6 +301,8 @@ export interface AgentRow {
   last_tool: string | null;
   tool_calls: number;
   tool_counts_json: string | null;
+  /** What each tool did beyond being called (#721), as JSON of tool name to counts: failures, permission asks and call lengths. NULL from a reporter that does not send it. */
+  tool_stats_json: string | null;
   usage_json: string | null;
   blowouts: number;
   steps_done: number | null;

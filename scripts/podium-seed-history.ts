@@ -3,8 +3,8 @@
 // Admin > Reporting, the Spend projection and the long-period reports (#484, #483) without waiting for weeks of history.
 //
 // It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily, and the
-// tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, and the session time, agents, people and hours of #722:
-// session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, for Claude Code and OpenCode),
+// tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, what each tool did (#721): tool_stats_daily, and the session time, agents, people and hours
+// of #722: session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, for Claude Code and OpenCode),
 // plus a few people, groups, reporters and Admin log entries, through the server's own migrations. Every random choice
 // comes from a seeded generator, so one seed and one "today" always give the same rows.
 //
@@ -18,6 +18,7 @@ import { openDb } from '../server/src/storage/sqlite/db.ts';
 import { PeopleStore } from '../server/src/storage/sqlite/people.ts';
 import { Pricing } from '../server/src/fleet/pricing.ts';
 import { addDays, localDay } from '../server/src/fleet/rollups.ts';
+import { timeBucket } from '../plugin/core/protocol.ts';
 import { Rng } from './podium-sim.ts';
 
 const HELP = `podium-seed-history: write about 45 days of Admin > Reporting history into a throwaway Podium database.
@@ -84,6 +85,20 @@ const REPORTER_RELEASES: [number, string][] = [[0, '1.1.0'], [0.35, '1.2.0'], [0
 const ENGINE_VERSIONS = ['2.1.288', '2.1.296', '2.1.301'];
 const OPENCODE_VERSIONS = ['1.3.9', '1.4.2'];
 /** The tools a seeded session calls, and how often (a share of its calls); an MCP server's tools carry `mcp__server__tool`. */
+/** For the tool counts of #721: how often a tool fails and asks first, and how long it takes (a usual length in milliseconds and how wide the spread is). */
+const TOOL_BEHAVIOUR: Record<string, { fail: number; ask: number; median: number; spread: number }> = {
+  Bash: { fail: 0.036, ask: 0.108, median: 1800, spread: 1.6 },
+  Edit: { fail: 0.016, ask: 0.08, median: 60, spread: 1.1 },
+  Write: { fail: 0.006, ask: 0.095, median: 50, spread: 1.1 },
+  Read: { fail: 0.004, ask: 0, median: 40, spread: 1 },
+  Grep: { fail: 0.004, ask: 0, median: 120, spread: 1.2 },
+  Agent: { fail: 0.008, ask: 0, median: 38_000, spread: 1.4 },
+  mcp__github__search_code: { fail: 0.011, ask: 0.03, median: 900, spread: 0.9 },
+  mcp__github__get_file: { fail: 0.018, ask: 0.03, median: 800, spread: 0.9 },
+  mcp__playwright__navigate: { fail: 0.034, ask: 0.07, median: 1100, spread: 1.2 },
+  mcp__playwright__click: { fail: 0.038, ask: 0.07, median: 700, spread: 1.2 },
+  default: { fail: 0.008, ask: 0.01, median: 300, spread: 1.2 },
+};
 const TOOLS: [string, number][] = [['Bash', 25], ['Read', 21], ['Edit', 16], ['Grep', 10], ['Write', 5], ['Agent', 3], ['mcp__github__search_code', 6], ['mcp__github__get_file', 3], ['mcp__playwright__navigate', 3], ['mcp__playwright__click', 2], ['WebFetch', 2], ['TodoWrite', 4]];
 
 /** The agent types a seeded session launches, and how often. OpenCode names its own. */
@@ -169,12 +184,13 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
     const putTool = db.prepare('INSERT INTO tools_daily (day, harness, tool, calls) VALUES (?, ?, ?, ?)');
     const putSize = db.prepare('INSERT INTO tool_sessions_daily (day, harness, bucket, sessions) VALUES (?, ?, ?, ?)');
+    const putStat = db.prepare('INSERT INTO tool_stats_daily (day, harness, tool, failed, asked, allowed, denied, podium, times_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putHarnessVersion = db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
     const putTime = db.prepare('INSERT INTO session_time_daily (day, harness, sessions, duration_s, max_duration_s, tracked_sessions, tracked_s, permission_s, permission_n, question_s, question_n, plan_s, plan_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putAgent = db.prepare('INSERT INTO agents_daily (day, harness, type, depth, agents) VALUES (?, ?, ?, ?, ?)');
@@ -182,6 +198,8 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
     const putHour = db.prepare('INSERT INTO hour_peaks_daily (day, harness, hour, peak) VALUES (?, ?, ?, ?)');
     // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them. So do the session times (#722).
     const toolRng = new Rng(opt.seed + 720);
+    // What each tool did (#721) draws from a stream of its own too, so it moved none of the rows seeded before it.
+    const statRng = new Rng(opt.seed + 721);
     const timeRng = new Rng(opt.seed + 722);
     const putFleet = db.prepare('INSERT INTO fleet_daily (day, active_people, active_reporters, sessions_started, peak_live_sessions, reporter_versions_json, engine_versions_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
@@ -334,6 +352,32 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       for (const [k, n] of toolCalls) {
         const [harness, tool] = k.split('\u0000') as [string, string];
         putTool.run(day, harness, tool, n);
+      }
+      for (const [k, n] of toolCalls) {
+        const [harness, tool] = k.split('\u0000') as [string, string];
+        const how = TOOL_BEHAVIOUR[tool] ?? TOOL_BEHAVIOUR.default!;
+        const times = new Map<number, number>();
+        let failed = 0;
+        let asked = 0;
+        let allowed = 0;
+        let denied = 0;
+        let podium = 0;
+        for (let c = 0; c < n; c++) {
+          if (statRng.next() < how.fail) failed += 1;
+          if (statRng.next() < how.ask) {
+            asked += 1;
+            const answer = statRng.next();
+            if (answer < 0.88) allowed += 1;
+            else if (answer < 0.97) denied += 1;
+            if (statRng.next() < 0.2) podium += 1;
+          }
+          // a length from a long-tailed spread around the tool's usual one
+          const ms = how.median * Math.exp(how.spread * (statRng.next() + statRng.next() + statRng.next() - 1.5) * 1.6);
+          const b = timeBucket(ms);
+          times.set(b, (times.get(b) ?? 0) + 1);
+        }
+        const timesJson = JSON.stringify(Object.fromEntries([...times].sort((x, y) => x[0] - y[0]).map(([b, c]) => [String(b), c])));
+        putStat.run(day, harness, tool, failed, asked, allowed, denied, Math.min(podium, allowed + denied), timesJson);
       }
       for (const [k, n] of sizes) {
         const [harness, bucket] = k.split('\u0000') as [string, string];

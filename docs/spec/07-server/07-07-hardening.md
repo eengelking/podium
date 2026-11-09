@@ -886,6 +886,10 @@ Other places the warning shows:
 - `toolCounts` takes at most 100 distinct tool names per agent, and per `session.loop`. The mod stops adding new
   names past 100 (they still count in `toolCalls`), and the server keeps the 100 most used (ties by name)
   instead of rejecting the report, so the counts then add up to less than `toolCalls`.
+- `toolStats` (#721) has the same cap of 100 names per agent and per `session.loop`, and the server keeps the busiest 100 (failures
+  plus asks plus timed calls, ties by name) instead of rejecting the report. Names are clipped like `toolCounts` and names that clip
+  alike are added up. Every count is a non-negative integer, and a `times` key must be a whole number from 0 to 159: any other
+  value rejects the report with its path. A tool with nothing left in it is dropped.
 - `session.files` keeps the first 200 files (paths clipped to 300 characters and stripped of control
   characters, counts non-negative integers, `total` never below the listed count) rather than rejecting a
   longer list.

@@ -8,7 +8,7 @@ import type { AgentRow, SessionWaitRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
 
 const T0 = 1_800_000_000_000;
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
   day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
@@ -45,6 +45,13 @@ export function reportCases(o: Openers): void {
       await f.insertHarnessVersionsDaily([
         { day: '2026-10-02', harness: 'opencode', version: '1.4.2', reporters: 1 }, { day: '2026-10-02', harness: 'claude-code', version: '2.1.319', reporters: 2 },
         { day: '2026-10-02', harness: 'claude-code', version: '2.1.305', reporters: 1 }, { day: '2026-10-01', harness: 'claude-code', version: '2.1.305', reporters: 3 },
+      ]);
+      // what each tool did (#721): counts only, one row per harness and tool, the call lengths as JSON of bucket to calls
+      await f.insertToolStatsDaily([
+        { day: '2026-10-02', harness: 'opencode', tool: 'Bash', failed: 1, asked: 0, allowed: 0, denied: 0, podium: 0, timesJson: '{}' },
+        { day: '2026-10-02', harness: 'claude-code', tool: 'Bash', failed: 2, asked: 4, allowed: 3, denied: 1, podium: 2, timesJson: '{"10":5,"30":3}' },
+        { day: '2026-10-02', harness: 'claude-code', tool: 'bash', failed: 0, asked: 1, allowed: 1, denied: 0, podium: 0, timesJson: '{"7":1}' },
+        { day: '2026-10-01', harness: 'claude-code', tool: 'Read', failed: 0, asked: 0, allowed: 0, denied: 0, podium: 0, timesJson: '{"2":9}' },
       ]);
       // how long sessions ran and waited, which agents they launched, who ran sessions and the peak of each hour (#722): names, counts and times only
       const time = (day: string, harness: string, over: object = {}) => ({ day, harness, sessions: 2, durationS: 120, maxDurationS: 90, trackedSessions: 1, trackedS: 60, permissionS: 10, permissionN: 2, questionS: 5, questionN: 1, planS: 0, planN: 0, ...over });
@@ -83,6 +90,7 @@ export function reportCases(o: Openers): void {
     expect((t.get('rows usage_daily') as unknown[]).length).toBe(6);
     expect((t.get('rows tools_daily') as unknown[]).length).toBe(5);
     expect((t.get('rows harness_versions_daily') as unknown[]).length).toBe(4);
+    expect((t.get('rows tool_stats_daily') as unknown[]).length).toBe(4);
     expect((t.get('rows session_time_daily') as unknown[]).length).toBe(4);
     expect((t.get('rows agents_daily') as unknown[]).length).toBe(5);
     expect((t.get('rows person_sessions_daily') as unknown[]).length).toBe(5);
@@ -95,7 +103,7 @@ export function reportCases(o: Openers): void {
     const agent = (sessionId: string, id: string): AgentRow => ({
       session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
       status: 'done', started_at: T0, ended_at: T0 + 1, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
-      cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
+      cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, tool_stats_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
       prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
     });
     const t = await sameOnAll(o, async (s, rec) => {
@@ -118,9 +126,9 @@ export function reportCases(o: Openers): void {
       for (const [id, owner, seenAt] of [['s3', 'ann', T0 + 30], ['s1', 'ann', T0 + 30], ['s2', 'bob', T0 + 30], ['old', null, T0 - 10], ['s4', 'ghost', T0 + 31]] as const) {
         await f.upsertSession(session({ id, owner, last_seen_at: seenAt, started_at: seenAt - 5 }));
       }
-      const counted = (a: AgentRow, counts: object): AgentRow => ({ ...a, tool_counts_json: JSON.stringify(counts) });
+      const counted = (a: AgentRow, counts: object, stats?: object): AgentRow => ({ ...a, tool_counts_json: JSON.stringify(counts), tool_stats_json: stats ? JSON.stringify(stats) : null });
       // agents that were launched by another agent, and one whose parent is not stored (#722)
-      for (const a of [counted(agent('s1', 'x1'), { Bash: 3, Read: 1 }), counted(agent('s1', 'x2'), { Bash: 2, mcp__github__search_code: 4 }), agent('s2', 'x3'), { ...agent('s1', 'x4'), parent_id: 'x1', type: 'Plan' }, { ...agent('s2', 'x5'), parent_id: 'gone' }]) await f.upsertAgent(a);
+      for (const a of [counted(agent('s1', 'x1'), { Bash: 3, Read: 1 }, { Bash: { failed: 1, times: { '10': 2 } } }), counted(agent('s1', 'x2'), { Bash: 2, mcp__github__search_code: 4 }), agent('s2', 'x3'), { ...agent('s1', 'x4'), parent_id: 'x1', type: 'Plan' }, { ...agent('s2', 'x5'), parent_id: 'gone' }]) await f.upsertAgent(a);
       await f.upsertSample({ session_id: 's1', t: 10, tokens_total: 1, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's1', t: 90, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's2', t: 20, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
@@ -136,6 +144,8 @@ export function reportCases(o: Openers): void {
       await rec('failure rows', f.failureRowsSince(T0));
       await rec('tool counts', f.toolCountsSince(T0));
       await rec('tool counts (nothing that recent)', f.toolCountsSince(T0 + 1_000_000));
+      await rec('tool stats', f.toolStatsSince(T0));
+      await rec('tool stats (nothing that recent)', f.toolStatsSince(T0 + 1_000_000));
       await rec('sample spans', f.sampleSpans());
       await rec('sample spans by harness', f.sampleSpansByHarness());
       // waiting on the person (#722): a record is written, read back, changed in place, and goes with its session
@@ -164,6 +174,7 @@ export function reportCases(o: Openers): void {
     });
     expect((t.get('sessions since') as unknown[]).length).toBeGreaterThan(0);
     // the agent with no counts (x3) is left out, and the two that have them come back in a fixed order
+    expect(t.get('tool stats')).toEqual([{ id: 's1', s: '{"Bash":{"failed":1,"times":{"10":2}}}' }]);
     expect(t.get('tool counts')).toEqual([{ id: 's1', c: '{"Bash":3,"Read":1}' }, { id: 's1', c: '{"Bash":2,"mcp__github__search_code":4}' }]);
     expect(t.get('wait record (its session deleted)')).toBeUndefined();
     expect((t.get('waits since') as { session_id: string }[]).map((r) => r.session_id)).toEqual(['s1', 's3']);

@@ -283,7 +283,19 @@ CREATE TABLE harness_versions_daily (
   },
   {
     version: 14,
-    // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), as SQLite migration 38 keeps them:
+    // What each tool did beyond being called (#721), as SQLite migration 38 keeps it: the agent's per-tool stats as JSON, and the day's totals per harness and tool.
+    sql: typed(`
+ALTER TABLE agents ADD COLUMN tool_stats_json TXT;
+CREATE TABLE tool_stats_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL,
+  failed INT NOT NULL, asked INT NOT NULL, allowed INT NOT NULL, denied INT NOT NULL, podium INT NOT NULL, times_json TXT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+`),
+  },
+  {
+    version: 15,
+    // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), as SQLite migration 39 keeps them:
     // names, counts and times only. `session_waits` goes with its session.
     sql: typed(`
 CREATE TABLE session_waits (

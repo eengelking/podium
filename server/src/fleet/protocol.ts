@@ -7,7 +7,7 @@ import { parseBuild } from './parseBuild.js';
 import { stripFormat } from '../storage/peerText.js';
 import { resumeWindowDays } from '../../../plugin/core/resumeWindow.js';
 import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
-import { CAPABILITY_KEYS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
+import { CAPABILITY_KEYS, ToolStat, TIME_BUCKETS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
 
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
@@ -385,6 +385,8 @@ export const LIMITS = {
   planSteps: 100,
   skills: 50,
   toolNames: 100,
+  /** Distinct call length buckets one tool may name: all of them. */
+  toolTimeBuckets: TIME_BUCKETS,
   usageModels: 40,
   backgroundTasks: 20,
   backgroundDescription: 120,
@@ -537,6 +539,48 @@ function countsOrNull(v: unknown, path: string, max: number): Record<string, num
   }
   const top = [...merged].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, max);
   return Object.fromEntries(top);
+}
+
+/**
+ * What each tool did beyond being called (#721): counts of failures, permission asks and call lengths, by tool name. Names are clipped like
+ * `toolCounts`, names that clip alike are added up, counts are rounded and a zero is dropped, and the busiest `max` names are kept. A bucket
+ * must be one of the call lengths there are. Absent stays absent: an older reporter does not send it.
+ */
+function statsOrUndefined(v: unknown, path: string, max: number): Record<string, ToolStat> | undefined {
+  if (v === null || v === undefined) return undefined;
+  const merged = new Map<string, Required<Omit<ToolStat, 'times'>> & { times: Map<number, number> }>();
+  for (const [k, raw] of Object.entries(obj(v, path))) {
+    const at = `${path}.${k}`;
+    const o = obj(raw, at);
+    const name = clampStr(k, LIMITS.short);
+    const m = merged.get(name) ?? { failed: 0, asked: 0, allowed: 0, denied: 0, podium: 0, times: new Map<number, number>() };
+    for (const f of ['failed', 'asked', 'allowed', 'denied', 'podium'] as const) if (o[f] !== undefined) m[f] += int(o[f], `${at}.${f}`);
+    if (o.times !== undefined) {
+      for (const [b, n] of Object.entries(obj(o.times, `${at}.times`))) {
+        const bucket = Number(b);
+        if (!Number.isInteger(bucket) || bucket < 0 || bucket >= LIMITS.toolTimeBuckets) throw new Invalid(`${at}.times.${b}`, 'expected a call length bucket');
+        m.times.set(bucket, (m.times.get(bucket) ?? 0) + int(n, `${at}.times.${b}`));
+      }
+    }
+    merged.set(name, m);
+  }
+  const weight = (m: { failed: number; asked: number; times: Map<number, number> }): number => m.failed + m.asked + [...m.times.values()].reduce((a, b) => a + b, 0);
+  const top = [...merged].sort((a, b) => weight(b[1]) - weight(a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, max);
+  const out: Record<string, ToolStat> = {};
+  for (const [name, m] of top) {
+    const stat: ToolStat = {};
+    for (const f of ['failed', 'asked', 'allowed', 'denied', 'podium'] as const) if (m[f] > 0) stat[f] = m[f];
+    const times = [...m.times].filter(([, n]) => n > 0).sort((a, b) => a[0] - b[0]);
+    if (times.length) stat.times = Object.fromEntries(times.map(([b, n]) => [String(b), n]));
+    if (Object.keys(stat).length) out[name] = stat;
+  }
+  return out;
+}
+
+/** The `toolStats` of an agent or of the main loop, as a spread that leaves the key out when the reporter sent none. */
+function stats(o: Record<string, unknown>, path: string): { toolStats?: Record<string, ToolStat> } {
+  const t = statsOrUndefined(o.toolStats, `${path}.toolStats`, LIMITS.toolNames);
+  return t === undefined ? {} : { toolStats: t };
 }
 
 function arr(v: unknown, path: string, max: number): unknown[] {
@@ -712,6 +756,7 @@ function agent(v: unknown, path: string, version: ReportVersion): AgentReport {
     lastTool: strOrNull(o.lastTool, `${path}.lastTool`, LIMITS.short),
     toolCalls: int(o.toolCalls, `${path}.toolCalls`),
     toolCounts: countsOrNull(o.toolCounts, `${path}.toolCounts`, LIMITS.toolNames),
+    ...stats(o, path),
     blowouts: int(o.blowouts, `${path}.blowouts`),
     steps,
     promptExcerpt: str(o.promptExcerpt, `${path}.promptExcerpt`, LIMITS.excerpt),
@@ -753,6 +798,7 @@ function loop(v: unknown, path: string): LoopReport | null {
     lastTool: strOrNull(o.lastTool, `${path}.lastTool`, LIMITS.short),
     toolCalls: int(o.toolCalls, `${path}.toolCalls`),
     toolCounts: countsOrNull(o.toolCounts, `${path}.toolCounts`, LIMITS.toolNames) ?? {},
+    ...stats(o, path),
     steps: { done: int(steps.done, `${path}.steps.done`), total: null },
   };
 }

@@ -94,3 +94,51 @@ describe('writeRollups tool counts', () => {
     expect(columns('harness_versions_daily')).toEqual(['day', 'harness', 'version', 'reporters']);
   });
 });
+
+describe('buildRollups tool stats (#721)', () => {
+  const loop = (counts: object, stats?: object): string => JSON.stringify({ skills: [], lastTool: null, toolCalls: 0, toolCounts: counts, ...(stats ? { toolStats: stats } : {}), steps: { done: 0, total: null } });
+  const bashStats = { failed: 2, asked: 3, allowed: 2, denied: 1, podium: 1, times: { '10': 4, '30': 2 } };
+
+  async function populateStats(w: ReturnType<typeof world>): Promise<void> {
+    await w.fdb.upsertSession(session({ id: 'c1', owner: 'Priya', last_seen_at: at(2, 11), started_at: at(2, 9), harness: 'claude-code', loop_json: loop({ Bash: 6, Edit: 2 }, { Bash: bashStats }) }));
+    await w.fdb.upsertAgent(agent('c1', 'a1', { tool_counts_json: counts({ Bash: 3 }), tool_stats_json: JSON.stringify({ Bash: { failed: 1, times: { '10': 1 } }, Read: { allowed: 0 } }) }));
+    await w.fdb.upsertSession(session({ id: 'o1', owner: 'Dana', last_seen_at: at(2, 13), started_at: at(2, 9), harness: 'opencode', loop_json: loop({ Bash: 1 }) }));
+  }
+
+  it('adds the main loop to its agents, for the calls and for the stats, and keeps each harness apart', async () => {
+    const w = world();
+    await populateStats(w);
+    const b = await buildRollups(w.fdb, costFn(w.deps.pricing()), dayStart(addDays(TODAY, -5)));
+    const day = addDays(TODAY, -2);
+    expect(b.tools.filter((t) => t.day === day).map((t) => `${t.harness}/${t.tool}=${t.calls}`).sort()).toEqual(['claude-code/Bash=9', 'claude-code/Edit=2', 'opencode/Bash=1']);
+    expect(b.toolStats.filter((t) => t.day === day)).toEqual([{ day, harness: 'claude-code', tool: 'Bash', failed: 3, asked: 3, allowed: 2, denied: 1, podium: 1, timesJson: '{"10":5,"30":2}' }]);
+    // the session is sized by all its calls, the main loop's and its agents'
+    expect(b.toolSessions.filter((t) => t.day === day && t.harness === 'claude-code').map((t) => t.bucket)).toEqual([11]);
+  });
+
+  it('writes them, and a second run gives the same rows', async () => {
+    const w = world();
+    await populateStats(w);
+    const policy = { sessionsMs: 30 * DAY_MS };
+    await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), policy);
+    const first = await w.fdb.rollupRows('tool_stats_daily', '2026-01-01', '2026-12-31');
+    expect(first.length).toBe(1);
+    await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), policy);
+    expect(await w.fdb.rollupRows('tool_stats_daily', '2026-01-01', '2026-12-31')).toEqual(first);
+  });
+
+  it('ignores a stat that is not a positive number, a bucket that is not a number and a column that is not JSON', async () => {
+    const w = world();
+    await w.fdb.upsertSession(session({ id: 'x', last_seen_at: at(1), started_at: at(1, 9) }));
+    await w.fdb.upsertAgent(agent('x', 'x1', { tool_counts_json: counts({ Bash: 1 }), tool_stats_json: '{"Bash":{"failed":"many","asked":-2,"allowed":2,"times":{"7":3,"x":1,"8":-1}}}' }));
+    await w.fdb.upsertAgent(agent('x', 'x2', { tool_stats_json: 'not json' }));
+    const b = await buildRollups(w.fdb, costFn(w.deps.pricing()), dayStart(addDays(TODAY, -3)));
+    expect(b.toolStats.map((t) => `${t.tool}: failed ${t.failed}, asked ${t.asked}, allowed ${t.allowed}, ${t.timesJson}`)).toEqual(['Bash: failed 0, asked 0, allowed 2, {"7":3}']);
+  });
+
+  it('holds only names and counts: the columns are a day, a harness, a tool, counts and the call lengths', () => {
+    const w = world();
+    const columns = (t: string): string[] => (w.storage.sqliteHandle.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+    expect(columns('tool_stats_daily')).toEqual(['day', 'harness', 'tool', 'failed', 'asked', 'allowed', 'denied', 'podium', 'times_json']);
+  });
+});

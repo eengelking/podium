@@ -139,6 +139,41 @@ function fakeReport(report: string, url: URL) {
       const rows = all.filter((x) => harness === "" || x.harness === harness);
       return { ...base, by, harnesses, columns: [{ key: "period", label: "Period", unit: "date" }, { key: "harness", label: "Harness", unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "median", label: "Median calls", unit: "count" }, { key: "p90", label: "90th percentile calls", unit: "count" }], rows, total: { sessions: rows.reduce((n, x) => n + x.sessions, 0), median: 55, p90: 203 }, byHarness: all.map(({ harness: h, sessions, median, p90 }) => ({ harness: h, sessions, median, p90 })) };
     }
+    const keyed = (x: { harness: string }) => harness === "" || x.harness === harness;
+    const cols = (...k: [string, string, string][]) => k.map(([key, label, unit]) => ({ key, label, unit }));
+    const toolCols = cols(["period", "Period", "date"], ["harness", "Harness", "text"], ["server", "MCP server", "text"], ["tool", "Tool", "text"]);
+    if (breakdown === "failures") {
+      const all = [
+        { period: "2026-10-19", harness: "claude-code", server: "", tool: "Bash", calls: 4310, failed: 150, rate: 3.5, stored: 2, sessionIds: ["s1", "s2"] },
+        { period: "2026-10-19", harness: "opencode", server: "", tool: "Bash", calls: 1594, failed: 64, rate: 4, stored: 0 },
+        { period: "2026-10-19", harness: "claude-code", server: "", tool: "Read", calls: 3602, failed: 22, rate: 0.6, stored: 3 },
+        { period: "2026-10-19", harness: "claude-code", server: "github", tool: "search_code", calls: 900, failed: 12, rate: 1.3, stored: 1, sessionIds: ["s3"] },
+        { period: "2026-10-19", harness: "claude-code", server: "github", tool: "get_file", calls: 400, failed: 11, rate: 2.8, stored: 0 },
+      ].filter(keyed);
+      const sum = (k: "calls" | "failed") => rows.reduce((n, x) => n + x[k], 0);
+      const rows = all;
+      return { ...base, by, harnesses, columns: [...toolCols, ...cols(["calls", "Calls", "count"], ["failed", "Failures", "count"], ["rate", "Failure rate", "percent"], ["stored", "Sessions in History", "count"], ["sessionIds", "Sessions", "text"])], rows, total: { calls: sum("calls"), failed: sum("failed") } };
+    }
+    if (breakdown === "prompts") {
+      const rows = [
+        { period: "2026-10-19", harness: "claude-code", server: "", tool: "Bash", calls: 4310, asked: 500, allowed: 430, denied: 50, noAnswer: 20, podium: 100 },
+        { period: "2026-10-19", harness: "opencode", server: "", tool: "Bash", calls: 1594, asked: 140, allowed: 118, denied: 21, noAnswer: 1, podium: 39 },
+        { period: "2026-10-19", harness: "claude-code", server: "github", tool: "search_code", calls: 900, asked: 52, allowed: 49, denied: 2, noAnswer: 1, podium: 9 },
+      ].filter(keyed);
+      const sum = (k: "asked" | "allowed" | "denied" | "noAnswer" | "podium") => rows.reduce((n, x) => n + x[k], 0);
+      return { ...base, by, harnesses, columns: [...toolCols, ...cols(["calls", "Calls", "count"], ["asked", "Asked", "count"], ["allowed", "Allowed", "count"], ["denied", "Denied", "count"], ["noAnswer", "No answer", "count"], ["podium", "Answered in Podium", "count"])], rows, total: { calls: 10806, asked: sum("asked"), allowed: sum("allowed"), denied: sum("denied"), noAnswer: sum("noAnswer"), podium: sum("podium") } };
+    }
+    if (breakdown === "duration") {
+      const timed = harness === "" || harness === "claude-code";
+      const rows = timed ? [{ period: "2026-10-19", harness: "claude-code", server: "", tool: "Bash", timed: 4310, p50Ms: 1800, p95Ms: 41000 }] : [];
+      const byTool = timed ? [
+        { server: "", tool: "Bash", timed: 4310, p50Ms: 1800, p95Ms: 41000 },
+        { server: "github", tool: "", timed: 1300, p50Ms: 900, p95Ms: 4200 },
+        { server: "github", tool: "search_code", timed: 900, p50Ms: 800, p95Ms: 3900 },
+        { server: "", tool: "Read", timed: 3602, p50Ms: 40, p95Ms: 310 },
+      ] : [];
+      return { ...base, by, harnesses, timedHarnesses: timed ? ["claude-code"] : [], byTool, columns: [...toolCols, ...cols(["timed", "Calls timed", "count"], ["p50Ms", "Median (ms)", "count"], ["p95Ms", "95th percentile (ms)", "count"])], rows, total: timed ? { timed: 9212, p50Ms: 80, p95Ms: 9400 } : { timed: 0, p50Ms: 0, p95Ms: 0 } };
+    }
     if (breakdown === "version") {
       const all = [
         { period: "2026-10-12", harness: "claude-code", version: "2.1.305", reporters: 3, newest: "Older" }, { period: "2026-10-12", harness: "claude-code", version: "2.1.319", reporters: 5, newest: "Newest seen" },

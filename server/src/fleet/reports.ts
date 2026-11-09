@@ -23,6 +23,7 @@ import {
   type SessionsDay,
   type ToolDay,
   type ToolSessionDay,
+  type ToolStatDay,
   type UsageDay,
   type AgentDay,
   type HourPeakDay,
@@ -30,6 +31,7 @@ import {
   type SessionTimeDay,
   peaksByHour,
 } from './rollups.js';
+import { bucketMs } from './protocol.js';
 
 export interface ReportDeps {
   db: FleetStore;
@@ -38,13 +40,18 @@ export interface ReportDeps {
   now: () => number;
   pricing: () => Pricing | undefined;
   retention: RetentionPolicy;
+  /**
+   * Whether the viewer may open a stored session in History (#721). A failure row links only to the sessions the viewer may open, and shows its count
+   * without a link when it may open none. Absent means the viewer may open every session, as the Admin may.
+   */
+  mayOpenSession?: (sessionId: string) => boolean;
 }
 
 /** A report was asked for something it cannot give: the route answers 400 with the message. */
 export class ReportError extends Error {}
 
 export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 
 export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'sessiontime', 'workload', 'activity'];
 
@@ -77,7 +84,7 @@ export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools' | 's
   spend: ['none', 'person', 'group', 'model', 'project'],
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
-  tools: ['tool', 'session', 'version'],
+  tools: ['tool', 'session', 'version', 'failures', 'prompts', 'duration'],
   // how long sessions ran and waited by period, what they waited for, which agents they launched, how deep the chains went (#722)
   sessiontime: ['time', 'reason', 'agents', 'depth'],
   // each person's sessions per active day, and the most sessions live at once in each hour of the day (#722)
@@ -154,6 +161,7 @@ interface Facts {
   tools: ToolDay[];
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
+  toolStats: ToolStatDay[];
   sessionTime: SessionTimeDay[];
   agentTypes: AgentDay[];
   personDays: PersonDay[];
@@ -171,6 +179,7 @@ const fleetOf = (r: Raw): FleetDay => ({ day: String(r.day), activePeople: Numbe
 
 const toolOf = (r: Raw): ToolDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), calls: Number(r.calls) });
 const toolSessionOf = (r: Raw): ToolSessionDay => ({ day: String(r.day), harness: String(r.harness), bucket: Number(r.bucket), sessions: Number(r.sessions) });
+const toolStatOf = (r: Raw): ToolStatDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), failed: Number(r.failed), asked: Number(r.asked), allowed: Number(r.allowed), denied: Number(r.denied), podium: Number(r.podium), timesJson: String(r.times_json) });
 const sessionTimeOf = (r: Raw): SessionTimeDay => ({ day: String(r.day), harness: String(r.harness), sessions: Number(r.sessions), durationS: Number(r.duration_s), maxDurationS: Number(r.max_duration_s), trackedSessions: Number(r.tracked_sessions), trackedS: Number(r.tracked_s), permissionS: Number(r.permission_s), permissionN: Number(r.permission_n), questionS: Number(r.question_s), questionN: Number(r.question_n), planS: Number(r.plan_s), planN: Number(r.plan_n) });
 const agentOf = (r: Raw): AgentDay => ({ day: String(r.day), harness: String(r.harness), type: String(r.type), depth: Number(r.depth), agents: Number(r.agents) });
 const personDayOf = (r: Raw): PersonDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), sessions: Number(r.sessions) });
@@ -192,7 +201,7 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
 async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], sessionTime: [], agentTypes: [], personDays: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
     f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
@@ -202,6 +211,7 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.tools = (await select(db, 'tools_daily', from, stored)).map(toolOf);
       f.toolSessions = (await select(db, 'tool_sessions_daily', from, stored)).map(toolSessionOf);
       f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
+      f.toolStats = (await select(db, 'tool_stats_daily', from, stored)).map(toolStatOf);
     }
     if (withTime) {
       f.sessionTime = (await select(db, 'session_time_daily', from, stored)).map(sessionTimeOf);
@@ -235,6 +245,7 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.tools.push(...f.live.tools.filter((r) => keep(r.day)));
       f.toolSessions.push(...f.live.toolSessions.filter((r) => keep(r.day)));
       f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
+      f.toolStats.push(...f.live.toolStats.filter((r) => keep(r.day)));
     }
     if (withTime) {
       f.sessionTime.push(...f.live.sessionTime.filter((r) => keep(r.day)));
@@ -525,11 +536,127 @@ const addSizes = (into: Map<number, number>, bucket: number, sessions: number): 
 /** The oldest day the tool counts cover, or today when none exist yet: they started later than the other rollups, and a gap is never drawn as zeros. */
 async function oldestToolDay(db: FleetStore, today: string): Promise<string> {
   let oldest = today;
-  for (const t of ['tools_daily', 'tool_sessions_daily', 'harness_versions_daily'] as const) {
+  for (const t of ['tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily'] as const) {
     const d = await db.rollupOldestDay(t);
     if (d !== null && d < oldest) oldest = d;
   }
   return oldest;
+}
+
+/** One row per period, harness and tool, with the calls beside what a breakdown adds up. */
+interface ToolKey {
+  period: string;
+  harness: string;
+  server: string;
+  tool: string;
+  name: string;
+}
+const toolKeyOf = (period: string, harness: string, name: string): ToolKey => ({ period, harness, name, ...mcpSplit(name) });
+const toolRowOrder = (a: ToolKey, b: ToolKey): number => byCode(a.period, b.period) || byCode(a.harness, b.harness) || byCode(a.server, b.server) || byCode(a.tool, b.tool);
+
+/** The share of `whole` that `part` is, in percent to one decimal place; 0 when there is no whole. */
+const pct = (part: number, whole: number): number => (whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0);
+
+/** The failure rate (#721) and the permission prompts (#721) of each tool: both are counts beside the tool's calls. */
+function toolOutcomesReport(deps: ReportDeps, p: Params, f: Facts, breakdown: 'failures' | 'prompts', extra: Record<string, unknown>, keep: (h: string) => boolean): ReportReply {
+  interface Acc extends ToolKey {
+    calls: number;
+    failed: number;
+    asked: number;
+    allowed: number;
+    denied: number;
+    podium: number;
+    ids: Set<string>;
+    stored: Set<string>;
+  }
+  const acc = new Map<string, Acc>();
+  const at = (period: string, h: string, name: string): Acc => {
+    const k = `${period}\u0000${h}\u0000${name}`;
+    let a = acc.get(k);
+    if (!a) acc.set(k, (a = { ...toolKeyOf(period, h, name), calls: 0, failed: 0, asked: 0, allowed: 0, denied: 0, podium: 0, ids: new Set(), stored: new Set() }));
+    return a;
+  };
+  for (const r of f.tools) if (keep(r.harness)) at(bucketOf(r.day, p.by), r.harness, r.tool).calls += r.calls;
+  for (const r of f.toolStats) {
+    if (!keep(r.harness)) continue;
+    const a = at(bucketOf(r.day, p.by), r.harness, r.tool);
+    a.failed += r.failed;
+    a.asked += r.asked;
+    a.allowed += r.allowed;
+    a.denied += r.denied;
+    a.podium += r.podium;
+  }
+  if (breakdown === 'failures') {
+    // The sessions that recorded a failure in a tool and are still stored: the row links to those the viewer may open, and counts them either way.
+    for (const s of f.live.failureSessions) {
+      if (s.day < p.from || s.day > p.to || !keep(s.harness) || s.tool === '') continue;
+      const a = acc.get(`${bucketOf(s.day, p.by)}\u0000${s.harness}\u0000${s.tool}`);
+      if (!a) continue;
+      a.stored.add(s.sessionId);
+      if (a.ids.size < SESSION_IDS_MAX && (deps.mayOpenSession?.(s.sessionId) ?? true)) a.ids.add(s.sessionId);
+    }
+  }
+  const noAnswer = (a: { asked: number; allowed: number; denied: number }): number => Math.max(0, a.asked - a.allowed - a.denied);
+  const all = [...acc.values()].sort(toolRowOrder);
+  let calls = 0;
+  for (const a of all) calls += a.calls;
+  if (breakdown === 'failures') {
+    const rows: Row[] = all.map((a) => ({ period: a.period, harness: a.harness, server: a.server, tool: a.tool, calls: a.calls, failed: a.failed, rate: pct(a.failed, a.calls), stored: a.stored.size, ...(a.ids.size ? { sessionIds: [...a.ids] } : {}) }));
+    const failed = all.reduce((n, a) => n + a.failed, 0);
+    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('calls', 'Calls', 'count'), col('failed', 'Failures', 'count'), col('rate', 'Failure rate', 'percent'), col('stored', 'Sessions in History', 'count'), col('sessionIds', 'Sessions', 'text')];
+    return { ...envelope(p, 'tools', p.by, f, cols, rows, { calls, failed }), ...extra };
+  }
+  const asking = all.filter((a) => a.asked > 0 || a.allowed > 0 || a.denied > 0);
+  const rows: Row[] = asking.map((a) => ({ period: a.period, harness: a.harness, server: a.server, tool: a.tool, calls: a.calls, asked: a.asked, allowed: a.allowed, denied: a.denied, noAnswer: noAnswer(a), podium: a.podium }));
+  const sum = (k: 'asked' | 'allowed' | 'denied' | 'podium'): number => asking.reduce((n, a) => n + a[k], 0);
+  const total = { calls, asked: sum('asked'), allowed: sum('allowed'), denied: sum('denied'), noAnswer: asking.reduce((n, a) => n + noAnswer(a), 0), podium: sum('podium') };
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('calls', 'Calls', 'count'), col('asked', 'Asked', 'count'), col('allowed', 'Allowed', 'count'), col('denied', 'Denied', 'count'), col('noAnswer', 'No answer', 'count'), col('podium', 'Answered in Podium', 'count')];
+  return { ...envelope(p, 'tools', p.by, f, cols, rows, total), ...extra };
+}
+
+/** The call lengths (#721) as a median and a 95th percentile per tool, read from buckets, so they are within 10% of the real length. */
+function toolDurationReport(p: Params, f: Facts, extra: Record<string, unknown>, keep: (h: string) => boolean): ReportReply {
+  const parse = (json: string): Map<number, number> => {
+    const out = new Map<number, number>();
+    let o: unknown = null;
+    try {
+      o = JSON.parse(json);
+    } catch {
+      return out;
+    }
+    if (o && typeof o === 'object') for (const [b, n] of Object.entries(o)) if (Number.isInteger(Number(b)) && typeof n === 'number' && n > 0) out.set(Number(b), n);
+    return out;
+  };
+  const add = (into: Map<number, number>, from: Map<number, number>): void => void from.forEach((n, b) => into.set(b, (into.get(b) ?? 0) + n));
+  const size = (m: Map<number, number>): number => [...m.values()].reduce((n, v) => n + v, 0);
+  const lengths = (m: Map<number, number>): { timed: number; p50Ms: number; p95Ms: number } => ({ timed: size(m), p50Ms: bucketMs(nearestRank(m, 0.5)), p95Ms: bucketMs(nearestRank(m, 0.95)) });
+  const per = new Map<string, ToolKey & { m: Map<number, number> }>();
+  const byTool = new Map<string, { server: string; tool: string; m: Map<number, number> }>();
+  const whole = new Map<number, number>();
+  const timedBy = new Set<string>();
+  for (const r of f.toolStats) {
+    if (!keep(r.harness)) continue;
+    const m = parse(r.timesJson);
+    if (m.size === 0) continue;
+    timedBy.add(r.harness);
+    const key = toolKeyOf(bucketOf(r.day, p.by), r.harness, r.tool);
+    const k = `${key.period}\u0000${key.harness}\u0000${r.tool}`;
+    const a = per.get(k) ?? { ...key, m: new Map<number, number>() };
+    add(a.m, m);
+    per.set(k, a);
+    const t = byTool.get(r.tool) ?? { server: key.server, tool: key.tool, m: new Map<number, number>() };
+    add(t.m, m);
+    byTool.set(r.tool, t);
+    add(whole, m);
+  }
+  const rows: Row[] = [...per.values()].sort(toolRowOrder).map((a) => ({ period: a.period, harness: a.harness, server: a.server, tool: a.tool, ...lengths(a.m) }));
+  // An MCP server has a row of its own, read from every call of its tools: a percentile of the server is not a figure of its tools.
+  const servers = new Map<string, Map<number, number>>();
+  for (const t of byTool.values()) if (t.server !== '') add(servers.get(t.server) ?? servers.set(t.server, new Map()).get(t.server)!, t.m);
+  const slowest = [...[...byTool.values()].map((t) => ({ server: t.server, tool: t.tool, m: t.m })), ...[...servers].map(([server, m]) => ({ server, tool: '', m }))]
+    .map((t) => ({ server: t.server, tool: t.tool, ...lengths(t.m) })).sort((a, b) => b.p95Ms - a.p95Ms || b.timed - a.timed || byCode(a.server, b.server) || byCode(a.tool, b.tool));
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('server', 'MCP server', 'text'), col('tool', 'Tool', 'text'), col('timed', 'Calls timed', 'count'), col('p50Ms', 'Median (ms)', 'count'), col('p95Ms', '95th percentile (ms)', 'count')];
+  return { ...envelope(p, 'tools', p.by, f, cols, rows, whole.size ? lengths(whole) : { timed: 0, p50Ms: 0, p95Ms: 0 }), ...extra, byTool: slowest, timedHarnesses: [...timedBy].sort(byCode) };
 }
 
 async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
@@ -538,9 +665,9 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the tools report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'tools');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, true);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, breakdown === 'failures', true);
   f.oldestDay = await oldestToolDay(deps.db, p.today);
-  const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness)])].sort(byCode);
+  const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness), ...f.toolStats.map((r) => r.harness)])].sort(byCode);
   const keep = (h: string): boolean => harness === null || h === harness;
   const extra = { harnesses };
 
@@ -601,6 +728,9 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
     return { ...envelope(p, 'tools', p.by, f, cols, rows, {}), ...extra, behind };
   }
 
+  if (breakdown === 'failures' || breakdown === 'prompts') return toolOutcomesReport(deps, p, f, breakdown, extra, keep);
+  if (breakdown === 'duration') return toolDurationReport(p, f, extra, keep);
+
   const calls = new Map<string, { period: string; harness: string; server: string; tool: string; calls: number }>();
   let total = 0;
   for (const r of f.tools) {
@@ -635,7 +765,7 @@ async function oldestDayOf(db: FleetStore, tables: readonly RollupTable[], today
   return oldest;
 }
 
-const pct = (part: number, whole: number): number | null => (whole > 0 ? round((part / whole) * 100, 1) : null);
+const shareOf = (part: number, whole: number): number | null => (whole > 0 ? round((part / whole) * 100, 1) : null);
 
 /** The first day any session had its waiting recorded (stored days and today), or null when none has yet. */
 async function waitRecordedSince(deps: ReportDeps, f: Facts, today: string): Promise<string | null> {
@@ -681,12 +811,12 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
     const rows: Row[] = all
       .filter((a) => a.waits > 0 || a.waitS > 0)
       .sort((a, b) => REASONS.indexOf(a.reason) - REASONS.indexOf(b.reason) || byCode(a.harness, b.harness))
-      .map((a) => ({ reason: a.reason, harness: a.harness, waits: a.waits, waitS: a.waitS, avgWaitS: a.waits ? Math.round(a.waitS / a.waits) : null, sharePct: pct(a.waitS, totalS) }));
+      .map((a) => ({ reason: a.reason, harness: a.harness, waits: a.waits, waitS: a.waitS, avgWaitS: a.waits ? Math.round(a.waitS / a.waits) : null, sharePct: shareOf(a.waitS, totalS) }));
     const byReason: Row[] = REASONS.map((reason) => {
       const mine = all.filter((a) => a.reason === reason);
       const waits = mine.reduce((n, a) => n + a.waits, 0);
       const waitS = mine.reduce((n, a) => n + a.waitS, 0);
-      return { reason, waits, waitS, avgWaitS: waits ? Math.round(waitS / waits) : null, sharePct: pct(waitS, totalS) };
+      return { reason, waits, waitS, avgWaitS: waits ? Math.round(waitS / waits) : null, sharePct: shareOf(waitS, totalS) };
     });
     const cols = [col('reason', 'Waiting for', 'text'), col('harness', 'Harness', 'text'), col('waits', 'Waits', 'count'), col('waitS', 'Time waiting', 'seconds'), col('avgWaitS', 'Average wait', 'seconds'), col('sharePct', 'Share', 'percent')];
     return { ...envelope(p, 'sessiontime', null, f, cols, rows, { waits: totalN, waitS: totalS, avgWaitS: totalN ? Math.round(totalS / totalN) : null }), ...extra, byReason };
@@ -706,7 +836,7 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
     for (const a of acc.values()) perType.set(a.type, (perType.get(a.type) ?? 0) + a.agents);
     const rows: Row[] = [...acc.values()]
       .sort((a, b) => (perType.get(b.type) ?? 0) - (perType.get(a.type) ?? 0) || byCode(a.type, b.type) || byCode(a.harness, b.harness))
-      .map((a) => ({ type: label(a.type), harness: a.harness, agents: a.agents, sharePct: pct(a.agents, total) }));
+      .map((a) => ({ type: label(a.type), harness: a.harness, agents: a.agents, sharePct: shareOf(a.agents, total) }));
     const sessions = f.sessionTime.filter((r) => keep(r.harness)).reduce((n, r) => n + r.sessions, 0);
     const cols = [col('type', 'Agent type', 'text'), col('harness', 'Harness', 'text'), col('agents', 'Agents launched', 'count'), col('sharePct', 'Share', 'percent')];
     return { ...envelope(p, 'sessiontime', null, f, cols, rows, { agents: total, sessions, agentsPerSession: sessions ? round(total / sessions, 1) : null }), ...extra };
@@ -726,7 +856,7 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
       acc.set(k, a);
     }
     const total = [...acc.values()].reduce((n, a) => n + a.agents, 0);
-    const rows: Row[] = [...acc.values()].sort((a, b) => a.depth - b.depth || byCode(a.harness, b.harness)).map((a) => ({ depth: a.depth, harness: a.harness, agents: a.agents, sharePct: pct(a.agents, total) }));
+    const rows: Row[] = [...acc.values()].sort((a, b) => a.depth - b.depth || byCode(a.harness, b.harness)).map((a) => ({ depth: a.depth, harness: a.harness, agents: a.agents, sharePct: shareOf(a.agents, total) }));
     const cols = [col('depth', 'Chain depth (3 is three or deeper)', 'count'), col('harness', 'Harness', 'text'), col('agents', 'Agents', 'count'), col('sharePct', 'Share', 'percent')];
     return { ...envelope(p, 'sessiontime', null, f, cols, rows, { agents: total, deepest }), ...extra };
   }
@@ -768,7 +898,7 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
     maxDurationS: a.maxS,
     // no session of the period had its waiting recorded: a dash, never zero
     waitS: a.tracked > 0 ? a.waitS : null,
-    waitSharePct: a.tracked > 0 ? pct(a.waitS, trackedS.get(a) ?? 0) : null,
+    waitSharePct: a.tracked > 0 ? shareOf(a.waitS, trackedS.get(a) ?? 0) : null,
   });
   const rows: Row[] = [...byPeriod.values()].sort((a, b) => byCode(a.period, b.period) || byCode(a.harness, b.harness)).map((a) => row(a, true, true));
   const periodRows: Row[] = [...periods.values()].sort((a, b) => byCode(a.period, b.period)).map((a) => row(a, true, false));

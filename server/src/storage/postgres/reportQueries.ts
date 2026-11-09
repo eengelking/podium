@@ -1,14 +1,14 @@
 // The report and rollup queries behind Admin > Reporting on PostgreSQL (#822): the SQLite `SqliteReportQueries` over `PgDb`. Every ordering
 // SQLite got from a primary-key index or a group is stated here.
-import type { AgentDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, UsageDay } from '../../fleet/rollups.js';
+import type { AgentDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { RollupRaw, RollupTable, StoredSession, ReportQueries } from '../reportQueries.js';
 import type { SessionWaitRow } from '../rows.js';
 import type { Async } from '../types.js';
 import type { PgDb } from './conn.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
-const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily'];
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily'];
 
 /** Each rollup table's primary key, which is the order SQLite read a day range in. */
 const ORDER: Record<RollupTable, string> = {
@@ -19,6 +19,7 @@ const ORDER: Record<RollupTable, string> = {
   tools_daily: 'day, harness, tool',
   tool_sessions_daily: 'day, harness, bucket',
   harness_versions_daily: 'day, harness, version',
+  tool_stats_daily: 'day, harness, tool',
   session_time_daily: 'day, harness',
   agents_daily: 'day, harness, type, depth',
   person_sessions_daily: 'day, owner, harness',
@@ -90,6 +91,10 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   toolCountsSince(fromMs: number): Promise<{ id: string; c: string }[]> {
     return this.db.all<{ id: string; c: string }>(`SELECT session_id AS id, tool_counts_json AS c FROM agents WHERE tool_counts_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`, [fromMs]);
+  }
+
+  toolStatsSince(fromMs: number): Promise<{ id: string; s: string }[]> {
+    return this.db.all<{ id: string; s: string }>(`SELECT session_id AS id, tool_stats_json AS s FROM agents WHERE tool_stats_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`, [fromMs]);
   }
 
   sampleSpans(): Promise<{ a: number; b: number }[]> {
@@ -167,6 +172,12 @@ export class PgReportQueries implements Async<ReportQueries> {
   insertHarnessVersionsDaily(rows: HarnessVersionDay[]): Promise<void> {
     return this.db.tx(async () => {
       for (const r of rows) await this.db.run('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)', [r.day, r.harness, r.version, r.reporters]);
+    });
+  }
+
+  insertToolStatsDaily(rows: ToolStatDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO tool_stats_daily (day, harness, tool, failed, asked, allowed, denied, podium, times_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [r.day, r.harness, r.tool, r.failed, r.asked, r.allowed, r.denied, r.podium, r.timesJson]);
     });
   }
 

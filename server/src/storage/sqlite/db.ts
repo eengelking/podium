@@ -455,6 +455,20 @@ CREATE TABLE IF NOT EXISTS harness_versions_daily (
   },
   {
     version: 38,
+    // What each tool did beyond being called (#721), from every harness: counts only, never a tool's input, a path or an error's text. An agent
+    // keeps its reporter's per-tool stats as JSON (NULL from a reporter that does not send them). `tool_stats_daily` is the day's totals per
+    // harness and tool: failed calls, permission asks and how they ended, the ones answered from Podium, and the call lengths as JSON of
+    // bucket to calls (a bucket is a step of 10%, so a median and a 95th percentile survive being added across days).
+    sql: `
+ALTER TABLE agents ADD COLUMN tool_stats_json TEXT;
+CREATE TABLE IF NOT EXISTS tool_stats_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  failed INTEGER NOT NULL, asked INTEGER NOT NULL, allowed INTEGER NOT NULL, denied INTEGER NOT NULL, podium INTEGER NOT NULL, times_json TEXT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);`,
+  },
+  {
+    version: 39,
     // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), behind Admin > Reporting
     // > Sessions and Usage. Names, counts and times only: never a question, a plan, a tool's input or a path.
     // `session_waits` is added up as reports arrive (a session is blocked on its person for a permission, a question or a plan) and goes with its session.

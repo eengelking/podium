@@ -34,6 +34,9 @@ export interface ReportReply {
   truncated?: boolean;
   /** The Tools report only (#720): every harness the period holds, before the harness filter, in id order. */
   harnesses?: string[];
+  /** The Tools report, call duration (#721): the whole period for each tool and each MCP server, slowest first, and the harnesses that gave times. */
+  byTool?: { server: string; tool: string; timed: number; p50Ms: number; p95Ms: number }[];
+  timedHarnesses?: string[];
   /** The Tools report, calls per session: the whole period for each harness. */
   byHarness?: { harness: string; sessions: number; median: number; p90: number }[];
   /** The Tools report, versions: how many reporters of each harness run an older version than its newest, in its last period. */

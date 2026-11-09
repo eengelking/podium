@@ -84,6 +84,17 @@ interface Plan {
            activeText: string | null; ownerAgentId: string | null; ownerLabel: string | null }[];
 }
 
+// What one tool did in one loop (#721): counts only, never an argument, a path, a command or an error's text. A field is left out when it is 0.
+// Every harness's reporter counts these the same way (plugin/core/toolStats.ts), so a figure reads the same whichever harness ran the session.
+interface ToolStat {
+  failed?: number;                      // finished calls that ended in an error. A call refused at its permission prompt did not run: it is counted under `denied`, not here. A call a rule refused with no prompt did not run either and is counted in neither
+  asked?: number;                       // permission prompts the tool raised. A plan's approval and a question are not permission prompts
+  allowed?: number;                     // asks that ended with the call allowed
+  denied?: number;                      // asks that ended with the call refused
+  podium?: number;                      // (Claude Code matches an ask to the call that ends by loop and tool name, so two calls of one tool running at once in one loop can swap their outcomes.) asks answered from Podium, allowed or denied, so it never exceeds allowed + denied. An ask with neither answer is still open or never answered: the report shows it as "no answer"
+  times?: Record<string, number>;       // call lengths: a key is a bucket (0 for 1 ms or less, then one for each 10% longer, up to an hour at 159) and the value is the calls in it
+}
+
 // What an agent entry carries about its own work, for the orchestrator's main loop. Same fields, same meaning,
 // as the AgentReport fields of the same name; calls made by agents the orchestrator launched are not counted here.
 interface LoopReport {
@@ -91,6 +102,7 @@ interface LoopReport {
   lastTool: string | null;
   toolCalls: number;
   toolCounts: Record<string, number>;   // finished calls per tool name, summing to toolCalls (less when capped, see 7.7)
+  toolStats?: Record<string, ToolStat>; // what each tool did beyond being called (#721), the same names as toolCounts
   steps: { done: number; total: null }; // model requests the main loop has made so far
 }
 
@@ -115,6 +127,7 @@ interface AgentReport {
   lastTool: string | null;
   toolCalls: number;
   toolCounts: Record<string, number> | null;   // finished calls per tool name, summing to toolCalls; null from a reporter older than 0.2.0
+  toolStats?: Record<string, ToolStat>;        // what each tool did beyond being called (#721); absent from a reporter that does not send it
   blowouts: number;                     // this loop's cumulative blowouts
   steps: { done: number; total: number | null } | null;   // model steps taken so far; total only when known, else null
   promptExcerpt: string;                // first 400 chars of the task prompt

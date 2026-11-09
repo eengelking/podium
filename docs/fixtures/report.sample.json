@@ -39,6 +39,7 @@
     "loop": {
       "skills": ["frontend-design", "code-review"], "lastTool": "Agent", "toolCalls": 19,
       "toolCounts": {"Agent": 4, "Read": 8, "Edit": 5, "TaskUpdate": 2},
+      "toolStats": {"Edit": {"asked": 2, "allowed": 1, "denied": 1, "podium": 1, "times": {"31": 4, "40": 1}}, "Read": {"failed": 1, "times": {"20": 7}}},
       "steps": { "done": 23, "total": null }
     },
     "attached": true,
@@ -92,7 +93,7 @@
       "status": "done", "startedAt": 1791645300000, "endedAt": 1791645480000,
       "context": { "tokens": 61000, "window": 1000000, "percent": 6.1 },
       "tokens": { "input": 9000, "output": 4100, "cacheRead": 140000, "cacheWrite": 22000 },
-      "costUsdEst": 0.08, "skills": ["repo-map"], "lastTool": "Grep", "toolCalls": 31, "toolCounts": {"Grep": 14, "Read": 11, "Glob": 6}, "blowouts": 0,
+      "costUsdEst": 0.08, "skills": ["repo-map"], "lastTool": "Grep", "toolCalls": 31, "toolCounts": {"Grep": 14, "Read": 11, "Glob": 6}, "toolStats": {"Grep": {"times": {"25": 14}}}, "blowouts": 0,
       "usageByModel": [{"model": "claude-haiku-5-5", "tier": "std", "tokens": {"input": 9000, "output": 4100, "cacheRead": 140000, "cacheWrite": 22000, "cacheWrite1h": 0}}],
       "steps": { "done": 14, "total": null },
       "promptExcerpt": "Find every call site of the invoice v1 serializer and list them by module.",

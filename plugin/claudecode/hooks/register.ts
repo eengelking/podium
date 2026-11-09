@@ -25,6 +25,7 @@ import {
   newSession,
   notification,
   permissionRequest,
+  permissionAsked,
   PLAN_TOOL,
   reconcile,
   resetForNewId,
@@ -63,7 +64,7 @@ import { contextArgs } from '../../core/podiumCommand.ts';
 import { isConfigArgs } from '../../core/settingsWindow.ts';
 import { registerConfigPane } from './configPane.tsx';
 import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
-import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
+import { activityCall, activityText, cap, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { pinnedMachineName, readOsName, type HostIO } from '../../core/machineHost.ts';
@@ -331,6 +332,8 @@ let classicSeen = false;
 let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
+/** Permission prompts raised and not yet settled, by loop and tool, so the call that ends says how its prompt ended (#721). A PermissionRequest has no tool_use_id. */
+let pendingAsks = new Map<string, number>();
 /** Calls that ended while their tool.check was still waiting for a PermissionRequest: answered, so no prompt is left to show (#741). */
 let endedChecks = new Set<string>();
 /** The `seq` a recorded tool call got, by its tool_use_id, so an answer or approval from Podium points at its call (#353). Dropped when the call ends. */
@@ -1327,9 +1330,9 @@ async function permissionAsk($: Engine, r: Runtime, e: { tool_name: string; tool
  * The tool call of a permission ask ended: what happened is read from how it ended, since nothing else says (SPEC 5.3).
  * An answer from Podium that matches what happened took; otherwise the terminal answered first.
  */
-function settleToolAsk(id: string, res: ToolResult | undefined): void {
+function settleToolAsk(id: string, res: ToolResult | undefined): boolean {
   const a = asks.get(id);
-  if (!a || a.ask.kind !== 'permission') return;
+  if (!a || a.ask.kind !== 'permission') return false;
   const d = a.answered;
   const sent = d && d.kind !== 'allow-once' ? (toolDecision(d.kind === 'reply' ? { ...d, kind: 'deny' } : d).decision as { message?: string }).message : undefined;
   const denied = toolDenied(res, sent);
@@ -1338,10 +1341,11 @@ function settleToolAsk(id: string, res: ToolResult | undefined): void {
     queueResult(a.sessionId, d.id, 'took');
     // Only now, once the call ended the way the decision said: a decision the terminal beat is not recorded as Podium's.
     recordDecision(a.ask.agentId, id, d, 'permission', undefined, a.answeredAt);
-  } else {
-    if (d) queueResult(a.sessionId, d.id, 'closed');
-    queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
+    return true;
   }
+  if (d) queueResult(a.sessionId, d.id, 'closed');
+  queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
+  return false;
 }
 
 // ---- file diff on request (#319) ----------------------------------------------------------------
@@ -2136,6 +2140,7 @@ export const register: Register = (on, rawOptions) => {
   for (const c of checks.values()) c.cancel();
   checks = new Map();
   lastCalls = new Map();
+  pendingAsks = new Map();
   endedChecks = new Set();
   callSeqs = new Map();
   ranFromPodium = null;
@@ -2336,6 +2341,7 @@ export const register: Register = (on, rawOptions) => {
       callSeq = recorder.call(recLoop(e.agentId), tool, input, nowMs());
       if (callSeq !== null && e.tool_use_id) callSeqs.set(e.tool_use_id, callSeq);
     });
+    const startedAt = nowMs();
     let res: Awaited<ReturnType<typeof next>>;
     try {
       // While the mod responds, a question or a plan races the terminal's dialog against an answer from Podium (#206).
@@ -2353,9 +2359,15 @@ export const register: Register = (on, rawOptions) => {
       });
     }
     safe('tool.call.result', (r) => {
-      r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
+      const result = (res ?? {}) as { deny?: string; isError?: boolean; text?: string };
       if (e.tool_use_id && checks.has(e.tool_use_id)) endedChecks.add(e.tool_use_id);
-      if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
+      const answeredFromPodium = e.tool_use_id ? settleToolAsk(e.tool_use_id, res as ToolResult | undefined) : false;
+      // A prompt this call raised ends with it: allowed, or denied when the result says so (#721).
+      const askKey = `${loopKey(e.agentId)}\u0000${cap(tool, 120)}`;
+      const waiting = pendingAsks.get(askKey) ?? 0;
+      if (waiting > 0) pendingAsks.set(askKey, waiting - 1);
+      const ask = waiting > 0 ? { denied: toolDenied(result), podium: answeredFromPodium } : null;
+      r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result, ms: nowMs() - startedAt, ask }, nowMs());
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
         const withOutput = opts.activityOutput && isWatchedOutput(r.state, e.agentId);
@@ -2412,6 +2424,12 @@ export const register: Register = (on, rawOptions) => {
     classicSeen = true;
     safe('classic.PermissionRequest', (r) => {
       recordPermission(r, e.tool_name, e.tool_input);
+      // A plan's approval and a question are not permissions; every other prompt is counted for its tool (#721).
+      if (e.tool_name !== 'ExitPlanMode' && e.tool_name !== 'AskUserQuestion') {
+        r.state = permissionAsked(r.state, agentId, e.tool_name);
+        const askKey = `${loopKey(agentId)}\u0000${cap(e.tool_name, 120)}`;
+        pendingAsks.set(askKey, (pendingAsks.get(askKey) ?? 0) + 1);
+      }
       const call = lastCalls.get(loopKey(agentId));
       permissionSeen(r, call && call.tool === e.tool_name ? call.id : null);
     });
