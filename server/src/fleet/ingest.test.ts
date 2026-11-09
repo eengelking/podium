@@ -611,6 +611,18 @@ describe('ingestReport waiting on the person (#722)', () => {
     expect(await f.getSessionWait(id)).toMatchObject({ question_ms: 10_000, question_n: 1, plan_ms: 40_000, plan_n: 1, open_kind: null });
   });
 
+  it('does not count the hours a session was offline as waiting (#722)', async () => {
+    const id = fixtureReport().session.id;
+    await ingestReport(storage, waiting('permission', 'Bash(npm test)'), T0);
+    await ingestReport(storage, waiting('permission', 'Bash(npm test)'), T0 + 5000);
+    // the laptop slept for six hours; the first report after it says the wait is over
+    await ingestReport(storage, waiting(null, null, 'running'), T0 + 6 * 3_600_000);
+    const w = (await f.getSessionWait(id))!;
+    expect(w.permission_n).toBe(1);
+    expect(w.permission_ms).toBeLessThan(5000 + 3 * 60_000);
+    expect(w.permission_ms).toBeGreaterThanOrEqual(5000);
+  });
+
   it('does not count a session idle at the prompt, which every harness reports as waiting on input with no note', async () => {
     const id = fixtureReport().session.id;
     await ingestReport(storage, waiting('input', null), T0);

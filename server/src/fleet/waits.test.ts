@@ -1,6 +1,6 @@
 // Time a session spends blocked on its person (#722): what counts as a wait, and how the time adds up across reports.
 import { describe, it, expect } from 'vitest';
-import { advanceWait, waitKindOf, waitOfOpen, type WaitInput } from './waits.js';
+import { advanceWait, waitKindOf, waitOfOpen, WAIT_GAP_MS, type WaitInput } from './waits.js';
 
 const w = (o: Partial<WaitInput>): WaitInput => ({ waitReason: null, waitNote: null, reporterVersion: '1.2.2', ...o });
 
@@ -66,6 +66,30 @@ describe('advanceWait', () => {
   it('never counts a negative time when the clock steps back', () => {
     const open = advanceWait(undefined, 'plan', 's', T)!;
     expect(advanceWait(open, null, 's', T - 9000)).toMatchObject({ plan_ms: 0, plan_n: 1 });
+  });
+});
+
+describe('advanceWait across a gap in the reports', () => {
+  const T = 1_000_000;
+  const HOUR = 3_600_000;
+
+  it('does not count the time a session was offline as waiting, when a report shows the wait over', () => {
+    const open = advanceWait(undefined, 'permission', 's', T)!;
+    // the last report that showed the wait came at T + 4 s, then nothing for six hours
+    const closed = advanceWait(open, null, 's', T + 6 * HOUR, T + 4000)!;
+    expect(closed).toMatchObject({ permission_ms: 4000 + WAIT_GAP_MS, permission_n: 1, open_kind: null });
+  });
+
+  it('closes the wait before the gap and opens a new one when the session is still waiting after it', () => {
+    const open = advanceWait(undefined, 'question', 's', T)!;
+    const again = advanceWait(open, 'question', 's', T + 6 * HOUR, T + 4000)!;
+    expect(again).toMatchObject({ question_ms: 4000 + WAIT_GAP_MS, question_n: 1, open_kind: 'question', open_since: T + 6 * HOUR });
+  });
+
+  it('counts a long wait whose reports keep coming as one wait', () => {
+    const open = advanceWait(undefined, 'plan', 's', T)!;
+    expect(advanceWait(open, 'plan', 's', T + 20 * 60_000, T + 20 * 60_000 - 5000)).toBeNull();
+    expect(advanceWait(open, null, 's', T + 20 * 60_000, T + 20 * 60_000 - 5000)).toMatchObject({ plan_ms: 20 * 60_000, plan_n: 1 });
   });
 });
 

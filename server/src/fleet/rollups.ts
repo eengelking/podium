@@ -6,7 +6,7 @@
 // anything (`writeRollups`); the reports read today straight from the live tables with the same builder (`buildRollups`).
 import { repriced } from './derive.js';
 import { ROLLUP_KEEP_MS, type CostOf, type SessionRow, type SessionWaitRow } from '../storage/rows.js';
-import { waitOfOpen } from './waits.js';
+import { waitOfOpen, type WaitKind } from './waits.js';
 import type { FleetStore, Storage } from '../storage/types.js';
 import type { Pricing } from './pricing.js';
 
@@ -183,6 +183,11 @@ export interface HourPeakDay {
   peak: number;
 }
 
+/** A day's session time while it is added up: the waiting in milliseconds, rounded to seconds once at the end. */
+interface TimeAcc extends SessionTimeDay {
+  ms: Record<WaitKind, number>;
+}
+
 /** The deepest an agent chain is told apart: a chain deeper than this is stored as this. */
 export const MAX_AGENT_DEPTH = 10;
 
@@ -287,7 +292,7 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const tools = new Map<string, ToolDay>();
   const toolSessions = new Map<string, ToolSessionDay>();
   const harnessReporters = new Map<string, { day: string; harness: string; version: string; reporters: Set<string> }>();
-  const timeAcc = new Map<string, SessionTimeDay & { ms: Record<'permission' | 'question' | 'plan', number> }>();
+  const timeAcc = new Map<string, TimeAcc>();
   const agentTypes = new Map<string, AgentDay>();
   const personDays = new Map<string, PersonDay>();
   interface FleetAcc {
@@ -372,7 +377,7 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     const tk = `${day}\u0000${harness}`;
     const t =
       timeAcc.get(tk) ??
-      ({ day, harness, sessions: 0, durationS: 0, maxDurationS: 0, trackedSessions: 0, trackedS: 0, permissionS: 0, permissionN: 0, questionS: 0, questionN: 0, planS: 0, planN: 0, ms: { permission: 0, question: 0, plan: 0 } } satisfies SessionTimeDay & { ms: Record<'permission' | 'question' | 'plan', number> });
+      ({ day, harness, sessions: 0, durationS: 0, maxDurationS: 0, trackedSessions: 0, trackedS: 0, permissionS: 0, permissionN: 0, questionS: 0, questionN: 0, planS: 0, planN: 0, ms: { permission: 0, question: 0, plan: 0 } } satisfies TimeAcc);
     t.sessions += 1;
     t.durationS += d;
     t.maxDurationS = Math.max(t.maxDurationS, d);
@@ -485,19 +490,20 @@ export async function peakLiveByDay(db: FleetStore): Promise<Map<string, number>
 
 /** The most sessions live at once in each local hour of each day the samples cover, for each harness and for all together (#722). */
 export async function peaksByHour(db: FleetStore): Promise<HourPeakDay[]> {
-  const windows = new Map<string, { day: string; hour: number; spans: { lo: number; hi: number; harness: string }[] }>();
+  // one window for each real hour, told apart by when it starts: on a day the clocks go back the hour 01:00 happens twice, and the two are not one stretch of time
+  const windows = new Map<number, { day: string; hour: number; spans: { lo: number; hi: number; harness: string }[] }>();
   for (const { a, b, harness } of await db.sampleSpansByHarness()) {
     // one piece for each local hour the span touches; the clock, not 3,600 seconds, ends an hour, so a day with 23 or 25 hours still has 24 of them
     for (let at = a * 1000; at <= b * 1000; ) {
       const d = new Date(at);
-      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
-      const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1).getTime();
-      const day = localDay(start);
-      const key = `${day}\u0000${d.getHours()}`;
-      const w = windows.get(key) ?? { day, hour: d.getHours(), spans: [] };
+      const hour = d.getHours();
+      // the start of the hour that `at` is in: step back to the top of the hour, which is a whole hour before except where an offset is not
+      const start = at - (d.getMinutes() * 60 + d.getSeconds()) * 1000 - d.getMilliseconds();
+      const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour + 1).getTime();
+      const w = windows.get(start) ?? { day: localDay(start), hour, spans: [] };
       w.spans.push({ lo: Math.max(a, Math.floor(start / 1000)), hi: Math.min(b, Math.floor(end / 1000) - 1), harness });
-      windows.set(key, w);
-      at = end;
+      windows.set(start, w);
+      at = Math.max(end, at + 1000);
     }
   }
   const peakOf = (spans: { lo: number; hi: number }[]): number => {
@@ -510,12 +516,19 @@ export async function peaksByHour(db: FleetStore): Promise<HourPeakDay[]> {
     }
     return peak;
   };
-  const out: HourPeakDay[] = [];
+  // the larger peak of the two windows that share a clock hour counts, never their sum
+  const folded = new Map<string, HourPeakDay>();
+  const put = (day: string, harness: string, hour: number, peak: number): void => {
+    const k = `${day}\u0000${harness}\u0000${hour}`;
+    const have = folded.get(k);
+    if (!have || peak > have.peak) folded.set(k, { day, harness, hour, peak });
+  };
   for (const w of windows.values()) {
-    out.push({ day: w.day, harness: '', hour: w.hour, peak: peakOf(w.spans) });
-    for (const harness of [...new Set(w.spans.map((x) => x.harness))].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))) out.push({ day: w.day, harness, hour: w.hour, peak: peakOf(w.spans.filter((x) => x.harness === harness)) });
+    put(w.day, '', w.hour, peakOf(w.spans));
+    // a session with no harness counts in the whole and has no row of its own, which '' already names
+    for (const harness of new Set(w.spans.map((x) => x.harness).filter((h) => h !== ''))) put(w.day, harness, w.hour, peakOf(w.spans.filter((x) => x.harness === harness)));
   }
-  return out.sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : x.hour - y.hour || (x.harness < y.harness ? -1 : x.harness > y.harness ? 1 : 0)));
+  return [...folded.values()].sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : x.hour - y.hour || (x.harness < y.harness ? -1 : x.harness > y.harness ? 1 : 0)));
 }
 
 // ---- writing ------------------------------------------------------------------------------------

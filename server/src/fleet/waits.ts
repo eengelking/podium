@@ -39,15 +39,25 @@ export function waitKindOf(s: WaitInput): WaitKind | null {
 const fresh = (id: string, now: number): SessionWaitRow => ({ session_id: id, permission_ms: 0, permission_n: 0, question_ms: 0, question_n: 0, plan_ms: 0, plan_n: 0, tracked_since: now, open_kind: null, open_since: null });
 
 /**
- * The row after a report at `now` that found the session waiting for `kind` (null for nothing), or null when the stored row needs no write.
- * A wait ends at the first report that no longer shows it, so its time is counted to the reporting interval. A clock that steps back counts zero.
+ * How long after its last report a wait is still counted. A reporter sends every few seconds while a session waits (5 s by default), so a longer silence
+ * means the session was offline (a laptop asleep, a reporter that died), and that time is not time spent waiting on a person.
  */
-export function advanceWait(prev: SessionWaitRow | undefined, kind: WaitKind | null, id: string, now: number): SessionWaitRow | null {
+export const WAIT_GAP_MS = 120_000;
+
+/**
+ * The row after a report at `now` that found the session waiting for `kind` (null for nothing), or null when the stored row needs no write.
+ * `lastSeenBefore` is when the session was last heard from before this report. A wait ends at the first report that no longer shows it, so its time is
+ * counted to the reporting interval; when the silence before this report was longer than `WAIT_GAP_MS`, the wait is counted only to the end of that
+ * allowance and a wait that still shows starts again from now. A clock that steps back counts zero.
+ */
+export function advanceWait(prev: SessionWaitRow | undefined, kind: WaitKind | null, id: string, now: number, lastSeenBefore: number | null = null): SessionWaitRow | null {
   const base = prev ?? fresh(id, now);
-  if (base.open_kind === kind) return prev ? null : base;
+  const gapped = lastSeenBefore !== null && now - lastSeenBefore > WAIT_GAP_MS;
+  if (base.open_kind === kind && !gapped) return prev ? null : base;
   const next: SessionWaitRow = { ...base };
   if (base.open_kind !== null && base.open_since !== null) {
-    const ms = Math.max(0, Math.round(now - base.open_since));
+    const endsAt = gapped && lastSeenBefore !== null ? lastSeenBefore + WAIT_GAP_MS : now;
+    const ms = Math.max(0, Math.round(endsAt - base.open_since));
     next[`${base.open_kind}_ms`] += ms;
     next[`${base.open_kind}_n`] += 1;
   }

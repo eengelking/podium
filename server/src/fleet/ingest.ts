@@ -233,7 +233,7 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     const row = sessionRow(report, prev, serverTime, owner);
     await f.upsertSession(row);
     // What the session waits on its person for, added up as reports arrive (#722). Nothing is written while the state is the same.
-    const wait = advanceWait(await f.getSessionWait(sid), waitKindOf({ waitReason: row.wait_reason, waitNote: row.wait_note, reporterVersion: row.reporter_version }), sid, serverTime);
+    const wait = advanceWait(await f.getSessionWait(sid), waitKindOf({ waitReason: row.wait_reason, waitNote: row.wait_note, reporterVersion: row.reporter_version }), sid, serverTime, prev?.last_seen_at ?? null);
     if (wait) await f.putSessionWait(wait);
     const ended = report.session.status === 'done';
     const revived = !!prev && !ended && (prev.ended_at !== null || prev.dropped_at !== null);

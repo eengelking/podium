@@ -627,9 +627,8 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
           the reporters on an older version in the harness's last period.
       - `sessiontime` (#722): how long sessions ran and waited on a person, and which agents they launched, for every harness that reports.
         `harness` narrows the rows to one harness; the reply's `harnesses` lists every harness the period holds, before that filter. A `person`,
-        `group` or `model` is a `400`, since these figures are kept per harness and day, not per person. `waitSince` is the first day any session had
-        its waiting recorded, or `null` before one has: waiting is recorded from the upgrade on, so `oldestDay` is the first day these tables cover and a period
-        before it is `partial`. `breakdown` is `time` (default), `reason`, `agents` or `depth`, and each is one table.
+        `group` or `model` is a `400`, since these figures are kept per harness and day, not per person. Waiting is recorded from the upgrade on, so `oldestDay` is the first
+        day these tables cover and a period before it is `partial`, and the `time` reply carries `waitSince`, the first day any session had its waiting recorded (`null` before one has). `breakdown` is `time` (default), `reason`, `agents` or `depth`, and each is one table.
         - `time`: rows `period, harness, sessions, avgDurationS, maxDurationS, waitS, waitSharePct`. `waitS` and `waitSharePct` are `null` for a period in
           which no session had its waiting recorded, never zero. The share is the waiting over the time the sessions with a record ran, not over every
           session. `total` has the same keys over the whole period, `periods` has each period with every selected harness together, and `byHarness`
@@ -639,7 +638,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         - `agents`: rows `type, harness, agents, sharePct`, the largest type first. `total` is `{ agents, sessions, agentsPerSession }`.
         - `depth`: rows `depth, harness, agents, sharePct`. Depth 1 is an agent the session launched itself, 2 one that an agent launched, and 3 means
           three or more. `total` is `{ agents, deepest }`, the levels of the longest chain.
-        Waiting is the time a session reported `waiting` on a tool's permission, a question or a plan. A session idle at the prompt is reported as
+        Waiting is the time a session reported `waiting` on a tool's permission, a question or a plan, counted to the report that no longer shows it, and to no more than two minutes past the last report before a silence (a session that was offline is not waiting). A session idle at the prompt is reported as
         waiting too (reason `input`, no note) and is not counted, and neither is a wait for background work or a timer. The kind comes from the report's
         fields: a permission whose note starts with `ExitPlanMode` is a plan and one that starts with `AskUserQuestion` is a question, any other
         permission is a permission, and `input` with a note is a question (OpenCode asks that way). `input` sent by the settings hooks (the `hooks`

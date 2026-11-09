@@ -111,6 +111,18 @@ describe('peaksByHour', () => {
   });
 });
 
+describe('peaksByHour with no harness', () => {
+  it('keeps a session with no harness out of the per-harness rows, so "" always means every harness together', async () => {
+    const w = world();
+    await w.fdb.upsertSession(session({ id: 'n1', harness: '', last_seen_at: at(2, 11), started_at: at(2, 9) }));
+    await w.fdb.upsertSample(sample('n1', at(2, 9) + 60_000));
+    await w.fdb.upsertSample(sample('n1', at(2, 9) + 120_000));
+    const rows = await peaksByHour(w.fdb);
+    // one row for the hour, for everyone together: the session has no harness, so it has no row of its own that would collide with "all"
+    expect(rows.map((r) => `${r.hour}|${r.harness}=${r.peak}`)).toEqual(['9|=1']);
+  });
+});
+
 describe('writeRollups session time', () => {
   it('writes the four tables, and a second run gives the same rows', async () => {
     const w = world();

@@ -189,7 +189,7 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
   return oldest;
 }
 
-async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false): Promise<Facts> {
+async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
   const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], sessionTime: [], agentTypes: [], personDays: [], failureSessions: [] } };
@@ -207,11 +207,11 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.sessionTime = (await select(db, 'session_time_daily', from, stored)).map(sessionTimeOf);
       f.agentTypes = (await select(db, 'agents_daily', from, stored)).map(agentOf);
       f.personDays = (await select(db, 'person_sessions_daily', from, stored)).map(personDayOf);
-      f.hourPeaks = (await select(db, 'hour_peaks_daily', from, stored)).map(hourPeakOf);
     }
+    if (withHours) f.hourPeaks = (await select(db, 'hour_peaks_daily', from, stored)).map(hourPeakOf);
   }
   // The samples of the last day have not been rolled up yet: the peak of each hour in them is read live, and the larger of it and the stored one counts.
-  if (withTime && to >= addDays(today, -1)) {
+  if (withHours && to >= addDays(today, -1)) {
     const merged = new Map<string, HourPeakDay>(f.hourPeaks.map((r) => [`${r.day}\u0000${r.harness}\u0000${r.hour}`, r]));
     for (const r of await peaksByHour(db)) {
       if (r.day < from || r.day > to) continue;
@@ -659,7 +659,7 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
   f.oldestDay = await oldestDayOf(deps.db, TIME_TABLES, p.today);
   const harnesses = [...new Set([...f.sessionTime.map((r) => r.harness), ...f.agentTypes.map((r) => r.harness)])].sort(byCode);
   const keep = (h: string): boolean => harness === null || h === harness;
-  const extra = { harnesses, waitSince: await waitRecordedSince(deps, f, p.today) };
+  const extra = { harnesses };
 
   if (breakdown === 'reason') {
     interface Acc { reason: Reason; harness: string; waits: number; waitS: number }
@@ -774,7 +774,8 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
   const periodRows: Row[] = [...periods.values()].sort((a, b) => byCode(a.period, b.period)).map((a) => row(a, true, false));
   const byHarness: Row[] = [...perHarness.values()].sort((a, b) => byCode(a.harness, b.harness)).map((a) => row(a, false, true));
   const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('sessions', 'Sessions', 'count'), col('avgDurationS', 'Average length', 'seconds'), col('maxDurationS', 'Longest', 'seconds'), col('waitS', 'Time waiting on people', 'seconds'), col('waitSharePct', 'Share of time waiting', 'percent')];
-  return { ...envelope(p, 'sessiontime', p.by, f, cols, rows, row(whole, false, false)), ...extra, periods: periodRows, byHarness };
+  // the first day any session had its waiting recorded: only this table says where waiting begins, so only this answer looks it up
+  return { ...envelope(p, 'sessiontime', p.by, f, cols, rows, row(whole, false, false)), ...extra, waitSince: await waitRecordedSince(deps, f, p.today), periods: periodRows, byHarness };
 }
 
 async function workloadReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
@@ -782,7 +783,7 @@ async function workloadReport(deps: ReportDeps, q: Query, cost: CostOf): Promise
   if (p.person !== null || p.model !== null) throw new ReportError('the workload report cannot be filtered by person or model');
   const breakdown = pick(q, 'workload');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true, breakdown === 'hour');
   const harnesses = [...new Set([...f.personDays.map((r) => r.harness), ...f.hourPeaks.map((r) => r.harness).filter((h) => h !== '')])].sort(byCode);
   const extra = { harnesses };
 
