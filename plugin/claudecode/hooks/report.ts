@@ -1,5 +1,6 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
+import { pct } from '../../core/contextFill.ts';
 import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
 import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
@@ -78,11 +79,6 @@ function cleanFailure(f: Failure | null): Failure | null {
     evidence: f.evidence.slice(0, 5).map((l) => clip(l, 240)),
     explanation: f.explanation ? clip(f.explanation, 400) : null,
   };
-}
-
-function pct(tokens: number | null, window: number | null): number | null {
-  if (tokens === null || !window) return null;
-  return Math.round(Math.min(100, (tokens / window) * 100) * 10) / 10;
 }
 
 /** The fields an agent entry and the main loop's block share: skills, last tool, call counts and steps. */

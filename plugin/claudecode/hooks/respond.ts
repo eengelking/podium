@@ -2,6 +2,7 @@
 // the asks it announces (redacted and cut), what an answer from Podium turns into for Claude Code, and the lines the
 // reporter writes in the transcript.
 import { redact } from '../../core/failures.ts';
+import { clockTime } from '../../core/recordingLines.ts';
 import {
   acceptsFor,
   RESPOND_LEVELS,
@@ -296,12 +297,6 @@ export function terminalAnswers(result: unknown): string | null {
     .map(withoutRecommended)
     .join('; ');
   return s ? line(s, RESPOND_LIMITS.answer) : null;
-}
-
-/** `HH:MM` in the session machine's local time. */
-export function clockTime(at: number): string {
-  const d = new Date(at);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export const LINE_OPEN = 'also open in Podium. Answer here or there.';
