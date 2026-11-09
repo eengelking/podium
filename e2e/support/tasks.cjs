@@ -79,6 +79,21 @@ function registerTasks(on, config) {
       if (res.status >= 300) throw new Error(`report ${key}: ${res.status} ${JSON.stringify(res.body)}`);
       return res.body;
     },
+    /** Reports an agent that has done nothing yet, as a reporter does at launch (#1112): no cost, tokens, context, plan or agent, status waiting. `id` is its session id, `end` reports it done. */
+    async 'fleet:launch'({ id, name, who, end }) {
+      const seed = await seedModule();
+      const m = manifest ?? readManifest();
+      const r = seed.fleetReports({}, {}).find((x) => x.key === 'idle');
+      const s = r.body.session;
+      const session = {
+        ...s, id, name, cwd: `/Users/dev/${name}`, projectRoot: `/Users/dev/${name}`, repoName: null, git: null, effort: null, model: null, rateLimits: [], blowouts: 0, plan: null, loop: null,
+        costUsd: null, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, context: { tokens: null, window: null, percent: null },
+        status: end ? 'done' : 'waiting', waitReason: end ? null : 'input', endReason: end ? 'launched' : null, startedAt: Date.now(),
+      };
+      const res = await seed.client(origin).mod(m.people[who ?? r.who].token, 'POST', '/report', { ...r.body, sentAt: Date.now(), session, agents: [], events: [] });
+      if (res.status >= 300) throw new Error(`launch ${id}: ${res.status} ${JSON.stringify(res.body)}`);
+      return res.body;
+    },
     /** Sends as a signed-in person from Node (a second browser): `as` is Ed, Alex or Admin, `path` is under /api/fleet/respond, `body` is the JSON. Yields { status, body }. */
     async 'respond:as'({ as, method, path, body }) {
       const seed = await seedModule();

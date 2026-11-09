@@ -105,3 +105,32 @@ describe('mod report -> server, with fractions from the host (#1007)', () => {
     for (const t of [r.session.tokens, ...r.agents.map((a) => a.tokens)]) for (const n of Object.values(t)) expect(Number.isInteger(n)).toBe(true);
   });
 });
+
+// #1113: the report says how many days the harness lets the person resume this session, so the server keeps its chat that long.
+describe('mod report: the resume window (#1113)', () => {
+  const meta = { version: '0.14.0', engineVersion: '2.1.301', hostSurface: 'terminal', storedName: null, claudeName: null, optionName: null, now: T0 } as const;
+
+  it('carries Claude Code\'s cleanupPeriodDays as the window', () => {
+    const [state, events] = drainEvents(scriptedState());
+    const report = buildReport(state, events, { ...meta, resumeWindowDays: 7 });
+    expect(report.session.resumeWindowDays).toBe(7);
+    const v = validateReport(JSON.parse(JSON.stringify(report)));
+    if (!v.ok) throw new Error(`${v.path}: ${v.error}`);
+    expect(v.report.session.resumeWindowDays).toBe(7);
+  });
+
+  it('reports the 30 day default when the setting is absent or unusable', () => {
+    const [state, events] = drainEvents(scriptedState());
+    expect(buildReport(state, events, meta).session.resumeWindowDays).toBe(30);
+    expect(buildReport(state, events, { ...meta, resumeWindowDays: -1 }).session.resumeWindowDays).toBe(30);
+  });
+
+  it('an old reporter that sends no window is still accepted', () => {
+    const [state, events] = drainEvents(scriptedState());
+    const wire = JSON.parse(JSON.stringify(buildReport(state, events, meta)));
+    delete wire.session.resumeWindowDays;
+    const v = validateReport(wire);
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.report.session.resumeWindowDays).toBeUndefined();
+  });
+});

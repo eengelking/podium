@@ -258,6 +258,11 @@ ALTER TABLE chat_admin_reads ADD COLUMN people TXT NOT NULL DEFAULT '[]';
 ALTER TABLE chat_admin_reads ADD COLUMN seen TXT NOT NULL DEFAULT '[]';
 `),
   },
+  {
+    version: 12,
+    // The days the harness lets a person resume a session once it is closed (#1113), as SQLite migration 36 keeps it. NULL means no report has said: the default of 30 days applies.
+    sql: typed('ALTER TABLE sessions ADD COLUMN resume_window_days INT;'),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

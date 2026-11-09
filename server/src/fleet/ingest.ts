@@ -163,6 +163,8 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     // What the harness declares (#940). A report that declares nothing (v1, a settings hook) keeps what was stored; a field sent as null clears it.
     // A label or provider belongs to one model (see modelNames).
     capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
+    // Kept when a later report from an older reporter carries none (#1113).
+    resume_window_days: s.resumeWindowDays ?? prev?.resume_window_days ?? null,
     ...modelNames(s.model, { label: s.modelLabel, provider: s.modelProvider }, prev),
   };
 }

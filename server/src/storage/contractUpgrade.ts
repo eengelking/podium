@@ -112,6 +112,10 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await s.fleet.getSession('old2')).toMatchObject({ cost_usd: null, harness: 'claude-code', cost_source: null });
       // Nothing was declared before the columns existed (#940), so both read as not declared.
       for (const id of ['old1', 'old2']) expect(await s.fleet.getSession(id)).toMatchObject({ capabilities_json: null, model_label: null, model_provider: null });
+      // Nor had a session a resume window (#1113), so one stored before reads as unknown: its chat follows the grace period, and a later report sets it.
+      for (const id of ['old1', 'old2']) expect(await s.fleet.getSession(id)).toMatchObject({ resume_window_days: null });
+      await s.fleet.upsertSession({ ...(await s.fleet.getSession('old1'))!, resume_window_days: 14 });
+      expect(await s.fleet.getSession('old1')).toMatchObject({ resume_window_days: 14 });
       // Nor did an agent have a label or provider (#945), so one stored before reads as not declared, and a later write sets them.
       expect(await s.fleet.getAgents('old1')).toMatchObject([{ id: 'old-agent', model_label: null, model_provider: null }]);
     } finally {
@@ -216,7 +220,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await peers.messages.page('ed', 's3', 's4', { limit: 5 })).toEqual({ messages: [], older: null });
       const mine = await peers.messages.ownerConversations('ed');
       expect(mine.map((c) => [c.messages, c.hiddenAt])).toEqual([[3, null]]);
-      expect(await peers.messages.purgeHidden(T0 + 1e9)).toBe(0);
+      expect(await peers.messages.purgeHidden(T0 + 1e9, 0)).toBe(0);
       expect(await peers.messages.deleteConversation('ed', 's1', 's2')).toBe(3);
       expect(await peers.messages.conversation('s3', 's4')).toHaveLength(1);
     } finally {

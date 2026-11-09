@@ -67,8 +67,9 @@ every message and keeps the rights. Remove link takes the rights away and keeps 
 Delete conversation removes its messages and leaves the list.
 
 A conversation leaves the list when every agent session in it has ended or disconnected from Podium. While only some have, the row says which
-(for example "Tester ended"), and the box says that agent will not receive your message. The messages are kept for a day (the Admin sets
-it), and the conversation comes back with its history if the same agents reappear; after that it is deleted.
+(for example "Tester ended"), and the box says that agent will not receive your message. The messages are kept for as long as the agent's harness lets you resume that session (30 days for Claude Code unless its `cleanupPeriodDays` says
+another, and 30 days for OpenCode), and the conversation comes back with its history if you resume the session in that time; after that it is deleted. A new session
+for the same agent starts a new conversation and shows none of the old one.
 
 ## Addressing with @
 

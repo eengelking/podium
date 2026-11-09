@@ -229,4 +229,50 @@ describe('chat: a conversation whose agents have left', () => {
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 4);
   });
+
+  // #1113: the seed's reports carry resumeWindowDays 30, so a closed conversation is kept for the harness's resume window and not the Admin's 24 hours. Past that window the purge
+  // is in the hourly sweep and no test-only clock reaches days, so it is covered in server/src/fleet/chatRoutes.test.ts (see docs/e2e/COVERAGE.md).
+  it('shows none of the old conversation for a new session of the same agent', () => {
+    cy.reportAgain('tester', { id: 'e2e-s-tester-resumed-new', name: 'Tester' });
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow('a:e2e-s-tester-resumed-new').should('exist');
+    // The new session has its own conversation, and it holds nothing yet: no row pairs it with the other agent.
+    cy.chatRow('d:dm:e2e-s-invoice|e2e-s-tester-resumed-new').should('not.exist');
+    cy.chatRow('d:dm:e2e-s-tester-resumed-new|e2e-s-invoice').should('not.exist');
+    // The old conversation is still its own, with what it held.
+    cy.chatRow(DM).should('exist').find('button.ch-row').click();
+    cy.tid('chat-message').should('have.length', 4);
+  });
+});
+
+describe('chat: an agent launched and not yet used (#1112)', () => {
+  // The run's server keeps an ended session for two hours; here it leaves two seconds after it ends, as a card does.
+  before(() => cy.resetServer({ seedArgs: '--talk', env: ['LINGER_MS=2000'] }));
+
+  it('joins People and agents on an open page without a reload, and leaves the same way when it ends', () => {
+    const ID = 'launch-e2e0001';
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('exist');
+    cy.chatRow(`a:${ID}`).should('not.exist');
+    // The agent has done nothing: no cost, tokens, context, plan or agent. The wall's stream says nothing of it, and the open page is told its list changed.
+    cy.task('fleet:launch', { id: ID, name: 'launched-folder' }, { log: false });
+    cy.chatRow(`a:${ID}`).should('exist').and('contain.text', 'launched-folder');
+    // It ends: it fades for the wall's leave time and is gone from the same open page's list.
+    cy.task('fleet:launch', { id: ID, name: 'launched-folder', end: true }, { log: false });
+    cy.chatRow(`a:${ID}`).should('not.exist');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('exist');
+  });
+
+  it('has no card on the Fleet wall while it is listed', () => {
+    const ID = 'launch-e2e0002';
+    cy.signIn('Ed');
+    cy.task('fleet:launch', { id: ID, name: 'quiet-folder' }, { log: false });
+    cy.openConsole('#/chat');
+    cy.chatRow(`a:${ID}`).should('exist').and('contain.text', 'quiet-folder');
+    cy.openConsole('#/');
+    cy.card('invoice').should('exist');
+    cy.get(`button.card.sc[data-session="${ID}"]`).should('not.exist');
+  });
 });

@@ -67,6 +67,7 @@ import { activityCall, activityText, explainPrompt } from '../../core/failures.t
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { pinnedMachineName, readOsName, type HostIO } from '../../core/machineHost.ts';
+import { claudeSettingsPath, resumeWindowFromSettings } from '../../core/resumeWindow.ts';
 import { chooseMachineId, sharedMachineIdPath, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, machineInfo, newMachineId, platformRandom, type RandomSource, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type ActivityEntry, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
 import { isRecordingGrant } from '../../core/transport.ts';
@@ -195,6 +196,8 @@ interface Runtime {
   sawDesktop: boolean;
   /** The commit of a dev build of this mod, found once per load (#400); null for a release or an installed copy. */
   build: string | null;
+  /** The days Claude Code lets a person resume a closed session, from its `cleanupPeriodDays` (#1113). Read when the runtime is made. */
+  resumeWindowDays: number;
   flushing: boolean;
   /** A tool's early run is making calls (`flushPeers`); kept apart from `flushing` so a slow report never holds it. */
   peerFlushing: boolean;
@@ -466,6 +469,7 @@ function metaOf(r: Runtime, now: number) {
     engineVersion: r.engineVersion,
     hostSurface: r.hostSurface,
     build: r.build,
+    resumeWindowDays: r.resumeWindowDays,
     now,
     storedName: r.storedName,
     claudeName: (r.claudeName?.id === r.state.id ? r.claudeName.name : null) ?? (r.appName?.id === r.state.id ? r.appName.name : null),
@@ -890,6 +894,12 @@ async function machineId($: Engine): Promise<string> {
   if (sharedPath) await attempt(() => $.fs.write(sharedPath, `${id}\n`), undefined);
   if (path) await attempt(() => $.fs.write(path, `${id}\n`), undefined);
   return (await current()) ?? id;
+}
+
+/** The days Claude Code keeps a session resumable: `cleanupPeriodDays` in its user settings, else 30. A Desktop or Cowork session has no expiry by default, and no expiry is 30 as well (#1113). */
+async function readResumeWindow($: Engine): Promise<number> {
+  const path = claudeSettingsPath(await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined), (await readHome($)).home);
+  return resumeWindowFromSettings(path ? await attempt(async () => (await $.fs.read(path)) as string, null) : null);
 }
 
 /**
@@ -1843,6 +1853,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     state,
     transport,
     build,
+    resumeWindowDays: await readResumeWindow($),
     timers: [],
     flushSoon: (first) =>
       $.clock.after(PEER_KICK_MS, () => {
