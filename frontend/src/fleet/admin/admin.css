@@ -398,3 +398,10 @@
 .adminv .ptab tr.confirmrow td { padding: 0; border-bottom: 1px solid var(--grid); }
 .adminv .ptab tr.confirmrow .callout { margin: 8px 16px; }
 .adminv .ptab td.pcell .who { display: block; }
+
+/* Reporting > Tools (#720): an MCP server's row opens to the tools under it, indented and a step lighter. */
+.adminv .rowbtn .chev { width: 12px; height: 12px; flex: none; color: var(--muted); transition: transform .12s; }
+.adminv .rowbtn[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.adminv .rowbtn .srvnote { color: var(--ink2); }
+.adminv .ptab tr.mtool { background: var(--raised); }
+.adminv .ptab tr.mtool td:first-child { padding-left: 28px; }

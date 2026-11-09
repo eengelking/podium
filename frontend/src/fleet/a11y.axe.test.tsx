@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import axe from "axe-core";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { HistoryView } from "./HistoryView";
 import { AdminView } from "./admin/AdminView";
@@ -93,6 +93,15 @@ describe("axe on the console's pages (#636)", () => {
       ),
     );
     const { container } = render(<HistoryView initialDay="2026-10-10" />);
+    expect(await violations(container, [])).toEqual([]);
+  });
+
+  it("Admin > Reporting > Tools, with an MCP server opened (#720)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Tools" }));
+    await findByRole("table", { name: "Reporters by harness version and period" });
+    fireEvent.click(getByRole("button", { name: /github/ }));
     expect(await violations(container, [])).toEqual([]);
   });
 

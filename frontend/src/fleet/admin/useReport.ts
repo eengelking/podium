@@ -15,7 +15,7 @@ import {
   type ReportsClient,
 } from "./reportsApi";
 
-export type FilterId = "person" | "group" | "model";
+export type FilterId = "person" | "group" | "model" | "harness";
 export interface ReportConfig {
   report: ReportId;
   title: string;
@@ -94,6 +94,7 @@ export function useReport(client: ReportsClient, cfg: ReportConfig, onLocked: ()
       person: cfg.filters.includes("person") ? prefs.person : undefined,
       group: cfg.filters.includes("group") ? prefs.group : undefined,
       model: cfg.filters.includes("model") ? prefs.model : undefined,
+      harness: cfg.filters.includes("harness") ? prefs.harness : undefined,
       kind: cfg.kinds ? prefs.kind : undefined,
     })}`;
   }, [problem, cfg, prefs, range.from, range.to]);
