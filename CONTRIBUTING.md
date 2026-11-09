@@ -183,13 +183,15 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/templates/` | The page templates (guide, reference, internals, and the index, entry, section and chapter pages of a split topic). Copy one to start a page; the rules are under "Writing docs" |
 | `CHANGELOG.md` | One entry per release |
 
-Update the docs that describe your change in the same PR, and add a line under `[Unreleased]` in
-`CHANGELOG.md` for anything a user would notice.
+Update the docs that describe your change in the same PR. For anything a user would notice, add a changelog fragment:
+a file `changelog.d/<issue-or-slug>.<type>.md` that holds the text of one entry (`added`, `changed`, `deprecated`, `removed` or
+`fixed`; see `changelog.d/README.md`). Do not edit `CHANGELOG.md` in a feature or fix PR. Two PRs then never touch the same file,
+and the release-prep PR folds the fragments into it (DECISIONS 67).
 
 A change to the UI also follows the standards in `docs/standards/`, and starts with a mockup that links
 `frontend/src/fleet/tokens.css` instead of carrying a `:root` block. A PR into `development` does not edit the standards,
 the same way it does not bump the version. If the maintainer approved a change to a token, a component, a variant or a pattern rule,
-add a line that starts `Standards:` under `[Unreleased]` that names the change and the approval. A change that changes no
+add a fragment of the type `standards` (`changelog.d/<issue-or-slug>.standards.md`) that names the change and the approval; the release assembles it into a line that starts `Standards:`. A change that changes no
 standard needs no line. Either way the release-prep PR brings the standards in line (`npm run standards:sync`, then
 `npm run standards:parity` must pass), so parity can fail on `development` until then. A PR into `main` is valid only if parity passes.
 
@@ -244,7 +246,7 @@ whole, and a short log still splits. A section that is itself a set of subsectio
   single-file paths (the five old files are short stubs that point at the folders, for links from outside the repo).
 - **Moved text is not reworded.** Only headings, frontmatter, links and the generated parts change.
 - **A deprecation goes in `docs/DEPRECATIONS.md`.** A feature marked for deprecation is removed within three minor releases, the announcing
-  one counted as the first. Add a row to "Deprecated now" with a `Deprecated` line under `[Unreleased]`. `node scripts/check-deprecations.mjs`
+  one counted as the first. Add a row to "Deprecated now" with a `deprecated` changelog fragment. `node scripts/check-deprecations.mjs`
   (also in `npm test`) fails when the version reaches a removal that has not been done.
 
 The templates for these pages are `topic-index.md` (the folder's `README.md`), `decision-entry.md`, `gotcha-entry.md`,
@@ -333,10 +335,10 @@ reporter (#855, DECISIONS 56). They are installed from a built folder, not from 
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under
-`plugin/claudecode/` or `plugin/core/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
+`plugin/claudecode/` or `plugin/core/` other than its tests). Add a changelog fragment and leave the
 version files alone. The maintainer decides when `development` is ready to release. A release-prep PR into
 `development` then sets one number in `plugin/claudecode/.claude-plugin/plugin.json` (and in the version file of any other harness that has one), `VERSION` in `plugin/claudecode/hooks/register.ts`, the three
-`package.json` files and the lockfile (`npm install --package-lock-only`), and renames `[Unreleased]`; a test checks
+`package.json` files and the lockfile (`npm install --package-lock-only`), assembles the changelog fragments and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,

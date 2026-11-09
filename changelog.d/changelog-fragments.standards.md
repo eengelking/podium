@@ -1,0 +1,1 @@
+The process page's text on how a standard is recorded (`frontend/src/fleet/standards/prose.ts`) says a feature PR adds a `standards` changelog fragment in place of a `Standards:` line under `[Unreleased]`. Approved by the maintainer in the session that made DECISIONS 67; the generated `docs/standards/process.html` is brought in line at release-prep.

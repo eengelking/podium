@@ -118,7 +118,7 @@ holds only the code patterns.
 | A mockup links `tokens.css` and has no `:root` | Every page in `mockup/` links `frontend/src/fleet/tokens.css` (or `fleet.css`, which imports it) and carries no `:root` rule in a `<style>` block. Demo-only values are built from the tokens. | `mockup/` | `scripts/standards-guard.test.ts` |
 | A new theme goes in three places | `themes.ts`, the token blocks in `tokens.css`, and the id in the inline script in `frontend/index.html`. See [the gotcha](gotchas/new-color-theme-has-no-effect.md). | `frontend/src/fleet/themes.ts` | `frontend/src/fleet/themes.test.ts` |
 | Collapse and open controls are `EdgeTab` | One pill for the top bar, the KPI rows, the fold and both panes. | `frontend/src/fleet/components/EdgeTab.tsx` | `frontend/src/fleet/edgeTabSize.test.ts` |
-| Standards change only through release-prep | A feature PR adds a `Standards:` line under `[Unreleased]` and never edits `docs/standards/`. | `CHANGELOG.md` | `npm run standards:parity` |
+| Standards change only through release-prep | A feature PR adds a `standards` changelog fragment and never edits `docs/standards/`. | `changelog.d/` | `npm run standards:parity` |
 | A new page or large state gets an accessibility case | Axe runs in the test; contrast and target size are checked in a real browser. | `frontend/src/fleet/a11y.axe.test.tsx` | `frontend/src/fleet/a11y.axe.test.tsx` |
 | A form resets its draft during render | A mount effect copying saved values would overwrite a user edit. See [the gotcha](gotchas/frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md). | `frontend/src/fleet/` | none |
 | A poll pauses while the page is hidden | Timers are cleaned up in the effect. | `frontend/src/fleet/useMyPeers.ts` | `frontend/src/fleet/respond.test.tsx` for `useRespond` only; the other polls have none (see [findings](#findings-not-patterns)) |
@@ -144,7 +144,7 @@ holds only the code patterns.
 | Big docs are folders of small pages | Indexes are generated, citations such as "SPEC 6.8" never change, and moved text is not reworded. See [decision 45](decisions/45-large-docs-split-along-their-sections.md). | `docs/decisions/` | `scripts/check-doc-refs.mjs`, `scripts/check-doc-links.mjs`, `scripts/build-doc-indexes.mjs` |
 | One owner for a fact | Link to it; do not restate it. Architecture goes in `docs/architecture/`, status in `CHANGELOG.md`. | `docs/architecture/` | none |
 | A structural change updates the atlas | `podium-atlas.html` and `ATLAS.md` change together. | `docs/atlas/` | `scripts/atlas-functions.mjs --check` |
-| A deprecation has a removal release | A row in `docs/DEPRECATIONS.md` and a line under `[Unreleased]`; removed within three minors. | `docs/DEPRECATIONS.md` | `scripts/check-deprecations.mjs` |
+| A deprecation has a removal release | A row in `docs/DEPRECATIONS.md` and a `deprecated` changelog fragment; removed within three minors. | `docs/DEPRECATIONS.md` | `scripts/check-deprecations.mjs` |
 | Code and spec disagree: ask | Flag the contradiction; do not pick a reading. | `docs/spec/10-rules-for-the-implementing-agent.md` | none |
 
 ## Release
@@ -152,7 +152,7 @@ holds only the code patterns.
 | Pattern | Rule and why | Example | Held by |
 |---|---|---|---|
 | One version for the whole product | Podium and `podium-reporter` share one `MAJOR.MINOR.PATCH`. | `package.json` | `scripts/versions.test.ts` |
-| A feature PR never bumps a version or touches `dist/` | Only `release-prep/<version>` and a hotfix do. A feature PR adds an `[Unreleased]` entry. See [the gotcha](gotchas/mod-fix-did-not-reach-anyone.md). | `CHANGELOG.md` | `mod-version-check` on PRs into `main` |
+| A feature PR never bumps a version or touches `dist/` | Only `release-prep/<version>` and a hotfix do. A feature PR adds a changelog fragment and never edits `CHANGELOG.md`. See [the gotcha](gotchas/mod-fix-did-not-reach-anyone.md). | `changelog.d/` | `mod-version-check` on PRs into `main` |
 | `dist/` equals a clean build | Tracked on `main` and rebuilt by `npm run plugin:build:release`. See [decision 60](decisions/60-the-built-plugins-are-tracked-in-dist-on-main-and-checked-on-every-pr.md). | `dist/` | `npm run plugin:dist:check` |
 | An archive equals its tracked folder | Compared at the tag. | `scripts/plugin-dist-compare.mjs` | `scripts/plugin-dist-compare.test.ts` |
 | PRs go branch, then `development`, then `main` | A PR into `development` is squash-merged; the release PR is a merge commit and carries no `Closes #N`. | `.github/workflows/pr-target-check.yml` | `pr-target-check.yml` |
