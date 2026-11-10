@@ -13,22 +13,15 @@ SERVER_IMAGE="${E2E_SERVER_IMAGE:-localhost/podium-e2e:$(cd "$(dirname "$0")/.."
 usage() {
   cat <<'USAGE'
 Usage: scripts/e2e-up.sh [run] [options] [-- <cypress run arguments>]
-       scripts/e2e-up.sh build [--no-build] [--engine NAME]
        scripts/e2e-up.sh down
 
 Builds Podium's image from the Containerfile, starts it as the server on a private container network with a fresh database,
 waits until /api/fleet/health answers and its serverVersion equals package.json's, then runs the Cypress suite from e2e/ in the
 pinned cypress/included container. The specs call back into this script (through a mounted folder, not a port) to restart,
-pause and resume the server and to reseed it. Each such request logs one line with its time (a restart split into the database,
-the server and the seed), and the run logs the count and total time of each kind at the end. At the end, always, every container,
-network and volume it made is removed.
+pause and resume the server and to reseed it. At the end, always, every container, network and volume it made is removed.
 
 Commands:
-  run     (default) build, start, test, tear down. Exit 0 every spec passed, 1 a spec failed, 2 the run could not start or
-          the Cypress container did not finish (the engine could not start it, or it was killed, for example out of memory).
-  build   Build the server image and pull the Cypress image, then exit (0, or 2 if either fails). scripts/e2e-all.sh runs it once
-          before its runs, which then use --no-build, so parallel runs do not build the same image at the same time. With
-          --no-build it only checks the server image is there and pulls a missing Cypress image.
+  run     (default) build, start, test, tear down. The exit code is Cypress's (0 = every spec passed).
   down    Remove containers, networks and volumes left behind by an interrupted run of this script (matched by label).
 
 Options:
@@ -72,7 +65,7 @@ REST=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    run|build|down) CMD="$1"; shift ;;
+    run|down) CMD="$1"; shift ;;
     --no-build) BUILD=0; shift ;;
     --engine) ENGINE="${2:?--engine needs podman or docker}"; shift 2 ;;
     --out) OUT="${2:?--out needs a folder}"; shift 2 ;;
@@ -109,19 +102,6 @@ leftovers() {
   { $E ps -aq --filter "label=$LABEL${1:+=$1}"; $E volume ls -q --filter "label=$LABEL${1:+=$1}"; $E network ls -q --filter "label=$LABEL${1:+=$1}"; } 2>/dev/null
 }
 
-# Builds the server image of this checkout (unless --no-build) and pulls the pinned Cypress image if it is missing. Exit 2 on failure.
-build_images() {
-  if [[ "$BUILD" == 1 ]]; then
-    say "building $SERVER_IMAGE from the Containerfile ($E build, cached layers)"
-    $E build -q --build-arg PODIUM_BUILD= -t "$SERVER_IMAGE" -f "$ROOT/Containerfile" "$ROOT" >/dev/null || { fail "image build failed"; exit 2; }
-  fi
-  $E image inspect "$SERVER_IMAGE" >/dev/null 2>&1 || { fail "$SERVER_IMAGE is not built; run without --no-build"; exit 2; }
-  if ! $E image inspect "$CYPRESS_IMAGE" >/dev/null 2>&1; then
-    say "pulling $CYPRESS_IMAGE (about 2.5 GB the first time)"
-    $E pull -q "$CYPRESS_IMAGE" >/dev/null || { fail "could not pull the Cypress image"; exit 2; }
-  fi
-}
-
 if [[ "$CMD" == down ]]; then
   remove_labelled ""
   if [[ -n "$(leftovers "")" ]]; then fail "something with label $LABEL is still there"; exit 1; fi
@@ -130,7 +110,6 @@ if [[ "$CMD" == down ]]; then
 fi
 
 $E info >/dev/null 2>&1 || { fail "$E is not usable ($E info fails). Is it running? On a Mac: podman machine start"; exit 2; }
-if [[ "$CMD" == build ]]; then build_images; say "images ready"; exit 0; fi
 [[ -f "$ROOT/node_modules/axe-core/axe.min.js" ]] || { fail "node_modules/axe-core is missing: run npm ci --ignore-scripts at the repo root (axe-core is a frontend dev dependency)"; exit 2; }
 
 RUN="$(date +%s)-$$"
@@ -189,8 +168,7 @@ teardown() {
   else
     remove_labelled "$RUN"
     rm -rf "$WORK"
-    # Leftovers fail a run that passed, but do not turn a setup error (2) into a spec failure (1).
-    if [[ -n "$(leftovers "$RUN")" ]]; then fail "containers, volumes or networks of run $RUN are still there"; ((code == 0)) && code=1; else say "removed every container, network and volume of run $RUN"; fi
+    if [[ -n "$(leftovers "$RUN")" ]]; then fail "containers, volumes or networks of run $RUN are still there"; code=1; else say "removed every container, network and volume of run $RUN"; fi
   fi
   exit "$code"
 }
@@ -290,18 +268,12 @@ server_create() {
   server_wait
 }
 
-# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV). With PostgreSQL, DB_MS is
-# set to the milliseconds the database's drop and recreate took, for the control timing line.
+# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV).
 server_fresh() {
-  local e v vars="" q="'" qq="'\\''" t0
-  DB_MS=0
+  local e v vars="" q="'" qq="'\\''"
   for e in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do v="${e#*=}"; vars+="${e%%=*}='${v//$q/$qq}'"$'\n'; done
   # With PostgreSQL the supervisor's wipe of /data does not empty the database: hold the server down, recreate the database, then start.
-  if [[ "$DB_KIND" == postgres ]]; then
-    t0="$(now_ms)"
-    server_kill hold </dev/null && pg_reset || return 1
-    DB_MS=$(($(now_ms) - t0))
-  fi
+  if [[ "$DB_KIND" == postgres ]]; then server_kill hold </dev/null && pg_reset || return 1; fi
   printf '%s' "$vars" | server_kill restart wipe || return 1
   server_wait && client_wait
 }
@@ -317,19 +289,8 @@ server_seed() {
 # A spec asks for a server restart, pause or resume by writing a request file into the mounted folder; this loop does it and
 # writes the answer. No port, no engine socket in the Cypress container. Request file: first line the command (restart, pause or
 # resume), then optional lines: env=NAME=VALUE, seed=<seed arguments>, noseed=1.
-# Each request logs one line with its time, a restart split into its parts, and the loop logs the count and total of each kind when
-# the run ends (#1130), so a run's log shows how much of it went to restarts.
-
-# Milliseconds since the epoch. perl's Time::HiRes is on macOS and ubuntu alike; date +%N is GNU only. Whole seconds without perl.
-now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000' 2>/dev/null || echo "$(($(date +%s) * 1000))"; }
-# Milliseconds as seconds with two decimals: 3420 -> 3.42s.
-secs() { printf '%d.%02ds' $(($1 / 1000)) $((($1 % 1000) / 10)); }
-
-# Totals per kind for the summary line (bash 3.2 has no associative arrays, and the kinds are fixed).
-N_RESTART=0 MS_RESTART=0 MS_DB=0 MS_SERVER=0 MS_SEED=0 N_PAUSE=0 MS_PAUSE=0 N_RESUME=0 MS_RESUME=0 N_OTHER=0 MS_OTHER=0
-
 handle() {
-  local cmd="" line noseed=0 t0 t1 ms rc parts="" word=failed
+  local cmd="" line noseed=0
   EXTRA_ENV=()
   SEED_ARGS=""
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -341,48 +302,12 @@ handle() {
       *) [[ -z "$cmd" ]] && cmd="$line" ;;
     esac
   done <"$CTL/cur"
-  t0="$(now_ms)"
   case "$cmd" in
-    restart)
-      server_fresh; rc=$?
-      t1="$(now_ms)"
-      ((DB_MS > 0)) && parts="database $(secs "$DB_MS"), "
-      parts+="server $(secs $((t1 - t0 - DB_MS)))"
-      MS_DB=$((MS_DB + DB_MS)) ; MS_SERVER=$((MS_SERVER + t1 - t0 - DB_MS))
-      if ((rc == 0)) && [[ $noseed != 1 ]]; then
-        server_seed; rc=$?
-        ms=$(($(now_ms) - t1)) ; parts+=", seed $(secs "$ms")" ; MS_SEED=$((MS_SEED + ms))
-      fi
-      ;;
-    pause) server_kill hold </dev/null; rc=$? ;;
-    resume) $E exec "$SRV" rm -f /tmp/hold && server_wait && client_wait; rc=$? ;;
-    *) fail "unknown control command: $cmd"; rc=1 ;;
+    restart) server_fresh && { [[ $noseed == 1 ]] || server_seed; } ;;
+    pause) server_kill hold </dev/null ;;
+    resume) $E exec "$SRV" rm -f /tmp/hold && server_wait && client_wait ;;
+    *) fail "unknown control command: $cmd"; return 1 ;;
   esac
-  ms=$(($(now_ms) - t0))
-  case "$cmd" in
-    restart) N_RESTART=$((N_RESTART + 1)) ; MS_RESTART=$((MS_RESTART + ms)) ;;
-    pause) N_PAUSE=$((N_PAUSE + 1)) ; MS_PAUSE=$((MS_PAUSE + ms)) ;;
-    resume) N_RESUME=$((N_RESUME + 1)) ; MS_RESUME=$((MS_RESUME + ms)) ;;
-    *) N_OTHER=$((N_OTHER + 1)) ; MS_OTHER=$((MS_OTHER + ms)) ;;
-  esac
-  ((rc == 0)) && word=ok
-  say "control ${cmd:-(empty)} $(secs "$ms")${parts:+ ($parts)} $word"
-  return "$rc"
-}
-
-# One line at the end of the run: how many requests of each kind, and their total time (a restart's split into its parts).
-control_summary() {
-  local all=$((N_RESTART + N_PAUSE + N_RESUME + N_OTHER)) line=""
-  if ((all == 0)); then say "control requests: none"; return; fi
-  if ((N_RESTART)); then
-    line="restart $N_RESTART in $(secs "$MS_RESTART") ("
-    ((MS_DB > 0)) && line+="database $(secs "$MS_DB"), "
-    line+="server $(secs "$MS_SERVER"), seed $(secs "$MS_SEED"))"
-  fi
-  ((N_PAUSE)) && line+="${line:+, }pause $N_PAUSE in $(secs "$MS_PAUSE")"
-  ((N_RESUME)) && line+="${line:+, }resume $N_RESUME in $(secs "$MS_RESUME")"
-  ((N_OTHER)) && line+="${line:+, }unknown $N_OTHER in $(secs "$MS_OTHER")"
-  say "control requests: $line"
 }
 
 controller() {
@@ -395,12 +320,19 @@ controller() {
     fi
     sleep 0.2
   done
-  control_summary
 }
 
 # ---- run --------------------------------------------------------------------------------------------------------------
 
-build_images
+if [[ "$BUILD" == 1 ]]; then
+  say "building $SERVER_IMAGE from the Containerfile ($E build, cached layers)"
+  $E build -q --build-arg PODIUM_BUILD= -t "$SERVER_IMAGE" -f "$ROOT/Containerfile" "$ROOT" >/dev/null || { fail "image build failed"; exit 2; }
+fi
+$E image inspect "$SERVER_IMAGE" >/dev/null 2>&1 || { fail "$SERVER_IMAGE is not built; run without --no-build"; exit 2; }
+if ! $E image inspect "$CYPRESS_IMAGE" >/dev/null 2>&1; then
+  say "pulling $CYPRESS_IMAGE (about 2.5 GB the first time)"
+  $E pull -q "$CYPRESS_IMAGE" >/dev/null || { fail "could not pull the Cypress image"; exit 2; }
+fi
 
 # The server container is recreated by a restart, and the browser (and Cypress's proxy) cache a name's address, so the server keeps a
 # fixed address on a network of its own. A /24 is picked at random from 10.200.0.0 to 10.249.255.0 and retried if it is taken.
@@ -411,9 +343,8 @@ for _ in 1 2 3 4 5 6 7 8; do
 done
 [[ -n "$SRV_IP" ]] || { fail "could not create the network"; exit 2; }
 say "run $RUN: server $SRV, network $NET, database $DB_KIND"
-# A server that does not start or seed (no memory for another container, a stale image) is a setup error, never a spec failure.
-server_create || exit 2
-server_seed || exit 2
+server_create || exit 1
+server_seed || exit 1
 say "server is $VERSION and seeded"
 
 controller &
@@ -424,17 +355,7 @@ $E run --rm --name "$CYC" --label "$LABEL=$RUN" --network "$NET" --shm-size=1g $
   -v "$ROOT/e2e:/e2e-src:ro" -v "$ROOT/scripts:/repo/scripts:ro" -v "$ROOT/package.json:/repo/package.json:ro" \
   -v "$ROOT/node_modules/axe-core/axe.min.js:/repo/axe.min.js:ro" -v "$CTL:/ctl" -v "$OUT:/out" \
   --entrypoint sh -w / "$CYPRESS_IMAGE" -c \
-  'mkdir -p /e2e && cp -R /e2e-src/cypress /e2e-src/support /e2e-src/cypress.config.cjs /e2e/ && cd /e2e && exec cypress run --project . --config-file cypress.config.cjs --browser chrome "$@"' sh ${REST[@]+"${REST[@]}"} \
-  | tee "$WORK/cypress.log"
+  'mkdir -p /e2e && cp -R /e2e-src/cypress /e2e-src/support /e2e-src/cypress.config.cjs /e2e/ && cd /e2e && exec cypress run --project . --config-file cypress.config.cjs --browser chrome "$@"' sh ${REST[@]+"${REST[@]}"}
 code=$?
-# Cypress exits with the number of failed tests, which can be any number, so the code alone cannot tell a spec failure from a container
-# the engine could not start (125 to 127) or that was killed (137, out of memory). Cypress prints "(Run Finished)" and its summary
-# only when it got through the run: a failure with that line is a spec failure (1), and one without it never finished, a setup error (2).
-if ((code == 0)); then
-  say "all specs passed"
-elif grep -q '(Run Finished)' "$WORK/cypress.log"; then
-  fail "Cypress reported failures (screenshots, if any, are in $OUT)"; code=1
-else
-  fail "the Cypress container exited $code before Cypress finished the run: the engine could not start it or it was killed (out of memory?)"; code=2
-fi
+[[ $code -eq 0 ]] && say "all specs passed" || fail "Cypress exited with $code (screenshots, if any, are in $OUT)"
 exit $code
