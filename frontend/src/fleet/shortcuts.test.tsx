@@ -8,6 +8,7 @@ import { fakeServer } from "./admin/fakeAdmin";
 import { stateFrom } from "./testState";
 import { makeState } from "./fixtures";
 import { SHORTCUTS_KEY, useShortcuts } from "./useShortcuts";
+import { openWallOptions } from "./wallOptionsTesting";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -18,7 +19,11 @@ afterEach(() => {
 
 const left = () => screen.getByRole("button", { name: /left pane/i });
 const right = () => screen.getByRole("button", { name: /right pane/i });
-const sw = () => screen.getByRole("switch", { name: /^Shortcuts/ });
+// The switch is in the Wall options drawer, which starts shut (#1129).
+const sw = () => {
+  openWallOptions();
+  return screen.getByRole("switch", { name: /^Shortcuts/ });
+};
 const press = (key: string) => fireEvent.keyDown(document, { key });
 const stored = () => JSON.parse(localStorage.getItem(SHORTCUTS_KEY) ?? "null");
 
@@ -77,6 +82,7 @@ describe("the Shortcuts switch", () => {
   it("is named Shortcuts, starts Off, has a hint that names the four keys, and is a focusable button", () => {
     render(<FleetView state={stateFrom()} />);
     const row = screen.getByRole("region", { name: "Display settings" });
+    openWallOptions();
     const s = within(row).getByRole("switch", { name: "Shortcuts Off" });
     expect(s).toBe(sw());
     expect(s).toHaveAttribute("aria-checked", "false");
@@ -91,9 +97,9 @@ describe("the Shortcuts switch", () => {
     expect(s.parentElement).toHaveClass("sw");
   });
 
-  it("sits in the banner's controls, between Refresh every and Theme", () => {
+  it("sits in the Wall options drawer, between Refresh every and Theme", () => {
     render(<FleetView state={stateFrom()} />);
-    const ctl = screen.getByRole("region", { name: "Display settings" }).querySelector(".bannerctl")!;
+    const ctl = screen.getByRole("region", { name: "Display settings" }).querySelector(".wallopts-body")!;
     const names = [...ctl.children].map((c) => c.textContent ?? "");
     expect(names[0]).toMatch(/^Refresh every/);
     expect(names[1]).toMatch(/^Shortcuts/);
@@ -160,6 +166,7 @@ describe("the Shortcuts switch", () => {
   it("is in the Board's, Traffic's and My reporters' rows too", () => {
     for (const props of [{ board: true }, { traffic: true }, { myReporters: true }]) {
       const { unmount } = render(<FleetView {...props} state={stateFrom()} />);
+      openWallOptions();
       expect(within(screen.getByRole("region", { name: "Display settings" })).getByRole("switch", { name: "Shortcuts Off" })).toBeInTheDocument();
       unmount();
     }
@@ -171,18 +178,22 @@ describe("the Shortcuts switch", () => {
     localStorage.setItem(SHORTCUTS_KEY, "true");
     const quiet = { onerror: null, readyState: 1, addEventListener() {}, close() {} };
     render(<HistoryView initialDay="2026-10-10" fleetOptions={{ open: () => quiet, fetchState: async () => makeState() }} />);
-    const s =within(screen.getByRole("region", { name: "Display settings" })).getByRole("switch", { name: "Shortcuts On" });
+    openWallOptions();
+    const s = within(screen.getByRole("region", { name: "Display settings" })).getByRole("switch", { name: "Shortcuts On" });
     fireEvent.click(s);
     expect(stored()).toBe(false);
     expect(s).toHaveAttribute("aria-checked", "false");
   });
 
-  it("is not on Admin, which has no shortcuts", async () => {
+  it("is on Admin too, which has no shortcuts yet but shows and saves the shared setting (#1129)", async () => {
     vi.stubGlobal("EventSource", class { onerror = null; readyState = 1; addEventListener() {} close() {} });
     fakeServer();
+    localStorage.setItem(SHORTCUTS_KEY, "true");
     render(<AdminView />);
     await screen.findByRole("region", { name: "Display settings" });
-    expect(screen.queryByRole("switch", { name: /^Shortcuts/ })).toBeNull();
+    fireEvent.click(sw());
+    expect(sw()).toHaveAttribute("aria-checked", "false");
+    expect(stored()).toBe(false);
   });
 });
 

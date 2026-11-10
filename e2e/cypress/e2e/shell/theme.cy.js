@@ -1,4 +1,5 @@
-// SPEC 8.1 Shell > Theme picker: the dropdown, the Light/Dark/System radios, the stored choice and the first paint.
+// SPEC 8.1 Shell > Theme picker: the dropdown, the Light/Dark/System radios, the stored choice and the first paint. The picker sits in the Wall options drawer
+// (#1129), which starts shut on every page load, so a test opens it before it reads the picker.
 // Chrome's own emulation of the operating system's color scheme, through the DevTools protocol Cypress already holds.
 const emulateScheme = (value) => cy.then(() => Cypress.automation('remote:debugger:protocol', { command: 'Emulation.setEmulatedMedia', params: { media: '', features: [{ name: 'prefers-color-scheme', value }] } }));
 
@@ -10,23 +11,27 @@ describe('theme picker', () => {
   it('defaults to Podium in System mode and follows the operating system', () => {
     cy.openConsole('#/');
     root().should('have.attr', 'data-theme-name', 'podium').and('have.attr', 'data-mode', 'system');
+    cy.openWallOptions();
     cy.contains('label.field', 'Theme').find('select').should('have.value', 'podium');
     cy.get('[role=radiogroup][aria-label=Mode] [role=radio][aria-checked=true]').should('have.text', 'System');
   });
 
   it('switches mode with the radios, remembers it in podium.theme and applies it again after a reload', () => {
     cy.openConsole('#/');
+    cy.openWallOptions();
     cy.contains('[role=radio]', 'Dark').click();
     root().should('have.attr', 'data-theme', 'dark').and('have.attr', 'data-mode', 'dark');
     cy.window().its('localStorage').invoke('getItem', 'podium.theme').then((raw) => expect(JSON.parse(raw)).to.deep.eq({ theme: 'podium', mode: 'dark' }));
     cy.reload();
     root().should('have.attr', 'data-theme', 'dark');
+    cy.openWallOptions();
     cy.contains('[role=radio]', 'Light').click();
     root().should('have.attr', 'data-theme', 'light');
   });
 
   it('moves through the radios with the arrow keys', () => {
     cy.openConsole('#/');
+    cy.openWallOptions();
     cy.contains('[role=radio]', 'Light').click().focus().type('{rightarrow}');
     cy.contains('[role=radio]', 'Dark').should('have.attr', 'aria-checked', 'true');
     cy.focused().should('have.text', 'Dark').type('{rightarrow}');
@@ -35,6 +40,7 @@ describe('theme picker', () => {
 
   it('changes the palette with the Theme dropdown', () => {
     cy.openConsole('#/');
+    cy.openWallOptions();
     cy.contains('label.field', 'Theme').find('select').select('Nord');
     root().should('have.attr', 'data-theme-name', 'nord');
     cy.contains('label.field', 'Theme').find('select').select('Podium');
@@ -68,8 +74,10 @@ describe('theme picker', () => {
 
   it('shows the same picker on History and Chat', () => {
     cy.visit('/#/history');
+    cy.openWallOptions();
     cy.get('[role=radiogroup][aria-label=Mode]').should('be.visible');
     cy.visit('/#/chat');
+    cy.openWallOptions();
     cy.get('[role=radiogroup][aria-label=Mode]').should('be.visible');
   });
 });

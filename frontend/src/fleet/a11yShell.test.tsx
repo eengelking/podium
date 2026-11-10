@@ -9,6 +9,7 @@ import { HistoryView } from "./HistoryView";
 import { AdminView } from "./admin/AdminView";
 import { fakeServer } from "./admin/fakeAdmin";
 import { atWall, stateFrom } from "./testState";
+import { openWallOptions } from "./wallOptionsTesting";
 import { makeSession } from "./fixtures";
 
 beforeEach(() => {
@@ -86,6 +87,8 @@ describe("the display settings row", () => {
   it("is a labelled region holding the refresh and theme controls", () => {
     render(<FleetView state={stateFrom()} />);
     const row = screen.getByRole("region", { name: "Display settings" });
+    expect(within(row).getByRole("button", { name: "Wall options" })).toHaveAttribute("aria-expanded", "false");
+    openWallOptions();
     expect(within(row).getByRole("combobox", { name: /refresh every/i })).toBeInTheDocument();
   });
 

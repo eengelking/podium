@@ -9,7 +9,7 @@ import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type Agen
 import { PAGE } from "./components/ActivityList";
 import type { AgentSort } from "./components/AgentTree";
 import { FocusView } from "./components/FocusView";
-import { ShortcutsSwitch, ThemePicker } from "./components/ThemePicker";
+import { WallOptions } from "./components/WallOptions";
 import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
@@ -23,8 +23,7 @@ import { NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/No
 import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
 import { useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
-import { isUrgentChange, readUpdateEvery, writeUpdateEvery } from "./updateInterval";
-import { UpdateEveryPicker } from "./components/UpdateEveryPicker";
+import { isUrgentChange, useUpdateEvery } from "./updateInterval";
 import { useResizable } from "./useResizable";
 import { useTheme } from "./useTheme";
 import { useShortcuts } from "./useShortcuts";
@@ -99,13 +98,9 @@ export interface FleetAppProps {
 
 function LiveFleetApp({ fleetOptions, board, myReporters, traffic, chat }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean; traffic?: boolean; chat?: boolean }) {
   const live = useFleet(fleetOptions);
-  const [every, setEvery] = useState(readUpdateEvery);
+  const [every, change] = useUpdateEvery();
   // The page below redraws once per chosen interval (#138); a session needing the viewer or a failure shows at once.
   const state = useHeldState(live, every * 1000, isUrgentChange);
-  const change = useCallback((n: number) => {
-    setEvery(n);
-    writeUpdateEvery(n);
-  }, []);
   return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} traffic={traffic} chat={chat} />;
 }
 
@@ -513,46 +508,28 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <div className="banner bad" role="alert">
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
-        ) : panes.collapsed.top ? null : myReporters ? (
+        ) : panes.collapsed.top ? null : (
           <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
-              <b>My reporters.</b> Your own machines, and which of them may message each other.
+              {myReporters ? (
+                <>
+                  <b>My reporters.</b> Your own machines, and which of them may message each other.
+                </>
+              ) : traffic ? (
+                <>
+                  <b>Traffic.</b> Which orchestrators message each other, and what they said.
+                </>
+              ) : chat ? (
+                <>
+                  <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
+                </>
+              ) : (
+                <>
+                  <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
+                </>
+              )}
             </span>
-            <div className="bannerctl">
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
-          </div>
-        ) : traffic ? (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              <b>Traffic.</b> Which orchestrators message each other, and what they said.
-            </span>
-            <div className="bannerctl">
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
-          </div>
-        ) : chat ? (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
-            </span>
-            <div className="bannerctl">
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
-          </div>
-        ) : (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
-            </span>
-            <div className="bannerctl">
-              <UpdateEveryPicker every={updateEvery} onChange={(n) => onUpdateEvery?.(n)} />
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
+            <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} every={updateEvery} onEvery={onUpdateEvery} />
           </div>
         )}
         {traffic ? (

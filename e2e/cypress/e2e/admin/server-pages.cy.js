@@ -4,18 +4,19 @@ describe('admin: server pages', () => {
   before(() => cy.resetServer({ seedArgs: '--recording' }));
 
   context('Security', () => {
+    // The banner's Wall options drawer holds a Shortcuts switch too (#1129), so the page's own switch is read inside Admin's main.
     beforeEach(() => cy.openAdmin('Security'));
     it('has the switch that lets reporters use the admin secret, and says what protects the tokens', () => {
       cy.get('h2#admin-leg-h').should('have.text', 'Reporting with the admin secret');
-      cy.get('[role=switch]').should('have.attr', 'aria-checked', 'true');
+      cy.get('main[aria-label=Admin] [role=switch]').should('have.attr', 'aria-checked', 'true');
       cy.contains('Tokens are stored hashed. Podium cannot show one again.');
       cy.contains('Wrong guesses at the admin secret are limited and logged in the Admin log.');
     });
     it('turns the admin-secret path off and on', () => {
-      cy.get('[role=switch]').click().should('have.attr', 'aria-checked', 'false');
+      cy.get('main[aria-label=Admin] [role=switch]').click().should('have.attr', 'aria-checked', 'false');
       cy.reload();
       cy.adminPage('Security');
-      cy.get('[role=switch]').should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
+      cy.get('main[aria-label=Admin] [role=switch]').should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
     });
   });
 

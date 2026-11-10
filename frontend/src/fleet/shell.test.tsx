@@ -7,6 +7,7 @@ import { useFleet, type FleetSource } from "./useFleet";
 import { useTheme } from "./useTheme";
 import { makeSession, makeState } from "./fixtures";
 import { stateFrom } from "./testState";
+import { openWallOptions } from "./wallOptionsTesting";
 
 beforeEach(() => {
   localStorage.clear();
@@ -204,6 +205,7 @@ describe("accessibility", () => {
     for (const i of imgs) expect(i).toHaveAccessibleName(/last 60 seconds/);
     const clickables = [...container.querySelectorAll("[onclick], [role=button]")];
     expect(clickables).toHaveLength(0);
+    openWallOptions();
     expect(screen.getByRole("combobox", { name: "Theme" })).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Mode" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "History" })).toHaveAttribute("href", "#/history");
@@ -283,6 +285,7 @@ describe("theme picker", () => {
   it("lists every theme, shows the current one, and changes theme and mode from the top bar", () => {
     osPrefers(true);
     render(<FleetView state={stateFrom()} />);
+    openWallOptions();
     const select = screen.getByRole("combobox", { name: "Theme" }) as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).toEqual(["podium", "solarized", "nord", "gruvbox", "catppuccin", "github"]);
     expect(select.value).toBe("podium");
@@ -301,6 +304,7 @@ describe("theme picker", () => {
   it("sits in the info row under the top bar, not in the top bar", () => {
     osPrefers(true);
     const { container } = render(<FleetView state={stateFrom()} />);
+    openWallOptions();
     const select = screen.getByRole("combobox", { name: "Theme" });
     expect(select.closest(".banner")).not.toBeNull();
     expect(container.querySelector(".top")!.contains(select)).toBe(false);

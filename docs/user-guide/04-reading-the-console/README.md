@@ -15,7 +15,8 @@ The console has a top bar, a left rail and a right panel.
   then the connection (`N reporters live`, or a red "disconnected, retrying"). Admin's top bar shows the same
   connection indicator beside its "Admin" pill. With built-in TLS on, a certificate pill can follow the connection:
   see [Certificates](../05-admin/09-certificates.md).
-- **Row under the top bar.** It has the theme picker.
+- **Row under the top bar.** It ends in **Wall options**, a small button that opens a drawer with Refresh every,
+  Shortcuts, Theme and Light / Dark / System. Click outside it or press Esc to close it.
 - **Left rail.** It lists your sessions. When there are more than fit, it shows a page at a time. See
   [Paging the list](07-paging-the-list.md).
 - **Right panel.** It shows [activity](11-activity.md).

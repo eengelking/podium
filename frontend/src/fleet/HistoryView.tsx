@@ -14,7 +14,7 @@ import { FocusView } from "./components/FocusView";
 import { StreamTopBar } from "./components/StreamTopBar";
 import type { UseFleetOptions } from "./useFleet";
 import type { PeersApi, RespondApi } from "./respondApi";
-import { ShortcutsSwitch, ThemePicker } from "./components/ThemePicker";
+import { WallOptions } from "./components/WallOptions";
 import { PAGE_SIZES, Pager } from "./admin/Pager";
 import { useTheme } from "./useTheme";
 import { useShortcuts } from "./useShortcuts";
@@ -176,10 +176,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
           <span>
             <b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.
           </span>
-          <div className="bannerctl">
-            <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-            <ThemePicker theme={theme} />
-          </div>
+          <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} />
         </div>
         <div className="history">
           <main className="main">

@@ -1,5 +1,5 @@
-/** Where a collapse control sits: the top bar's edge, the Kanban KPI rows', the Plan / Files column's, or a side pane's. Each place has its own class and the same look. */
-export type EdgePlace = "top" | "kpi" | "fold" | "left" | "right";
+/** Where a collapse control sits: the top bar's edge, the Kanban KPI rows', the Plan / Files column's, a side pane's, or in the banner's row as the Wall options pill (#1129). Each place has its own class and the same look. */
+export type EdgePlace = "top" | "kpi" | "fold" | "left" | "right" | "opts";
 
 // Chevrons in the 10 x 10 box the pill draws them in.
 const CHEVRON = {
@@ -18,6 +18,8 @@ export function EdgeTab(props: {
   tip?: string;
   /** The way the chevron points. */
   points: keyof typeof CHEVRON;
+  /** Draw the sliders glyph instead of the chevron: the shut Wall options pill, which opens something that has no edge to point at (#1129). */
+  sliders?: boolean;
   /** The id of what it shows and hides. */
   controls: string;
   expanded: boolean;
@@ -33,9 +35,17 @@ export function EdgeTab(props: {
       data-tip={props.tip ?? props.name}
       onClick={props.onToggle}
     >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d={CHEVRON[props.points]} />
-      </svg>
+      {props.sliders ? (
+        <svg viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M1.5 3.5h9M1.5 8.5h9" />
+          <circle className="knob" cx="4" cy="3.5" r="1.7" />
+          <circle className="knob" cx="8" cy="8.5" r="1.7" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d={CHEVRON[props.points]} />
+        </svg>
+      )}
     </button>
   );
 }

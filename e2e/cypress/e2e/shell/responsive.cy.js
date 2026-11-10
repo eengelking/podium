@@ -27,7 +27,7 @@ describe('responsive layout', () => {
   it('Admin has no horizontal page scroll at 400 px', () => {
     cy.atWidth(400);
     cy.openAdmin('Settings');
-    cy.get('[role=switch]').should('have.length.greaterThan', 5);
+    cy.get('main[aria-label=Admin] [role=switch]').should('have.length.greaterThan', 5);
     noPageScroll();
     cy.adminPage('Reporters');
     cy.get('table tbody tr').should('have.length', 4);

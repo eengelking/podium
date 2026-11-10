@@ -99,7 +99,8 @@ describe('wall mode', () => {
     cy.openConsole('#/');
     cy.get('body').type('w');
     cy.get('.podium').should('not.have.class', 'wall-on');
-    cy.get('[role=switch]').click();
+    cy.openWallOptions();
+    cy.shortcutsSwitch().click();
     stubFullscreen();
     cy.get('body').type('w');
     wallOn();

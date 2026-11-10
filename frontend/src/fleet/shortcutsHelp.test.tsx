@@ -6,6 +6,7 @@ import { HistoryView } from "./HistoryView";
 import { makeState } from "./fixtures";
 import { SHORTCUTS, SHORTCUTS_HINT } from "./components/ThemePicker";
 import { stateFrom } from "./testState";
+import { openWallOptions } from "./wallOptionsTesting";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -14,7 +15,11 @@ afterEach(() => {
   window.history.replaceState(null, "", "#/");
 });
 
-const sw = () => screen.getByRole("switch", { name: /^Shortcuts/ });
+// The switch is in the Wall options drawer, which starts shut (#1129).
+const sw = () => {
+  openWallOptions();
+  return screen.getByRole("switch", { name: /^Shortcuts/ });
+};
 const link = () => screen.getByRole("button", { name: "Shortcuts" });
 const dialog = () => screen.getByRole("dialog", { name: "Keyboard shortcuts" });
 
@@ -22,7 +27,8 @@ describe("the Shortcuts word while the switch is Off", () => {
   it("is a plain label: no button, no link, no dialog", () => {
     render(<FleetView state={stateFrom()} />);
     const row = screen.getByRole("region", { name: "Display settings" });
-    expect(within(row).getByText("Shortcuts")).toBeInTheDocument();
+    openWallOptions();
+    expect(within(row).getByText("Shortcuts")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Shortcuts" })).toBeNull();
     expect(row.querySelector(".kbd-link")).toBeNull();
   });
