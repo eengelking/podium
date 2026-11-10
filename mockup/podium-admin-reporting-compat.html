@@ -1,0 +1,295 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Admin Reporting: Harness updates</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #724 (features that stop after a harness update, version and platform spread), on the page shape of #484 and #720.
+   Colors, fonts and every report class come from tokens.css, fleet.css and admin.css; this file has no :root block and
+   restyles nothing. Only the demo chrome (.demo, .stage, .frame, .notes) and the page switcher (.pgv) are the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 760px; max-width: 100%; background: var(--bg); display: flex; flex-direction: column; }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.frame .podium > main { flex: 1; min-height: 0; }
+.frame .top[hidden] { display: none; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.pgv { display: contents; }
+.pgv[hidden] { display: none; }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Admin Reporting: Harness updates (#724)</b>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-pg="updates" aria-pressed="true">Harness updates</button>
+    <button type="button" data-pg="none" aria-pressed="false">Harness updates (no change)</button>
+    <button type="button" data-pg="people" aria-pressed="false">People and groups</button>
+    <button type="button" data-pg="tools" aria-pressed="false">Tools</button>
+    <button type="button" data-pg="usage" aria-pressed="false">Usage</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<header class="top" id="topbar">
+  <span class="pill">Admin</span>
+  <span class="pill"><span class="dot good" aria-hidden="true"></span>6 reporters</span>
+  <span class="pill warn" role="status" title="Update the podium-reporter mod from eengelking-marketplace"><span class="dot warn" aria-hidden="true"></span>2 reporters need an update</span>
+  <a class="pill warn" id="stopped-pill" href="#" title="Open Admin > Reporting > Harness updates"><span class="dot warn" aria-hidden="true"></span>3 features stopped after a harness update</a>
+</header>
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn" data-nav="usage">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn" data-nav="people">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn" data-nav="tools">Tools</button>
+        <button type="button" class="navbtn" data-nav="updates" aria-current="page">Harness updates</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+              </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+
+  <div class="apage"><div class="apage-in">
+
+  <!-- Harness updates, something stopped -->
+  <div class="pgv" id="pg-updates">
+    <div class="page-h"><div><h1>Harness updates</h1><p class="lead">What stopped arriving after Claude Code or OpenCode updated, and how many reporters run each version.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+    <section class="asec" aria-labelledby="h-f"><div class="asec-h"><div><h2 id="h-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="h-per">Period</label><select class="field" id="h-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="h-h">Harness</label><select class="field" id="h-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Each harness is compared only with its own earlier versions.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="h-s"><div class="asec-h"><div><h2 id="h-s">Features that stopped</h2><p class="hint">Something Podium or the reporter relied on that a newer version of a harness no longer sends. 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone"><div class="sum left">
+          <div><span class="big mono">3</span><span class="cap">features stopped</span></div>
+          <div><span class="big mono">2</span><span class="cap">harness versions</span></div>
+          <div><span class="big mono">6</span><span class="cap">reporters on them now</span></div>
+        </div></div>
+        <div class="tw2"><table class="ptab" aria-label="Features that stopped after a harness update">
+          <thead><tr><th scope="col">Harness and version</th><th scope="col">What stopped</th><th scope="col">Kind</th><th scope="col" class="n">Seen before</th><th scope="col" class="n">Seen now</th><th scope="col" class="n">Reporters on it</th><th scope="col">What it affects</th></tr></thead>
+          <tbody>
+            <tr><td class="who mono">Claude Code 2.1.319</td><td class="mono">tool_response.duration_ms</td><td>Field</td><td class="n mono">98%</td><td class="n mono">0%</td><td class="n mono">4</td><td>Call duration on Tools shows a dash.</td></tr>
+            <tr><td class="who mono">Claude Code 2.1.319</td><td class="mono">tool.check</td><td>Hook</td><td class="n mono">96%</td><td class="n mono">0%</td><td class="n mono">4</td><td>Permission prompts are not counted.</td></tr>
+            <tr><td class="who mono">OpenCode 1.4.2</td><td class="mono">webfetch</td><td>Tool name</td><td class="n mono">31%</td><td class="n mono">2%</td><td class="n mono">2</td><td>Calls by tool shows no WebFetch for OpenCode.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note-line"><b>Seen before and seen now are the share of sessions that sent it</b>, on the previous version of the same harness and on the version in the row. A feature is listed when at least 25% of sessions sent it before, under a tenth of that share send it now, and at least 20 sessions and 2 reporters are on the new version. Sessions older than 30 days are counted from the daily rollup, which holds names and counts only.</div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 3</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="h-b"><div class="asec-h"><div><h2 id="h-b">Reporters behind the newest version</h2><p class="hint">Reporters on a version older than the newest Podium had seen for that harness that week. 2026-09-21 to 2026-10-19.</p></div></div>
+      <div class="panel">
+        <div class="tool alone"><div class="sum left">
+          <div><span class="big mono">2 of 8</span><span class="cap">reporters behind this week</span></div>
+          <div><span class="big mono">11 of 15</span><span class="cap">most behind, week of 2026-10-05</span></div>
+        </div></div>
+        <div class="chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">11</span><span style="top:70px">5</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" role="img" aria-label="Reporters behind the newest version per week: 5 weeks from 2026-09-21 to 2026-10-19, highest 11 in the week of 2026-10-05, 2 in the week so far." preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+              <rect class="rbar" x="18" y="60.9" width="84" height="49.1"/><rect class="rbar" x="138" y="69.1" width="84" height="40.9"/><rect class="rbar" x="258" y="20" width="84" height="90"/><rect class="rbar" x="378" y="69.1" width="84" height="40.9"/><rect class="rbar" x="498" y="93.6" width="84" height="16.4"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div>
+          <div class="hint" aria-hidden="true">Highest: 11 reporters, week of 2026-10-05.</div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Reporters behind the newest version, by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Reporters</th><th scope="col" class="n">On the newest</th><th scope="col" class="n">Behind</th><th scope="col" class="n">Share behind</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19 (so far)</td><td class="n mono">8</td><td class="n mono">6</td><td class="n mono">2</td><td class="n mono">25%</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">13</td><td class="n mono">8</td><td class="n mono">5</td><td class="n mono">38%</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">15</td><td class="n mono">4</td><td class="n mono">11</td><td class="n mono">73%</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono">14</td><td class="n mono">9</td><td class="n mono">5</td><td class="n mono">36%</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono">12</td><td class="n mono">6</td><td class="n mono">6</td><td class="n mono">50%</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Claude Code, this week</th><td class="n mono">6</td><td class="n mono">4</td><td class="n mono">2</td><td class="n mono">33%</td></tr><tr><th scope="row">OpenCode, this week</th><td class="n mono">2</td><td class="n mono">2</td><td class="n mono">0</td><td class="n mono">0%</td></tr></tfoot>
+        </table></div>
+        <div class="note-line">The Harness versions table on Tools shows reporters per version; this adds how many were behind in each week. A reporter counts in the week it reported.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Harness updates, nothing stopped -->
+  <div class="pgv" id="pg-none" hidden>
+    <div class="page-h"><div><h1>Harness updates</h1><p class="lead">What stopped arriving after Claude Code or OpenCode updated, and how many reporters run each version.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+    <section class="asec" aria-labelledby="n-s"><div class="asec-h"><div><h2 id="n-s">Features that stopped</h2><p class="hint">Something Podium or the reporter relied on that a newer version of a harness no longer sends.</p></div></div>
+      <div class="panel">
+        <div class="note-line"><b>Nothing has stopped.</b> No harness version in the last 30 days sends less than the version before it. A version that changed nothing is not listed.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- People and groups: platform and reporter version -->
+  <div class="pgv" id="pg-people" hidden>
+    <div class="page-h"><div><h1>People and groups</h1><p class="lead">Who is in Podium, who reported, and which reporters and platforms are in use. Only the new section is drawn.</p></div></div>
+    <section class="asec" aria-labelledby="p-h"><div class="asec-h"><div><h2 id="p-h">Platform and reporter version</h2><p class="hint">What each reporter runs on today. The platform is the operating system and CPU the reporter sees; no host name, user name or path.</p></div></div>
+      <div class="panel">
+        <div class="tool"><div class="f"><label class="lab" for="p-h2">Harness</label><select class="field" id="p-h2"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div></div>
+        <div class="tw2"><table class="ptab" aria-label="Reporters by platform and version">
+          <thead><tr><th scope="col">Harness</th><th scope="col">Platform</th><th scope="col">Reporter version</th><th scope="col" class="n">Reporters</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+            <tr><td class="who">Claude Code</td><td>macOS, arm64</td><td class="mono">1.5.1</td><td class="n mono">4</td><td>Current</td></tr>
+            <tr><td class="who">Claude Code</td><td>Linux, x64</td><td class="mono">1.5.1</td><td class="n mono">1</td><td>Current</td></tr>
+            <tr><td class="who">Claude Code</td><td>macOS, arm64</td><td class="mono">1.4.0</td><td class="n mono">1</td><td>Update available</td></tr>
+            <tr><td class="who">OpenCode</td><td>Linux, x64</td><td class="mono">1.5.1</td><td class="n mono">1</td><td>Current</td></tr>
+            <tr><td class="who">OpenCode</td><td>Windows, x64</td><td class="mono">1.3.2</td><td class="n mono">1</td><td>Needs an update</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Reporters</th><td></td><td></td><td class="n mono">8</td><td></td></tr></tfoot>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 5 of 5</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Tools: slash commands and skills -->
+  <div class="pgv" id="pg-tools" hidden>
+    <div class="page-h"><div><h1>Tools</h1><p class="lead">Which tools sessions call, how many calls a session makes, and which harness versions are in use. Only the new section is drawn.</p></div></div>
+    <section class="asec" aria-labelledby="t-h"><div class="asec-h"><div><h2 id="t-h">Slash commands and skills</h2><p class="hint">How often each was used, by how many people, 2026-09-21 to 2026-10-20. Only the name is kept: never the arguments or the text.</p></div></div>
+      <div class="panel">
+        <div class="tool"><div class="f"><label class="lab" for="t-hf">Harness</label><select class="field" id="t-hf"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div></div>
+        <div class="tw2"><table class="ptab" aria-label="Slash commands and skills">
+          <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col" class="n">Claude Code</th><th scope="col" class="n">OpenCode</th><th scope="col" class="n">Total</th><th scope="col" class="n">People</th></tr></thead>
+          <tbody>
+            <tr><td class="who mono">/clear</td><td>Slash command</td><td class="n mono">212</td><td class="n mono">41</td><td class="n mono">253</td><td class="n mono">10</td></tr>
+            <tr><td class="who mono">/compact</td><td>Slash command</td><td class="n mono">64</td><td class="n mono">9</td><td class="n mono">73</td><td class="n mono">8</td></tr>
+            <tr><td class="who mono">/code-review</td><td>Skill</td><td class="n mono">38</td><td class="n mono muted" title="OpenCode does not report skills">–</td><td class="n mono">38</td><td class="n mono">5</td></tr>
+            <tr><td class="who mono">/simplify</td><td>Skill</td><td class="n mono">17</td><td class="n mono muted" title="OpenCode does not report skills">–</td><td class="n mono">17</td><td class="n mono">3</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note-line">A dash means that harness does not report it, not that it was never used: OpenCode reports no skills. Where a reporter cannot see commands or skills at all, this section is not shown.</div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 4 of 4</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Usage: projects and branches per person -->
+  <div class="pgv" id="pg-usage" hidden>
+    <div class="page-h"><div><h1>Usage</h1><p class="lead">Who used Podium, how many sessions they started, and how many ran at once. Only the new section is drawn.</p></div></div>
+    <section class="asec" aria-labelledby="u-h"><div class="asec-h"><div><h2 id="u-h">Projects and branches per person</h2><p class="hint">How many projects and git branches each person worked in, 2026-09-21 to 2026-10-20. Names that are already on the wall; no paths.</p></div></div>
+      <div class="panel">
+        <div class="tool"><div class="f"><label class="lab" for="u-g">Group</label><select class="field" id="u-g"><option>All groups</option><option>Platform</option><option>Research</option></select></div>
+          <div class="f"><label class="lab" for="u-hf">Harness</label><select class="field" id="u-hf"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div></div>
+        <div class="tw2"><table class="ptab" aria-label="Projects and branches per person">
+          <thead><tr><th scope="col">Person</th><th scope="col">Group</th><th scope="col" class="n">Projects</th><th scope="col" class="n">Branches</th><th scope="col">Most used project</th></tr></thead>
+          <tbody>
+            <tr><td class="who">Maya Okafor</td><td>Platform</td><td class="n mono">4</td><td class="n mono">19</td><td class="mono">podium</td></tr>
+            <tr><td class="who">Jonas Weber</td><td>Research</td><td class="n mono">3</td><td class="n mono">11</td><td class="mono">eval-harness</td></tr>
+            <tr><td class="who">Cai Lindqvist</td><td>Platform</td><td class="n mono">1</td><td class="n mono">2</td><td class="mono">podium</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Everyone in the filter</th><td></td><td class="n mono">6</td><td class="n mono">27</td><td></td></tr></tfoot>
+        </table></div>
+        <div class="note-line">A branch counts once per person, on any day in the period. The Total row counts each project and branch once, not the sum of the rows. A person with no git project shows a dash.</div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 6</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 2</span><button type="button" class="btn sm">Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>One new page, Harness updates</b>, in the Reporting group after Tools. It holds what is new in the issue: features that stopped, and reporters behind the newest version. Every other figure goes where its neighbours already are, as the earlier mockups did: platform and reporter version on People and groups (which already lists reporter versions), slash commands and skills on Tools, projects and branches per person on Usage.</li>
+    <li><b>Features that stopped.</b> The reporter counts, per session, which hooks fired, which event fields were present and which tool names arrived; the server keeps those as names and counts per harness version per day. A feature is listed against the first version that lost it, with the share of sessions that sent it before and now, the reporters on that version, and what on the console it affects. A version with no change shows nothing, and the page says "Nothing has stopped".</li>
+    <li><b>Compatibility notice (SPEC 6.8).</b> The top bar already says "2 reporters need an update". A second pill, "3 features stopped after a harness update", links to this page. It shows only while Admin is unlocked, because the page is Admin-only, and only when something is listed.</li>
+    <li><b>Reporters behind the newest version</b> extends the Harness versions table on Tools: the same weeks, with how many reporters were on an older version than the newest Podium had seen for that harness that week, as one neutral-ink chart and a table with a row per harness. Versions are compared only within one harness.</li>
+    <li><b>All harnesses.</b> Every section covers Claude Code and OpenCode by default, has a Harness filter, and carries a harness column in CSV and JSON. A figure one harness cannot supply shows a dash with the reason (OpenCode reports no skills).</li>
+    <li>Only names and counts are stored. No arguments, paths, prompts, command text, host names or user names. The platform is the OS and CPU family.</li>
+    <li>Nothing here is new to the standards: the pill, tables, summary figures, chart, pager and note line all exist. No <code>:root</code> block, no new class.</li>
+  </ul>
+  <h2>Decisions for the maintainer</h2>
+  <ul>
+    <li><b>The signal and its threshold (issue checklist).</b> Proposed: listed when at least 25% of the previous version's sessions sent it, under a tenth of that share send it now, and the new version has at least 20 sessions from at least 2 reporters. The numbers keep one machine, a rarely used tool or a quiet week from raising a false alarm, but they also mean a feature used by few sessions can stop without being listed. Agree, or change them?</li>
+    <li><b>Which names are watched.</b> Hooks the reporter registers and event fields it reads are a closed list, so a drop there is real. Tool names are open (a person may simply stop using WebFetch), so a tool name is listed as <i>Tool name</i> and the page says it may be a habit, not a break. Keep tool names in, or limit the page to hooks and fields?</li>
+    <li><b>Slash commands and skills.</b> The issue says only if the reporter already sees them. This is drawn on that assumption; the build confirms it per harness, and a harness that cannot see them shows a dash, or the section is left out if neither can.</li>
+    <li><b>Branch and project names.</b> Drawn as counts, plus the most used project name (already on the wall). Branch names are not listed. Say if you want the names.</li>
+  </ul>
+  <h2>What it needs underneath (not drawn)</h2>
+  <ul>
+    <li>A report field for hook, event-field and tool-name counts per session, sent by every reporter (<code>plugin/core/</code> for the shared part, each harness for its own hooks). A reporter that predates it sends nothing and is left out of the comparison, and the page says so.</li>
+    <li>A daily summary table of those counts per harness version, kept 395 days like the others. A schema change, made in every storage adapter in the same PR with a contract case in each, and the reporter's OS and CPU family as a column on the reporter row.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function page(id) {
+    document.querySelectorAll(".pgv").forEach(function (p) { p.hidden = p.id !== "pg-" + id; });
+    document.querySelectorAll("[data-nav]").forEach(function (b) { var n = b.getAttribute("data-nav"); if (n === id || (id === "none" && n === "updates")) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    document.getElementById("stopped-pill").hidden = id === "none";
+    press("[data-pg]", "data-pg", id);
+  }
+  document.querySelectorAll("[data-pg]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-pg")); }); });
+  document.querySelectorAll("[data-nav]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-nav")); }); });
+  document.getElementById("stopped-pill").addEventListener("click", function (e) { e.preventDefault(); page("updates"); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  root.setAttribute("data-theme", "dark");
+  page("updates");
+})();
+</script>
