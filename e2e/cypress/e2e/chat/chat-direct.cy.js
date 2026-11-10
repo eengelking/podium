@@ -33,7 +33,7 @@ describe('chat: the controls of a Direct Message', () => {
   it('offers the three controls on the "..." button and on a right-click, to the owner only', () => {
     openDm();
     openMenu(DM).should('have.attr', 'aria-label', NAME);
-    cy.tid('chat-menu').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Pause link', 'Remove link…', 'Delete conversation…']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Pause link', 'Remove link…', 'Delete conversation…']));
     cy.focused().type('{esc}');
     cy.tid('chat-menu').should('not.exist');
     cy.chatRow(DM).rightclick();
@@ -114,9 +114,10 @@ describe('chat: the controls of a Direct Message', () => {
 
   it('asks before it deletes a conversation, then removes it from the list and falls back to General', () => {
     openDm();
-    openMenu(DM).find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
+    openMenu(DM).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Delete conversation…').click();
     // The count in the question is the number of messages the thread shows (the merged ones), not a figure of its own.
+    // Read once on purpose: openDm showed the thread, which is drawn whole after one load (#1137).
     cy.tid('chat-message').its('length').then((n) => {
       cy.tid('chat-confirm').should('have.attr', 'aria-label', 'Delete conversation').and('contain.text', `Its ${n} messages are removed for you and an Admin, and it leaves your list.`);
     });
@@ -138,7 +139,7 @@ describe('chat: People and agents', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     openMenu('a:e2e-s-invoice').should('have.attr', 'aria-label', 'Actions for invoice-v2');
-    cy.tid('chat-menu').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Open orchestration page']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').should('have.attr', 'href', '#/?open=e2e-s-invoice');
     cy.focused().type('{esc}');
     cy.tid('chat-menu').should('not.exist');
@@ -159,7 +160,7 @@ describe('chat: People and agents', () => {
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'Is the arm64 build ready?').and('contain.text', 'Waiting:');
     cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
     // A conversation with one agent has no link to pause: only Delete is offered.
-    openMenu('d:dm:e2e-s-arm64-check|person:ed').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
+    openMenu('d:dm:e2e-s-arm64-check|person:ed').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
     cy.focused().type('{esc}');
   });
 
@@ -181,7 +182,7 @@ describe('chat: People and agents', () => {
     cy.openConsole('#/chat');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.get('[aria-label="In this conversation"] button.m').first().click();
-    cy.tid('chat-menu').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Open orchestration page']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').click();
     cy.location('hash').should('match', /^#\/\?open=e2e-s-(invoice|tester)$/);
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');

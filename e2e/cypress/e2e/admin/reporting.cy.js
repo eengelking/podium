@@ -11,7 +11,7 @@ describe('admin: reporting', () => {
       cy.openAdmin(name);
       cy.get('h1').should('have.text', name);
       cy.contains('h2', 'Period and filters');
-      period().find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Last 7 days', 'Last 30 days', 'Last 90 days', 'This month', 'Last month', 'Custom']));
+      period().find('option').should(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Last 7 days', 'Last 30 days', 'Last 90 days', 'This month', 'Last month', 'Custom']));
       period().should('have.value', '30d');
       if (name !== 'Admin activity') cy.contains('Podium has no history before').should('exist');
       cy.get('table.ptab').should('exist');
@@ -27,7 +27,7 @@ describe('admin: reporting', () => {
 
   it('Sessions: breaks the sessions down by outcome, model, effort or plan', () => {
     cy.openAdmin('Sessions');
-    cy.contains('label', 'Break down by').parent().find('select').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Outcome', 'Model', 'Effort', 'Plan']));
+    cy.contains('label', 'Break down by').parent().find('select').find('option').should(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Outcome', 'Model', 'Effort', 'Plan']));
     cy.contains('label', 'Break down by').parent().find('select').select('Model');
     cy.contains('td', 'claude-opus-5-5').should('exist');
   });
@@ -180,6 +180,7 @@ describe('admin: reporting', () => {
 
   it('Tools: exports calls by tool with a column per harness, as the table shows them', () => {
     cy.openAdmin('Tools');
+    // Read once on purpose: the table is drawn whole from one load of the report, so its headers are final when it exists (#1137).
     cy.get('table[aria-label="Calls by tool"] thead th').then(($th) => {
       const heads = [...$th].map((t) => t.textContent.trim()).filter(Boolean);
       cy.task('download:clear');

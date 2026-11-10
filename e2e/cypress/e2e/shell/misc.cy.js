@@ -75,6 +75,6 @@ describe('People view: order by Spend', () => {
     cy.get('[aria-label="Order by"]').contains('button', 'Spend').click().should('have.attr', 'aria-pressed', 'true');
     cy.get('button.bh').first().should('contain.text', 'Ed');
     cy.get('[aria-label="Group by"]').contains('button', 'Group').click();
-    cy.get('button.bh').then(($b) => expect([...$b].map((b) => b.textContent)).to.satisfy((t) => t.some((x) => x.includes('Platform')) && t.some((x) => x.includes('Unassigned'))));
+    cy.get('button.bh').should(($b) => expect([...$b].map((b) => b.textContent)).to.satisfy((t) => t.some((x) => x.includes('Platform')) && t.some((x) => x.includes('Unassigned'))));
   });
 });

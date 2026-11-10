@@ -8,7 +8,7 @@ describe('admin: About, with reporters of other versions', () => {
   beforeEach(() => cy.openAdmin('About'));
 
   it('is the last page of the Server group, after Stored activity', () => {
-    cy.get('nav[aria-label="Admin sections"] [role=group][aria-label="Server"] button.navbtn').then(($b) => {
+    cy.get('nav[aria-label="Admin sections"] [role=group][aria-label="Server"] button.navbtn').should(($b) => {
       expect([...$b].map((b) => b.childNodes[0].textContent).slice(-2)).to.deep.eq(['Stored activity', 'About']);
     });
     cy.get('nav [aria-current=page]').should('have.text', 'About');
@@ -17,7 +17,7 @@ describe('admin: About, with reporters of other versions', () => {
 
   it('shows the server: version, running as a container, when it started and the system, and no Build row on a release', () => {
     cy.contains('h2', 'Podium server');
-    facts('Podium server').then(($r) => expect([...$r].map((r) => r.querySelector('td').textContent)).to.deep.eq(['Version', 'Running as', 'Started', 'System']));
+    facts('Podium server').should(($r) => expect([...$r].map((r) => r.querySelector('td').textContent)).to.deep.eq(['Version', 'Running as', 'Started', 'System']));
     fact('Podium server', 'Version').invoke('text').should('match', /^\d+\.\d+\.\d+$/);
     fact('Podium server', 'Running as').should('have.text', 'Container');
     fact('Podium server', 'Started').invoke('text').should('match', / · up \d+ (min|h)|· up \d+ days? \d+ h/);
@@ -26,7 +26,7 @@ describe('admin: About, with reporters of other versions', () => {
 
   it('lists what it is built with', () => {
     cy.contains('h2', 'Built with');
-    facts('Runtime and libraries').then(($r) => expect([...$r].map((r) => r.querySelector('td').textContent)).to.deep.eq(['Node.js', 'Express', 'React', 'TypeScript']));
+    facts('Runtime and libraries').should(($r) => expect([...$r].map((r) => r.querySelector('td').textContent)).to.deep.eq(['Node.js', 'Express', 'React', 'TypeScript']));
     fact('Runtime and libraries', 'Node.js').invoke('text').should('match', /^v\d+\.\d+\.\d+$/);
     fact('Runtime and libraries', 'Express').invoke('text').should('match', /^\d+\.\d+\.\d+/);
     fact('Runtime and libraries', 'React').invoke('text').should('match', /^\d+\.\d+\.\d+/);
@@ -43,7 +43,7 @@ describe('admin: About, with reporters of other versions', () => {
 
   it('lists the reporters by version, newest first, with the outdated and the newer flagged and the range this server reads', () => {
     cy.contains('h2', 'Reporters');
-    cy.get('[aria-label="Reporter versions"] thead th').then(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Reporter', 'Version', 'This server reads', 'Machines']));
+    cy.get('[aria-label="Reporter versions"] thead th').should(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Reporter', 'Version', 'This server reads', 'Machines']));
     const rows = () => cy.get('[aria-label="Reporter versions"] tbody tr');
     rows().should('have.length', 3);
     rows().each(($r) => {

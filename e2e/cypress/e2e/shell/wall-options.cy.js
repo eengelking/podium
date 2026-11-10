@@ -132,7 +132,7 @@ describe('wall options', () => {
     cy.atWidth(400);
     cy.openConsole('#/');
     cy.openWallOptions();
-    cy.document().then((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
+    cy.document().should((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
     cy.displaySettings().find('b, .edge-tab-opts, select, [role=switch], [role=radio]').each(($el) => {
       const r = $el[0].getBoundingClientRect();
       expect(r.left, `${$el[0].textContent.trim() || $el[0].tagName} starts inside the window`).to.be.at.least(0);

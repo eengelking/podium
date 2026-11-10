@@ -21,7 +21,7 @@ describe('theme picker', () => {
     cy.openWallOptions();
     cy.contains('[role=radio]', 'Dark').click();
     root().should('have.attr', 'data-theme', 'dark').and('have.attr', 'data-mode', 'dark');
-    cy.window().its('localStorage').invoke('getItem', 'podium.theme').then((raw) => expect(JSON.parse(raw)).to.deep.eq({ theme: 'podium', mode: 'dark' }));
+    cy.window().its('localStorage').invoke('getItem', 'podium.theme').should((raw) => expect(JSON.parse(raw)).to.deep.eq({ theme: 'podium', mode: 'dark' }));
     cy.reload();
     root().should('have.attr', 'data-theme', 'dark');
     cy.openWallOptions();

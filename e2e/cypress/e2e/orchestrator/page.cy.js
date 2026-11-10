@@ -150,6 +150,7 @@ describe('orchestrator page', () => {
     cy.contains('h2', 'Agents');
     cy.contains('4 launched, 1 by other agents');
     cy.get('button.trow').should('have.length', 5);
+    // Read once on purpose: the five rows are asserted above, and a column sort is applied by the page in the same tick as the click (#1137).
     const ids = () => cy.get('button.trow').then(($r) => [...$r].map((r) => r.id || 'root'));
     cy.contains('.trow.hd button', 'Context').click();
     ids().then((first) => {

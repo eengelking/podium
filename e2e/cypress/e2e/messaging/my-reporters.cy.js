@@ -40,7 +40,7 @@ describe('my reporters', () => {
     it('lists the three reporters of this person with system, messaging, version and live orchestrators', () => {
       cy.get('table.ptab tbody tr').should('have.length', 3);
       // The cells, in order: State, Machine, System, Messaging, Reporter version, Last report, Live orchestrators.
-      cy.readFile('/repo/package.json').then((pkg) => cy.contains('table.ptab tr', 'ed-mbp').find('td').then(($td) => {
+      cy.readFile('/repo/package.json').then((pkg) => cy.contains('table.ptab tr', 'ed-mbp').find('td').should(($td) => {
         const cell = (i) => $td.eq(i).text().trim();
         expect(cell(0)).to.contain('Reporting');
         expect(cell(2)).to.contain('macOS 26.1');
@@ -54,7 +54,10 @@ describe('my reporters', () => {
 
     it('turns "Trust my own reporters" on and off', () => {
       cy.get('b#pm-trust-n').parent().parent().find('[role=switch]').as('trust');
+      // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+      cy.intercept('PUT', '**/peers/defaults').as('saveDefaults');
       cy.get('@trust').should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
+      cy.wait('@saveDefaults');
       cy.reload();
       cy.get('@trust').should('have.attr', 'aria-checked', 'true').click().should('have.attr', 'aria-checked', 'false');
     });
@@ -69,14 +72,22 @@ describe('my reporters', () => {
     it('keeps a limit lower than the Admin\'s and says what the Admin allows', () => {
       cy.get('#pm-lim-roundTrips').should('have.value', '10');
       cy.contains("Uses the Admin's limit, 10.");
+      // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+      cy.intercept('PUT', '**/peers/defaults').as('saveDefaults');
       cy.get('#pm-lim-roundTrips').clear().type('5').blur();
+      cy.wait('@saveDefaults');
       cy.reload();
       cy.get('#pm-lim-roundTrips').should('have.value', '5');
       cy.get('#pm-lim-roundTrips').clear().type('10').blur();
+      // The put-back is waited for too, so it cannot land in the next test (#1137).
+      cy.wait('@saveDefaults');
     });
 
     it('changes who can message whom in the grid and keeps it over a reload', () => {
+      // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+      cy.intercept('PUT', '**/peers/rights').as('saveRight');
       cy.get('select[id="g-e2e0000ci001-e2e0000mbp01"]').select('Can see');
+      cy.wait('@saveRight');
       cy.reload();
       cy.get('select[id="g-e2e0000ci001-e2e0000mbp01"]').find(':selected').should('contain.text', 'Can see');
     });

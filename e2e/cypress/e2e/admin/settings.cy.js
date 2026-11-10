@@ -74,13 +74,18 @@ describe('admin: settings', () => {
 
   it('saves a lower messaging limit and refuses a bad one in words', () => {
     cy.get('#lim-roundTrips').should('have.value', '10');
+    // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+    cy.intercept('PUT', '**/api/admin/settings').as('saveSettings');
     cy.get('#lim-roundTrips').clear().type('8').blur();
+    cy.wait('@saveSettings');
     cy.reload();
     cy.adminPage('Settings');
     cy.get('#lim-roundTrips').should('have.value', '8');
     cy.get('#lim-roundTrips').clear().type('0').blur();
     cy.get('#lim-roundTrips').closest('.srow').invoke('text').should('contain', 'Round trips must be a whole number from 1 to 100. Nothing was saved. The saved value, 8, still applies.');
     cy.get('#lim-roundTrips').clear().type('10').blur();
+    // The put-back is waited for too, so it cannot land in the next test (#1137).
+    cy.wait('@saveSettings');
   });
 
   it('refuses a recording limit that is out of range, in words, and saves nothing', () => {
@@ -102,7 +107,10 @@ describe('admin: settings', () => {
     cy.get('#rec-b').should('have.value', '4');
     cy.get('#rec-c').should('have.value', '512');
     cy.get('#rec-n').clear().type('12');
+    // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+    cy.intercept('PUT', '**/api/admin/settings').as('saveSettings');
     cy.get('#rec-n').closest('form').contains('button', 'Save').click();
+    cy.wait('@saveSettings');
     cy.reload();
     cy.adminPage('Settings');
     cy.get('#rec-n').should('have.value', '12');
