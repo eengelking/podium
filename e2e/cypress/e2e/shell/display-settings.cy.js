@@ -1,27 +1,32 @@
-// SPEC 8.1 Shell > Refresh every, Shortcuts switch, Legend, panes, resizing and collapsing.
+// SPEC 8.1 Shell > Refresh every, Shortcuts switch, Legend, panes, resizing and collapsing. Refresh every and Shortcuts sit in the Wall options drawer (#1129),
+// which starts shut on every page load, so a test opens it before it reads one; the drawer itself is wall-options.cy.js.
 describe('display settings', () => {
   before(() => cy.resetServer());
 
-  const shortcutSwitch = () => cy.get('[role=switch]');
+  const shortcutSwitch = () => cy.shortcutsSwitch();
 
   it('offers Refresh every 2s to 60s, defaults to 2s and remembers a change in podium.updateEvery', () => {
     cy.openConsole('#/');
+    cy.openWallOptions();
     cy.contains('label.field', 'Refresh every').find('select').as('every');
     cy.get('@every').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['2s', '5s', '10s', '20s', '30s', '60s']));
     cy.get('@every').should('have.value', '2');
     cy.get('@every').select('10s');
     cy.window().its('localStorage').invoke('getItem', 'podium.updateEvery').should('eq', '10');
     cy.reload();
+    cy.openWallOptions();
     cy.contains('label.field', 'Refresh every').find('select').should('have.value', '10');
   });
 
   it('ignores a stored refresh value that is not one of the six', () => {
     cy.visit('/', { onBeforeLoad: (win) => win.localStorage.setItem('podium.updateEvery', '7') });
+    cy.openWallOptions();
     cy.contains('label.field', 'Refresh every').find('select').should('have.value', '2');
   });
 
   it('leaves the single-key shortcuts off until the Shortcuts switch is on', () => {
     cy.openConsole('#/');
+    cy.openWallOptions();
     shortcutSwitch().should('have.attr', 'aria-checked', 'false');
     cy.get('body').type('[');
     cy.get('#podium-rail-body').should('be.visible');
@@ -36,7 +41,8 @@ describe('display settings', () => {
 
   it('makes the word Shortcuts a link to the list of every key while the switch is on, and closes it with the X, Esc or a click outside, returning focus to the link (#828)', () => {
     cy.openConsole('#/');
-    cy.get('[aria-label="Display settings"]').as('row');
+    cy.openWallOptions();
+    cy.displaySettings().as('row');
     cy.get('@row').find('.kbd-link').should('not.exist');
     shortcutSwitch().click().should('have.attr', 'aria-checked', 'true');
     cy.get('@row').contains('button.kbd-link', 'Shortcuts').as('link').click();
@@ -49,6 +55,8 @@ describe('display settings', () => {
     });
     cy.get('[role=dialog]').should('not.exist');
     cy.focused().should('have.class', 'kbd-link');
+    // A press inside the list is not a press outside the Wall options drawer, which stays open behind it.
+    cy.get('@row').find('button.edge-tab-opts').should('have.attr', 'aria-expanded', 'true');
     cy.get('@link').click();
     cy.get('body').type('{esc}');
     cy.get('[role=dialog]').should('not.exist');
@@ -57,6 +65,8 @@ describe('display settings', () => {
     cy.get('.scrim').click('topLeft');
     cy.get('[role=dialog]').should('not.exist');
     cy.focused().should('have.class', 'kbd-link');
+    // Esc and the dimmed area close the list and leave the drawer open.
+    cy.get('@row').find('button.edge-tab-opts').should('have.attr', 'aria-expanded', 'true');
     shortcutSwitch().click().should('have.attr', 'aria-checked', 'false');
     cy.get('@row').find('.kbd-link').should('not.exist');
   });
@@ -64,6 +74,7 @@ describe('display settings', () => {
   it('stacks the two columns of the shortcuts list at 400 px', () => {
     cy.viewport(400, 900);
     cy.openConsole('#/');
+    cy.openWallOptions();
     shortcutSwitch().click();
     cy.get('button.kbd-link').click();
     cy.get('.kbd-cols').should(($g) => expect(getComputedStyle($g[0]).gridTemplateColumns.split(' ')).to.have.length(1));
@@ -93,7 +104,8 @@ describe('display settings', () => {
 
   it('collapses the right pane with ] and the top bar with \\ once Shortcuts is on, and ignores both while typing in a field', () => {
     cy.openConsole('#/');
-    cy.get('[role=switch]').click();
+    cy.openWallOptions();
+    shortcutSwitch().click();
     cy.get('input[aria-label="Filter orchestrators"]').type('[]\\');
     cy.get('#podium-rail-body').should('be.visible');
     cy.get('#podium-side-body').should('be.visible');

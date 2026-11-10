@@ -118,6 +118,21 @@ Cypress.Commands.add('grantClipboard', () => {
   cy.then(() => Cypress.automation('remote:debugger:protocol', { command: 'Browser.grantPermissions', params: { permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'], origin: Cypress.config('baseUrl') } }));
 });
 
+/** The banner row under the top bar that holds the Wall options drawer (#1129), on every page that shows the banner. */
+Cypress.Commands.add('displaySettings', () => cy.get('[role=region][aria-label="Display settings"]'));
+
+/**
+ * Opens the Wall options drawer, which starts shut on every page load (#1129), and yields its controls: Refresh every, the Shortcuts switch,
+ * Theme and the Mode radios. A press outside it or Escape shuts it again, so a test opens it right before it uses a control.
+ */
+Cypress.Commands.add('openWallOptions', () => {
+  cy.displaySettings().find('button[aria-label="Wall options"]').click().should('have.attr', 'aria-expanded', 'true');
+  return cy.displaySettings().find('.wallopts-body').should('be.visible');
+});
+
+/** The Shortcuts switch inside the Wall options drawer (open it first with cy.openWallOptions). */
+Cypress.Commands.add('shortcutsSwitch', () => cy.displaySettings().find('.wallopts-body [role=switch]'));
+
 /** The cards on the wall, in the order shown. */
 Cypress.Commands.add('cards', () => cy.get('button.card.sc'));
 
