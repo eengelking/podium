@@ -23,7 +23,7 @@ import { NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/No
 import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
 import { useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
-import { isUrgentChange, readUpdateEvery, writeUpdateEvery } from "./updateInterval";
+import { isUrgentChange, useUpdateEvery } from "./updateInterval";
 import { useResizable } from "./useResizable";
 import { useTheme } from "./useTheme";
 import { useShortcuts } from "./useShortcuts";
@@ -98,13 +98,9 @@ export interface FleetAppProps {
 
 function LiveFleetApp({ fleetOptions, board, myReporters, traffic, chat }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean; traffic?: boolean; chat?: boolean }) {
   const live = useFleet(fleetOptions);
-  const [every, setEvery] = useState(readUpdateEvery);
+  const [every, change] = useUpdateEvery();
   // The page below redraws once per chosen interval (#138); a session needing the viewer or a failure shows at once.
   const state = useHeldState(live, every * 1000, isUrgentChange);
-  const change = useCallback((n: number) => {
-    setEvery(n);
-    writeUpdateEvery(n);
-  }, []);
   return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} traffic={traffic} chat={chat} />;
 }
 

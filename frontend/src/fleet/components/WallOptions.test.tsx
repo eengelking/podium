@@ -107,6 +107,15 @@ describe("Wall options", () => {
     expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
   });
 
+  it("stays open on an Escape another control has already handled, such as the chat box's command list", () => {
+    render(<Harness />);
+    fireEvent.click(pill());
+    const other = screen.getByRole("button", { name: "Elsewhere" });
+    other.addEventListener("keydown", (e) => e.preventDefault());
+    fireEvent.keyDown(other, { key: "Escape" });
+    expect(isOpen()).toBe(true);
+  });
+
   it("does nothing on other keys or on Escape while shut", () => {
     render(<Harness />);
     fireEvent.keyDown(document, { key: "Escape" });

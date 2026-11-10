@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { readJson, writeJson } from "./storage";
 import type { FleetState } from "./store";
 
@@ -16,6 +17,16 @@ export function readUpdateEvery(): number {
 
 export function writeUpdateEvery(every: number): void {
   writeJson(UPDATE_KEY, every);
+}
+
+/** The stored interval and a setter that saves it, the way useShortcuts keeps the Shortcuts switch. */
+export function useUpdateEvery(): [number, (every: number) => void] {
+  const [every, setEvery] = useState(readUpdateEvery);
+  const set = useCallback((next: number) => {
+    setEvery(next);
+    writeUpdateEvery(next);
+  }, []);
+  return [every, set];
 }
 
 /**

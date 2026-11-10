@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { readUpdateEvery, writeUpdateEvery } from "../updateInterval";
+import { useUpdateEvery } from "../updateInterval";
 import type { useTheme } from "../useTheme";
 import { EdgeTab } from "./EdgeTab";
 import { ShortcutsSwitch, ThemePicker } from "./ThemePicker";
@@ -27,18 +27,11 @@ export function WallOptions(props: {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [stored, setStored] = useState(readUpdateEvery);
+  const [stored, setStored] = useUpdateEvery();
   const owned = props.every === undefined;
   const every = props.every ?? stored;
   const { onEvery: passed } = props;
-  const onEvery = useCallback(
-    (n: number) => {
-      if (!owned) return passed?.(n);
-      setStored(n);
-      writeUpdateEvery(n);
-    },
-    [owned, passed],
-  );
+  const onEvery = useCallback((n: number) => (owned ? setStored(n) : passed?.(n)), [owned, passed, setStored]);
 
   useEffect(() => {
     if (!open) return;
@@ -51,7 +44,8 @@ export function WallOptions(props: {
     // A modal stops Escape before it gets here, so Escape in the Keyboard shortcuts list closes the list and leaves the drawer open.
     // Focus goes back to the pill when it was in the drawer or nowhere; a field the person has since moved to keeps it.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      // An Escape another control already used (the chat box's command list, a row menu) is that control's, not the drawer's.
+      if (e.key !== "Escape" || e.defaultPrevented) return;
       setOpen(false);
       const at = document.activeElement;
       if (!at || at === document.body || root.current?.contains(at)) root.current?.querySelector<HTMLButtonElement>(".edge-tab-opts")?.focus();
