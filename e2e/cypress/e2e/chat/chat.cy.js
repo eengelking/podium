@@ -42,7 +42,7 @@ describe('chat: the page', () => {
     cy.get('button.edge-tab-top').should('have.attr', 'aria-expanded', 'true');
     cy.window().its('localStorage').invoke('getItem', 'podium.collapsed').should('be.null');
     cy.get('button.edge-tab-left').click().should('have.attr', 'aria-expanded', 'true');
-    cy.window().its('localStorage').invoke('getItem', 'podium.collapsed.chat').then((raw) => expect(JSON.parse(raw).left).to.eq(false));
+    cy.window().its('localStorage').invoke('getItem', 'podium.collapsed.chat').should((raw) => expect(JSON.parse(raw).left).to.eq(false));
     cy.window().its('localStorage').invoke('getItem', 'podium.collapsed').should('be.null');
     cy.get('button.edge-tab-left').click();
   });
@@ -141,9 +141,9 @@ describe('chat: the page', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     cy.tid('chat-box').type('@');
-    cy.tid('chat-listbox').should('be.visible').find('[role=option]').then(($o) => {
+    cy.tid('chat-listbox').should('be.visible').find('[role=option]').should(($o) => {
       expect($o.length).to.be.greaterThan(3);
-      cy.tid('chat-matches').should('have.text', `${$o.length} people and agents. Use the arrow keys.`);
+      expect(Cypress.$('[data-testid=chat-matches]').text()).to.eq(`${$o.length} people and agents. Use the arrow keys.`);
     });
     cy.tid('chat-listbox').contains('[role=option]', '@group').should('have.attr', 'aria-disabled', 'true').and('contain.text', 'Off. An Admin turns it on in Admin > Settings.');
     cy.tid('chat-box').type('inv');
@@ -177,6 +177,7 @@ describe('chat: the page', () => {
   it('refuses @group and @everyone while the Admin flag is off, keeps the draft, and sends them once it is on', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
+    // Read once on purpose: a thread shows its messages only after one load, whole, so the first message found means the count is complete (#1137).
     cy.tid('chat-message').then(($m) => {
       const had = $m.length;
       cy.tid('chat-box').type('@everyone stand up{enter}');
@@ -231,7 +232,7 @@ describe('chat: the stop buttons of a channel', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     openMenu(GENERAL).should('have.attr', 'aria-label', 'Actions for General');
-    cy.tid('chat-menu').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Pause my agents in General', 'Disconnect my agents in General']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Pause my agents in General', 'Disconnect my agents in General']));
     cy.tid('chat-menu').should('contain.text', 'Only an Admin can pause General for everyone or remove its messages.');
     cy.tid('chat-menu').find('[role=menuitem]').first().should('have.focus');
     cy.focused().type('{esc}');
@@ -302,7 +303,7 @@ describe('chat: the stop buttons of a channel', () => {
     cy.chatRow(GROUP).should('not.exist');
     cy.contains('Direct Messages and People and agents belong to a person.');
     cy.tid('chat-message').should('have.length', 1);
-    openMenu(GENERAL).find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.include.members(['Pause General for everyone', 'Remove all messages…']));
+    openMenu(GENERAL).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.include.members(['Pause General for everyone', 'Remove all messages…']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Pause General for everyone').click();
     cy.chatRow(GENERAL).should('contain.text', 'Paused for everyone');
     cy.contains('Paused for everyone by an Admin: messages are held until it resumes.');
@@ -395,7 +396,7 @@ describe('chat: at 400 px', () => {
     cy.tid('chat-split').should('have.attr', 'data-pane', 'thread');
     cy.tid('chat-thread').should('be.visible');
     cy.chatRow(DM).should('not.be.visible');
-    cy.document().then((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
+    cy.document().should((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
     cy.get('#th-h').should('have.focus');
     cy.contains('button', 'Back to the list').click();
     cy.tid('chat-split').should('have.attr', 'data-pane', 'side');

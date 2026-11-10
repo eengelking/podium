@@ -57,7 +57,7 @@ describe('plan, files, agents and activity at size', () => {
   it('nests agents under the agent that launched them, to any depth, and says how many were launched by others', () => {
     open();
     cy.contains('3 launched, 2 by other agents');
-    cy.get('button.trow').then(($r) => {
+    cy.get('button.trow').should(($r) => {
       const ids = [...$r].map((r) => r.id || 'root');
       expect(ids).to.deep.eq(['root', 'row-e2e-r-a', 'row-e2e-r-b', 'row-e2e-r-c']);
     });

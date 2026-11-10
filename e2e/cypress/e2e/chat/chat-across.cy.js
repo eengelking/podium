@@ -13,7 +13,8 @@ const openMenu = (row) => {
   return cy.tid('chat-menu').should('be.visible');
 };
 const item = (label) => cy.tid('chat-menu').contains('[role=menuitem]', label);
-const menuItems = () => cy.tid('chat-menu').find('[role=menuitem]').then(($i) => [...$i].map((i) => i.textContent.trim()));
+// Matched inside should(), so the menu is read again until it has the items; then() would read it once and the assertion after it could not retry (#1137).
+const menuItems = (want) => cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(want));
 /** Alex writes to Ed's agent in General. */
 const alexAsks = (text) => {
   cy.signIn('Alex');
@@ -84,7 +85,7 @@ describe('chat: a person writes to another person\'s agent', () => {
   it('lets the one who paused the link resume it, and nobody else', () => {
     asAlex();
     openMenu(AGENT);
-    menuItems().should('deep.eq', ['Pause link', 'Remove link…', 'Delete conversation…']);
+    menuItems(['Pause link', 'Remove link…', 'Delete conversation…']);
     cy.tid('chat-menu').contains('[role=menuitem]', 'Pause link').click();
     cy.chatRow(AGENT).should('contain.text', 'Paused');
     cy.tid('chat-box').should('be.disabled').and('have.attr', 'placeholder', 'Paused');
@@ -141,14 +142,14 @@ describe('chat: a person writes to another person\'s agent', () => {
     cy.tid('chat-box').should('be.disabled').and('have.attr', 'placeholder', 'Link removed');
     cy.contains('The link was removed, so nothing can be sent. Only Ed can open it again.');
     openMenu(AGENT);
-    menuItems().should('deep.eq', ['Delete conversation…']);
+    menuItems(['Delete conversation…']);
     cy.get('body').click(0, 0);
     // The conversation stays for both, and Ed has Allow again.
     asEd();
     cy.chatRow(AGENT).should('contain.text', 'Link removed');
     cy.tid('chat-thread').should('contain.text', 'Unit tests pass: 14 of 14.');
     openMenu(AGENT);
-    menuItems().should('deep.eq', ['Allow again', 'Delete conversation…']);
+    menuItems(['Allow again', 'Delete conversation…']);
     cy.tid('chat-menu').contains('[role=menuitem]', 'Allow again').click();
     cy.chatRow(AGENT).should('not.contain.text', 'Link removed');
     asAlex();

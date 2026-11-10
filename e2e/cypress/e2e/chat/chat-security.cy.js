@@ -27,7 +27,7 @@ describe('chat: slash commands in a message to your own agent', () => {
     openArm();
     cy.tid('chat-box').should('have.attr', 'placeholder', 'Write a message, or type / for a command.').type('/');
     cy.get('[role=listbox][aria-label=Commands]').within(() => {
-      cy.get('[role=option]').then(($o) => expect([...$o].map((o) => o.querySelector('.cn').textContent)).to.deep.eq(['/clear', '/compact']));
+      cy.get('[role=option]').should(($o) => expect([...$o].map((o) => o.querySelector('.cn').textContent)).to.deep.eq(['/clear', '/compact']));
       cy.contains('.tf', 'Other commands run only in the terminal.');
     });
     cy.tid('chat-matches').should('have.text', '2 commands. Use the arrow keys.');
@@ -316,6 +316,6 @@ describe('chat: a row is one conversation', () => {
     cy.chatRow(OWN).should('exist');
     cy.chatRow(ALEX).should('exist');
     cy.chatRow(OWN).find('button.ch-more').click();
-    cy.tid('chat-menu').should('be.visible').find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
+    cy.tid('chat-menu').should('be.visible').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
   });
 });

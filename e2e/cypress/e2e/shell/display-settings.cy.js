@@ -9,7 +9,7 @@ describe('display settings', () => {
     cy.openConsole('#/');
     cy.openWallOptions();
     cy.contains('label.field', 'Refresh every').find('select').as('every');
-    cy.get('@every').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['2s', '5s', '10s', '20s', '30s', '60s']));
+    cy.get('@every').find('option').should(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['2s', '5s', '10s', '20s', '30s', '60s']));
     cy.get('@every').should('have.value', '2');
     cy.get('@every').select('10s');
     cy.window().its('localStorage').invoke('getItem', 'podium.updateEvery').should('eq', '10');
@@ -47,7 +47,7 @@ describe('display settings', () => {
     shortcutSwitch().click().should('have.attr', 'aria-checked', 'true');
     cy.get('@row').contains('button.kbd-link', 'Shortcuts').as('link').click();
     cy.get('[role=dialog]').should('contain', 'Keyboard shortcuts').within(() => {
-      cy.get('.kbd-col code').then(($c) => expect([...$c].map((c) => c.textContent)).to.deep.eq(['\\', '[', ']', 'w', 'Esc']));
+      cy.get('.kbd-col code').should(($c) => expect([...$c].map((c) => c.textContent)).to.deep.eq(['\\', '[', ']', 'w', 'Esc']));
       cy.contains('Does nothing on Traffic, which has no rail.');
       cy.contains('Does nothing on Traffic or My reporters, which draw no wall.');
       cy.get('.kbd-cols').should(($g) => expect(getComputedStyle($g[0]).gridTemplateColumns.split(' ')).to.have.length(3));
@@ -90,7 +90,7 @@ describe('display settings', () => {
     cy.get('button.edge-tab-top').click();
     cy.get('#podium-top').should('not.be.visible');
     cy.get('button[aria-label="Show top bar"]').should('exist');
-    cy.window().its('localStorage').invoke('getItem', 'podium.collapsed').then((raw) => expect(JSON.parse(raw)).to.deep.eq({ left: true, right: true, top: true }));
+    cy.window().its('localStorage').invoke('getItem', 'podium.collapsed').should((raw) => expect(JSON.parse(raw)).to.deep.eq({ left: true, right: true, top: true }));
     cy.reload();
     cy.get('#podium-top').should('not.be.visible');
     cy.get('#podium-rail-body').should('not.be.visible');
@@ -129,7 +129,7 @@ describe('display settings', () => {
     cy.contains('fork (keeps context)').should('be.visible');
     cy.contains('queued').should('be.visible');
     // It sits under the middle column: between the rail and the right pane, not inside either.
-    cy.contains('Square color is the model').then(($l) => {
+    cy.contains('Square color is the model').should(($l) => {
       const l = $l[0].getBoundingClientRect();
       const rail = Cypress.$('#podium-rail-body')[0].getBoundingClientRect();
       const side = Cypress.$('#podium-side-body')[0].getBoundingClientRect();
@@ -143,7 +143,7 @@ describe('display settings', () => {
     cy.get('.rz-rail').focus().type('{rightarrow}{rightarrow}');
     cy.get('#podium-rail-body').should(($e) => expect($e.outerWidth()).to.be.closeTo(284, 1));
     // The width is kept in podium.panels, and podium.collapsed holds no width.
-    cy.window().its('localStorage').invoke('getItem', 'podium.panels').then((raw) => expect(JSON.parse(raw).rail, 'saved rail width').to.be.closeTo(284, 1));
+    cy.window().its('localStorage').invoke('getItem', 'podium.panels').should((raw) => expect(JSON.parse(raw).rail, 'saved rail width').to.be.closeTo(284, 1));
     cy.window().its('localStorage').invoke('getItem', 'podium.collapsed').should('be.null');
     cy.reload();
     cy.get('#podium-rail-body').should(($e) => expect($e.outerWidth()).to.be.closeTo(284, 1));

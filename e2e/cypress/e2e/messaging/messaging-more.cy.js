@@ -30,6 +30,7 @@ describe('my reporters: answers, limits and failed saves', () => {
 
   it('puts the control back and says nothing changed when a rights change cannot be saved', () => {
     cy.intercept('PUT', '**/peers/rights*', { statusCode: 500, body: { ok: false } });
+    // Read once on purpose: the grid is drawn from one load of the rights, so the selected level is the saved one when the select exists (#1137).
     cy.get('select[id="g-e2e0000ci001-e2e0000mbp01"]').find(':selected').invoke('text').then((was) => {
       cy.get('select[id="g-e2e0000ci001-e2e0000mbp01"]').select('Can see');
       cy.contains('Could not save the change');

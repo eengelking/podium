@@ -138,8 +138,9 @@ describe('session recording', () => {
 
     it('filters by loop, moves with the slider, and jumps to the next failure', () => {
       openReplay();
-      cy.get('select[id$="-loop"]').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.include.members(['All loops', 'Orchestrator']));
+      cy.get('select[id$="-loop"]').find('option').should(($o) => expect([...$o].map((o) => o.textContent)).to.include.members(['All loops', 'Orchestrator']));
       // The loop filter narrows the rows: an agent's loop has far fewer than all loops, and the position text follows.
+      // The position text exists only once the first page of rows has loaded, so `all` is settled when it is read once (#1137).
       cy.get('.scrub [role=status]').invoke('text').then((all) => {
         const total = Number(/of (\d+)/.exec(all)[1]);
         cy.get('select[id$="-loop"]').select('fork');
@@ -215,6 +216,8 @@ describe('session recording', () => {
       cy.contains('button', 'Delete recording').click();
       cy.contains('Delete this recording?');
       cy.contains('[role=group], .confirm', 'Delete this recording?').contains('button', 'Delete recording').click();
+      // The page awaits the DELETE and then leaves the replay by setting the address, so the next visit waits for that, or a slow DELETE takes the page off History (#1137).
+      cy.location('hash').should('not.contain', 'replay');
       cy.visit('/#/history');
       cy.contains('tr', 'old-run').should('not.contain.text', 'recording kept');
       cy.visit('/#/?open=e2e-s-old-run&replay');

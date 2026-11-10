@@ -6,12 +6,13 @@ describe('admin: reporters going idle', () => {
   it('moves every reporter from Reporting to Idle once two minutes pass without a report', () => {
     cy.openAdmin('Reporters');
     const counts = () => cy.get('[role=group][aria-label="Filter by state"]');
-    const count = (name) => counts().contains('button', name).invoke('text').then((t) => Number(/(\d+)\s*$/.exec(t.trim())[1]));
-    count('Reporting').should('eq', 4);
-    count('Idle').should('eq', 0);
+    // A button's count is `–` until the list loads, so the count is matched inside should(), which retries, and never read once with then() (#1070, #1137).
+    const count = (name, want) => counts().contains('button', name).should(($b) => expect($b.text().trim(), `${name} count`).to.match(new RegExp(`(^|\\D)${want}\\s*$`)));
+    count('Reporting', 4);
+    count('Idle', 0);
     // The timeout is on the query that finds the button by its text, so the retry lasts as long as the server's threshold plus a margin.
     counts().contains('button', /^Idle\s*4$/, { timeout: 200000 });
-    count('Reporting').should('eq', 0);
+    count('Reporting', 0);
     counts().contains('button', 'Idle').click();
     cy.get('table tbody tr').should('have.length', 4);
     cy.contains('table tbody tr', 'ed-mbp').should('contain.text', 'Idle');

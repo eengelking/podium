@@ -19,6 +19,7 @@ describe('history', () => {
     beforeEach(() => {
       cy.clock(seededAt, ['Date']);
       cy.visit('/#/history');
+      // The date is matched with a retrying assertion first; then() only keeps the value that matched (#1137).
       cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((v) => {
         day = v;
       });
@@ -27,7 +28,7 @@ describe('history', () => {
     it('opens on today with the sessions that ended, newest first, and the count', () => {
       cy.get('#podium-day').should('have.value', today());
       cy.contains('.kpi-cap', /61 sessions ended/);
-      cy.get('table.htable thead th').then(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Session', 'Project', 'Model', 'Ended', 'Duration', 'Est. cost', 'Blowouts', 'Agents', 'End reason']));
+      cy.get('table.htable thead th').should(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Session', 'Project', 'Model', 'Ended', 'Duration', 'Est. cost', 'Blowouts', 'Agents', 'End reason']));
       cy.get('table.htable tbody tr').should('have.length', 50);
       cy.contains('tr', 'ended-60').and('contain.text', 'Opus 5.5');
       // The oldest ended session of the seed is on the last page.
