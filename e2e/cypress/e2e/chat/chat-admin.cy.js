@@ -77,7 +77,7 @@ describe('chat: an Admin reads a person\'s conversations', () => {
     cy.contains('h2', 'Read as an Admin');
     cy.get('label[for=read-as]').should('have.text', 'Read a person\'s conversations');
     cy.tid('chat-read-as').find('option').first().should('have.text', 'Choose a person…');
-    cy.tid('chat-read-as').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.include('Ed'));
+    cy.tid('chat-read-as').find('option').should(($o) => expect([...$o].map((o) => o.textContent)).to.include('Ed'));
   });
 
   it('lets the Admin stop reading in place, from the picker and from the thread (#1066)', () => {
@@ -116,6 +116,7 @@ describe('chat: an Admin reads a person\'s conversations', () => {
     asAdminReading();
     cy.chatRow(GROUP).find('button.ch-row').click();
     cy.tid('chat-box').should('not.exist');
+    // Read once on purpose: a thread shows its messages only after one load, whole (#1137).
     cy.tid('chat-thread').find('[data-testid=chat-message]').its('length').then((before) => {
       cy.request({ method: 'POST', url: `${API}/channels/group/messages?owner=Ed`, headers: H, body: { text: 'an Admin writes in Ed\'s group', owner: 'Ed' }, failOnStatusCode: false, log: false }).then((r) => {
         expect(r.status).to.eq(403);
@@ -212,7 +213,7 @@ describe('chat: an Admin pauses and stops what is a person\'s', () => {
     cy.chatRow(DM).find('[data-testid=chat-tag-paused]').should('exist');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-admin-pause-banner').should('contain.text', 'You paused this link. Messages are held until you resume it from its menu.');
-    openMenu(DM).find('[role=menuitem]').then(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Resume link']));
+    openMenu(DM).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Resume link']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Resume link').click();
     cy.tid('chat-admin-pause-banner').should('not.exist');
     cy.signIn('Ed');
@@ -220,7 +221,7 @@ describe('chat: an Admin pauses and stops what is a person\'s', () => {
     cy.chatRow(DM).find('[data-testid=chat-tag-paused]').should('not.exist');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-box').should('not.be.disabled');
-    cy.tid('chat-record').then(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes('paused this link')) && t.some((x) => x.includes('resumed this link'))));
+    cy.tid('chat-record').should(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes('paused this link')) && t.some((x) => x.includes('resumed this link'))));
   });
 
   it('lets an Admin pause a group, and Ed sees the tag and banner and cannot resume it', () => {
@@ -250,7 +251,7 @@ describe('chat: an Admin pauses and stops what is a person\'s', () => {
     openMenu(GROUP).contains('[role=menuitem]', 'Disconnect every agent in Ed\'s group');
     cy.focused().type('{esc}');
     // Both stay on the thread as record lines, which Ed sees too (checked below with the other records).
-    cy.tid('chat-record').then(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes(`${READ_AS} disconnected the agents in this group on `)) && t.some((x) => x.includes(`${READ_AS} reconnected the agents in this group on `))));
+    cy.tid('chat-record').should(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes(`${READ_AS} disconnected the agents in this group on `)) && t.some((x) => x.includes(`${READ_AS} reconnected the agents in this group on `))));
     cy.tid('chat-message').should('have.length', 1);
     openMenu(GROUP).contains('[role=menuitem]', 'Remove all messages…').click();
     cy.tid('chat-confirm').should('contain.text', 'Remove all 1 messages in My group?');
@@ -260,12 +261,12 @@ describe('chat: an Admin pauses and stops what is a person\'s', () => {
     cy.tid('chat-confirm').contains('button', 'Remove all messages').click();
     cy.tid('chat-message').should('have.length', 0);
     // What the Admin did stays on the thread for good, and Ed sees it too.
-    cy.tid('chat-record').then(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes(`${READ_AS} removed all messages on `))));
+    cy.tid('chat-record').should(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes(`${READ_AS} removed all messages on `))));
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     cy.chatRow(GROUP).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 0);
-    cy.tid('chat-record').then(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes(`${READ_AS} removed all messages on `))));
-    cy.tid('chat-record').then(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes('disconnected the agents in this group')) && t.some((x) => x.includes('reconnected the agents in this group'))));
+    cy.tid('chat-record').should(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes(`${READ_AS} removed all messages on `))));
+    cy.tid('chat-record').should(($r) => expect([...$r].map((r) => r.textContent)).to.satisfy((t) => t.some((x) => x.includes('disconnected the agents in this group')) && t.some((x) => x.includes('reconnected the agents in this group'))));
   });
 });

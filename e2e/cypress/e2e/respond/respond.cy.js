@@ -78,7 +78,7 @@ describe('respond', () => {
 
     it('answers a question: tabs, options, a typed answer, a review step and Send', () => {
       respondBtn('question').click();
-      dialog().find('[role=tablist][aria-label=Questions] [role=tab]').then(($t) => expect([...$t].map((t) => t.textContent)).to.deep.eq(['Page size', 'Day selector', 'Back state', 'Review']));
+      dialog().find('[role=tablist][aria-label=Questions] [role=tab]').should(($t) => expect([...$t].map((t) => t.textContent)).to.deep.eq(['Page size', 'Day selector', 'Back state', 'Review']));
       dialog().contains('How many History rows per page?');
       dialog().contains('label.opt', '25/50/100, default 50').click();
       dialog().contains('button', 'Next').click();

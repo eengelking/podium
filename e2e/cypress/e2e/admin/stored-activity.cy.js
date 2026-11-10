@@ -163,7 +163,10 @@ describe('activity history: the policy form and its size cap', () => {
     cy.contains('button', 'Save').click();
     cy.get('input[aria-label="Size in gigabytes"]').closest('form, .panel, section').invoke('text').should('contain', 'Enter a whole number from 1 to 1000 for the size cap.');
     cy.get('input[aria-label="Size in gigabytes"]').clear().type('2');
+    // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+    cy.intercept('PUT', '**/api/admin/settings').as('saveSettings');
     cy.contains('button', 'Save').click();
+    cy.wait('@saveSettings');
     cy.reload();
     cy.adminPage('Data');
     cy.get('input[aria-label="Use a size cap"]').should('be.checked');

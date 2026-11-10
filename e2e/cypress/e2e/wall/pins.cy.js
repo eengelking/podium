@@ -6,6 +6,7 @@ describe('wall: pinned cards', () => {
     cy.contains('.people button', /^All$/).click();
     cy.cards().should('have.length', 12);
   });
+  // Read once on purpose: beforeEach waited for all 12 cards, and the order changes only with a click or a typed filter, which the page applies in the same tick (#1137).
   const order = () => cy.cards().then(($c) => [...$c].map((c) => c.getAttribute('data-session')));
   const API = 'e2e-s-api-gateway';
   const pin = () => cy.get(`button.pin[aria-label="Pin api-gateway to its place on the wall"]`);
@@ -54,7 +55,9 @@ describe('wall: pinned cards', () => {
   });
 
   it('keeps the pin over a reload', () => {
+    // The pin is stored in the browser as it is pressed; the pressed state shows it is stored before the reload.
     pin().click();
+    cy.get('button.pin[aria-label="Unpin api-gateway"]').should('have.attr', 'aria-pressed', 'true');
     cy.reload();
     cy.get('button.pin[aria-label="Unpin api-gateway"]').should('have.attr', 'aria-pressed', 'true');
   });
