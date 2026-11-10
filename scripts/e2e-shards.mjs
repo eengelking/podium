@@ -159,8 +159,11 @@ const UNIT = { hour: 3600, minute: 60, second: 1 };
 
 /** Seconds in a Cypress duration ("14 seconds", "2 minutes, 2 seconds", "1 hour, 3 minutes", "850ms"), or null when it is none. */
 export function durationSeconds(text) {
-  const ms = /^(\d+)\s*ms$/.exec(text.trim());
-  if (ms) return Number(ms[1]) / 1000;
+  const trimmed = text.trim();
+  if (trimmed.endsWith("ms")) {
+    const n = trimmed.slice(0, -2).trim();
+    if (/^\d+$/.test(n)) return Number(n) / 1000;
+  }
   const parts = [...text.matchAll(/(\d+) (hour|minute|second)s?\b/g)];
   if (!parts.length) return null;
   return parts.reduce((sum, [, n, unit]) => sum + Number(n) * UNIT[unit], 0);
