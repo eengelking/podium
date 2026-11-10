@@ -178,7 +178,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   let stopped: { at: number; n: number } | null = null;
   router.get('/notice', asyncHandler(async (req, res) => {
     if (opts.secret === null || !opts.reports || !(await sessionValid(req, false))) return void res.json({ unlocked: false });
-    if (stopped === null || now() - stopped.at > STOPPED_CACHE_MS) stopped = { at: now(), n: await stoppedFeatureCount(opts.reports).catch(() => 0) };
+    if (stopped === null || now() - stopped.at > STOPPED_CACHE_MS) {
+      // A failed read is not kept: the next ask tries again, and the pill shows nothing until one works.
+      try {
+        stopped = { at: now(), n: await stoppedFeatureCount(opts.reports) };
+      } catch {
+        return void res.json({ unlocked: true, stopped: 0 });
+      }
+    }
     res.json({ unlocked: true, stopped: stopped.n });
   }));
 

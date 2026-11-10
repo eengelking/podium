@@ -548,13 +548,13 @@ const SIGNAL_NAME = /^(hook|field):[A-Za-z0-9_.:-]{1,100}$/;
 
 /**
  * What the harness sent the reporter in this session (#724): counts by signal name. A name that is not of the form `hook:...` or `field:...` is dropped
- * rather than refused, so a newer reporter that names something else does not lose its report; counts are whole numbers, and the most seen `max` names are kept.
+ * rather than refused, and so is a count that is not a whole number from 0, so a newer reporter that sends something else does not lose its report; and the most seen `max` names are kept.
  * Absent stays absent: an older reporter does not send it.
  */
 function signalsOrUndefined(v: unknown, path: string, max: number): Record<string, number> | undefined {
   if (v === null || v === undefined) return undefined;
   const kept: Record<string, number> = {};
-  for (const [k, n] of Object.entries(obj(v, path))) if (SIGNAL_NAME.test(k)) kept[k] = int(n, `${path}.${k}`);
+  for (const [k, n] of Object.entries(obj(v, path))) if (SIGNAL_NAME.test(k) && typeof n === 'number' && Number.isInteger(n) && n >= 0) kept[k] = n;
   return countsOrNull(kept, path, max) ?? undefined;
 }
 

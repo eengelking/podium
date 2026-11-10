@@ -33,4 +33,11 @@ describe('signals', () => {
     expect(JSON.stringify(sig)).not.toContain('secret');
     expect(sig!['field:session.text.ended.text']).toBe(1);
   });
+
+  it('count only the events the reporter handles, so a flood of others never takes their names', () => {
+    const noise = Array.from({ length: 80 }, (_, i) => ev(`message.part.delta.${i}`, { sessionID: ROOT }, 2 + i));
+    const sig = signalsOf(...noise, ev('session.usage.updated', { sessionID: ROOT, cost: 1 }, 90))!;
+    expect(sig['hook:session.usage.updated']).toBe(1);
+    expect(Object.keys(sig).some((k) => k.includes('message.part'))).toBe(false);
+  });
 });

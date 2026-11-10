@@ -1180,7 +1180,12 @@ async function harnessReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<
     if (!deps.platforms) throw new ReportError('the platform figures need the reporter store');
     const now = deps.now();
     const counts = await deps.platforms(now - PLATFORM_WINDOW_MS);
-    const familyOf = (os: string | null): string => (os === null || os.trim() === '' ? 'Not reported' : os.trim().replace(/\s+v?\d\S*$/, '').trim() || 'Not reported');
+    // Keeps the words before the first version, bracket or parenthesis: "macOS 27.0.1" and "Ubuntu 24.04.1 LTS" are "macOS" and "Ubuntu", "Microsoft Windows [Version 10.0.26100.1]" is "Microsoft Windows".
+    const familyOf = (os: string | null): string => {
+      const words = (os ?? '').replace(/[[(].*$/, '').trim().split(/\s+/);
+      const cut = words.findIndex((w) => /^v?\d/i.test(w));
+      return (cut === -1 ? words : words.slice(0, cut)).join(' ').trim() || 'Not reported';
+    };
     const harnessOf = (name: string): string => (canonicalReporterName(name) === OPENCODE_REPORTER_NAME ? 'opencode' : 'claude-code');
     const merged = new Map<string, { harness: string; platform: string; version: string; reporters: number; status: string }>();
     for (const c of counts) {

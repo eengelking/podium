@@ -13,6 +13,15 @@ describe('protocol', () => {
     expect(shortId('toolongprefix_1234567890')).toBe('toolongp');
   });
 
+  it('keeps the signals a reporter sends and drops a name or a count it cannot use, without refusing the report (#724)', () => {
+    const body = { ...(loadFixture() as Record<string, unknown>), signals: { 'hook:tool.check': 3, 'field:tool.call.tool_use_id': 2, 'bad name': 1, 'hook:odd': 'many', 'hook:neg': -1, 'hook:frac': 1.5, 'other:x': 4 } };
+    const r = validateReport(body);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.report.signals).toEqual({ 'hook:tool.check': 3, 'field:tool.call.tool_use_id': 2 });
+    const none = validateReport({ ...(loadFixture() as Record<string, unknown>) });
+    expect(none.ok && none.report.signals).toBeUndefined();
+  });
+
   it('accepts the shared fixture', () => {
     const r = validateReport(loadFixture());
     expect(r.ok).toBe(true);

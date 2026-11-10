@@ -9,7 +9,7 @@ import type { Place } from '../core/place.ts';
 import { MAIN_LOOP, type ToolStat, type ActivityEntry, type BackgroundWait, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
 import { bumpStat, MAX_TOOL_NAMES } from '../core/toolStats.ts';
 import { bumpSignals, type Signals } from '../core/signals.ts';
-import { OPENCODE_FIELDS } from './signals.ts';
+import { OPENCODE_EVENTS, OPENCODE_FIELDS } from './signals.ts';
 import { Recorder } from '../core/recording.ts';
 import { canonical, entryFor, finishedEntry, toolName } from './activity.ts';
 
@@ -444,8 +444,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   const known = store.rootOf.has(sid);
   if (!known && !ev.recovered && !type.startsWith('session.')) return null;
   const { root, sess: s } = locate(store, sid, parent, t, cwd);
-  // Which events OpenCode sends and which of their fields the reporter finds (#724): counted before anything reads them, so a changed event shows even when the reducer ignores it.
-  bumpSignals(root.signals, type, d, OPENCODE_FIELDS[type]);
+  // Which of the events the reporter handles OpenCode sends, and which of their fields it finds (#724): counted before anything reads them, so a field that went missing shows even when the reducer copes with it.
+  if (OPENCODE_EVENTS.includes(type)) bumpSignals(root.signals, type, d, OPENCODE_FIELDS[type]);
   // A delete or archive of a root that is already done ends nothing new: it must not reopen it just to end it again (#984).
   const ending = type === 'session.deleted' || type === 'session.archived';
   if (ending && root.done) return root;

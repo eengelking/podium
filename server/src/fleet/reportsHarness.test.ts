@@ -186,13 +186,13 @@ describe('skills, projects and branches, and platforms', () => {
 
   it('counts reporters by the family of their system and their version, with a status, and no host or user name', async () => {
     const w = world();
-    for (const [key, os, version] of [['m1', 'macOS 27.0.1', '1.5.1'], ['m2', 'macOS 26.4', '1.5.1'], ['m3', 'Ubuntu 24.04', '1.2.0'], ['m4', null, '1.5.1']] as const) {
+    for (const [key, os, version] of [['m1', 'macOS 27.0.1', '1.5.1'], ['m2', 'macOS 26.4', '1.5.1'], ['m3', 'Ubuntu 24.04', '1.2.0'], ['m4', null, '1.5.1'], ['m5', 'Ubuntu 24.04.1 LTS', '1.2.0'], ['m6', 'Microsoft Windows [Version 10.0.26100.1]', '1.5.1']] as const) {
       w.storage.sqliteHandle.prepare("INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, engine_version, first_seen_at, last_seen_at, os, reporter_name) VALUES (?, 'mod', ?, 'a-secret-host', 'Priya', ?, '2.1.319', 1, ?, ?, 'podium-reporter-claudecode')").run(key, key, version, NOW - 1000, os);
     }
     const r = ((await (await apiWith(w)).get(`harness?breakdown=platform&${range}`)).body) as ReportReply;
     expect(r.columns.map((c) => c.key)).toEqual(['harness', 'platform', 'version', 'reporters', 'status']);
-    expect(rowsOf(r)).toEqual(['claude-code|Not reported|1.5.1|1|Current', 'claude-code|Ubuntu|1.2.0|1|Update available', 'claude-code|macOS|1.5.1|2|Current']);
+    expect(rowsOf(r)).toEqual(['claude-code|Microsoft Windows|1.5.1|1|Current', 'claude-code|Not reported|1.5.1|1|Current', 'claude-code|Ubuntu|1.2.0|2|Update available', 'claude-code|macOS|1.5.1|2|Current']);
     expect(JSON.stringify(r)).not.toContain('a-secret-host');
-    expect(r.total).toEqual({ reporters: 4 });
+    expect(r.total).toEqual({ reporters: 6 });
   });
 });
