@@ -9,7 +9,7 @@ import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type Agen
 import { PAGE } from "./components/ActivityList";
 import type { AgentSort } from "./components/AgentTree";
 import { FocusView } from "./components/FocusView";
-import { ShortcutsSwitch, ThemePicker } from "./components/ThemePicker";
+import { WallOptions } from "./components/WallOptions";
 import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
@@ -24,7 +24,6 @@ import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSession
 import { useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
 import { isUrgentChange, readUpdateEvery, writeUpdateEvery } from "./updateInterval";
-import { UpdateEveryPicker } from "./components/UpdateEveryPicker";
 import { useResizable } from "./useResizable";
 import { useTheme } from "./useTheme";
 import { useShortcuts } from "./useShortcuts";
@@ -513,46 +512,28 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <div className="banner bad" role="alert">
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
-        ) : panes.collapsed.top ? null : myReporters ? (
+        ) : panes.collapsed.top ? null : (
           <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
-              <b>My reporters.</b> Your own machines, and which of them may message each other.
+              {myReporters ? (
+                <>
+                  <b>My reporters.</b> Your own machines, and which of them may message each other.
+                </>
+              ) : traffic ? (
+                <>
+                  <b>Traffic.</b> Which orchestrators message each other, and what they said.
+                </>
+              ) : chat ? (
+                <>
+                  <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
+                </>
+              ) : (
+                <>
+                  <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
+                </>
+              )}
             </span>
-            <div className="bannerctl">
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
-          </div>
-        ) : traffic ? (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              <b>Traffic.</b> Which orchestrators message each other, and what they said.
-            </span>
-            <div className="bannerctl">
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
-          </div>
-        ) : chat ? (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
-            </span>
-            <div className="bannerctl">
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
-          </div>
-        ) : (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
-            </span>
-            <div className="bannerctl">
-              <UpdateEveryPicker every={updateEvery} onChange={(n) => onUpdateEvery?.(n)} />
-              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
-              <ThemePicker theme={theme} />
-            </div>
+            <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} every={updateEvery} onEvery={onUpdateEvery} />
           </div>
         )}
         {traffic ? (

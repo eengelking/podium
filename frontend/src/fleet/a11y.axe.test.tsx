@@ -64,6 +64,13 @@ describe("axe on the console's pages (#636)", () => {
     expect(await violations(container, [SEPARATORS, CARD_COPY])).toEqual([]);
   });
 
+  it("the wall with the Wall options drawer open (#1129)", async () => {
+    const { container, getByRole } = render(<FleetView state={state()} />);
+    fireEvent.click(getByRole("button", { name: "Wall options" }));
+    expect(getByRole("button", { name: "Hide wall options" })).toHaveAttribute("aria-expanded", "true");
+    expect(await violations(container, [SEPARATORS, CARD_COPY])).toEqual([]);
+  });
+
   it("an orchestrator's page", async () => {
     window.history.replaceState(null, "", "#/?open=s1");
     const { container } = render(<FleetView state={state()} />);

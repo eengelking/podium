@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import "../fleet.css";
 import "./admin.css";
 import { StreamTopBar } from "../components/StreamTopBar";
-import { ThemePicker } from "../components/ThemePicker";
+import { WallOptions } from "../components/WallOptions";
 import { useTheme } from "../useTheme";
+import { useShortcuts } from "../useShortcuts";
 import type { UseFleetOptions } from "../useFleet";
 import type { PeersApi, RespondApi } from "../respondApi";
 import { useHeartbeat } from "../useHeartbeat";
@@ -95,6 +96,8 @@ function tabForHash(hash: string): TabId | null {
 
 export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peersApi }: { base?: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi }) {
   const theme = useTheme();
+  // Admin has no single-key shortcuts yet, but the drawer shows and saves the one setting every page shares (#1129).
+  const [shortcuts, setShortcuts] = useShortcuts();
   // The reporters pill's dot pulses on the fleet page's shared beat, which this root carries as data-beat.
   const root = useRef<HTMLDivElement>(null);
   useHeartbeat(root, usePageVisible());
@@ -214,7 +217,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
           <span>
             <b>Admin.</b> Tokens, groups, reporters and settings for this server.
           </span>
-          <ThemePicker theme={theme} />
+          <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} />
         </div>
         <main className="adminv" aria-label="Admin">
           {status === "checking" && (
