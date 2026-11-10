@@ -452,7 +452,7 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
         if (harness === 'opencode') putFeature.run(day, harness, version, 'tool:WebFetch', newest ? Math.round(sessions * 0.02) : Math.round(sessions * 0.3));
       }
       // The skills each person used and where they worked (#724).
-      [...active].sort().forEach((owner, i) => {
+      [...active].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).forEach((owner, i) => {
         putSkill.run(day, owner, 'claude-code', 'code-review', 1 + (i % 3));
         if (i % 2 === 0) putSkill.run(day, owner, 'claude-code', 'simplify', 1);
         if (i % 4 === 0) putSkill.run(day, owner, 'opencode', 'code-review', 1);
