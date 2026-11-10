@@ -58,8 +58,9 @@ function repo() {
   return { root, out };
 }
 
-function run(args: string[], env: Record<string, string> = {}) {
+function run(args: string[], env: Record<string, string> = {}, prepare?: (root: string) => void) {
   const { root, out } = repo();
+  prepare?.(root);
   const r = spawnSync("bash", [join(root, "scripts", "e2e-all.sh"), "--out", out, ...args], {
     encoding: "utf8",
     env: { ...process.env, E2E_ENGINE: "none", ...env },
@@ -121,6 +122,13 @@ describe("e2e-all.sh", () => {
     const r = run(["--databases", "sqlite"], { FAKE_DROP: "1" });
     expect(r.status).toBe(1);
     expect(r.last).toBe("E2E RESULT: FAIL sqlite=PASS sqlite.specs=FAIL(4/5)");
+  });
+
+  it("exits 2 when the spec files cannot be listed, not a spec count of 0", () => {
+    const r = run(["--databases", "sqlite"], {}, (root) => writeFileSync(join(root, "scripts", "e2e-shards.mjs"), "process.exit(1);\n"));
+    expect(r.status).toBe(2);
+    expect(r.last).toBe("E2E RESULT: FAIL setup=FAIL(2)");
+    expect(r.stderr).toContain("could not list the spec files");
   });
 
   it("does not check the spec count of a one-shard run limited by --spec", () => {

@@ -14,6 +14,7 @@ Usage: scripts/e2e-all.sh [--out DIR] [--no-build] [--databases "sqlite postgres
 Runs the whole suite once per database, all at once, waits for every run, and prints one last line:
   E2E RESULT: PASS|FAIL sqlite=PASS postgres=FAIL(1) ...                     (one shard, the default)
   E2E RESULT: PASS|FAIL sqlite.1=PASS sqlite.2=FAIL(1) ... postgres.3=PASS   (--shards 3)
+In FAIL(n), n is the run's exit code (1 a spec failed, 2 it could not run), not a count of failing tests.
 Exit code: 0 every run passed, 1 any run failed, 2 a setup error: the image build, the spec groups, or a run that could not start
 (for example no memory for another container). A setup error is never a pass.
 
@@ -34,9 +35,10 @@ Anything after -- goes to `cypress run` in every run. With --shards above 1 it m
 Choosing --shards. Runs at once = shards x databases, and each is a server, a Chrome and, for postgres, a PostgreSQL, about 1.1 GB
 of memory as measured. Keep that number at most the engine's CPUs and at most its memory in GB divided by 2 (`podman machine inspect`
 shows both; a GitHub runner is 2 CPUs and 7 GB). On a 6-CPU, 16 GB podman machine with two databases, use --shards 3: the whole
-suite took 9m01s against 17m16s with one shard. --shards 4 took 7m44s there, but at that load some specs failed that pass alone,
-and those are tracked as flaky tests, so it is not the setting to use until they are fixed. Past the CPUs every run slows down, and
-a run that cannot get its containers is a setup error. The script warns when shards x databases is more than the engine's CPUs.
+suite took about 7m30s against 17m16s with one shard. --shards 4 took about 8 minutes there, no faster, with 8 runs on 6 CPUs, and
+one such run had a shard hang for 15 minutes (the cause is not known), so 4 is not the setting to use. Past the CPUs every run
+slows down, and a run that cannot get its containers is a setup error. The script warns when shards x databases is more than the
+engine's CPUs. The floor is a few specs that wait on real timers (about 5 minutes of the suite), so more shards stop helping.
 
 The groups come out even only if the recorded times are current. After specs are added or changed a lot, refresh them from the
 logs of a whole run: node scripts/e2e-shards.mjs --record <out>/sqlite*.log <out>/postgres*.log (a spec with no recorded time is

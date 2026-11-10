@@ -13,6 +13,9 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** Orders strings by UTF-16 code unit, the order a bare sort() uses, so the groups and the lists do not change with the locale. */
+const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 const SPEC_DIR = join("e2e", "cypress", "e2e");
 const SPEC_FILE = /\.cy\.js$/;
 export const TIMES_FILE = join("e2e", "spec-times.json");
@@ -80,7 +83,7 @@ export function shard(specs, n) {
     best.weight += s.weight;
     best.paths.push(s.path);
   }
-  return groups.map((g) => g.paths.sort());
+  return groups.map((g) => g.paths.sort(byCodeUnit));
 }
 
 /** One line per problem: a spec in no group, in two, or a group naming a file that is not a spec. Empty when every spec is in one group. */
@@ -158,7 +161,7 @@ const UNIT = { hour: 3600, minute: 60, second: 1 };
 export function durationSeconds(text) {
   const ms = /^(\d+)\s*ms$/.exec(text.trim());
   if (ms) return Number(ms[1]) / 1000;
-  const parts = [...text.matchAll(/(\d+)\s+(hour|minute|second)s?\b/g)];
+  const parts = [...text.matchAll(/(\d+) (hour|minute|second)s?\b/g)];
   if (!parts.length) return null;
   return parts.reduce((sum, [, n, unit]) => sum + Number(n) * UNIT[unit], 0);
 }
@@ -181,7 +184,7 @@ export function specTimesIn(log) {
     const cell = /│(.*)│/.exec(line);
     const body = cell ? cell[1].trim() : "";
     let m;
-    if ((m = /^Duration:\s+(.+)$/.exec(body))) {
+    if ((m = /^Duration:\s+(\S.*)$/.exec(body))) {
       box.seconds = durationSeconds(m[1]);
       last = "duration";
     } else if ((m = /^Spec Ran:\s+(\S+)$/.exec(body))) {
@@ -243,7 +246,7 @@ export function record(logs, paths, old, recorded) {
     } else none.push(p);
   }
   const data = { about: ABOUT, recorded, logs: logs.length, times };
-  return { data, fromLogs: seen.size, kept, unknown: [...unknown].sort(), none, empty };
+  return { data, fromLogs: seen.size, kept, unknown: [...unknown].sort(byCodeUnit), none, empty };
 }
 
 const num = (s) => (s === "-" ? 0 : Number(s));
@@ -251,7 +254,7 @@ const num = (s) => (s === "-" ? 0 : Number(s));
 /** The spec count Cypress found and the totals row of its last run summary, or null when the log has neither. */
 export function countsIn(log) {
   const found = [...log.matchAll(/Specs:\s+(\d+) found/g)].pop();
-  const total = [...log.matchAll(/^\s*[✔✖]\s+(?:All specs passed!|\d+ of \d+ failed \(\d+%\))\s+\S+\s+(\d+|-)\s+(\d+|-)\s+(\d+|-)/gmu)].pop();
+  const total = [...log.matchAll(/^[ \t]*[✔✖][ \t]+(?:All specs passed!|\d+ of \d+ failed \(\d+%\))[ \t]+\S+[ \t]+(\d+|-)[ \t]+(\d+|-)[ \t]+(\d+|-)/gmu)].pop();
   if (!found || !total) return null;
   return { specs: Number(found[1]), tests: num(total[1]), passing: num(total[2]), failing: num(total[3]) };
 }
