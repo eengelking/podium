@@ -73,7 +73,8 @@ describe("People and groups: platform and reporter version", () => {
     expect(rows[1]!.textContent).toContain("macOS");
     expect(rows[1]!.textContent).toContain("Current");
     expect(rows[3]!.textContent).toContain("Not reported");
-    fireEvent.change(screen.getAllByLabelText("Harness").at(-1)!, { target: { value: "opencode" } });
+    const selects = screen.getAllByLabelText("Harness");
+    fireEvent.change(selects[selects.length - 1]!, { target: { value: "opencode" } });
     await waitFor(() => expect(s.calls.some((c) => c.includes("breakdown=platform") && c.includes("harness=opencode"))).toBe(true));
     await waitFor(() => expect(within(screen.getByRole("table", { name: "Reporters by platform and version" })).getAllByRole("row")).toHaveLength(3));
   });
