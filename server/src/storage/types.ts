@@ -13,7 +13,7 @@ import type { ReportQueries } from './reportQueries.js';
 import type {
   AdminPeersView, ActivityHistoryOpts, AgentRow, BlowoutRow, CostOf, EventRow, ForgetSetting, GroupListRow, IgnoreKind, IgnoreRule, IgnoreTarget, LogRow, Paged,
   PeerReply, PeerServerSettings, PersonListRow, PersonRow, PurgeRecordingsResult, RecordingMeta, RecordingTotals, RecordingsOpts, RemoveResult, ReporterDetail, ReporterList,
-  ReporterSeen, ReporterState, ReporterVersionCount, RetentionPolicy, SampleRow, SessionRow, SessionSpend, SessionWaitRow, StoredState, OwnerPeersView, PageIn, PurgeResult, SessionMeta, RecordingTrail, StorageInfo,
+  ReporterPlatformCount, ReporterSeen, ReporterState, ReporterVersionCount, RetentionPolicy, SampleRow, SessionRow, SessionSpend, SessionWaitRow, StoredState, OwnerPeersView, PageIn, PurgeResult, SessionMeta, RecordingTrail, StorageInfo,
 } from './rows.js';
 import type { PeerLimits } from './settings.js';
 
@@ -180,6 +180,8 @@ export interface ReporterStoreApi {
    * one row per reporter name as stored and version, ordered by name then version as text (#862). The caller sorts the versions as numbers.
    */
   versionCounts(since: number): Promise<ReporterVersionCount[]>;
+  /** The same count cut by the operating system the reporter sent too (#724), ordered by name, version, then system as text. A reporter that sent no system has a null `os`. */
+  platformCounts(since: number): Promise<ReporterPlatformCount[]>;
   list(opts: { page?: number; pageSize?: number; q?: string; state?: string; sort?: string; dir?: number; admin?: boolean }, now: number): Promise<ReporterList>;
   /** Every key a filtered view holds, not one page of it: what "select all in this filter" removes. */
   keys(opts: { q?: string; state?: string; admin?: boolean }, now: number): Promise<string[]>;

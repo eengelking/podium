@@ -146,6 +146,26 @@ export interface FeatureVersionDay {
   sessions: number;
 }
 
+/** How many sessions of one person used one skill on a harness on a day (#724). A name and a count: never what the skill was given. */
+export interface SkillDay {
+  day: string;
+  owner: string;
+  harness: string;
+  skill: string;
+  sessions: number;
+}
+
+/** How many sessions of one person ran in one project on one git branch on a harness on a day (#724). A project is the repository's name, a branch is the git branch's name: no path. */
+export interface PlaceDay {
+  day: string;
+  owner: string;
+  group: string;
+  harness: string;
+  project: string;
+  branch: string;
+  sessions: number;
+}
+
 /** The names a day's feature rows use for the sessions there were, so a share can be read: of the sessions that sent signals, of the sessions with tool counts. */
 export const FEATURE_BASE = { signals: 'signals', tools: 'tools' } as const;
 
@@ -296,6 +316,8 @@ export interface DayRollups {
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
   featureVersions: FeatureVersionDay[];
+  skills: SkillDay[];
+  places: PlaceDay[];
   toolStats: ToolStatDay[];
   sessionTime: SessionTimeDay[];
   agentTypes: AgentDay[];
@@ -421,6 +443,15 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   };
   for (const r of await db.toolStatsSince(fromMs)) addStats(r.id, asRecord(safeParse<unknown>(r.s, null)));
   for (const [id, l] of loopOf) addStats(id, l.stats);
+  // The skills each agent used, added up per session (#724).
+  const skillsOf = new Map<string, Set<string>>();
+  for (const r of await db.skillsSince(fromMs)) {
+    const list = safeParse<unknown>(r.k, null);
+    if (!Array.isArray(list)) continue;
+    const into = skillsOf.get(r.id) ?? new Set<string>();
+    for (const k of list) if (typeof k === 'string' && k !== '') into.add(k);
+    skillsOf.set(r.id, into);
+  }
   const failuresOf = new Map<string, { cls: string; tool: string }[]>();
   for (const r of failureRows) {
     const f = safeParse<{ class?: string; tool?: string | null } | null>(r.f, null);
@@ -437,6 +468,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const tools = new Map<string, ToolDay>();
   const toolSessions = new Map<string, ToolSessionDay>();
   const toolStats = new Map<string, StatAcc & { day: string; harness: string; tool: string }>();
+  const skillDays = new Map<string, SkillDay>();
+  const placeDays = new Map<string, PlaceDay>();
   const featureVersions = new Map<string, FeatureVersionDay>();
   const sawFeature = (day: string, harness: string, version: string, feature: string): void => {
     const k = `${day}\u0000${harness}\u0000${version}\u0000${feature}`;
@@ -622,6 +655,25 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
       toolCosts.set(tck, tc);
     }
 
+    // The skills a session used (the orchestrator's and its agents') and where it ran (#724), by person: names and counts only.
+    const used = new Set<string>(skillsOf.get(s.id) ?? []);
+    const mainSkills = safeParse<{ skills?: unknown } | null>(s.loop_json, null)?.skills;
+    if (Array.isArray(mainSkills)) for (const k of mainSkills) if (typeof k === 'string' && k !== '') used.add(k);
+    for (const skill of used) {
+      const kk = `${day}\u0000${owner}\u0000${harness}\u0000${skill}`;
+      const row = skillDays.get(kk) ?? ({ day, owner, harness, skill, sessions: 0 } satisfies SkillDay);
+      row.sessions += 1;
+      skillDays.set(kk, row);
+    }
+    if (owner) {
+      const project = s.repo_name ?? '';
+      const branch = safeParse<{ branch?: string | null } | null>(s.git_json, null)?.branch ?? '';
+      const pk = `${day}\u0000${owner}\u0000${harness}\u0000${project}\u0000${branch}`;
+      const place = placeDays.get(pk) ?? ({ day, owner, group: s.grp ?? '', harness, project, branch, sessions: 0 } satisfies PlaceDay);
+      place.sessions += 1;
+      placeDays.set(pk, place);
+    }
+
     // What this version of the harness sent (#724): the reporter's own hook and field counts, and the tools it called. A session whose reporter sends no signals is not in the
     // sessions to compare against, so an older reporter does not look like a feature that stopped.
     if (s.engine_version) {
@@ -676,6 +728,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     toolSessions: [...toolSessions.values()],
     toolStats: [...toolStats.values()].map((a) => ({ day: a.day, harness: a.harness, tool: a.tool, failed: a.failed, asked: a.asked, allowed: a.allowed, denied: a.denied, podium: a.podium, timesJson: timesJson(a.times) })),
     featureVersions: [...featureVersions.values()],
+    skills: [...skillDays.values()],
+    places: [...placeDays.values()],
     harnessVersions: [...harnessReporters.values()].map((v) => ({ day: v.day, harness: v.harness, version: v.version, reporters: v.reporters.size })),
     sessionTime: [...timeAcc.values()].map(({ ms, ...row }) => ({ ...row, permissionS: Math.round(ms.permission / 1000), questionS: Math.round(ms.question / 1000), planS: Math.round(ms.plan / 1000) })),
     agentTypes: [...agentTypes.values()],
@@ -799,6 +853,8 @@ export function writeRollups(storage: Storage, now: number, cost: CostOf, p: Rol
       await db.insertToolSessionsDaily(built.toolSessions.filter((r) => wanted(r.day)));
       await db.insertHarnessVersionsDaily(built.harnessVersions.filter((r) => wanted(r.day)));
       await db.insertFeatureVersionsDaily(built.featureVersions.filter((r) => wanted(r.day)));
+      await db.insertSkillsDaily(built.skills.filter((r) => wanted(r.day)));
+      await db.insertPlacesDaily(built.places.filter((r) => wanted(r.day)));
       await db.insertToolStatsDaily(built.toolStats.filter((r) => wanted(r.day)));
       await db.insertSessionTimeDaily(built.sessionTime.filter((r) => wanted(r.day)));
       await db.insertAgentsDaily(built.agentTypes.filter((r) => wanted(r.day)));

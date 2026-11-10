@@ -138,3 +138,61 @@ describe('harness updates: the count in the top bar', () => {
     expect((await agent.get('/api/admin/session')).body.unlocked).toBe(false);
   });
 });
+
+describe('skills, projects and branches, and platforms', () => {
+  async function apiWith(w: World) {
+    await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), { sessionsMs: 30 * DAY_MS });
+    const app = express();
+    app.use('/api/admin', createAdminRouter({ secret: SECRET, storage: w.storage, people: w.people, reports: w.deps, reporters: w.storage.reporters, now: () => NOW }));
+    const a = request.agent(app);
+    await a.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
+    return { get: (path: string) => a.get(`/api/admin/reports/${path}`).set(H) };
+  }
+  const range = `from=${addDays(TODAY, -8)}&to=${TODAY}&by=week`;
+
+  it('counts the sessions that used each skill and the people who ran them, per harness', async () => {
+    const w = world();
+    const add = async (id: string, owner: string, harness: string, skills: string[], daysAgo = 3) => {
+      await w.fdb.upsertSession(session({ id, owner, harness, started_at: at(daysAgo, 9), last_seen_at: at(daysAgo, 11), ended_at: at(daysAgo, 11) }));
+      await w.fdb.upsertAgent(agent(id, `${id}-a`, { skills_json: JSON.stringify(skills) }));
+    };
+    await add('a1', 'Priya', 'claude-code', ['code-review', 'simplify']);
+    await add('a2', 'Priya', 'claude-code', ['code-review']);
+    await add('a3', 'Ravi', 'claude-code', ['code-review']);
+    await add('a4', 'Ravi', 'opencode', ['code-review']);
+    await add('a5', 'Priya', 'claude-code', []);
+    const r = ((await (await apiWith(w)).get(`tools?breakdown=skills&${range}`)).body) as ReportReply;
+    expect(r.columns.map((c) => c.key)).toEqual(['skill', 'harness', 'sessions', 'people']);
+    expect(rowsOf(r)).toEqual(['code-review|claude-code|3|2', 'code-review|opencode|1|1', 'simplify|claude-code|1|1']);
+    expect(r.bySkill).toEqual([{ skill: 'code-review', sessions: 4, people: 2 }, { skill: 'simplify', sessions: 1, people: 1 }]);
+    expect(((await (await apiWith(w)).get(`tools?breakdown=skills&${range}&harness=opencode`)).body as ReportReply).rows).toHaveLength(1);
+  });
+
+  it('counts each person\'s projects and branches once, and the total once overall', async () => {
+    const w = world();
+    const add = async (id: string, owner: string, repo: string | null, branch: string | null, daysAgo: number) =>
+      w.fdb.upsertSession(session({ id, owner, repo_name: repo, git_json: branch === null ? null : JSON.stringify({ branch }), started_at: at(daysAgo, 9), last_seen_at: at(daysAgo, 11), ended_at: at(daysAgo, 11) }));
+    await add('p1', 'Priya', 'acme/podium', 'main', 3);
+    await add('p2', 'Priya', 'acme/podium', 'main', 2);
+    await add('p3', 'Priya', 'acme/podium', 'fix-1', 2);
+    await add('p4', 'Priya', 'acme/docs', 'main', 2);
+    await add('p5', 'Ravi', 'acme/podium', 'main', 2);
+    await add('p6', 'Ravi', null, null, 2);
+    const r = ((await (await apiWith(w)).get(`workload?breakdown=places&${range}`)).body) as ReportReply;
+    expect(r.columns.map((c) => c.key)).toEqual(['person', 'group', 'projects', 'branches', 'topProject']);
+    expect(r.rows.map((x) => `${x.person}|${x.projects}|${x.branches}|${x.topProject}`)).toEqual(['Priya|2|3|acme/podium', 'Ravi|1|1|acme/podium']);
+    expect(r.total).toEqual({ people: 2, projects: 2, branches: 3 });
+  });
+
+  it('counts reporters by the family of their system and their version, with a status, and no host or user name', async () => {
+    const w = world();
+    for (const [key, os, version] of [['m1', 'macOS 27.0.1', '1.5.1'], ['m2', 'macOS 26.4', '1.5.1'], ['m3', 'Ubuntu 24.04', '1.2.0'], ['m4', null, '1.5.1']] as const) {
+      w.storage.sqliteHandle.prepare("INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, engine_version, first_seen_at, last_seen_at, os, reporter_name) VALUES (?, 'mod', ?, 'a-secret-host', 'Priya', ?, '2.1.319', 1, ?, ?, 'podium-reporter-claudecode')").run(key, key, version, NOW - 1000, os);
+    }
+    const r = ((await (await apiWith(w)).get(`harness?breakdown=platform&${range}`)).body) as ReportReply;
+    expect(r.columns.map((c) => c.key)).toEqual(['harness', 'platform', 'version', 'reporters', 'status']);
+    expect(rowsOf(r)).toEqual(['claude-code|Not reported|1.5.1|1|Current', 'claude-code|Ubuntu|1.2.0|1|Update available', 'claude-code|macOS|1.5.1|2|Current']);
+    expect(JSON.stringify(r)).not.toContain('a-secret-host');
+    expect(r.total).toEqual({ reporters: 4 });
+  });
+});

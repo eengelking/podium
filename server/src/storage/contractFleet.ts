@@ -462,6 +462,11 @@ export function reporterCases(o: Openers): void {
       await rec('heard since T0 + 50', r.versionCounts(T0 + 50));
       await rec('heard since the start', r.versionCounts(0));
       await rec('heard since the future', r.versionCounts(T0 + 10_000));
+      // the same, cut by the operating system the reporter sent (#724)
+      await r.record(seen('a7', 'seven', { version: '1.6.0', os: 'Ubuntu 24.04' }), T0 + 107);
+      await r.record(seen('a8', 'eight', { version: '1.6.0', os: null }), T0 + 108);
+      await rec('by platform', r.platformCounts(T0 + 50));
+      await rec('by platform (the future)', r.platformCounts(T0 + 10_000));
     });
     expect(t.get('heard since T0 + 50')).toEqual([
       { reporterName: 'podium-reporter-claudecode', version: '1.10.0', machines: 1 },
@@ -472,6 +477,11 @@ export function reporterCases(o: Openers): void {
     ]);
     expect((t.get('heard since the start') as { version: string }[]).map((v) => v.version)).toContain('0.9.0');
     expect(t.get('heard since the future')).toEqual([]);
+    // a version splits by system, and a reporter that sent none has a null one
+    expect((t.get('by platform') as { version: string; os: string | null; machines: number }[]).filter((x) => x.version === '1.6.0')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ os: 'macOS', machines: 2 }), expect.objectContaining({ os: 'Ubuntu 24.04', machines: 1 }), expect.objectContaining({ os: null, machines: 1 })]),
+    );
+    expect(t.get('by platform (the future)')).toEqual([]);
   });
 
   it('agrees on every adapter for the keys a sender is known by, the filtered key list, removing, and the refused-report list', async () => {

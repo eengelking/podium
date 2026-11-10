@@ -4,6 +4,9 @@ import { startOfDay } from './derive.js';
 import { ROLLUP_KEEP_MS, type CostOf, type RetentionPolicy } from '../storage/rows.js';
 import type { FleetStore } from '../storage/types.js';
 import type { RollupRaw, RollupTable } from '../storage/reportQueries.js';
+import type { ReporterPlatformCount } from '../storage/rows.js';
+import { checkReporter, supportFor } from './compat.js';
+import { canonicalReporterName, OPENCODE_REPORTER_NAME } from './reporterNames.js';
 import type { ModelUsage } from './protocol.js';
 import type { Pricing } from './pricing.js';
 import {
@@ -20,6 +23,8 @@ import {
   type FailureDay,
   type FleetDay,
   type FeatureVersionDay,
+  type PlaceDay,
+  type SkillDay,
   type HarnessVersionDay,
   type SessionsDay,
   type ToolDay,
@@ -49,13 +54,15 @@ export interface ReportDeps {
    * without a link when it may open none. Absent means the viewer may open every session, as the Admin may.
    */
   mayOpenSession?: (sessionId: string) => boolean;
+  /** The reporters heard from since a time, by name, version and operating system (#724). Absent where there is no reporter store, which leaves the platform figures out. */
+  platforms?: (since: number) => Promise<ReporterPlatformCount[]>;
 }
 
 /** A report was asked for something it cannot give: the route answers 400 with the message. */
 export class ReportError extends Error {}
 
 export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload' | 'costs' | 'harness' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily'];
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 
 export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'sessiontime', 'workload', 'costs', 'harness', 'activity'];
 
@@ -88,15 +95,15 @@ export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools' | 's
   spend: ['none', 'person', 'group', 'model', 'project'],
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
-  tools: ['tool', 'session', 'version', 'failures', 'prompts', 'duration'],
+  tools: ['tool', 'session', 'version', 'failures', 'prompts', 'duration', 'skills'],
   // how long sessions ran and waited by period, what they waited for, which agents they launched, how deep the chains went (#722)
   sessiontime: ['time', 'reason', 'agents', 'depth'],
   // each person's sessions per active day, and the most sessions live at once in each hour of the day (#722)
-  workload: ['person', 'hour'],
+  workload: ['person', 'hour', 'places'],
   // what sessions cost per call and session by model, what sessions that used each tool cost, the token split and cache hit rate, the model or effort mix, and how full the context was at the end (#723)
   costs: ['model', 'tool', 'tokens', 'mix', 'context'],
   // what a version of a harness stopped sending, and how many reporters were behind the newest version each period (#724)
-  harness: ['stopped', 'behind'],
+  harness: ['stopped', 'behind', 'platform'],
 };
 
 const round = (n: number, places = 6): number => Math.round(n * 10 ** places) / 10 ** places;
@@ -170,6 +177,8 @@ interface Facts {
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
   featureVersions: FeatureVersionDay[];
+  skills: SkillDay[];
+  places: PlaceDay[];
   toolStats: ToolStatDay[];
   sessionTime: SessionTimeDay[];
   agentTypes: AgentDay[];
@@ -197,6 +206,8 @@ const personDayOf = (r: Raw): PersonDay => ({ day: String(r.day), owner: String(
 const costDayOf = (r: Raw): CostDay => ({ day: String(r.day), harness: String(r.harness), model: String(r.model), effort: String(r.effort), sessions: Number(r.sessions), pricedSessions: Number(r.priced_sessions), calls: Number(r.calls), pricedCalls: Number(r.priced_calls), costUsd: Number(r.cost_usd), callCostUsd: Number(r.call_cost_usd), tokIn: Number(r.tok_in), tokOut: Number(r.tok_out), tokCr: Number(r.tok_cr), tokCw: Number(r.tok_cw), endedLow: Number(r.ended_low), endedMid: Number(r.ended_mid), endedHigh: Number(r.ended_high), endedUnknown: Number(r.ended_unknown), compacted: Number(r.compacted), cleared: Number(r.cleared) });
 const toolCostOf = (r: Raw): ToolCostDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), sessions: Number(r.sessions), pricedSessions: Number(r.priced_sessions), costUsd: Number(r.cost_usd), calls: Number(r.calls) });
 const hourPeakOf = (r: Raw): HourPeakDay => ({ day: String(r.day), harness: String(r.harness), hour: Number(r.hour), peak: Number(r.peak) });
+const skillOf = (r: Raw): SkillDay => ({ day: String(r.day), owner: String(r.owner), harness: String(r.harness), skill: String(r.skill), sessions: Number(r.sessions) });
+const placeOf = (r: Raw): PlaceDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), project: String(r.project), branch: String(r.branch), sessions: Number(r.sessions) });
 const featureVersionOf = (r: Raw): FeatureVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), feature: String(r.feature), sessions: Number(r.sessions) });
 const harnessVersionOf = (r: Raw): HarnessVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), reporters: Number(r.reporters) });
 
@@ -212,10 +223,10 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
   return oldest;
 }
 
-async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false, withCost = false, withFeatures = false): Promise<Facts> {
+async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false, withCost = false, withFeatures = false, withSkills = false, withPlaces = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], costDays: [], toolCosts: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], costDays: [], toolCosts: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], skills: [], places: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], costDays: [], toolCosts: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], skills: [], places: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], costDays: [], toolCosts: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
     f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
@@ -240,6 +251,8 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
       f.featureVersions = (await select(db, 'feature_versions_daily', from, stored)).map(featureVersionOf);
     }
+    if (withSkills) f.skills = (await select(db, 'skills_daily', from, stored)).map(skillOf);
+    if (withPlaces) f.places = (await select(db, 'person_places_daily', from, stored)).map(placeOf);
     if (withHours) f.hourPeaks = (await select(db, 'hour_peaks_daily', from, stored)).map(hourPeakOf);
   }
   // The samples of the last day have not been rolled up yet: the peak of each hour in them is read live, and the larger of it and the stored one counts.
@@ -274,6 +287,8 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
       f.agentTypes.push(...f.live.agentTypes.filter((r) => keep(r.day)));
       f.personDays.push(...f.live.personDays.filter((r) => keep(r.day)));
     }
+    if (withSkills) f.skills.push(...f.live.skills.filter((r) => keep(r.day)));
+    if (withPlaces) f.places.push(...f.live.places.filter((r) => keep(r.day)));
     if (withFeatures) {
       f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
       f.featureVersions.push(...f.live.featureVersions.filter((r) => keep(r.day)));
@@ -695,7 +710,7 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the tools report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'tools');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, breakdown === 'failures', true);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, breakdown === 'failures', true, false, false, false, false, breakdown === 'skills');
   f.oldestDay = await oldestToolDay(deps.db, p.today);
   const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness), ...f.toolStats.map((r) => r.harness)])].sort(byCode);
   const keep = (h: string): boolean => harness === null || h === harness;
@@ -756,6 +771,29 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
     });
     const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('version', 'Version', 'text'), col('reporters', 'Reporters', 'count'), col('newest', 'Newest', 'text')];
     return { ...envelope(p, 'tools', p.by, f, cols, rows, {}), ...extra, behind };
+  }
+
+  if (breakdown === 'skills') {
+    f.oldestDay = await oldestDayOf(deps.db, ['skills_daily'], p.today);
+    // each skill by harness: the sessions that used it and the people who ran them. A person is counted once per skill however many sessions or days.
+    const by = new Map<string, { skill: string; harness: string; sessions: number; people: Set<string> }>();
+    const whole = new Map<string, { sessions: number; people: Set<string> }>();
+    for (const r of f.skills) {
+      if (!keep(r.harness)) continue;
+      const k = `${r.skill}\u0000${r.harness}`;
+      const b = by.get(k) ?? { skill: r.skill, harness: r.harness, sessions: 0, people: new Set<string>() };
+      b.sessions += r.sessions;
+      if (r.owner) b.people.add(r.owner);
+      by.set(k, b);
+      const w = whole.get(r.skill) ?? { sessions: 0, people: new Set<string>() };
+      w.sessions += r.sessions;
+      if (r.owner) w.people.add(r.owner);
+      whole.set(r.skill, w);
+    }
+    const rows: Row[] = [...by.values()].sort((a, b) => byCode(a.skill, b.skill) || byCode(a.harness, b.harness)).map((b) => ({ skill: b.skill, harness: b.harness, sessions: b.sessions, people: b.people.size }));
+    const bySkill: Row[] = [...whole].sort(([a], [b]) => byCode(a, b)).map(([skill, w]) => ({ skill, sessions: w.sessions, people: w.people.size }));
+    const cols = [col('skill', 'Skill', 'text'), col('harness', 'Harness', 'text'), col('sessions', 'Sessions that used it', 'count'), col('people', 'People', 'count')];
+    return { ...envelope(p, 'tools', null, f, cols, rows, { skills: whole.size }), ...extra, bySkill };
   }
 
   if (breakdown === 'failures' || breakdown === 'prompts') return toolOutcomesReport(deps, p, f, breakdown, extra, keep);
@@ -943,8 +981,8 @@ async function workloadReport(deps: ReportDeps, q: Query, cost: CostOf): Promise
   if (p.person !== null || p.model !== null) throw new ReportError('the workload report cannot be filtered by person or model');
   const breakdown = pick(q, 'workload');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true, breakdown === 'hour');
-  const harnesses = [...new Set([...f.personDays.map((r) => r.harness), ...f.hourPeaks.map((r) => r.harness).filter((h) => h !== '')])].sort(byCode);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true, breakdown === 'hour', false, false, false, breakdown === 'places');
+  const harnesses = [...new Set([...f.places.map((r) => r.harness), ...f.personDays.map((r) => r.harness), ...f.hourPeaks.map((r) => r.harness).filter((h) => h !== '')])].sort(byCode);
   const extra = { harnesses };
 
   if (breakdown === 'hour') {
@@ -959,6 +997,43 @@ async function workloadReport(deps: ReportDeps, q: Query, cost: CostOf): Promise
     const rows: Row[] = peak.map((v, h) => ({ hour: hh(h), harness: want === '' ? 'all' : want, peak: v }));
     const cols = [col('hour', 'Hour', 'text'), col('harness', 'Harness', 'text'), col('peak', 'Most sessions live at once', 'count')];
     return { ...envelope(p, 'workload', null, f, cols, rows, { peak: most, busiestHour: most > 0 ? hh(peak.indexOf(most)) : null }), ...extra };
+  }
+
+  if (breakdown === 'places') {
+    f.oldestDay = await oldestDayOf(deps.db, ['person_places_daily'], p.today);
+    // the projects and git branches each person ran in: a branch counts once per person and project however many days or sessions. The total counts each project and branch once, not the sum of the rows.
+    interface Place { owner: string; group: string; lastDay: string; projects: Map<string, number>; branches: Set<string> }
+    const people = new Map<string, Place>();
+    const allProjects = new Set<string>();
+    const allBranches = new Set<string>();
+    for (const r of f.places) {
+      if (harness !== null && r.harness !== harness) continue;
+      if (p.group !== null && r.group !== p.group) continue;
+      const a = people.get(r.owner) ?? { owner: r.owner, group: r.group, lastDay: r.day, projects: new Map<string, number>(), branches: new Set<string>() };
+      if (r.day >= a.lastDay) {
+        a.lastDay = r.day;
+        a.group = r.group;
+      }
+      if (r.project !== '') {
+        a.projects.set(r.project, (a.projects.get(r.project) ?? 0) + r.sessions);
+        allProjects.add(r.project);
+        if (r.branch !== '') {
+          a.branches.add(`${r.project}\u0000${r.branch}`);
+          allBranches.add(`${r.project}\u0000${r.branch}`);
+        }
+      }
+      people.set(r.owner, a);
+    }
+    const top = (m: Map<string, number>): string | null => {
+      let best: string | null = null;
+      for (const [k, n] of [...m].sort(([a], [b]) => byCode(a, b))) if (best === null || n > m.get(best)!) best = k;
+      return best;
+    };
+    const rows: Row[] = [...people.values()]
+      .sort((x, y) => y.projects.size - x.projects.size || y.branches.size - x.branches.size || byCode(x.owner, y.owner))
+      .map((a) => ({ person: label(a.owner), group: label(a.group), projects: a.projects.size, branches: a.branches.size, topProject: top(a.projects) }));
+    const cols = [col('person', 'Person', 'text'), col('group', 'Group', 'text'), col('projects', 'Projects', 'count'), col('branches', 'Branches', 'count'), col('topProject', 'Most used project', 'text')];
+    return { ...envelope(p, 'workload', null, f, cols, rows, { people: rows.length, projects: allProjects.size, branches: allBranches.size }), ...extra };
   }
 
   f.oldestDay = await oldestDayOf(deps.db, ['person_sessions_daily'], p.today);
@@ -1038,6 +1113,9 @@ function groupRows<T>(rows: T[], keyOf: (r: T) => string): Map<string, T[]> {
   return m;
 }
 
+/** The platform figures count the reporters heard from in this long (#724), so someone who works a few days a week is still counted. */
+const PLATFORM_WINDOW_MS = 30 * 86_400_000;
+
 /** The oldest day the harness update figures cover, or today when none exist yet: they started later than the other rollups, and a gap is never drawn as zeros. */
 async function oldestHarnessDay(db: FleetStore, today: string): Promise<string> {
   let oldest = today;
@@ -1095,6 +1173,36 @@ async function harnessReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<
     }
     const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('newest', 'Newest seen', 'text'), col('reporters', 'Reporters', 'count'), col('onNewest', 'On the newest', 'count'), col('behind', 'Behind', 'count')];
     return { ...envelope(p, 'harness', p.by, f, cols, rows, {}), ...extra };
+  }
+
+  if (breakdown === 'platform') {
+    // what each reporter runs on today: not a period report, so the period and grouping do not apply. The system is the family the reporter sent ("macOS 27.0.1" is "macOS"): no version, host name, user name or path.
+    if (!deps.platforms) throw new ReportError('the platform figures need the reporter store');
+    const now = deps.now();
+    const counts = await deps.platforms(now - PLATFORM_WINDOW_MS);
+    const familyOf = (os: string | null): string => (os === null || os.trim() === '' ? 'Not reported' : os.trim().replace(/\s+v?\d\S*$/, '').trim() || 'Not reported');
+    const harnessOf = (name: string): string => (canonicalReporterName(name) === OPENCODE_REPORTER_NAME ? 'opencode' : 'claude-code');
+    const merged = new Map<string, { harness: string; platform: string; version: string; reporters: number; status: string }>();
+    for (const c of counts) {
+      const h = harnessOf(c.reporterName);
+      if (!keep(h)) continue;
+      const platform = familyOf(c.os);
+      const k = `${h}\u0000${platform}\u0000${c.version}`;
+      const have = merged.get(k);
+      if (have) have.reporters += c.machines;
+      else {
+        const name = canonicalReporterName(c.reporterName);
+        const check = checkReporter(c.version, name);
+        const max = supportFor(name)?.max ?? null;
+        const behindMax = max !== null && compareVersions(c.version.split('.').slice(0, 2).join('.'), max.split('.').slice(0, 2).join('.')) < 0;
+        merged.set(k, { harness: h, platform, version: c.version, reporters: c.machines, status: check === 'outdated' ? 'Needs an update' : check === 'newer' ? 'Newer than the server' : check === 'ok' && behindMax ? 'Update available' : check === 'ok' ? 'Current' : 'Not checked' });
+      }
+    }
+    const rows: Row[] = [...merged.values()].sort((a, b) => byCode(a.harness, b.harness) || byCode(a.platform, b.platform) || compareVersions(b.version, a.version)).map((r) => ({ ...r }));
+    const cols = [col('harness', 'Harness', 'text'), col('platform', 'Platform', 'text'), col('version', 'Reporter version', 'text'), col('reporters', 'Reporters', 'count'), col('status', 'Status', 'text')];
+    const hs = [...new Set(counts.map((c) => harnessOf(c.reporterName)))].sort(byCode);
+    const reply = envelope(p, 'harness', null, f, cols, rows, { reporters: rows.reduce((n, r) => n + Number(r.reporters), 0) });
+    return { ...reply, partial: false, basedOn: 'reporters heard from in the last 30 days', harnesses: hs };
   }
 
   // stopped: the period's sessions on each version of each harness, and how many of them sent each feature

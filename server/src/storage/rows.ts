@@ -162,6 +162,14 @@ export interface ReporterVersionCount {
   machines: number;
 }
 
+/** How many reporters of one name run one version on one operating system, among those heard from since a time (#724). `os` is the text the reporter sent, or null when it sent none. */
+export interface ReporterPlatformCount {
+  reporterName: string;
+  version: string;
+  os: string | null;
+  machines: number;
+}
+
 /** What a database says about itself (#862): the engine's name and version, the schema version Podium reached, and the size when it can be told. */
 export interface StorageInfo {
   engine: string;

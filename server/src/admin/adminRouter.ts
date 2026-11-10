@@ -1147,7 +1147,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     }).catch(storeFailed(res));
   }));
 
-  if (opts.reports) router.use('/reports', createReportRouter(opts.reports));
+  if (opts.reports) router.use('/reports', createReportRouter({ ...opts.reports, platforms: opts.reports.platforms ?? (reporters ? (since) => reporters.platformCounts(since) : undefined) }));
 
   router.get('/log', asyncHandler(async (req, res) => {
     res.json({ ...(await people.listLog(paging(req))), ...(opts.logRetainMs === undefined ? {} : { retainMs: opts.logRetainMs }) });

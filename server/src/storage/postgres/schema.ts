@@ -351,6 +351,14 @@ CREATE TABLE feature_versions_daily (
   day TXT NOT NULL, harness TXT NOT NULL, version TXT NOT NULL, feature TXT NOT NULL, sessions INT NOT NULL,
   PRIMARY KEY (day, harness, version, feature)
 );
+CREATE TABLE skills_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, harness TXT NOT NULL, skill TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE person_places_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, group_name TXT NOT NULL, harness TXT NOT NULL, project TXT NOT NULL, branch TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);
 `),
   },
 ];
