@@ -35,7 +35,7 @@ Anything after -- goes to `cypress run` in every run. With --shards above 1 it m
 Choosing --shards. Runs at once = shards x databases, and each is a server, a Chrome and, for postgres, a PostgreSQL, about 1.1 GB
 of memory as measured. Keep that number at most the engine's CPUs and at most its memory in GB divided by 2 (`podman machine inspect`
 shows both; a GitHub runner is 2 CPUs and 7 GB). On a 6-CPU, 16 GB podman machine with two databases, use --shards 3: the whole
-suite took about 7m30s against 17m16s with one shard. --shards 4 took about 8 minutes there, no faster, with 8 runs on 6 CPUs, and
+suite took about 7m20s against 16m40s with one shard. --shards 4 took about 8 minutes there, no faster, with 8 runs on 6 CPUs, and
 one such run had a shard hang for 15 minutes (the cause is not known), so 4 is not the setting to use. Past the CPUs every run
 slows down, and a run that cannot get its containers is a setup error. The script warns when shards x databases is more than the
 engine's CPUs. The floor is a few specs that wait on real timers (about 5 minutes of the suite), so more shards stop helping.
