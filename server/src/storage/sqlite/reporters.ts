@@ -369,7 +369,7 @@ export class ReporterStore {
   platformCounts(since: number): ReporterPlatformCount[] {
     const rows = this.stmt(
       `SELECT reporter_name AS name, reporter_version AS version, os, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
-       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE(os, '')`,
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE('a' || os, '')`,
     ).all({ since }) as { name: string; version: string; os: string | null; machines: number }[];
     return rows.map((r) => ({ reporterName: r.name, version: r.version, os: r.os, machines: Number(r.machines) }));
   }

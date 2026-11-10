@@ -268,7 +268,7 @@ export class PgReporterStore implements ReporterStoreApi {
   async platformCounts(since: number): Promise<ReporterPlatformCount[]> {
     const rows = await this.db.all<{ name: string; version: string; os: string | null; machines: number | string }>(
       `SELECT reporter_name AS name, reporter_version AS version, os, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
-       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE(os, '')`,
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE('a' || os, '')`,
       { since },
     );
     return rows.map((r) => ({ reporterName: r.name, version: r.version, os: r.os, machines: Number(r.machines) }));
