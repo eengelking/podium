@@ -185,7 +185,7 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
@@ -199,6 +199,9 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
     const putCost = db.prepare('INSERT INTO cost_daily (day, harness, model, effort, sessions, priced_sessions, calls, priced_calls, cost_usd, call_cost_usd, tok_in, tok_out, tok_cr, tok_cw, ended_low, ended_mid, ended_high, ended_unknown, compacted, cleared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putToolCost = db.prepare('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const putHour = db.prepare('INSERT INTO hour_peaks_daily (day, harness, hour, peak) VALUES (?, ?, ?, ?)');
+    const putFeature = db.prepare('INSERT INTO feature_versions_daily (day, harness, version, feature, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putSkill = db.prepare('INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putPlace = db.prepare('INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?)');
     // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them. So do the session times (#722).
     const toolRng = new Rng(opt.seed + 720);
     // What each tool did (#721) draws from a stream of its own too, so it moved none of the rows seeded before it.
@@ -435,6 +438,28 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
         const [harness, version] = k.split('\u0000') as [string, string];
         putHarnessVersion.run(day, harness, version, n);
       }
+      // What each version of a harness sent (#724): the newest Claude Code engine no longer runs the tool.check hook, and the newest OpenCode stopped sending a tool, so Harness updates has something to say.
+      for (const [k, n] of hv) {
+        const [harness, version] = k.split('\u0000') as [string, string];
+        const sessions = n * 4;
+        const newest = harness === 'claude-code' ? version === ENGINE_VERSIONS[2] : version === OPENCODE_VERSIONS[1];
+        putFeature.run(day, harness, version, 'signals', sessions);
+        putFeature.run(day, harness, version, 'tools', sessions);
+        for (const f of harness === 'claude-code' ? ['hook:session.start', 'hook:tool.call', 'field:tool.call.tool_use_id', 'hook:tool.check'] : ['hook:session.created', 'hook:session.tool.called']) {
+          putFeature.run(day, harness, version, f, newest && f === 'hook:tool.check' ? 0 : sessions);
+        }
+        putFeature.run(day, harness, version, 'tool:Bash', sessions);
+        if (harness === 'opencode') putFeature.run(day, harness, version, 'tool:WebFetch', newest ? Math.round(sessions * 0.02) : Math.round(sessions * 0.3));
+      }
+      // The skills each person used and where they worked (#724).
+      [...active].sort().forEach((owner, i) => {
+        putSkill.run(day, owner, 'claude-code', 'code-review', 1 + (i % 3));
+        if (i % 2 === 0) putSkill.run(day, owner, 'claude-code', 'simplify', 1);
+        if (i % 4 === 0) putSkill.run(day, owner, 'opencode', 'code-review', 1);
+        const project = PROJECTS[i % PROJECTS.length]!;
+        putPlace.run(day, owner, groupOf(owner), 'claude-code', project, di % 3 === 0 ? 'main' : `feature-${(di + i) % 5}`, 1 + (i % 2));
+        if (i % 3 === 0) putPlace.run(day, owner, groupOf(owner), 'opencode', PROJECTS[(i + 1) % PROJECTS.length]!, 'main', 1);
+      });
       for (const [harness, t] of times) putTime.run(day, harness, t.sessions, t.dur, t.maxDur, t.tracked, t.trackedS, t.perm, t.permN, t.ask, t.askN, t.plan, t.planN);
       for (const [k, n] of agentRows) {
         const [harness, type, depth] = k.split('\u0000') as [string, string, string];
