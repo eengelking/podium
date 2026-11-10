@@ -39,7 +39,7 @@ describe("the Tools page", () => {
     const names = screen.getAllByRole("button").map((b) => b.textContent);
     expect(names.indexOf("Tools")).toBe(names.indexOf("Sessions") + 1);
     await screen.findByRole("table", { name: "Call duration by tool" });
-    expect(s.calls.filter((c) => c.startsWith("GET /reports/tools?")).slice(0, 3)).toEqual([
+    expect(s.calls.filter((c) => c.startsWith("GET /reports/tools?") && !c.includes("breakdown=skills")).slice(0, 3)).toEqual([
       "GET /reports/tools?from=2026-09-21&to=2026-10-20&by=day",
       "GET /reports/tools?from=2026-09-21&to=2026-10-20&by=day&breakdown=session",
       "GET /reports/tools?from=2026-09-21&to=2026-10-20&by=day&breakdown=version",
@@ -78,7 +78,7 @@ describe("the Tools page", () => {
   it("narrows to one harness in all three answers, and remembers the choice", async () => {
     const s = await openTools();
     fireEvent.change(screen.getByLabelText("Harness"), { target: { value: "opencode" } });
-    await waitFor(() => expect(s.calls.filter((c) => c.includes("harness=opencode"))).toHaveLength(8));
+    await waitFor(() => expect(s.calls.filter((c) => c.includes("harness=opencode"))).toHaveLength(9));
     await waitFor(() => expect(within(screen.getByRole("table", { name: "Calls by tool" })).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Tool", "OpenCode", "Calls", "Share"]));
     expect(screen.getByRole("table", { name: "Calls per session" })).toBeInTheDocument();
     expect(localStorage.getItem("podium.adminReporting")).toContain('"harness":"opencode"');
@@ -111,7 +111,7 @@ describe("the Tools page: failures, permission prompts and call duration (#721)"
   it("asks for the same period three more ways", async () => {
     const s = await openTools();
     await screen.findByRole("table", { name: "Failures by tool" });
-    const asked = s.calls.filter((c) => c.startsWith("GET /reports/tools?"));
+    const asked = s.calls.filter((c) => c.startsWith("GET /reports/tools?") && !c.includes("breakdown=skills"));
     expect(asked.slice(3)).toEqual([
       "GET /reports/tools?from=2026-09-21&to=2026-10-20&by=day&breakdown=failures",
       "GET /reports/tools?from=2026-09-21&to=2026-10-20&by=day&breakdown=prompts",
@@ -170,7 +170,7 @@ describe("the Tools page: failures, permission prompts and call duration (#721)"
   it("asks all three again for one harness, and says so when that harness gave no times", async () => {
     const s = await openTools();
     fireEvent.change(screen.getByLabelText("Harness"), { target: { value: "opencode" } });
-    await waitFor(() => expect(s.calls.filter((c) => c.includes("harness=opencode"))).toHaveLength(8));
+    await waitFor(() => expect(s.calls.filter((c) => c.includes("harness=opencode"))).toHaveLength(9));
     expect(await screen.findByText(/OpenCode reported no call times in this period/)).toBeInTheDocument();
   });
 });

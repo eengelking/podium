@@ -93,6 +93,8 @@ const SPEND_COLS = [
   { key: "unpricedSessions", label: "Unpriced sessions", unit: "count" },
 ];
 
+const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+
 /** A report as the server would answer it (docs/spec/ "Reports (#484)"), with the query echoed back. */
 function fakeReport(report: string, url: URL) {
   const from = url.searchParams.get("from") ?? "2026-10-01";
@@ -134,6 +136,14 @@ function fakeReport(report: string, url: URL) {
     const harness = url.searchParams.get("harness") ?? "";
     const harnesses = ["claude-code", "opencode"];
     const cols = (...k: [string, string, string][]) => k.map(([key, label, unit]) => ({ key, label, unit }));
+    if (url.searchParams.get("breakdown") === "platform") {
+      const rows = [
+        { harness: "claude-code", platform: "macOS", version: "1.5.1", reporters: 4, status: "Current" },
+        { harness: "claude-code", platform: "Linux", version: "1.4.0", reporters: 1, status: "Update available" },
+        { harness: "opencode", platform: "Not reported", version: "1.5.1", reporters: 1, status: "Current" },
+      ].filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by: null, harnesses, columns: cols(["harness", "Harness", "text"], ["platform", "Platform", "text"], ["version", "Reporter version", "text"], ["reporters", "Reporters", "count"], ["status", "Status", "text"]), rows, total: { reporters: rows.reduce((n, r) => n + r.reporters, 0) } };
+    }
     if (url.searchParams.get("breakdown") === "behind") {
       const all = [
         { period: "2026-10-12", harness: "claude-code", newest: "2.1.319", reporters: 10, onNewest: 5, behind: 5 },
@@ -151,10 +161,26 @@ function fakeReport(report: string, url: URL) {
     const versions = new Set(all.map((x) => `${x.harness}${x.version}`)).size;
     return { ...base, by: null, harnesses, columns: cols(["harness", "Harness", "text"], ["version", "Version", "text"], ["previous", "Compared with", "text"], ["feature", "What stopped", "text"], ["kind", "Kind", "text"], ["before", "Seen before", "percent"], ["now", "Seen now", "percent"], ["reporters", "Reporters on it", "count"], ["effect", "What it affects", "text"]), rows: all, total: { features: all.length, versions, reporters: harness === "opencode" ? 2 : harness === "claude-code" ? 4 : 6 } };
   }
+  if (report === "workload" && url.searchParams.get("breakdown") === "places") {
+    const rows = [
+      { person: "Maya Okafor", group: "Platform", projects: 4, branches: 19, topProject: "acme/podium" },
+      { person: "Jonas Weber", group: "Research", projects: 3, branches: 11, topProject: "acme/eval" },
+      { person: "Cai Lindqvist", group: "Platform", projects: 0, branches: 0, topProject: null },
+    ];
+    return { ...base, by: null, harnesses: ["claude-code", "opencode"], columns: [col("person", "Person", "text"), col("group", "Group", "text"), col("projects", "Projects", "count"), col("branches", "Branches", "count"), col("topProject", "Most used project", "text")], rows, total: { people: 3, projects: 6, branches: 27 } };
+  }
   if (report === "tools") {
     const harness = url.searchParams.get("harness") ?? "";
     const breakdown = url.searchParams.get("breakdown") ?? "tool";
     const harnesses = ["claude-code", "opencode"];
+    if (breakdown === "skills") {
+      const rows = [
+        { skill: "code-review", harness: "claude-code", sessions: 38, people: 5 },
+        { skill: "code-review", harness: "opencode", sessions: 4, people: 1 },
+        { skill: "simplify", harness: "claude-code", sessions: 17, people: 3 },
+      ].filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by: null, harnesses, columns: [col("skill", "Skill", "text"), col("harness", "Harness", "text"), col("sessions", "Sessions that used it", "count"), col("people", "People", "count")], rows, total: { skills: 2 }, bySkill: [{ skill: "code-review", sessions: 42, people: 5 }, { skill: "simplify", sessions: 17, people: 3 }] };
+    }
     if (breakdown === "session") {
       const all = [{ period: "2026-10-19", harness: "claude-code", sessions: 14, median: 58, p90: 214 }, { period: "2026-10-19", harness: "opencode", sessions: 6, median: 49, p90: 171 }];
       const rows = all.filter((x) => harness === "" || x.harness === harness);

@@ -51,6 +51,10 @@ export interface ReportReply {
   combined?: ReportRow[];
   /** The costs report, the mix: which of model or effort the shares are of. */
   mixOf?: string;
+  /** The Tools report, skills (#724): each skill with its sessions and the people across every harness. */
+  bySkill?: ReportRow[];
+  /** The Harness updates report (#724): the display name of each harness it names. */
+  names?: Record<string, string>;
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }
