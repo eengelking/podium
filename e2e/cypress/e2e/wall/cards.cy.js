@@ -70,6 +70,7 @@ describe('wall: cards and KPI tiles', () => {
   });
 
   it('cuts a very long name and branch without widening the card', () => {
+    // Read once on purpose: beforeEach waited for the cards and the layout is fixed by their styles, so the box is final when the card exists (#1137).
     cy.card('long').then(($c) => {
       const card = $c[0].getBoundingClientRect();
       expect(card.width).to.be.lessThan(500);

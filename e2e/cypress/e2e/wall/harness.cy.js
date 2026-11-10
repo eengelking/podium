@@ -200,6 +200,8 @@ describe('harness badge and neutral labels', () => {
     cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme', status: 'done', endReason: 'prompt_input_exit', endedAt: ENDED_AT }, undefined, undefined, bare);
     cy.visit('/#/history');
     cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((day) => {
+      // The row shows the ended session is in History; opening it before then leaves the page on the day's list (#1137).
+      cy.contains('tr', 'acme-tree');
       cy.visit(`/#/history?day=${day}&page=1&size=50&open=${TR}`);
     });
     cy.get('main h1').should('have.text', 'acme-tree');
