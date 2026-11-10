@@ -460,6 +460,12 @@ export interface Report {
   userName?: string | null;
   /** The machine the session runs on. Sent only with a userName, so nothing identifying leaves an unnamed reporter. Omitted or null from a reporter older than 0.9.0. */
   machine?: MachineInfo | null;
+  /**
+   * What the harness sent this reporter in this session (#724): `hook:<hook>` for each hook that ran and `field:<hook>.<field>` for each field its event
+   * carried, as counts (at most 64 names). Names and counts only, so the server can tell which version of a harness stopped sending something. Absent from
+   * a reporter older than 1.6.0, which the comparison leaves out.
+   */
+  signals?: Record<string, number>;
 }
 
 /** Which machine a session runs on: its host name, and a random id the reporter keeps so two machines with one host name stay apart. */

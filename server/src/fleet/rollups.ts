@@ -133,6 +133,22 @@ export interface ToolStatDay {
   timesJson: string;
 }
 
+/**
+ * How many sessions on one version of one harness sent a feature on a day (#724): `hook:...` and `field:...` from the reporter's own counts, and `tool:...` from the
+ * tool counts. The reserved names `signals` and `tools` are how many sessions there were to compare against: the ones whose reporter sent signals, and the ones with
+ * tool counts. Names and counts only.
+ */
+export interface FeatureVersionDay {
+  day: string;
+  harness: string;
+  version: string;
+  feature: string;
+  sessions: number;
+}
+
+/** The names a day's feature rows use for the sessions there were, so a share can be read: of the sessions that sent signals, of the sessions with tool counts. */
+export const FEATURE_BASE = { signals: 'signals', tools: 'tools' } as const;
+
 /** How many reporters ran one version of one harness on a day (#720). */
 export interface HarnessVersionDay {
   day: string;
@@ -279,6 +295,7 @@ export interface DayRollups {
   tools: ToolDay[];
   toolSessions: ToolSessionDay[];
   harnessVersions: HarnessVersionDay[];
+  featureVersions: FeatureVersionDay[];
   toolStats: ToolStatDay[];
   sessionTime: SessionTimeDay[];
   agentTypes: AgentDay[];
@@ -420,6 +437,13 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
   const tools = new Map<string, ToolDay>();
   const toolSessions = new Map<string, ToolSessionDay>();
   const toolStats = new Map<string, StatAcc & { day: string; harness: string; tool: string }>();
+  const featureVersions = new Map<string, FeatureVersionDay>();
+  const sawFeature = (day: string, harness: string, version: string, feature: string): void => {
+    const k = `${day}\u0000${harness}\u0000${version}\u0000${feature}`;
+    const row = featureVersions.get(k) ?? { day, harness, version, feature, sessions: 0 };
+    row.sessions += 1;
+    featureVersions.set(k, row);
+  };
   const harnessReporters = new Map<string, { day: string; harness: string; version: string; reporters: Set<string> }>();
   const timeAcc = new Map<string, TimeAcc>();
   const agentTypes = new Map<string, AgentDay>();
@@ -598,6 +622,21 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
       toolCosts.set(tck, tc);
     }
 
+    // What this version of the harness sent (#724): the reporter's own hook and field counts, and the tools it called. A session whose reporter sends no signals is not in the
+    // sessions to compare against, so an older reporter does not look like a feature that stopped.
+    if (s.engine_version) {
+      const signals = asRecord(safeParse<unknown>(s.signals_json ?? null, null));
+      const sent = Object.entries(signals).filter(([, n]) => typeof n === 'number' && n > 0);
+      if (sent.length) {
+        sawFeature(day, harness, s.engine_version, FEATURE_BASE.signals);
+        for (const [name] of sent) sawFeature(day, harness, s.engine_version, name);
+      }
+      if (calls) {
+        sawFeature(day, harness, s.engine_version, FEATURE_BASE.tools);
+        for (const tool of calls.keys()) sawFeature(day, harness, s.engine_version, `tool:${tool}`);
+      }
+    }
+
     const fl = fleetOf(day);
     if (owner) fl.people.add(owner);
     const machine = safeParse<{ id?: string } | null>(s.machine_json, null)?.id;
@@ -636,6 +675,7 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number)
     tools: [...tools.values()],
     toolSessions: [...toolSessions.values()],
     toolStats: [...toolStats.values()].map((a) => ({ day: a.day, harness: a.harness, tool: a.tool, failed: a.failed, asked: a.asked, allowed: a.allowed, denied: a.denied, podium: a.podium, timesJson: timesJson(a.times) })),
+    featureVersions: [...featureVersions.values()],
     harnessVersions: [...harnessReporters.values()].map((v) => ({ day: v.day, harness: v.harness, version: v.version, reporters: v.reporters.size })),
     sessionTime: [...timeAcc.values()].map(({ ms, ...row }) => ({ ...row, permissionS: Math.round(ms.permission / 1000), questionS: Math.round(ms.question / 1000), planS: Math.round(ms.plan / 1000) })),
     agentTypes: [...agentTypes.values()],
@@ -758,6 +798,7 @@ export function writeRollups(storage: Storage, now: number, cost: CostOf, p: Rol
       await db.insertToolsDaily(built.tools.filter((r) => wanted(r.day)));
       await db.insertToolSessionsDaily(built.toolSessions.filter((r) => wanted(r.day)));
       await db.insertHarnessVersionsDaily(built.harnessVersions.filter((r) => wanted(r.day)));
+      await db.insertFeatureVersionsDaily(built.featureVersions.filter((r) => wanted(r.day)));
       await db.insertToolStatsDaily(built.toolStats.filter((r) => wanted(r.day)));
       await db.insertSessionTimeDaily(built.sessionTime.filter((r) => wanted(r.day)));
       await db.insertAgentsDaily(built.agentTypes.filter((r) => wanted(r.day)));

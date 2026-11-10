@@ -58,6 +58,8 @@ import {
 import { nextCronAt } from './cron.ts';
 import { Transport, type FetchLike } from '../../core/transport.ts';
 import { Responder, newResponderState, sessionPath } from '../../core/respond.ts';
+import { bumpSignals, reportSignals, type Signals } from '../../core/signals.ts';
+import { CLAUDE_FIELDS } from './signals.ts';
 import { findLinkConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { readHome } from '../../core/tls/findConfig.ts';
 import { contextArgs } from '../../core/podiumCommand.ts';
@@ -274,6 +276,8 @@ let linking: Promise<void> | null = null;
 let generation = 0;
 let errors: { at: number; where: string; message: string }[] = [];
 let stats: Record<string, HookStat> = {};
+/** What the engine sent this reporter: each hook that ran and the fields the reporter reads from its event, as counts (#724). Sent with every report of the session. */
+let signals: Signals = {};
 /** Agents whose failure was sent for an explanation: at most one call per failure, never retried. */
 let explained = new Set<string>();
 
@@ -400,6 +404,15 @@ function record($: Engine, where: string, err: unknown): void {
   }
 }
 
+/** Counts one run of a hook and the listed fields its event carried (#724), before any reporter logic reads them, so a field that went missing shows even when the logic copes with it. */
+function seen(hook: string, event: unknown): void {
+  try {
+    bumpSignals(signals, hook, event, CLAUDE_FIELDS[hook]);
+  } catch {
+    // counting is best effort and never breaks a hook
+  }
+}
+
 /** Runs reporter logic for a hook: any throw is remembered, never raised. Timed for /podium. */
 function safe(where: string, fn: (r: Runtime) => void): void {
   const t0 = perf();
@@ -473,6 +486,7 @@ function metaOf(r: Runtime, now: number) {
     hostSurface: r.hostSurface,
     build: r.build,
     resumeWindowDays: r.resumeWindowDays,
+    signals: reportSignals(signals, (k) => k.slice(0, 120)),
     now,
     storedName: r.storedName,
     claudeName: (r.claudeName?.id === r.state.id ? r.claudeName.name : null) ?? (r.appName?.id === r.state.id ? r.appName.name : null),
@@ -2130,6 +2144,7 @@ export const register: Register = (on, rawOptions) => {
   generation++;
   errors = [];
   stats = {};
+  signals = {};
   explained = new Set();
   recorder = new Recorder();
   asks = new Map();
@@ -2153,6 +2168,7 @@ export const register: Register = (on, rawOptions) => {
   peerOpen = [];
 
   on('session.start', async ($, e, next) => {
+    seen('session.start', e);
     const res = await next(e);
     try {
       await start($, e);
@@ -2163,6 +2179,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('session.end', async ($, e, next) => {
+    seen('session.end', e);
     const res = await next(e);
     try {
       await end($, e, next.signal);
@@ -2173,6 +2190,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('turn.start', async ($, e, next) => {
+    seen('turn.start', e);
     safe('turn.start', (r) => {
       r.state = turnStart(r.state);
       recorder.prompt(recLoop(e.agentId), e.agentId ? e.text : unframeSent(e.text, sentFromPodium), nowMs());
@@ -2194,6 +2212,7 @@ export const register: Register = (on, rawOptions) => {
   };
 
   on('turn.step', async function* ($, e, next) {
+    seen('turn.step', e);
     // A loop someone is watching, with the activityFeed option on (#118): read the text chunks as they pass and keep
     // the step's text as one entry. Every chunk is yielded on as it came, the same object, in order. Any other step
     // takes the plain path. `for await` drops a stream's return value, so the result is `stream.result`.
@@ -2251,6 +2270,7 @@ export const register: Register = (on, rawOptions) => {
   });
 
   on('turn.complete', async ($, e, next) => {
+    seen('turn.complete', e);
     const res = await next(e);
     safe('turn.complete', (r) => {
       r.state = turnComplete(r.state, { agentId: e.agentId, reason: e.reason, answer: e.answer }, nowMs());
@@ -2260,6 +2280,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('session.compact', async ($, e, next) => {
+    seen('session.compact', e);
     const res = await next(e);
     safe('session.compact', (r) => {
       if (e.trigger === 'precompute' || !res || res.skip !== undefined || !res.messages) return;
@@ -2273,18 +2294,21 @@ export const register: Register = (on, rawOptions) => {
 
   // A client joining or leaving is a prompt to look at the roster now; the flush timer reads it too.
   on('session.attach', async ($, e, next) => {
+    seen('session.attach', e);
     const res = await next(e);
     if (rt) await readSurfaces($, rt);
     return res;
   }).catch(($, e, next) => next(e));
 
   on('session.detach', async ($, e, next) => {
+    seen('session.detach', e);
     const res = await next(e);
     if (rt) await readSurfaces($, rt);
     return res;
   }).catch(($, e, next) => next(e));
 
   on('session.measure', async ($, e, next) => {
+    seen('session.measure', e);
     safe('session.measure', (r) => {
       r.state = measure(r.state, { context: freshContext(r, e.context), cost: e.cost ?? null, rateLimits: e.rateLimits });
     });
@@ -2292,6 +2316,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('agent.spawn', async ($, e, next) => {
+    seen('agent.spawn', e);
     const res = await next(e);
     safe('agent.spawn', (r) => {
       if (!res || res.deny !== undefined || !res.agentId) return;
@@ -2317,6 +2342,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('tool.call', async ($, e, next) => {
+    seen('tool.call', e);
     const tool = String(e.tool);
     const input = e as unknown as Record<string, unknown>;
     safe('tool.call', (r) => {
@@ -2385,6 +2411,7 @@ export const register: Register = (on, rawOptions) => {
 
   // Where a prompt is about to show, a PermissionRequest should follow: if none does, the hooks don't run here (#206).
   on('tool.check', async ($, e, next) => {
+    seen('tool.check', e);
     const res = await next(e);
     safe('tool.check', () => {
       const id = (e as { tool_use_id?: string }).tool_use_id;
@@ -2411,6 +2438,7 @@ export const register: Register = (on, rawOptions) => {
   on('tool.call', { tool: 'mcp__podium-reporter__podium_request_access' }, async ($, e) => ({ result: await accessTool($, e as never) })).catch(() => peerFallback);
 
   on('skill.prompt', async ($, e, next) => {
+    seen('skill.prompt', e);
     safe('skill.prompt', (r) => {
       // A Skill tool call records its own loop; an agent may be preloading it: skip when ambiguous.
       const agentsRunning = Object.values(r.state.agents).some((a) => a.status === 'running');
@@ -2420,6 +2448,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.PermissionRequest', async ($, e, next) => {
+    seen('classic.PermissionRequest', e);
     const agentId = (e as { agent_id?: string }).agent_id;
     classicSeen = true;
     safe('classic.PermissionRequest', (r) => {
@@ -2449,6 +2478,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.Notification', async ($, e, next) => {
+    seen('classic.Notification', e);
     classicSeen = true;
     safe('classic.Notification', (r) => {
       r.state = notification(r.state, e.notification_type, e.message, nowMs());
@@ -2458,6 +2488,7 @@ export const register: Register = (on, rawOptions) => {
 
   // Claude Code's own session name (#322): the title rides on these two hooks, so a rename shows from the next prompt.
   on('classic.SessionStart', async ($, e, next) => {
+    seen('classic.SessionStart', e);
     classicSeen = true;
     safe('classic.SessionStart', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
@@ -2465,6 +2496,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    seen('classic.UserPromptSubmit', e);
     classicSeen = true;
     safe('classic.UserPromptSubmit', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
@@ -2474,6 +2506,7 @@ export const register: Register = (on, rawOptions) => {
   // The Stop hook lists the background work and scheduled wake-ups still in flight (#119): a session idle on
   // them is not waiting on the person.
   on('classic.Stop', async ($, e, next) => {
+    seen('classic.Stop', e);
     classicSeen = true;
     safe('classic.Stop', (r) => {
       const now = nowMs();
@@ -2484,6 +2517,6 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   // `/podium config` (#1001) is the settings pane's (configPane.tsx); each hook hands the other's word on, whichever runs first.
-  on('command.run', { command: 'podium' }, async ($, e, next) => (isConfigArgs(e.args) ? next(e) : { text: await podiumCommand($, e.args ?? '') }));
+  on('command.run', { command: 'podium' }, async ($, e, next) => (seen('command.run', e), isConfigArgs(e.args) ? next(e) : { text: await podiumCommand($, e.args ?? '') }));
   registerConfigPane(on, () => ({ serverUrl: serverBase(), userName: who.userName, context: linkContext.name }));
 };

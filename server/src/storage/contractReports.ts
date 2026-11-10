@@ -8,7 +8,7 @@ import type { AgentRow, SessionWaitRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
 
 const T0 = 1_800_000_000_000;
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
   day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
@@ -74,6 +74,12 @@ export function reportCases(o: Openers): void {
         { day: '2026-10-02', harness: 'opencode', tool: 'Bash', sessions: 2, pricedSessions: 2, costUsd: 0.5, calls: 9 }, { day: '2026-10-02', harness: 'claude-code', tool: 'Bash', sessions: 3, pricedSessions: 1, costUsd: 0.25, calls: 12 },
         { day: '2026-10-02', harness: 'claude-code', tool: 'bash', sessions: 1, pricedSessions: 1, costUsd: 0.1 + 0.2, calls: 1 }, { day: '2026-10-01', harness: 'claude-code', tool: 'Edit', sessions: 1, pricedSessions: 0, costUsd: 0, calls: 4 },
       ]);
+      // what each version of a harness sent (#724): names and counts only, one row per day, harness, version and feature
+      await f.insertFeatureVersionsDaily([
+        { day: '2026-10-02', harness: 'claude-code', version: '2.1.319', feature: 'signals', sessions: 4 }, { day: '2026-10-02', harness: 'claude-code', version: '2.1.319', feature: 'hook:tool.check', sessions: 0 + 1 },
+        { day: '2026-10-02', harness: 'claude-code', version: '2.1.305', feature: 'signals', sessions: 5 }, { day: '2026-10-02', harness: 'claude-code', version: '2.1.305', feature: 'hook:tool.check', sessions: 5 },
+        { day: '2026-10-01', harness: 'opencode', version: '1.4.2', feature: 'tool:webfetch', sessions: 2 },
+      ]);
       await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 3 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 1 }, { day: '2026-10-02', harness: 'claude-code', hour: 9, peak: 2 }, { day: '2026-10-01', harness: '', hour: 0, peak: 1 }]);
       await rec('hour peaks stored', f.rollupRows('hour_peaks_daily', '2026-10-01', '2026-10-31'));
       await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 2 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 5 }]);
@@ -106,6 +112,7 @@ export function reportCases(o: Openers): void {
     expect((t.get('rows person_sessions_daily') as unknown[]).length).toBe(5);
     expect((t.get('rows cost_daily') as unknown[]).length).toBe(6);
     expect((t.get('rows tool_cost_daily') as unknown[]).length).toBe(4);
+    expect((t.get('rows feature_versions_daily') as unknown[]).length).toBe(5);
     expect(t.get('peak never goes down')).toBe(3);
     const hours = t.get('hour peak never goes down, and a higher one is kept') as { harness: string; hour: number; peak: number }[];
     expect(hours.map((r) => `${r.harness || 'all'}/${r.hour}=${r.peak}`)).toEqual(['all/14=3', 'claude-code/9=2', 'opencode/14=5']);

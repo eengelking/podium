@@ -273,6 +273,8 @@ export interface SessionRow {
   model_provider: string | null;
   /** The days the harness lets a person resume this session once it is closed (#1113); chat is kept that long. NULL when no report has said (every session stored before this, or an old reporter): the default of 30 days applies. */
   resume_window_days?: number | null;
+  /** What the harness sent the reporter in this session (#724): a JSON object of signal name (`hook:...`, `field:...`) to count. NULL when no report has sent any (an older reporter, or a session stored before this). */
+  signals_json?: string | null;
 }
 
 export interface AgentRow {

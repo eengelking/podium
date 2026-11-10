@@ -6,6 +6,7 @@ import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTex
 import { lastSegment } from '../core/git.ts';
 import { DEFAULT_RESUME_WINDOW_DAYS } from '../core/resumeWindow.ts';
 import { reportStats } from '../core/toolStats.ts';
+import { reportSignals } from '../core/signals.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
@@ -142,6 +143,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     capabilities: capabilities(meta.respond?.info ?? null),
     reporter: { name: 'podium-reporter-opencode', version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
+    signals: reportSignals(root.signals, (k) => cap(k, 120)),
     session: {
       id: root.id,
       name: clip(root.storedName || main.title || meta.optionName?.trim() || root.id, 80),

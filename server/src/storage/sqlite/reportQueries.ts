@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
+import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, FeatureVersionDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { ReportQueries, RollupRaw, RollupTable, StoredSession } from '../reportQueries.js';
 import type { SessionWaitRow } from '../rows.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
-const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily'];
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily'];
 
 /** The columns after `day` that make a rollup row unique, so rows of one day come back in one order everywhere. */
 const ROW_KEY: Record<RollupTable, string> = {
@@ -17,6 +17,7 @@ const ROW_KEY: Record<RollupTable, string> = {
   tool_sessions_daily: ', harness, bucket',
   harness_versions_daily: ', harness, version',
   tool_stats_daily: ', harness, tool',
+  feature_versions_daily: ', harness, version, feature',
   session_time_daily: ', harness',
   agents_daily: ', harness, type, depth',
   person_sessions_daily: ', owner, harness',
@@ -156,6 +157,11 @@ export class SqliteReportQueries implements ReportQueries {
   insertHarnessVersionsDaily(rows: HarnessVersionDay[]): void {
     const put = this.db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
     for (const r of rows) put.run(r.day, r.harness, r.version, r.reporters);
+  }
+
+  insertFeatureVersionsDaily(rows: FeatureVersionDay[]): void {
+    const put = this.db.prepare('INSERT INTO feature_versions_daily (day, harness, version, feature, sessions) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.version, r.feature, r.sessions);
   }
 
   insertToolStatsDaily(rows: ToolStatDay[]): void {

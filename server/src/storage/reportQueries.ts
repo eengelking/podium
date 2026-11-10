@@ -1,7 +1,7 @@
 // The report and rollup queries behind Admin > Reporting (#484, #313). They were SQL written inside reports.ts and
 // rollups.ts; here they are named methods of the fleet store, so the reports read through the same async interface as
 // everything else and nothing outside an adapter names a table's SQL.
-import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../fleet/rollups.js';
+import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, FeatureVersionDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../fleet/rollups.js';
 import type { SessionRow, SessionWaitRow } from './rows.js';
 
 /** One rollup table row as stored. */
@@ -13,9 +13,9 @@ export type StoredSession = SessionRow & { grp: string | null };
 /**
  * The daily rollup tables. `tools_daily`, `tool_sessions_daily` and `harness_versions_daily` are the tool counts (#720), and `tool_stats_daily` how each tool failed, asked and
  * took (#721). `session_time_daily`, `agents_daily`, `person_sessions_daily` and `hour_peaks_daily` are how long sessions ran and waited, which agents they launched, who ran them
- * and when they overlapped (#722). `cost_daily` and `tool_cost_daily` are what sessions cost and how they ended, by model, effort and tool (#723). Names, counts and times only, kept per harness.
+ * and when they overlapped (#722). `feature_versions_daily` is what each version of a harness sent (#724). `cost_daily` and `tool_cost_daily` are what sessions cost and how they ended, by model, effort and tool (#723). Names, counts and times only, kept per harness.
  */
-export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily' | 'tool_stats_daily' | 'session_time_daily' | 'agents_daily' | 'person_sessions_daily' | 'hour_peaks_daily' | 'cost_daily' | 'tool_cost_daily';
+export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily' | 'tool_stats_daily' | 'session_time_daily' | 'agents_daily' | 'person_sessions_daily' | 'hour_peaks_daily' | 'cost_daily' | 'tool_cost_daily' | 'feature_versions_daily';
 
 export interface ReportQueries {
   /** Rows of a rollup table for the days `from` to `to`, oldest first. */
@@ -64,6 +64,7 @@ export interface ReportQueries {
   insertToolsDaily(rows: ToolDay[]): void;
   insertToolSessionsDaily(rows: ToolSessionDay[]): void;
   insertHarnessVersionsDaily(rows: HarnessVersionDay[]): void;
+  insertFeatureVersionsDaily(rows: FeatureVersionDay[]): void;
   insertToolStatsDaily(rows: ToolStatDay[]): void;
   insertSessionTimeDaily(rows: SessionTimeDay[]): void;
   insertAgentsDaily(rows: AgentDay[]): void;

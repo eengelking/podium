@@ -166,6 +166,8 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
     // Kept when a later report from an older reporter carries none (#1113).
     resume_window_days: s.resumeWindowDays ?? prev?.resume_window_days ?? null,
+    // What the harness sent the reporter (#724). Cumulative in the reporter, so the latest report replaces it; a report with none (an older reporter, a hook) keeps what was stored.
+    signals_json: r.signals ? JSON.stringify(r.signals) : prev?.signals_json ?? null,
     ...modelNames(s.model, { label: s.modelLabel, provider: s.modelProvider }, prev),
   };
 }

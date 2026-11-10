@@ -518,6 +518,19 @@ CREATE TABLE IF NOT EXISTS tool_cost_daily (
   PRIMARY KEY (day, harness, tool)
 );`,
   },
+  {
+    version: 41,
+    // What each version of a harness sent (#724), behind Admin > Reporting > Harness updates, so a hook, an event field or a tool name that stops after an update is found.
+    // A session keeps what its reporter counted as JSON of signal name to count (NULL from a reporter that does not send it). `feature_versions_daily` is, per day, harness and
+    // harness version, how many sessions sent each feature (`hook:...`, `field:...`, or `tool:...` from the tool counts), and how many sessions there were to compare
+    // against (the reserved names `signals` and `tools`: the sessions whose reporter sent signals, and the sessions that have tool counts). Names and counts only.
+    sql: `
+ALTER TABLE sessions ADD COLUMN signals_json TEXT;
+CREATE TABLE IF NOT EXISTS feature_versions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, feature TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

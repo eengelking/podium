@@ -8,6 +8,8 @@ import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
 import { MAIN_LOOP, type ToolStat, type ActivityEntry, type BackgroundWait, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
 import { bumpStat, MAX_TOOL_NAMES } from '../core/toolStats.ts';
+import { bumpSignals, type Signals } from '../core/signals.ts';
+import { OPENCODE_FIELDS } from './signals.ts';
 import { Recorder } from '../core/recording.ts';
 import { canonical, entryFor, finishedEntry, toolName } from './activity.ts';
 
@@ -171,6 +173,8 @@ export interface Root {
   background: BackgroundWait | null;
   /** The folder `place` was read for, so a root that moves is read again. */
   placeFor: string | null;
+  /** What OpenCode sent this root: each event that ran and the fields the reporter reads from it, as counts (#724). */
+  signals: Signals;
   /** The files changed since the session began, once git has been read; null before, and when git cannot be read. */
   files: FilesReport | null;
   /** The commit HEAD was at on the first read; the files list and a file's diff are against it. */
@@ -234,7 +238,7 @@ function newRoot(id: string, cwd: string | null, at: number): Root {
   recorder.begin(id);
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
-    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, storedName: null, background: null, placeFor: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
+    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, storedName: null, background: null, placeFor: null, signals: {}, files: null, gitBase: null, events: [], seq: 0, dirty: true,
     watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null, podiumAnswered: new Set(),
   };
 }
@@ -440,6 +444,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   const known = store.rootOf.has(sid);
   if (!known && !ev.recovered && !type.startsWith('session.')) return null;
   const { root, sess: s } = locate(store, sid, parent, t, cwd);
+  // Which events OpenCode sends and which of their fields the reporter finds (#724): counted before anything reads them, so a changed event shows even when the reducer ignores it.
+  bumpSignals(root.signals, type, d, OPENCODE_FIELDS[type]);
   // A delete or archive of a root that is already done ends nothing new: it must not reopen it just to end it again (#984).
   const ending = type === 'session.deleted' || type === 'session.archived';
   if (ending && root.done) return root;
