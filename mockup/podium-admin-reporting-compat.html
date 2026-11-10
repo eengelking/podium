@@ -261,7 +261,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li><b>Compatibility notice (SPEC 6.8).</b> The top bar already says "2 reporters need an update". A second pill, "3 features stopped after a harness update", links to this page. It shows only while Admin is unlocked, because the page is Admin-only, and only when something is listed.</li>
     <li><b>Reporters behind the newest version</b> extends the Harness versions table on Tools: the same weeks, with how many reporters were on an older version than the newest Podium had seen for that harness that week, as one neutral-ink chart and a table with a row per harness. Versions are compared only within one harness.</li>
     <li><b>All harnesses.</b> Every section covers Claude Code and OpenCode by default, has a Harness filter, and carries a harness column in CSV and JSON. A figure one harness cannot supply shows a dash with the reason (OpenCode reports no skills).</li>
-    <li>Short captions and column names carry the detail in a dotted-underline tip (the existing <code>.tt</code> with a <code>title</code>), so the page reads quickly and the meaning is one hover away.</li>
+    <li>Short captions and column names carry the detail in a dotted-underline tip (the app's existing <code>Tip</code>: <code>.tip.tt</code> with a <code>.tipbox</code>, which opens on hover and keyboard focus), so the page reads quickly and the meaning is one hover away.</li>
     <li>Only names and counts are stored. No arguments, paths, prompts, command text, host names or user names. The platform is the OS and CPU family.</li>
     <li><b>How a section is split into panels (a rule the maintainer set with this mockup).</b> A summary row of big figures stays in the same panel as what follows it when that content has no headers of its own, such as a chart (one object, with a rule between). When what follows has headers of its own, such as a table with column headers, it is a separate panel under the same section heading. So "Features that stopped" is a summary panel and a table panel, and "Reporters behind the newest version" is summary and chart in one panel, and the table in a second. It is recorded as a <code>standards</code> changelog fragment (<code>changelog.d/724.standards.md</code>) for <code>podium-standards-update</code> to add to <code>patterns.html</code> at release-prep.</li>
     <li>Nothing else here is new to the standards: the pill, tables, summary figures, chart, pager and note line all exist, with no <code>:root</code> block and no new class.</li>
@@ -295,6 +295,23 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   document.getElementById("stopped-pill").addEventListener("click", function (e) { e.preventDefault(); page("updates"); });
   document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
   document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  // The app's Tip (components/Tip.tsx), reproduced for the mockup: a title on .tt becomes a .tipbox that opens on hover and focus, closes on blur, leave and Escape, and is placed from the trigger.
+  document.querySelectorAll(".tt[title]").forEach(function (el, i) {
+    var box = document.createElement("span"); box.className = "tipbox"; box.id = "tip" + i; box.setAttribute("role", "tooltip"); box.hidden = true; box.textContent = el.getAttribute("title");
+    el.removeAttribute("title"); el.classList.add("tip"); el.tabIndex = 0; el.setAttribute("aria-describedby", box.id); el.appendChild(box);
+    var hover = false, focus = false, dismissed = false;
+    function sync() {
+      var open = (hover || focus) && !dismissed; box.hidden = !open; if (!open) return;
+      var r = el.getBoundingClientRect(), b = box.getBoundingClientRect(), below = r.bottom + 6;
+      var top = below + b.height > window.innerHeight - 8 && r.top - 6 - b.height >= 8 ? r.top - 6 - b.height : below;
+      box.style.top = top + "px"; box.style.left = Math.max(8, Math.min(r.left, window.innerWidth - b.width - 8)) + "px";
+    }
+    el.addEventListener("mouseenter", function () { hover = true; dismissed = false; sync(); });
+    el.addEventListener("mouseleave", function () { hover = false; sync(); });
+    el.addEventListener("focus", function () { focus = true; dismissed = false; sync(); });
+    el.addEventListener("blur", function () { focus = false; sync(); });
+    el.addEventListener("keydown", function (e) { if (e.key === "Escape") { dismissed = true; sync(); } });
+  });
   root.setAttribute("data-theme", "dark");
   page("updates");
 })();
