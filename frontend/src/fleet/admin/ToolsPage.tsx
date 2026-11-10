@@ -14,7 +14,7 @@ import { useReport, type ReportConfig, type ReportState } from "./useReport";
 import { DurationSection, FailuresSection, PromptsSection, ToolSection } from "./ToolStatsSections";
 
 /** One more answer of the same report (calls per session, versions) for the period and filters the page has. */
-function useBreakdown(client: ReportsClient, r: ReportState, breakdown: "session" | "version" | "failures" | "prompts" | "duration", onLocked: () => void): { reply: ReportReply | null; error: string | null } {
+export function useBreakdown(client: ReportsClient, r: ReportState, breakdown: "session" | "version" | "failures" | "prompts" | "duration" | "behind", onLocked: () => void): { reply: ReportReply | null; error: string | null } {
   const [state, setState] = useState<{ reply: ReportReply | null; error: string | null }>({ reply: null, error: null });
   const path = r.path === null ? null : `${r.path}${r.path.includes("?") ? "&" : "?"}breakdown=${breakdown}`;
   const lock = useRef(onLocked);

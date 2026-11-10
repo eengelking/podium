@@ -6,12 +6,15 @@ import { ConnectionPill } from "./ConnectionPill";
 import { TopBarSignIn, type MyReportersLink } from "./SignIn";
 import { TopBarTab } from "./TopBarTab";
 import { useRespond } from "../useRespond";
+import { HARNESS_UPDATES_HASH } from "../stoppedFeatures";
 
 export function TopBar(props: {
   page: string;
   phase: Phase;
   reporters: number;
   outdated?: number;
+  /** Features that stopped after a harness update (#724), shown to an unlocked Admin only; 0 or absent shows nothing. */
+  stopped?: number;
   newer?: number;
   collapsed?: boolean;
   onCollapse?: () => void;
@@ -39,6 +42,12 @@ export function TopBar(props: {
           <span className="dot warn" aria-hidden="true" />
           {props.outdated} reporter{props.outdated === 1 ? "" : "s"} need{props.outdated === 1 ? "s" : ""} an update
         </span>
+      )}
+      {!!props.stopped && (
+        <a className="pill warn" href={HARNESS_UPDATES_HASH} title="Open Admin > Reporting > Harness updates">
+          <span className="dot warn" aria-hidden="true" />
+          {props.stopped} feature{props.stopped === 1 ? "" : "s"} stopped after a harness update
+        </a>
       )}
       {!!props.newer && (
         <span className="pill warn" role="status" title="Upgrade the Podium server">

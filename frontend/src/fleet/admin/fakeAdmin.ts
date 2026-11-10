@@ -130,6 +130,27 @@ function fakeReport(report: string, url: URL) {
   if (report === "sessions") {
     return { ...base, by, columns: [{ key: "period", label: "Day", unit: "date" }, { key: "key", label: "Outcome", unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "avgDurationS", label: "Average duration", unit: "seconds" }, { key: "maxContextPct", label: "Fullest window", unit: "percent" }], rows: [{ period: "2026-10-19", key: "ended", sessions: 12, avgDurationS: 754, maxContextPct: 91 }], total: { sessions: 12, blowouts: 1 } };
   }
+  if (report === "harness") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const harnesses = ["claude-code", "opencode"];
+    const cols = (...k: [string, string, string][]) => k.map(([key, label, unit]) => ({ key, label, unit }));
+    if (url.searchParams.get("breakdown") === "behind") {
+      const all = [
+        { period: "2026-10-12", harness: "claude-code", newest: "2.1.319", reporters: 10, onNewest: 5, behind: 5 },
+        { period: "2026-10-12", harness: "opencode", newest: "1.4.2", reporters: 3, onNewest: 3, behind: 0 },
+        { period: "2026-10-19", harness: "claude-code", newest: "2.1.319", reporters: 6, onNewest: 4, behind: 2 },
+        { period: "2026-10-19", harness: "opencode", newest: "1.4.2", reporters: 2, onNewest: 2, behind: 0 },
+      ].filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by, harnesses, columns: cols(["period", "Period", "date"], ["harness", "Harness", "text"], ["newest", "Newest seen", "text"], ["reporters", "Reporters", "count"], ["onNewest", "On the newest", "count"], ["behind", "Behind", "count"]), rows: all, total: {} };
+    }
+    const all = [
+      { harness: "claude-code", version: "2.1.319", previous: "2.1.305", feature: "field:tool_response.duration_ms", kind: "field", before: 98, now: 0, reporters: 4, effect: "Call duration on Tools shows a dash." },
+      { harness: "claude-code", version: "2.1.319", previous: "2.1.305", feature: "hook:tool.check", kind: "hook", before: 96, now: 0, reporters: 4, effect: "Permission prompts are not counted." },
+      { harness: "opencode", version: "1.4.2", previous: "1.3.9", feature: "tool:webfetch", kind: "tool", before: 31, now: 2, reporters: 2, effect: "Calls by tool shows no webfetch for OpenCode. A person may simply have stopped using it." },
+    ].filter((x) => harness === "" || x.harness === harness);
+    const versions = new Set(all.map((x) => `${x.harness}${x.version}`)).size;
+    return { ...base, by: null, harnesses, columns: cols(["harness", "Harness", "text"], ["version", "Version", "text"], ["previous", "Compared with", "text"], ["feature", "What stopped", "text"], ["kind", "Kind", "text"], ["before", "Seen before", "percent"], ["now", "Seen now", "percent"], ["reporters", "Reporters on it", "count"], ["effect", "What it affects", "text"]), rows: all, total: { features: all.length, versions, reporters: harness === "opencode" ? 2 : harness === "claude-code" ? 4 : 6 } };
+  }
   if (report === "tools") {
     const harness = url.searchParams.get("harness") ?? "";
     const breakdown = url.searchParams.get("breakdown") ?? "tool";

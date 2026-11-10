@@ -4,7 +4,7 @@ import { fmtDur, fmtTok } from "../format";
 import { readJson, writeJson } from "../storage";
 import { AdminError, type AdminApi } from "./adminApi";
 
-export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "sessiontime" | "workload" | "activity";
+export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "sessiontime" | "workload" | "harness" | "activity";
 export type By = "day" | "week" | "month";
 
 export interface ReportColumn {

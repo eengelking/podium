@@ -101,6 +101,15 @@ export const REPORT_CONFIGS: Record<Exclude<ReportId, "spend" | "sessiontime" | 
     summary: [],
     help: "All harnesses. Only tool names and counts are kept: no arguments, paths or commands",
   },
+  harness: {
+    report: "harness",
+    title: "Harness updates",
+    lead: "What stopped arriving after Claude Code or OpenCode updated, and how many reporters run each version.",
+    hasBy: true,
+    filters: ["harness"],
+    summary: [],
+    help: "All harnesses. Only names and counts are kept",
+  },
   activity: {
     report: "activity",
     title: "Admin activity",

@@ -84,7 +84,7 @@ describe('harness updates: stopped', () => {
   it('is the same data as its CSV, and refuses a person filter it cannot honor', async () => {
     const w = world();
     await replay(w, { harness: 'claude-code', version: '2.1.305', daysAgo: 6, n: 22, reporters: 3, signals: OLD });
-    await replay(w, { harness: 'claude-code', version: '2.1.319', daysAgo: 3, n: 22, reporters: 2, signals: {} });
+    await replay(w, { harness: 'claude-code', version: '2.1.319', daysAgo: 3, n: 22, reporters: 2, signals: { 'hook:session.start': 1 } });
     const { get } = await api(w);
     const json = (await get(q())).body as ReportReply;
     const csv = (await get(`${q()}&format=csv`)).text;
@@ -106,5 +106,35 @@ describe('harness updates: behind the newest version', () => {
     expect(last).toMatchObject({ harness: 'claude-code', newest: '2.1.319', reporters: 4, onNewest: 1, behind: 3 });
     // the first week had only 2.1.305, which was the newest then
     expect(r.rows[0]).toMatchObject({ newest: '2.1.305', reporters: 4, behind: 0 });
+  });
+});
+
+describe('harness updates: the count in the top bar', () => {
+  async function counted() {
+    const w = world();
+    await replay(w, { harness: 'claude-code', version: '2.1.305', daysAgo: 6, n: 22, reporters: 3, signals: OLD });
+    await replay(w, { harness: 'claude-code', version: '2.1.319', daysAgo: 3, n: 22, reporters: 2, signals: { 'hook:session.start': 1 } });
+    await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), { sessionsMs: 30 * DAY_MS });
+    const clock = { t: NOW };
+    const app = express();
+    app.use('/api/admin', createAdminRouter({ secret: SECRET, storage: w.storage, people: w.people, reports: w.deps, now: () => clock.t, idleMs: 600_000 }));
+    return { agent: request.agent(app), clock };
+  }
+
+  it('tells nobody who is locked, and an unlocked Admin how many features stopped', async () => {
+    const { agent } = await counted();
+    expect((await agent.get('/api/admin/notice')).body).toEqual({ unlocked: false });
+    await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
+    expect((await agent.get('/api/admin/notice')).body).toEqual({ unlocked: true, stopped: 3 });
+  });
+
+  it('is not Admin activity: asking for it does not hold off the idle lock', async () => {
+    const { agent, clock } = await counted();
+    await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
+    clock.t += 9 * 60_000;
+    expect((await agent.get('/api/admin/notice')).body.unlocked).toBe(true);
+    clock.t += 2 * 60_000;
+    expect((await agent.get('/api/admin/notice')).body).toEqual({ unlocked: false });
+    expect((await agent.get('/api/admin/session')).body.unlocked).toBe(false);
   });
 });

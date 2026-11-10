@@ -25,6 +25,7 @@ import { ReportersTab, type ReporterPaging } from "./ReportersTab";
 import { DataPage } from "./DataPage";
 import { REPORT_CONFIGS, ReportPage, SPEND_CONFIG } from "./ReportPages";
 import { SessionsPage, UsagePage } from "./TimePages";
+import { HarnessPage } from "./HarnessPage";
 import { ToolsPage } from "./ToolsPage";
 import { ReportingTab } from "./ReportingTab";
 import { makeReportsClient } from "./reportsApi";
@@ -34,7 +35,7 @@ import { StoredActivityTab } from "./StoredActivityTab";
 import { AboutTab } from "./AboutTab";
 
 type Status = "checking" | "locked" | "open" | "disabled";
-type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "tools" | "activity" | "kept" | "stored" | "about";
+type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "tools" | "harness" | "activity" | "kept" | "stored" | "about";
 const PAGES: Record<TabId, { name: string; lead: string }> = {
   people: { name: "People", lead: "Each person gets a token that only works with their own name. A report is accepted when the two match." },
   groups: { name: "Groups", lead: "Arrange people into groups. The fleet wall shows a band per group." },
@@ -50,6 +51,7 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
   sessions: { name: REPORT_CONFIGS.sessions.title, lead: REPORT_CONFIGS.sessions.lead },
   failures: { name: REPORT_CONFIGS.failures.title, lead: REPORT_CONFIGS.failures.lead },
   tools: { name: REPORT_CONFIGS.tools.title, lead: REPORT_CONFIGS.tools.lead },
+  harness: { name: REPORT_CONFIGS.harness.title, lead: REPORT_CONFIGS.harness.lead },
   activity: { name: REPORT_CONFIGS.activity.title, lead: REPORT_CONFIGS.activity.lead },
   kept: { name: "Data", lead: "What Podium stores, for how long, and what you can remove. Reports read this, never the live stream alone." },
   stored: { name: "Stored activity", lead: "The Activity history Podium has kept, by session. Delete what you no longer need, in bulk." },
@@ -59,11 +61,11 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
 const NAV: { name: string; icon: GroupIconName; ids: TabId[] }[] = [
   { name: "People and access", icon: "access", ids: ["people", "groups", "reporters"] },
   { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "certs", "kept", "stored", "about"] },
-  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "tools", "failures", "activity"] },
+  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "tools", "harness", "failures", "activity"] },
   { name: "Activity", icon: "activity", ids: ["log"] },
 ];
 /** Reporting pages draw their own header, which carries Export (#484). */
-const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "tools", "failures", "activity"]);
+const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "tools", "harness", "failures", "activity"]);
 /** Pages that draw their own header, because it carries an action: the reports' Export (#484) and About's Copy details (#862). */
 const OWN_HEADER: ReadonlySet<TabId> = new Set([...REPORT_TABS, "about"]);
 
@@ -88,9 +90,9 @@ const GROUP_ICON: Record<GroupIconName, ReactNode> = {
   activity: <path d="M1.5 8h3l2-5 3 10 2-5h3" />,
 };
 
-/** The pages a link elsewhere in the console can open: `#/admin/settings` and `#/admin/certificates`. */
+/** The pages a link elsewhere in the console can open: `#/admin/settings`, `#/admin/certificates` and `#/admin/harness`. */
 function tabForHash(hash: string): TabId | null {
-  return hash === "#/admin/settings" ? "settings" : hash === "#/admin/certificates" ? "certs" : null;
+  return hash === "#/admin/settings" ? "settings" : hash === "#/admin/certificates" ? "certs" : hash === "#/admin/harness" ? "harness" : null;
 }
 
 export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peersApi }: { base?: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi }) {
@@ -288,6 +290,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "sessions" && <SessionsPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
                   {tab === "failures" && <ReportPage cfg={REPORT_CONFIGS.failures} client={client} onLocked={onLocked} />}
                   {tab === "tools" && <ToolsPage cfg={REPORT_CONFIGS.tools} client={client} onLocked={onLocked} />}
+                  {tab === "harness" && <HarnessPage cfg={REPORT_CONFIGS.harness} client={client} onLocked={onLocked} />}
                   {tab === "activity" && <ReportPage cfg={REPORT_CONFIGS.activity} client={client} onLocked={onLocked} />}
                   {tab === "kept" && <DataPage api={api} onLocked={onLocked} onGo={setTab} onCountStored={onCountStored} />}
                   {tab === "stored" && <StoredActivityTab api={api} onGo={setTab} onCount={onCountStored} onLocked={onLocked} />}

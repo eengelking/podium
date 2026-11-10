@@ -1289,6 +1289,17 @@ async function retentionOf(deps: ReportDeps): Promise<Record<string, unknown>> {
   return { report: 'retention', tz: serverZone(), tables, detail: [{ name: 'samples', keptDays: round(r.samplesMs / 86_400_000, 2) }, { name: 'events', keptDays: days(r.eventsMs) }, { name: 'sessions', keptDays: days(r.sessionsMs) }, { name: 'admin_log', keptDays: days(r.adminLogMs) }] };
 }
 
+/**
+ * How many features stopped in the last 30 days (#724): the count the console's top bar shows an unlocked Admin next to "reporters need an update". It is the same figure as the
+ * Harness updates page, for its default period.
+ */
+export const stoppedFeatureCount = (deps: ReportDeps): Promise<number> =>
+  deps.tx(async () => {
+    const today = localDay(deps.now());
+    const r = await harnessReport(deps, { from: addDays(today, -29), to: today, by: 'day' }, costFn(deps.pricing()));
+    return Number(r.total.features ?? 0);
+  });
+
 /** Each report reads in one transaction: an hourly rollup write or a retention pass cannot land between two of its reads. */
 export const runReport = (deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> => deps.tx(() => reportOf(deps, name, q));
 
