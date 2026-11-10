@@ -84,6 +84,8 @@ describe('admin: settings', () => {
     cy.get('#lim-roundTrips').clear().type('0').blur();
     cy.get('#lim-roundTrips').closest('.srow').invoke('text').should('contain', 'Round trips must be a whole number from 1 to 100. Nothing was saved. The saved value, 8, still applies.');
     cy.get('#lim-roundTrips').clear().type('10').blur();
+    // The put-back is waited for too, so it cannot land in the next test (#1137).
+    cy.wait('@saveSettings');
   });
 
   it('refuses a recording limit that is out of range, in words, and saves nothing', () => {

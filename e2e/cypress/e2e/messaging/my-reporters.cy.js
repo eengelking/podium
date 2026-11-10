@@ -79,6 +79,8 @@ describe('my reporters', () => {
       cy.reload();
       cy.get('#pm-lim-roundTrips').should('have.value', '5');
       cy.get('#pm-lim-roundTrips').clear().type('10').blur();
+      // The put-back is waited for too, so it cannot land in the next test (#1137).
+      cy.wait('@saveDefaults');
     });
 
     it('changes who can message whom in the grid and keeps it over a reload', () => {

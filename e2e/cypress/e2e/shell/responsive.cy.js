@@ -55,8 +55,9 @@ describe('responsive layout', () => {
     cy.openConsole('#/');
     cy.get('.rz').should('not.be.visible');
     cy.get('button[aria-label="Enter wall mode"]').should('not.be.visible');
-    cy.get('#podium-rail-body').then(($r) => cy.get('#podium-main').should(($m) => expect($r[0].getBoundingClientRect().top).to.be.lessThan($m[0].getBoundingClientRect().top)));
-    cy.contains('Square color is the model').then(($l) => cy.cards().last().should(($c) => expect($l[0].getBoundingClientRect().top).to.be.greaterThan($c[0].getBoundingClientRect().bottom - 1)));
+    // Both elements are looked up inside should(), so a re-render cannot leave a stale one behind (#1137).
+    cy.get('#podium-main').should(($m) => expect(Cypress.$('#podium-rail-body')[0].getBoundingClientRect().top).to.be.lessThan($m[0].getBoundingClientRect().top));
+    cy.contains('Square color is the model').should(($l) => expect($l[0].getBoundingClientRect().top).to.be.greaterThan(Cypress.$('button.card.sc').last()[0].getBoundingClientRect().bottom - 1));
   });
 
   it('shows resize handles from 1041 px', () => {
