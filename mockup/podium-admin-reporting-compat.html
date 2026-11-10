@@ -118,11 +118,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       <div class="panel">
         <div class="tool alone"><div class="sum left">
           <div><span class="big mono">3</span><span class="cap">features stopped</span></div>
-          <div><span class="big mono">2</span><span class="cap">harness versions</span></div>
-          <div><span class="big mono">6</span><span class="cap">reporters on them now</span></div>
+          <div><span class="big mono">2</span><span class="cap">harness versions that lost one</span></div>
+          <div><span class="big mono">6</span><span class="cap">reporters running one of those versions today</span></div>
         </div></div>
+      </div>
+      <div class="panel">
         <div class="tw2"><table class="ptab" aria-label="Features that stopped after a harness update">
-          <thead><tr><th scope="col">Harness and version</th><th scope="col">What stopped</th><th scope="col">Kind</th><th scope="col" class="n">Seen before</th><th scope="col" class="n">Seen now</th><th scope="col" class="n">Reporters on it</th><th scope="col">What it affects</th></tr></thead>
+          <thead><tr><th scope="col">Harness and version</th><th scope="col">What stopped</th><th scope="col">Kind</th><th scope="col" class="n">Seen before</th><th scope="col" class="n">Seen now</th><th scope="col" class="n">Reporters on this version today</th><th scope="col">What it affects</th></tr></thead>
           <tbody>
             <tr><td class="who mono">Claude Code 2.1.319</td><td class="mono">tool_response.duration_ms</td><td>Field</td><td class="n mono">98%</td><td class="n mono">0%</td><td class="n mono">4</td><td>Call duration on Tools shows a dash.</td></tr>
             <tr><td class="who mono">Claude Code 2.1.319</td><td class="mono">tool.check</td><td>Hook</td><td class="n mono">96%</td><td class="n mono">0%</td><td class="n mono">4</td><td>Permission prompts are not counted.</td></tr>
@@ -139,6 +141,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           <div><span class="big mono">2 of 8</span><span class="cap">reporters behind this week</span></div>
           <div><span class="big mono">11 of 15</span><span class="cap">most behind, week of 2026-10-05</span></div>
         </div></div>
+      </div>
+      <div class="panel">
         <div class="chart">
           <div class="plot">
             <div class="yl" aria-hidden="true"><span style="top:20px">11</span><span style="top:70px">5</span><span style="top:110px">0</span></div>
@@ -253,7 +257,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <h2>What this mockup proposes</h2>
   <ul>
     <li><b>One new page, Harness updates</b>, in the Reporting group after Tools. It holds what is new in the issue: features that stopped, and reporters behind the newest version. Every other figure goes where its neighbours already are, as the earlier mockups did: platform and reporter version on People and groups (which already lists reporter versions), slash commands and skills on Tools, projects and branches per person on Usage.</li>
-    <li><b>Features that stopped.</b> The reporter counts, per session, which hooks fired, which event fields were present and which tool names arrived; the server keeps those as names and counts per harness version per day. A feature is listed against the first version that lost it, with the share of sessions that sent it before and now, the reporters on that version, and what on the console it affects. A version with no change shows nothing, and the page says "Nothing has stopped".</li>
+    <li><b>Features that stopped.</b> The reporter counts, per session, which hooks fired, which event fields were present and which tool names arrived; the server keeps those as names and counts per harness version per day. A feature is listed against the first version that lost it, with the share of sessions that sent it before and now, the reporters running that version today, and what on the console it affects. A version with no change shows nothing, and the page says "Nothing has stopped".</li>
     <li><b>Compatibility notice (SPEC 6.8).</b> The top bar already says "2 reporters need an update". A second pill, "3 features stopped after a harness update", links to this page. It shows only while Admin is unlocked, because the page is Admin-only, and only when something is listed.</li>
     <li><b>Reporters behind the newest version</b> extends the Harness versions table on Tools: the same weeks, with how many reporters were on an older version than the newest Podium had seen for that harness that week, as one neutral-ink chart and a table with a row per harness. Versions are compared only within one harness.</li>
     <li><b>All harnesses.</b> Every section covers Claude Code and OpenCode by default, has a Harness filter, and carries a harness column in CSV and JSON. A figure one harness cannot supply shows a dash with the reason (OpenCode reports no skills).</li>
