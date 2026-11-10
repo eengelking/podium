@@ -37,9 +37,21 @@ pages, responding, the orchestrator page and the right panel.
   reporter count and anything after it would move.
 - No Pause or simulator buttons (those belong to the simulator script).
 
+**Wall options** (#1129, `mockup/podium-wall-options.html`)
+- The info row under the top bar ends in one drawer, Wall options (`WallOptions`), that holds the display controls:
+  Refresh every, Shortcuts, Theme and Light / Dark / System, in that order. Every page that shows the row draws the
+  same drawer with all four controls: the wall, the Board, the orchestrator page, My reporters, Traffic, Chat,
+  History ([8.5](08-05-history.md)) and Admin. No page builds the row itself.
+- Shut, the drawer is one `EdgeTab` pill (`.edge-tab-opts`) with a sliders glyph, named and tipped "Wall options",
+  with `aria-expanded` and `aria-controls`. A click opens it: the same pill becomes the collapse button at the
+  drawer's left end, named "Hide wall options", with a chevron pointing right. It starts shut on every page load.
+- The pill, a press anywhere outside the drawer, and `Esc` close it; `Esc` puts focus back on the pill. A press
+  inside it (a select, the switch, a mode, a change of theme) and a press in the Keyboard shortcuts list opened
+  from it leave it open.
+- Each control reads and writes its one stored setting, so a change on one page shows on every other.
+
 **Theme picker**
-- The info row under the top bar carries the theme picker at its right end, in the live view and in History
-  ([8.5](08-05-history.md)).
+- The theme picker is in the Wall options drawer, on every page that shows the info row.
 - It is a Theme dropdown and a Light, Dark or System radio group, with arrow keys moving through the radios.
 - The choice is remembered in `localStorage` under `podium.theme` with try/catch.
 - The default is Podium in System mode, which follows the OS. An old stored `light` or `dark` becomes Podium in
@@ -48,16 +60,16 @@ pages, responding, the orchestrator page and the right panel.
 - A theme with no palette for the chosen mode uses Podium's palette for that mode.
 
 **Refresh every** (#138, `mockup/podium-update-interval.html`)
-- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), left of the
-  Shortcuts switch and the Theme dropdown.
+- The Wall options drawer carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), before
+  the Shortcuts switch and the Theme dropdown.
 - It is remembered in `localStorage` under `podium.updateEvery`, with try/catch. A stored value that is not one
   of the six is ignored.
 - It sets how often the fleet page redraws: the browser keeps receiving every event, but shows the newest
   state once per interval, and the elapsed times and clock move on the same interval.
 - A change shows at once when it is a change of connection phase, a session that newly reaches waiting or
   stale, or an agent that newly has a failure.
-- The pulse and blink beat (`useHeartbeat`) is not affected. History and Admin have no such control, and the
-  activity feed has its own.
+- The pulse and blink beat (`useHeartbeat`) is not affected. History and Admin show and save the setting but do
+  not redraw on it yet, and the activity feed has its own.
 - It goes with the info row when the top bar is collapsed, and the red disconnect banners replace the info
   row, so it is absent then.
 
@@ -80,8 +92,8 @@ pages, responding, the orchestrator page and the right panel.
 - The left pane, the right pane and the top bar each collapse and expand on their own, from a visible control
   and from a shortcut: `[` left, `]` right, `\` top bar, `w` wall mode, `Esc` leaves wall mode.
 - The single-key shortcuts (`[`, `]`, `\`, `w`) are off by default (WCAG 2.1.4, #636). A **Shortcuts** switch (the
-  Admin `.sw` switch in a `.field`) in the Display settings row turns them on. It sits beside Refresh every and Theme
-  on the wall, the Board, the orchestrator page, Traffic, Chat and My reporters, and beside Theme on History. It is kept per
+  Admin `.sw` switch in a `.field`) in the Wall options drawer turns them on. It is on every page that shows the
+  drawer, Admin included, which shows and saves it but has no single-key shortcuts yet. It is kept per
   browser in `localStorage` under `podium.shortcuts` (`true` or `false`), the way the theme and the refresh interval
   are. While it is off the four keys do nothing, `Esc` still leaves wall mode, and every button still works. The
   pane controls' tips and the Wall mode button's title name their keys only while it is on. The switch's own hint
@@ -95,7 +107,7 @@ pages, responding, the orchestrator page and the right panel.
   array, `SHORTCUTS`, feeds this list and the switch's hint. Mockup `mockup/podium-shortcuts-help.html`.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
 - Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
-  the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a
+  the Plan / Files fold's, both panes' and the Wall options pill in the info row. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a
   new collapse or open control uses it. A pane's pill sits in the `.cols` grid beside the pane, straddling its
   inner edge near the top, and, while Shortcuts is on, the tip names the shortcut ("Collapse the left pane ([)").
 - A collapsed pane leaves a 24 px edge strip holding the same pill as its expand button (`aria-expanded`, `aria-controls`). Its
