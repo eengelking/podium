@@ -106,6 +106,11 @@ interface LoopReport {
   steps: { done: number; total: null }; // model requests the main loop has made so far
 }
 
+// On the report itself (#724), beside `session`, `agents` and `events`:
+//   signals?: Record<string, number>;   // what the harness sent this reporter in this session: `hook:<hook>` for each hook that ran and `field:<hook>.<field>` for each field its
+//                                       // event carried that the reporter reads, as counts, at most 64 names. Names and counts only, never a value. Absent from a reporter older than
+//                                       // 1.6.0, which the version comparison leaves out. The server drops a name that is not of that form, and keeps the latest report's counts.
+
 interface AgentReport {
   id: string;                           // the engine's agentId
   parentId: string | null;              // the agentId of the agent that launched it (a subagent or a fork can launch agents, 5.3); null = launched by the orchestrator

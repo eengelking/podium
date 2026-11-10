@@ -231,6 +231,27 @@ The four daily tables fill from the rows still stored on each run, except `hour_
 samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
 the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
 
+Migration 41 (#724; PostgreSQL main step 17) adds what each version of a harness sent, the skills each person used and where each person worked: names and counts only, never a prompt, a tool's input, a command's text or a path.
+
+```sql
+ALTER TABLE sessions ADD COLUMN signals_json TEXT;   -- what the harness sent the reporter in this session: signal name (`hook:...`, `field:...`) to count; NULL from a reporter that does not send it
+CREATE TABLE feature_versions_daily (  -- sessions on one version of a harness that sent a feature on a day: `hook:...`, `field:...`, `tool:...`; and the reserved names `signals` and `tools`, the sessions to compare against
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, feature TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);
+CREATE TABLE skills_daily (            -- sessions of one person that used one skill on a harness on a day
+  day TEXT NOT NULL, owner TEXT NOT NULL, harness TEXT NOT NULL, skill TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE person_places_daily (     -- sessions of one person in one project (the repository's name) on one git branch on a harness on a day; no path
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);
+```
+
+The three tables fill from the rows still stored on each run, like the other rebuilt tables, and are kept 395 days. `sessions.signals_json` is replaced by each report that carries signals and kept by one that carries none. A database upgraded to this
+migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...". The branch names are the ones the wall already shows, so the rollups keep them for as long as the other rollups.
+
 Migration 15 (#206) links a session to the one it continues after a `/clear` (5.8):
 
 ```sql
@@ -455,7 +476,7 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily`, `tool_stats_daily`, `session_time_daily`, `agents_daily`, `person_sessions_daily`, `hour_peaks_daily`, `cost_daily` and `tool_cost_daily` from the rows still stored (a day that began before the session retention is
+  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily`, `tool_stats_daily`, `session_time_daily`, `agents_daily`, `person_sessions_daily`, `hour_peaks_daily`, `cost_daily`, `tool_cost_daily`, `feature_versions_daily`, `skills_daily` and `person_places_daily` from the rows still stored (a day that began before the session retention is
   skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
   has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
   partly built), in one transaction, so a run twice gives the

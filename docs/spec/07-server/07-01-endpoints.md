@@ -582,7 +582,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Reports (#484, [8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
-    `failures`, `tools`, `sessiontime`, `workload`, `costs` and `activity`, and `GET reports/retention` for the Data page's tables.
+    `failures`, `tools`, `sessiontime`, `workload`, `costs`, `harness` and `activity`, and `GET reports/retention` for the Data page's tables.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
       (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them (`tools` has `harness` instead, the id of one harness such as `claude-code` or `opencode`, and a `person`, `group` or `model` is a `400`, since the tool counts are not kept per person; `sessiontime` and `workload` take `harness` too, see below).
       A bad value is a `400`.
@@ -679,6 +679,21 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         - `context`: rows `period, harness, sessions, endedLow, endedMid, endedHigh, endedUnknown, endedHighPct, compacted, cleared`. A session ended low under 50% of its context window, mid from 50%
           to 80% and high above 80%, or unknown when its last report gave no size. `compacted` counts sessions Claude Code compacted on its own (a `compact` event with trigger `auto`, so a day older
           than the 30 days events are kept is not rebuilt), and `cleared` counts sessions that continue after a `/clear` (`cleared_from` is set). `byHarness` has the whole period for each harness.
+      - `harness` (#724): what a version of a harness stopped sending, the reporters behind the newest version, and what each reporter runs on, for every harness. `harness` narrows the rows to
+        one harness and the reply's `harnesses` lists every harness the period holds; a `person`, `group` or `model` is a `400`. `breakdown` is `stopped` (default), `behind` or `platform`.
+        - `stopped`: rows `harness, version, previous, feature, kind, before, now, reporters, effect`. A version is compared only with the nearest earlier one of the same harness that has enough
+          sessions. `feature` is `hook:<hook>`, `field:<hook>.<field>` (from the reporter's own counts) or `tool:<name>` (from the tool counts); `before` and `now` are whole percents of the sessions
+          on `previous` and on `version` that sent it; `reporters` is how many ran `version` on the last day of the period, and `effect` says what the console loses (empty when unknown). A feature is listed
+          once, against the first version that lost it, when at least 25% of the sessions on `previous` sent it, under a tenth of that share send it now, and both versions have at least 20 sessions and
+          `version` at least 2 reporters. A session whose reporter sends no signals is not counted, so an older reporter does not look like a feature that stopped. `total` is `{ features, versions, reporters }`.
+        - `behind`: rows `period, harness, newest, reporters, onNewest, behind`, where `newest` is the newest version of that harness seen up to and including the period, and `behind` is the reporters
+          on an older one.
+        - `platform`: not a period report. Rows `harness, platform, version, reporters, status` for the reporters heard from in the last 30 days, where `platform` is the operating system's name the reporter
+          sent without its version (`Not reported` when none) and `status` is `Current`, `Update available`, `Needs an update`, `Newer than the server` or `Not checked`.
+      - `tools` also takes `breakdown=skills` (#724): rows `skill, harness, sessions, people`, with `bySkill` adding the harnesses (`skill, sessions, people`, a person counted once). Only a skill's name is kept.
+      - `workload` also takes `breakdown=places` (#724): rows `person, group, projects, branches, topProject` (a branch counts once per person and project; `total` is `{ people, projects, branches }` with each project and branch
+        counted once), filtered by `group` and `harness`.
+      - `GET /api/admin/notice` (#724): `{ unlocked: false }`, or `{ unlocked: true, stopped }` for an unlocked Admin. It does not refresh the Admin session's idle time.
       - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
         at most 1,000. It has no `by`. `truncated` is `true` when the log held more than 1,000 entries in the period, and
         the page then says "Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest."
