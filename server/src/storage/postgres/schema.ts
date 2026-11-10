@@ -342,6 +342,25 @@ CREATE TABLE tool_cost_daily (
 );
 `),
   },
+  {
+    version: 17,
+    // What each version of a harness sent (#724), as SQLite migration 41 keeps it: names and counts only.
+    sql: typed(`
+ALTER TABLE sessions ADD COLUMN signals_json TXT;
+CREATE TABLE feature_versions_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, version TXT NOT NULL, feature TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);
+CREATE TABLE skills_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, harness TXT NOT NULL, skill TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE person_places_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, group_name TXT NOT NULL, harness TXT NOT NULL, project TXT NOT NULL, branch TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

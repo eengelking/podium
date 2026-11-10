@@ -394,7 +394,7 @@ menu and the page scroll on their own.
   groups:
   - People and access: People, Groups, Reporters.
   - Server: Settings, Model prices, Security, Certificates, Data, Stored activity (#432).
-  - Reporting (#484): Usage, Spend, People and groups, Sessions, Failures, Admin activity.
+  - Reporting (#484): Usage, Spend, People and groups, Sessions, Tools, Harness updates (#724), Failures, Admin activity.
   - Activity: Admin log.
 - The page that was "Reporting and security" is now **Security** (#484), so two entries do not both say
   "Reporting". Its content is unchanged.
@@ -473,6 +473,8 @@ menu and the page scroll on their own.
     day, with a Total row for everyone in the filter, paged) and *Busiest hours* (the most sessions live at once in each hour of the day, as a chart with a Chart and
     Table switch). Each has its own CSV and JSON. The Harness filter narrows both and the report above them is not sent it, as on Sessions. The Group filter narrows the
     people table; the hours count every session, so the page says the Group filter does not apply to them.
+    Since #724 a third section, *Projects and branches per person*, counts the projects and git branches each person worked in (a branch once per person and project, a project and a branch once in the
+    total row), with its own CSV and JSON.
   - **Spend**: total, and by person, group, model or project (**Break down by**), per period. It keeps the
     content of the old Admin > Activity > Spend page: *Spend today, by person* and *by group* as Chart or Table,
     now the first section of this page with its `podium.adminSpend` choices unchanged, above the report. Figures
@@ -511,8 +513,13 @@ menu and the page scroll on their own.
       - It reads `GET reports/spend/projection?horizon=&window=&by=person|group`, which returns the same
         `columns` and `rows` as any report, so CSV and JSON export work. Because the rollups hold the history,
         no extra history is recorded for it.
+  - **Harness updates** (#724, `mockup/podium-admin-reporting-compat.html`): *Features that stopped* (a summary panel, then a table of each hook, event field or tool name a version of Claude Code or OpenCode
+    stopped sending: its kind, what the console loses, the share of sessions that sent it before and now, and the reporters on that version; or "Nothing has stopped") and *Reporters behind the newest version*
+    (a chart and a table per period, with a row for each harness). A figure's meaning is in a tip that opens on hover and focus. It has the Harness filter and its own CSV and JSON, and the top bar counts the
+    features for an unlocked Admin (6.8).
   - **People and groups**: how many people, groups and reporters there are; who reported in the period; who has
-    not reported (quiet for the period, or never); the reporter versions and engine versions in use.
+    not reported (quiet for the period, or never); the reporter versions and engine versions in use. Since #724 a *Platform and reporter version* section lists the reporters heard from in the last 30 days by harness, operating system and
+    reporter version, with a status, a Harness filter and its own CSV and JSON.
   - **Sessions**: counts by outcome, model, effort and plan; average and longest duration; agents launched per
     session; and how many sessions hit a context blowout and how full the window got.
     Since #722 (`mockup/podium-admin-reporting-session-time.html`) the page adds four sections after that report, for every harness:
@@ -526,7 +533,7 @@ menu and the page scroll on their own.
     **Mix of**, in each day, week or month, the long tail as one column) and *Context fullness at the end* (sessions that ended under 50%, from 50% to 80% and above 80% full, and how many
     compacted on their own or continued after a `/clear`, with a row for each harness). Each has its own CSV and JSON, follows the Harness filter and is held back by a Person, Group or Model
     filter with the same line. A session with no context size is counted in a line under the table, not in a row.
-  - **Tools** (#720 to #723): since #723 two sections follow *Calls by tool*: *Cost per tool call and per session* (by model and harness, with the priced total; a model without a price
+  - **Tools** (#720 to #724): since #724 a *Skills* section lists how often each skill was used, by harness, and by how many people (Podium's reporters see skills, not other slash commands). Since #723 two sections follow *Calls by tool*: *Cost per tool call and per session* (by model and harness, with the priced total; a model without a price
     shows a dash and its calls are counted apart) and *What sessions that used a tool cost* (the average priced spend of a session that called each tool, paged, labelled as not the
     tool's own cost, which Podium cannot measure). Each has its own CSV and JSON and follows the Harness filter.
   - **Spend** (#723): a fourth section, *Tokens and cache hit rate*, after Spend over time: the four token counts and the cache hit rate in each period as a chart and a table, with a row for the

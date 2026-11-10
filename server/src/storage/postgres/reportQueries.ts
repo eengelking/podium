@@ -1,14 +1,14 @@
 // The report and rollup queries behind Admin > Reporting on PostgreSQL (#822): the SQLite `SqliteReportQueries` over `PgDb`. Every ordering
 // SQLite got from a primary-key index or a group is stated here.
-import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
+import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, FeatureVersionDay, HarnessVersionDay, HourPeakDay, PlaceDay, SkillDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { RollupRaw, RollupTable, StoredSession, ReportQueries } from '../reportQueries.js';
 import type { SessionWaitRow } from '../rows.js';
 import type { Async } from '../types.js';
 import type { PgDb } from './conn.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
-const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily'];
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 
 /** Each rollup table's primary key, which is the order SQLite read a day range in. */
 const ORDER: Record<RollupTable, string> = {
@@ -20,6 +20,9 @@ const ORDER: Record<RollupTable, string> = {
   tool_sessions_daily: 'day, harness, bucket',
   harness_versions_daily: 'day, harness, version',
   tool_stats_daily: 'day, harness, tool',
+  feature_versions_daily: 'day, harness, version, feature',
+  skills_daily: 'day, owner, harness, skill',
+  person_places_daily: 'day, owner, harness, project, branch',
   session_time_daily: 'day, harness',
   agents_daily: 'day, harness, type, depth',
   person_sessions_daily: 'day, owner, harness',
@@ -89,6 +92,10 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   failureRowsSince(fromMs: number): Promise<{ id: string; f: string }[]> {
     return this.db.all<{ id: string; f: string }>(`SELECT session_id AS id, failure_json AS f FROM agents WHERE failure_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`, [fromMs]);
+  }
+
+  skillsSince(fromMs: number): Promise<{ id: string; k: string }[]> {
+    return this.db.all<{ id: string; k: string }>(`SELECT session_id AS id, skills_json AS k FROM agents WHERE skills_json IS NOT NULL AND skills_json <> '[]' AND session_id IN (${CHOSEN}) ORDER BY session_id, id`, [fromMs]);
   }
 
   toolCountsSince(fromMs: number): Promise<{ id: string; c: string }[]> {
@@ -174,6 +181,24 @@ export class PgReportQueries implements Async<ReportQueries> {
   insertHarnessVersionsDaily(rows: HarnessVersionDay[]): Promise<void> {
     return this.db.tx(async () => {
       for (const r of rows) await this.db.run('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)', [r.day, r.harness, r.version, r.reporters]);
+    });
+  }
+
+  insertSkillsDaily(rows: SkillDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?)', [r.day, r.owner, r.harness, r.skill, r.sessions]);
+    });
+  }
+
+  insertPlacesDaily(rows: PlaceDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?)', [r.day, r.owner, r.group, r.harness, r.project, r.branch, r.sessions]);
+    });
+  }
+
+  insertFeatureVersionsDaily(rows: FeatureVersionDay[]): Promise<void> {
+    return this.db.tx(async () => {
+      for (const r of rows) await this.db.run('INSERT INTO feature_versions_daily (day, harness, version, feature, sessions) VALUES (?, ?, ?, ?, ?)', [r.day, r.harness, r.version, r.feature, r.sessions]);
     });
   }
 

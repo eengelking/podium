@@ -36,6 +36,8 @@ export interface ReportMeta {
   userName?: string | null;
   /** This machine; sent only together with a userName. */
   machine?: MachineInfo | null;
+  /** What the engine sent this reporter in this session (#724): hooks that ran and the fields their events carried, as counts. Names and counts only. */
+  signals?: Record<string, number>;
   /** The `fullPrompts` option: send each agent's whole prompt and answer, once. */
   fullText?: boolean;
   /** The `activityFeed` option: send the feed of each loop the server says is watched (#118). */
@@ -148,6 +150,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
     adminNotices: true,
     reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
+    ...(meta.signals && Object.keys(meta.signals).length ? { signals: { ...meta.signals } } : {}),
     session: {
       id: s.id,
       name: displayName(s, meta.storedName, meta.claudeName, meta.optionName),

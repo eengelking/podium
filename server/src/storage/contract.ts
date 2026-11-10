@@ -76,7 +76,7 @@ const SESSION_SHAPE: Shape<SessionRow> = {
   plan_json: 'text?', plan_kept_json: 'text?', reporter_version: 'text?', reporter_build: 'text?', engine_version: 'text?',
   loop_json: 'text?', files_json: 'text?', background_json: 'text?', usage_json: 'text?', attached: 'int?', detached_at: 'int?',
   owner: 'text?', machine_json: 'text?', cleared_from: 'text?', harness: 'text', cost_source: 'text?',
-  capabilities_json: 'text?', model_label: 'text?', model_provider: 'text?', resume_window_days: 'int?',
+  capabilities_json: 'text?', model_label: 'text?', model_provider: 'text?', resume_window_days: 'int?', signals_json: 'text?',
 };
 const AGENT_SHAPE: Shape<AgentRow> = {
   session_id: 'text', id: 'text', parent_id: 'text?', kind: 'text', type: 'text', name: 'text?', description: 'text', model: 'text?',

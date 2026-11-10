@@ -216,7 +216,7 @@ describe("the Usage page", () => {
     fireEvent.change(screen.getByLabelText("Harness"), {
       target: { value: "opencode" },
     });
-    await waitFor(() => expect(s.calls.filter((c) => c.startsWith("GET /reports/workload?") && c.includes("harness=opencode"))).toHaveLength(2));
+    await waitFor(() => expect(s.calls.filter((c) => c.startsWith("GET /reports/workload?") && c.includes("harness=opencode"))).toHaveLength(3));
     expect(s.calls.filter((c) => c.startsWith("GET /reports/usage?") && c.includes("harness"))).toEqual([]);
     expect(await screen.findByText(/This section is not kept per harness/)).toBeInTheDocument();
   });

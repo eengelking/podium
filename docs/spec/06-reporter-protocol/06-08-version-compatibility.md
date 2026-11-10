@@ -50,6 +50,11 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
     instead (a patch difference is not flagged). This needs no new server field.
   - A mod that predates this ignores the fields. A mod talking to a server that predates this sees no
     `reporterCompat` and shows nothing.
+- **Features that stopped (#724).** The top bar also counts the features a newer version of a harness stopped sending, as `N features stopped after a harness update`, a link to
+  Admin > Reporting > Harness updates. Only an unlocked Admin sees it: the console asks `GET /api/admin/notice`, which answers `{ unlocked: false }` to anyone else and
+  `{ unlocked: true, stopped }` to an Admin, and which never counts as Admin activity (it does not hold off the idle lock). The count is the page's own figure for the last 30 days
+  and is kept five minutes. A feature is a hook, an event field or a tool name that at least 25% of the sessions on the previous version of the same harness sent and under a tenth of that
+  share send now, with at least 20 sessions and 2 reporters on the new version.
 - `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterName` (the
   reporter that serves the session's harness, which the warning names), `reporterBuild` (see Builds below) and
   `compat` (always `unknown` for hooks). The reporter rows in Admin and My reporters carry `reporterName` too, and

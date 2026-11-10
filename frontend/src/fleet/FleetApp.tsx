@@ -53,6 +53,7 @@ import { chatApi, type ChatApi } from "./chatData";
 import { RespondModal } from "./components/Respond";
 import { ActivityOutputFlag } from "./components/BashRow";
 import type { SessionView } from "./types";
+import { useStoppedFeatures } from "./stoppedFeatures";
 
 
 const ENTER_MS = 1000;
@@ -226,6 +227,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const reporters = reportersLive(state.sessions, state.leaving);
   const outdated = live.filter((s) => s.compat === "outdated").length;
   const newer = live.filter((s) => s.compat === "newer").length;
+  const stopped = useStoppedFeatures();
   const ready = state.phase !== "loading";
   // A pin for a session that ended or was removed is dropped, so no stale pin is left for a session that never returns (#496).
   const { prune: prunePins } = pins;
@@ -489,6 +491,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           phase={state.phase}
           reporters={reporters}
           outdated={outdated}
+          stopped={stopped}
           newer={newer}
           collapsed={panes.collapsed.top}
           onCollapse={() => toggle("top")}

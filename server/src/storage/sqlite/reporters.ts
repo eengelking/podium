@@ -7,7 +7,7 @@ import { checkReporter } from '../../fleet/compat.js';
 import { clampPage, likeTerm } from './people.js';
 import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -364,6 +364,14 @@ export class ReporterStore {
        FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version ORDER BY reporter_name, reporter_version`,
     ).all({ since }) as { name: string; version: string; machines: number }[];
     return rows.map((r) => ({ reporterName: r.name, version: r.version, machines: Number(r.machines) }));
+  }
+
+  platformCounts(since: number): ReporterPlatformCount[] {
+    const rows = this.stmt(
+      `SELECT reporter_name AS name, reporter_version AS version, os, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE('a' || os, '')`,
+    ).all({ since }) as { name: string; version: string; os: string | null; machines: number }[];
+    return rows.map((r) => ({ reporterName: r.name, version: r.version, os: r.os, machines: Number(r.machines) }));
   }
 
   /** Removes every reporter in one state ("Not since restart", say). Returns how many went. */

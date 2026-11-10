@@ -564,6 +564,22 @@ describe('podium-reporter end to end', () => {
     expect(info.text).toContain(`Versions: reporter ${VERSION}, server 1.1.0`)
   })
 
+  test('reports which hooks ran and which listed fields their events carried, as counts and never a value (#724)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await $.classic.UserPromptSubmit({ prompt: 'a secret prompt', cwd: CWD })
+    await $.classic.UserPromptSubmit({ prompt: 'again' })
+    await w.clock.advance(1000)
+    const sig = w.posts.at(-1)!.signals!
+    expect(sig['hook:session.start']).toBe(1)
+    expect(sig['hook:classic.UserPromptSubmit']).toBe(2)
+    // both events carried the cwd the reporter reads: a field that vanishes after an update shows as a drop in this count
+    expect(sig['field:classic.UserPromptSubmit.cwd']).toBe(2)
+    // a field the reporter does not read is not counted
+    expect(sig['field:classic.UserPromptSubmit.prompt']).toBeUndefined()
+    expect(JSON.stringify(sig)).not.toContain('secret')
+  })
+
   test("Claude Code's own session name is the display name once a hook carries it (#322)", async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })

@@ -30,6 +30,7 @@ Active people, active reporters, sessions started and the most sessions live at 
 Two sections follow it, for every harness that reports. The **Harness** filter narrows them, and the report above them is not kept per harness, so it
 covers every harness and the page says so.
 
+- **Projects and branches per person** counts the projects and git branches each person worked in. A branch counts once per person and project however many days or sessions, and the last row counts each project and branch once. The names are the ones the wall already shows, and no path is kept. The **Group** filter narrows it.
 - **Sessions per person per day** gives each person's days active, sessions, sessions per active day and their busiest day. The last row counts
   everyone in the filter. The **Group** filter narrows it.
 - **Busiest hours** is the most sessions live at once in each hour of the day, over the period, as a chart or a table. It counts every session, so
@@ -66,6 +67,9 @@ so a harness that does not report cache tokens lowers it. It has its own **Harne
 How many people, groups and reporters there are, who reported in the period, who has gone quiet or never reported, and
 which reporter and engine versions are in use.
 
+**Platform and reporter version** lists the reporters heard from in the last 30 days by harness, operating system and reporter version, with whether each needs an update. The platform is the system's name the reporter
+sends, without its version, host name, user name or path, and a reporter that sent none shows Not reported. The **Harness** filter narrows it, and it has its own **CSV** and **JSON**.
+
 ## Reporting sessions
 
 Counts by outcome, model, effort or plan, with average and longest duration, agents launched per session, and how many
@@ -89,6 +93,19 @@ says that and leaves them out.
 
 Waiting is recorded from the release that added it, so earlier days show a dash and the page says from which day it starts. Each table has its own **CSV**
 and **JSON** in its title line. Only the kind of wait and the time are kept, never what the question, plan or tool was.
+
+## Harness updates
+
+What stopped arriving after Claude Code or OpenCode updated, so you learn about a break before a person does. It covers every harness, the **Harness** filter narrows it, and **CSV** and **JSON** download the first table with the harness in every row.
+
+- **Features that stopped** lists each hook, event field or tool name that a newer version of a harness no longer sends, beside the version that lost it. For each it shows the share of sessions that sent it on the
+  version before and on this one, the reporters on that version on the last day of the period, and what you lose in the console (for example, "Permission prompts are not counted"). A feature is listed once, against the first version
+  that lost it, when at least a quarter of the earlier version's sessions sent it, under a tenth of that share send it now, and the new version has at least 20 sessions and 2 reporters. A version that changed nothing is not listed,
+  and the page says "Nothing has stopped". A reporter older than 1.6.0 sends no hook counts, so it is left out of the comparison and never looks like a break. A tool name that stops may only mean people stopped using it.
+- **Reporters behind the newest version** counts, for each period, the reporters on a version older than the newest Podium had seen for that harness, as a chart and a table with a row for each harness. A harness is only compared with itself.
+- The top bar shows `N features stopped after a harness update` next to "reporters need an update", only while Admin is unlocked. Click it to open this page.
+
+Only names and counts are kept: never a value, an argument, a path or a prompt.
 
 ## Tools
 
@@ -114,6 +131,7 @@ counts are kept: never the arguments, a file path or a command.
   call is timed from when it starts running to when it ends, so a call that waited for an answer to its permission prompt
   includes the wait, and a Task call lasts as long as the agent it launches. The lengths are grouped in steps of 10%, so a figure
   is within 10% of the real one. A harness that does not report call times is left out, and the page says which.
+- **Skills** shows how often each skill was used (the sessions that used it, by harness, and how many different people ran them). Only the skill's name is kept. The reporters see skills, not other slash commands such as `/clear`, so those are not listed.
 - **Harness versions** shows how many reporters ran each version in each period, and how many run an older version than the
   newest Podium has seen for that harness. A harness is only compared with itself.
 

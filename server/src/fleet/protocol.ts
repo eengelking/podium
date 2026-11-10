@@ -385,6 +385,8 @@ export const LIMITS = {
   planSteps: 100,
   skills: 50,
   toolNames: 100,
+  /** The names of what a harness sent a reporter in one session (#724). */
+  signalNames: 64,
   /** Distinct call length buckets one tool may name: all of them. */
   toolTimeBuckets: TIME_BUCKETS,
   usageModels: 40,
@@ -539,6 +541,21 @@ function countsOrNull(v: unknown, path: string, max: number): Record<string, num
   }
   const top = [...merged].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, max);
   return Object.fromEntries(top);
+}
+
+/** A signal name a reporter may send (#724): `hook:<hook>` or `field:<hook>.<field>`. */
+const SIGNAL_NAME = /^(hook|field):[A-Za-z0-9_.:-]{1,100}$/;
+
+/**
+ * What the harness sent the reporter in this session (#724): counts by signal name. A name that is not of the form `hook:...` or `field:...` is dropped
+ * rather than refused, and so is a count that is not a whole number from 0, so a newer reporter that sends something else does not lose its report; and the most seen `max` names are kept.
+ * Absent stays absent: an older reporter does not send it.
+ */
+function signalsOrUndefined(v: unknown, path: string, max: number): Record<string, number> | undefined {
+  if (v === null || v === undefined) return undefined;
+  const kept: Record<string, number> = {};
+  for (const [k, n] of Object.entries(obj(v, path))) if (SIGNAL_NAME.test(k) && typeof n === 'number' && Number.isInteger(n) && n >= 0) kept[k] = n;
+  return countsOrNull(kept, path, max) ?? undefined;
 }
 
 /**
@@ -1225,6 +1242,8 @@ export function validateReport(body: unknown): ValidateResult {
     if (userName !== null) report.userName = userName;
     const m = machine(o.machine, '$.machine');
     if (m !== null) report.machine = m;
+    const signals = signalsOrUndefined(o.signals, '$.signals', LIMITS.signalNames);
+    if (signals !== undefined) report.signals = signals;
     withinActivityBudget(report);
     return { ok: true, report };
   } catch (err) {

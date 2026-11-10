@@ -13,6 +13,7 @@ import { resultsHeading } from "./ReportPages";
 import { formatCell, harnessName, reportErrorText, saveFile, type ReportColumn, type ReportReply, type ReportRow, type ReportsClient } from "./reportsApi";
 import { MixSections } from "./CostSections";
 import { Waiting } from "./ToolsPage";
+import { PlacesSection } from "./ReportingExtras";
 import { useReport, type ReportConfig, type ReportState } from "./useReport";
 
 const COUNT: ReportColumn = { key: "n", label: "", unit: "count" };
@@ -41,7 +42,7 @@ export interface SectionState {
 }
 
 export interface Spec {
-  report: "sessiontime" | "workload" | "costs";
+  report: "sessiontime" | "workload" | "costs" | "tools" | "harness";
   breakdown: string;
   /** The Harness filter, when the page has none of its own to send (#723). */
   harness?: string;
@@ -736,6 +737,7 @@ export function UsagePage({ cfg, client, onLocked }: { cfg: ReportConfig; client
               {(rep) => <HoursBody reply={rep} groupSet={prefs.group !== ""} />}
             </Waiting>
           </DataSection>
+          <PlacesSection client={client} r={r} onLocked={onLocked} />
         </>
       )}
     </>

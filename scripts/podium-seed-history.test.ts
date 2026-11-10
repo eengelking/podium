@@ -23,7 +23,7 @@ afterEach(() => {
 
 const TODAY = '2026-10-20';
 const NOW = new Date(2026, 9, 20, 15).getTime();
-const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 const dump = (file: string): string => {
   const db = openDb(file);
   // ordered by every column up to the fifth, so two runs compare row for row
@@ -180,6 +180,11 @@ describe('podium-seed-history: the history', () => {
     expect(spend.rows.find((r) => r.key === 'local-llama-3')).toMatchObject({ costUsd: null });
     expect((await runReport(d, 'people', {})).rows.find((r) => r.person === 'Lena')).toMatchObject({ state: 'never' });
     expect((await runReport(d, 'activity', { from: '2026-09-05', to: TODAY })).rows.length).toBe(18);
+    // the seeded newest versions stopped sending something, so Harness updates has a feature to show (#724); OpenCode's has too few reporters for the page to say so, and the other new figures have rows
+    const stopped = await runReport(d, 'harness', { from: '2026-09-05', to: TODAY, by: 'week' });
+    expect(stopped.rows.map((r) => `${r.harness} ${r.feature}`).sort()).toEqual(['claude-code hook:tool.check']);
+    expect((await runReport(d, 'tools', { breakdown: 'skills', from: '2026-09-05', to: TODAY })).rows.length).toBeGreaterThan(0);
+    expect((await runReport(d, 'workload', { breakdown: 'places', from: '2026-09-05', to: TODAY })).rows.length).toBeGreaterThan(0);
   });
 });
 

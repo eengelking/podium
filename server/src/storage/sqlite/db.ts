@@ -518,6 +518,29 @@ CREATE TABLE IF NOT EXISTS tool_cost_daily (
   PRIMARY KEY (day, harness, tool)
 );`,
   },
+  {
+    version: 41,
+    // What each version of a harness sent (#724), behind Admin > Reporting > Harness updates, so a hook, an event field or a tool name that stops after an update is found.
+    // A session keeps what its reporter counted as JSON of signal name to count (NULL from a reporter that does not send it). `feature_versions_daily` is, per day, harness and
+    // harness version, how many sessions sent each feature (`hook:...`, `field:...`, or `tool:...` from the tool counts), and how many sessions there were to compare
+    // against (the reserved names `signals` and `tools`: the sessions whose reporter sent signals, and the sessions that have tool counts). Names and counts only.
+    sql: `
+ALTER TABLE sessions ADD COLUMN signals_json TEXT;
+CREATE TABLE IF NOT EXISTS feature_versions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, feature TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);
+-- Which skills each person used and where each person worked (#724): names and counts only. A project is the repository's name and a branch is the git branch's name, both
+-- already on the wall; never a path or a prompt. A day is a calendar day in the server's time zone and a session counts on the day it was last seen.
+CREATE TABLE IF NOT EXISTS skills_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, harness TEXT NOT NULL, skill TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE IF NOT EXISTS person_places_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

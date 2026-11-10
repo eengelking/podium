@@ -12,9 +12,10 @@ import { resultsHeading } from "./ReportPages";
 import { formatCell, harnessName, reportErrorText, type ReportReply, type ReportRow, type ReportsClient } from "./reportsApi";
 import { useReport, type ReportConfig, type ReportState } from "./useReport";
 import { DurationSection, FailuresSection, PromptsSection, ToolSection } from "./ToolStatsSections";
+import { SkillsSection } from "./ReportingExtras";
 
 /** One more answer of the same report (calls per session, versions) for the period and filters the page has. */
-function useBreakdown(client: ReportsClient, r: ReportState, breakdown: "session" | "version" | "failures" | "prompts" | "duration", onLocked: () => void): { reply: ReportReply | null; error: string | null } {
+export function useBreakdown(client: ReportsClient, r: ReportState, breakdown: "session" | "version" | "failures" | "prompts" | "duration" | "behind", onLocked: () => void): { reply: ReportReply | null; error: string | null } {
   const [state, setState] = useState<{ reply: ReportReply | null; error: string | null }>({ reply: null, error: null });
   const path = r.path === null ? null : `${r.path}${r.path.includes("?") ? "&" : "?"}breakdown=${breakdown}`;
   const lock = useRef(onLocked);
@@ -370,6 +371,7 @@ export function ToolsPage({ cfg, client, onLocked }: { cfg: ReportConfig; client
         </Panel>
       </Section>
       <ToolCostSections client={client} r={r} onLocked={onLocked} />
+      {!r.problem && <SkillsSection client={client} r={r} onLocked={onLocked} />}
       <ToolSection id="rep-tools-x" title="Tool failures" help="Failures divided by calls, per tool. The bars show the number of failures, and the figure after each is its share of that tool's calls. Only counts are kept: no error text, arguments or paths.">
         <Waiting reply={failures.reply} error={failures.error} problem={r.problem} empty="No tool was called in this period.">
           {(rep) => <FailuresSection r={r} reply={rep} />}

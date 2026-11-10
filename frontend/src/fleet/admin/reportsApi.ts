@@ -4,7 +4,7 @@ import { fmtDur, fmtTok } from "../format";
 import { readJson, writeJson } from "../storage";
 import { AdminError, type AdminApi } from "./adminApi";
 
-export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "sessiontime" | "workload" | "activity";
+export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "sessiontime" | "workload" | "harness" | "activity";
 export type By = "day" | "week" | "month";
 
 export interface ReportColumn {
@@ -51,6 +51,10 @@ export interface ReportReply {
   combined?: ReportRow[];
   /** The costs report, the mix: which of model or effort the shares are of. */
   mixOf?: string;
+  /** The Tools report, skills (#724): each skill with its sessions and the people across every harness. */
+  bySkill?: ReportRow[];
+  /** The Harness updates report (#724): the display name of each harness it names. */
+  names?: Record<string, string>;
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }

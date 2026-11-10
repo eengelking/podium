@@ -137,6 +137,47 @@ describe('admin: reporting', () => {
     cy.get('table[aria-label="Calls by tool"]').should('exist');
   });
 
+  // Harness updates and the new sections (#724): the seed reports today's live figures only, and no version of a harness stops anything in it, so the
+  // shape, the empty lines and the links are what is checked. A seeded history that stops `hook:tool.check` is covered by the unit tests.
+  it('Harness updates: opens from the menu after Tools with its sections, a Harness filter and exports, and reads empty when nothing stopped', () => {
+    cy.openAdmin('Harness updates');
+    cy.get('h1').should('have.text', 'Harness updates');
+    for (const h of ['Period and filters', 'Features that stopped', 'Reporters behind the newest version']) cy.contains('h2', h);
+    cy.contains('label', 'Harness').parent().find('select').find('option').first().should('have.text', 'All harnesses');
+    cy.contains('button', 'CSV').should('exist');
+    cy.contains('button', 'JSON').should('exist');
+    cy.contains('Nothing has stopped.').should('exist');
+  });
+
+  it('Harness updates: the address #/admin/harness opens the page', () => {
+    cy.signIn('Admin');
+    cy.unlockAdmin();
+    cy.visit('/#/admin/harness');
+    cy.get('h1', { timeout: 15000 }).should('have.text', 'Harness updates');
+  });
+
+  it('Usage: has Projects and branches per person', () => {
+    cy.openAdmin('Usage');
+    cy.contains('h2', 'Projects and branches per person');
+    cy.get('#rep-workload-pl').should('exist');
+    cy.get('table[aria-label="Projects and branches per person"]').should('exist');
+  });
+
+  it('Tools: has a Skills section', () => {
+    cy.openAdmin('Tools');
+    cy.contains('h2', 'Skills');
+    cy.get('#rep-tools-sk').should('exist');
+  });
+
+  it('People and groups: has Platform and reporter version with a Harness select', () => {
+    cy.openAdmin('People and groups');
+    cy.contains('h2', 'Platform and reporter version');
+    cy.get('section[aria-labelledby="rep-people-pf"]').within(() => {
+      cy.contains('label', 'Harness').parent().find('select').find('option').first().should('have.text', 'All harnesses');
+    });
+    cy.get('table[aria-label="Reporters by platform and version"]').should('exist');
+  });
+
   it('Tools: exports calls by tool with a column per harness, as the table shows them', () => {
     cy.openAdmin('Tools');
     cy.get('table[aria-label="Calls by tool"] thead th').then(($th) => {

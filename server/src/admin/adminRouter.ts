@@ -19,7 +19,7 @@ import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
 import { CHAT_ONLY, isPersonChat, messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { createReportRouter } from '../fleet/reportRoutes.js';
-import type { ReportDeps } from '../fleet/reports.js';
+import { stoppedFeatureCount, type ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, shortId, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import { ALLOW_HTTP_KEY, type ServingRenewer } from '../tlsRenew.js';
@@ -35,6 +35,9 @@ import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryS
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
 import type { RecordingState } from '../fleet/protocol.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
+
+/** How long the stopped-features count is kept before the report is read again (#724). */
+const STOPPED_CACHE_MS = 5 * 60_000;
 
 export interface AdminRouterOptions {
   /** The admin secret. null when the server runs without authentication: Admin is then switched off. */
@@ -170,6 +173,22 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ enabled: opts.secret !== null, unlocked: opts.secret !== null && await sessionValid(req), version: serverVersion(), build: serverBuild() });
   }));
 
+  // What the console's top bar shows an unlocked Admin (#724): how many features stopped after a harness update. It never counts as Admin activity, so asking for it
+  // every few minutes does not hold off the idle lock, and a locked page learns nothing. The count is kept for a few minutes: the report reads the rollups.
+  let stopped: { at: number; n: number } | null = null;
+  router.get('/notice', asyncHandler(async (req, res) => {
+    if (opts.secret === null || !opts.reports || !(await sessionValid(req, false))) return void res.json({ unlocked: false });
+    if (stopped === null || now() - stopped.at > STOPPED_CACHE_MS) {
+      // A failed read is not kept: the next ask tries again, and the pill shows nothing until one works.
+      try {
+        stopped = { at: now(), n: await stoppedFeatureCount(opts.reports) };
+      } catch {
+        return void res.json({ unlocked: true, stopped: 0 });
+      }
+    }
+    res.json({ unlocked: true, stopped: stopped.n });
+  }));
+
   // Admin is off without a token: the console is open to everyone who can reach it, so there is nothing to gate it with.
   router.use((_req, res, next) => {
     if (opts.secret === null) {
@@ -204,7 +223,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const smallJson = jsonBody({ limit: '8kb' });
   router.use((req, res, next) => (req.path === STORED_DELETE ? next() : smallJson(req, res, next)));
 
-  async function sessionValid(req: Request): Promise<boolean> {
+  /** Whether the request holds an open Admin session. `touch` false reads it without counting as activity, so a page that only asks does not hold off the idle lock. */
+  async function sessionValid(req: Request, touch = true): Promise<boolean> {
     const sid = readCookie(req, COOKIE);
     if (!sid) return false;
     const s = sessions.get(sid);
@@ -216,6 +236,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     }
     // A lock that came in while the person was being read ends this session: do not put it back.
     if (!sessions.has(sid)) return false;
+    if (!touch) return true;
     sessions.delete(sid); // re-insert so the oldest entry is the least recently used, which is the one evicted at the cap
     sessions.set(sid, { last: now(), personId: s.personId });
     return true;
@@ -1133,7 +1154,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     }).catch(storeFailed(res));
   }));
 
-  if (opts.reports) router.use('/reports', createReportRouter(opts.reports));
+  if (opts.reports) router.use('/reports', createReportRouter({ ...opts.reports, platforms: opts.reports.platforms ?? (reporters ? (since) => reporters.platformCounts(since) : undefined) }));
 
   router.get('/log', asyncHandler(async (req, res) => {
     res.json({ ...(await people.listLog(paging(req))), ...(opts.logRetainMs === undefined ? {} : { retainMs: opts.logRetainMs }) });
