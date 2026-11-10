@@ -57,6 +57,10 @@ Three sections.
 - **Spend over time** gives total spend by day, week or month, and can break it down by person, group, model or project.
   A session counts on the day it was last seen, so one that runs past midnight is not split.
 
+A fourth section, **Tokens and cache hit rate**, follows them. It shows how many tokens went in, came out and were served from the cache in each day, week or month, as a chart of the cache hit rate
+and a table, with a row for the whole period and for each harness. The **cache hit rate** is the tokens read from the cache over all the input the model was given (input, cache read and cache write),
+so a harness that does not report cache tokens lowers it. It has its own **Harness** filter and its own **CSV** and **JSON**. Cost estimates are unchanged.
+
 ## People and groups
 
 How many people, groups and reporters there are, who reported in the period, who has gone quiet or never reported, and
@@ -78,6 +82,10 @@ says that and leaves them out.
 - **What sessions waited for** splits that waiting into permission, question and plan: how many waits, how long they took and the average.
 - **Agents launched** counts agents by type, with a column for each harness.
 - **How deep agent chains go** counts agents by how many levels down they sit. Depth 1 is an agent the session launched itself.
+- **Model and effort mix** shows, for each day, week or month, the share of sessions on each model, or at each effort (choose with **Mix of**). The most used few get a column and the rest share one. A
+  session counts once, under the model and effort it ended on, and a harness that reports no effort shows as Not reported.
+- **Context fullness at the end** shows how many sessions ended under 50%, from 50% to 80% and above 80% full, and how many compacted on their own or continued after a `/clear`, with a row for each
+  harness. Compacted counts what Claude Code did by itself while Podium still keeps the events (30 days), not a `/compact` you ran yourself, and a `/clear` starts a new session, so each one is counted once, on the session it started.
 
 Waiting is recorded from the release that added it, so earlier days show a dash and the page says from which day it starts. Each table has its own **CSV**
 and **JSON** in its title line. Only the kind of wait and the time are kept, never what the question, plan or tool was.
@@ -108,6 +116,12 @@ counts are kept: never the arguments, a file path or a command.
   is within 10% of the real one. A harness that does not report call times is left out, and the page says which.
 - **Harness versions** shows how many reporters ran each version in each period, and how many run an older version than the
   newest Podium has seen for that harness. A harness is only compared with itself.
+
+- **Cost per tool call and per session** divides spend by the calls and sessions behind it, for each model and harness, using your Model prices. A model without a price shows a dash, and its
+  calls are counted apart, so they never pull a total down. **A tool has no cost of its own:** a model call costs tokens, and a call to a tool is one step in it, so Podium cannot say what one tool
+  spent. Per call is a model's spend over all its tool calls.
+- **What sessions that used a tool cost** lists each tool with how many sessions called it and the average priced spend of those sessions. It tells you where heavy sessions use a tool, not what the
+  tool cost.
 
 Calls include the orchestrator's own as well as its agents'. The tool counts start when Podium is upgraded to this release and fill in for the sessions it still holds (30 days), so a
 longer period says "Podium has no history before ..." instead of showing zeros.

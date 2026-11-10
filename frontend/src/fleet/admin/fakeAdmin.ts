@@ -229,6 +229,44 @@ function fakeReport(report: string, url: URL) {
       byHarness: keep([{ harness: "claude-code", sessions: 110, avgDurationS: 3200, maxDurationS: 25_500, waitS: 111_600, waitSharePct: 21 }, { harness: "opencode", sessions: 19, avgDurationS: 2700, maxDurationS: 13_200, waitS: 9000, waitSharePct: 17 }]),
     };
   }
+  if (report === "costs") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const breakdown = url.searchParams.get("breakdown") ?? "model";
+    const harnesses = ["claude-code", "opencode"];
+    const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+    const keep = <T extends { harness: string }>(all: T[]): T[] => all.filter((x) => harness === "" || x.harness === harness);
+    const extra = { harnesses };
+    if (breakdown === "tool") {
+      const tools = [{ tool: "Bash", sessions: 248, avgSpendUsd: 2.71, avgCalls: 31 }, { tool: "Edit", sessions: 231, avgSpendUsd: 2.94, avgCalls: 19 }, { tool: "WebFetch", sessions: 52, avgSpendUsd: null, avgCalls: 27 }];
+      return { ...base, ...extra, by: null, columns: [col("tool", "Tool", "text"), col("harness", "Harness", "text"), col("sessions", "Sessions that called it", "count"), col("avgSpendUsd", "Average spend of those sessions", "usd"), col("avgCalls", "Average calls of it in a session", "count")], rows: tools.map((t) => ({ ...t, harness: "claude-code" })), total: { tools: tools.length }, tools };
+    }
+    if (breakdown === "tokens") {
+      const periods = [{ period: "2026-10-05", tokIn: 10_200_000, tokOut: 1_400_000, tokCr: 49_900_000, tokCw: 5_800_000, cacheHitPct: 76 }, { period: "2026-10-12", tokIn: 8_400_000, tokOut: 1_100_000, tokCr: 41_600_000, tokCw: 4_900_000, cacheHitPct: 76 }];
+      return {
+        ...base, ...extra, by, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("tokIn", "Input tokens", "tokens"), col("tokOut", "Output tokens", "tokens"), col("tokCr", "Cache read tokens", "tokens"), col("tokCw", "Cache write tokens", "tokens"), col("cacheHitPct", "Cache hit rate", "percent")],
+        rows: keep(periods.map((p) => ({ ...p, harness: "claude-code" }))), total: { tokIn: 18_600_000, tokOut: 2_500_000, tokCr: 91_500_000, tokCw: 10_700_000, cacheHitPct: 76 }, periods,
+        byHarness: keep([{ harness: "claude-code", tokIn: 14_000_000, tokOut: 2_000_000, tokCr: 80_000_000, tokCw: 9_000_000, cacheHitPct: 78 }, { harness: "opencode", tokIn: 4_600_000, tokOut: 500_000, tokCr: 11_500_000, tokCw: 1_700_000, cacheHitPct: 65 }]),
+      };
+    }
+    if (breakdown === "mix") {
+      const mixOf = url.searchParams.get("mixof") ?? "model";
+      const names = mixOf === "effort" ? ["high", "-"] : ["Opus 5.5", "Sonnet 5.5", "-"];
+      const combined = ["2026-10-05", "2026-10-12"].flatMap((period) => names.map((n, i) => ({ period, [mixOf]: n, sessions: [30, 20, 10][i] ?? 0, sharePct: [50, 33, 17][i] ?? 0 })));
+      return { ...base, ...extra, by, mixOf, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col(mixOf, mixOf === "model" ? "Model" : "Effort", "text"), col("sessions", "Sessions", "count"), col("sharePct", "Share of sessions", "percent")], rows: keep(combined.map((c) => ({ ...c, harness: "claude-code" }))), total: { sessions: 120 }, combined, periods: [{ period: "2026-10-05", sessions: 60 }, { period: "2026-10-12", sessions: 60 }] };
+    }
+    if (breakdown === "context") {
+      return {
+        ...base, ...extra, by, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("sessions", "Sessions", "count")], rows: keep([{ period: "2026-10-05", harness: "claude-code", sessions: 60 }, { period: "2026-10-05", harness: "opencode", sessions: 30 }]),
+        total: { sessions: 120, endedLow: 60, endedMid: 40, endedHigh: 14, endedUnknown: 6, endedHighPct: 12.3, compacted: 18, cleared: 7 },
+        byHarness: keep([{ harness: "claude-code", sessions: 90, endedLow: 40, endedMid: 30, endedHigh: 14, endedUnknown: 6, endedHighPct: 16.7, compacted: 18, cleared: 7 }, { harness: "opencode", sessions: 30, endedLow: 20, endedMid: 10, endedHigh: 0, endedUnknown: 0, endedHighPct: 0, compacted: 0, cleared: 0 }]),
+      };
+    }
+    const models = [{ model: "Opus 5.5", sessions: 96, calls: 4118, spendUsd: 412.8, perCallUsd: 0.1, perSessionUsd: 4.3 }, { model: "mystery-model", sessions: 3, calls: 122, spendUsd: null, perCallUsd: null, perSessionUsd: null }];
+    return {
+      ...base, ...extra, by: null, columns: [col("model", "Model", "text"), col("harness", "Harness", "text"), col("sessions", "Sessions", "count"), col("calls", "Tool calls", "count"), col("spendUsd", "Spend", "usd"), col("perCallUsd", "Per tool call", "usd"), col("perSessionUsd", "Per session", "usd")],
+      rows: keep(models.map((m) => ({ ...m, harness: "claude-code" }))), total: { sessions: 99, pricedSessions: 96, pricedCalls: 4118, unpricedCalls: 122, spendUsd: 412.8, perCallUsd: 0.1, perSessionUsd: 4.3 }, models,
+    };
+  }
   if (report === "workload") {
     const harness = url.searchParams.get("harness") ?? "";
     const group = url.searchParams.get("group") ?? "";

@@ -2,6 +2,7 @@
 // and which harness versions are in use, for every harness. One query drives the page: the period, the grouping and the harness filter
 // give the calls by tool (the report the Export downloads), and the same query asks for the calls per session and the versions.
 // Names of tools, servers and harnesses come from reporters and are drawn as text nodes.
+import { ToolCostSections } from "./CostSections";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { AdminError } from "./adminApi";
 import { PageHeader, Panel, Section } from "./Page";
@@ -368,6 +369,7 @@ export function ToolsPage({ cfg, client, onLocked }: { cfg: ReportConfig; client
           </Waiting>
         </Panel>
       </Section>
+      <ToolCostSections client={client} r={r} onLocked={onLocked} />
       <ToolSection id="rep-tools-x" title="Tool failures" help="Failures divided by calls, per tool. The bars show the number of failures, and the figure after each is its share of that tool's calls. Only counts are kept: no error text, arguments or paths.">
         <Waiting reply={failures.reply} error={failures.error} problem={r.problem} empty="No tool was called in this period.">
           {(rep) => <FailuresSection r={r} reply={rep} />}

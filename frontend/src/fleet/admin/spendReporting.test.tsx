@@ -66,11 +66,11 @@ async function openSpend(server = fakeServer({ unlocked: true }), spend: OwnerSp
 }
 
 describe("the Spend page", () => {
-  it("has three sections in order: Spend today, Projection, Spend over time", async () => {
+  it("has four sections in order: Spend today, Projection, Spend over time, Tokens and cache hit rate", async () => {
     await openSpend();
     expect(screen.getByRole("heading", { level: 1, name: "Spend" })).toBeInTheDocument();
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(["Spend today, by person", "Projection", "Spend over time"]);
+    expect(headings).toEqual(["Spend today, by person", "Projection", "Spend over time", "Tokens and cache hit rate"]);
   });
 
   it("keeps Spend over time's report, with Break down by and its own Export", async () => {
@@ -341,5 +341,27 @@ describe("the projection (#483)", () => {
     expect(projectionEnd("month", new Date(2026, 9, 20))).toEqual({ date: "2026-10-31", daysAfterToday: 11 });
     expect(projectionEnd("month", new Date(2026, 1, 3))).toEqual({ date: "2026-02-28", daysAfterToday: 25 });
     expect(projectionEnd("30d", new Date(2026, 9, 20))).toEqual({ date: "2026-11-19", daysAfterToday: 30 });
+  });
+});
+
+describe("the Spend page: tokens and cache hit rate (#723)", () => {
+  it("draws the token split and the cache hit rate by period, with a row for the whole period and each harness", async () => {
+    await openSpend();
+    const section = screen.getByRole("region", { name: "Tokens and cache hit rate" });
+    const table = await within(section).findByRole("table", { name: "Tokens by period" });
+    expect(within(table).getByText("2026-10-05").closest("tr")).toHaveTextContent("10.20M1.40M49.90M5.80M76%");
+    expect(within(table).getByText("Whole period, all harnesses").closest("tr")).toHaveTextContent("18.60M2.50M91.50M10.70M76%");
+    expect(within(table).getByText("OpenCode").closest("tr")).toHaveTextContent("65%");
+    expect(within(section).getByText(/Cache hit rate/, { selector: "b" })).toBeInTheDocument();
+  });
+
+  it("narrows to one harness on its own filter, and downloads the table as it is shown", async () => {
+    const { server } = await openSpend();
+    const section = screen.getByRole("region", { name: "Tokens and cache hit rate" });
+    await within(section).findByRole("table", { name: "Tokens by period" });
+    fireEvent.change(within(section).getByLabelText("Harness"), { target: { value: "opencode" } });
+    await waitFor(() => expect(server.calls.some((c) => c.includes("breakdown=tokens") && c.includes("harness=opencode"))).toBe(true));
+    fireEvent.click(within(section).getByRole("button", { name: "Download tokens CSV" }));
+    await waitFor(() => expect(server.calls.some((c) => c.includes("breakdown=tokens") && c.includes("format=csv"))).toBe(true));
   });
 });

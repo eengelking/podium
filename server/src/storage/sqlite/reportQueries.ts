@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { AgentDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
+import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, HarnessVersionDay, HourPeakDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { ReportQueries, RollupRaw, RollupTable, StoredSession } from '../reportQueries.js';
 import type { SessionWaitRow } from '../rows.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
-const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily'];
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily'];
 
 /** The columns after `day` that make a rollup row unique, so rows of one day come back in one order everywhere. */
 const ROW_KEY: Record<RollupTable, string> = {
@@ -21,6 +21,8 @@ const ROW_KEY: Record<RollupTable, string> = {
   agents_daily: ', harness, type, depth',
   person_sessions_daily: ', owner, harness',
   hour_peaks_daily: ', harness, hour',
+  cost_daily: ', harness, model, effort',
+  tool_cost_daily: ', harness, tool',
 };
 
 /** The SQL the reports and rollups ran from reports.ts and rollups.ts, moved here unchanged. */
@@ -176,6 +178,18 @@ export class SqliteReportQueries implements ReportQueries {
   insertPersonSessionsDaily(rows: PersonDay[]): void {
     const put = this.db.prepare('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)');
     for (const r of rows) put.run(r.day, r.owner, r.group, r.harness, r.sessions);
+  }
+
+  insertCostDaily(rows: CostDay[]): void {
+    const put = this.db.prepare(
+      'INSERT INTO cost_daily (day, harness, model, effort, sessions, priced_sessions, calls, priced_calls, cost_usd, call_cost_usd, tok_in, tok_out, tok_cr, tok_cw, ended_low, ended_mid, ended_high, ended_unknown, compacted, cleared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const r of rows) put.run(r.day, r.harness, r.model, r.effort, r.sessions, r.pricedSessions, r.calls, r.pricedCalls, r.costUsd, r.callCostUsd, r.tokIn, r.tokOut, r.tokCr, r.tokCw, r.endedLow, r.endedMid, r.endedHigh, r.endedUnknown, r.compacted, r.cleared);
+  }
+
+  insertToolCostDaily(rows: ToolCostDay[]): void {
+    const put = this.db.prepare('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.tool, r.sessions, r.pricedSessions, r.costUsd, r.calls);
   }
 
   upsertHourPeaks(rows: HourPeakDay[]): void {

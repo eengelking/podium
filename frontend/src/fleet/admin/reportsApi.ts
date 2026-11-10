@@ -46,6 +46,11 @@ export interface ReportReply {
   waitSince?: string | null;
   /** The session time report, waiting by reason: each of the three kinds for every harness together. */
   byReason?: ReportRow[];
+  /** The costs report only (#723): the tools by what the sessions that called them cost (one row each, every harness together), and the model or effort mix by period. */
+  tools?: ReportRow[];
+  combined?: ReportRow[];
+  /** The costs report, the mix: which of model or effort the shares are of. */
+  mixOf?: string;
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }

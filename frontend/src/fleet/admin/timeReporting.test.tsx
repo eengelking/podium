@@ -139,7 +139,7 @@ describe("the Sessions page", () => {
     fireEvent.change(screen.getByLabelText("Group"), {
       target: { value: "Platform" },
     });
-    await waitFor(() => expect(screen.getAllByText(/not shown while a Person, Group or Model filter is set/)).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByText(/not shown while a Person, Group or Model filter is set/)).toHaveLength(6));
     expect(s.calls.filter((c) => c.startsWith("GET /reports/sessiontime?")).length).toBe(before);
     expect(screen.queryByRole("table", { name: "Length and waiting by period" })).toBeNull();
   });

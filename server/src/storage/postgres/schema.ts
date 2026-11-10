@@ -323,6 +323,25 @@ CREATE TABLE hour_peaks_daily (
 );
 `),
   },
+  {
+    version: 16,
+    // What sessions cost and how they ended (#723), as SQLite migration 40 keeps it: counts, tokens and names only.
+    sql: typed(`
+CREATE TABLE cost_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, model TXT NOT NULL, effort TXT NOT NULL,
+  sessions INT NOT NULL, priced_sessions INT NOT NULL, calls INT NOT NULL, priced_calls INT NOT NULL, cost_usd REAL NOT NULL, call_cost_usd REAL NOT NULL,
+  tok_in INT NOT NULL, tok_out INT NOT NULL, tok_cr INT NOT NULL, tok_cw INT NOT NULL,
+  ended_low INT NOT NULL, ended_mid INT NOT NULL, ended_high INT NOT NULL, ended_unknown INT NOT NULL,
+  compacted INT NOT NULL, cleared INT NOT NULL,
+  PRIMARY KEY (day, harness, model, effort)
+);
+CREATE TABLE tool_cost_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL,
+  sessions INT NOT NULL, priced_sessions INT NOT NULL, cost_usd REAL NOT NULL, calls INT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

@@ -4,7 +4,8 @@
 //
 // It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily, and the
 // tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, what each tool did (#721): tool_stats_daily, and the session time, agents, people and hours
-// of #722: session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, for Claude Code and OpenCode),
+// of #722: session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, and what sessions cost and how they ended (#723): cost_daily, tool_cost_daily,
+// for Claude Code and OpenCode),
 // plus a few people, groups, reporters and Admin log entries, through the server's own migrations. Every random choice
 // comes from a seeded generator, so one seed and one "today" always give the same rows.
 //
@@ -184,7 +185,7 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
@@ -195,6 +196,8 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
     const putTime = db.prepare('INSERT INTO session_time_daily (day, harness, sessions, duration_s, max_duration_s, tracked_sessions, tracked_s, permission_s, permission_n, question_s, question_n, plan_s, plan_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putAgent = db.prepare('INSERT INTO agents_daily (day, harness, type, depth, agents) VALUES (?, ?, ?, ?, ?)');
     const putPerson = db.prepare('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putCost = db.prepare('INSERT INTO cost_daily (day, harness, model, effort, sessions, priced_sessions, calls, priced_calls, cost_usd, call_cost_usd, tok_in, tok_out, tok_cr, tok_cw, ended_low, ended_mid, ended_high, ended_unknown, compacted, cleared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const putToolCost = db.prepare('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const putHour = db.prepare('INSERT INTO hour_peaks_daily (day, harness, hour, peak) VALUES (?, ?, ?, ?)');
     // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them. So do the session times (#722).
     const toolRng = new Rng(opt.seed + 720);
@@ -215,6 +218,11 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       const fail = new Map<string, { owner: string; cls: string; tool: string; n: number }>();
       const active = new Set<string>();
       const toolCalls = new Map<string, number>();
+      // What sessions cost and how they ended, by harness, model and effort, and by the tools they called (#723).
+      interface CostAcc { harness: string; model: string; effort: string; sessions: number; priced: number; calls: number; pricedCalls: number; usd: number; tokIn: number; tokOut: number; tokCr: number; tokCw: number; low: number; mid: number; high: number; unknown: number; compacted: number; cleared: number }
+      const costRows = new Map<string, CostAcc>();
+      const toolCostRows = new Map<string, { harness: string; tool: string; sessions: number; priced: number; usd: number; calls: number }>();
+      const costRng = new Rng(opt.seed + 723);
       const sizes = new Map<string, number>();
       interface Time { sessions: number; dur: number; maxDur: number; tracked: number; trackedS: number; perm: number; permN: number; ask: number; askN: number; plan: number; planN: number }
       const times = new Map<string, Time>();
@@ -271,15 +279,50 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
           const harness = toolRng.next() < 0.25 ? 'opencode' : 'claude-code';
           const calls = Math.round((5 + toolRng.next() * 90) * (1 + agents / 3) * (toolRng.next() < 0.08 ? 4 : 1));
           const weightTotal = TOOLS.reduce((s, [, w]) => s + w, 0);
+          const mine = new Map<string, number>();
           for (let c = 0; c < calls; c++) {
             let at = toolRng.next() * weightTotal;
             const [tool] = TOOLS.find(([, w]) => (at -= w) < 0) ?? TOOLS[0]!;
             // OpenCode has no Agent tool here, and no Playwright server
             const name = harness === 'opencode' && (tool === 'Agent' || tool.startsWith('mcp__playwright')) ? 'Bash' : tool;
             toolCalls.set(`${harness}\u0000${name}`, (toolCalls.get(`${harness}\u0000${name}`) ?? 0) + 1);
+            mine.set(name, (mine.get(name) ?? 0) + 1);
           }
           const bucket = calls <= 100 ? calls : calls <= 1000 ? Math.ceil(calls / 10) * 10 : Math.ceil(calls / 100) * 100;
           sizes.set(`${harness}\u0000${bucket}`, (sizes.get(`${harness}\u0000${bucket}`) ?? 0) + 1);
+
+          // What it cost and how it ended (#723). One in six was compacted on its own, one in twenty continued after /clear, and OpenCode reports no effort.
+          const ck = `${harness}\u0000${model}\u0000${harness === 'opencode' ? '' : effort}`;
+          const c = costRows.get(ck) ?? { harness, model, effort: harness === 'opencode' ? '' : effort, sessions: 0, priced: 0, calls: 0, pricedCalls: 0, usd: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0, low: 0, mid: 0, high: 0, unknown: 0, compacted: 0, cleared: 0 };
+          c.sessions += 1;
+          c.calls += calls;
+          if (usd !== null) {
+            c.priced += 1;
+            c.pricedCalls += calls;
+            c.usd += usd;
+          }
+          c.tokIn += tokIn;
+          c.tokOut += tokOut;
+          c.tokCr += tokCr;
+          c.tokCw += tokCw;
+          if (ctx < 50) c.low += 1;
+          else if (ctx <= 80) c.mid += 1;
+          else c.high += 1;
+          if (ctx > 80 && costRng.next() < 0.5) c.compacted += 1;
+          else if (costRng.next() < 1 / 12) c.compacted += 1;
+          if (costRng.next() < 0.05) c.cleared += 1;
+          costRows.set(ck, c);
+          for (const [tool, n] of mine) {
+            const tk = `${harness}\u0000${tool}`;
+            const t = toolCostRows.get(tk) ?? { harness, tool, sessions: 0, priced: 0, usd: 0, calls: 0 };
+            t.sessions += 1;
+            t.calls += n;
+            if (usd !== null) {
+              t.priced += 1;
+              t.usd += usd;
+            }
+            toolCostRows.set(tk, t);
+          }
 
           // How long it ran and waited on a person (recorded only from the upgrade), the agents it launched and how deep, and who ran it (#722).
           const t = times.get(harness) ?? { sessions: 0, dur: 0, maxDur: 0, tracked: 0, trackedS: 0, perm: 0, permN: 0, ask: 0, askN: 0, plan: 0, planN: 0 };
@@ -397,6 +440,8 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
         const [harness, type, depth] = k.split('\u0000') as [string, string, string];
         putAgent.run(day, harness, type, Number(depth), n);
       }
+      for (const c of costRows.values()) putCost.run(day, c.harness, c.model, c.effort, c.sessions, c.priced, c.calls, c.pricedCalls, Math.round(c.usd * 1e6) / 1e6, Math.round(c.usd * 1e6) / 1e6, c.tokIn, c.tokOut, c.tokCr, c.tokCw, c.low, c.mid, c.high, c.unknown, c.compacted, c.cleared);
+      for (const t of toolCostRows.values()) putToolCost.run(day, t.harness, t.tool, t.sessions, t.priced, Math.round(t.usd * 1e6) / 1e6, t.calls);
       for (const p of personRows.values()) putPerson.run(day, p.owner, groupOf(p.owner), p.harness, p.n);
       // The most sessions live at once in each hour: the day's busiest follows its sessions, the hours follow the curve, and OpenCode is a share of it.
       if (started > 0) {
