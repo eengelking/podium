@@ -102,6 +102,11 @@ describe("MariaDB's placement of NULLs (#823)", () => {
     expect(orderOf(sql("ISNULL(rank), rank"), "mariadb", schema)).toBe("rank nulls last");
   });
 
+  it("reads an IS NULL term with any spacing and an explicit ASC", () => {
+    expect(orderOf(sql("rank   IS\n NULL ASC, rank, id"), "mariadb", schema)).toBe("rank nulls last, id");
+    expect(orderOf(sql("ISNULL (rank) DESC, rank DESC"), "mariadb", schema)).toBe("rank desc nulls first");
+  });
+
   it("leaves an IS NULL term that is not followed by its column as a term of its own", () => {
     expect(orderOf(sql("rank IS NULL, id"), "mariadb", schema)).toBe("rank is null nulls first, id");
   });

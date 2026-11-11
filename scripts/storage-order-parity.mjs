@@ -285,8 +285,26 @@ function termOf(t, adapter, nullable, placed) {
   return expr + nulls;
 }
 
-/** `x IS NULL`, `x IS NOT NULL` or `ISNULL(x)`, with an optional direction: a term that only places the NULLs of x. */
-const IS_NULL = /^\s*(?:(.+?)\s+is\s+(not\s+)?null|isnull\s*\((.+)\))\s*(asc|desc)?\s*$/i;
+/**
+ * `x IS NULL`, `x IS NOT NULL` or `ISNULL(x)`, with an optional direction: a term that only places the NULLs of x.
+ * Read with string steps, not one regular expression: the pieces of that expression overlap and backtrack (SonarCloud S8786).
+ * Returns `{ expr, not, dir }`, or null when the term is anything else.
+ */
+function isNullTerm(t) {
+  let s = t.replace(/\s+/g, " ").trim();
+  let dir;
+  const tail = /\s(asc|desc)$/i.exec(s);
+  if (tail) {
+    dir = tail[1].toLowerCase();
+    s = s.slice(0, tail.index);
+  }
+  const low = s.toLowerCase();
+  if (low.endsWith(" is not null")) return { expr: s.slice(0, -" is not null".length), not: true, dir };
+  if (low.endsWith(" is null")) return { expr: s.slice(0, -" is null".length), not: false, dir };
+  const fn = /^isnull ?\(/i.exec(s);
+  if (fn && s.endsWith(")")) return { expr: s.slice(fn[0].length, -1), not: false, dir };
+  return null;
+}
 const bare = (t) => normalized(t).replace(/\bdesc\b/g, "").replace(/\s+/g, " ").trim();
 
 /**
@@ -298,9 +316,9 @@ function clauseOf(c, adapter, nullable) {
   const list = terms(c);
   const out = [];
   for (let i = 0; i < list.length; i++) {
-    const m = IS_NULL.exec(list[i]);
-    if (m && i + 1 < list.length && bare(m[1] ?? m[3]) === bare(list[i + 1])) {
-      const last = !m[2] !== (m[4]?.toLowerCase() === "desc");
+    const m = isNullTerm(list[i]);
+    if (m?.expr.trim() && i + 1 < list.length && bare(m.expr) === bare(list[i + 1])) {
+      const last = !m.not !== (m.dir === "desc");
       out.push(termOf(list[++i], adapter, nullable, last ? "last" : "first"));
     } else out.push(termOf(list[i], adapter, nullable));
   }
