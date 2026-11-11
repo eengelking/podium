@@ -224,6 +224,41 @@ describe("Usage, the shared report page", () => {
   });
 });
 
+describe("Sorting a report table (#1133)", () => {
+  const days = (table: HTMLElement) => within(table).getAllByRole("row").slice(1, -1).map((r) => within(r).getAllByRole("cell")[0]!.textContent);
+
+  it("makes every heading a button, and leaves the table in the order the server sent until one is clicked", async () => {
+    await openPage("Usage");
+    const table = await screen.findByRole("table", { name: "Usage" });
+    for (const name of ["Day", "People", "Reporters", "Sessions", "Most live"]) expect(within(table).getByRole("button", { name })).toBeInTheDocument();
+    expect(days(table)).toEqual(["2026-10-19", "2026-10-12"]);
+    for (const h of within(table).getAllByRole("columnheader")) expect(h).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("sorts a number column largest first, then smallest first, and marks the sorted heading", async () => {
+    await openPage("Usage");
+    const table = await screen.findByRole("table", { name: "Usage" });
+    fireEvent.click(within(table).getByRole("button", { name: "Sessions" }));
+    expect(days(table)).toEqual(["2026-10-12", "2026-10-19"]);
+    expect(within(table).getByRole("columnheader", { name: /Sessions/ })).toHaveAttribute("aria-sort", "descending");
+    expect(within(table).getByRole("columnheader", { name: /People/ })).toHaveAttribute("aria-sort", "none");
+    fireEvent.click(within(table).getByRole("button", { name: /Sessions/ }));
+    expect(days(table)).toEqual(["2026-10-19", "2026-10-12"]);
+    expect(within(table).getByRole("columnheader", { name: /Sessions/ })).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  it("sorts the period oldest first, then newest first, and keeps the Whole period row last", async () => {
+    await openPage("Usage");
+    const table = await screen.findByRole("table", { name: "Usage" });
+    fireEvent.click(within(table).getByRole("button", { name: "Day" }));
+    expect(days(table)).toEqual(["2026-10-12", "2026-10-19"]);
+    fireEvent.click(within(table).getByRole("button", { name: /Day/ }));
+    expect(days(table)).toEqual(["2026-10-19", "2026-10-12"]);
+    const rows = within(table).getAllByRole("row");
+    expect(rows[rows.length - 1]).toHaveTextContent("Whole period");
+  });
+});
+
 describe("a missing owner, group or model", () => {
   it("reads as what it is in a row and in the filters, and is sent back as a dash", async () => {
     const s = fakeServer({ unlocked: true });

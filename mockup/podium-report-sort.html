@@ -1,0 +1,204 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium reports: sortable table headers</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #1133 (sortable headers on every report table: Admin > Reporting and My usage). Colors, fonts and every report class
+   come from tokens.css, fleet.css and admin.css; this file declares no root variables of its own and restyles none of them. The header buttons are
+   the existing .thbtn of Admin > Reporters. Only the demo chrome (.demo, .stage, .frame, .notes) is the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 780px; max-width: 100%; background: var(--bg); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv[hidden] { display: none; }
+</style>
+
+<div class="demo">
+  <b>Sortable report headers (#1133)</b>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-v="admin" aria-pressed="true">Admin > Reporting > Usage</button>
+    <button type="button" data-v="my" aria-pressed="false">My usage</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<!-- Admin -->
+<main class="adminv pgv" id="v-admin" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn" aria-current="page">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn" data-nav="sessions">Sessions</button>
+        <button type="button" class="navbtn">Tools</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+    <div class="page-h"><div><h1>Usage</h1><p class="lead">Who used Podium, how many sessions they started, and how many ran at once.</p></div></div>
+    <section class="asec" aria-labelledby="a-r"><div class="asec-h"><div><h2 id="a-r">Usage by day</h2><p class="hint">Click a column heading to sort all 30 days by it, and again to reverse. The Whole period row stays at the bottom.</p></div></div>
+      <div class="panel">
+        <div class="tw2">
+          <table class="ptab" id="a-t" aria-label="Usage by day"><thead><tr></tr></thead><tbody></tbody>
+          <tfoot><tr></tr></tfoot></table>
+        </div>
+        <div class="apager"><span class="hint" role="status" id="a-st"></span><span class="row2"><label class="hint" for="a-sz">Rows per page</label><select class="field sm" id="a-sz"><option>10</option></select><button type="button" class="btn sm" data-p="prev">Previous</button><span class="hint" id="a-pg"></span><button type="button" class="btn sm" data-p="next">Next</button></span></div>
+      </div>
+    </section>
+  </div></div>
+</div>
+</main>
+
+<!-- My usage: no navigation, the same table -->
+<main class="adminv pgv" id="v-my" aria-label="My usage" hidden>
+  <div class="apage"><div class="apage-in">
+    <div class="page-h"><div><h1>My usage</h1><p class="lead">Your own sessions, spend, failures and tool calls. Nobody else's figures are shown here.</p></div></div>
+    <section class="asec" aria-labelledby="m-r"><div class="asec-h"><div><h2 id="m-r">Usage by day</h2><p class="hint">Click a column heading to sort all 30 days by it, and again to reverse. The Whole period row stays at the bottom.</p></div></div>
+      <div class="panel">
+        <div class="tw2">
+          <table class="ptab" id="m-t" aria-label="Usage by day"><thead><tr></tr></thead><tbody></tbody>
+          <tfoot><tr></tr></tfoot></table>
+        </div>
+        <div class="apager"><span class="hint" role="status" id="m-st"></span><span class="row2"><label class="hint" for="m-sz">Rows per page</label><select class="field sm" id="m-sz"><option>10</option></select><button type="button" class="btn sm" data-p="prev">Previous</button><span class="hint" id="m-pg"></span><button type="button" class="btn sm" data-p="next">Next</button></span></div>
+      </div>
+    </section>
+  </div></div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What changes</h2>
+  <ul>
+    <li>Every column heading of a report table becomes a button, the same <code>.thbtn</code> that Admin > Reporters uses. That is one change in the shared report table, so Admin > Reporting (Usage, Spend, Sessions, Tools, Failures and the rest) and My usage get it together.</li>
+    <li>The sorted column shows an arrow and carries <code>aria-sort</code>. The first view is the order the server sends: Period, newest first, so Period shows a down arrow.</li>
+    <li>The sort covers all rows of the period, then paging applies. Changing the sort returns to page 1. The Whole period / Total row is not a row and never moves.</li>
+    <li>Sorting is in the page and is not stored; a reload goes back to newest first.</li>
+  </ul>
+  <h2>Decisions for the maintainer</h2>
+  <ul>
+    <li><b>First click direction.</b> Admin > Reporters sorts every column ascending first. Here a number column sorts largest first (the question in the issue is "which day had the most"), and Period and text columns sort ascending first (oldest, A to Z). Reporters would keep its own behavior. Same everywhere is possible but makes "most sessions" a two-click answer.</li>
+    <li><b>Unsorted headers show no arrow</b>, as in Reporters: the pointer and the hover color are the only hint. A faint arrow on every header would be a new variant of the header button and so a standards change; it is not drawn here.</li>
+    <li>Moving the arrow in and out makes a right-aligned heading shift by one arrow's width. Reporters does the same today.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  var days = [];
+  for (var i = 0; i < 30; i++) {
+    var d = new Date(Date.UTC(2026, 10, 9 - i)), s = d.toISOString().slice(0, 10);
+    var seed = (i * 7 + 3) % 11;
+    days.push({ period: s, people: 3 + (seed % 6) + (i % 3), reporters: 4 + (seed % 7), sessions: 18 + ((i * 13) % 29) + seed, peak: 2 + ((i * 5) % 9) });
+  }
+  var defs = {
+    a: { cols: [["period", "Period", false], ["people", "People", true], ["reporters", "Reporters", true], ["sessions", "Sessions", true], ["peak", "Peak live", true]] },
+    m: { cols: [["period", "Period", false], ["sessions", "Sessions", true], ["peak", "Peak live", true]] }
+  };
+  function build(id) {
+    var def = defs[id], st = { key: "period", dir: -1, page: 1, size: 10, def: true };
+    var t = document.getElementById(id + "-t"), tr = t.querySelector("thead tr"), tb = t.querySelector("tbody"), tf = t.querySelector("tfoot tr");
+    def.cols.forEach(function (c) {
+      var th = document.createElement("th"); th.scope = "col"; if (c[2]) th.className = "n";
+      var b = document.createElement("button"); b.type = "button"; b.className = "thbtn"; b.textContent = c[1];
+      b.addEventListener("click", function () {
+        if (st.key === c[0]) st.dir = -st.dir; else { st.key = c[0]; st.dir = c[2] ? -1 : 1; }
+        st.page = 1; render();
+      });
+      th.appendChild(b); tr.appendChild(th); c.th = th; c.b = b;
+    });
+    function render() {
+      var rows = days.slice().sort(function (x, y) { var a = x[st.key], b = y[st.key]; var r = a < b ? -1 : a > b ? 1 : 0; return r === 0 ? (x.period < y.period ? 1 : -1) : r * st.dir; });
+      def.cols.forEach(function (c) {
+        var on = c[0] === st.key;
+        c.th.setAttribute("aria-sort", on ? (st.dir === 1 ? "ascending" : "descending") : "none");
+        c.b.textContent = c[1] + (on ? (st.dir === 1 ? " \u2191" : " \u2193") : "");
+      });
+      var from = (st.page - 1) * st.size, shown = rows.slice(from, from + st.size);
+      tb.innerHTML = "";
+      shown.forEach(function (r) {
+        var row = document.createElement("tr");
+        def.cols.forEach(function (c) { var td = document.createElement("td"); td.className = c[2] ? "n mono" : "who"; td.textContent = r[c[0]]; row.appendChild(td); });
+        tb.appendChild(row);
+      });
+      tf.innerHTML = "";
+      def.cols.forEach(function (c, i) {
+        var el = document.createElement(i === 0 ? "th" : "td"); if (i === 0) { el.scope = "row"; el.textContent = "Whole period"; }
+        else { el.className = "n mono"; el.textContent = c[0] === "peak" ? Math.max.apply(null, days.map(function (r) { return r.peak; })) : days.reduce(function (a, r) { return a + r[c[0]]; }, 0); }
+        tf.appendChild(el);
+      });
+      var pages = Math.ceil(days.length / st.size);
+      document.getElementById(id + "-st").textContent = "Showing " + (from + 1) + " to " + (from + shown.length) + " of " + days.length;
+      document.getElementById(id + "-pg").textContent = "Page " + st.page + " of " + pages;
+      var v = document.getElementById(id === "a" ? "v-admin" : "v-my");
+      v.querySelector('[data-p="prev"]').disabled = st.page <= 1;
+      v.querySelector('[data-p="next"]').disabled = st.page >= pages;
+    }
+    var v = document.getElementById(id === "a" ? "v-admin" : "v-my");
+    v.querySelector('[data-p="prev"]').addEventListener("click", function () { st.page--; render(); });
+    v.querySelector('[data-p="next"]').addEventListener("click", function () { st.page++; render(); });
+    render();
+  }
+  build("a"); build("m");
+  document.querySelectorAll("[data-v]").forEach(function (b) { b.addEventListener("click", function () { var v = b.getAttribute("data-v"); document.getElementById("v-admin").hidden = v !== "admin"; document.getElementById("v-my").hidden = v !== "my"; press("[data-v]", "data-v", v); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  root.setAttribute("data-theme", "dark");
+})();
+</script>

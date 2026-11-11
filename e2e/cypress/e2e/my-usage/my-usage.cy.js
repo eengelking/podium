@@ -100,6 +100,33 @@ describe('my usage', () => {
       cy.contains('h2', 'Spend by day').should('exist');
     });
 
+    it('sorts a table by its heading: the Tool calls table, text A to Z then Z to A, a number largest first', () => {
+      cy.openConsole('#/me/usage');
+      const table = () => cy.get('table[aria-label="Tool calls"]');
+      const column = (i) => ($t) => [...$t.find('tbody tr')].map((r) => r.children[i].textContent.trim());
+      table().find('thead th').first().should('have.attr', 'aria-sort', 'none');
+      table().find('thead th').first().find('button.thbtn').click();
+      table().should(($t) => {
+        const names = column(0)($t);
+        expect(names.length, 'Ed has several tools').to.be.greaterThan(1);
+        expect(names, 'A to Z').to.deep.eq([...names].sort((a, b) => a.localeCompare(b)));
+      });
+      table().find('thead th').first().should('have.attr', 'aria-sort', 'ascending');
+      table().find('thead th').first().find('button.thbtn').click();
+      table().find('thead th').first().should('have.attr', 'aria-sort', 'descending');
+      table().should(($t) => {
+        const names = column(0)($t);
+        expect(names, 'Z to A').to.deep.eq([...names].sort((a, b) => b.localeCompare(a)));
+      });
+      table().find('thead th.n').first().find('button.thbtn').click();
+      table().find('thead th.n').first().should('have.attr', 'aria-sort', 'descending');
+      table().should(($t) => {
+        const i = $t.find('thead th').index($t.find('thead th.n').first());
+        const nums = column(i)($t).map((v) => Number(v.replace(/[^0-9.-]/g, ''))).filter((n) => !Number.isNaN(n));
+        expect(nums, 'largest first').to.deep.eq([...nums].sort((a, b) => b - a));
+      });
+    });
+
     it('serves each of its own reports and refuses the ones that are not one person\'s', () => {
       for (const name of ['spend', 'sessions', 'failures', 'tools']) {
         cy.request(`${USAGE}/${name}`).should((res) => {
