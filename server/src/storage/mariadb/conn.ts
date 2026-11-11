@@ -47,12 +47,22 @@ export function numbers<T extends object>(row: T): T {
   return row;
 }
 
-/** Column names the stores use that MariaDB reserves. Written in lower case outside quotes, they are quoted (SQL keywords are written in upper case). */
+/** Column names the stores use that MariaDB reserves. Outside quotes, each is quoted, unless it is the keyword itself (see `KEYWORD_AFTER`). */
 const RESERVED = new Set(['key', 'loop', 'by']);
+
+/** The words after which a reserved word is the SQL keyword and not a column, in any case: ORDER BY, GROUP BY, PARTITION BY, PRIMARY KEY... */
+const KEYWORD_AFTER: Record<string, Set<string>> = {
+  by: new Set(['order', 'group', 'partition']),
+  key: new Set(['primary', 'foreign', 'unique', 'duplicate']),
+  loop: new Set(['end']),
+};
 
 /**
  * Turns the placeholders the stores use (`?` in order, `:name`) into MariaDB's `?`, leaving quoted text alone, and quotes a column name
- * MariaDB reserves (`key`, `loop`, `by`). A name used twice binds twice. Returns the SQL and the values in `?` order.
+ * MariaDB reserves (`key`, `loop`, `by`) where it is a name. A name used twice binds twice. Returns the SQL and the values in `?` order.
+ *
+ * Quoted text is read as the connection's SQL mode reads it (`SESSION_SQL`): in a '...' string a backslash escapes the next character
+ * (NO_BACKSLASH_ESCAPES is off) and '' is a quote; in a "..." name (ANSI_QUOTES) a backslash is an ordinary character and "" is a quote.
  */
 export function positional(sql: string, params: Params | undefined): { text: string; values: Param[] } {
   const values: Param[] = [];
@@ -61,13 +71,17 @@ export function positional(sql: string, params: Params | undefined): { text: str
   let used = 0;
   let out = '';
   let quote = '';
+  let previous = ''; // the last word outside quotes, in lower case
   let skipTo = 0; // the loop counter is not changed inside the loop: a name that was just read is skipped by position
   for (let i = 0; i < sql.length; i++) {
     if (i < skipTo) continue;
     const c = sql[i]!;
     if (quote) {
       out += c;
-      if (c === quote) quote = '';
+      if (quote === "'" && c === '\\' && i + 1 < sql.length) {
+        out += sql[i + 1];
+        skipTo = i + 2;
+      } else if (c === quote) quote = '';
       continue;
     }
     if (c === "'" || c === '"') {
@@ -89,7 +103,9 @@ export function positional(sql: string, params: Params | undefined): { text: str
       let j = i + 1;
       while (j < sql.length && /\w/.test(sql[j]!)) j++;
       const word = sql.slice(i, j);
-      out += RESERVED.has(word) ? `"${word}"` : word;
+      const name = RESERVED.has(word) && !KEYWORD_AFTER[word]!.has(previous) && sql[i - 1] !== '"';
+      out += name ? `"${word}"` : word;
+      previous = word.toLowerCase();
       skipTo = j;
     } else out += c;
   }
@@ -112,9 +128,12 @@ export function bound(v: Param): Param {
   return text.replace(/\p{Surrogate}/gu, '\uFFFD');
 }
 
-/** Whether the connection that ran a failed statement is no longer good (the driver marks those errors fatal). */
-function isFatal(err: unknown): boolean {
-  return (err as { fatal?: unknown } | null)?.fatal === true || !(typeof (err as { sqlState?: unknown } | null)?.sqlState === 'string');
+/**
+ * Whether the connection that ran a failed statement is no longer good. The driver marks those errors `fatal` (a lost socket, a killed
+ * connection, a broken packet); an error the caller threw, or a statement the server refused, leaves the connection as good as it was.
+ */
+export function isFatal(err: unknown): boolean {
+  return (err as { fatal?: unknown } | null)?.fatal === true;
 }
 
 /** What a `mariadb://user:password@host:port/database` URL names, decoded. Its query may set `ssl=true`; any other parameter is refused. */

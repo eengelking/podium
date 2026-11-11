@@ -253,11 +253,6 @@ function nullTest(sql, schema) {
   return (id) => tables.some((t) => schema.get(t)?.has(id) && !NEVER_NULL.has(`${t}.${id}`));
 }
 
-/**
- * One ORDER BY term with the dialect differences removed. When `nullable` (a test from nullTest)
- * is given and the term reads a column that can be NULL, the term ends with the placement of NULLs it really has: the one it states, or else its
- * dialect's default. A term over a column that cannot be NULL, or one wrapped in COALESCE, has no NULLs to place.
- */
 /** A term's text with the dialect differences removed (case, quoting, podium_lower, collation, placeholders, table aliases, ASC, NULLS). */
 function normalized(t) {
   return t
@@ -273,6 +268,12 @@ function normalized(t) {
     .trim();
 }
 
+/**
+ * One ORDER BY term with the dialect differences removed. When `nullable` (a test from nullTest)
+ * is given and the term reads a column that can be NULL, the term ends with the placement of NULLs it really has: the one it states, or else its
+ * dialect's default. A term over a column that cannot be NULL, or one wrapped in COALESCE, has no NULLs to place.
+ * `placed` is the placement a preceding `x IS NULL` term already gave this one (see clauseOf).
+ */
 function termOf(t, adapter, nullable, placed) {
   const low = t.toLowerCase();
   const stated = placed ?? /\bnulls\s+(first|last)\b/.exec(low)?.[1];
@@ -342,7 +343,6 @@ const NEVER_NULL = new Set([
   "person_certificates.seq", // the same
 ]);
 
-/** The columns the schemas in the adapters declare without NOT NULL or a key, as a Map of table name -> Set of lower-case column names. */
 /**
  * A schema file's text with its type words written out: a schema that writes `id AUTO_ID` and turns it into SQL with
  * `.replace(/\bAUTO_ID\b/g, 'BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY')` (MariaDB's, #823) declares a column that cannot be NULL.
@@ -354,6 +354,7 @@ export function expandMacros(src) {
   return out;
 }
 
+/** The columns the schemas in the adapters declare without NOT NULL or a key, as a Map of table name -> Set of lower-case column names. */
 export function nullableColumns(root) {
   const schema = new Map();
   const add = (table, col) => schema.set(table, (schema.get(table) ?? new Set()).add(col));
@@ -437,7 +438,6 @@ export function problems(queries, adapters) {
   return out;
 }
 
-/** Run the check on the repository at `root`; the result has the problems and the queries read. */
 /** The string literals and template parts in a file that hold NULLS FIRST or NULLS LAST, as { line, text }, one per line. Comments are not read. */
 export function statedNulls(file) {
   const src = readFileSync(file, "utf8");
@@ -454,6 +454,7 @@ export function statedNulls(file) {
   return out;
 }
 
+/** Run the check on the repository at `root`; the result has the problems and the queries read. */
 export function check(root) {
   const folders = adapterFolders(root);
   const queries = collect(root);

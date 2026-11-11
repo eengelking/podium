@@ -46,8 +46,7 @@ const SERVERS = {
   mariadb: {
     async admin(url, step) {
       const { default: mariadb } = await import('mariadb');
-      const u = new URL(url);
-      const c = await mariadb.createConnection({ host: u.hostname, port: Number(u.port || 3306), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password) });
+      const c = await mariadb.createConnection(mariadbAdminOptions(url));
       try { return await step((sql, args) => c.query(sql, args)); } finally { await c.end(); }
     },
     // utf8mb4, as SERVER.md tells an operator to make the database.
@@ -60,6 +59,21 @@ const SERVERS = {
   },
 };
 
+/**
+ * What the MariaDB driver is given for an administrator's connection to the server a URL names, with no database of the run's. The URL
+ * takes the one parameter the adapter takes (server/src/storage/mariadb/conn.ts, `parseTarget`): `ssl=true` connects over TLS, as the
+ * server will; any other parameter is refused here, as the server would refuse it.
+ */
+export function mariadbAdminOptions(url) {
+  const u = new URL(url);
+  let ssl = false;
+  for (const [k, v] of u.searchParams) {
+    if (k === 'ssl' && (v === 'true' || v === 'false')) ssl = v === 'true';
+    else throw new Error(`the MariaDB URL parameter "${k}" is not supported (only ssl=true or ssl=false)`);
+  }
+  return { host: u.hostname.replace(/^\[(.*)\]$/, '$1'), port: Number(u.port || 3306), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password) || undefined, ssl };
+}
+
 /** The kinds this script can make a database on; scripts/throwaway-db.test.ts holds it to the kinds with a test server in db-adapters.mjs. */
 export const SERVER_KINDS = Object.keys(SERVERS);
 
@@ -67,7 +81,6 @@ export const SERVER_KINDS = Object.keys(SERVERS);
 const serverOf = (value) => SERVERS[kindOf(value)] ?? null;
 
 export const isServerUrl = (value) => serverOf(value) !== null;
-export const isPostgresUrl = (value) => kindOf(value) === 'postgres';
 
 /** host:port/dbname of a database URL: what may be printed. */
 export function labelOf(value) {
@@ -80,7 +93,7 @@ const safeName = (part) => `podium_${String(part || 'tmp').replace(/[^a-z0-9]/gi
 /** The only names `drop` accepts: exactly the shape `safeName` makes (a part of 1 to 20 letters or digits, then 10 hex digits). A real database such as podium_prod never matches. */
 export const DROPPABLE = /^podium_[a-z0-9]{1,20}_[0-9a-f]{10}$/;
 
-/** Creates an empty database on the server `serverUrl` names and returns its URL. */
+/** Creates an empty database on the server `serverUrl` names and returns its URL: the server's URL with the new name as its path, its parameters kept. */
 export async function createDatabase(serverUrl, part) {
   const server = serverOf(serverUrl);
   if (!server) throw new Error('not the URL of a database server (postgres://, postgresql:// or mariadb://)');

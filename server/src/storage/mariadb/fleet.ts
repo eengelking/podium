@@ -384,8 +384,10 @@ export class MariaFleetStore implements FleetStoreApi {
   async insertEvent(row: EventRow): Promise<boolean> {
     return (
       (await this.db.run(
-        `INSERT IGNORE INTO events (id, session_id, agent_id, t, kind, text, data_json)
-         VALUES (:id, :session_id, :agent_id, :t, :kind, :text, :data_json)`,
+        // Not INSERT IGNORE, which would also store a value cut to its column or nothing for a missing one, with no error. The row
+        // goes in only when its id is not there yet, so the count says whether it was new (#823).
+        `INSERT INTO events (id, session_id, agent_id, t, kind, text, data_json)
+         SELECT :id, :session_id, :agent_id, :t, :kind, :text, :data_json FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM events WHERE id = :id)`,
         row as unknown as Params,
       )) > 0
     );
@@ -407,8 +409,8 @@ export class MariaFleetStore implements FleetStoreApi {
 
   async insertBlowout(row: Omit<BlowoutRow, 'id'>): Promise<void> {
     await this.db.run(
-      `INSERT IGNORE INTO blowouts (session_id, agent_id, t, kind, tokens_before, tokens_after)
-       VALUES (:session_id, :agent_id, :t, :kind, :tokens_before, :tokens_after)`,
+      `INSERT INTO blowouts (session_id, agent_id, t, kind, tokens_before, tokens_after)
+       VALUES (:session_id, :agent_id, :t, :kind, :tokens_before, :tokens_after) ON DUPLICATE KEY UPDATE kind = kind`,
       row as unknown as Params,
     );
   }
@@ -481,8 +483,8 @@ export class MariaFleetStore implements FleetStoreApi {
   /** Writes a sample only if that second has none yet. */
   async insertSampleIfAbsent(row: SampleRow): Promise<void> {
     await this.db.run(
-      `INSERT IGNORE INTO samples (session_id, t, tokens_total, tokens_delta, peak_context, running_agents, cost_usd, usage_json)
-       VALUES (:session_id, :t, :tokens_total, :tokens_delta, :peak_context, :running_agents, :cost_usd, :usage_json)`,
+      `INSERT INTO samples (session_id, t, tokens_total, tokens_delta, peak_context, running_agents, cost_usd, usage_json)
+       VALUES (:session_id, :t, :tokens_total, :tokens_delta, :peak_context, :running_agents, :cost_usd, :usage_json) ON DUPLICATE KEY UPDATE t = t`,
       { ...row, usage_json: row.usage_json ?? null } as unknown as Params,
     );
   }

@@ -200,7 +200,7 @@ export class MariaReporterStore implements ReporterStoreApi {
 
   /** Moves `from`'s session links to `into`, keeps the earlier first-seen time, and drops `from`. */
   private async merge(from: string, into: string): Promise<void> {
-    await this.db.run('INSERT IGNORE INTO reporter_sessions (reporter_key, session_id, peers) SELECT ?, session_id, peers FROM reporter_sessions WHERE reporter_key = ?', [into, from]);
+    await this.db.run('INSERT INTO reporter_sessions (reporter_key, session_id, peers) SELECT ?, src.session_id, src.peers FROM reporter_sessions src WHERE src.reporter_key = ? ON DUPLICATE KEY UPDATE peers = reporter_sessions.peers', [into, from]);
     // Read first: MariaDB does not take a subquery on the table an UPDATE changes.
     const was = await this.db.get<{ t: number }>('SELECT first_seen_at AS t FROM reporters WHERE key = ?', [from]);
     if (was) await this.db.run('UPDATE reporters SET first_seen_at = LEAST(first_seen_at, ?) WHERE key = ?', [was.t, into]);
@@ -380,7 +380,7 @@ export class MariaReporterStore implements ReporterStoreApi {
     if (p.length < 1 || p.length > MAX_PATTERN) throw new Error(`pattern must be 1 to ${MAX_PATTERN} characters`);
     checkTime(now, 'A rule time');
     return this.db.tx(async () => {
-      await this.db.run('INSERT IGNORE INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?)', [kind, p, now]);
+      await this.db.run('INSERT INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE created_at = created_at', [kind, p, now]);
       const rule = ruleOf((await this.db.get<{ id: number; kind: string; pattern: string; created_at: number }>('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?', [kind, p]))!);
       // order-insensitive: every row is tested against the rule, in whatever order.
       const all = await this.db.all<{ key: string; machine_id: string | null; source_address: string | null; reporter_version: string }>('SELECT key, machine_id, source_address, reporter_version FROM reporters');

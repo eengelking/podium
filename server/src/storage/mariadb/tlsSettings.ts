@@ -28,7 +28,7 @@ export const mariaTlsSettings = (db: MariaDbConn): TlsSettingsApi => {
       return (await value(ALLOW_HTTP_KEY)) !== 'false';
     },
     async seedAllowReportersOverHttp(existingInstall) {
-      await db.run('INSERT IGNORE INTO settings (key, value) VALUES (?, ?)', [ALLOW_HTTP_KEY, String(existingInstall)]);
+      await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = value', [ALLOW_HTTP_KEY, String(existingInstall)]);
     },
     async getReporter() {
       const out: ReporterSettings = { lifetimeDays: REPORTER_FIELDS['tls.reporter.lifetimeDays'].def };

@@ -5,7 +5,7 @@
 import type { Storage } from '../types.js';
 import { MariaDbConn, parseTarget } from './conn.js';
 import { ACTIVITY_MIGRATIONS, ACTIVITY_STEPS, MAIN_MIGRATIONS, MAIN_STEPS, migrate } from './schema.js';
-import { acquireSingleProcessLock, exitOnLockLost, type LockOptions } from './singleProcess.js';
+import { acquireSingleProcessLock, exitOnLockLost, type LockOptions, type SingleProcessLock } from './singleProcess.js';
 import { MariaActivityConnection } from './activity.js';
 import { mariaFleet } from './fleet.js';
 import { mariaPeople } from './people.js';
@@ -39,18 +39,27 @@ export async function openMariaDbStorage(target: string, now: number = Date.now(
       onLockLost(err);
     },
   });
-  const main = new MariaDbConn({ target: where, max: MAIN_POOL });
-  const activityDb = new MariaDbConn({ target: where, max: ACTIVITY_POOL });
-  dbs.push(main, activityDb);
+  // Every pool is made inside the try: whatever fails from here on lets go of what was made and of the lock.
+  let main: MariaDbConn | undefined;
+  let activityDb: MariaDbConn | undefined;
   try {
+    main = new MariaDbConn({ target: where, max: MAIN_POOL });
+    dbs.push(main);
+    activityDb = new MariaDbConn({ target: where, max: ACTIVITY_POOL });
+    dbs.push(activityDb);
     await migrate(main, MAIN_MIGRATIONS, MAIN_STEPS);
     await migrate(activityDb, ACTIVITY_MIGRATIONS, ACTIVITY_STEPS);
   } catch (err) {
-    await main.close().catch(() => undefined);
-    await activityDb.close().catch(() => undefined);
+    await main?.close().catch(() => undefined);
+    await activityDb?.close().catch(() => undefined);
     await lock.release();
     throw err;
   }
+  return storageOver(main, activityDb, lock, now);
+}
+
+/** The stores over the two open pools; closing it closes both and releases the lock, each step whether or not the one before it failed. */
+function storageOver(main: MariaDbConn, activityDb: MariaDbConn, lock: SingleProcessLock, now: number): Storage {
   // The activity services are built when the first is asked for (at startup), over the pool opened above.
   let connection: MariaActivityConnection | null = null;
   const activityOf = (): MariaActivityConnection => (connection ??= new MariaActivityConnection(activityDb));
@@ -73,11 +82,20 @@ export async function openMariaDbStorage(target: string, now: number = Date.now(
     close: async () => {
       if (closed) return;
       closed = true;
-      // The activity side first: its chunked removals stop at their next chunk, and nothing there waits on the main pool.
-      if (connection) await connection.close();
-      else await activityDb.close();
-      await main.close();
-      await lock.release();
+      // The activity side first: its chunked removals stop at their next chunk, and nothing there waits on the main pool. A step that
+      // fails does not stop the next one; the first failure is reported once the lock is released.
+      const failures: unknown[] = [];
+      const step = async (fn: () => Promise<void>): Promise<void> => {
+        try {
+          await fn();
+        } catch (err) {
+          failures.push(err);
+        }
+      };
+      await step(() => (connection ? connection.close() : activityDb.close()));
+      await step(() => main.close());
+      await step(() => lock.release());
+      if (failures.length) throw failures[0];
     },
   };
 }

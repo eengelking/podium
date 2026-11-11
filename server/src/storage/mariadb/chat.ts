@@ -277,7 +277,7 @@ function scopeOf(db: MariaDbConn): () => Promise<string> {
     const read = async (): Promise<string | undefined> => (await db.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', [CHAT_SCOPE_KEY]))?.value;
     let v = await read();
     if (!v) {
-      await db.run('INSERT IGNORE INTO settings (key, value) VALUES (?, ?)', [CHAT_SCOPE_KEY, newServerScope()]);
+      await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = value', [CHAT_SCOPE_KEY, newServerScope()]);
       v = (await read()) as string;
     }
     known = v;

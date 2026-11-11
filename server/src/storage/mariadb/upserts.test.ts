@@ -16,38 +16,58 @@ import { TEST_MARIADB, createTestDatabase, truncate, type TestDatabase } from '.
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-/** Each upsert or insert-that-skips in the adapter's code: the file, the table and the columns it writes (null when built from a row's keys). */
-function sites(): { file: string; table: string; cols: string[] | null; kind: 'update' | 'ignore' }[] {
-  const out: { file: string; table: string; cols: string[] | null; kind: 'update' | 'ignore' }[] = [];
+type SiteKind = 'update' | 'ignore' | 'skip';
+
+/**
+ * Each upsert or insert-that-skips in the adapter's code: the file, the table, the columns it writes (null when built from a row's
+ * keys), how it treats a duplicate, and for a `skip` (an insert guarded by NOT EXISTS) the columns its guard compares.
+ */
+function sites(): { file: string; table: string; cols: string[] | null; kind: SiteKind; guard?: string[] }[] {
+  const out: { file: string; table: string; cols: string[] | null; kind: SiteKind; guard?: string[] }[] = [];
   for (const file of readdirSync(here).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))) {
     const text = readFileSync(path.join(here, file), 'utf8');
     for (const m of text.matchAll(/INSERT (IGNORE )?INTO "?(\w+)"? \(([^)]*)\)/g)) {
       const rest = text.slice(m.index!, m.index! + 1500);
       const next = rest.slice(10).search(/INSERT (IGNORE )?INTO/);
       const statement = next < 0 ? rest : rest.slice(0, next + 10);
-      const kind = m[1] ? 'ignore' : statement.includes('ON DUPLICATE KEY UPDATE') ? 'update' : null;
+      const table = m[2]!;
+      const notExists = new RegExp(`WHERE NOT EXISTS \\(SELECT 1 FROM "?${table}"? WHERE ([^)]*)\\)`).exec(statement);
+      const kind: SiteKind | null = m[1] ? 'ignore' : statement.includes('ON DUPLICATE KEY UPDATE') ? 'update' : notExists ? 'skip' : null;
       if (!kind) continue;
-      out.push({ file, table: m[2]!, cols: m[3]!.includes('${') ? null : m[3]!.split(',').map((c) => c.trim().replaceAll('"', '')), kind });
+      const guard = notExists ? notExists[1]!.split(/\s+AND\s+/).map((c) => c.split('=')[0]!.trim().replaceAll('"', '')) : undefined;
+      out.push({ file, table, cols: m[3]!.includes('${') ? null : m[3]!.split(',').map((c) => c.trim().replaceAll('"', '')), kind, ...(guard ? { guard } : {}) });
     }
   }
   return out;
 }
+
+/**
+ * INSERT IGNORE sites that are allowed, each with why. None: under IGNORE MariaDB turns a value too long for its column, a NULL into
+ * NOT NULL and a missing parent row into warnings, so a skip is written `ON DUPLICATE KEY UPDATE <column> = <column>` or with NOT EXISTS.
+ */
+const IGNORE_ALLOWED: Record<string, string> = {};
 
 describe('the upsert and insert-ignore sites', () => {
   it('are the ones this test knows, so a new one is checked here too', () => {
     const found = sites().map((s) => `${s.file}:${s.table}:${s.kind}`).sort();
     expect(found).toEqual([
       'activityHistory.ts:loops:update', 'activityHistory.ts:stored_sessions:update', 'activityHistorySettings.ts:settings:update',
-      'chat.ts:chat_read_state:update', 'chat.ts:chat_read_state:update', 'chat.ts:settings:ignore', 'chat.ts:settings:update',
+      'chat.ts:chat_read_state:update', 'chat.ts:chat_read_state:update', 'chat.ts:settings:update', 'chat.ts:settings:update',
       'featureFlags.ts:settings:update',
-      'fleet.ts:agent_texts:update', 'fleet.ts:agent_texts:update', 'fleet.ts:agents:update', 'fleet.ts:agents:update', 'fleet.ts:blowouts:ignore', 'fleet.ts:events:ignore',
-      'fleet.ts:samples:ignore', 'fleet.ts:samples:update', 'fleet.ts:session_waits:update', 'fleet.ts:sessions:update',
+      'fleet.ts:agent_texts:update', 'fleet.ts:agent_texts:update', 'fleet.ts:agents:update', 'fleet.ts:agents:update', 'fleet.ts:blowouts:update', 'fleet.ts:events:skip',
+      'fleet.ts:samples:update', 'fleet.ts:samples:update', 'fleet.ts:session_waits:update', 'fleet.ts:sessions:update',
       'modelPrices.ts:settings:update', 'peerRights.ts:peer_owner_settings:update', 'peerRights.ts:peer_rights:update', 'peerSettings.ts:settings:update',
       'people.ts:person_machines:update', 'people.ts:settings:update', 'recordingSettings.ts:settings:update', 'recordings.ts:rec_sessions:update',
-      'reportQueries.ts:answers_daily:ignore', 'reportQueries.ts:answers_daily:update', 'reportQueries.ts:fleet_daily:update', 'reportQueries.ts:hour_peaks_daily:update',
-      'reporters.ts:reporter_ignores:ignore', 'reporters.ts:reporter_sessions:ignore', 'reporters.ts:reporter_sessions:update', 'reporters.ts:reporters:update', 'reporters.ts:settings:update',
-      'tlsSettings.ts:settings:ignore', 'tlsSettings.ts:settings:update', 'wallSettings.ts:settings:update',
+      'reportQueries.ts:answers_daily:update', 'reportQueries.ts:answers_daily:update', 'reportQueries.ts:fleet_daily:update', 'reportQueries.ts:hour_peaks_daily:update',
+      'reporters.ts:reporter_ignores:update', 'reporters.ts:reporter_sessions:update', 'reporters.ts:reporter_sessions:update', 'reporters.ts:reporters:update', 'reporters.ts:settings:update',
+      'schema.ts:groups:skip', 'tlsSettings.ts:settings:update', 'tlsSettings.ts:settings:update', 'wallSettings.ts:settings:update',
     ].sort());
+  });
+
+  it('use no INSERT IGNORE, which would cut a value or drop a row with no error, unless the site is listed with its reason', () => {
+    const ignores = sites().filter((x) => x.kind === 'ignore').map((x) => `${x.file}:${x.table}`);
+    expect(ignores.filter((k) => !(k in IGNORE_ALLOWED)), 'write the skip as ON DUPLICATE KEY UPDATE <column> = <column>, or INSERT ... SELECT ... WHERE NOT EXISTS').toEqual([]);
+    expect(Object.keys(IGNORE_ALLOWED).filter((k) => !ignores.includes(k)), 'an allowed INSERT IGNORE that is gone').toEqual([]);
   });
 });
 
@@ -78,6 +98,8 @@ describe.skipIf(!TEST_MARIADB)('the upsert and insert-ignore sites on a database
     const columns = async (t: string) => (await db.all<{ c: string }>('SELECT column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?', [t])).map((r) => r.c);
     for (const site of sites()) {
       const written = site.cols ?? (await columns(site.table));
+      // A NOT EXISTS guard must compare exactly the columns of one unique key, so it skips the row that key would refuse and no other.
+      if (site.guard) expect(keys.filter((k) => k.t === site.table).map((k) => k.c), `${site.file}: ${site.table} guards ${site.guard.join(', ')}`).toContain(site.guard.join(','));
       // A key on a generated id the statement does not write can never conflict.
       const live = keys.filter((k) => k.t === site.table && !(k.c.split(',').length === 1 && auto.has(`${k.t}.${k.c}`) && !written.includes(k.c)));
       expect(live.length, `${site.file}: ${site.table} has ${live.map((k) => k.i).join(', ')}`).toBe(1);
@@ -194,6 +216,28 @@ describe.skipIf(!TEST_MARIADB)('the upsert and insert-ignore sites on a database
     expect(await db.all('SELECT day, active_people, peak_live_sessions FROM fleet_daily ORDER BY day')).toEqual([
       { day: '2026-11-01', active_people: 2, peak_live_sessions: 3 }, { day: '2026-11-02', active_people: 7, peak_live_sessions: 7 },
     ]);
+  });
+
+  // A statement that skips a duplicate must skip only that: under INSERT IGNORE MariaDB also turns a value too long for its column, a
+  // NULL into NOT NULL and a missing parent into warnings, and stores a cut value or nothing without an error.
+  it('refuses a value too long for a key column instead of cutting it, at every site that skips a duplicate', async () => {
+    await expect(s.fleet.insertBlowout({ session_id: 's1', agent_id: null, t: 1, kind: 'k'.repeat(65), tokens_before: 1, tokens_after: 1 })).rejects.toThrow(/too long/i);
+    await expect(s.fleet.insertEvent({ id: 'e'.repeat(256), session_id: 's1', agent_id: null, t: 1, kind: 'note', text: 'x', data_json: null })).rejects.toThrow(/too long/i);
+    await expect(s.fleet.insertSampleIfAbsent({ session_id: 's'.repeat(256), t: 1, tokens_total: 0, tokens_delta: 0, peak_context: 0, running_agents: 0, cost_usd: null, usage_json: null })).rejects.toThrow(/too long/i);
+    await expect(s.fleet.markAnswerDay('d'.repeat(33))).rejects.toThrow(/too long/i);
+    await expect(s.reporters.addIgnore('version', '9'.repeat(120), 1)).resolves.toMatchObject({ pattern: '9'.repeat(120) });
+    expect(await db.all('SELECT kind FROM blowouts')).toEqual([]);
+    expect(await db.all('SELECT id FROM events')).toEqual([]);
+    expect(await db.all('SELECT day FROM answers_daily')).toEqual([]);
+  });
+
+  it('refuses a session link to a reporter that is not there when a reporter is merged, and keeps the links it had', async () => {
+    await db.run("INSERT INTO reporters (key, kind, reporter_version, first_seen_at, last_seen_at) VALUES ('addr:a', 'mod', '1', 1, 1)");
+    await db.run("INSERT INTO reporter_sessions (reporter_key, session_id) VALUES ('addr:a', 'x1')");
+    const merge = (s.reporters as unknown as { merge(from: string, into: string): Promise<void> }).merge.bind(s.reporters);
+    await expect(s.tx(() => merge('addr:a', 'addr:gone'))).rejects.toThrow(/foreign key/i);
+    expect(await db.all('SELECT reporter_key, session_id FROM reporter_sessions')).toEqual([{ reporter_key: 'addr:a', session_id: 'x1' }]);
+    expect(await db.all('SELECT key FROM reporters')).toEqual([{ key: 'addr:a' }]);
   });
 
   it('reporters, their session links and ignore rules: the reporter key and the (reporter, session) pair', async () => {

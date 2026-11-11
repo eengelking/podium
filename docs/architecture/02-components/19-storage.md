@@ -250,13 +250,13 @@ adapter, with the SQL changed where MariaDB needs it, and passes the same contra
 
 | File | What it holds |
 |---|---|
-| `index.ts` | `openMariaDbStorage`: takes the process lock, opens both pools, migrates both sets of tables, returns the `Storage` |
-| `conn.ts` | `MariaDbConn`: a pool, the transaction gate, `tx` and `savepoint`, the `:name` placeholders turned into `?`, the reserved column names (`key`, `loop`, `by`) quoted, the session settings, `bound()`, `bigint` and `DECIMAL` turned into numbers, `asciiLower`, and `parseTarget` for the URL |
+| `index.ts` | `openMariaDbStorage`: takes the process lock, opens both pools, migrates both sets of tables, returns the `Storage`. A start that fails at any step after the lock, and a close whose first step fails, still close every pool and release the lock |
+| `conn.ts` | `MariaDbConn`: a pool, the transaction gate, `tx` and `savepoint`, the `:name` placeholders turned into `?`, the reserved column names (`key`, `loop`, `by`) quoted where they are names (not in `ORDER BY`, `PRIMARY KEY` and the like, and never inside quotes, read as the session's SQL mode reads them), the session settings, `bound()`, `bigint` and `DECIMAL` turned into numbers, `asciiLower`, and `parseTarget` for the URL |
 | `schema.ts` | `MAIN_STEPS` and `ACTIVITY_STEPS`, numbered as PostgreSQL's steps, and `migrate()` |
 | `singleProcess.ts` | The named lock on a connection of its own, taken again if that connection drops |
 | `testing.ts`, `gate.ts`, `globalSetup.ts` | `TEST_MARIADB` and `createTestDatabase()`, a throwaway database for each test file, and the gate that fails the run when `PODIUM_TEST_MARIADB` is set and no server answers |
 | `contractAdapter.ts`, `upgradeTesting.ts` | The adapter as the storage tests see it, and a database built at the oldest step for the upgrade cases |
-| `upserts.test.ts` | Every `ON DUPLICATE KEY UPDATE` and `INSERT IGNORE` in the adapter, checked against its table's keys |
+| `upserts.test.ts` | Every `ON DUPLICATE KEY UPDATE` and every insert guarded by `NOT EXISTS` in the adapter, checked against its table's keys, and the guard that refuses an `INSERT IGNORE` |
 | the other files | One for each store of the same name in the other adapters |
 
 - **One database, two sets of tables, two pools.** The fleet, people, reporters, settings and messaging tables and the
@@ -279,11 +279,14 @@ adapter, with the SQL changed where MariaDB needs it, and passes the same contra
   `lower()`: MariaDB's `LOWER()` would also fold `É`.
 - **SQL mode.** Each connection sets `STRICT_ALL_TABLES`, `ANSI_QUOTES` (so `"x"` is a name, as in the other adapters' SQL),
   `PIPES_AS_CONCAT` and `NO_ENGINE_SUBSTITUTION`, and `READ COMMITTED`, which is what the PostgreSQL adapter runs at.
-- **Upserts.** `ON CONFLICT (...) DO UPDATE` is `ON DUPLICATE KEY UPDATE` and `INSERT OR IGNORE` is `INSERT IGNORE`. Neither
-  names the key it conflicts on, so on a table with two unique keys either could change or skip the wrong row. `upserts.test.ts`
-  reads every such statement in the adapter and fails unless exactly one unique key of its table can conflict, then runs each one
-  beside a neighbor that shares part of the key. `INSERT IGNORE` also turns some other errors into warnings, which is why it is
-  used only where a skipped duplicate is the whole intent.
+- **Upserts.** `ON CONFLICT (...) DO UPDATE` is `ON DUPLICATE KEY UPDATE`. `INSERT OR IGNORE` and `ON CONFLICT DO NOTHING` are
+  `ON DUPLICATE KEY UPDATE <column> = <column>`, which changes nothing on a duplicate, or, for `insertEvent`, which answers whether
+  the row was new, `INSERT ... SELECT ... WHERE NOT EXISTS` on the event's id. MariaDB's `INSERT IGNORE` is not used: it would also
+  turn a value too long for its column, a NULL into a NOT NULL column and a missing parent row into warnings, and store a cut value
+  or nothing with no error. `ON DUPLICATE KEY` does not name the key it conflicts on, so on a table with two unique keys it could change
+  the wrong row. `upserts.test.ts` reads every such statement in the adapter and fails unless exactly one unique key of its table
+  can conflict (for a `NOT EXISTS` guard, unless it compares exactly one unique key), fails on any `INSERT IGNORE`, and runs the
+  statements beside a neighbor that shares part of the key, and with a value too long for its key column, which must be refused.
 - **A write that reads its own table.** MariaDB takes neither a `LIMIT` inside `IN (...)` nor a subquery on the table a `DELETE`
   or `UPDATE` changes. Those statements read through a derived table (`person_machines`' trim, step 2's numbering of
   `peer_requests`) or limit the `DELETE` itself (`DELETE ... ORDER BY ... LIMIT ... RETURNING` for a chunk of recordings).
@@ -292,7 +295,9 @@ adapter, with the SQL changed where MariaDB needs it, and passes the same contra
 - **The transaction.** As on PostgreSQL: `tx` takes a connection from the pool for the whole callback, transactions and every
   statement made outside one take turns at one gate (#1007), a nested `tx` joins the open one through the async context, and
   `savepoint` is used where `peerRights` and `personCerts` undo a step alone. MariaDB keeps a savepoint after a rollback to it, so
-  it is released too.
+  it is released too. A transaction that fails is rolled back and its connection goes back to the pool; only an error the driver
+  marks fatal (a lost or killed connection) destroys it instead. Unlike PostgreSQL, and as on SQLite, a failed statement undoes only
+  itself and the transaction goes on.
 - **One process.** At start, a connection of its own, kept outside the pools, takes `GET_LOCK('podium:<hash>', 0)`, where the hash
   is of the database name (a lock name is per server and at most 64 characters). If another Podium holds it, the server stops with a
   message naming `host:port/dbname`. If the connection drops, the lock is taken again on a new one (5 tries, 500 ms apart); when that

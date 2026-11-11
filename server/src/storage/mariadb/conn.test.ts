@@ -16,6 +16,21 @@ describe('positional', () => {
     expect(positional("INSERT INTO s (key) VALUES ('key') ON DUPLICATE KEY UPDATE loops = 1, keys_x = 2, loop_json = 3", []).text).toBe("INSERT INTO s (\"key\") VALUES ('key') ON DUPLICATE KEY UPDATE loops = 1, keys_x = 2, loop_json = 3");
   });
 
+  it('leaves a reserved word alone where it is the keyword, in any case: ORDER BY, GROUP BY, PARTITION BY, PRIMARY KEY, DUPLICATE KEY', () => {
+    expect(positional('SELECT a FROM t GROUP by a ORDER by 1', []).text).toBe('SELECT a FROM t GROUP by a ORDER by 1');
+    expect(positional('SELECT ROW_NUMBER() OVER (partition by key order by loop) FROM t', []).text).toBe('SELECT ROW_NUMBER() OVER (partition by "key" order by "loop") FROM t');
+    expect(positional('INSERT INTO s (key) VALUES (1) ON DUPLICATE key UPDATE value = 2', []).text).toBe('INSERT INTO s ("key") VALUES (1) ON DUPLICATE key UPDATE value = 2');
+    expect(positional('CREATE TABLE x (key INT, PRIMARY  key (key))', []).text).toBe('CREATE TABLE x ("key" INT, PRIMARY  key ("key"))');
+  });
+
+  it('reads a backslash-escaped quote as part of the text, as MariaDB does (NO_BACKSLASH_ESCAPES is off), and a doubled one too', () => {
+    expect(positional("SELECT 'it\\'s ? key', ?, key", [1]).text).toBe("SELECT 'it\\'s ? key', ?, \"key\"");
+    expect(positional("SELECT 'a\\\\', key, ?", [1]).text).toBe("SELECT 'a\\\\', \"key\", ?");
+    expect(positional("SELECT 'it''s ? by', by, ?", [1])).toEqual({ text: "SELECT 'it''s ? by', \"by\", ?", values: [1] });
+    // In a name (ANSI_QUOTES) a backslash is an ordinary character.
+    expect(positional('SELECT "a\\" , key', []).text).toBe('SELECT "a\\" , "key"');
+  });
+
   it('throws on a mismatch between placeholders and values, or a missing name', () => {
     expect(() => positional('SELECT ?, ?', [1])).toThrow('more ? placeholders than values');
     expect(() => positional('SELECT ?', [1, 2])).toThrow('fewer ? placeholders than values');
@@ -174,6 +189,25 @@ describe.skipIf(!TEST_MARIADB)('mariadb connection', () => {
       })).rejects.toThrow();
       // With one connection the pool hands out the same slot again: a destroyed one is replaced, a released dead one would fail here.
       expect(await id(db)).not.toBe(dead);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('hands a healthy connection back to the pool when the callback throws an error of its own or a statement fails', async () => {
+    const db = conn(1);
+    try {
+      let held = 0;
+      await expect(db.tx(async () => {
+        held = await id(db);
+        throw new Error('the caller changed its mind');
+      })).rejects.toThrow('the caller changed its mind');
+      // With one connection the pool hands out the same slot again: a healthy one is kept, not replaced.
+      expect(await id(db)).toBe(held);
+      await expect(db.tx(async () => {
+        await db.get('SELECT * FROM no_such_table');
+      })).rejects.toThrow(/doesn't exist/);
+      expect(await id(db)).toBe(held);
     } finally {
       await db.close();
     }

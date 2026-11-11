@@ -254,7 +254,7 @@ export class MariaReportQueries implements Async<ReportQueries> {
   }
 
   async markAnswerDay(day: string): Promise<void> {
-    await this.db.run("INSERT IGNORE INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, '', 'none', -1, 0)", [day]);
+    await this.db.run("INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, '', 'none', -1, 0) ON DUPLICATE KEY UPDATE count = count", [day]);
   }
 
   upsertHourPeaks(rows: HourPeakDay[]): Promise<void> {

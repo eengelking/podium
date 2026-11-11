@@ -4,7 +4,7 @@ import mariadb, { type Connection } from "mariadb";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { kinds } from "./db-adapters.mjs";
-import { createDatabase, DROPPABLE, dropDatabase, isPostgresUrl, isServerUrl, labelOf, SERVER_KINDS } from "./throwaway-db.mjs";
+import { createDatabase, DROPPABLE, dropDatabase, isServerUrl, labelOf, mariadbAdminOptions, SERVER_KINDS } from "./throwaway-db.mjs";
 
 // Read like testing.ts does: podiumctl's settings test greps the server's source, not this folder, but the same habit keeps one spelling.
 const { PODIUM_TEST_PG: TEST_PG, PODIUM_TEST_MARIADB: TEST_MARIADB } = process.env;
@@ -15,11 +15,17 @@ describe("throwaway-db (#822, #823)", () => {
   it("tells the URL of a database server from a SQLite path", () => {
     for (const url of ["postgres://u:p@h/d", "postgresql://h/d", "mariadb://u:p@h:3306/d"]) expect(isServerUrl(url), url).toBe(true);
     for (const v of ["/tmp/x.sqlite", "sqlite:///x.db", "", undefined, "mysql://h/d"]) expect(isServerUrl(v), String(v)).toBe(false);
-    expect(isPostgresUrl("postgresql://h/d")).toBe(true);
-    expect(isPostgresUrl("mariadb://h/d")).toBe(false);
     expect(cli("is-server", "postgres://h/d").status).toBe(0);
     expect(cli("is-server", "mariadb://h/d").status).toBe(0);
     expect(cli("is-server", "/x.sqlite").status).toBe(1);
+  });
+
+  it("connects to a MariaDB server over TLS when the URL says ssl=true, as the adapter does, and refuses a parameter the adapter refuses", () => {
+    expect(mariadbAdminOptions("mariadb://u:p%40ss@db.lan:3307/x?ssl=true")).toMatchObject({ host: "db.lan", port: 3307, user: "u", password: "p@ss", ssl: true });
+    expect(mariadbAdminOptions("mariadb://root@[::1]/x?ssl=false")).toMatchObject({ host: "::1", port: 3306, user: "root", password: undefined, ssl: false });
+    expect(mariadbAdminOptions("mariadb://root@h/x").ssl).toBe(false);
+    expect(() => mariadbAdminOptions("mariadb://root@h/x?ssl=yes")).toThrow(/"ssl" is not supported/);
+    expect(() => mariadbAdminOptions("mariadb://root@h/x?charset=latin1")).toThrow(/"charset" is not supported/);
   });
 
   it("can make a database on every kind of server the tooling starts (scripts/db-adapters.mjs)", () => {
@@ -103,6 +109,23 @@ describe("throwaway-db (#822, #823)", () => {
         expect(await names(admin, name)).toEqual([]);
       } finally {
         await admin.end();
+      }
+    });
+
+    it("returns a URL for the new database that keeps the server URL's own parameters, and that drop takes", async () => {
+      const server = new URL(TEST_MARIADB!);
+      server.searchParams.set("ssl", "false");
+      const url = await createDatabase(server.toString(), "params");
+      const u = new URL(url);
+      try {
+        expect(u.pathname).toMatch(/^\/podium_params_[0-9a-f]{10}$/);
+        expect(u.search).toBe("?ssl=false");
+        expect(`${u.protocol}//${u.host}`).toBe(`${server.protocol}//${server.host}`);
+        const open = await mariadb.createConnection({ ...mariadbAdminOptions(url), database: u.pathname.slice(1) });
+        expect(await open.query("SELECT DATABASE() AS d")).toEqual([{ d: u.pathname.slice(1) }]);
+        await open.end();
+      } finally {
+        await dropDatabase(url);
       }
     });
 
