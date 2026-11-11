@@ -66,8 +66,9 @@ npm run test:mod:claudecode       # build the plugin with its tests into .build-
 npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
-E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs both)
-bash scripts/e2e-all.sh --shards 3 --out <folder outside the repo>  # every database at once, each split into 3 runs (--help says how to choose the count)
+E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs every database)
+E2E_DB=mariadb npm run e2e   # the same suite with MariaDB behind the server
+bash scripts/e2e-all.sh --shards 2 --out <folder outside the repo>  # every database at once, each split into 2 runs (--help says how to choose the count)
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
@@ -91,17 +92,19 @@ one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
-**The PostgreSQL adapter's tests** (`server/src/storage/postgres/`, decision 53) run against the server `PODIUM_TEST_PG` names, and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without the variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without it on purpose, set `PODIUM_TEST_ONLY=sqlite` (the kinds to run): the run then prints that PostgreSQL was NOT RUN, and that is not a pass for a pull request, so use `scripts/test-pg.sh` before one. If the variable is set and no server answers, the run fails. `scripts/test-pg.sh [vitest args]` does the container steps below for you and removes the container after (#891). Each test file makes its own database on that server and drops it after, so the server can be shared and the tests can run in parallel. Start a throwaway server in a container, with a placeholder password of your own, and never point the variable at a database you care about:
+**The tests of the adapters that need a database server** (PostgreSQL in `server/src/storage/postgres/`, decision 53; MariaDB in `server/src/storage/mariadb/`, #823) run against the server each one's variable names (`PODIUM_TEST_PG`, `PODIUM_TEST_MARIADB`), and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without a variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without one on purpose, set `PODIUM_TEST_ONLY` to the kinds to run (for example `sqlite,postgres`): the run then prints which adapters were NOT RUN, and that is not a pass for a pull request. If a variable is set and no server answers, the run fails.
+
+`scripts/test-db.sh [vitest args]` does it all for you (#891, #823): it starts a throwaway container for every database that has a test server, all at once, with a placeholder password on a free local port, sets each variable, runs the server suite and removes every container after. `--floor` uses each database's oldest supported version (MariaDB 10.5) in place of the current one. The databases, their images and their variables are one table, `scripts/db-adapters.mjs`, so a new adapter is one entry there. Each test file makes its own database on each server and drops it after, so a server can be shared and the tests can run in parallel. To start one by hand instead, use a container with a placeholder password of your own, and never point a variable at a database you care about:
 
 ```sh
-podman run -d --name podium-test-pg -e POSTGRES_PASSWORD=change-me -p 55432:5432 docker.io/library/postgres:17
-export PODIUM_TEST_PG=postgres://postgres:change-me@localhost:55432/postgres
-npm test -w server                                       # the whole server suite, PostgreSQL tests included
-npx vitest run server/src/storage/postgres/people.test.ts # one file
-podman rm -f podium-test-pg                              # when you are done
+scripts/test-db.sh                                       # the whole server suite on every adapter
+scripts/test-db.sh src/storage/adapters.test.ts          # one file (the path is from server/)
+podman run -d --name podium-test-mariadb -e MARIADB_ROOT_PASSWORD=change-me -e MARIADB_DATABASE=podium_test -p 53306:3306 docker.io/library/mariadb:11.4
+export PODIUM_TEST_MARIADB=mariadb://root:change-me@127.0.0.1:53306/podium_test
+podman rm -f podium-test-mariadb                         # when you are done
 ```
 
-CI's `test-postgres` job does the same with a service container. `scripts/throwaway-db.mjs` makes and drops a database on a PostgreSQL server for the scripts that start their own server (smoke, soak, perf, the peers e2e): when `PODIUM_DB` names one, they use a database of their own on it instead of a SQLite file (`--help` lists the commands). `E2E_DB=postgres npm run e2e` runs the Cypress suite against PostgreSQL in containers.
+CI runs each adapter in a job of its own with a service container (`Test with PostgreSQL`, and `Test with MariaDB` on 10.5 and 11.4). `scripts/throwaway-db.mjs` makes and drops a database on a PostgreSQL or MariaDB server for the scripts that start their own server (smoke, soak, perf, the peers e2e): when `PODIUM_DB` names one, they use a database of their own on it instead of a SQLite file (`--help` lists the commands). `E2E_DB=postgres npm run e2e` and `E2E_DB=mariadb npm run e2e` run the Cypress suite against that database in containers.
 
 The `PODIUM_TEST_*` variables (decision 50) shorten the Admin idle lock, the sign-in idle end and the lockout so a spec can reach them. They are for the end-to-end suite only, count only with `PODIUM_TEST_TIMINGS=1`, and are never set on a real server.
 

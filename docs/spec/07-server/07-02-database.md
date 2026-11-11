@@ -10,7 +10,7 @@ order: 2
 
 Path: `PODIUM_DB` env, default `<repo>/data/podium.sqlite` (add `data/` to `.gitignore`). Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`. Migrations are a numbered list applied in order and recorded in `schema_migrations`.
 
-The server reaches the database through async storage interfaces, and SQLite is the only adapter and the default (#313, [DECISIONS 48](../../decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md)). A plain `PODIUM_DB` path or `:memory:` means a SQLite file; `kind://target` is reserved for choosing another registered kind, and an unknown kind stops the server at start. What the server keeps beside the database, today the TLS CA, lives in `PODIUM_DATA_DIR`, which is the folder of the SQLite file when it is not set. [How it is built](../../architecture/02-components/19-storage.md).
+The server reaches the database through async storage interfaces, and SQLite is the default adapter (#313, [DECISIONS 48](../../decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md)); PostgreSQL and MariaDB are the others, [below](#postgresql-822). A plain `PODIUM_DB` path or `:memory:` means a SQLite file; `kind://target` chooses another registered kind, and an unknown kind stops the server at start. What the server keeps beside the database, today the TLS CA, lives in `PODIUM_DATA_DIR`, which is the folder of the SQLite file when it is not set. [How it is built](../../architecture/02-components/19-storage.md).
 
 The Activity history (#432) is a second file, `activity.sqlite`, in the same folder (`:memory:` when the main
 database is). It has its own schema version in `PRAGMA user_version`, WAL, `synchronous=NORMAL` and incremental
@@ -141,7 +141,7 @@ CREATE TABLE fleet_daily (      -- one row per day for the fleet as a whole
 );
 ```
 
-Migration 37 (#720; PostgreSQL main step 13) adds the tool counts of every harness to the rollups, under the same rule: names and
+Migration 37 (#720; PostgreSQL and MariaDB main step 13) adds the tool counts of every harness to the rollups, under the same rule: names and
 counts, never a tool's input, a path or a command. A session counts on the day it was last seen, under the harness stored on it.
 
 ```sql
@@ -159,7 +159,7 @@ CREATE TABLE harness_versions_daily ( -- how many reporters ran a version of a h
 );
 ```
 
-Migration 38 (#721; PostgreSQL main step 14) adds what each tool did, under the same rule. `agents.tool_stats_json` is the agent's `toolStats`
+Migration 38 (#721; PostgreSQL and MariaDB main step 14) adds what each tool did, under the same rule. `agents.tool_stats_json` is the agent's `toolStats`
 as JSON (NULL from a reporter that does not send it); the main loop's own are in `sessions.loop_json`. The same migration makes the tool
 counts above include the main loop's own calls, which `tools_daily` read from the agents only until then.
 
@@ -175,7 +175,7 @@ CREATE TABLE tool_stats_daily (      -- one row per day, harness and tool that h
 The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
 sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
 
-Migration 39 (#722; PostgreSQL main step 15) adds how long sessions ran and waited on a person, which agents they launched and how deep the chains went, who ran
+Migration 39 (#722; PostgreSQL and MariaDB main step 15) adds how long sessions ran and waited on a person, which agents they launched and how deep the chains went, who ran
 sessions on a day, and the peak of live sessions in each hour. Names, counts and times only: never a question, a plan, a tool's input, a note or a path. They are
 kept per harness, and a session counts on the day it was last seen, as in migration 22.
 
@@ -206,7 +206,7 @@ CREATE TABLE hour_peaks_daily (     -- harness '' is every harness together: the
 );
 ```
 
-Migration 40 (#723; PostgreSQL main step 16) adds what sessions cost and how they ended, kept per harness: counts, tokens and names only, never a prompt, a tool's input or a path.
+Migration 40 (#723; PostgreSQL and MariaDB main step 16) adds what sessions cost and how they ended, kept per harness: counts, tokens and names only, never a prompt, a tool's input or a path.
 
 ```sql
 CREATE TABLE cost_daily (           -- one row per day, harness, model and effort; a session counts on the day it was last seen
@@ -231,7 +231,7 @@ The four daily tables fill from the rows still stored on each run, except `hour_
 samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
 the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
 
-Migration 41 (#724; PostgreSQL main step 17) adds what each version of a harness sent, the skills each person used and where each person worked: names and counts only, never a prompt, a tool's input, a command's text or a path.
+Migration 41 (#724; PostgreSQL and MariaDB main step 17) adds what each version of a harness sent, the skills each person used and where each person worked: names and counts only, never a prompt, a tool's input, a command's text or a path.
 
 ```sql
 ALTER TABLE sessions ADD COLUMN signals_json TEXT;   -- what the harness sent the reporter in this session: signal name (`hook:...`, `field:...`) to count; NULL from a reporter that does not send it
@@ -252,7 +252,7 @@ CREATE TABLE person_places_daily (     -- sessions of one person in one project 
 The three tables fill from the rows still stored on each run, like the other rebuilt tables, and are kept 395 days. `sessions.signals_json` is replaced by each report that carries signals and kept by one that carries none. A database upgraded to this
 migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...". The branch names are the ones the wall already shows, so the rollups keep them for as long as the other rollups.
 
-Migration 42 (#725; PostgreSQL main step 18) adds the answers sent from Podium, behind Admin > Reporting > Sessions. Kinds, days, harnesses and wait classes only: never what was said, who said it or which session.
+Migration 42 (#725; PostgreSQL and MariaDB main step 18) adds the answers sent from Podium, behind Admin > Reporting > Sessions. Kinds, days, harnesses and wait classes only: never what was said, who said it or which session.
 
 ```sql
 CREATE TABLE answers_daily (        -- one row per day, harness, kind of answer and wait class
@@ -275,14 +275,14 @@ ALTER TABLE sessions ADD COLUMN cleared_from TEXT;                        -- Rep
 CREATE INDEX sessions_cleared_from ON sessions(cleared_from);             -- finds clearedInto for History
 ```
 
-Migration 28 (#851; PostgreSQL main step 4) records the harness a session runs under and who worked out its cost (6.5):
+Migration 28 (#851; PostgreSQL and MariaDB main step 4) records the harness a session runs under and who worked out its cost (6.5):
 
 ```sql
 ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';  -- Report.session.harness; every earlier row is a Claude Code session
 ALTER TABLE sessions ADD COLUMN cost_source TEXT;                              -- 'harness' when cost_usd is the harness's own figure; NULL when Podium priced it
 ```
 
-Migration 29 (#940; PostgreSQL main step 5) stores what a harness declares. NULL in each means no report has declared it, which is what every earlier row and every v1 session is:
+Migration 29 (#940; PostgreSQL and MariaDB main step 5) stores what a harness declares. NULL in each means no report has declared it, which is what every earlier row and every v1 session is:
 
 ```sql
 ALTER TABLE sessions ADD COLUMN capabilities_json TEXT;  -- Report.capabilities as sent: a JSON Capabilities; a key left out was not declared
@@ -290,7 +290,7 @@ ALTER TABLE sessions ADD COLUMN model_label TEXT;        -- Report.session.model
 ALTER TABLE sessions ADD COLUMN model_provider TEXT;     -- Report.session.modelProvider
 ```
 
-Migration 30 (#945; PostgreSQL main step 6) gives an agent the same two fields. NULL means no report gave one, which is every agent stored before this. A report that sends neither keeps what the agent has, unless it names a different `model` (6.2):
+Migration 30 (#945; PostgreSQL and MariaDB main step 6) gives an agent the same two fields. NULL means no report gave one, which is every agent stored before this. A report that sends neither keeps what the agent has, unless it names a different `model` (6.2):
 
 ```sql
 ALTER TABLE agents ADD COLUMN model_label TEXT;     -- Report.agents[].modelLabel
@@ -340,7 +340,7 @@ conversation between agents, or between a person and one agent, is `peer_message
 `group_messages` and General is `public_messages`. **`peer_messages` is never copied into, merged with or returned together with the
 other two**: each has its own read and write path in the storage interface, and a test holds the server's code to it.
 
-Migration 31 (PostgreSQL main step 7; migration 32 is PostgreSQL main step 8) adds the following. Both adapters carry the same
+Migration 31 (PostgreSQL and MariaDB main step 7; migration 32 is PostgreSQL and MariaDB main step 8) adds the following. Every adapter carries the same
 columns, indexes and rows.
 
 ```sql
@@ -371,7 +371,7 @@ Migration 32 (#1034) records who paused a link between a person and another pers
 resume it: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;` (`sender`, `owner` or `admin`; NULL when the link is not
 paused, and for a pause made before it was kept, which either owner may resume).
 
-Migrations 33 and 34 (#1034; PostgreSQL main steps 9 and 10) keep what an Admin does in a person's conversation, so the people in it can always
+Migrations 33 and 34 (#1034; PostgreSQL and MariaDB main steps 9 and 10) keep what an Admin does in a person's conversation, so the people in it can always
 see it (7.7). Migration 33 names the Admin who paused a link and adds one table; migration 34 adds what a record says:
 
 ```sql
@@ -387,7 +387,7 @@ CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
 ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', or (#1078, on an `act:<name>` thread, no migration) 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted' or 'reporter_removed'
 ```
 
-Migration 35 (#1051; PostgreSQL main step 11) keeps a record until each person it names has seen it:
+Migration 35 (#1051; PostgreSQL and MariaDB main step 11) keeps a record until each person it names has seen it:
 
 ```sql
 ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';   -- the people the record is owed to: a JSON list of folded names
@@ -419,7 +419,7 @@ Admin log and General keep their name as text.
   and `to_key` `person:<key>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
   `person:` end as a missing session, so neither a person's message nor an answer to one is dropped as an orphan.
 - **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt }` ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
-- **Order.** A page orders by `created_at, seq` in both adapters (`seq` is the insertion number, so a tie is decided the same
+- **Order.** A page orders by `created_at, seq` in every adapter (`seq` is the insertion number, so a tie is decided the same
   way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
 - **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md). How long it is kept follows the harness's resume window, which `sessions.resume_window_days` holds (NULL when no report has said).
 - **Settings rows**, all in `settings`: `chat.retainDays` (days a channel keeps its messages, default 30, 1 to 365),
@@ -541,6 +541,37 @@ tables above, and every rule that comes with them, hold on PostgreSQL as written
 - **Limits.** One server process for each database: the server holds a session advisory lock, and a second server on the same
   database stops at start. Podium does not move data from a SQLite file into PostgreSQL, and it supports no read replica or high
   availability. The password is never logged or returned by `/health`, which show `host:port/dbname`.
+
+## MariaDB (#823)
+
+`PODIUM_DB=mariadb://user:password@host:3306/dbname` makes MariaDB 10.5 or later the database (the addition to
+[DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)). The database
+must exist and be empty or made by Podium; the server creates its tables and migrates them at start. The only URL parameter is
+`ssl=true` or `ssl=false`; any other, or a URL with no database name, stops the server at start. The tables above, and every rule
+that comes with them, hold on MariaDB as written, with these differences in how they are kept:
+
+- **One database, two sets of tables.** The main tables and the Activity history (`entries`, `stored_sessions`, `loops`) and
+  recordings (`rec_sessions`, `rec_entries`) share the database under their plain names, on connections of their own, as they are
+  in `activity.sqlite`. The main steps are recorded in `schema_migrations` and the Activity steps in `activity_schema_migrations`
+  (`version`, `applied_at`).
+- **The same steps as PostgreSQL.** Main step 1 creates the end state of the SQLite migrations (migration 25 included), and each
+  later step has PostgreSQL's number and change. MariaDB commits each `CREATE` and `ALTER` on its own, so each statement in a step
+  can be run again and the step is recorded after its last statement: a step stopped part way through is run again whole.
+- **Types.** Times are `BIGINT` milliseconds, reals are `DOUBLE`, ids that were `INTEGER PRIMARY KEY` are `BIGINT AUTO_INCREMENT`,
+  and flags stay 0/1 integers. A number the server reads is a JavaScript number; a whole number above `Number.MAX_SAFE_INTEGER` is
+  an error. A fraction sent straight to an integer column is rounded by MariaDB, where SQLite keeps it and PostgreSQL refuses it;
+  the routes refuse such a number first.
+- **Text compares as bytes.** Every text column, the database and each connection are `utf8mb4` under `utf8mb4_nopad_bin`, so a
+  trailing space counts and emoji are kept. The case-folding the SQLite tables do with `lower()` folds ASCII letters only here too.
+  A text column that is a key or in an index has a length in characters (an id 255, a reporter key 383, `peer_messages.link` 760,
+  the key parts of the daily summaries 32 to 255); a longer value is an error, never cut. The others are `LONGTEXT`.
+- **Order.** As on PostgreSQL. MariaDB has no `NULLS FIRST` or `NULLS LAST`, so where the place of a NULL matters the order says it
+  with an `x IS NULL` term.
+- **No pragmas, no OPTIMIZE.** InnoDB reuses the space of removed rows, and the Activity history's compaction does nothing.
+- **Limits.** One server process for each database: the server holds a named lock (`GET_LOCK`) on a connection of its own, and a
+  second server on the same database stops at start. Podium does not move data from a SQLite file or a PostgreSQL database into
+  MariaDB, it supports no replica, cluster or high availability, and MySQL is not supported. The password is never logged or
+  returned by `/health`, which show `host:port/dbname`.
 
 <!-- nav:start -->
 ---

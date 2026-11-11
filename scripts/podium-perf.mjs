@@ -14,7 +14,7 @@ import { existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createDatabase, dropDatabase, isPostgresUrl, labelOf } from './throwaway-db.mjs';
+import { createDatabase, dropDatabase, isServerUrl, labelOf } from './throwaway-db.mjs';
 import { createGzip, gzipSync, constants as zc } from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -46,8 +46,8 @@ Options
 
 CPU and resident memory come from proc_pid_rusage on macOS (python3 ctypes) and from ps elsewhere (CPU then has ps's coarse time).
 Environment
-  PODIUM_DB        a postgres:// URL of a PostgreSQL server: each run makes a database of its own on it and drops it at the end,
-                   so the baseline can be taken on PostgreSQL. Anything else (a SQLite path) is ignored; the default is a SQLite
+  PODIUM_DB        a postgres:// or mariadb:// URL of a database server: each run makes a database of its own on it and drops it at the end,
+                   so the baseline can be taken on that database. Anything else (a SQLite path) is ignored; the default is a SQLite
                    file in the temp folder.
 
 Everything the script starts is stopped at the end.`;
@@ -143,9 +143,9 @@ class Server {
     writeFileSync(this.preload, PRELOAD(this.elFile));
     this.port = await freePort();
     this.url = `http://127.0.0.1:${this.port}`;
-    // A SQLite file in the temp folder, or, when PODIUM_DB is a postgres:// URL, a database of its own on that server (dropped by cleanup).
+    // A SQLite file in the temp folder, or, when PODIUM_DB is a postgres:// or mariadb:// URL, a database of its own on that server (dropped by cleanup).
     this.db = path.join(this.dir, 'podium.sqlite');
-    if (isPostgresUrl(process.env.PODIUM_DB)) {
+    if (isServerUrl(process.env.PODIUM_DB)) {
       this.db = await createDatabase(process.env.PODIUM_DB, 'perf');
       log(`database: ${labelOf(this.db)} (throwaway)`);
     }
@@ -189,7 +189,7 @@ class Server {
     clearTimeout(force);
   }
   async cleanup() {
-    if (this.db && isPostgresUrl(this.db) && !KEEP) await dropDatabase(this.db).catch((e) => log(`could not drop the database: ${e.message}`));
+    if (this.db && isServerUrl(this.db) && !KEEP) await dropDatabase(this.db).catch((e) => log(`could not drop the database: ${e.message}`));
     if (!KEEP) rmSync(this.dir, { recursive: true, force: true });
     else log(`kept: ${this.dir}`);
   }

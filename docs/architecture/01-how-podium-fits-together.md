@@ -42,8 +42,8 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 - `sweeper.ts` runs every second: a session is stale at 15 s and dropped 60 s later, ended sessions linger 8 s,
   and quiet seconds get carry-forward samples. It ticks KPIs every 2 s and prunes hourly.
 - `derive.ts` turns rows into views and is pure.
-- `server/src/storage/` is the only way the server reaches its database: async interfaces with SQLite as the one adapter
-  (see [Storage](02-components/19-storage.md)).
+- `server/src/storage/` is the only way the server reaches its database: async interfaces with SQLite as the default adapter
+  and PostgreSQL and MariaDB beside it (see [Storage](02-components/19-storage.md)).
 
 ## The UI
 

@@ -11,7 +11,7 @@ CYPRESS_IMAGE="${E2E_CYPRESS_IMAGE:-docker.io/cypress/included:16.2.0@sha256:c19
 SERVER_IMAGE="${E2E_SERVER_IMAGE:-localhost/podium-e2e:$(cd "$(dirname "$0")/.." && pwd | cksum | cut -d' ' -f1)}"
 
 usage() {
-  cat <<'USAGE'
+  sed "s/@DB_KINDS@/$(node "$(dirname "$0")/db-adapters.mjs" kinds --e2e 2>/dev/null | sed 's/ /, /g')/" <<'USAGE'
 Usage: scripts/e2e-up.sh [run] [options] [-- <cypress run arguments>]
        scripts/e2e-up.sh build [--no-build] [--engine NAME]
        scripts/e2e-up.sh down
@@ -46,12 +46,14 @@ Environment:
   E2E_CPUS / E2E_MEMORY
                     Limit the server and Cypress containers (for example E2E_CPUS=2 E2E_MEMORY=4g, the size of a GitHub runner), to
                     reproduce a slow machine. Default: unlimited.
-  E2E_DB            sqlite (default) or postgres. With postgres a PostgreSQL container runs beside the server on the same private
-                    network, the server gets PODIUM_DB=postgres://... for it, and "a fresh database" (the specs' restart) drops and
-                    recreates that database instead of emptying /data. The password is random per run, kept in a mode-600 env file
-                    and scrubbed from the server log copy; the server's own output shows host:port/dbname only.
+  E2E_DB            One of: @DB_KINDS@ (default sqlite; the list is scripts/db-adapters.mjs). With a database server (postgres,
+                    mariadb) its container runs beside the server on the same private network, the server gets PODIUM_DB=<kind>://...
+                    for it, and "a fresh database" (the specs' restart) drops and recreates that database instead of emptying /data.
+                    The password is random per run, kept in mode-600 env files and scrubbed from the server log copy, and printed
+                    nowhere; the server's own output shows host:port/dbname only.
   E2E_PG_IMAGE      The PostgreSQL image for E2E_DB=postgres (default docker.io/library/postgres:17-alpine; 13 or newer, for DROP
                     DATABASE ... WITH (FORCE)).
+  E2E_MARIADB_IMAGE The MariaDB image for E2E_DB=mariadb (default docker.io/library/mariadb:10.5.29, the floor version, pinned).
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
   E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
 
@@ -62,8 +64,9 @@ USAGE
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DB_KIND="${E2E_DB:-sqlite}"
-PG_IMAGE="${E2E_PG_IMAGE:-docker.io/library/postgres:17-alpine}"
-[[ "$DB_KIND" == sqlite || "$DB_KIND" == postgres ]] || { echo "E2E_DB must be sqlite or postgres, not \"$DB_KIND\" (see --help)" >&2; exit 2; }
+# The kinds and what each database container needs come from one table (scripts/db-adapters.mjs, #823).
+DB_KINDS="$(node "$ROOT/scripts/db-adapters.mjs" kinds --e2e)" || { echo "could not read scripts/db-adapters.mjs (is node on PATH?)" >&2; exit 2; }
+[[ " $DB_KINDS " == *" $DB_KIND "* ]] || { echo "E2E_DB must be one of $DB_KINDS, not \"$DB_KIND\" (see --help)" >&2; exit 2; }
 CMD="run"
 BUILD=1
 ENGINE="${E2E_ENGINE:-}"
@@ -138,9 +141,9 @@ NET="podium-e2e-$RUN"
 SRV="podium-e2e-$RUN-srv"
 VOL="podium-e2e-$RUN-data"
 CYC="podium-e2e-$RUN-cy"
-PG="podium-e2e-$RUN-pg"
-PG_USER=podium
-PG_NAME=podium_e2e
+DBC="podium-e2e-$RUN-db"
+DB_USER=podium
+DB_NAME=podium_e2e
 PORT=4317
 URL="http://$SRV:$PORT"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-e2e.XXXXXX")"
@@ -154,7 +157,15 @@ VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json" | head 
 CTL_PID=""
 # The secret as a sed pattern, so a custom E2E_SECRET with a / or & in it still scrubs.
 SECRET_RE="$(printf '%s' "$SECRET" | sed 's/[][\.*^$/&]/\\&/g')"
-PG_PASS="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
+DB_PASS="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
+# A database server (E2E_DB other than sqlite): its image, env, readiness and reset commands, and the server's URL, from the table. The
+# password goes to it in the environment, never as an argument.
+if [[ "$DB_KIND" != sqlite ]]; then
+  DB_SHELL="$(DB_PASSWORD="$DB_PASS" node "$ROOT/scripts/db-adapters.mjs" shell "$DB_KIND" e2e --set user="$DB_USER" --set db="$DB_NAME" --set host="$DBC")" \
+    || { echo "could not read the $DB_KIND entry of scripts/db-adapters.mjs" >&2; exit 2; }
+  eval "$DB_SHELL"
+  unset DB_SHELL
+fi
 EXTRA_ENV=()
 LIMITS=()
 [[ -n "${E2E_CPUS:-}" ]] && LIMITS+=(--cpus "$E2E_CPUS")
@@ -164,23 +175,23 @@ LIMITS=()
   printf 'PORT=%s\nHOST=0.0.0.0\nPODIUM_TOKEN=%s\nPODIUM_ALLOWED_HOSTS=%s\nPODIUM_LOG=info\nPODIUM_FAILURE_LIMIT=100000\n' "$PORT" "$SECRET" "$SRV" >"$WORK/server.env"
   # A seeded session stays on the wall for the whole run: long stale, linger and drop times, so no spec depends on a clock.
   printf 'STALE_AFTER_MS=7200000\nHOOK_STALE_AFTER_MS=7200000\nDROP_AFTER_MS=14400000\nLINGER_MS=7200000\nDETACHED_HIDE_AFTER_MS=7200000\n' >>"$WORK/server.env"
-  if [[ "$DB_KIND" == postgres ]]; then
+  if [[ "$DB_KIND" != sqlite ]]; then
     # The image sets no PODIUM_DATA_DIR, and a database that is not a file has no folder for the TLS CA, so name /data here.
-    printf 'PODIUM_DB=postgres://%s:%s@%s:5432/%s\nPODIUM_DATA_DIR=/data\n' "$PG_USER" "$PG_PASS" "$PG" "$PG_NAME" >>"$WORK/server.env"
-    printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' "$PG_USER" "$PG_PASS" "$PG_NAME" >"$WORK/pg.env"
+    printf 'PODIUM_DB=%s\nPODIUM_DATA_DIR=/data\n' "$DB_URL" >>"$WORK/server.env"
+    printf '%s\n' "${DB_ENV[@]}" >"$WORK/db.env"
   fi
   printf 'PODIUM_E2E_SECRET=%s\n' "$SECRET" >"$WORK/seed.env"
   printf 'CYPRESS_ADMIN_SECRET=%s\nCYPRESS_E2E_SERVER=%s\nCYPRESS_baseUrl=%s\nCI=1\nNO_COLOR=1\n' "$SECRET" "$SRV" "$URL" >"$WORK/cypress.env"
 )
 # CI masks the secret by itself; this keeps it out of the log when the runner sets it.
-if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND" == postgres ]] && echo "::add-mask::$PG_PASS"; fi
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND" != sqlite ]] && echo "::add-mask::$DB_PASS"; fi
 
 teardown() {
   local code=$?
   trap - EXIT INT TERM
   [[ -n "$CTL_PID" ]] && { touch "$CTL/stop"; wait "$CTL_PID" 2>/dev/null; }
   # The server log, scrubbed of the secret, for the CI artifact. The repo is public and artifacts are world-readable.
-  $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$PG_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
+  $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$DB_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
   chmod 666 "$OUT/server.log" 2>/dev/null
   if [[ "${E2E_KEEP:-0}" == 1 ]]; then
     $E rm -f "$CYC" >/dev/null 2>&1
@@ -211,30 +222,29 @@ server_wait() {
   if [[ "$got" != "$VERSION" ]]; then fail "serverVersion is $got but package.json says $VERSION: the image is stale (rebuild without --no-build)"; return 1; fi
 }
 
-# ---- the database (E2E_DB=postgres) ------------------------------------------------------------------------------------
+# ---- the database (E2E_DB other than sqlite) --------------------------------------------------------------------------
+# What each kind runs is in scripts/db-adapters.mjs: DB_IMAGE with DB_ARGS, DB_READY (exits 0 once the final server answers: the
+# official images first run a temporary socket-only server for their init, then restart) and DB_RESET (an empty database of the same
+# name, run inside the container with the credentials it already holds).
 
-# psql inside the PostgreSQL container, on its own socket (the image trusts local connections), as the one user the run makes.
-pg_psql() { $E exec -i "$PG" psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" "$@"; }
-
-# The official image starts a temporary server (socket only) to run its init, then restarts: a TCP query on 127.0.0.1 only answers
-# from the final one. fsync off, because this database is thrown away.
-pg_create() {
-  $E run -d --name "$PG" --label "$LABEL=$RUN" --network "$NET" --network-alias "$PG" ${LIMITS[@]+"${LIMITS[@]}"} \
-    --env-file "$WORK/pg.env" "$PG_IMAGE" -c fsync=off -c synchronous_commit=off >/dev/null || return 1
+db_create() {
+  $E run -d --name "$DBC" --label "$LABEL=$RUN" --network "$NET" --network-alias "$DBC" ${LIMITS[@]+"${LIMITS[@]}"} \
+    --env-file "$WORK/db.env" "$DB_IMAGE" ${DB_ARGS[@]+"${DB_ARGS[@]}"} >/dev/null || return 1
   local i
   for i in $(seq 1 120); do
-    pg_psql -h 127.0.0.1 -d "$PG_NAME" -tAc 'select 1' >/dev/null 2>&1 && return 0
-    [[ "$($E inspect -f '{{.State.Running}}' "$PG" 2>/dev/null)" == true ]] || break
+    $E exec "$DBC" "${DB_READY[@]}" >/dev/null 2>&1 && return 0
+    [[ "$($E inspect -f '{{.State.Running}}' "$DBC" 2>/dev/null)" == true ]] || break
     sleep 0.5
   done
-  fail "PostgreSQL did not answer"
-  $E logs --tail 20 "$PG" 2>&1 | sed "s/$PG_PASS/[db password]/g" >&2
+  fail "$DB_LABEL did not answer"
+  $E logs --tail 20 "$DBC" 2>&1 | sed "s/$DB_PASS/[db password]/g" >&2
   return 1
 }
 
 # An empty database of the same name, for a fresh start. The server is down (held) while this runs, so nothing is connected.
-pg_reset() {
-  pg_psql -d postgres -c "DROP DATABASE IF EXISTS $PG_NAME WITH (FORCE)" -c "CREATE DATABASE $PG_NAME"
+db_reset() {
+  $E exec -i "$DBC" "${DB_RESET[@]}" </dev/null 2>&1 | sed "s/$DB_PASS/[db password]/g" >&2
+  return "${PIPESTATUS[0]}"
 }
 
 # The server container is made once and lives for the whole run. Its PID 1 is a small supervisor that starts the server as a child, so a
@@ -284,22 +294,22 @@ server_create() {
   $E rm -f "$SRV" >/dev/null 2>&1
   $E volume rm -f "$VOL" >/dev/null 2>&1
   $E volume create --label "$LABEL=$RUN" "$VOL" >/dev/null || return 1
-  if [[ "$DB_KIND" == postgres ]]; then pg_create || return 1; fi
+  if [[ "$DB_KIND" != sqlite ]]; then db_create || return 1; fi
   $E run -d --name "$SRV" --label "$LABEL=$RUN" --network "$NET" --ip "$SRV_IP" --network-alias "$SRV" ${LIMITS[@]+"${LIMITS[@]}"} \
     --env-file "$WORK/server.env" -v "$VOL:/data" --entrypoint sh "$SERVER_IMAGE" -c "$SUPERVISOR" >/dev/null || return 1
   server_wait
 }
 
-# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV). With PostgreSQL, DB_MS is
-# set to the milliseconds the database's drop and recreate took, for the control timing line.
+# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV). With a database server, DB_MS
+# is set to the milliseconds the database's drop and recreate took, for the control timing line.
 server_fresh() {
   local e v vars="" q="'" qq="'\\''" t0
   DB_MS=0
   for e in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do v="${e#*=}"; vars+="${e%%=*}='${v//$q/$qq}'"$'\n'; done
-  # With PostgreSQL the supervisor's wipe of /data does not empty the database: hold the server down, recreate the database, then start.
-  if [[ "$DB_KIND" == postgres ]]; then
+  # With a database server the supervisor's wipe of /data does not empty the database: hold the server down, recreate it, then start.
+  if [[ "$DB_KIND" != sqlite ]]; then
     t0="$(now_ms)"
-    server_kill hold </dev/null && pg_reset || return 1
+    server_kill hold </dev/null && db_reset || return 1
     DB_MS=$(($(now_ms) - t0))
   fi
   printf '%s' "$vars" | server_kill restart wipe || return 1

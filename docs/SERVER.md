@@ -26,6 +26,8 @@ Contents:
   - [More settings](#more-settings)
   - [Start on boot](#start-on-boot)
 - [Server settings](#server-settings)
+- [Using PostgreSQL](#using-postgresql)
+- [Using MariaDB](#using-mariadb)
 - [What it costs to run](#what-it-costs-to-run)
 
 ## Run it with podiumctl
@@ -318,8 +320,8 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 |---|---|---|
 | `PORT` | `4317` | Server port (the Vite proxy follows it) |
 | `HOST` | `127.0.0.1` | Bind address. Podium is for one machine; leave it on localhost |
-| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file. `postgres://user:password@host:5432/dbname` (or `postgresql://`) is a PostgreSQL database: it must exist, the server makes its own schemas (`podium` and `podium_activity`) in it, one server per database (a second one stops at start), and nothing is copied from a SQLite file. An unknown `kind://` stops the server at start, and the log and `/health` show `host:port/dbname`, never the user or the password (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). On SQLite a second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording; on PostgreSQL that history is the schema `podium_activity` in the same database |
-| `PODIUM_DATA_DIR` | the folder of `PODIUM_DB` | Folder for what the server keeps beside the database, today the TLS CA (`tls/`). Only needed when `PODIUM_DB` is not a file; a database that is not a file (PostgreSQL) stops the server at start without it. `podiumctl` sets it for you: `/data` in the container, else `~/.podium/data` for a database on the network |
+| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file. `postgres://user:password@host:5432/dbname` (or `postgresql://`) is a PostgreSQL database: it must exist, the server makes its own schemas (`podium` and `podium_activity`) in it, one server per database (a second one stops at start), and nothing is copied from a SQLite file. `mariadb://user:password@host:3306/dbname` is a MariaDB database, with the same rules: it must exist, the server makes its own tables in it, one server per database (see [Using MariaDB](#using-mariadb)). An unknown `kind://` stops the server at start, and the log and `/health` show `host:port/dbname`, never the user or the password (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). On SQLite a second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording; on PostgreSQL that history is the schema `podium_activity` in the same database, and on MariaDB it is tables of its own in the same database |
+| `PODIUM_DATA_DIR` | the folder of `PODIUM_DB` | Folder for what the server keeps beside the database, today the TLS CA (`tls/`). Only needed when `PODIUM_DB` is not a file; a database that is not a file (PostgreSQL, MariaDB) stops the server at start without it. `podiumctl` sets it for you: `/data` in the container, else `~/.podium/data` for a database on the network |
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
 | `PODIUM_TLS` | `off` | `on` makes the server create a CA and open a second port for reporters (HTTPS, client certificate required) beside the HTTP console. `podiumctl start --tls` sets it. Container mode keeps the CA in `~/.podium/tls` on your machine (standalone: `data/tls` beside the database): back that folder up and keep it private, because it holds the CA key. `podiumctl rm` keeps it unless you add `--purge-tls --yes`. Under rootless Podman on Linux the folder belongs to the container's user, so read or delete it with `podman unshare` |
@@ -349,8 +351,9 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_LOG_SHIP_HEADERS` | empty | Headers for that endpoint, `Name=Value;Name2=Value2` (for example `Authorization=Bearer ...;AccountID=1`). Never printed or logged |
 | `PODIUM_LOG_SHIP_BUFFER` | `2000` | Log lines kept while the endpoint is down; past that the oldest are dropped |
 
-Sessions, agents and events are stored in SQLite (Node's built-in `node:sqlite`) or, when `PODIUM_DB` is a
-`postgres://` URL, in PostgreSQL (see [Using PostgreSQL](#using-postgresql)), so a server restart loses
+Sessions, agents and events are stored in SQLite (Node's built-in `node:sqlite`), or, when `PODIUM_DB` is a
+`postgres://` URL, in PostgreSQL (see [Using PostgreSQL](#using-postgresql)), or, when it is a `mariadb://` URL, in
+MariaDB (see [Using MariaDB](#using-mariadb)), so a server restart loses
 nothing that was reported. Sessions come back as stale and recover when their reporters send again.
 
 ## Using PostgreSQL
@@ -371,7 +374,7 @@ limits below before you rely on it.
   has not been tried.
 - **Room for 15 connections.** The main schema uses a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
-- **PostgreSQL 17.** Every test of the PostgreSQL adapter, in CI and in `scripts/test-pg.sh`, runs against 17 and no other
+- **PostgreSQL 17.** Every test of the PostgreSQL adapter, in CI and in `scripts/test-db.sh`, runs against 17 and no other
   version. The SQL in the adapter uses nothing newer than identity columns (PostgreSQL 10), so 10 is the floor the code
   implies, but nothing below 17 has been run. Treat 17 as the supported version.
 
@@ -398,6 +401,95 @@ run one at a time, as on SQLite. The cost is the same as there: one slow transac
 `PODIUM_DATA_DIR` still holds the TLS folder (`tls/`), which has the CA key when built-in TLS is on. Lose it and every reporter
 config has to be reissued. Back it up and keep it private, as described under `PODIUM_TLS` above. With TLS off nothing else
 lives there today.
+
+## Using MariaDB
+
+Set `PODIUM_DB` to a `mariadb://` URL to keep the same data in MariaDB instead of a SQLite file. Nothing is copied over from
+a SQLite file or a PostgreSQL database. This adapter is newer than the PostgreSQL one and has had less use than either, so read
+the limits below before you rely on it.
+
+**The URL.** `mariadb://user:password@host:3306/dbname`. The password may be left out, the port defaults to 3306 and the host to
+`localhost`, and a user, password or database name with special characters is percent-encoded (`%40` for `@`). The only query
+parameter is `ssl=true` or `ssl=false` (the default): `ssl=true` asks the driver for a TLS connection, and no certificate option is
+passed through. A URL with no database name, or with any other parameter, stops the server at start. The log and `/health` show
+`host:port/dbname`, never the user or the password. Only `mariadb://` selects this adapter; there is no `mysql://`.
+
+**What the database needs**
+
+- **A database that already exists.** Make it with `CREATE DATABASE podium CHARACTER SET utf8mb4`. Podium keeps its tables in
+  it under their plain names (`sessions`, `people`, `settings` and so on), with no schema or prefix, so give it a database of its
+  own. The Activity history and the session recordings are tables in the same database (`entries`, `stored_sessions`, `loops`,
+  `rec_sessions`, `rec_entries`), on a pool of their own. Each set has its own record of applied steps, `schema_migrations` and
+  `activity_schema_migrations`.
+- **A user that may create and change tables in it.** At every start the server runs `ALTER DATABASE` to set the database's
+  default character set and collation, `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` for every table, and
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for a later step. With the rows it reads and writes, that is `SELECT`, `INSERT`,
+  `UPDATE`, `DELETE`, `CREATE`, `ALTER` and `INDEX` on the database. The tests ran as `root` (CI) and as a user with
+  `ALL PRIVILEGES` on its database only (the end-to-end suite); the narrower list has not been tried. The server needs no
+  global privilege. The lock below is a `GET_LOCK`, which needs none.
+- **Room for 15 connections.** The main tables use a pool of up to 10, the Activity history a pool of up to 4, and one more
+  connection holds the lock described below. Check `max_connections` if the server is shared.
+- **MariaDB 10.5 or later.** 10.5 is the floor: the adapter uses `INSERT ... RETURNING`, which arrived in 10.5. CI runs every
+  test of the adapter on 10.5 and on 11.4 (10.5.29 and 11.4.13 when this was written), and the end-to-end suite runs on
+  10.5.29. No other version has been run.
+
+**MySQL is not supported.** The adapter uses the official `mariadb` driver and MariaDB's own SQL: `utf8mb4_nopad_bin`,
+`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS` and `RETURNING`. MySQL has none of these, so a MySQL server is expected
+to fail at the first start. It has not been tried, and neither has any other server that speaks the MySQL protocol.
+
+**Text.** Every text column, the database's default and each connection use `utf8mb4` with the collation `utf8mb4_nopad_bin`, so
+emoji are kept, text compares byte for byte, and a trailing space counts, as on SQLite. Where Podium ignores case it does so the
+same way on every database: a person's or group's name is stored folded by the server, and a fold done in SQL (a search, an
+owner match) changes ASCII letters only, as SQLite's `lower()` does, where MariaDB's own `LOWER()` would also fold `É`. Each connection
+also runs in strict mode with ANSI quotes and `READ COMMITTED`; those are set by Podium and need nothing from you.
+
+**Lengths.** A text column that is a key or in an index has a length, in characters, because a MariaDB index key holds at most
+3072 bytes and `utf8mb4` takes up to 4 per character. A value that is longer is refused with an error, never cut. SQLite and PostgreSQL have no such limit. The lengths are:
+
+| What | Characters |
+|---|---|
+| A session, agent, event, message, request or group id, and the other ids used as keys | 255 |
+| A person's or group's name as stored for comparison, an owner in messaging and Chat, a machine name, a setting's key, an ignore pattern, an Activity loop or reference | 255 |
+| A reporter key (in `reporters`, `reporter_sessions` and `peer_rights`, and the Admin's key in `chat_admin_reads`) | 383 |
+| A Direct Message link (`peer_messages.link`) | 760 |
+| A certificate fingerprint | 191 |
+| In the daily summaries behind Admin > Reporting: a project, branch, tool or skill (255); a model, agent type or feature (191); an owner or a version (128); a harness, kind, class, outcome, effort or plan (64); the day (32) | 32 to 255 |
+| A message's state, a blowout's kind, an ignore rule's kind | 64 |
+
+Every other text column is `LONGTEXT`.
+
+**One server per database.** At start Podium takes a named lock, `GET_LOCK('podium:<hash of the database name>', 0)`, on a
+connection of its own that is kept outside the pools for the life of the server. A second server on the same database finds the
+lock taken and stops with a message. The lock goes with its connection, so it is released if Podium dies. That connection sets
+its own idle timeout to a year, so a quiet server is not dropped by the database's `wait_timeout`.
+
+**If the database goes away.** When that lock connection drops while Podium is running, Podium tries to take the lock again on a
+new connection, 5 times with 500 ms before each try. If every try fails, or another server now holds the lock, Podium closes its
+storage, prints one line naming `host:port/dbname`, and exits with a failing code, so `podiumctl`'s restart or your service
+manager has to bring it back. A short outage that ends inside that window does not stop it. At start there is no retry: if the
+database cannot be reached within 10 seconds, Podium stops.
+
+**Upgrades.** MariaDB commits each `CREATE` and `ALTER` on its own, so a step of a schema upgrade is not one transaction. Each
+statement in a step is written to be run again, and the step is recorded only after its last statement, so a server that stops
+part way through a step runs the whole step again at its next start and ends in the same state. The database cannot roll an
+upgrade back, so back it up before you upgrade Podium.
+
+**Proxies, clusters and replicas.** None of these has been tested. A proxy that shares one connection between clients
+(MaxScale, ProxySQL and the like) would break the lock and the settings each connection makes at its start, so connect straight
+to MariaDB. A named lock lives on the one server that took it, so on a Galera cluster a second Podium connected to another node
+would not see it. Podium writes on every report, so point it at the primary, never at a replica.
+
+**Transactions.** A call outside a transaction waits while another task's transaction is open, and calls outside a transaction
+run one at a time, as on SQLite and PostgreSQL. The cost is the same: one slow transaction holds up the rest of the server.
+
+**Maintenance.** Podium runs no `OPTIMIZE TABLE`. InnoDB reuses the space of removed rows by itself, so the Activity history's
+compaction does nothing and reports 0 bytes freed. The size on Admin > About is MariaDB's own estimate of the tables' data and
+indexes.
+
+**Backups.** Back up the MariaDB database (every table in it, the Activity history's included) the way you back up any other,
+for example with `mariadb-dump`. That does not cover everything: `PODIUM_DATA_DIR` still holds the TLS folder (`tls/`), which has
+the CA key when built-in TLS is on. Lose it and every reporter config has to be reissued. Back it up and keep it private, as
+described under `PODIUM_TLS` above. With TLS off nothing else lives there today.
 
 ## What it costs to run
 

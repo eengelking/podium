@@ -32,7 +32,7 @@ what Podium shows and does is the same for any harness, within what the harness 
 10. Color themes (Podium, Solarized, Nord, Gruvbox, Catppuccin, GitHub), each with light and dark, picked from
     a dropdown with a light, dark or system mode. Resizable side panels, keyboard accessible, usable at phone
     width.
-11. Survive restarts: sessions, agents and events persist in SQLite. A restart of the server loses nothing
+11. Survive restarts: sessions, agents and events persist in the database (SQLite by default, or PostgreSQL or MariaDB). A restart of the server loses nothing
     that was already reported.
 12. A simulator script that feeds the server realistic reports so the UI can be developed and demoed with no
     Claude sessions running.

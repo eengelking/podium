@@ -37,12 +37,19 @@ const registry = new Map<string, StorageKind>([
     defaultTarget: () => { throw new Error('postgres has no default target'); },
     load: async () => (await import('./postgres/index.js')).openPostgresStorage,
     testing: async () => (await import('./postgres/contractAdapter.js')).postgresContractAdapter(),
-    label: (target) => (URL.canParse(`postgres://${target}`) ? postgresLabel(new URL(`postgres://${target}`)) : 'postgres://<unparseable>'),
+    label: (target) => (URL.canParse(`postgres://${target}`) ? hostLabel(new URL(`postgres://${target}`)) : 'postgres://<unparseable>'),
+  }],
+  ['mariadb', {
+    fileBased: false,
+    defaultTarget: () => { throw new Error('mariadb has no default target'); },
+    load: async () => (await import('./mariadb/index.js')).openMariaDbStorage,
+    testing: async () => (await import('./mariadb/contractAdapter.js')).mariadbContractAdapter(),
+    label: (target) => (URL.canParse(`mariadb://${target}`) ? hostLabel(new URL(`mariadb://${target}`)) : 'mariadb://<unparseable>'),
   }],
 ]);
 
 /** `host:port/dbname`, with no user and no password. */
-function postgresLabel(u: URL): string {
+function hostLabel(u: URL): string {
   return `${u.host}${u.pathname}`;
 }
 

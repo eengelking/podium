@@ -37,9 +37,10 @@ npm run e2e -- -- --spec "cypress/e2e/wall/**" # one folder (everything after th
 npm run e2e -- --no-build                      # reuse the image built by the last run
 npm run e2e:down                               # remove anything an interrupted run left behind
 E2E_DB=postgres npm run e2e                    # the same suite with PostgreSQL behind the server (default: sqlite)
+E2E_DB=mariadb npm run e2e                     # the same suite with MariaDB behind the server
 ```
 
-`scripts/e2e-up.sh --help` lists the options. `bash scripts/e2e-all.sh --out <folder outside the repo>` runs the whole suite once on every database in `e2e.yml` together and ends with one `E2E RESULT:` line. `--shards N` splits each database's run into N runs at once, each with its own server, database and Cypress container and a disjoint group of the spec files, which `scripts/e2e-shards.mjs` computes from the files on disk (a new spec lands in a group by itself). It balances the groups by the seconds each spec took in a recorded run, kept in `e2e/spec-times.json`, and weighs a spec with no recorded time at the median; `node scripts/e2e-shards.mjs --record <logs>` refreshes the file from the logs of a whole run. The result line names each shard, and the specs counted over a database's shards must equal the files on disk. Each run logs how long each server restart, pause and resume took, and their totals at its end. `bash scripts/e2e-all.sh --help` says how to choose N for a machine: each run takes about 1.1 GB, so keep N times the databases at most the CPUs and at most the memory in GB divided by 2. On a 6-CPU, 16 GB podman machine it is 3 for two databases (about 7m20s against 16m40s for one shard); 4 was no faster, and one 4-shard run had a shard hang for 15 minutes, cause not known. To see what the machine does while a run goes, start `python3 -I scripts/e2e-sample.py 5 > <file>.csv` beside it: it records the host's load and busy percent, and each container's CPU and memory, every few seconds (`--help`). With `E2E_DB=postgres` a PostgreSQL container (`E2E_PG_IMAGE`, default `postgres:17-alpine`) runs beside the server on the same private network, the server gets `PODIUM_DB=postgres://...` for it, and the specs' "fresh database" restart drops and recreates that database instead of emptying `/data`. Its password is random per run and scrubbed from the server log copy. The specs are the same for both databases. A run builds the image, makes a private network with a fresh admin secret that
+`scripts/e2e-up.sh --help` lists the options. `bash scripts/e2e-all.sh --out <folder outside the repo>` runs the whole suite once on every database in `e2e.yml` together and ends with one `E2E RESULT:` line. `--shards N` splits each database's run into N runs at once, each with its own server, database and Cypress container and a disjoint group of the spec files, which `scripts/e2e-shards.mjs` computes from the files on disk (a new spec lands in a group by itself). It balances the groups by the seconds each spec took in a recorded run, kept in `e2e/spec-times.json`, and weighs a spec with no recorded time at the median; `node scripts/e2e-shards.mjs --record <logs>` refreshes the file from the logs of a whole run. The result line names each shard, and the specs counted over a database's shards must equal the files on disk. Each run logs how long each server restart, pause and resume took, and their totals at its end. `bash scripts/e2e-all.sh --help` says how to choose N for a machine: each run takes about 1.1 GB, so keep N times the databases at most the CPUs and at most the memory in GB divided by 2. On a 6-CPU, 16 GB podman machine it was 3 for two databases (about 7m20s against 16m40s for one shard), and the same rule gives 2 for the three databases of today; 4 was no faster, and one 4-shard run had a shard hang for 15 minutes, cause not known. To see what the machine does while a run goes, start `python3 -I scripts/e2e-sample.py 5 > <file>.csv` beside it: it records the host's load and busy percent, and each container's CPU and memory, every few seconds (`--help`). With `E2E_DB=postgres` a PostgreSQL container (`E2E_PG_IMAGE`, default `postgres:17-alpine`) runs beside the server on the same private network, the server gets `PODIUM_DB=postgres://...` for it, and the specs' "fresh database" restart drops and recreates that database instead of emptying `/data`. Its password is random per run and scrubbed from the server log copy. `E2E_DB=mariadb` does the same with a MariaDB container (`E2E_MARIADB_IMAGE`, default `mariadb:10.5.29`, the oldest version the adapter supports, pinned). The databases, their images and their reset commands are one table, `scripts/db-adapters.mjs`, which `E2E_DB` is checked against. The specs are the same for every database. A run builds the image, makes a private network with a fresh admin secret that
 nothing prints, starts the server on it, seeds it with `scripts/e2e-seed.mjs`, runs Cypress in a second container and then
 removes every container, network and volume it made, whatever the result. No port is opened on your machine and your own
 Podium is never touched. The first run pulls the Cypress image, about 2.5 GB.
@@ -53,7 +54,7 @@ passes when the run was skipped, so it can be a required check for the release P
 1. Open the failed job and find the spec file and test title in the Cypress output: the group is the feature, the title is the rule.
 2. Download the `e2e-failure` artifact from the run. It holds `screenshots/<spec>/<test> (failed).png`, one for each failure, and
    `server.log`, the server's log with the admin secret scrubbed. It is kept 7 days. There is no video.
-3. The workflow's `databases` input (default `sqlite postgres`) picks which database the server runs on; each is a full run of the suite, one after the other, so the job's limit is 180 minutes. Run it with `sqlite` or `postgres` alone to reproduce one. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
+3. The workflow's `databases` input (default `sqlite postgres mariadb`) picks which database the server runs on; each is a full run of the suite, one after the other, so the job's limit is 240 minutes. Run it with one database alone to reproduce a failure on it. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
 4. To reproduce it, run the same spec locally with `--spec`. A failure that shows only on some runs is a flaky spec: do not
    add a retry or a wait. Find the assertion that reads something before it settles and make it a retrying one.
 
@@ -245,14 +246,15 @@ The suite does not repeat what a unit test already settles and a browser adds no
 (`server/src/fleet/derive.test.ts`), markdown rendering (`frontend/src/fleet/components/Markdown.test.tsx`), the CSV neutralizing, validation
 messages, and the standards pages (`npm run standards:parity`). A feature with only unit coverage and a layout, focus or live-update behavior gets a spec for that part.
 
-## What runs on PostgreSQL, and whether that is enough for the release gate
+## What runs on PostgreSQL and MariaDB, and whether that is enough for the release gate
 
-The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). The decision on the
+The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). MariaDB (#823) is
+checked the same way; it is at the end of this section. The decision on the
 gap is the maintainer's; this section states what is true on 2026-11-05 and the options.
 
 - **The storage contract and the adapter's own tests** (`server/src/storage/`, about 950 tests) run on PostgreSQL in every CI run, in the
-  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-pg.sh`. That job runs the whole server suite with
-  `PODIUM_TEST_PG` set, but only the storage tests use it.
+  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-db.sh`. That job runs the whole server suite with
+  `PODIUM_TEST_PG` set, but only the storage tests use it (and `server/src/fleet/chatGoneReadsPg.test.ts`, one Chat route sequence).
 - **About 50 test files outside `server/src/storage/`** (routes, ingest, the fleet, peers, Admin) open a SQLite storage and nothing else. They
   have never run on PostgreSQL. They are not to be converted: the contract is where the two databases are compared.
 - **The Cypress suite on PostgreSQL** (`E2E_DB=postgres`, the `databases` input of `e2e.yml`, default `sqlite postgres`) runs on a pull
@@ -278,6 +280,23 @@ The options, cheapest first:
 
 Recommendation: 2 now, since it costs nothing and puts a real PostgreSQL run before the release PR rather than inside it, and 3 if that
 first run finds anything. This section changes when the workflow does.
+
+**MariaDB.** The same three places, with these facts on 2026-11-10:
+
+- **The storage contract and the adapter's own tests** (`server/src/storage/mariadb/`) run on MariaDB in every CI run, in the
+  `test-mariadb` job of `ci.yml`, once on 10.5, the oldest version the adapter supports, and once on 11.4, the current long-term
+  release (`Test with MariaDB 10.5`, `Test with MariaDB 11.4`), and locally with `scripts/test-db.sh` (`--floor` for 10.5). As on
+  PostgreSQL the whole server suite runs with `PODIUM_TEST_MARIADB` set, and only the storage tests and one Chat route sequence
+  (`server/src/fleet/chatGoneReadsMaria.test.ts`) use it.
+- **The same 50 files outside `server/src/storage/`** open SQLite only, and have never run on MariaDB.
+- **The Cypress suite on MariaDB** (`E2E_DB=mariadb`, in the default `databases` of `e2e.yml`) runs on 10.5.29 only, the floor,
+  pinned. A release PR runs every database in that default list in one job, and `E2E summary` fails when that job fails or is skipped. 11.4 is reached only by the unit and contract
+  tests above, never by the Cypress suite.
+
+Is that enough for the release gate? The same answer and the same options as for PostgreSQL, with `mariadb` in place of `postgres`
+in options 2 and 3. One thing is particular to MariaDB: the end-to-end run is on the oldest version, so a failure that only a newer
+MariaDB shows in the routes would be found by no test. Running the suite once on 11.4 by hand (`E2E_MARIADB_IMAGE=docker.io/library/mariadb:11.4`)
+before a release closes that gap at the cost of one more run; whether to do it is the maintainer's decision.
 
 ## What is still open
 

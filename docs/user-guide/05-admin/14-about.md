@@ -15,7 +15,7 @@ versions are the ones reporters already sent.
   says Container or Stand-alone. **Started** gives the time and how long the server has been up, and **System** the
   operating system and architecture.
 - **Built with.** Node.js and Express as the server runs them, and React and TypeScript as the console was built with.
-- **Database.** The adapter in use (SQLite or PostgreSQL), the database's own version, the schema version Podium
+- **Database.** The adapter in use (SQLite, PostgreSQL or MariaDB), the database's own version, the schema version Podium
   reached, and the size when the database can say.
 - **Reporters.** One row for each reporter and version heard from in the last hour, with how many machines run it.
   When reporters are on different versions, each version has its own row. A version outside the range this server reads

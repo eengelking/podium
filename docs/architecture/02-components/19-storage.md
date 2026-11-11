@@ -1,6 +1,6 @@
 ---
 title: "Storage"
-description: "How the server reaches its database: async interfaces, the SQLite and PostgreSQL adapters, the locks, the write-through caches and the rules for calling it."
+description: "How the server reaches its database: async interfaces, the SQLite, PostgreSQL and MariaDB adapters, the locks, the caches and the rules for calling it."
 group: "Project internals"
 order: 19
 ---
@@ -11,7 +11,7 @@ This page covers how the server reads and writes its data, one part of [the comp
 who is about to call a store, add one or change what sits under it. Nothing here changes what the console shows. The
 tables and their migrations are in [SPEC 7.2](../../spec/07-server/07-02-database.md), and the reason for the shape is in
 [DECISIONS 48](../../decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md). The PostgreSQL adapter
-is [DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md).
+is [DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md), and the MariaDB adapter is the addition to it (#823).
 
 Contents:
 
@@ -24,6 +24,8 @@ Contents:
 - [Rules for calling it](#rules-for-calling-it)
 - [Chat's stores](#chats-stores-1034)
 - [The PostgreSQL adapter](#the-postgresql-adapter)
+- [The MariaDB adapter](#the-mariadb-adapter)
+- [Adding an adapter](#adding-an-adapter)
 - [What is not shared between processes](#what-is-not-shared-between-processes)
 - [Small timing differences](#small-timing-differences)
 
@@ -40,16 +42,16 @@ Contents:
 | `settings.ts` | The limits, defaults, ranges and value checks for the Admin's settings (re-exported by `rows.ts`) |
 | `lock.ts` | `AsyncLock`, the queue each adapter puts in front of a connection |
 | `peerText.ts` | The pure helpers both messaging stores share: control-character cleaning, round trips used, the notice cap |
-| `chatRows.ts` | The pure part of Chat's stores (#1034), shared by both adapters: the channel id (`grp_` or `pub_`, the server's scope, 24 hex digits), the author kinds, the mention states, the row-to-message conversion, and `chatSettingsOver`, the Admin's Chat limits and each channel's flags over a key-value view of `settings` that each adapter lends. Nothing in it touches a database or knows `peer_messages` |
+| `chatRows.ts` | The pure part of Chat's stores (#1034), shared by every adapter: the channel id (`grp_` or `pub_`, the server's scope, 24 hex digits), the author kinds, the mention states, the row-to-message conversion, and `chatSettingsOver`, the Admin's Chat limits and each channel's flags over a key-value view of `settings` that each adapter lends. Nothing in it touches a database or knows `peer_messages` |
 | `adapters.test.ts` | The one test every adapter passes (#1008): the contract, the upgrade cases, the differential test, and the guards (a method with no case, a table, column or index in one adapter and not another, a registered adapter with no CI job or e2e run). It loops over the kinds registered in `index.ts`, so a new adapter is added in one place |
-| `contractAdapter.ts`, `sqlite/contractAdapter.ts`, `postgres/contractAdapter.ts` | What the tests need from an adapter: open a fresh storage, open one at the oldest schema, read its table, column and index names, and the defects another issue owns (`known`). Each adapter folder has one; `index.ts` registers it as the kind's `testing` entry |
+| `contractAdapter.ts`, `sqlite/contractAdapter.ts`, `postgres/contractAdapter.ts`, `mariadb/contractAdapter.ts` | What the tests need from an adapter: open a fresh storage, open one at the oldest schema, read its table, column and index names, and the defects another issue owns (`known`). Each adapter folder has one; `index.ts` registers it as the kind's `testing` entry |
 | `contract.ts` | The checks a store must pass on every adapter, with the expected values written out: the type of every field of the main rows, how names compare, and the order lists come back in |
 | `contractSame.ts`, `contractSettings.ts`, `contractFleet.ts`, `contractPeers.ts`, `contractActivity.ts`, `contractReports.ts` | The rest of the contract (#890): one case for every other store, each running a scenario over every registered adapter and comparing every value it records between each pair of them (results, thrown messages, list order with ties); none is the reference for another. Generated ids and the size of the database file are compared by type only, the one list of differences that are not defects (`contractSame.ts`) |
 | `contractDifferential.ts`, `contractMethods.ts`, `contractCalls.ts` | The differential test (#1008): seeded random and edge-case calls (fractions, huge numbers, NUL and control characters, lone surrogates, collation cases, ties, concurrent transactions) through every adapter, diffed for result, error class and list order. The seed is printed and replays with `PODIUM_DIFF_SEED`; a failing program is shrunk. `contractMethods.ts` lists every method of `types.ts` with the compiler and `contractCalls.ts` notes the calls the tests make, so a method with no case fails `adapters.test.ts` |
 | `serverGate.ts` | Fails the run when an adapter that needs a test server has none configured (`PODIUM_TEST_ONLY` leaves kinds out on purpose and the run says they were NOT RUN) |
 | `reportQueries.ts` | The fleet-wide reporting queries behind Admin > Reporting |
 
-Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; neither adapter imports the other (`neutral.test.ts` checks that too: what they share lives in these files); `neutral.test.ts` fails if one does, and if any file outside the adapter that is not a test reaches for `sqliteHandle` or
+Nothing in those files imports an adapter's folder or its driver (`node:sqlite`, `pg`, `mariadb`), except `index.ts`; no adapter imports another (`neutral.test.ts` checks that too: what they share lives in these files); `neutral.test.ts` fails if one does, and if any file outside the adapter that is not a test reaches for `sqliteHandle` or
 `activityHandle`; the shared test builders that need raw SQL (`rollupFixtures.ts`) live in `storage/sqlite/`.
 The adapter imports from them, never the other way round, and its `openSqliteStorage` is typed against the interfaces in
 `types.ts`, so a signature that drifts is a compile error there.
@@ -63,7 +65,8 @@ synchronous SQLite classes the adapter wraps: `db.ts` (schema, migrations, the f
 `storage/` imports them, apart from tests.
 
 `server/src/storage/postgres/` is the second adapter (#822), described [below](#the-postgresql-adapter). Only that folder imports
-`pg`, and `neutral.test.ts` fails if a file outside it does.
+`pg`, and `neutral.test.ts` fails if a file outside it does. `server/src/storage/mariadb/` is the third (#823), described
+[below](#the-mariadb-adapter); only it imports `mariadb`, under the same test.
 
 Every method on a store returns a promise. `Fleet`, the routers and the sweeper take a `Storage` and call it. Tests open
 `openSqliteStorage(':memory:')`.
@@ -71,13 +74,13 @@ Every method on a store returns a promise. `Fleet`, the routers and the sweeper 
 ## Choosing the implementation
 
 `openStorage` reads `PODIUM_DB`. A plain path, or `:memory:`, means SQLite. A value written `kind://target` picks a
-registered kind, and an unknown kind stops the server at start with a message that lists the known ones. `sqlite` and `postgres` are
+registered kind, and an unknown kind stops the server at start with a message that lists the known ones. `sqlite`, `postgres` and `mariadb` are
 registered (`postgresql://` is an alias for `postgres`). A registration is a loader that `import()`s the adapter when its kind is chosen, so a server never loads the
 driver of a kind it does not use, and `openStorage` returns a promise. Adding a database means adding its adapter and one
-registration in `index.ts`, and nowhere else in the server changes. That is how `postgres` was added.
+registration in `index.ts`, and nowhere else in the server changes. That is how `postgres` and `mariadb` were added; the test and CI steps a new kind also needs are under [Adding an adapter](#adding-an-adapter).
 
 SQLite is only the default. `DEFAULT_STORAGE_KIND` names it, and each registration declares its own default target
-(`<repo>/data/podium.sqlite` for SQLite; `postgres` has none, so a `postgres://` value always names its database), so the registry and not the server knows what an install with no `PODIUM_DB`
+(`<repo>/data/podium.sqlite` for SQLite; `postgres` and `mariadb` have none, so a `postgres://` or `mariadb://` value always names its database), so the registry and not the server knows what an install with no `PODIUM_DB`
 uses. The app depends on the adapter's interface and never on a database: `neutral.test.ts` fails when a non-test file
 outside `storage/sqlite/` and `storage/index.ts` names SQLite, `vacuum`, `pragma`, `rowid` or `wal`, and an option only one
 database understands (`vacuumPages` is one) lives on that adapter's own options type, not on the shared ones.
@@ -89,8 +92,8 @@ differently. A compact event's trigger is read in code (`countAutoCompactions`),
 Reads that run for every live session are batched (#906). `getSessions`, `getAgentsOf`, `getBlowoutsOf`, `countAutoCompactionsOf`,
 `samplesSinceOf`, `groupsOfOwners` and the Activity store's `recordings.viewMany` answer for many ids in one statement each, with a key
 for every id asked and each list in the order its one-session method gives; `upsertAgents` and `upsertAgentTextsMany` write a report's
-agents in one statement each. PostgreSQL does it with an `IN (...)` list or a multi-row `INSERT` cut into pieces under the driver's limit
-on bound values. SQLite runs the same `IN (...)` reads, and the order-parity check (`scripts/storage-order-parity.mjs`) holds both to the same `ORDER BY`. A path that would otherwise grow
+agents in one statement each. PostgreSQL and MariaDB do it with an `IN (...)` list or a multi-row `INSERT` cut into pieces under the driver's limit
+on bound values. SQLite runs the same `IN (...)` reads, and the order-parity check (`scripts/storage-order-parity.mjs`) holds every adapter to the same `ORDER BY`. A path that would otherwise grow
 its statement count with the wall (a report, a snapshot) uses these, and `docs/PERFORMANCE.md` has the counts.
 
 `storageSpec` splits the value into its kind and target, and the server starts through it. A bad kind fails before anything
@@ -99,12 +102,12 @@ else reads the path. The target only names the database: it labels it in the log
 Where the server keeps its own files is a different question, answered by `dataDir`. That is `PODIUM_DATA_DIR` when it is
 set, and otherwise the folder of the database file, which is what it has always been (`/data` in the container, `data/`
 standalone). The TLS folder is `tls/` inside it. A kind whose target is not a file has no such folder, so for one the server
-stops at start unless `PODIUM_DATA_DIR` is set (`podiumctl` sets it for `postgres`). The Activity history file is the SQLite adapter's own business and sits beside
-the SQLite file; on PostgreSQL the Activity history is a schema in the same database.
+stops at start unless `PODIUM_DATA_DIR` is set (`podiumctl` sets it for `postgres` and `mariadb`). The Activity history file is the SQLite adapter's own business and sits beside
+the SQLite file; on PostgreSQL the Activity history is a schema in the same database, and on MariaDB it is tables of its own in the same database.
 
 ## The lock and the transaction
 
-This section is about SQLite; [PostgreSQL does the same differently](#the-postgresql-adapter).
+This section is about SQLite; [PostgreSQL](#the-postgresql-adapter) and [MariaDB](#the-mariadb-adapter) do the same differently.
 
 Each SQLite connection has one `AsyncLock` (`storage/lock.ts`): a queue that runs one adapter call at a time. The
 main file and `activity.sqlite` are separate connections with separate locks, so a slow Activity history write does not
@@ -143,7 +146,7 @@ Two things the old synchronous code got for free are now explicit.
 ## Start and stop
 
 `index.ts` opens the storage, awaits `fleet.init()` and only then listens. On a stop, the server closes its listeners,
-waits for `fleet.flush()`, then calls `storage.close()`, which drains each lock and closes its file (on PostgreSQL: drains the gates, ends both pools and releases the advisory lock). Messages and writes
+waits for `fleet.flush()`, then calls `storage.close()`, which drains each lock and closes its file (on PostgreSQL: drains the gates, ends both pools and releases the advisory lock; on MariaDB the same, with the named lock). Messages and writes
 already asked for finish before either file closes.
 
 With built-in TLS on, `tlsBoot.ts` keeps the order of two things straight. The HTTPS listener is registered the moment it
@@ -171,12 +174,12 @@ These are the rules the code now depends on. The type checker does not catch a b
 `Storage.chat({ now })` hands out `ChatStoreApi` (`types.ts`): `serverScope()`, `group` and `public` (a `ChannelStoreApi` each: `post`,
 `page`, `setMention`, `clear`, `count`, `purge`), `readState` (`get`, `list`, `bump`, `markRead`, `forget`) and `settings`
 (`ChatSettingsApi`: the Admin's limits and each channel's pause and disconnect flags). The group store's every call takes the group
-(`owner`, `groupId`), so a member reads only their own. SQLite's is `sqlite/chat.ts`, PostgreSQL's `postgres/chat.ts`, and the contract
+(`owner`, `groupId`), so a member reads only their own. SQLite's is `sqlite/chat.ts`, PostgreSQL's `postgres/chat.ts`, MariaDB's `mariadb/chat.ts`, and the contract
 case is `contractChat.ts`. **No method of `ChatStoreApi` reads or returns a `peer_messages` row, and none ever will**; a Direct
 Message is the messaging store's (`PeerStoreApi.messages`), which gained `sendFromPerson`, `sendAcross`, `page` (a cursor read, newest
 page first), `deleteConversation`, `ownerConversations`, `hideConversation`, `showConversation` and `purgeHidden`, and
-`PeerStoreApi.rights` gained `personLink` and `setPersonLink` for a person's link to another person's agent. `ChatStoreApi.adminReads` (`ChatAdminReadsApi`: `touch`, `mark`, `list`, `live`, `threads`, `forget`, `purge`) keeps an Admin's readings and stops, in `sqlite/chat.ts` and `postgres/chat.ts`. A page of a channel or a
-conversation orders by `created_at, seq` (`sent_at, seq` for a conversation) in both adapters and starts strictly before its cursor.
+`PeerStoreApi.rights` gained `personLink` and `setPersonLink` for a person's link to another person's agent. `ChatStoreApi.adminReads` (`ChatAdminReadsApi`: `touch`, `mark`, `list`, `live`, `threads`, `forget`, `purge`) keeps an Admin's readings and stops, in `sqlite/chat.ts`, `postgres/chat.ts` and `mariadb/chat.ts`. A page of a channel or a
+conversation orders by `created_at, seq` (`sent_at, seq` for a conversation) in every adapter and starts strictly before its cursor.
 The server's code that uses them is in `server/src/fleet/chat*.ts` ([Orchestrator messaging](13-orchestrator-messaging.md#chat-1034)),
 and `server/src/fleet/chatSeparation.test.ts` fails if the channel side names the direct side's store or the reverse, or if a Chat route is not listed with the one audience it serves.
 
@@ -234,16 +237,106 @@ contract.
   with one makes PostgreSQL throw where SQLite accepts it. The HTTP edge refuses those numbers; the store has no typed validation.
 - **No password in the open.** The label in the log and in `/health` is `host:port/dbname`.
 
-The PostgreSQL tests need `PODIUM_TEST_PG` to name a server ([CONTRIBUTING](../../../CONTRIBUTING.md)). A run without it fails and names the adapter, because a run that leaves one out is not a pass; `PODIUM_TEST_ONLY=sqlite` leaves it out on purpose and the run prints that PostgreSQL was NOT RUN, which is not a pass for a pull request (`scripts/test-pg.sh` runs every adapter). A run with the variable and no server fails too (`server/src/storage/serverGate.ts`, `postgres/gate.ts`). CI runs them in the `test-postgres` job, which the "Protect development and main" ruleset requires.
+The PostgreSQL tests need `PODIUM_TEST_PG` to name a server, and the MariaDB tests `PODIUM_TEST_MARIADB` ([CONTRIBUTING](../../../CONTRIBUTING.md)). A run without one fails and names the adapter, because a run that leaves one out is not a pass; `PODIUM_TEST_ONLY=<kinds>` leaves the others out on purpose and the run prints which were NOT RUN, which is not a pass for a pull request (`scripts/test-db.sh` runs every adapter, with a throwaway container for each one that needs a server). A run with a variable and no server fails too (`server/src/storage/serverGate.ts`, `postgres/gate.ts`, `mariadb/gate.ts`). CI runs them in the `test-postgres` job (`Test with PostgreSQL`) and in the `test-mariadb` job, once on MariaDB 10.5 and once on 11.4 (`Test with MariaDB 10.5`, `Test with MariaDB 11.4`). The "Protect development and main" ruleset requires `Test with PostgreSQL`, and the maintainer adds the two MariaDB checks to it; the "Release checks on main" ruleset requires `E2E summary`, which fails when the release PR's end-to-end job, a run on every database in `e2e.yml`'s list, fails or is skipped.
 
-**One failure, all adapters (#1008).** A failure of the contract or the differential test on any adapter fails the whole run and names the adapter. The fix makes the case pass on every adapter. A case is never skipped or loosened for one adapter; a difference that is not a defect is a listed exception in `contractSame.ts`, and a defect another issue owns is in that adapter's `known` list with the issue that fixes it (reported as a warning, a failure with `PODIUM_DIFF_STRICT=1`, and a failure once the case passes, so the entry has to go). A new adapter is a registration in `index.ts` with a `testing` entry, a CI job that sets its server variable on every pull request and push (a test reads `ci.yml`), and a place in the release e2e run (`e2e.yml`, checked by the same test); the maintainer adds its check names to the ruleset.
+**One failure, all adapters (#1008).** A failure of the contract or the differential test on any adapter fails the whole run and names the adapter. The fix makes the case pass on every adapter. A case is never skipped or loosened for one adapter; a difference that is not a defect is a listed exception in `contractSame.ts`, and a defect another issue owns is in that adapter's `known` list with the issue that fixes it (reported as a warning, a failure with `PODIUM_DIFF_STRICT=1`, and a failure once the case passes, so the entry has to go). A new adapter needs more than its folder and its registration; [Adding an adapter](#adding-an-adapter) lists every step, and the guards that fail when one is missing.
+
+## The MariaDB adapter
+
+`server/src/storage/mariadb/` implements every interface in `types.ts` over the official `mariadb` driver (#823).
+`openMariaDbStorage` is what the registry loads for a `mariadb://` target. It is built store by store from the PostgreSQL
+adapter, with the SQL changed where MariaDB needs it, and passes the same contract. How to run it is in
+[Using MariaDB](../../SERVER.md#using-mariadb).
+
+| File | What it holds |
+|---|---|
+| `index.ts` | `openMariaDbStorage`: takes the process lock, opens both pools, migrates both sets of tables, returns the `Storage` |
+| `conn.ts` | `MariaDbConn`: a pool, the transaction gate, `tx` and `savepoint`, the `:name` placeholders turned into `?`, the reserved column names (`key`, `loop`, `by`) quoted, the session settings, `bound()`, `bigint` and `DECIMAL` turned into numbers, `asciiLower`, and `parseTarget` for the URL |
+| `schema.ts` | `MAIN_STEPS` and `ACTIVITY_STEPS`, numbered as PostgreSQL's steps, and `migrate()` |
+| `singleProcess.ts` | The named lock on a connection of its own, taken again if that connection drops |
+| `testing.ts`, `gate.ts`, `globalSetup.ts` | `TEST_MARIADB` and `createTestDatabase()`, a throwaway database for each test file, and the gate that fails the run when `PODIUM_TEST_MARIADB` is set and no server answers |
+| `contractAdapter.ts`, `upgradeTesting.ts` | The adapter as the storage tests see it, and a database built at the oldest step for the upgrade cases |
+| `upserts.test.ts` | Every `ON DUPLICATE KEY UPDATE` and `INSERT IGNORE` in the adapter, checked against its table's keys |
+| the other files | One for each store of the same name in the other adapters |
+
+- **One database, two sets of tables, two pools.** The fleet, people, reporters, settings and messaging tables and the
+  Activity history and recordings (`entries`, `stored_sessions`, `loops`, `rec_sessions`, `rec_entries`) share one database
+  under their plain names, which do not overlap. The two sets are on pools of their own (10 and 4 connections) and each has its own
+  record of steps, `schema_migrations` and `activity_schema_migrations`, so a slow history write does not hold up a report, as
+  with the two SQLite files and the two PostgreSQL schemas. Nothing references across the two sets.
+- **Migrations.** The steps are PostgreSQL's, one for one: main step 1 is the baseline, and each later step has the same number
+  and makes the same change, so "PostgreSQL main step N" in [SPEC 7.2](../../spec/07-server/07-02-database.md) is MariaDB main step N too.
+  MariaDB commits each DDL statement on its own, so a step is not a transaction. Every statement is written to be run twice
+  (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, an insert that skips a row that is there), and `migrate()` records a step after its
+  last statement, so a runner stopped part way through runs the whole step again and ends in the same state. A test stops the runner
+  between statements (`schema.ts` takes a hook for it) and starts it again. `migrate()` also runs `ALTER DATABASE` to the
+  character set and collation below at every start.
+- **Text.** Every text column, the database's default and every connection are `utf8mb4` under `utf8mb4_nopad_bin`, so bytes
+  compare as they are, a trailing space counts, and `Ed` and `ed` compare as SQLite compares them. A text column that is a key or in
+  an index is a `VARCHAR` with a length (ids 255, reporter keys 383, the link 760, the rollup key parts 32 to 255, a model 191),
+  because an index key holds at most 3072 bytes; the others are `LONGTEXT`. The connection runs in strict mode, so a longer value
+  is an error, never cut. `asciiLower(x)` folds ASCII letters only, with one `REPLACE` per letter, where the SQLite stores use
+  `lower()`: MariaDB's `LOWER()` would also fold `É`.
+- **SQL mode.** Each connection sets `STRICT_ALL_TABLES`, `ANSI_QUOTES` (so `"x"` is a name, as in the other adapters' SQL),
+  `PIPES_AS_CONCAT` and `NO_ENGINE_SUBSTITUTION`, and `READ COMMITTED`, which is what the PostgreSQL adapter runs at.
+- **Upserts.** `ON CONFLICT (...) DO UPDATE` is `ON DUPLICATE KEY UPDATE` and `INSERT OR IGNORE` is `INSERT IGNORE`. Neither
+  names the key it conflicts on, so on a table with two unique keys either could change or skip the wrong row. `upserts.test.ts`
+  reads every such statement in the adapter and fails unless exactly one unique key of its table can conflict, then runs each one
+  beside a neighbor that shares part of the key. `INSERT IGNORE` also turns some other errors into warnings, which is why it is
+  used only where a skipped duplicate is the whole intent.
+- **A write that reads its own table.** MariaDB takes neither a `LIMIT` inside `IN (...)` nor a subquery on the table a `DELETE`
+  or `UPDATE` changes. Those statements read through a derived table (`person_machines`' trim, step 2's numbering of
+  `peer_requests`) or limit the `DELETE` itself (`DELETE ... ORDER BY ... LIMIT ... RETURNING` for a chunk of recordings).
+- **Values.** The driver hands a `BIGINT` back as a `bigint` and a `DECIMAL` (a `SUM`, an `AVG`) as text; `MariaDbConn` turns
+  both into numbers and throws if a whole number would lose digits. Flags are 0/1 columns, as in the other adapters.
+- **The transaction.** As on PostgreSQL: `tx` takes a connection from the pool for the whole callback, transactions and every
+  statement made outside one take turns at one gate (#1007), a nested `tx` joins the open one through the async context, and
+  `savepoint` is used where `peerRights` and `personCerts` undo a step alone. MariaDB keeps a savepoint after a rollback to it, so
+  it is released too.
+- **One process.** At start, a connection of its own, kept outside the pools, takes `GET_LOCK('podium:<hash>', 0)`, where the hash
+  is of the database name (a lock name is per server and at most 64 characters). If another Podium holds it, the server stops with a
+  message naming `host:port/dbname`. If the connection drops, the lock is taken again on a new one (5 tries, 500 ms apart); when that
+  fails or another server has it, every store call rejects and the server stops. The lock is released at `close`.
+- **Maintenance.** There is no `OPTIMIZE TABLE`: InnoDB reuses the space of removed rows, and rebuilding a table would lock it.
+  The Activity history's compaction does nothing and frees 0 bytes.
+- **NaN, NUL and surrogates.** `bound()` in `conn.ts` stores a NaN as NULL and removes a NUL from text, as the other adapters do,
+  and turns a lone surrogate into U+FFFD, which is what the other two hand back for it. An infinity is refused there with a plain
+  message, since MariaDB has no literal for it.
+- **The one known divergence.** A fraction sent to an integer column is rounded by MariaDB half away from zero and stored with no
+  error (1.5 as 2, -2.5 as -3), where SQLite stores it as it is and PostgreSQL throws; a number of 1e21 or more is refused. It is
+  in MariaDB's `known` list under #823, as the same input is on PostgreSQL's. The report validator and the routes refuse these
+  numbers before any store is called, so it is not reachable over HTTP.
+- **No password in the open.** The label in the log, in `/health` and in the lock's messages is `host:port/dbname`, and the driver
+  is told not to put bound values in an error.
+
+## Adding an adapter
+
+A database is one folder and one registration in the server, as above. The tests and the tooling around them need more, and each
+step has a guard that fails when it is missing.
+
+| Step | Where | What fails without it |
+|---|---|---|
+| The adapter: every interface in `types.ts`, its schema and migrations, `contractAdapter.ts` with its `known` list, `testing.ts`, and a `gate.ts` and `globalSetup.ts` for its test server | `server/src/storage/<kind>/` | The compiler, and `adapters.test.ts` for a method with no case or a table, column or index the others do not have |
+| The registration, with its `testing` entry and its `label` | `server/src/storage/index.ts` | `adapters.test.ts` and `scripts/db-adapters.test.ts` |
+| Its folder in `ADAPTERS` and its driver's names | `server/src/storage/neutral.test.ts` | The same test: an unlisted folder is read as app code, which may not name a database |
+| Its folder in the lists of adapter folders these tests skip or read: the Admin read registry's scan, and the Chat separation check | `server/src/fleet/adminReads.test.ts`, `server/src/storage/separation.test.ts` | `adminReads.test.ts` reads the adapter's store methods as unregistered Admin reads; `separation.test.ts` does not check the new adapter's `chat.ts` |
+| Its `globalSetup.ts` | `globalSetup` in `server/vitest.config.ts` | Nothing directly: with the variable set and no server answering, the run then fails test by test instead of once (`postgres/globalSetup.ts` also runs the "not set" check for every registered adapter) |
+| Its kind, scheme, test server variable, images (current, and a floor if it has one), port, readiness and reset commands | `DB_ADAPTERS` in `scripts/db-adapters.mjs`, which `scripts/test-db.sh` and `scripts/e2e-up.sh` read | `scripts/db-adapters.test.ts` |
+| Where its NULLs sort, and whether it has `NULLS FIRST` and `NULLS LAST` | `DIALECTS` in `scripts/storage-order-parity.mjs` | The script, in `npm test` |
+| How to make and drop a throwaway database on its server | `SERVERS` in `scripts/throwaway-db.mjs` | `scripts/throwaway-db.test.ts` |
+| A job that sets its test server variable, on every version its entry names, with `PODIUM_TEST_ONLY: sqlite,<kind>` | `.github/workflows/ci.yml` | `adapters.test.ts` and `scripts/db-adapters.test.ts` |
+| Its service in the `coverage` job | `.github/workflows/sonar.yml` | `scripts/db-adapters.test.ts` |
+| Its kind in the `DATABASES` default and in the `case` that checks the list | `.github/workflows/e2e.yml` | `adapters.test.ts` and `scripts/db-adapters.test.ts` for the default; nothing for the `case`, which then refuses the kind at run time |
+| Its folder in `sonar.cpd.exclusions`, since it mirrors the SQLite adapter by design | `sonar-project.properties` | Nothing; SonarCloud reports it as duplicated |
+| The new CI check names, for the maintainer to add to the "Protect development and main" ruleset | The PR body | Nothing: only the maintainer edits the ruleset |
+| A URL form, the version floor and the limits for whoever runs it, and the adapter's section on this page | `docs/SERVER.md`, this page, `docs/atlas/` | `node scripts/atlas-functions.mjs --check` for a file the atlas names |
 
 ## What is not shared between processes
 
 Open asks, sign-ins and lockouts stay in one process's memory, as they were. The storage layer does not move them, and two
 server processes on one database would not see each other's. Podium is still one process per database. On PostgreSQL the
-advisory lock enforces it: a second server on the same database refuses to start. There is no data migration from a SQLite
-file, and no read replica or high availability.
+advisory lock enforces it and on MariaDB the named lock: a second server on the same database refuses to start. There is no data
+migration from a SQLite file, and no read replica or high availability.
 
 ## Small timing differences
 

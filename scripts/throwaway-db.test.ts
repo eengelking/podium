@@ -1,23 +1,29 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import mariadb, { type Connection } from "mariadb";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
-import { createDatabase, DROPPABLE, dropDatabase, isPostgresUrl, labelOf } from "./throwaway-db.mjs";
+import { kinds } from "./db-adapters.mjs";
+import { createDatabase, DROPPABLE, dropDatabase, isPostgresUrl, isServerUrl, labelOf, SERVER_KINDS } from "./throwaway-db.mjs";
 
 // Read like testing.ts does: podiumctl's settings test greps the server's source, not this folder, but the same habit keeps one spelling.
-const { PODIUM_TEST_PG: TEST_PG } = process.env;
+const { PODIUM_TEST_PG: TEST_PG, PODIUM_TEST_MARIADB: TEST_MARIADB } = process.env;
 const script = path.join(__dirname, "throwaway-db.mjs");
 const cli = (...args: string[]) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
 
-describe("throwaway-db (#822)", () => {
-  it("tells a PostgreSQL URL from a SQLite path", () => {
-    expect(isPostgresUrl("postgres://u:p@h/d")).toBe(true);
+describe("throwaway-db (#822, #823)", () => {
+  it("tells the URL of a database server from a SQLite path", () => {
+    for (const url of ["postgres://u:p@h/d", "postgresql://h/d", "mariadb://u:p@h:3306/d"]) expect(isServerUrl(url), url).toBe(true);
+    for (const v of ["/tmp/x.sqlite", "sqlite:///x.db", "", undefined, "mysql://h/d"]) expect(isServerUrl(v), String(v)).toBe(false);
     expect(isPostgresUrl("postgresql://h/d")).toBe(true);
-    expect(isPostgresUrl("/tmp/x.sqlite")).toBe(false);
-    expect(isPostgresUrl("")).toBe(false);
-    expect(isPostgresUrl(undefined)).toBe(false);
-    expect(cli("is-postgres", "postgres://h/d").status).toBe(0);
-    expect(cli("is-postgres", "/x.sqlite").status).toBe(1);
+    expect(isPostgresUrl("mariadb://h/d")).toBe(false);
+    expect(cli("is-server", "postgres://h/d").status).toBe(0);
+    expect(cli("is-server", "mariadb://h/d").status).toBe(0);
+    expect(cli("is-server", "/x.sqlite").status).toBe(1);
+  });
+
+  it("can make a database on every kind of server the tooling starts (scripts/db-adapters.mjs)", () => {
+    expect([...SERVER_KINDS].sort()).toEqual(kinds("server").sort());
   });
 
   it("labels a URL without its user or password", () => {
@@ -38,8 +44,10 @@ describe("throwaway-db (#822)", () => {
   });
 
   it("refuses to create on a SQLite path and to drop a database it did not make", async () => {
-    await expect(createDatabase("/tmp/x.sqlite")).rejects.toThrow(/not a postgres/);
+    await expect(createDatabase("/tmp/x.sqlite")).rejects.toThrow(/not the URL of a database server/);
     await expect(dropDatabase("postgres://u:p@h/production")).rejects.toThrow(/refusing to drop/);
+    await expect(dropDatabase("mariadb://u:p@h/production")).rejects.toThrow(/refusing to drop/);
+    await expect(dropDatabase("/tmp/podium_x_0123456789")).rejects.toThrow();
   });
 
   it("drops only the name shape create makes: podium_<part>_<10 hex>", async () => {
@@ -69,6 +77,45 @@ describe("throwaway-db (#822)", () => {
       const left = await admin.query("select 1 from pg_database where datname = $1", [new URL(url).pathname.slice(1)]);
       await admin.end();
       expect(left.rowCount).toBe(0);
+    });
+  });
+
+  describe.skipIf(!TEST_MARIADB)("against a MariaDB server", () => {
+    const names = async (c: Connection, name: string) => (await c.query("SELECT schema_name AS n, default_character_set_name AS cs FROM information_schema.schemata WHERE schema_name = ?", [name])) as { n: string; cs: string }[];
+
+    it("creates an empty utf8mb4 database named podium_<part>_<random>, and drops it with a connection still open to it", async () => {
+      const url = await createDatabase(TEST_MARIADB!, "Smoke Test!");
+      const name = new URL(url).pathname.slice(1);
+      expect(name).toMatch(/^podium_smoketest_[0-9a-f]{10}$/);
+      const u = new URL(url);
+      const open = await mariadb.createConnection({ host: u.hostname, port: Number(u.port), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password), database: name });
+      // The drop ends this connection on the server's side, which the driver reports as an error event.
+      const closed = new Promise<unknown>((resolve) => open.on("error", resolve));
+      try {
+        expect(await open.query("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = ?", [name])).toEqual([{ n: 0n }]);
+        await dropDatabase(url);
+        expect(await closed).toMatchObject({ fatal: true });
+      } finally {
+        await open.end().catch(() => undefined);
+      }
+      const admin = await mariadb.createConnection({ host: u.hostname, port: Number(u.port), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password) });
+      try {
+        expect(await names(admin, name)).toEqual([]);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    it("makes the database utf8mb4", async () => {
+      const url = await createDatabase(TEST_MARIADB!, "charset");
+      const u = new URL(url);
+      const admin = await mariadb.createConnection({ host: u.hostname, port: Number(u.port), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password) });
+      try {
+        expect((await names(admin, u.pathname.slice(1)))[0]?.cs).toBe("utf8mb4");
+      } finally {
+        await admin.end();
+        await dropDatabase(url);
+      }
     });
   });
 });

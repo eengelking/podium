@@ -28,7 +28,7 @@ export const PASSTHROUGH = [
 ];
 /**
  * Keys podiumctl itself owns. PODIUM_DB is a SQLite file in standalone mode only; a database on the network
- * (`postgres://user:password@host:5432/dbname`) is passed through in either mode. PODIUM_DATA_DIR (the folder for the TLS
+ * (`postgres://user:password@host:5432/dbname`, `mariadb://user:password@host:3306/dbname`) is passed through in either mode. PODIUM_DATA_DIR (the folder for the TLS
  * CA) is standalone-only: the container's is always /data. Container-only: PODIUMCTL_ENGINE.
  */
 export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_ENGINE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB', 'PODIUM_DATA_DIR', 'PODIUM_TLS', 'PODIUM_TLS_PORT'];
@@ -92,7 +92,8 @@ Built-in TLS (off by default; \`podiumctl start --tls\` or \`podiumctl config se
 
 Database (SQLite by default):
   PODIUM_DB             A SQLite file (standalone mode only), or a database on the network, e.g.
-                        podiumctl config set PODIUM_DB=postgres://user:password@db.lan:5432/podium, then podiumctl restart.
+                        podiumctl config set PODIUM_DB=postgres://user:password@db.lan:5432/podium (PostgreSQL) or
+                        PODIUM_DB=mariadb://user:password@db.lan:3306/podium (MariaDB), then podiumctl restart.
                         Works in both modes; the container then needs no /data/podium.sqlite. Output shows host:port/dbname
                         only, never the user or the password (\`config\` hides them unless --show-token).
   PODIUM_DATA_DIR       Folder for the TLS CA (standalone mode; default: the folder of the SQLite file, else ~/.podium/data).
