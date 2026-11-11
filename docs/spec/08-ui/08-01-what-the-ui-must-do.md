@@ -463,6 +463,12 @@ menu and the page scroll on their own.
   drawn from, and the pager. **Export** has **CSV** and **JSON**, and **Print** prints the page without the menu.
   An export is exactly the table's `columns` and `rows` for the chosen period and filters ([7.7](../07-server/07-07-hardening.md),
   `GET reports/:report`).
+- **Sorting (#1133).** Every column heading of a report table is a button, on these pages and on My usage. A click sorts
+  every row of the period, not only the page shown, and returns to the first page. A number column starts largest
+  first; the period and text columns start with the oldest and A to Z; a second click reverses it. A missing value
+  goes last either way, a key reads as the words the table prints ("No owner", not "-"), and the Whole period or
+  Total row never moves. The sorted heading shows an arrow and carries `aria-sort`. The sort is not remembered, and a
+  new period or filter starts in the order the server sent. Export is unchanged and keeps the server's order.
 - A period that reaches before the first rollup day says "Podium has no history before 2026-03-02. The figures
   below cover 2026-03-02 to 2026-04-01." A period with no rows says "Nothing was recorded in this period."
   Neither draws zeros.
