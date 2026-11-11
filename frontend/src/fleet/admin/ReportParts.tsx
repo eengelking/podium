@@ -361,21 +361,52 @@ function Cell({ col, row, sample, breakdown }: { col: ReportColumn; row: ReportR
   return <td className={time ? "mono muted nowrap" : v === null || v === undefined ? "muted" : undefined}>{formatCell(col, v)}</td>;
 }
 
-export function ReportTable({ reply, label, page, pageSize, history, breakdown = "" }: { reply: ReportReply; label: string; page: number; pageSize: number; history: boolean; breakdown?: string }) {
+/** Rows in the order a clicked heading asks for. A missing value goes last either way; ties keep the order the server sent. `shown` reads a cell as the table prints it, so the order matches the words on screen. */
+function sortRows(rows: ReportRow[], key: string, dir: 1 | -1, numeric: boolean, shown: (row: ReportRow) => unknown): ReportRow[] {
+  const missing = (v: unknown) => v === null || v === undefined || (numeric && !Number.isFinite(Number(v)));
+  const cmp = (a: unknown, b: unknown) => (numeric ? Number(a) - Number(b) : String(a).localeCompare(String(b)));
+  return rows
+    .map((row, i) => ({ row, i, v: shown(row) }))
+    .sort((x, y) => {
+      const a = x.v;
+      const b = y.v;
+      if (missing(a) || missing(b)) return missing(a) && missing(b) ? x.i - y.i : missing(a) ? 1 : -1;
+      return cmp(a, b) * dir || x.i - y.i;
+    })
+    .map((x) => x.row);
+}
+
+export function ReportTable({ reply, label, page, pageSize, history, breakdown = "", onSort }: { reply: ReportReply; label: string; page: number; pageSize: number; history: boolean; breakdown?: string; onSort?: () => void }) {
   const cols = reply.columns;
-  const shown = reply.rows.slice((page - 1) * pageSize, page * pageSize);
+  // A heading sorts every row of the period, then the page is cut from that. A new reply is a new table and starts in the server's order.
+  const [sort, setSort] = useState<{ reply: ReportReply; key: string; dir: 1 | -1 } | null>(null);
   const sample = (key: string) => reply.rows.find((x) => x[key] !== null && x[key] !== undefined)?.[key];
+  const active = sort && sort.reply === reply ? sort : null;
+  const ordered = active ? sortRows(reply.rows, active.key, active.dir, isNumericColumn(cols.find((c) => c.key === active.key) ?? { key: active.key, label: "" }, sample(active.key)), (row) => (active.key === "key" ? keyText(row[active.key], breakdown) : row[active.key])) : reply.rows;
+  const shown = ordered.slice((page - 1) * pageSize, page * pageSize);
   const total = reply.total && typeof reply.total === "object" ? reply.total : null;
+  const sortBy = (c: ReportColumn, numeric: boolean) => {
+    // The first click shows the most of a number (largest first) or the start of text and dates (oldest, A to Z); the next click reverses it.
+    setSort({ reply, key: c.key, dir: active?.key === c.key ? (active.dir === 1 ? -1 : 1) : numeric ? -1 : 1 });
+    onSort?.();
+  };
   return (
     <div className="tw2">
       <table className="ptab" aria-label={label}>
         <thead>
           <tr>
-            {cols.map((c) => (
-              <th key={c.key} scope="col" className={isNumericColumn(c, sample(c.key)) ? "n" : undefined}>
-                {c.label}
-              </th>
-            ))}
+            {cols.map((c) => {
+              const numeric = isNumericColumn(c, sample(c.key));
+              const on = active?.key === c.key;
+              return (
+                <th key={c.key} scope="col" className={numeric ? "n" : undefined} aria-sort={on ? (active.dir === 1 ? "ascending" : "descending") : "none"}>
+                  <button type="button" className="thbtn" onClick={() => sortBy(c, numeric)}>
+                    {c.label}
+                    {on ? (active.dir === 1 ? " ↑" : " ↓") : ""}
+                  </button>
+                </th>
+              );
+            })}
             {history && <th scope="col">History</th>}
           </tr>
         </thead>
@@ -483,7 +514,7 @@ export function ReportBody({ r }: { r: ReportState }) {
         // A partial period already said why above; the empty line is for a period Podium covers and found nothing in.
         !reply.partial && <div className="empty">Nothing was recorded in this period.</div>
       ) : (
-        <ReportTable reply={reply} label={cfg.title} page={page} pageSize={prefs.pageSize} history={cfg.report === "failures"} breakdown={prefs.breakdown} />
+        <ReportTable reply={reply} label={cfg.title} page={page} pageSize={prefs.pageSize} history={cfg.report === "failures"} breakdown={prefs.breakdown} onSort={() => r.setPage(1)} />
       )}
       {!empty && <Pager id={`rep-${cfg.report}`} page={page} pageSize={prefs.pageSize} total={reply.rows.length} onPage={r.setPage} onSize={(pageSize) => r.setPrefs({ pageSize })} />}
     </>

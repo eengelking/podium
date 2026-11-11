@@ -72,7 +72,7 @@ function Own(props: { id: string; title: string; help: string; noun: string; lab
       <Waiting reply={s.reply} error={s.error} problem={props.problem} empty={props.empty}>
         {(reply) => (
           <>
-            <ReportTable reply={reply} label={props.label} page={page} pageSize={pageSize} history={props.history === true} breakdown={props.breakdown} />
+            <ReportTable reply={reply} label={props.label} page={page} pageSize={pageSize} history={props.history === true} breakdown={props.breakdown} onSort={() => setPage(1)} />
             <Pager
               id={props.id}
               page={page}
