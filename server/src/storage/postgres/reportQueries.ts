@@ -6,7 +6,7 @@ import type { SessionWaitRow } from '../rows.js';
 import type { Async } from '../types.js';
 import type { PgDb } from './conn.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
 const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 
@@ -23,6 +23,7 @@ const ORDER: Record<RollupTable, string> = {
   feature_versions_daily: 'day, harness, version, feature',
   skills_daily: 'day, owner, harness, skill',
   person_places_daily: 'day, owner, harness, project, branch',
+  answers_daily: 'day, harness, kind, bucket',
   session_time_daily: 'day, harness',
   agents_daily: 'day, harness, type, depth',
   person_sessions_daily: 'day, owner, harness',
@@ -246,6 +247,14 @@ export class PgReportQueries implements Async<ReportQueries> {
     return this.db.tx(async () => {
       for (const r of rows) await this.db.run('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)', [r.day, r.harness, r.tool, r.sessions, r.pricedSessions, r.costUsd, r.calls]);
     });
+  }
+
+  async addAnswer(day: string, harness: string, kind: string, bucket: number): Promise<void> {
+    await this.db.run('INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, ?, ?, ?, 1) ON CONFLICT(day, harness, kind, bucket) DO UPDATE SET count = answers_daily.count + 1', [day, harness, kind, bucket]);
+  }
+
+  async markAnswerDay(day: string): Promise<void> {
+    await this.db.run("INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, '', 'none', -1, 0) ON CONFLICT(day, harness, kind, bucket) DO NOTHING", [day]);
   }
 
   upsertHourPeaks(rows: HourPeakDay[]): Promise<void> {

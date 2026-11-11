@@ -23,6 +23,7 @@ import type { BrowserHelpers } from './peerRoutes.js';
 import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
 import { parseRead } from './activityHistoryInput.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
+import { noteAnswer } from './answers.js';
 
 export interface RespondDeps {
   fleet: Fleet;
@@ -587,6 +588,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     await audit(req, got.v, got.row, out.delivery);
+    await noteAnswer(fleet.db, logger, got.row, out.asked.kind, out.asked.waitedMs, out.delivery.at);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id });
   }));
 
@@ -599,6 +601,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     await audit(req, got.v, got.row, out.delivery);
+    // A command (/clear, /compact) is not an answer: only a message is counted.
+    if (out.delivery.kind === 'message') await noteAnswer(fleet.db, logger, got.row, 'message', null, out.delivery.at);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id, queued: got.row.status === 'running' });
   }));
 

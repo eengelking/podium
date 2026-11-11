@@ -541,6 +541,18 @@ CREATE TABLE IF NOT EXISTS person_places_daily (
   PRIMARY KEY (day, owner, harness, project, branch)
 );`,
   },
+  {
+    version: 42,
+    // How often sessions were answered from Podium and how long they had waited (#725), behind Admin > Reporting > Sessions. One row per day, harness, kind of answer
+    // (`permission`, `question`, `plan` or `message`) and wait class, with how many answers fell in it. A wait class is a `timeBucket` of the milliseconds between the ask
+    // opening and the answer being sent, and -1 for an answer that has no wait (a message goes to a session that is not waiting). Kinds, days and times only: never what
+    // was said. Unlike the other daily tables it is written as each answer is taken and is not rebuilt from the stored sessions, because nothing else keeps an answer.
+    sql: `
+CREATE TABLE IF NOT EXISTS answers_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, kind TEXT NOT NULL, bucket INTEGER NOT NULL, count INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, kind, bucket)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

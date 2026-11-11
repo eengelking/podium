@@ -11,6 +11,7 @@ import { Pager } from "./Pager";
 import { ExportButtons, ReportBody, ReportChart, ReportExport, ReportFilters } from "./ReportParts";
 import { resultsHeading } from "./ReportPages";
 import { formatCell, harnessName, reportErrorText, saveFile, type ReportColumn, type ReportReply, type ReportRow, type ReportsClient } from "./reportsApi";
+import { AnswerSections } from "./AnswerSections";
 import { MixSections } from "./CostSections";
 import { Waiting } from "./ToolsPage";
 import { PlacesSection } from "./ReportingExtras";
@@ -506,6 +507,7 @@ export function SessionsPage({ cfg, client, onLocked }: { cfg: ReportConfig; cli
               </Waiting>
             )}
           </DataSection>
+          <AnswerSections client={client} r={r} onLocked={onLocked} />
           <DataSection id="rep-sessiontime-a" title="Agents launched" help={`By agent type, with a column for each harness. ${period}.`} noun="agents by type " s={agents}>
             {blockedLine ?? (
               <Waiting reply={agents.reply} error={agents.error} problem={r.problem} empty={empty("agents launched")}>

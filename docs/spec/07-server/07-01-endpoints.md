@@ -655,6 +655,19 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
         fields: a permission whose note starts with `ExitPlanMode` is a plan and one that starts with `AskUserQuestion` is a question, any other
         permission is a permission, and `input` with a note is a question (OpenCode asks that way). `input` sent by the settings hooks (the `hooks`
         reporter) is never counted, because its idle prompt carries a message. Only the kind and the time are kept, never the note.
+        `breakdown` also takes `answers` and `answerwait` (#725): the answers sent from the console and how long the session had waited when each was sent.
+        Both are kept per harness and day, so a `person`, `group` or `model` is a `400` as above, `harness` narrows the rows, and a period before counting began
+        is `partial`. The reply carries `answersSince`, the first day Podium counted answers (today when it has not yet), and `periods` lists every period of the
+        range with `null` figures for one that ends before that day, never zeros.
+        - `answers`: rows `period, harness, permission, question, plan, message, all`, counts of answers by kind. `total` has the same keys over the whole
+          period, `periods` each period with every selected harness together, and `byHarness` the whole period for each harness.
+        - `answerwait`: rows `period, harness, answers, medianS, p90S`, over the answers to an ask only (a message goes to a session that is not waiting, so it has no
+          wait): `answers` counts them and `medianS` and `p90S` are the median and 90th percentile wait in seconds, `null` with none. `total`, `periods` and `byHarness` as
+          above, and `kinds` has `kind, answers, medianS, p90S` for `permission`, `question`, `plan` and `message` (the last with `null` waits and every answer counted).
+        An answer is counted when the server takes it from the browser: the answer route, once the session's reporter can take it, and a message from the Console (a
+        `/clear` or `/compact` is not an answer, and neither is a Chat message). The wait is from when the server first heard of the ask, on its own clock, to
+        when the answer was taken, kept as a time class (10% wide), so a median and a 90th percentile are within 10%. An answer given in the terminal never
+        reaches Podium and is not counted. Only the day, harness, kind and wait class are kept: never the text, the person or the session.
       - `workload` (#722): `breakdown` is `person` (default) or `hour`. `harness` narrows the rows to one harness; the reply's `harnesses` lists every harness
         the period holds. A `person` or `model` is a `400`.
         - `person`: one row per person, no `period`: `person, group, activeDays, sessions, perActiveDay, busiestDay, busiestDaySessions`. A day is

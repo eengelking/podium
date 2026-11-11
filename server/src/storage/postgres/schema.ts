@@ -361,6 +361,16 @@ CREATE TABLE person_places_daily (
 );
 `),
   },
+  {
+    version: 18,
+    // How often sessions were answered from Podium and how long they had waited (#725), as SQLite migration 42 keeps it: kinds, days and wait classes only.
+    sql: typed(`
+CREATE TABLE answers_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, kind TXT NOT NULL, bucket INT NOT NULL, count INT NOT NULL,
+  PRIMARY KEY (day, harness, kind, bucket)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
