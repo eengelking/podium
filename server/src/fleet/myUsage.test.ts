@@ -11,8 +11,8 @@ import { createFleetRouter } from './routes.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
 import { MY_BREAKDOWNS, MY_REPORT_NAMES, personScope, runMyReport, type MyReportName } from './reports.js';
-import { costFn, writeRollups } from './rollups.js';
-import { DAY_MS, NOW, agent, at, failure, session } from '../storage/sqlite/rollupFixtures.js';
+import { addDays, costFn, writeRollups } from './rollups.js';
+import { DAY_MS, NOW, TODAY, agent, at, failure, session } from '../storage/sqlite/rollupFixtures.js';
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -265,6 +265,21 @@ describe('My usage: the query layer', () => {
     await expect(runMyReport(deps, '  ', 'spend', {})).rejects.toThrow('a person scope needs the person');
     const mine = await runMyReport(deps, ED.name, 'spend', { person: ALEX.name, breakdown: 'project', from: '2026-09-01', to: '2026-10-20' });
     expect(JSON.stringify(mine)).not.toContain(ALEX.project);
+  });
+});
+
+describe('My usage: how far back stored sessions reach', () => {
+  it('follows the Admin\'s session retention, so a shorter one is partial and not zeros', async () => {
+    const w = await setup();
+    await seed(w);
+    const deps = { db: w.fleet.db, tx: w.storage.tx, now: w.fleet.now, pricing: () => w.fleet.prices.pricing(), retention: { ...w.fleet.cfg.retention, sessionsMs: 7 * DAY_MS } };
+    const q = { from: addDays(TODAY, -20), to: TODAY, breakdown: 'outcome' };
+    const short = await runMyReport(deps, ED.name, 'sessions', q);
+    expect(short.oldestDay).toBe(addDays(TODAY, -8));
+    expect(short.partial).toBe(true);
+    const normal = await runMyReport({ ...deps, retention: w.fleet.cfg.retention }, ED.name, 'sessions', q);
+    expect(normal.oldestDay).toBe(addDays(TODAY, -31));
+    expect(normal.partial).toBe(false);
   });
 });
 

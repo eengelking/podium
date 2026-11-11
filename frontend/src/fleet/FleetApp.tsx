@@ -576,7 +576,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             {chat ? (
               <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={now} openWith={chatWith(window.location.hash)} />
             ) : myUsage ? (
-              <MyUsagePage me={signedIn ?? null} on={state.features["my-usage"] === true} client={usageClientProp} />
+              <MyUsagePage me={signedIn ?? null} on={state.phase === "loading" ? null : state.features["my-usage"] === true} client={usageClientProp} />
             ) : myReporters ? (
               <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} sessions={all} />
             ) : (
@@ -645,8 +645,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                 {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
               </main>
             )}
-            {/* My reporters shows no legend (#446). */}
-            {!myReporters && !chat && <Legend />}
+            {/* My reporters and My usage show no legend (#446, #726). */}
+            {!myReporters && !myUsage && !chat && <Legend />}
           </div>
           <PaneEdgeTab side="right" collapsed={panes.collapsed.right} onToggle={() => toggle("right")} shortcuts={shortcuts} />
           <SidePanel

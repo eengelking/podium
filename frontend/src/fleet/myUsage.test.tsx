@@ -103,6 +103,12 @@ describe("the page's states", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
+  it("says Loading, not that the page is missing, until the console's stream has said whether it is on", () => {
+    render(<MyUsagePage me={null} on={null} client={fake().client} />);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByText("Page not found")).toBeNull();
+  });
+
   it("says the page is not found when the server says sign-in is off", () => {
     render(<MyUsagePage me={{ ...ME, enabled: false }} on client={fake().client} />);
     expect(screen.getByRole("heading", { level: 1, name: "Page not found" })).toBeInTheDocument();
@@ -175,6 +181,23 @@ describe("a signed-in person's page", () => {
     const section = sessions.closest("section")!;
     expect(within(section).getByText(/Podium has no history before 2026-09-19/)).toBeInTheDocument();
     expect(within(section).getByText(/kept for about a month/)).toBeInTheDocument();
+  });
+
+  it("returns a table to its first page when the period changes", async () => {
+    const many = reply("failures", {
+      columns: [
+        { key: "period", label: "Period", unit: "date" },
+        { key: "key", label: "Failure class", unit: "text" },
+        { key: "count", label: "Failures", unit: "count" },
+      ],
+      rows: Array.from({ length: 30 }, (_, i) => ({ period: `2026-10-${String((i % 28) + 1).padStart(2, "0")}`, key: `class-${i}`, count: 1 })),
+    });
+    render(<MyUsagePage me={ME} on client={fake({ failures: many }).client} />);
+    const section = (await screen.findByRole("table", { name: "Failures" })).closest("section")!;
+    fireEvent.click(within(section).getByRole("button", { name: "Next" }));
+    expect(within(section).getByText("Page 2 of 2")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Period"), { target: { value: "7d" } });
+    await waitFor(() => expect(within((screen.getByRole("table", { name: "Failures" })).closest("section")!).getByText("Page 1 of 2")).toBeInTheDocument());
   });
 
   it("keeps its own choices apart from Admin Reporting's, so a breakdown chosen there cannot break this page", async () => {

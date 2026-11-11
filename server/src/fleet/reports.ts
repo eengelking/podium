@@ -238,6 +238,11 @@ export function personScope(owner: string): Scope {
   return { owner };
 }
 
+/** The first day a person's stored sessions can still reach back to: the Admin's session retention, and one day over for the day it ends in (#726). */
+function storedSessionsFloor(deps: ReportDeps, today: string): string {
+  return addDays(today, -(Math.ceil(deps.retention.sessionsMs / 86_400_000) + 1));
+}
+
 async function loadFacts(deps: ReportDeps, scope: Scope, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false, withCost = false, withFeatures = false, withSkills = false, withPlaces = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
@@ -289,7 +294,10 @@ async function loadFacts(deps: ReportDeps, scope: Scope, from: string, to: strin
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
   const floor = addDays(today, -31);
   // A period that ends before today needs nothing live unless the History links want the stored sessions.
-  if (mine !== null) f.live = await buildRollups(db, cost, dayStart(from > floor ? from : floor), { owner: scope.owner! });
+  if (mine !== null) {
+    const reach = storedSessionsFloor(deps, today);
+    f.live = await buildRollups(db, cost, dayStart(from > reach ? from : reach), { owner: scope.owner! });
+  }
   else if (to === today || withSessions) f.live = await buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
   if (to === today) {
     const keep = (d: string) => d === today;
@@ -1580,8 +1588,8 @@ async function myReportOf(deps: ReportDeps, scope: Scope, name: MyReportName, q:
     out.total = total;
   }
   if (name === 'sessions' || name === 'tools') {
-    // Built from the person's stored sessions, which are kept about a month: an earlier day is not zero, it is not there.
-    const first = addDays(localDay(deps.now()), -31);
+    // Built from the person's stored sessions, which are kept as long as the Admin's session retention says (30 days by default): an earlier day is not zero, it is not there.
+    const first = storedSessionsFloor(deps, localDay(deps.now()));
     out.basedOn = 'your stored sessions';
     out.oldestDay = first;
     out.partial = out.from < first;

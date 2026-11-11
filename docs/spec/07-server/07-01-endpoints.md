@@ -205,7 +205,7 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
 - `breakdown`: `spend` takes `none`, `model` or `project`; `sessions` `outcome`, `model`, `effort` or `plan`; `failures` `class` or `tool`; `tools` `tool`. `harness` narrows `tools` only.
 - The reply is the Admin report's shape with `mine: true`. A response holds no other person's name, id, session id or reporter id, and `failures` has no `people` column.
   `spend` and `failures` read the person's rows in the daily rollups, which keep an owner, so their history is the Admin's. `sessions` and `tools` are not kept per person in the rollups and are built from the
-  person's stored sessions (kept about a month): `basedOn` is `your stored sessions`, `oldestDay` is 31 days back, and a period that reaches before it is `partial`.
+  person's stored sessions (kept as long as the session retention, 30 days by default): `basedOn` is `your stored sessions`, `oldestDay` is the day that retention reaches back to (31 days back by default), and a period that reaches before it is `partial`.
 - `404` while the `my-usage` flag is off (the page does not exist, as for an unknown report), `403 { ok: false, error: "sign in to see your usage" }` with no respond session, `400` for a bad period, filter or format.
 - Reads only. Each answer is `Cache-Control: no-store`.
 

@@ -1,7 +1,7 @@
 // My usage (#726, mockup/podium-my-usage.html): a signed-in person's own spend, sessions, failures and tool calls. It is built from the Admin Reporting parts (the
 // period and filters, the chart, the table, the pager and the CSV and JSON), pointed at /respond/usage/<report>. Whose figures these are is decided by the server from the
 // sign-in; nothing here sends a person, a group or an id, and no Admin control (person, group, model) is offered.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminError } from "./admin/adminApi";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { Pager } from "./admin/Pager";
@@ -60,6 +60,8 @@ function Own(props: { id: string; title: string; help: string; noun: string; lab
   const { s } = props;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  // A new period, grouping or harness is a new table: start it on its first page, as the Admin pages do.
+  useEffect(() => setPage(1), [s.reply]);
   return (
     <DataSection id={props.id} title={props.title} help={props.help} noun={props.noun} s={s}>
       {s.reply?.partial && (
@@ -151,11 +153,13 @@ function Reports({ client }: { client: ReportsClient }) {
   );
 }
 
-/** `on` is the Admin's My usage setting from the console's stream; `me` is the sign-in. With the setting off the page does not exist, as the server answers. */
-export function MyUsagePage({ me, on, client = LIVE }: { me: RespondMe | null; on: boolean; client?: ReportsClient }) {
-  const gone = !on || me?.enabled === false;
+/** `on` is the Admin's My usage setting from the console's stream, null until the stream has said; `me` is the sign-in. With the setting off the page does not exist, as the server answers. */
+export function MyUsagePage({ me, on, client = LIVE }: { me: RespondMe | null; on: boolean | null; client?: ReportsClient }) {
+  const gone = on === false || me?.enabled === false;
   let body: React.ReactNode;
-  if (gone) {
+  if (on === null) {
+    body = <div className="hint">Loading…</div>;
+  } else if (gone) {
     body = <Blank title="Page not found">There is nothing at this address. Go back to the wall.</Blank>;
   } else if (!me) {
     body = <div className="hint">Loading…</div>;
@@ -168,7 +172,7 @@ export function MyUsagePage({ me, on, client = LIVE }: { me: RespondMe | null; o
   } else {
     body = <Reports client={client} />;
   }
-  const full = !gone && me?.signedIn === true;
+  const full = on === true && !gone && me?.signedIn === true;
   return (
     <main className="adminv" aria-label="My usage">
       <div className="apage">
