@@ -75,7 +75,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li>Rows link to History only for the person's own sessions (<b>Open</b>). Nothing on the page names another person, a reporter id or a group.</li>
     <li><b>Not signed in</b> shows how to sign in and no data. <b>Setting off</b> shows a console with no My usage button; the page address then shows the same "not found" a missing page does.</li>
     <li><b>Admin &gt; Settings</b> gets one switch row, <b>My usage page</b>. It is drawn Off by default; this is the open question above. An Administrator who opens My usage sees their own figures, not the fleet's.</li>
-    <li>The banner under the top bar is the app's own <code>.banner</code> with the theme and mode picker, as on My reporters.</li>
+    <li>The top bar and banner are what <code>development</code> draws today: the page's own pill (My usage), the connection pill, Fleet, Board, History, Chat and Admin buttons, and the banner's one Wall options pill (#1129) that opens Refresh every, Shortcuts, Theme and Mode. My usage has no button of its own on its own page, as for My reporters.</li>
     <li>The page reads only. It changes nothing, and the Admin read-notice rule does not apply, because no one reads another person's content.</li>
     <li>No new class or token. Nothing here asks for a change to a standard.</li>
   </ul>
@@ -91,23 +91,35 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   var logo = '<svg class="lg" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="9" width="12" height="4" rx="1"/><path d="M4 9V5h8v4"/></svg>';
   var me = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg>';
 
-  function topBar(signedIn, showUsage, current) {
-    var tb = '<span class="tb-sep" aria-hidden="true"></span><span class="tb-me">';
+  /* The top bar is TopBar.tsx: brand, the page's own pill (its button is left off), the connection pill, then Fleet, Board, History,
+     Chat and, for an Administrator, Admin, with the sign-in group after a divider. */
+  function topBar(page, signedIn, showUsage) {
+    var btn = function (t, href) { return page === t ? '' : '<a class="btn" href="' + href + '">' + t + '</a>'; };
+    var tb = '<span class="tb-sep" aria-hidden="true"></span>';
     if (signedIn) {
-      tb += '<span class="tb-who">' + me + 'Signed in as <b>Ed</b></span>' +
-        (showUsage ? '<a class="btn" href="#/me/usage"' + (current ? ' aria-current="page"' : '') + '>My usage</a>' : '') +
-        '<a class="btn" href="#/me/reporters">My reporters · 3 waiting</a><button type="button" class="btn">Sign out</button>';
+      tb += '<span class="tb-me"><span class="tb-who" tabindex="-1">' + me + 'Signed in as <b>Ed</b></span>' +
+        (showUsage && page !== 'My usage' ? '<a class="btn" href="#/me/usage">My usage</a>' : '') +
+        '<a class="btn" href="#/me/reporters">My reporters · 3 waiting</a><button type="button" class="btn">Sign out</button></span>';
     } else {
-      tb += '<button type="button" class="btn">Sign in</button>';
+      tb += '<button type="button" class="btn" aria-haspopup="dialog">Sign in</button>';
     }
     return '<header class="top" id="podium-top"><a class="logo" href="#/" aria-label="Podium, fleet">' + logo + 'Podium</a>' +
+      '<span class="pill" data-testid="page-pill">' + page + '</span>' +
       '<span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>3 reporters live</span><span class="spacer"></span>' +
-      '<a class="btn" href="#/board">Board</a><a class="btn" href="#/history">History</a><a class="btn" href="#/traffic">Traffic</a>' + tb + '</span></header>';
+      btn('Fleet', '#/') + btn('Board', '#/board') + btn('History', '#/history') + btn('Chat', '#/chat') + (signedIn ? btn('Admin', '#/admin') : '') + tb + '</header>';
   }
+  /* The banner is FleetApp's: a sentence and WallOptions (#1129), one sliders pill that opens the display controls. It starts shut. */
+  var SLIDERS = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3.5h9M1.5 8.5h9"/><circle class="knob" cx="4" cy="3.5" r="1.7"/><circle class="knob" cx="8" cy="8.5" r="1.7"/></svg>';
+  var CHEVRON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 1.5 7 5 3.5 8.5"/></svg>';
   function banner(t) {
-    return '<div class="banner has-picker"><span>' + t + '</span>' +
-      '<div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option></select></label>' +
-      '<div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false" tabindex="-1">Light</button><button type="button" role="radio" aria-checked="false" tabindex="-1">Dark</button><button type="button" role="radio" aria-checked="true" tabindex="0">System</button></div></div></div>';
+    return '<div class="banner has-picker" role="region" aria-label="Display settings"><span>' + t + '</span>' +
+      '<div class="wallopts"><button type="button" class="edge-tab edge-tab-opts" aria-expanded="false" aria-controls="wo-body" aria-label="Wall options" data-tip="Wall options">' + SLIDERS + '</button>' +
+      '<div class="wallopts-body" id="wo-body" hidden>' +
+      '<label class="field"><span>Refresh every</span><select class="sel" title="How often the console redraws from new data"><option>2s</option><option>5s</option><option>10s</option><option>20s</option><option>30s</option><option>60s</option></select></label>' +
+      '<span class="field"><span>Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="false" title="Press \\ for the top bar, [ and ] for the side panes, and w for wall mode. Esc leaves wall mode."></button><span>Off</span></span></span>' +
+      '<div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option><option>Solarized</option><option>Nord</option><option>Gruvbox</option><option>Catppuccin (Latte, Mocha)</option><option>GitHub</option></select></label>' +
+      '<div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false" tabindex="-1">Light</button><button type="button" role="radio" aria-checked="false" tabindex="-1">Dark</button><button type="button" role="radio" aria-checked="true" tabindex="0">System</button></div></div>' +
+      '</div></div></div>';
   }
   var EXP = '<div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div>';
   function pager(n, m) { return '<div class="apager"><span class="hint" role="status">Showing 1 to ' + n + ' of ' + m + '</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>'; }
@@ -185,13 +197,15 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function render() {
     var v = S.v, html;
     if (v === 'admin') {
-      html = '<div class="app">' + topBar(true, false, false) + banner('<b>Admin.</b> Settings for this server.') + '<main class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></main></div>';
+      html = '<div class="app">' + topBar('Admin', true, false) + banner('<b>Admin.</b> Tokens, groups, reporters and settings for this server.') + '<main class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></main></div>';
     } else {
       var body = v === 'usage' ? usagePage() : v === 'empty' ? emptyPage() : v === 'signin' ? signinPage() : '';
       if (v === 'off') body = '<div class="page-h"><div><h1>Page not found</h1><p class="lead">There is nothing at this address. Go back to the wall.</p></div></div>';
-      html = '<div class="app">' + topBar(v !== 'signin', v === 'usage' || v === 'empty', v === 'usage' || v === 'empty') + banner(v === 'usage' || v === 'empty' ? '<b>My usage.</b> Your own spend, sessions and failures. Only you see them.' : v === 'signin' ? '<b>My usage.</b> Sign in to see your own figures.' : '<b>Podium.</b> The fleet console.') + '<main class="adminv" aria-label="My usage"><div class="apage"><div class="apage-in">' + body + '</div></div></main></div>';
+      html = '<div class="app">' + topBar(v === 'usage' || v === 'empty' ? 'My usage' : v === 'signin' ? 'My usage' : 'Fleet', v !== 'signin', v === 'usage' || v === 'empty') + banner(v === 'usage' || v === 'empty' ? '<b>My usage.</b> Your own spend, sessions and failures. Cost is an estimate from token counts and a price table, not a bill.' : v === 'signin' ? '<b>My usage.</b> Sign in to see your own figures.' : '<b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.') + '<main class="adminv" aria-label="My usage"><div class="apage"><div class="apage-in">' + body + '</div></div></main></div>';
     }
     app.innerHTML = html;
+    var wp = app.querySelector('.edge-tab-opts'), wb = app.querySelector('.wallopts-body'), wr = app.querySelector('.wallopts');
+    if (wp) wp.addEventListener('click', function () { var o = wb.hidden; wb.hidden = !o; wr.classList.toggle('open', o); wp.setAttribute('aria-expanded', String(o)); var nm = o ? 'Hide wall options' : 'Wall options'; wp.setAttribute('aria-label', nm); wp.setAttribute('data-tip', nm); wp.innerHTML = o ? CHEVRON : SLIDERS; });
     var sw = document.getElementById('mu-sw');
     if (sw) sw.addEventListener('click', function () { var on = sw.getAttribute('aria-checked') !== 'true'; sw.setAttribute('aria-checked', String(on)); document.getElementById('mu-s').textContent = on ? 'On' : 'Off'; document.getElementById('announce').textContent = 'My usage page ' + (on ? 'on' : 'off') + '.'; });
   }
