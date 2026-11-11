@@ -1,7 +1,7 @@
 // The reports behind Admin > Reporting (#484), the Spend breakdown (#482) and the Spend projection (#483), SPEC 7.1 "Reports".
 // Pure over the database: today is read live with the rollup builder, every earlier day from the rollup tables.
 import { startOfDay } from './derive.js';
-import { ROLLUP_KEEP_MS, type CostOf, type RetentionPolicy } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, nameKey, type CostOf, type RetentionPolicy } from '../storage/rows.js';
 import type { FleetStore } from '../storage/types.js';
 import type { RollupRaw, RollupTable } from '../storage/reportQueries.js';
 import type { ReporterPlatformCount } from '../storage/rows.js';
@@ -225,40 +225,58 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
   return oldest;
 }
 
-async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false, withCost = false, withFeatures = false, withSkills = false, withPlaces = false): Promise<Facts> {
+/**
+ * Whose figures a report reads. Every report asks for one explicitly, so a report cannot be whole-fleet by leaving something out:
+ * the Admin's reports pass `FLEET`, My usage (#726) passes the signed-in person through `personScope`.
+ */
+export interface Scope {
+  readonly owner: string | null;
+}
+export const FLEET: Scope = { owner: null };
+export function personScope(owner: string): Scope {
+  if (owner.trim() === '') throw new Error('a person scope needs the person');
+  return { owner };
+}
+
+async function loadFacts(deps: ReportDeps, scope: Scope, from: string, to: string, today: string, cost: CostOf, withSessions = false, withTools = false, withTime = false, withHours = false, withCost = false, withFeatures = false, withSkills = false, withPlaces = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
+  // For a person only the rollups that carry an owner are read from storage. The others (sessions, tools, time, cost) are built from that person's stored sessions, the last 30 days.
+  const mine = scope.owner === null ? null : nameKey(scope.owner);
+  const ownedBy = <T extends { owner: string }>(rows: T[]): T[] => (mine === null ? rows : rows.filter((r) => nameKey(r.owner) === mine));
   const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], skills: [], places: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], costDays: [], toolCosts: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], skills: [], places: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], costDays: [], toolCosts: [], failureSessions: [] } };
   if (from <= stored) {
-    f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
-    f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
-    f.failures = (await select(db, 'failures_daily', from, stored)).map(failureOf);
-    f.fleet = (await select(db, 'fleet_daily', from, stored)).map(fleetOf);
-    if (withTools) {
-      f.tools = (await select(db, 'tools_daily', from, stored)).map(toolOf);
-      f.toolSessions = (await select(db, 'tool_sessions_daily', from, stored)).map(toolSessionOf);
-      f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
-      f.toolStats = (await select(db, 'tool_stats_daily', from, stored)).map(toolStatOf);
+    f.usage = ownedBy((await select(db, 'usage_daily', from, stored)).map(usageOf));
+    f.failures = ownedBy((await select(db, 'failures_daily', from, stored)).map(failureOf));
+    if (mine === null) {
+      f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
+      f.fleet = (await select(db, 'fleet_daily', from, stored)).map(fleetOf);
+      if (withTools) {
+        f.tools = (await select(db, 'tools_daily', from, stored)).map(toolOf);
+        f.toolSessions = (await select(db, 'tool_sessions_daily', from, stored)).map(toolSessionOf);
+        f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
+        f.toolStats = (await select(db, 'tool_stats_daily', from, stored)).map(toolStatOf);
+      }
+      if (withTime) {
+        f.sessionTime = (await select(db, 'session_time_daily', from, stored)).map(sessionTimeOf);
+        f.agentTypes = (await select(db, 'agents_daily', from, stored)).map(agentOf);
+      }
+      if (withCost) {
+        f.costDays = (await select(db, 'cost_daily', from, stored)).map(costDayOf);
+        f.toolCosts = (await select(db, 'tool_cost_daily', from, stored)).map(toolCostOf);
+      }
+      if (withFeatures) {
+        f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
+        f.featureVersions = (await select(db, 'feature_versions_daily', from, stored)).map(featureVersionOf);
+      }
+      if (withHours) f.hourPeaks = (await select(db, 'hour_peaks_daily', from, stored)).map(hourPeakOf);
     }
-    if (withTime) {
-      f.sessionTime = (await select(db, 'session_time_daily', from, stored)).map(sessionTimeOf);
-      f.agentTypes = (await select(db, 'agents_daily', from, stored)).map(agentOf);
-      f.personDays = (await select(db, 'person_sessions_daily', from, stored)).map(personDayOf);
-    }
-    if (withCost) {
-      f.costDays = (await select(db, 'cost_daily', from, stored)).map(costDayOf);
-      f.toolCosts = (await select(db, 'tool_cost_daily', from, stored)).map(toolCostOf);
-    }
-    if (withFeatures) {
-      f.harnessVersions = (await select(db, 'harness_versions_daily', from, stored)).map(harnessVersionOf);
-      f.featureVersions = (await select(db, 'feature_versions_daily', from, stored)).map(featureVersionOf);
-    }
-    if (withSkills) f.skills = (await select(db, 'skills_daily', from, stored)).map(skillOf);
-    if (withPlaces) f.places = (await select(db, 'person_places_daily', from, stored)).map(placeOf);
-    if (withHours) f.hourPeaks = (await select(db, 'hour_peaks_daily', from, stored)).map(hourPeakOf);
+    if (withTime) f.personDays = ownedBy((await select(db, 'person_sessions_daily', from, stored)).map(personDayOf));
+    if (withSkills) f.skills = ownedBy((await select(db, 'skills_daily', from, stored)).map(skillOf));
+    if (withPlaces) f.places = ownedBy((await select(db, 'person_places_daily', from, stored)).map(placeOf));
   }
   // The samples of the last day have not been rolled up yet: the peak of each hour in them is read live, and the larger of it and the stored one counts.
-  if (withHours && to >= addDays(today, -1)) {
+  if (mine === null && withHours && to >= addDays(today, -1)) {
     const merged = new Map<string, HourPeakDay>(f.hourPeaks.map((r) => [`${r.day}\u0000${r.harness}\u0000${r.hour}`, r]));
     for (const r of await peaksByHour(db)) {
       if (r.day < from || r.day > to) continue;
@@ -271,38 +289,59 @@ async function loadFacts(deps: ReportDeps, from: string, to: string, today: stri
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
   const floor = addDays(today, -31);
   // A period that ends before today needs nothing live unless the History links want the stored sessions.
-  if (to === today || withSessions) f.live = await buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
+  if (mine !== null) f.live = await buildRollups(db, cost, dayStart(from > floor ? from : floor), { owner: scope.owner! });
+  else if (to === today || withSessions) f.live = await buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
   if (to === today) {
-    const peaks = await peakLiveByDay(db);
     const keep = (d: string) => d === today;
     f.usage.push(...f.live.usage.filter((r) => keep(r.day)));
-    f.sessions.push(...f.live.sessions.filter((r) => keep(r.day)));
     f.failures.push(...f.live.failures.filter((r) => keep(r.day)));
-    if (withTools) {
-      f.tools.push(...f.live.tools.filter((r) => keep(r.day)));
-      f.toolSessions.push(...f.live.toolSessions.filter((r) => keep(r.day)));
-      f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
-      f.toolStats.push(...f.live.toolStats.filter((r) => keep(r.day)));
+    if (mine === null) {
+      const peaks = await peakLiveByDay(db);
+      f.sessions.push(...f.live.sessions.filter((r) => keep(r.day)));
+      if (withTools) {
+        f.tools.push(...f.live.tools.filter((r) => keep(r.day)));
+        f.toolSessions.push(...f.live.toolSessions.filter((r) => keep(r.day)));
+        f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
+        f.toolStats.push(...f.live.toolStats.filter((r) => keep(r.day)));
+      }
+      if (withTime) {
+        f.sessionTime.push(...f.live.sessionTime.filter((r) => keep(r.day)));
+        f.agentTypes.push(...f.live.agentTypes.filter((r) => keep(r.day)));
+      }
+      if (withFeatures) {
+        f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
+        f.featureVersions.push(...f.live.featureVersions.filter((r) => keep(r.day)));
+      }
+      if (withCost) {
+        f.costDays.push(...f.live.costDays.filter((r) => keep(r.day)));
+        f.toolCosts.push(...f.live.toolCosts.filter((r) => keep(r.day)));
+      }
+      const storedPeak = (await db.storedPeak(today)) ?? 0;
+      const liveFleet = f.live.fleet.find((r) => keep(r.day));
+      if (liveFleet) f.fleet.push({ ...liveFleet, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0) });
+      else if (storedPeak || peaks.get(today)) f.fleet.push({ day: today, activePeople: 0, activeReporters: 0, sessionsStarted: 0, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0), reporterVersions: {}, engineVersions: {} });
     }
-    if (withTime) {
-      f.sessionTime.push(...f.live.sessionTime.filter((r) => keep(r.day)));
-      f.agentTypes.push(...f.live.agentTypes.filter((r) => keep(r.day)));
-      f.personDays.push(...f.live.personDays.filter((r) => keep(r.day)));
-    }
+    if (withTime) f.personDays.push(...f.live.personDays.filter((r) => keep(r.day)));
     if (withSkills) f.skills.push(...f.live.skills.filter((r) => keep(r.day)));
     if (withPlaces) f.places.push(...f.live.places.filter((r) => keep(r.day)));
-    if (withFeatures) {
-      f.harnessVersions.push(...f.live.harnessVersions.filter((r) => keep(r.day)));
-      f.featureVersions.push(...f.live.featureVersions.filter((r) => keep(r.day)));
+  }
+  if (mine !== null) {
+    // The person's own sessions, every day of the window: what the rollups cannot say because they do not keep who (#726).
+    const within = (d: string): boolean => d >= from && d <= to;
+    f.sessions = f.live.sessions.filter((r) => within(r.day));
+    if (withTools) {
+      f.tools = f.live.tools.filter((r) => within(r.day));
+      f.toolSessions = f.live.toolSessions.filter((r) => within(r.day));
+      f.toolStats = f.live.toolStats.filter((r) => within(r.day));
+    }
+    if (withTime) {
+      f.sessionTime = f.live.sessionTime.filter((r) => within(r.day));
+      f.agentTypes = f.live.agentTypes.filter((r) => within(r.day));
     }
     if (withCost) {
-      f.costDays.push(...f.live.costDays.filter((r) => keep(r.day)));
-      f.toolCosts.push(...f.live.toolCosts.filter((r) => keep(r.day)));
+      f.costDays = f.live.costDays.filter((r) => within(r.day));
+      f.toolCosts = f.live.toolCosts.filter((r) => within(r.day));
     }
-    const storedPeak = (await db.storedPeak(today)) ?? 0;
-    const liveFleet = f.live.fleet.find((r) => keep(r.day));
-    if (liveFleet) f.fleet.push({ ...liveFleet, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0) });
-    else if (storedPeak || peaks.get(today)) f.fleet.push({ day: today, activePeople: 0, activeReporters: 0, sessionsStarted: 0, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0), reporterVersions: {}, engineVersions: {} });
   }
   return f;
 }
@@ -331,7 +370,7 @@ const keyedSort = <T extends Row>(rows: T[]): T[] => rows.sort((a, b) => String(
 
 async function usageReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, FLEET, p.from, p.to, p.today, cost);
   const match = (r: UsageDay) => (p.person === null || r.owner === p.person) && (p.group === null || r.group === p.group) && (p.model === null || r.model === p.model);
   const filtered = p.person !== null || p.group !== null || p.model !== null;
   interface Acc { people: Set<string>; reporters: number; sessions: number; peak: number }
@@ -374,10 +413,10 @@ function spendKey(r: UsageDay, breakdown: string): string {
   }
 }
 
-async function spendReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+async function spendReport(deps: ReportDeps, q: Query, cost: CostOf, scope: Scope): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   const breakdown = pick(q, 'spend');
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, scope, p.from, p.to, p.today, cost);
   interface Acc { sessions: number; tokIn: number; tokOut: number; costUsd: number; unpriced: number }
   const add = (a: Acc, r: UsageDay) => {
     a.sessions += r.sessions;
@@ -412,7 +451,7 @@ async function spendReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
 
 async function peopleReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, FLEET, p.from, p.to, p.today, cost);
   const db = deps.db;
   const sessions = new Map<string, number>();
   const groupOf = new Map<string, string>();
@@ -440,10 +479,10 @@ async function peopleReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<R
   return out;
 }
 
-async function sessionsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+async function sessionsReport(deps: ReportDeps, q: Query, cost: CostOf, scope: Scope): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   const breakdown = pick(q, 'sessions');
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, scope, p.from, p.to, p.today, cost);
   interface Acc { sessions: number; dur: number; max: number; agents: number; blow: number; ctx: number }
   const fresh = (): Acc => ({ sessions: 0, dur: 0, max: 0, agents: 0, blow: 0, ctx: 0 });
   const add = (a: Acc, r: SessionsDay) => {
@@ -483,10 +522,10 @@ async function sessionsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise
 
 const SESSION_IDS_MAX = 10;
 
-async function failuresReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+async function failuresReport(deps: ReportDeps, q: Query, cost: CostOf, scope: Scope): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   const breakdown = pick(q, 'failures');
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, true);
+  const f = await loadFacts(deps, scope, p.from, p.to, p.today, cost, true);
   const groups = await ownerGroups(deps.db);
   const match = (owner: string) => (p.person === null || owner === p.person) && (p.group === null || (groups.get(owner) ?? '') === p.group);
   const keyOf = (r: { owner: string; cls: string; tool: string }) => (breakdown === 'class' ? r.cls : breakdown === 'tool' ? r.tool : r.owner);
@@ -706,13 +745,13 @@ function toolDurationReport(p: Params, f: Facts, extra: Record<string, unknown>,
   return { ...envelope(p, 'tools', p.by, f, cols, rows, whole.size ? lengths(whole) : { timed: 0, p50Ms: 0, p95Ms: 0 }), ...extra, byTool: slowest, timedHarnesses: [...timedBy].sort(byCode) };
 }
 
-async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
+async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf, scope: Scope): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   // The tool counts are kept per harness and day, not per person, so a person, group or model filter cannot be honored and is not ignored quietly.
   if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the tools report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'tools');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, breakdown === 'failures', true, false, false, false, false, breakdown === 'skills');
+  const f = await loadFacts(deps, scope, p.from, p.to, p.today, cost, breakdown === 'failures', true, false, false, false, false, breakdown === 'skills');
   f.oldestDay = await oldestToolDay(deps.db, p.today);
   const harnesses = [...new Set([...f.tools.map((r) => r.harness), ...f.toolSessions.map((r) => r.harness), ...f.harnessVersions.map((r) => r.harness), ...f.toolStats.map((r) => r.harness)])].sort(byCode);
   const keep = (h: string): boolean => harness === null || h === harness;
@@ -938,7 +977,7 @@ async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Prom
   const breakdown = pick(q, 'sessiontime');
   const harness = harnessFilter(q);
   if (breakdown === 'answers' || breakdown === 'answerwait') return answersReport(deps, p, breakdown, harness);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true);
+  const f = await loadFacts(deps, FLEET, p.from, p.to, p.today, cost, false, false, true);
   f.oldestDay = await oldestDayOf(deps.db, TIME_TABLES, p.today);
   const harnesses = [...new Set([...f.sessionTime.map((r) => r.harness), ...f.agentTypes.map((r) => r.harness)])].sort(byCode);
   const keep = (h: string): boolean => harness === null || h === harness;
@@ -1066,7 +1105,7 @@ async function workloadReport(deps: ReportDeps, q: Query, cost: CostOf): Promise
   if (p.person !== null || p.model !== null) throw new ReportError('the workload report cannot be filtered by person or model');
   const breakdown = pick(q, 'workload');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true, breakdown === 'hour', false, false, false, breakdown === 'places');
+  const f = await loadFacts(deps, FLEET, p.from, p.to, p.today, cost, false, false, true, breakdown === 'hour', false, false, false, breakdown === 'places');
   const harnesses = [...new Set([...f.places.map((r) => r.harness), ...f.personDays.map((r) => r.harness), ...f.hourPeaks.map((r) => r.harness).filter((h) => h !== '')])].sort(byCode);
   const extra = { harnesses };
 
@@ -1221,7 +1260,7 @@ async function harnessReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<
   if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the harness report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'harness');
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, false, false, false, true);
+  const f = await loadFacts(deps, FLEET, p.from, p.to, p.today, cost, false, false, false, false, false, true);
   f.oldestDay = await oldestHarnessDay(deps.db, p.today);
   const keep = (h: string): boolean => harness === null || h === harness;
   const harnesses = [...new Set([...f.harnessVersions.map((r) => r.harness), ...f.featureVersions.map((r) => r.harness)])].sort(byCode);
@@ -1346,7 +1385,7 @@ async function costsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<Re
   // one of two literals, so no request value is ever used as a property name
   const mixKey: 'model' | 'effort' = mixOf === 'effort' ? 'effort' : 'model';
   const harness = harnessFilter(q);
-  const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, false, false, true);
+  const f = await loadFacts(deps, FLEET, p.from, p.to, p.today, cost, false, false, false, false, true);
   f.oldestDay = await oldestDayOf(deps.db, COST_TABLES, p.today);
   const keep = (h: string, model = ''): boolean => (harness === null || h === harness) && (p.model === null || model === p.model);
   const days = f.costDays.filter((r) => keep(r.harness, r.model));
@@ -1503,21 +1542,68 @@ export const stoppedFeatureCount = (deps: ReportDeps): Promise<number> =>
 /** Each report reads in one transaction: an hourly rollup write or a retention pass cannot land between two of its reads. */
 export const runReport = (deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> => deps.tx(() => reportOf(deps, name, q));
 
+// ---- My usage (#726) --------------------------------------------------------------------------------
+//
+// A person's own figures. The person comes from the caller (the signed-in viewer, read on the server) and is a required argument; the query string only ever holds
+// a period, a grouping, a breakdown and a harness, so there is no way to name someone else. Only reports whose every figure can be built from one person's rows are offered.
+
+/** The reports a person may open on their own, and the breakdowns of each that hold only their own figures. */
+export const MY_BREAKDOWNS = {
+  spend: ['none', 'model', 'project'],
+  sessions: ['outcome', 'model', 'effort', 'plan'],
+  failures: ['class', 'tool'],
+  tools: ['tool'],
+} as const;
+export type MyReportName = keyof typeof MY_BREAKDOWNS;
+export const MY_REPORT_NAMES = Object.keys(MY_BREAKDOWNS) as MyReportName[];
+
+/** The only query keys a person's report reads. Anything else (a person, a group, an owner, a session) is dropped here, before any report sees it. */
+const MY_QUERY_KEYS = ['from', 'to', 'by', 'breakdown', 'harness'] as const;
+
+export const runMyReport = (deps: ReportDeps, person: string, name: MyReportName, q: Query): Promise<ReportReply> => deps.tx(() => myReportOf(deps, personScope(person), name, q));
+
+async function myReportOf(deps: ReportDeps, scope: Scope, name: MyReportName, q: Query): Promise<ReportReply> {
+  const own: Query = {};
+  for (const k of MY_QUERY_KEYS) if (q[k] !== undefined && !(k === 'harness' && name !== 'tools')) own[k] = q[k];
+  const breakdown = one(own, 'breakdown') ?? MY_BREAKDOWNS[name][0];
+  if (!(MY_BREAKDOWNS[name] as readonly string[]).includes(breakdown)) throw new ReportError(`breakdown must be ${MY_BREAKDOWNS[name].join(', ')}`);
+  own.breakdown = breakdown;
+  const cost = costFn(deps.pricing());
+  const reply =
+    name === 'spend' ? await spendReport(deps, own, cost, scope) : name === 'sessions' ? await sessionsReport(deps, own, cost, scope) : name === 'failures' ? await failuresReport(deps, own, cost, scope) : await toolsReport(deps, own, cost, scope);
+  const out: ReportReply = { ...reply, mine: true };
+  if (name === 'failures') {
+    // "People" is how many different people failed: for one person it is always 1, and it would name nothing, so it is left out.
+    out.columns = out.columns.filter((c) => c.key !== 'people');
+    out.rows = out.rows.map(({ people: _people, ...row }) => row);
+    const { people: _total, ...total } = out.total;
+    out.total = total;
+  }
+  if (name === 'sessions' || name === 'tools') {
+    // Built from the person's stored sessions, which are kept about a month: an earlier day is not zero, it is not there.
+    const first = addDays(localDay(deps.now()), -31);
+    out.basedOn = 'your stored sessions';
+    out.oldestDay = first;
+    out.partial = out.from < first;
+  }
+  return out;
+}
+
 function reportOf(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> {
   const cost = costFn(deps.pricing());
   switch (name) {
     case 'usage':
       return usageReport(deps, q, cost);
     case 'spend':
-      return spendReport(deps, q, cost);
+      return spendReport(deps, q, cost, FLEET);
     case 'people':
       return peopleReport(deps, q, cost);
     case 'sessions':
-      return sessionsReport(deps, q, cost);
+      return sessionsReport(deps, q, cost, FLEET);
     case 'failures':
-      return failuresReport(deps, q, cost);
+      return failuresReport(deps, q, cost, FLEET);
     case 'tools':
-      return toolsReport(deps, q, cost);
+      return toolsReport(deps, q, cost, FLEET);
     case 'sessiontime':
       return sessionTimeReport(deps, q, cost);
     case 'workload':

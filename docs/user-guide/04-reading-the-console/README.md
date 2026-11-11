@@ -44,6 +44,7 @@ Drag the handles between the columns to resize them.
 - [Chat](16-chat.md): Talk with your orchestrators and subagents in channels and Direct Messages, address them with @, and read what they say to each other.
 - [History](16-history.md): Look up the sessions that ended on a day you pick, with their agent detail.
 - [What the numbers mean](17-what-the-numbers-mean.md): Look up how cost and the other numbers on the console are worked out.
+- [My usage](18-my-usage.md): See your own spend, sessions, failures and tool calls, and nobody else's.
 <!-- entries:end -->
 
 <!-- nav:start -->

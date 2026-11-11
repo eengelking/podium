@@ -43,7 +43,7 @@ export interface SectionState {
 }
 
 export interface Spec {
-  report: "sessiontime" | "workload" | "costs" | "tools" | "harness";
+  report: "sessiontime" | "workload" | "costs" | "tools" | "harness" | "spend" | "sessions" | "failures";
   breakdown: string;
   /** The Harness filter, when the page has none of its own to send (#723). */
   harness?: string;

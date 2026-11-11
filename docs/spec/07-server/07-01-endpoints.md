@@ -177,9 +177,10 @@ Issue #206 ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#responding-fr
 Every route except `GET /respond/me` needs the browser's respond session ([7.7](07-07-hardening.md)).
 
 **`GET /api/fleet/respond/me`**
-- Body: `{ enabled, signedIn, name, admin }`.
-- `enabled`: whether responding is on for this server (authentication on and the `respond` flag on,
+- Body: `{ enabled, signedIn, name, admin, myUsage }`.
+- `enabled`: whether a browser can sign in on this server (authentication on, and the `respond` flag, the file-diff, recording or Activity history setting, or the `my-usage` flag on,
   [7.7](07-07-hardening.md)).
+- `myUsage`: whether the `my-usage` flag is on (authentication on and the flag on), so the top bar offers My usage (#726).
 - `name` is a person's name or `Admin`. `admin` is true for the admin secret or a person in Administrators.
 - No credential needed.
 
@@ -194,6 +195,19 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
 
 **`POST /api/fleet/respond/sign-out`**
 - Ends this browser's respond session. `200 { ok: true }`.
+
+**`GET /api/fleet/respond/usage/:report`** (#726)
+- A signed-in person's own figures, for the My usage page ([8.1](../08-ui/08-01-what-the-ui-must-do.md)). `:report` is `spend`, `sessions`, `failures` or `tools`; any
+  other name, and every report that holds a figure about anyone else (`people`, `usage`, `activity`, `workload`, `costs`, `harness`, `sessiontime`), is `404 { ok: false, error: "no such report" }`.
+- Whose figures they are is decided on the server from the respond session and nothing else. The query holds `from`, `to`, `by`, `breakdown`, `harness` and `format` (`json` or `csv`);
+  any other key (a person, group, owner, id or name) is dropped before a report reads it, and so is a person in a header, a cookie, a path or a body. The same request with and without one answers the same.
+  A breakdown that names people (`person`, `group`) is `400`, like any unknown breakdown. An Administrator, or the admin secret, gets their own sessions, never the fleet's.
+- `breakdown`: `spend` takes `none`, `model` or `project`; `sessions` `outcome`, `model`, `effort` or `plan`; `failures` `class` or `tool`; `tools` `tool`. `harness` narrows `tools` only.
+- The reply is the Admin report's shape with `mine: true`. A response holds no other person's name, id, session id or reporter id, and `failures` has no `people` column.
+  `spend` and `failures` read the person's rows in the daily rollups, which keep an owner, so their history is the Admin's. `sessions` and `tools` are not kept per person in the rollups and are built from the
+  person's stored sessions (kept about a month): `basedOn` is `your stored sessions`, `oldestDay` is 31 days back, and a period that reaches before it is `partial`.
+- `404` while the `my-usage` flag is off (the page does not exist, as for an unknown report), `403 { ok: false, error: "sign in to see your usage" }` with no respond session, `400` for a bad period, filter or format.
+- Reads only. Each answer is `Cache-Control: no-store`.
 
 **`GET /api/fleet/respond/sessions/:id/asks/:askId`**: the whole ask, for the modal.
 - Body: `{ ask: Ask, state: "open" | "pending" | "not-taken" | "closed", delivery: (Delivery & { result: string | null, mine: boolean }) | null, closed: { outcome: "podium" | "terminal" | "closed" | "ended", at, by: string | null, answer: string | null, planApproved: boolean } | null, lastSeenAt }`.

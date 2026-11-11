@@ -20,9 +20,9 @@ function Root() {
   }, [hash]);
   if (route === "history") return <HistoryView />;
   if (route === "admin") return <AdminView />;
-  // The board, My reporters, Chat and Traffic are pages of the fleet console, so they are the same element with a flag: opening a
+  // The board, My reporters, My usage, Chat and Traffic are pages of the fleet console, so they are the same element with a flag: opening a
   // card keeps the selection it made, and the top bar's "N waiting" and My reporters read the same data.
-  return <FleetApp board={route === "board"} myReporters={route === "my-reporters"} traffic={route === "traffic"} chat={route === "chat"} />;
+  return <FleetApp board={route === "board"} myReporters={route === "my-reporters"} myUsage={route === "my-usage"} traffic={route === "traffic"} chat={route === "chat"} />;
 }
 
 const rootElement = document.getElementById("root");

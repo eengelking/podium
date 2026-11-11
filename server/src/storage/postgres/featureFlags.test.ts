@@ -23,7 +23,7 @@ describe.skipIf(!TEST_PG)('postgres feature flags', () => {
 
   it('reads every flag at its default when nothing is stored', async () => {
     const flags = pgFeatureFlags(db);
-    expect(await flags.view()).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'update-check': true });
+    expect(await flags.view()).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true });
     expect(Object.keys(await flags.view())).toEqual(FEATURES.map((f) => f.id));
     expect(await flags.featureOn(UPDATE_CHECK)).toBe(true);
   });

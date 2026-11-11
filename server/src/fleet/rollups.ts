@@ -5,7 +5,7 @@
 // was last seen, so one that runs past midnight is not split. The hourly retention writes the rollups before it deletes
 // anything (`writeRollups`); the reports read today straight from the live tables with the same builder (`buildRollups`).
 import { repriced } from './derive.js';
-import { ROLLUP_KEEP_MS, type CostOf, type SessionRow, type SessionWaitRow } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, nameKey, type CostOf, type SessionRow, type SessionWaitRow } from '../storage/rows.js';
 import { waitOfOpen, type WaitKind } from './waits.js';
 import type { FleetStore, Storage } from '../storage/types.js';
 import type { Pricing } from './pricing.js';
@@ -412,9 +412,11 @@ const timesJson = (times: Map<number, number>): string => JSON.stringify(Object.
 /**
  * The rollups of every stored session last seen at or after `fromMs`. `sessionsStarted` counts the sessions started on a
  * day, wherever they were last seen. The peak of live sessions is left at 0: `peakLiveByDay` reads it from the samples.
+ * With `only`, just that person's sessions (My usage, #726): everything below is built from the sessions, so nothing of anyone else's is in the result.
  */
-export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number): Promise<DayRollups> {
-  const sessions = await db.sessionsSince(fromMs);
+export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number, only?: { owner: string }): Promise<DayRollups> {
+  const everyone = await db.sessionsSince(fromMs);
+  const sessions = only ? everyone.filter((s) => s.owner !== null && nameKey(s.owner) === nameKey(only.owner)) : everyone;
   const agentCount = new Map<string, number>();
   for (const r of await db.agentCountsSince(fromMs)) agentCount.set(r.id, r.n);
   const reporterOf = new Map<string, string>();
