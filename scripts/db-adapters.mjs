@@ -2,9 +2,9 @@
 // The databases the repo's tooling starts in a container, one entry per storage kind (#823): scripts/test-db.sh starts each kind's
 // test server for the server suite, and scripts/e2e-up.sh starts one beside the server for E2E_DB=<kind>. The kinds themselves are
 // registered in server/src/storage/index.ts; scripts/db-adapters.test.ts fails when this table and the registry disagree (a kind or a
-// test server variable missing here, a kind missing from the e2e.yml database list, or a CI job missing for a version named here).
+// test server variable missing here, a kind missing from the e2e.yml database list, or a CI job missing for the version named here).
 //
-// Adding a database is one entry below: its test server variable, its images, its container port, what makes it ready, and the URLs.
+// Adding a database is one entry below: its test server variable, its test and e2e images, its container port, what makes it ready, and the URLs.
 // In a template, {host}, {port}, {user}, {password} and {db} are filled in by the caller; nothing else is.
 import { fileURLToPath } from "node:url";
 
@@ -17,12 +17,12 @@ export const DB_ADAPTERS = [
     schemes: ["postgres", "postgresql"],
     testVar: "PODIUM_TEST_PG",
     port: 5432,
-    images: { current: "docker.io/library/postgres:17" },
     // The image first runs a temporary server on its socket only, then restarts: -h 127.0.0.1 answers from the final one alone.
     ready: ["pg_isready", "-h", "127.0.0.1", "-U", "{user}"],
-    test: { user: "postgres", env: { POSTGRES_PASSWORD: "{password}" }, url: "postgres://{user}:{password}@{host}:{port}/postgres" },
+    // PostgreSQL 17 is the one version tested (ci.yml's "Test with PostgreSQL", sonar.yml, and the e2e image below); others are untested.
+    test: { image: "docker.io/library/postgres:17", user: "postgres", env: { POSTGRES_PASSWORD: "{password}" }, url: "postgres://{user}:{password}@{host}:{port}/postgres" },
     e2e: {
-      image: "docker.io/library/postgres:17-alpine", // 13 or newer, for DROP DATABASE ... WITH (FORCE)
+      image: "docker.io/library/postgres:17-alpine", // the tested version; an untested override needs 13 or newer, for DROP DATABASE ... WITH (FORCE)
       imageVar: "E2E_PG_IMAGE",
       env: { POSTGRES_USER: "{user}", POSTGRES_PASSWORD: "{password}", POSTGRES_DB: "{db}" },
       args: ["-c", "fsync=off", "-c", "synchronous_commit=off"], // the database is thrown away
@@ -37,13 +37,13 @@ export const DB_ADAPTERS = [
     schemes: ["mariadb"],
     testVar: "PODIUM_TEST_MARIADB",
     port: 3306,
-    // 10.5 is the floor (RETURNING on INSERT and DELETE); 11.4 is the current long-term release. CI runs both (ci.yml, test-mariadb).
-    images: { current: "docker.io/library/mariadb:11.4", floor: "docker.io/library/mariadb:10.5" },
     // The image's own check: --connect refuses the temporary socket-only server the image runs its init on.
     ready: ["healthcheck.sh", "--connect", "--innodb_initialized"],
-    test: { user: "root", env: { MARIADB_ROOT_PASSWORD: "{password}", MARIADB_DATABASE: "podium_test" }, url: "mariadb://{user}:{password}@{host}:{port}/podium_test" },
+    // MariaDB 11.x is supported and 11.4, the long-term release, is the one version tested (ci.yml's "Test with MariaDB 11.4",
+    // sonar.yml, and the e2e image below); other versions are untested.
+    test: { image: "docker.io/library/mariadb:11.4", user: "root", env: { MARIADB_ROOT_PASSWORD: "{password}", MARIADB_DATABASE: "podium_test" }, url: "mariadb://{user}:{password}@{host}:{port}/podium_test" },
     e2e: {
-      image: "docker.io/library/mariadb:10.5.29", // the floor, pinned to its last release (10.5 is out of support, so it will not move)
+      image: "docker.io/library/mariadb:11.4.13", // 11.4, pinned to a patch release so a run does not change under the suite
       imageVar: "E2E_MARIADB_IMAGE",
       env: { MARIADB_USER: "{user}", MARIADB_PASSWORD: "{password}", MARIADB_DATABASE: "{db}", MARIADB_ROOT_PASSWORD: "{password}" },
       args: ["--innodb-flush-log-at-trx-commit=0"], // the database is thrown away
@@ -57,7 +57,7 @@ export const DB_ADAPTERS = [
 
 const HELP = `Usage: node scripts/db-adapters.mjs kinds [--server | --e2e]
        node scripts/db-adapters.mjs kind-of <url>
-       node scripts/db-adapters.mjs shell <kind> test|e2e [--floor] [--image REF] [--set name=value ...]
+       node scripts/db-adapters.mjs shell <kind> test|e2e [--image REF] [--set name=value ...]
 
 The databases the tooling starts in a container, one entry per storage kind (the table is at the top of this file).
 kinds     prints the kinds, space separated: every kind, those with a test server (--server), or those E2E_DB accepts (--e2e).
@@ -65,8 +65,8 @@ kind-of   prints the kind a PODIUM_DB value names (sqlite for a path), exit 1 fo
 shell     prints bash assignments for one kind, for scripts/test-db.sh and scripts/e2e-up.sh to eval: DB_LABEL, DB_IMAGE, DB_PORT,
           DB_TEST_VAR, DB_URL, and the arrays DB_ENV (NAME=value lines for an env file), DB_ARGS, DB_READY and DB_RESET. --set fills a
           template's {name}; {password} comes from the DB_PASSWORD environment variable, so it is never on a command line. test picks
-          the current image, or the floor with --floor; e2e picks the kind's e2e image, or the one its image variable names
-          (E2E_PG_IMAGE, E2E_MARIADB_IMAGE). --image overrides both.`;
+          the kind's test image; e2e picks its e2e image, or the one its image variable names (E2E_PG_IMAGE, E2E_MARIADB_IMAGE).
+          --image overrides both.`;
 
 /** The entry for a kind, or throws naming the kinds there are. */
 export function adapter(kind) {
@@ -94,11 +94,11 @@ export function fill(text, values) {
   return text.replace(/\{(\w+)\}/g, (m, k) => (values[k] === undefined ? m : String(values[k])));
 }
 
-/** The image a run uses: the override, else for e2e the kind's image variable or its e2e image, else the floor or the current one. */
-export function imageFor(a, use, { floor = false, image, env = process.env } = {}) {
+/** The image a run uses: the override, else for e2e the kind's image variable or its e2e image, else its test image. */
+export function imageFor(a, use, { image, env = process.env } = {}) {
   if (image) return image;
   if (use === "e2e") return (a.e2e.imageVar && env[a.e2e.imageVar]) || a.e2e.image;
-  return (floor && a.images.floor) || a.images.current;
+  return a.test.image;
 }
 
 /** Everything a script needs to start and use one kind's container, with the templates filled from `values`. */
@@ -164,10 +164,9 @@ export function run(argv, out = (s) => void process.stdout.write(`${s}\n`), env 
     const [kind, use, ...flags] = rest;
     if (use !== "test" && use !== "e2e") throw new Error("shell needs a kind and test or e2e (see --help)");
     const values = { password: env.DB_PASSWORD ?? "" };
-    const opts = { env, floor: false, image: undefined };
+    const opts = { env, image: undefined };
     for (let i = 0; i < flags.length; i++) {
-      if (flags[i] === "--floor") opts.floor = true;
-      else if (flags[i] === "--image") opts.image = flags[++i];
+      if (flags[i] === "--image") opts.image = flags[++i];
       else if (flags[i] === "--set" && /^\w+=/.test(flags[i + 1] ?? "")) {
         const [k, ...v] = flags[++i].split("=");
         values[k] = v.join("=");

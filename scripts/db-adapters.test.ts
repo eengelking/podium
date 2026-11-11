@@ -12,7 +12,7 @@ import { DB_ADAPTERS, fill, kindOf, kinds, plan, run, shellOf } from "./db-adapt
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const workflow = (f: string) => readFileSync(join(REPO, ".github", "workflows", f), "utf8");
 const servers = DB_ADAPTERS.filter((a) => a.testVar);
-/** The tag of an image reference: docker.io/library/mariadb:10.5 -> 10.5. */
+/** The tag of an image reference: docker.io/library/mariadb:11.4 -> 11.4. */
 const tag = (ref: string) => ref.slice(ref.lastIndexOf(":") + 1);
 
 /** The jobs of a workflow, by name, each with its text (the same split as server/src/storage/adapters.test.ts). */
@@ -30,11 +30,13 @@ describe("the database table", () => {
   it("names each kind once, and gives each one with a test server everything a container needs", () => {
     expect(new Set(DB_ADAPTERS.map((a) => a.kind)).size).toBe(DB_ADAPTERS.length);
     for (const a of servers) {
-      expect(a, a.kind).toMatchObject({ port: expect.any(Number), schemes: expect.arrayContaining([a.kind]), images: { current: expect.stringMatching(/:/) } });
+      expect(a, a.kind).toMatchObject({ port: expect.any(Number), schemes: expect.arrayContaining([a.kind]), test: { image: expect.stringMatching(/:/) } });
       expect(a.ready!.length, a.kind).toBeGreaterThan(0);
       expect(a.test!.url, a.kind).toMatch(new RegExp(`^${a.kind}://\\{user\\}:\\{password\\}@\\{host\\}:\\{port\\}/`));
       expect(a.e2e, a.kind).toMatchObject({ image: expect.stringMatching(/:/), imageVar: expect.stringMatching(/^E2E_\w+_IMAGE$/), url: expect.stringContaining("{password}") });
       expect(a.e2e!.reset.join(" "), a.kind).toMatch(/DROP DATABASE.*\{db\}.*CREATE DATABASE \{db\}/);
+      // One tested version per kind: the e2e image is the test image's version, pinned further or in another variant.
+      expect(tag(a.e2e!.image), `${a.kind}'s e2e image must be the tested version, ${tag(a.test!.image)}`).toMatch(new RegExp(`^${tag(a.test!.image).replace(/\./g, "\\.")}[.-]`));
     }
   });
 
@@ -50,12 +52,13 @@ describe("the database table", () => {
     expect([...list].sort()).toEqual(kinds("e2e").sort());
   });
 
-  it("has a CI job for each test server that runs every version the table names, and sets no condition on it", () => {
+  it("has a CI job for each test server that runs the version the table names, and sets no condition on it", () => {
     const all = jobs(workflow("ci.yml"));
     for (const a of servers) {
       const job = Object.entries(all).find(([, text]) => text.includes(`${a.testVar}:`));
       expect(job, `no job in ci.yml sets ${a.testVar}`).toBeTruthy();
-      for (const ref of Object.values(a.images!)) expect(job![1], `${job![0]} must run ${a.kind} ${tag(ref)}`).toContain(tag(ref));
+      expect(job![1], `${job![0]} must run ${a.kind} ${tag(a.test!.image)}`).toContain(`image: ${a.kind}:${tag(a.test!.image)}\n`);
+      expect(job![1], `${job![0]} must run one version, not a matrix`).not.toMatch(/matrix/);
       expect(job![1], `${job![0]} must leave out only the kinds that have their own job`).toMatch(new RegExp(`PODIUM_TEST_ONLY: sqlite,${a.kind}\\n`));
     }
   });
@@ -64,7 +67,7 @@ describe("the database table", () => {
     const coverage = jobs(workflow("sonar.yml")).coverage ?? "";
     for (const a of servers) {
       expect(coverage, `sonar.yml's coverage job must set ${a.testVar}`).toContain(`${a.testVar}:`);
-      expect(coverage, `sonar.yml's coverage job must run ${a.kind} ${tag(a.images!.current)}`).toContain(tag(a.images!.current));
+      expect(coverage, `sonar.yml's coverage job must run ${a.kind} ${tag(a.test!.image)}`).toContain(`image: ${a.kind}:${tag(a.test!.image)}\n`);
     }
     expect(coverage).not.toMatch(/PODIUM_TEST_ONLY/);
   });
@@ -100,15 +103,14 @@ describe("db-adapters.mjs", () => {
     expect(fill("{user}@{host}:{port}/{other}", { user: "u", host: "h", port: 1 })).toBe("u@h:1/{other}");
   });
 
-  it("plans a test container with the current image or the floor, and an e2e one with its image variable", () => {
+  it("plans a test container with its test image, and an e2e one with its image variable", () => {
     const t = plan("mariadb", "test", { password: "pw", host: "127.0.0.1", port: 4000 });
     expect(t).toMatchObject({ image: "docker.io/library/mariadb:11.4", url: "mariadb://root:pw@127.0.0.1:4000/podium_test", testVar: "PODIUM_TEST_MARIADB" });
     expect(t.env).toContain("MARIADB_ROOT_PASSWORD=pw");
-    expect(plan("mariadb", "test", {}, { floor: true }).image).toBe("docker.io/library/mariadb:10.5");
-    expect(plan("postgres", "test", {}, { floor: true }).image).toBe("docker.io/library/postgres:17");
+    expect(plan("postgres", "test").image).toBe("docker.io/library/postgres:17");
     expect(plan("mariadb", "test", {}, { image: "x/y:1" }).image).toBe("x/y:1");
     const e = plan("mariadb", "e2e", { password: "pw", user: "podium", db: "podium_e2e", host: "db" }, { env: {} });
-    expect(e).toMatchObject({ image: "docker.io/library/mariadb:10.5.29", url: "mariadb://podium:pw@db:3306/podium_e2e" });
+    expect(e).toMatchObject({ image: "docker.io/library/mariadb:11.4.13", url: "mariadb://podium:pw@db:3306/podium_e2e" });
     expect(e.reset.join(" ")).not.toContain("pw");
     expect(plan("postgres", "e2e", {}, { env: { E2E_PG_IMAGE: "x/pg:13" } }).image).toBe("x/pg:13");
     expect(() => plan("sqlite", "test")).toThrow(/sqlite has no test container/);
@@ -135,6 +137,7 @@ describe("db-adapters.mjs", () => {
     expect(out[2]).toContain("Usage: node scripts/db-adapters.mjs kinds");
     expect(() => run(["shell", "mariadb"], say)).toThrow(/test or e2e/);
     expect(() => run(["shell", "mariadb", "test", "--bad"], say)).toThrow(/unknown argument/);
+    expect(() => run(["shell", "mariadb", "test", "--floor"], say)).toThrow(/unknown argument "--floor"/);
     expect(() => run(["nope"], say)).toThrow(/unknown command/);
     const cli = spawnSync(process.execPath, [join(REPO, "scripts", "db-adapters.mjs"), "shell", "oracle", "test"], { encoding: "utf8" });
     expect(cli.status).toBe(2);

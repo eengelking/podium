@@ -60,7 +60,8 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 ## A database on the network
 
 `PODIUM_DB=postgres://user:password@host:5432/dbname` (#822, DECISIONS 53) and `PODIUM_DB=mariadb://user:password@host:3306/dbname`
-(#823) work in both modes. `podiumctl` passes it through,
+(#823) work in both modes. The supported databases are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4); other
+versions are untested ([Running the server](../SERVER.md#using-postgresql)). `podiumctl` passes it through,
 and in container mode it replaces `/data/podium.sqlite`, so the container needs no database file; `/data` still holds the TLS
 CA. `podiumctl` sets `PODIUM_DATA_DIR` to `/data` in the container and, standalone, to the folder of the SQLite file or
 `~/.podium/data` for a database on the network. The Containerfile does not set it, so a SQLite container run without

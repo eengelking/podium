@@ -6,16 +6,16 @@ set -uo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/test-db.sh [--floor] [--image KIND=REF ...] [--] [vitest args...]
+Usage: scripts/test-db.sh [--image KIND=REF ...] [--] [vitest args...]
        e.g. scripts/test-db.sh src/storage/adapters.test.ts
 
 Starts one throwaway container per database that has a test server (PostgreSQL, MariaDB, ...: `node scripts/db-adapters.mjs kinds
 --server`), all at once, with a placeholder password on a free local port, waits until each answers, sets its test server variable
 (PODIUM_TEST_PG, PODIUM_TEST_MARIADB, ...), runs `npx vitest run [vitest args]` in server/, and removes every container it started,
-however the run ends. Each test file makes its own database on each server and drops it after.
+however the run ends. Each test file makes its own database on each server and drops it after. Each database runs the one version
+that is tested (PostgreSQL 17, MariaDB 11.4); --image runs another, which is untested.
 
 Options:
-  --floor            Use each database's oldest supported version where it names one (MariaDB 10.5), not the current one.
   --image KIND=REF   Use this image for one kind (for example --image mariadb=docker.io/library/mariadb:11.8).
   -h, --help         Show this help.
 
@@ -29,11 +29,10 @@ USAGE
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TABLE="$ROOT/scripts/db-adapters.mjs"
-FLOOR=() ; IMAGES=()
+IMAGES=()
 while (($#)); do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --floor) FLOOR=(--floor); shift ;;
     --image) [[ "${2:-}" == *=* ]] || { echo "test-db: --image needs KIND=REF" >&2; exit 2; }; IMAGES+=("$2"); shift 2 ;;
     --) shift; break ;;
     *) break ;;
@@ -45,8 +44,10 @@ engine="${CONTAINER_ENGINE:-podman}"
 
 all="$(node "$TABLE" kinds)" || exit 2
 servers="$(node "$TABLE" kinds --server)" || exit 2
-only=" $(printf '%s' "${PODIUM_TEST_ONLY:-}" | tr ',' ' ') "
-limited=0 ; [[ -n "${PODIUM_TEST_ONLY//[ ,]/}" ]] && limited=1
+# Read with a default: bash 4 and later stop on a pattern read of an unset variable under set -u, where macOS's bash 3.2 does not.
+only_env="${PODIUM_TEST_ONLY:-}"
+only=" $(printf '%s' "$only_env" | tr ',' ' ') "
+limited=0 ; [[ -n "${only_env//[ ,]/}" ]] && limited=1
 for k in $only; do
   [[ " $all " == *" $k "* ]] || { echo "test-db: PODIUM_TEST_ONLY names \"$k\", which is not a storage kind (kinds: $all)" >&2; exit 2; }
 done
@@ -66,7 +67,7 @@ trap 'exit 130' INT TERM
 for k in $servers; do
   if ((limited)) && [[ "$only" != *" $k "* ]]; then continue; fi
   img=() ; for i in ${IMAGES[@]+"${IMAGES[@]}"}; do [[ "${i%%=*}" == "$k" ]] && img=(--image "${i#*=}"); done
-  shell="$(DB_PASSWORD=change-me node "$TABLE" shell "$k" test ${FLOOR[@]+"${FLOOR[@]}"} ${img[@]+"${img[@]}"})" || exit 2
+  shell="$(DB_PASSWORD=change-me node "$TABLE" shell "$k" test ${img[@]+"${img[@]}"})" || exit 2
   eval "$shell"
   name="podium-test-$k-$$"
   envs=() ; for e in "${DB_ENV[@]}"; do envs+=(-e "$e"); done
@@ -102,7 +103,7 @@ cd "$ROOT/server" || exit 2
 npx vitest run "$@"
 code=$?
 if ((limited)); then
-  echo "test-db: LIMITED by PODIUM_TEST_ONLY=$PODIUM_TEST_ONLY. Servers started: ${RAN[*]:-none}. NOT RUN: ${LEFT[*]:-none}. A limited run is not a pass for a pull request."
+  echo "test-db: LIMITED by PODIUM_TEST_ONLY=$only_env. Servers started: ${RAN[*]:-none}. NOT RUN: ${LEFT[*]:-none}. A limited run is not a pass for a pull request."
 else
   echo "test-db: every adapter had its server: sqlite ${RAN[*]:-}"
 fi

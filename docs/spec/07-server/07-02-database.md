@@ -519,7 +519,9 @@ The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `R
 ## PostgreSQL (#822)
 
 `PODIUM_DB=postgres://user:password@host:5432/dbname` (or `postgresql://`) makes PostgreSQL the database
-([DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)). The
+([DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)).
+The supported databases are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4). PostgreSQL 17 is the one
+version tested; other versions are untested. The
 database must exist and be empty or made by Podium; the server creates its schemas and tables and migrates them at start. The
 tables above, and every rule that comes with them, hold on PostgreSQL as written, with these differences in how they are kept:
 
@@ -544,8 +546,9 @@ tables above, and every rule that comes with them, hold on PostgreSQL as written
 
 ## MariaDB (#823)
 
-`PODIUM_DB=mariadb://user:password@host:3306/dbname` makes MariaDB 10.5 or later the database (the addition to
-[DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)). The database
+`PODIUM_DB=mariadb://user:password@host:3306/dbname` makes MariaDB the database (the addition to
+[DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)).
+Podium supports MariaDB 11.x and tests one version, 11.4; other versions are untested, and MySQL is not supported. The database
 must exist and be empty or made by Podium; the server creates its tables and migrates them at start. The only URL parameter is
 `ssl=true` or `ssl=false`; any other, or a URL with no database name, stops the server at start. The tables above, and every rule
 that comes with them, hold on MariaDB as written, with these differences in how they are kept:

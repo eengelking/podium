@@ -320,7 +320,7 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 |---|---|---|
 | `PORT` | `4317` | Server port (the Vite proxy follows it) |
 | `HOST` | `127.0.0.1` | Bind address. Podium is for one machine; leave it on localhost |
-| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file. `postgres://user:password@host:5432/dbname` (or `postgresql://`) is a PostgreSQL database: it must exist, the server makes its own schemas (`podium` and `podium_activity`) in it, one server per database (a second one stops at start), and nothing is copied from a SQLite file. `mariadb://user:password@host:3306/dbname` is a MariaDB database, with the same rules: it must exist, the server makes its own tables in it, one server per database (see [Using MariaDB](#using-mariadb)). An unknown `kind://` stops the server at start, and the log and `/health` show `host:port/dbname`, never the user or the password (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). On SQLite a second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording; on PostgreSQL that history is the schema `podium_activity` in the same database, and on MariaDB it is tables of its own in the same database |
+| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file. `postgres://user:password@host:5432/dbname` (or `postgresql://`) is a PostgreSQL 17 database (see [Using PostgreSQL](#using-postgresql)): it must exist, the server makes its own schemas (`podium` and `podium_activity`) in it, one server per database (a second one stops at start), and nothing is copied from a SQLite file. `mariadb://user:password@host:3306/dbname` is a MariaDB 11.x database (tested on 11.4), with the same rules: it must exist, the server makes its own tables in it, one server per database (see [Using MariaDB](#using-mariadb)). An unknown `kind://` stops the server at start, and the log and `/health` show `host:port/dbname`, never the user or the password (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). On SQLite a second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording; on PostgreSQL that history is the schema `podium_activity` in the same database, and on MariaDB it is tables of its own in the same database |
 | `PODIUM_DATA_DIR` | the folder of `PODIUM_DB` | Folder for what the server keeps beside the database, today the TLS CA (`tls/`). Only needed when `PODIUM_DB` is not a file; a database that is not a file (PostgreSQL, MariaDB) stops the server at start without it. `podiumctl` sets it for you: `/data` in the container, else `~/.podium/data` for a database on the network |
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
@@ -356,6 +356,9 @@ Sessions, agents and events are stored in SQLite (Node's built-in `node:sqlite`)
 MariaDB (see [Using MariaDB](#using-mariadb)), so a server restart loses
 nothing that was reported. Sessions come back as stale and recover when their reporters send again.
 
+The databases Podium supports are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4). Other versions of
+PostgreSQL and MariaDB are untested, and MySQL is not supported.
+
 ## Using PostgreSQL
 
 SQLite is the default and needs nothing from you. Set `PODIUM_DB` to a `postgres://` URL to keep the same data in PostgreSQL
@@ -374,9 +377,9 @@ limits below before you rely on it.
   has not been tried.
 - **Room for 15 connections.** The main schema uses a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
-- **PostgreSQL 17.** Every test of the PostgreSQL adapter, in CI and in `scripts/test-db.sh`, runs against 17 and no other
-  version. The SQL in the adapter uses nothing newer than identity columns (PostgreSQL 10), so 10 is the floor the code
-  implies, but nothing below 17 has been run. Treat 17 as the supported version.
+- **PostgreSQL 17.** Podium supports PostgreSQL 17, the one version tested: every test of the PostgreSQL adapter, in CI
+  (`Test with PostgreSQL`) and in `scripts/test-db.sh`, runs on 17, and the end-to-end suite runs on `postgres:17-alpine`.
+  Other versions are untested. The adapter does not check the server's version at start.
 
 **One server per database.** At start Podium takes a PostgreSQL session advisory lock on a connection of its own. A second
 server on the same database finds the lock taken and stops with a message. The lock goes with its connection, so it is
@@ -429,9 +432,11 @@ passed through. A URL with no database name, or with any other parameter, stops 
   global privilege. The lock below is a `GET_LOCK`, which needs none.
 - **Room for 15 connections.** The main tables use a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
-- **MariaDB 10.5 or later.** 10.5 is the floor: the adapter uses `INSERT ... RETURNING`, which arrived in 10.5. CI runs every
-  test of the adapter on 10.5 and on 11.4 (10.5.29 and 11.4.13 when this was written), and the end-to-end suite runs on
-  10.5.29. No other version has been run.
+- **MariaDB 11.x, tested on 11.4.** Podium supports MariaDB 11.x, and 11.4, the long-term release, is the one version tested:
+  every test of the adapter, in CI (`Test with MariaDB 11.4`) and in `scripts/test-db.sh`, runs on 11.4 (11.4.13 when this was
+  written), and the end-to-end suite runs on `mariadb:11.4.13`. Other versions, 10.x and other 11.x releases included, are
+  untested. The adapter uses `INSERT ... RETURNING` and `ADD COLUMN IF NOT EXISTS`, which MariaDB 10.5 also has, but nothing
+  older than 11.4 has been run, and the adapter does not check the server's version at start.
 
 **MySQL is not supported.** The adapter uses the official `mariadb` driver and MariaDB's own SQL: `utf8mb4_nopad_bin`,
 `ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS` and `RETURNING`. MySQL has none of these, so a MySQL server is expected

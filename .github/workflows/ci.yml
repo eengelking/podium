@@ -29,7 +29,7 @@ jobs:
         run: scripts/ci-retry.sh --name "Test" --timeout 15m -- npm test
         env:
           # This job has no database server. It says so, and the run prints that PostgreSQL and MariaDB were NOT RUN; the "Test with PostgreSQL"
-          # and "Test with MariaDB" jobs below run them, and every adapter with a server has a job of its own, which a test in
+          # and "Test with MariaDB 11.4" jobs below run them, and every adapter with a server has a job of its own, which a test in
           # server/src/storage/adapters.test.ts requires (#1008).
           PODIUM_TEST_ONLY: sqlite
 
@@ -89,21 +89,16 @@ jobs:
         run: scripts/ci-retry.sh --name "Test the server with PostgreSQL behind it" --timeout 10m -- npm test -w server
 
   # The MariaDB adapter's tests (#823), the same way as PostgreSQL's above: PODIUM_TEST_MARIADB names a service container on a GitHub-hosted
-  # runner, and each test file makes and drops its own database on it. It runs on the floor version (10.5, the first with RETURNING) and on
-  # the current long-term release, the two versions scripts/db-adapters.mjs names (scripts/db-adapters.test.ts holds them together). Each
-  # is its own check: "Test with MariaDB 10.5" and "Test with MariaDB 11.4". The root password is empty: the service lives for one job and
-  # only the runner reaches it.
+  # runner, and each test file makes and drops its own database on it. Podium supports MariaDB 11.x and tests one version, 11.4, the
+  # long-term release scripts/db-adapters.mjs names (scripts/db-adapters.test.ts holds them together); other versions are untested. The
+  # root password is empty: the service lives for one job and only the runner reaches it.
   test-mariadb:
-    name: Test with MariaDB ${{ matrix.mariadb }}
+    name: Test with MariaDB 11.4
     runs-on: ubuntu-latest
     timeout-minutes: 40 # three test attempts of up to 10 minutes, plus install
-    strategy:
-      fail-fast: false
-      matrix:
-        mariadb: ['10.5', '11.4']
     services:
       mariadb:
-        image: mariadb:${{ matrix.mariadb }}
+        image: mariadb:11.4
         env:
           MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1"
           MARIADB_DATABASE: podium_test
@@ -130,9 +125,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Test the server with MariaDB behind it
-        env:
-          MARIADB_VERSION: ${{ matrix.mariadb }}
-        run: scripts/ci-retry.sh --name "Test the server with MariaDB $MARIADB_VERSION behind it" --timeout 10m -- npm test -w server
+        run: scripts/ci-retry.sh --name "Test the server with MariaDB behind it" --timeout 10m -- npm test -w server
 
   # The reporters' shared code (#934). `npm test` above also runs these files through the server's config; this job runs them
   # on their own, with no harness CLI and no harness API types, which is how a change to plugin/core/ is judged for every harness.

@@ -236,8 +236,10 @@ contract.
   stays in PostgreSQL's `known` list: a fraction, an infinity or a number of 1e21 or more sent to an integer column or compared
   with one makes PostgreSQL throw where SQLite accepts it. The HTTP edge refuses those numbers; the store has no typed validation.
 - **No password in the open.** The label in the log and in `/health` is `host:port/dbname`.
+- **Version.** PostgreSQL 17 is the version supported and the one tested: CI (`Test with PostgreSQL`, and Sonar's coverage run) uses
+  `postgres:17`, `scripts/test-db.sh` the same, and the end-to-end suite `postgres:17-alpine`. Other versions are untested.
 
-The PostgreSQL tests need `PODIUM_TEST_PG` to name a server, and the MariaDB tests `PODIUM_TEST_MARIADB` ([CONTRIBUTING](../../../CONTRIBUTING.md)). A run without one fails and names the adapter, because a run that leaves one out is not a pass; `PODIUM_TEST_ONLY=<kinds>` leaves the others out on purpose and the run prints which were NOT RUN, which is not a pass for a pull request (`scripts/test-db.sh` runs every adapter, with a throwaway container for each one that needs a server). A run with a variable and no server fails too (`server/src/storage/serverGate.ts`, `postgres/gate.ts`, `mariadb/gate.ts`). CI runs them in the `test-postgres` job (`Test with PostgreSQL`) and in the `test-mariadb` job, once on MariaDB 10.5 and once on 11.4 (`Test with MariaDB 10.5`, `Test with MariaDB 11.4`). The "Protect development and main" ruleset requires `Test with PostgreSQL`, and the maintainer adds the two MariaDB checks to it; the "Release checks on main" ruleset requires `E2E summary`, which fails when the release PR's end-to-end job, a run on every database in `e2e.yml`'s list, fails or is skipped.
+The PostgreSQL tests need `PODIUM_TEST_PG` to name a server, and the MariaDB tests `PODIUM_TEST_MARIADB` ([CONTRIBUTING](../../../CONTRIBUTING.md)). A run without one fails and names the adapter, because a run that leaves one out is not a pass; `PODIUM_TEST_ONLY=<kinds>` leaves the others out on purpose and the run prints which were NOT RUN, which is not a pass for a pull request (`scripts/test-db.sh` runs every adapter, with a throwaway container for each one that needs a server). A run with a variable and no server fails too (`server/src/storage/serverGate.ts`, `postgres/gate.ts`, `mariadb/gate.ts`). CI runs them in the `test-postgres` job (`Test with PostgreSQL`, on PostgreSQL 17) and in the `test-mariadb` job (`Test with MariaDB 11.4`, on MariaDB 11.4), one version each. The "Protect development and main" ruleset requires `Test with PostgreSQL`, and the maintainer adds `Test with MariaDB 11.4` to it; the "Release checks on main" ruleset requires `E2E summary`, which fails when the release PR's end-to-end job, a run on every database in `e2e.yml`'s list, fails or is skipped.
 
 **One failure, all adapters (#1008).** A failure of the contract or the differential test on any adapter fails the whole run and names the adapter. The fix makes the case pass on every adapter. A case is never skipped or loosened for one adapter; a difference that is not a defect is a listed exception in `contractSame.ts`, and a defect another issue owns is in that adapter's `known` list with the issue that fixes it (reported as a warning, a failure with `PODIUM_DIFF_STRICT=1`, and a failure once the case passes, so the entry has to go). A new adapter needs more than its folder and its registration; [Adding an adapter](#adding-an-adapter) lists every step, and the guards that fail when one is missing.
 
@@ -313,6 +315,10 @@ adapter, with the SQL changed where MariaDB needs it, and passes the same contra
   numbers before any store is called, so it is not reachable over HTTP.
 - **No password in the open.** The label in the log, in `/health` and in the lock's messages is `host:port/dbname`, and the driver
   is told not to put bound values in an error.
+- **Version.** Podium supports MariaDB 11.x and tests one version, 11.4, the long-term release: CI (`Test with MariaDB 11.4`, and
+  Sonar's coverage run) uses `mariadb:11.4`, `scripts/test-db.sh` the same, and the end-to-end suite `mariadb:11.4.13`. Other
+  versions are untested. The SQL needs `RETURNING` and `ADD COLUMN IF NOT EXISTS`, which MariaDB 10.5 also has, but nothing older
+  than 11.4 is run. The adapter does not check the server's version at start. MySQL is not supported.
 
 ## Adding an adapter
 
@@ -326,15 +332,15 @@ step has a guard that fails when it is missing.
 | Its folder in `ADAPTERS` and its driver's names | `server/src/storage/neutral.test.ts` | The same test: an unlisted folder is read as app code, which may not name a database |
 | Its folder in the lists of adapter folders these tests skip or read: the Admin read registry's scan, and the Chat separation check | `server/src/fleet/adminReads.test.ts`, `server/src/storage/separation.test.ts` | `adminReads.test.ts` reads the adapter's store methods as unregistered Admin reads; `separation.test.ts` does not check the new adapter's `chat.ts` |
 | Its `globalSetup.ts` | `globalSetup` in `server/vitest.config.ts` | Nothing directly: with the variable set and no server answering, the run then fails test by test instead of once (`postgres/globalSetup.ts` also runs the "not set" check for every registered adapter) |
-| Its kind, scheme, test server variable, images (current, and a floor if it has one), port, readiness and reset commands | `DB_ADAPTERS` in `scripts/db-adapters.mjs`, which `scripts/test-db.sh` and `scripts/e2e-up.sh` read | `scripts/db-adapters.test.ts` |
+| Its kind, scheme, test server variable, its test and end-to-end images (one tested version), port, readiness and reset commands | `DB_ADAPTERS` in `scripts/db-adapters.mjs`, which `scripts/test-db.sh` and `scripts/e2e-up.sh` read | `scripts/db-adapters.test.ts` |
 | Where its NULLs sort, and whether it has `NULLS FIRST` and `NULLS LAST` | `DIALECTS` in `scripts/storage-order-parity.mjs` | The script, in `npm test` |
 | How to make and drop a throwaway database on its server | `SERVERS` in `scripts/throwaway-db.mjs` | `scripts/throwaway-db.test.ts` |
-| A job that sets its test server variable, on every version its entry names, with `PODIUM_TEST_ONLY: sqlite,<kind>` | `.github/workflows/ci.yml` | `adapters.test.ts` and `scripts/db-adapters.test.ts` |
+| A job that sets its test server variable, on the version its entry names, with `PODIUM_TEST_ONLY: sqlite,<kind>` | `.github/workflows/ci.yml` | `adapters.test.ts` and `scripts/db-adapters.test.ts` |
 | Its service in the `coverage` job | `.github/workflows/sonar.yml` | `scripts/db-adapters.test.ts` |
 | Its kind in the `DATABASES` default and in the `case` that checks the list | `.github/workflows/e2e.yml` | `adapters.test.ts` and `scripts/db-adapters.test.ts` for the default; nothing for the `case`, which then refuses the kind at run time |
 | Its folder in `sonar.cpd.exclusions`, since it mirrors the SQLite adapter by design | `sonar-project.properties` | Nothing; SonarCloud reports it as duplicated |
 | The new CI check names, for the maintainer to add to the "Protect development and main" ruleset | The PR body | Nothing: only the maintainer edits the ruleset |
-| A URL form, the version floor and the limits for whoever runs it, and the adapter's section on this page | `docs/SERVER.md`, this page, `docs/atlas/` | `node scripts/atlas-functions.mjs --check` for a file the atlas names |
+| A URL form, the version tested and the limits for whoever runs it, and the adapter's section on this page | `docs/SERVER.md`, this page, `docs/atlas/` | `node scripts/atlas-functions.mjs --check` for a file the atlas names |
 
 ## What is not shared between processes
 

@@ -43,7 +43,7 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
   and quiet seconds get carry-forward samples. It ticks KPIs every 2 s and prunes hourly.
 - `derive.ts` turns rows into views and is pure.
 - `server/src/storage/` is the only way the server reaches its database: async interfaces with SQLite as the default adapter
-  and PostgreSQL and MariaDB beside it (see [Storage](02-components/19-storage.md)).
+  and PostgreSQL 17 and MariaDB 11.x (tested on 11.4) beside it (see [Storage](02-components/19-storage.md)).
 
 ## The UI
 

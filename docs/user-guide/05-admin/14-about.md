@@ -16,7 +16,8 @@ versions are the ones reporters already sent.
   operating system and architecture.
 - **Built with.** Node.js and Express as the server runs them, and React and TypeScript as the console was built with.
 - **Database.** The adapter in use (SQLite, PostgreSQL or MariaDB), the database's own version, the schema version Podium
-  reached, and the size when the database can say.
+  reached, and the size when the database can say. Podium supports SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested
+  on 11.4); a PostgreSQL or MariaDB version other than those is untested.
 - **Reporters.** One row for each reporter and version heard from in the last hour, with how many machines run it.
   When reporters are on different versions, each version has its own row. A version outside the range this server reads
   carries the same warning as on [Reporters](05-reporters.md), and **This server reads** shows that range, so a flag

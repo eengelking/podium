@@ -287,7 +287,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb connection', () => {
     await db.close();
   });
 
-  it('hands back the rows an INSERT or DELETE ... RETURNING names (10.5 and later)', async () => {
+  it('hands back the rows an INSERT or DELETE ... RETURNING names', async () => {
     const db = conn();
     try {
       await db.exec('CREATE TABLE IF NOT EXISTS ret_t (id BIGINT AUTO_INCREMENT PRIMARY KEY, v VARCHAR(8))');

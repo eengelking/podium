@@ -1,4 +1,4 @@
-// scripts/test-db.sh (#823): which containers it starts, the variables it sets, PODIUM_TEST_ONLY, --floor and --image, and that it
+// scripts/test-db.sh (#823): which containers it starts, the variables it sets, PODIUM_TEST_ONLY and --image, and that it
 // removes every container however the run ends. A copy of the script runs in a temp repository with a fake container engine and a fake
 // npx, so nothing starts a container here; the real runs (every adapter's server suite on PostgreSQL and MariaDB) are in the PR for #823.
 import { spawnSync } from "node:child_process";
@@ -62,21 +62,22 @@ function run(args: string[], env: Record<string, string> = {}) {
   return { ...r, root, vitest, calls, left, runs: calls.filter((c) => c.startsWith("run ")) };
 }
 
-const image = (kind: string, which: "current" | "floor") => DB_ADAPTERS.find((a) => a.kind === kind)!.images![which]!;
+const image = (kind: string) => DB_ADAPTERS.find((a) => a.kind === kind)!.test!.image;
 
 describe("test-db.sh", () => {
   it("prints its help", () => {
     const r = spawnSync("bash", [join(REPO, "scripts", "test-db.sh"), "--help"], { encoding: "utf8" });
     expect(r.status).toBe(0);
-    for (const word of ["--floor", "--image KIND=REF", "PODIUM_TEST_ONLY", "NOT RUN", "db-adapters.mjs"]) expect(r.stdout).toContain(word);
+    expect(r.stdout).not.toContain("--floor");
+    for (const word of ["PostgreSQL 17", "MariaDB 11.4", "--image KIND=REF", "PODIUM_TEST_ONLY", "NOT RUN", "db-adapters.mjs"]) expect(r.stdout).toContain(word);
   });
 
   it("starts every database server at once, sets each variable, runs vitest in server/ with the arguments, and removes the containers", () => {
     const r = run(["src/storage/adapters.test.ts", "-t", "contract"], { FAKE_CODE: "3" });
     expect(r.status).toBe(3);
     expect(r.runs).toHaveLength(2);
-    expect(r.runs[0]).toContain(image("postgres", "current"));
-    expect(r.runs[1]).toContain(image("mariadb", "current"));
+    expect(r.runs[0]).toContain(image("postgres"));
+    expect(r.runs[1]).toContain(image("mariadb"));
     // Both are started before the first is waited for.
     expect(r.calls.findIndex((c) => c.startsWith("exec "))).toBeGreaterThan(r.calls.lastIndexOf(r.runs[1]));
     expect(r.vitest).toMatchObject({
@@ -96,12 +97,10 @@ describe("test-db.sh", () => {
     for (const c of r.runs) expect(c).toMatch(/ -p 127\.0\.0\.1::\d+ /);
   });
 
-  it("uses the floor image with --floor, and the one --image names for a kind", () => {
-    const floor = run(["--floor"]);
-    expect(floor.runs.join("\n")).toContain(image("mariadb", "floor"));
-    expect(floor.runs.join("\n")).toContain(image("postgres", "current"));
+  it("uses the one image --image names for a kind, and the tested one for the others", () => {
     const own = run(["--image", "mariadb=example.org/mariadb:99", "--", "-t", "x"]);
     expect(own.runs.join("\n")).toContain("example.org/mariadb:99");
+    expect(own.runs.join("\n")).toContain(image("postgres"));
     expect(own.vitest.args).toBe("vitest run -t x");
     expect(run(["--image", "mariadb"]).status).toBe(2);
   });

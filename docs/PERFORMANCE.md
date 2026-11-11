@@ -105,6 +105,9 @@ The server reads the database in many small steps: a report was about 67 stateme
 SQLite makes each one cost microseconds. On PostgreSQL each one is a network round trip, so the cost of a path is close to its number of
 statements times the round-trip time. This section records that cost (#822), and which reads to batch. The measurements are for the
 `postgres` adapter before #906; no product code was changed to take them. The table after the batching is under "Which reads were batched".
+The databases Podium supports are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4), as
+[Running the server](SERVER.md#using-postgresql) says. The MariaDB rows below were taken on 11.4; the PostgreSQL server's version was not
+recorded with these runs.
 
 How it was taken: `scripts/podium-perf-storage.mjs`, on the maintainer's Mac (Node 24, macOS arm64), 2026-10-31, simulator seed 822, 20
 sessions with 10 agents each, and one stream client open, as a console would be. A report is posted to a throwaway server (a free port, a

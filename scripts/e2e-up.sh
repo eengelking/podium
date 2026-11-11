@@ -51,9 +51,10 @@ Environment:
                     for it, and "a fresh database" (the specs' restart) drops and recreates that database instead of emptying /data.
                     The password is random per run, kept in mode-600 env files and scrubbed from the server log copy, and printed
                     nowhere; the server's own output shows host:port/dbname only.
-  E2E_PG_IMAGE      The PostgreSQL image for E2E_DB=postgres (default docker.io/library/postgres:17-alpine; 13 or newer, for DROP
-                    DATABASE ... WITH (FORCE)).
-  E2E_MARIADB_IMAGE The MariaDB image for E2E_DB=mariadb (default docker.io/library/mariadb:10.5.29, the floor version, pinned).
+  E2E_PG_IMAGE      The PostgreSQL image for E2E_DB=postgres (default docker.io/library/postgres:17-alpine, the tested version 17;
+                    another version is untested, and needs 13 or newer for DROP DATABASE ... WITH (FORCE)).
+  E2E_MARIADB_IMAGE The MariaDB image for E2E_DB=mariadb (default docker.io/library/mariadb:11.4.13, the tested version 11.4,
+                    pinned; another version is untested).
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
   E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
 
