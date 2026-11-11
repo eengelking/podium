@@ -298,6 +298,7 @@
    (a 1 px gap over --border). Wrapping flex, so the cells of a short last row grow to fill it and leave no blank cell. */
 .adminv .sum { display: flex; flex-wrap: wrap; gap: 1px; margin-left: auto; text-align: left; align-items: stretch; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .adminv .sum > div { display: grid; gap: 2px; align-content: start; flex: 0 1 auto; min-width: 150px; padding: 10px 12px; background: var(--surface); }
+.adminv .sum.left > div { flex: 1 1 150px; }
 .adminv .sum .big { font-size: 20px; line-height: 1.2; letter-spacing: -0.02em; }
 .adminv .sum .cap { color: var(--muted); font-size: 12px; }
 .adminv .hb { list-style: none; margin: 0; padding: 6px 16px 10px; display: grid; gap: 2px; }
@@ -322,7 +323,6 @@
 /* Reporting (#484, #482, #483, mockup/podium-admin-reporting.html): Export in the header, the period lines, the chart in a
    neutral ink (never a hue) and a Spend today row that opens a breakdown. Colors are tokens from tokens.css. */
 .adminv .sum.left { margin-left: 0; width: 100%; }
-.adminv .sum.left > div { flex: 1 1 150px; }
 .adminv .tool.cuts { border-top: 1px solid var(--border); align-items: flex-start; gap: 24px 40px; }
 .adminv .cut { min-width: 220px; }
 .adminv .exp-wrap { display: grid; gap: 4px; justify-items: end; }
