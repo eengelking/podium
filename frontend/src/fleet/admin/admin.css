@@ -294,8 +294,11 @@
 .adminv .seg button { padding: 0 12px; font-size: 12.5px; font-weight: 500; color: var(--ink2); border-right: 1px solid var(--border); }
 .adminv .seg button:last-child { border-right: 0; }
 .adminv .seg button[aria-pressed="true"] { background: var(--sel); color: var(--ink); }
-.adminv .sum { display: flex; gap: 8px 28px; margin-left: auto; text-align: right; align-items: flex-end; }
-.adminv .sum > div { display: grid; gap: 2px; }
+/* Summary figures (#1132, mockup/podium-admin-summary-dividers.html): one cell per figure with a 1 px divider, the look of the wall's .podium .kpis
+   (a 1 px gap over --border). Wrapping flex, so the cells of a short last row grow to fill it and leave no blank cell. */
+.adminv .sum { display: flex; flex-wrap: wrap; gap: 1px; margin-left: auto; text-align: left; align-items: stretch; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.adminv .sum > div { display: grid; gap: 2px; align-content: start; flex: 0 1 auto; min-width: 150px; padding: 10px 12px; background: var(--surface); }
+.adminv .sum.left > div { flex: 1 1 150px; }
 .adminv .sum .big { font-size: 20px; line-height: 1.2; letter-spacing: -0.02em; }
 .adminv .sum .cap { color: var(--muted); font-size: 12px; }
 .adminv .hb { list-style: none; margin: 0; padding: 6px 16px 10px; display: grid; gap: 2px; }
@@ -311,14 +314,15 @@
 .adminv .hb .shr { text-align: right; font-size: 12px; color: var(--muted); }
 .adminv .ptab tfoot th, .adminv .ptab tfoot td { border-top: 1px solid var(--border); border-bottom: 0; color: var(--ink); font-weight: 600; }
 @media (max-width: 760px) {
-  .adminv .sum { margin-left: 0; text-align: left; width: 100%; }
+  .adminv .sum { margin-left: 0; width: 100%; }
+  .adminv .sum > div, .adminv .sum.left > div { flex: 1 1 40%; min-width: 0; }
   .adminv .hb li { grid-template-columns: minmax(0, 1fr) 72px; grid-template-areas: "l v" "t t"; gap: 4px 10px; }
   .adminv .hb .lbl { grid-area: l; } .adminv .hb .trk { grid-area: t; } .adminv .hb .val { grid-area: v; } .adminv .hb .shr { display: none; }
 }
 
 /* Reporting (#484, #482, #483, mockup/podium-admin-reporting.html): Export in the header, the period lines, the chart in a
    neutral ink (never a hue) and a Spend today row that opens a breakdown. Colors are tokens from tokens.css. */
-.adminv .sum.left { margin-left: 0; text-align: left; }
+.adminv .sum.left { margin-left: 0; width: 100%; }
 .adminv .tool.cuts { border-top: 1px solid var(--border); align-items: flex-start; gap: 24px 40px; }
 .adminv .cut { min-width: 220px; }
 .adminv .exp-wrap { display: grid; gap: 4px; justify-items: end; }
