@@ -67,6 +67,7 @@ npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API dec
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
 E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs both)
+bash scripts/e2e-all.sh --shards 3 --out <folder outside the repo>  # every database at once, each split into 3 runs (--help says how to choose the count)
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)

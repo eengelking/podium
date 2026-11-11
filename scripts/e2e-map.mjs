@@ -9,6 +9,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listSpecs } from "./e2e-shards.mjs";
 
 export const MAP = "docs/e2e/COVERAGE.md";
 const SPEC_DIR = "e2e/cypress/e2e";
@@ -84,7 +85,8 @@ export function mapProblems(root) {
   if (!existsSync(join(root, MAP))) return [`${MAP} does not exist`];
   const problems = [];
   const known = routesIn(root);
-  const specs = walk(join(root, SPEC_DIR), (p) => p.endsWith(".cy.js")).map((p) => p.slice(root.length + 1)).sort();
+  // One list of spec files for the map and for the shards of scripts/e2e-all.sh (#1130), so the two cannot disagree on what a spec is.
+  const specs = listSpecs(root).map((p) => `e2e/${p}`);
   const mapped = new Set();
   const seen = new Set();
   for (const token of tokensIn(readFileSync(join(root, MAP), "utf8"))) {
