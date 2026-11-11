@@ -173,11 +173,10 @@ Same scenario as the table above, taken again on 2026-11-01 (three runs each, lo
 | SQLite | none | 0.72 to 0.83 (was 0.71 to 0.79) | not counted | 3.2 to 3.4 (was 3.8 to 4.0) | not counted |
 | PostgreSQL, same machine | none | 6.0 to 7.2 (was 18.3 to 19.4) | 19 (was 67) | 8.6 to 9.1 (was 58 to 62) | 15 to 19 (was 205) |
 | PostgreSQL, network hop | 1 ms | 74 to 81 (was 229 to 233) | 32 to 33 (was 111) | 60 to 72 (was 658 to 685) | 19 to 25 (was 287 to 291) |
-| MariaDB, same machine | none | not measured yet (#823) | not counted | not measured yet (#823) | not counted |
-| MariaDB, network hop | 1 ms | not measured yet (#823) | not counted | not measured yet (#823) | not counted |
+| MariaDB, same machine | none | 8.6 to 8.7 | not counted | 12.8 to 17.4 | not counted |
+| MariaDB, network hop | 1 ms | 67 to 75 | not counted | 81 to 94 | not counted |
 
-The two MariaDB rows hold the place for its numbers (#823), to be taken with the same scenario and the same machine; they are not
-part of the 2026-11-01 run.
+The two MariaDB rows (#823) were taken on 2026-11-11 with the same script, scenario and machine as the rows above (600 reports, 200 of them one at a time, 20 snapshot reads, three runs), against MariaDB 11.4 in a Podman container; they are not part of the 2026-11-01 run. The report's p95 at 1 ms was 483 to 509 ms, and eight reports at a time had a p50 of 797 to 859 ms. The script counts queries only through the `pg` driver, so the query columns are blank.
 
 Against the yardstick (a report under 100 ms and a snapshot under 250 ms on a hop of 1 ms or less, confirmed by the maintainer on #906), both
 now meet it at 1 ms. The report's p50 at 1 ms is still 74 ms because of its floor: the transaction's `BEGIN` and `COMMIT`, the session
