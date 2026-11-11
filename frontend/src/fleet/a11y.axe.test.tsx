@@ -123,6 +123,16 @@ describe("axe on the console's pages (#636)", () => {
     expect(await violations(container, [])).toEqual([]);
   });
 
+  it("Admin > Reporting > Sessions, with the answers sent through Podium and the wait before them (#725)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Sessions" }));
+    await findByRole("table", { name: "Answers sent through Podium by day" });
+    await findByRole("table", { name: "Wait before an answer, by kind" });
+    expect(getByRole("img", { name: /Answers sent through Podium per day/ })).toBeTruthy();
+    expect(await violations(container, [])).toEqual([]);
+  });
+
   it("Admin > Reporting > Usage, with people per day and the busiest hours as a chart and as a table (#722)", async () => {
     fakeServer({ unlocked: true });
     const { container, findByRole, getByRole } = render(<AdminView />);

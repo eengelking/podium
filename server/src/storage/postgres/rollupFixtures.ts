@@ -59,7 +59,7 @@ export interface World {
 }
 
 /** The tables the fixtures fill, emptied by `world`. The built-in Administrators group stays. */
-const TABLES = 'sessions, agents, agent_texts, events, blowouts, samples, people, reporters, reporter_sessions, admin_log, usage_daily, sessions_daily, failures_daily, fleet_daily, tools_daily, tool_sessions_daily, harness_versions_daily, tool_stats_daily, session_waits, session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, cost_daily, tool_cost_daily, feature_versions_daily, skills_daily, person_places_daily';
+const TABLES = 'sessions, agents, agent_texts, events, blowouts, samples, people, reporters, reporter_sessions, admin_log, usage_daily, sessions_daily, failures_daily, fleet_daily, tools_daily, tool_sessions_daily, harness_versions_daily, tool_stats_daily, session_waits, session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, cost_daily, tool_cost_daily, feature_versions_daily, skills_daily, person_places_daily, answers_daily';
 
 /** An empty database with the clock at NOW, the default prices and the default retention. */
 export async function world(db: PgDb): Promise<World> {

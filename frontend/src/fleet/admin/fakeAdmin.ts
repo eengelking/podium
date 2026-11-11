@@ -253,6 +253,32 @@ function fakeReport(report: string, url: URL) {
         byReason: [{ reason: "permission", waits: 640, waitS: 1865, avgWaitS: 175, sharePct: 62.5 }, { reason: "question", waits: 186, waitS: 1120, avgWaitS: 361, sharePct: 37.5 }, { reason: "plan", waits: 0, waitS: 0, avgWaitS: null, sharePct: 0 }],
       };
     }
+    // answers sent from Podium and how long sessions had waited for them (#725): counting began on 2026-10-05, so the first two weeks are dashes
+    if (breakdown === "answers") {
+      const kinds = (permission: number, question: number, plan: number, message: number) => ({ permission, question, plan, message, all: permission + question + plan + message });
+      const all = [{ period: "2026-10-05", harness: "claude-code", ...kinds(33, 13, 5, 7) }, { period: "2026-10-05", harness: "opencode", ...kinds(0, 0, 0, 0) }, { period: "2026-10-12", harness: "claude-code", ...kinds(20, 7, 2, 5) }, { period: "2026-10-12", harness: "opencode", ...kinds(5, 2, 0, 3) }];
+      const dash = { permission: null, question: null, plan: null, message: null, all: null };
+      const total = harness === "opencode" ? kinds(5, 2, 0, 3) : harness === "claude-code" ? kinds(53, 20, 7, 12) : kinds(58, 22, 7, 15);
+      return {
+        ...base, harnesses, answersSince: "2026-10-05", by, partial: true,
+        columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("permission", "Permission", "count"), col("question", "Question", "count"), col("plan", "Plan", "count"), col("message", "Message", "count"), col("all", "All", "count")],
+        rows: keep(all), total,
+        periods: [{ period: "2026-09-21", ...dash }, { period: "2026-09-28", ...dash }, { period: "2026-10-05", ...kinds(33, 13, 5, 7) }, { period: "2026-10-12", ...kinds(25, 9, 2, 8) }],
+        byHarness: keep([{ harness: "claude-code", ...kinds(53, 20, 7, 12) }, { harness: "opencode", ...kinds(5, 2, 0, 3) }]),
+      };
+    }
+    if (breakdown === "answerwait") {
+      const all = [{ period: "2026-10-05", harness: "claude-code", answers: 51, medianS: 40, p90S: 380 }, { period: "2026-10-12", harness: "opencode", answers: 7, medianS: 45, p90S: 390 }];
+      const mine = harness === "opencode" ? { answers: 7, medianS: 45, p90S: 390 } : harness === "claude-code" ? { answers: 51, medianS: 30, p90S: 300 } : { answers: 58, medianS: 32, p90S: 320 };
+      return {
+        ...base, harnesses, answersSince: "2026-10-05", by, partial: true,
+        columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("answers", "Answers with a wait", "count"), col("medianS", "Median wait", "seconds"), col("p90S", "90th percentile wait", "seconds")],
+        rows: keep(all), total: mine,
+        periods: [{ period: "2026-09-21", answers: null, medianS: null, p90S: null }, { period: "2026-09-28", answers: null, medianS: null, p90S: null }, { period: "2026-10-05", answers: 51, medianS: 40, p90S: 380 }, { period: "2026-10-12", answers: 7, medianS: 45, p90S: 390 }],
+        kinds: [{ kind: "permission", answers: 58, medianS: 18, p90S: 130 }, { kind: "question", answers: 22, medianS: 100, p90S: 540 }, { kind: "plan", answers: 7, medianS: 185, p90S: 660 }, { kind: "message", answers: 15, medianS: null, p90S: null }],
+        byHarness: keep([{ harness: "claude-code", answers: 51, medianS: 30, p90S: 300 }, { harness: "opencode", answers: 7, medianS: 45, p90S: 390 }]),
+      };
+    }
     if (breakdown === "agents") {
       const rows = keep([
         { type: "general-purpose", harness: "claude-code", agents: 520, sharePct: 42.8 }, { type: "general-purpose", harness: "opencode", agents: 96, sharePct: 7.9 }, { type: "Explore", harness: "claude-code", agents: 310, sharePct: 25.5 },

@@ -414,4 +414,85 @@ describe('admin: reporting', () => {
     cy.get('table[aria-label="Context fullness at the end"]').should('not.exist');
     cy.get('[role=alert]').should('not.exist');
   });
+
+  // Answers sent through Podium (#725). The seed carries no history (scripts/podium-seed-history.ts needs tsx), so the story is one sequence on this file's server: first nothing
+  // has been answered and both sections say so, then the console answers a tool's permission and sends a message, and the counts and the dash before counting began are read.
+  const ANSWERS = 'table[aria-label^="Answers sent through Podium by"]';
+  const dialog = () => cy.get('[role=dialog]');
+
+  it('Sessions: answers sent and wait before an answer both read as empty before anything was answered from Podium, not as an error', () => {
+    cy.openAdmin('Sessions');
+    // The period starts before counting began, so each section draws its figures (nothing answered yet, so zeros and dashes) and never an error.
+    for (const id of ['rep-sessiontime-answers', 'rep-sessiontime-answerwait']) {
+      cy.get(`section[aria-labelledby="${id}"]`).should(($s) => {
+        expect($s.text(), `${id} has settled`).not.to.contain('Loading');
+        expect($s.find('[role=alert]').length, `${id} shows no error`).to.equal(0);
+        expect($s.find('table').length, `${id} draws its table`).to.be.greaterThan(0);
+      });
+    }
+    cy.get(`${ANSWERS} tfoot tr`).first().should(($r) => {
+      expect([...$r.find('td')].map((c) => c.textContent.trim()), 'nothing answered yet').to.deep.eq(['0', '0', '0', '0', '0']);
+    });
+    cy.contains('h2', 'Answers sent through Podium').should('exist');
+    cy.contains('h2', 'How long sessions waited for an answer').should('exist');
+  });
+
+  it('Sessions: answering a permission and sending a message from the console raises the counts, with a dash before counting began', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/');
+    cy.intercept('POST', '/api/fleet/respond/sessions/*/asks/*/answer').as('answer');
+    cy.intercept('POST', '/api/fleet/respond/sessions/*/messages').as('message');
+    cy.card('tool').parent().find('button.respond').click();
+    dialog().contains('button', /^Allow once$/).click();
+    cy.wait('@answer').its('response.statusCode').should('eq', 202);
+    dialog().find('button.x').click();
+    dialog().should('not.exist');
+    cy.card('idle').parent().find('button.respond').click();
+    dialog().find('textarea[aria-label="Message to turn-ended"]').type('Please continue with the tests.');
+    dialog().contains('button', /^Send$/).click();
+    cy.wait('@message').its('response.statusCode').should('eq', 202);
+
+    cy.openAdmin('Sessions');
+    sectionOf('Answers sent through Podium').within(() => {
+      cy.get(ANSWERS).should('exist');
+      // the whole-period row is the footer: one permission, one message, two answers in all; the question and plan columns are zero
+      cy.get(`${ANSWERS} tfoot tr`).first().should(($r) => {
+        const cells = [...$r.find('td')].map((c) => c.textContent.trim());
+        expect(cells, 'permission, question, plan, message, all').to.deep.eq(['1', '0', '0', '1', '2']);
+      });
+      // counting began today, so the period table has an earlier period shown as dashes
+      cy.get(`${ANSWERS} tbody td.muted`).should('have.length.greaterThan', 0).first().should('have.text', '–');
+      cy.contains('Answers are recorded from').should('exist');
+      cy.contains('Only the kind and the time of each answer are kept, never what was said.').should('exist');
+      cy.get('button[aria-label="Download answers sent CSV"]').should('exist');
+      cy.get('button[aria-label="Download answers sent JSON"]').should('exist');
+    });
+    sectionOf('How long sessions waited for an answer').within(() => {
+      cy.get('table[aria-label="Wait before an answer, by kind"]').should('exist');
+      cy.get('table[aria-label="Wait before an answer, by kind"] tbody tr').should('have.length', 4);
+      // a message has no wait: dashes with the reason as a title
+      cy.contains('tr', 'A message').find('td.muted').should('have.length', 3).each(($d) => expect($d.text().trim()).to.eq('–')).first().should('have.attr', 'title').and('contain', 'has no wait');
+      cy.contains('A wait is counted from when Podium first heard of the ask').should('exist');
+      cy.contains('tr', 'Permission for a tool').find('td').eq(1).should('have.text', '1');
+      cy.get('table[aria-label^="Wait before an answer, by"]').should('have.length', 2);
+      cy.get('button[aria-label="Download wait before an answer CSV"]').should('exist');
+    });
+  });
+
+  it('Sessions: the Harness filter narrows the answer sections to one harness and a Model filter holds them back', () => {
+    cy.openAdmin('Sessions');
+    sectionOf('Answers sent through Podium').find(`${ANSWERS} tfoot tr`).first().should('contain.text', 'Whole period, all harnesses');
+    harnessSelect().find('option').should('have.length.greaterThan', 1);
+    harnessSelect().find('option').eq(1).invoke('text').then((name) => {
+      harnessSelect().select(name);
+      sectionOf('Answers sent through Podium').find(`${ANSWERS} tfoot tr`).first().should('contain.text', `Whole period, ${name}`);
+      sectionOf('How long sessions waited for an answer').find('table[aria-label="Wait before an answer, by kind"] tfoot tr').first().should('contain.text', `Whole period, ${name}`);
+    });
+    cy.get('[role=alert]').should('not.exist');
+    harnessSelect().select('All harnesses');
+    cy.contains('label', 'Model').parent().find('select').select('claude-opus-5-5');
+    sectionOf('Answers sent through Podium').contains('are not shown while a Person, Group or Model filter is set.').should('exist');
+    sectionOf('How long sessions waited for an answer').contains('are not shown while a Person, Group or Model filter is set.').should('exist');
+    cy.get(ANSWERS).should('not.exist');
+  });
 });

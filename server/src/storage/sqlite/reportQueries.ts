@@ -3,7 +3,7 @@ import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, FeatureVersi
 import type { ReportQueries, RollupRaw, RollupTable, StoredSession } from '../reportQueries.js';
 import type { SessionWaitRow } from '../rows.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 /** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
 const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 
@@ -20,6 +20,7 @@ const ROW_KEY: Record<RollupTable, string> = {
   feature_versions_daily: ', harness, version, feature',
   skills_daily: ', owner, harness, skill',
   person_places_daily: ', owner, harness, project, branch',
+  answers_daily: ', harness, kind, bucket',
   session_time_daily: ', harness',
   agents_daily: ', harness, type, depth',
   person_sessions_daily: ', owner, harness',
@@ -212,6 +213,14 @@ export class SqliteReportQueries implements ReportQueries {
   insertToolCostDaily(rows: ToolCostDay[]): void {
     const put = this.db.prepare('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const r of rows) put.run(r.day, r.harness, r.tool, r.sessions, r.pricedSessions, r.costUsd, r.calls);
+  }
+
+  addAnswer(day: string, harness: string, kind: string, bucket: number): void {
+    this.db.prepare('INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, ?, ?, ?, 1) ON CONFLICT(day, harness, kind, bucket) DO UPDATE SET count = answers_daily.count + 1').run(day, harness, kind, bucket);
+  }
+
+  markAnswerDay(day: string): void {
+    this.db.prepare("INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, '', 'none', -1, 0) ON CONFLICT(day, harness, kind, bucket) DO NOTHING").run(day);
   }
 
   upsertHourPeaks(rows: HourPeakDay[]): void {

@@ -75,8 +75,8 @@ sends, without its version, host name, user name or path, and a reporter that se
 Counts by outcome, model, effort or plan, with average and longest duration, agents launched per session, and how many
 sessions hit a context blowout.
 
-Four sections follow it, for every harness that reports. The **Harness** filter narrows them. The report above them is not kept per harness, so it
-covers every harness and the page says so. These four are kept for everyone together, so while a **Person**, **Group** or **Model** filter is set the page
+Eight sections follow it, for every harness that reports. The **Harness** filter narrows them. The report above them is not kept per harness, so it
+covers every harness and the page says so. These eight are kept for everyone together, so while a **Person**, **Group** or **Model** filter is set the page
 says that and leaves them out.
 
 - **Length and waiting** shows how long sessions ran and how much of that they spent blocked on a person: a tool asking for permission, a plan waiting for approval
@@ -84,6 +84,11 @@ says that and leaves them out.
   longest length, the time waiting and its share of session time, for each day, week or month, with a row for the whole period and for each harness. Waiting is
   measured from the reports a session sends, so it is counted to the reporting interval.
 - **What sessions waited for** splits that waiting into permission, question and plan: how many waits, how long they took and the average.
+- **Answers sent through Podium** counts how often a session was answered from the console: a tool's permission, a question, a plan or a message. It gives each day, week or
+  month as a chart and a table, with a row for the whole period and for each harness. It is how much Podium is used to answer sessions, not how many asks there were: an
+  answer typed in the terminal is not counted.
+- **How long sessions waited for an answer** gives the median and the 90th percentile of the time between a session asking and the answer being sent from Podium, for each
+  kind of ask and each day, week or month. A message has no wait, because it goes to a session that is not waiting. The two figures are read from time classes, so they can be a few seconds off.
 - **Agents launched** counts agents by type, with a column for each harness.
 - **How deep agent chains go** counts agents by how many levels down they sit. Depth 1 is an agent the session launched itself.
 - **Model and effort mix** shows, for each day, week or month, the share of sessions on each model, or at each effort (choose with **Mix of**). The most used few get a column and the rest share one. A
@@ -91,7 +96,7 @@ says that and leaves them out.
 - **Context fullness at the end** shows how many sessions ended under 50%, from 50% to 80% and above 80% full, and how many compacted on their own or continued after a `/clear`, with a row for each
   harness. Compacted counts what Claude Code did by itself while Podium still keeps the events (30 days), not a `/compact` you ran yourself, and a `/clear` starts a new session, so each one is counted once, on the session it started.
 
-Waiting is recorded from the release that added it, so earlier days show a dash and the page says from which day it starts. Each table has its own **CSV**
+Waiting and answers are recorded from the release that added them, so earlier days show a dash and the page says from which day each starts. Only the kind, the day and the time of an answer are kept, never what was said. Each table has its own **CSV**
 and **JSON** in its title line. Only the kind of wait and the time are kept, never what the question, plan or tool was.
 
 ## Harness updates

@@ -227,6 +227,16 @@ export interface PersonDay {
   sessions: number;
 }
 
+/** How many answers sent from Podium fell in one wait class on a day, for one harness and kind (#725). Counts only: never what was said. */
+export interface AnswerDay {
+  day: string;
+  harness: string;
+  kind: 'permission' | 'question' | 'plan' | 'message';
+  /** A `timeBucket` of the milliseconds the session waited, or -1 for an answer with no wait. */
+  bucket: number;
+  answers: number;
+}
+
 /** The most sessions live at once in one hour of one day (#722). `harness` is '' for all of them together: the peak of the whole is not the sum of the peaks of the parts. */
 export interface HourPeakDay {
   day: string;
@@ -867,6 +877,8 @@ export function writeRollups(storage: Storage, now: number, cost: CostOf, p: Rol
       await db.upsertFleetDays(days.map((f) => ({ day: f, peak: peaks.get(f.day) ?? 0 })));
       rebuilt += days.length;
     }
+    // answers sent from Podium are counted as they are taken (#725), so a day with none still needs a row to say counting had begun, whether or not sessions are stored
+    await db.markAnswerDay(localDay(now));
     const keepFrom = localDay(now - (p.rollupMs ?? ROLLUP_KEEP_MS));
     const deleted = await db.deleteRollupsBefore(keepFrom);
     return { days: rebuilt, deleted };

@@ -116,7 +116,7 @@ describe("the Sessions page", () => {
     fireEvent.change(screen.getByLabelText("Harness"), {
       target: { value: "opencode" },
     });
-    await waitFor(() => expect(s.calls.filter((c) => c.startsWith("GET /reports/sessiontime?") && c.includes("harness=opencode"))).toHaveLength(4));
+    await waitFor(() => expect(s.calls.filter((c) => c.startsWith("GET /reports/sessiontime?") && c.includes("harness=opencode"))).toHaveLength(6));
     expect(s.calls.filter((c) => c.startsWith("GET /reports/sessions?") && c.includes("harness"))).toEqual([]);
     expect(await screen.findByText(/This section is not kept per harness, so it covers every harness/)).toBeInTheDocument();
     const table = screen.getByRole("table", {
@@ -139,7 +139,7 @@ describe("the Sessions page", () => {
     fireEvent.change(screen.getByLabelText("Group"), {
       target: { value: "Platform" },
     });
-    await waitFor(() => expect(screen.getAllByText(/not shown while a Person, Group or Model filter is set/)).toHaveLength(6));
+    await waitFor(() => expect(screen.getAllByText(/not shown while a Person, Group or Model filter is set/)).toHaveLength(8));
     expect(s.calls.filter((c) => c.startsWith("GET /reports/sessiontime?")).length).toBe(before);
     expect(screen.queryByRole("table", { name: "Length and waiting by period" })).toBeNull();
   });

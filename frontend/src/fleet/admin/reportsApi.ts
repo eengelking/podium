@@ -46,6 +46,9 @@ export interface ReportReply {
   waitSince?: string | null;
   /** The session time report, waiting by reason: each of the three kinds for every harness together. */
   byReason?: ReportRow[];
+  /** The first day answers sent from Podium were counted (#725), and the kinds of answer with how many and how long they waited. */
+  answersSince?: string | null;
+  kinds?: ReportRow[];
   /** The costs report only (#723): the tools by what the sessions that called them cost (one row each, every harness together), and the model or effort mix by period. */
   tools?: ReportRow[];
   combined?: ReportRow[];

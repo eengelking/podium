@@ -23,7 +23,7 @@ afterEach(() => {
 
 const TODAY = '2026-10-20';
 const NOW = new Date(2026, 9, 20, 15).getTime();
-const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
+const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 const dump = (file: string): string => {
   const db = openDb(file);
   // ordered by every column up to the fifth, so two runs compare row for row
@@ -147,6 +147,12 @@ describe('podium-seed-history: the history', () => {
     expect(n('SELECT MAX(depth) FROM agents_daily')).toBeGreaterThanOrEqual(3);
     expect(n("SELECT COUNT(DISTINCT hour) FROM hour_peaks_daily WHERE harness = ''")).toBeLessThanOrEqual(24);
     expect(n("SELECT COUNT(*) FROM hour_peaks_daily WHERE harness != '' AND peak > (SELECT peak FROM hour_peaks_daily a WHERE a.day = hour_peaks_daily.day AND a.hour = hour_peaks_daily.hour AND a.harness = '')")).toBe(0);
+    // The answers sent from Podium (#725): both harnesses, every kind, waits only on the ones that have one, and counting begins part way through.
+    expect(n('SELECT COUNT(DISTINCT harness) FROM answers_daily WHERE harness != \'\'')).toBe(2);
+    expect(n('SELECT COUNT(DISTINCT kind) FROM answers_daily WHERE kind != \'none\'')).toBe(4);
+    expect(n('SELECT COUNT(*) FROM answers_daily WHERE kind = \'message\' AND bucket != -1')).toBe(0);
+    expect(n('SELECT COUNT(*) FROM answers_daily WHERE kind IN (\'permission\', \'question\', \'plan\') AND bucket < 0')).toBe(0);
+    expect(n('SELECT COUNT(DISTINCT day) FROM answers_daily')).toBeLessThan(n('SELECT COUNT(DISTINCT day) FROM sessions_daily'));
     // Rollups hold no content: only counts, tokens, cost, times and names.
     expect(JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t}`).all()))).not.toMatch(/prompt|answer|\/Users/);
     db.close();

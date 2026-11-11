@@ -5,12 +5,12 @@ import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter } from './routes.js';
-import { createLogger, type Logger } from '../logging/logger.js';
+import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
 import { CLOSED_KEEP_MS, RespondStore, commandOf, parseAnswer, questionSummary } from './respond.js';
-import { DELIVERY_RESULTS, MAIN_LOOP, RESPOND_LIMITS, type Ask, type Report, type RespondKind } from './protocol.js';
+import { DELIVERY_RESULTS, MAIN_LOOP, RESPOND_LIMITS, timeBucket, type Ask, type Report, type RespondKind } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
 const closers: (() => void)[] = [];
@@ -871,6 +871,57 @@ describe('answering, end to end', () => {
     expect((await alexB.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).status).toBe(403);
     const admin = await signedIn(app, 'Admin', SECRET);
     expect((await admin.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).body.ask.plan.text).toBe('# Plan\n\n1. Page it');
+  });
+});
+
+describe('answers sent from Podium are counted for the reports (#725)', () => {
+  const counted = async (fleet: Fleet) => (await fleet.db.rollupRows('answers_daily', '0000-01-01', '9999-12-31')).map((r) => `${String(r.harness)}/${String(r.kind)}/${Number(r.bucket) >= 0 ? 'waited' : 'no wait'}=${String(r.count)}`);
+
+  it('counts an answer to each kind of ask with the time it waited, and a message with none, and nothing else', async () => {
+    const { app, fleet, ed } = await setup();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [QUESTION, PLAN, TOOL]));
+    const b = await signedIn(app, 'Ed', ed.token);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_q/answer').set(H).send({ kind: 'question', answers: [{ options: [0] }, { options: [1] }] })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_p/answer').set(H).send({ kind: 'plan-approve', mode: 'default' })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'Start on issue #205.' })).status).toBe(202);
+    // a command is not an answer, and an answer that is refused is not counted
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: '/clear' })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' })).status).toBe(409);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/nope/answer').set(H).send({ kind: 'deny' })).status).toBe(404);
+    expect(await counted(fleet)).toEqual(['claude-code/message/no wait=1', 'claude-code/permission/waited=1', 'claude-code/plan/waited=1', 'claude-code/question/waited=1']);
+  });
+
+  it('counts an answer under the harness of the session, and keeps no text, name or session', async () => {
+    const { app, fleet, ed } = await setup();
+    const r = report('Ed', 'sess-oc', [TOOL]);
+    r.session = { ...r.session, harness: 'opencode' };
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(r);
+    const b = await signedIn(app, 'Ed', ed.token);
+    expect((await b.post('/api/fleet/respond/sessions/sess-oc/asks/toolu_t/answer').set(H).send({ kind: 'deny', text: 'SECRET-WORDS-TO-THE-AGENT' })).status).toBe(202);
+    expect(await counted(fleet)).toEqual(['opencode/permission/waited=1']);
+    expect(JSON.stringify(await fleet.db.rollupRows('answers_daily', '0000-01-01', '9999-12-31'))).not.toMatch(/SECRET-WORDS|Ed|sess-oc/);
+  });
+
+  it('times the wait from when the server first heard of the ask, on its own clock', async () => {
+    const { app, fleet, ed } = await setup();
+    const t = Date.now();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
+    const b = await signedIn(app, 'Ed', ed.token);
+    await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
+    // the ask says it opened at T0, long ago, but the person answered at once: the wait is not read from the reporter's clock
+    const [row] = await fleet.db.rollupRows('answers_daily', '0000-01-01', '9999-12-31');
+    expect(Number(row!.bucket)).toBeLessThan(timeBucket(Date.now() - t + 5000));
+  });
+
+  it('still takes the answer when the count cannot be written, and says so in the server log', async () => {
+    const lines: string[] = [];
+    const { app, fleet, ed } = await setup({ logger: loggerFromLine((l) => lines.push(l)) });
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
+    const b = await signedIn(app, 'Ed', ed.token);
+    vi.spyOn(fleet.db, 'addAnswer').mockRejectedValue(new Error('disk full'));
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' })).status).toBe(202);
+    expect(lines.join('\n')).toContain('could not count an answer sent from Podium');
   });
 });
 

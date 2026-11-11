@@ -252,6 +252,22 @@ CREATE TABLE person_places_daily (     -- sessions of one person in one project 
 The three tables fill from the rows still stored on each run, like the other rebuilt tables, and are kept 395 days. `sessions.signals_json` is replaced by each report that carries signals and kept by one that carries none. A database upgraded to this
 migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...". The branch names are the ones the wall already shows, so the rollups keep them for as long as the other rollups.
 
+Migration 42 (#725; PostgreSQL main step 18) adds the answers sent from Podium, behind Admin > Reporting > Sessions. Kinds, days, harnesses and wait classes only: never what was said, who said it or which session.
+
+```sql
+CREATE TABLE answers_daily (        -- one row per day, harness, kind of answer and wait class
+  day TEXT NOT NULL, harness TEXT NOT NULL,
+  kind TEXT NOT NULL,               -- permission, question, plan or message; 'none' is a marker row (harness '', count 0) that the hourly run leaves for each day it ran
+  bucket INTEGER NOT NULL,          -- timeBucket of the milliseconds between the ask being first seen and the answer being taken (10% classes, up to an hour); -1 for no wait
+  count INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, kind, bucket)
+);
+```
+
+Unlike the other daily tables it is not rebuilt from the stored sessions, because nothing else keeps an answer: each answer taken from the console adds one to its row as it is
+taken (an upsert that adds one), today included. It is kept 395 days like the others. The marker rows say when counting began, so the Sessions page can show a dash for the days
+before it and a zero for a quiet day after it.
+
 Migration 15 (#206) links a session to the one it continues after a `/clear` (5.8):
 
 ```sql
@@ -482,7 +498,8 @@ The sweeper runs this hourly:
   partly built), in one transaction, so a run twice gives the
   same rows. A day whose raw rows are already gone is left as it is. Rollup rows older than 395 days are deleted.
   `peak_live_sessions` is the highest count of sessions live at one second, read from the day's samples while
-  they last and never lowered once written (a day's figure only grows).
+  they last and never lowered once written (a day's figure only grows). `answers_daily` (#725) is the one rollup the run does not rebuild: it is written as answers are
+  taken, the run only leaves its marker row for the day and deletes rows older than 395 days.
 - A rollup holds no session content (see the schema). Admin > Server > Data lists each table, its row
   count, its oldest day and how long it is kept.
 - The Activity history (#432) is purged by its own run every 5 minutes, not by this hourly one, because the
