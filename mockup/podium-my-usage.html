@@ -75,7 +75,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li>Rows link to History only for the person's own sessions (<b>Open</b>). Nothing on the page names another person, a reporter id or a group.</li>
     <li><b>Not signed in</b> shows how to sign in and no data. <b>Setting off</b> shows a console with no My usage button; the page address then shows the same "not found" a missing page does.</li>
     <li><b>Admin &gt; Settings</b> gets one switch row, <b>My usage page</b>. It is drawn Off by default; this is the open question above. An Administrator who opens My usage sees their own figures, not the fleet's.</li>
-    <li>The top bar and banner are what <code>development</code> draws today: the page's own pill (My usage), the connection pill, Fleet, Board, History, Chat and Admin buttons, and the banner's one Wall options pill (#1129) that opens Refresh every, Shortcuts, Theme and Mode. My usage has no button of its own on its own page, as for My reporters.</li>
+    <li>The top bar and banner are what <code>development</code> draws today: the page's own pill (My usage), the connection pill, Fleet, Board, History, Chat and Admin buttons, and the banner's one Wall options pill (#1129) that opens Refresh every, Shortcuts, Theme and Mode. The My usage button is on every page while the person is signed in and the setting is on, and is left off only on My usage itself, as for My reporters.</li>
     <li>The page reads only. It changes nothing, and the Admin read-notice rule does not apply, because no one reads another person's content.</li>
     <li>No new class or token. Nothing here asks for a change to a standard.</li>
   </ul>
@@ -197,7 +197,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function render() {
     var v = S.v, html;
     if (v === 'admin') {
-      html = '<div class="app">' + topBar('Admin', true, false) + banner('<b>Admin.</b> Tokens, groups, reporters and settings for this server.') + '<main class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></main></div>';
+      html = '<div class="app">' + topBar('Admin', true, true) + banner('<b>Admin.</b> Tokens, groups, reporters and settings for this server.') + '<main class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></main></div>';
     } else {
       var body = v === 'usage' ? usagePage() : v === 'empty' ? emptyPage() : v === 'signin' ? signinPage() : '';
       if (v === 'off') body = '<div class="page-h"><div><h1>Page not found</h1><p class="lead">There is nothing at this address. Go back to the wall.</p></div></div>';
