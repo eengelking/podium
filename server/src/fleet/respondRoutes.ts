@@ -11,7 +11,7 @@ import { Router, type Request, type RequestHandler, type Response } from 'expres
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, type SessionRow } from '../storage/rows.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -24,6 +24,9 @@ import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryP
 import { parseRead } from './activityHistoryInput.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
 import { noteAnswer } from './answers.js';
+import { MY_REPORT_NAMES, ReportError, runMyReport, type MyReportName } from './reports.js';
+import { reportDepsOf } from './reportDeps.js';
+import { sendReport } from './reportRoutes.js';
 
 export interface RespondDeps {
   fleet: Fleet;
@@ -132,7 +135,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   /** A browser can sign in when any feature that needs the sign-in is on. The respond routes still need `enabled()`. */
   /** Authentication on and a keep policy for the Activity history (#432): stored entries are read by a signed-in owner or Admin. */
   const historyEnabled = (): boolean => d.token !== null && fleet.activityHistorySettings.get().policy !== 'default';
-  const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || (d.alsoSignIn?.() ?? false);
+  /** Authentication on and the Admin's My usage flag (#726): a person signs in to see their own figures. */
+  const myUsageEnabled = (): boolean => d.token !== null && fleet.features.featureOn(MY_USAGE);
+  const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || myUsageEnabled() || (d.alsoSignIn?.() ?? false);
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
     logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
@@ -371,8 +376,32 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
 
   browser.get('/me', asyncHandler(async (req, res) => {
     const v = signInEnabled() ? await viewerOf(req) : null;
-    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false };
+    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false, myUsage: myUsageEnabled() };
     res.json(me);
+  }));
+
+  /**
+   * A person's own usage (#726). Whose figures it is comes only from the sign-in, read here on the server; the request holds no person, group or id, and a query key
+   * that names one is dropped before a report sees it. With the Admin's setting off the page does not exist (404, as for an unknown report), and with nobody signed in it
+   * answers 403 and no figure. An Administrator, or the admin secret, gets their own figures like anyone else, never the fleet's.
+   */
+  browser.get('/usage/:report', asyncHandler(async (req, res) => {
+    const gone = () => void res.status(404).json({ ok: false, error: 'no such report' });
+    if (!myUsageEnabled()) return gone();
+    const v = await viewerOf(req);
+    if (!v) return refuse(req, res, 403, 'sign in to see your usage');
+    const name = req.params.report as MyReportName;
+    if (!MY_REPORT_NAMES.includes(name)) return gone();
+    const format = req.query.format;
+    if (format !== undefined && format !== 'csv' && format !== 'json') return void res.status(400).json({ ok: false, error: 'format must be json or csv' });
+    try {
+      const reply = await runMyReport(reportDepsOf(fleet), v.name, name, req.query);
+      if (format === 'csv') sendReport(res, reply);
+      else res.json(reply);
+    } catch (err) {
+      if (!(err instanceof ReportError)) throw err;
+      res.status(400).json({ ok: false, error: err.message });
+    }
   }));
 
   browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), asyncHandler(async (req, res) => {

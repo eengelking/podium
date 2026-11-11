@@ -1,13 +1,14 @@
-export type Route = "history" | "admin" | "board" | "my-reporters" | "traffic" | "chat" | "fleet";
+export type Route = "history" | "admin" | "board" | "my-reporters" | "my-usage" | "traffic" | "chat" | "fleet";
 
 /**
- * `#/history` is the history view, `#/board` the kanban board, `#/me/reporters` My reporters, `#/chat` Chat (#1034, `#/chat?with=<id>` opens the chat with that session, #1067), `#/traffic` the
+ * `#/history` is the history view, `#/board` the kanban board, `#/me/reporters` My reporters, `#/me/usage` My usage (#726), `#/chat` Chat (#1034, `#/chat?with=<id>` opens the chat with that session, #1067), `#/traffic` the
  * retired Traffic (which the page redirects to Chat) and `#/admin` the Admin section; every other hash (including the retired `#/usage`) is the fleet console.
  */
 export function routeFor(hash: string): Route {
   if (hash === "#/admin" || hash.startsWith("#/admin/")) return "admin";
   if (hash === "#/board" || hash.startsWith("#/board?")) return "board";
   if (hash === "#/me/reporters") return "my-reporters";
+  if (hash === "#/me/usage") return "my-usage";
   if (hash === "#/traffic") return "traffic";
   if (hash === "#/chat" || hash.startsWith("#/chat?")) return "chat";
   return hash === "#/history" || hash.startsWith("#/history?") ? "history" : "fleet";

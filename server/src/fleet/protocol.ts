@@ -240,6 +240,8 @@ export interface RespondMe {
   name: string | null;
   /** The admin secret, or a person in Administrators. */
   admin: boolean;
+  /** The Admin's My usage setting is on (#726), so the top bar offers the page. Absent from an older server, which means off. */
+  myUsage?: boolean;
 }
 
 /** One stored activity event as the UI shows it: the event plus who it is about. */

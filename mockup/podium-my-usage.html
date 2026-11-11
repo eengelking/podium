@@ -1,0 +1,219 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium My usage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #726 (part of #1031): My usage, a console page where a signed-in person sees only their own reporting figures.
+   It is built from the Admin Reporting pages (#484, #720 to #723): the same period and grouping controls, the same "what it is
+   based on" line, the same panels, charts, tables, pager and CSV / JSON / Print. What it leaves out is everyone else: no People
+   and groups, no group totals, no other person's name, no reporter or token list, no Admin activity.
+   The top bar gets one button, My usage, next to My reporters (the app's own .btn in .tb-me). Whether the page exists is an
+   Admin setting (Admin > Settings, a switch, drawn in the Admin view below); when it is off the button is not in the top bar.
+   Colors, fonts and every report class come from tokens.css, fleet.css and admin.css; this file has no :root block and
+   restyles none of them. Only the demo chrome (.demo, .stage) is the mockup's own. Example data only.
+   Open question for the maintainer: the switch is drawn Off by default (the safer side for a page that shows cost); say if it
+   should be On. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: 1240px; border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
+.stage.narrow { max-width: 400px; }
+.stage .podium { height: auto; min-height: 760px; }
+.stage .podium .adminv .shell { height: auto; }
+.stage .podium .adminv .apage { overflow: visible; }
+.stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+.stage.narrow .podium .adminv .shell { grid-template-columns: minmax(0, 1fr); }
+.stage.narrow .podium .adminv .nav { display: none; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pgv[hidden] { display: none; }
+@media print { .demo, .notes { display: none; } }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>My usage (#726)</b>
+  <span class="grp" role="group" aria-label="View">View
+    <button type="button" data-v="usage" aria-pressed="true">My usage, signed in</button>
+    <button type="button" data-v="empty" aria-pressed="false">No data yet</button>
+    <button type="button" data-v="signin" aria-pressed="false">Not signed in</button>
+    <button type="button" data-v="off" aria-pressed="false">Setting off</button>
+    <button type="button" data-v="admin" aria-pressed="false">Admin &gt; Settings</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app"></div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li>A <b>My usage</b> button in the top bar, left of <b>My reporters</b>, on the app's own <code>.btn</code>. The name was chosen on #726 ("Reports" is too close to My reporters, "Activity" already names the activity feed).</li>
+    <li>The page has the Admin report shape: Period and filters, then Spend, Sessions, Failures and Tools, each a panel with a chart, a table and the pager. Every table can be exported as CSV or JSON, and printed.</li>
+    <li>A <b>Harness</b> filter (All, Claude Code, OpenCode) sits with the period, and every export has a harness column. A figure only one harness reports says so under the table (Effort, here).</li>
+    <li>The page says what it is: the <code>.note-line</code> under the filters starts "Only your own sessions". There is no "you versus everyone" figure and no group total, so a share is a share of the person's own total.</li>
+    <li>Rows link to History only for the person's own sessions (<b>Open</b>). Nothing on the page names another person, a reporter id or a group.</li>
+    <li><b>Not signed in</b> shows how to sign in and no data. <b>Setting off</b> shows a console with no My usage button; the page address then shows the same "not found" a missing page does.</li>
+    <li><b>Admin &gt; Settings</b> gets one switch row, <b>My usage page</b>. It is drawn Off by default; this is the open question above. An Administrator who opens My usage sees their own figures, not the fleet's.</li>
+    <li>The top bar and banner are what <code>development</code> draws today: the page's own pill (My usage), the connection pill, Fleet, Board, History, Chat and Admin buttons, and the banner's one Wall options pill (#1129) that opens Refresh every, Shortcuts, Theme and Mode. The My usage button is on every page while the person is signed in and the setting is on, and is left off only on My usage itself, as for My reporters.</li>
+    <li>The page reads only. It changes nothing, and the Admin read-notice rule does not apply, because no one reads another person's content.</li>
+    <li>No new class or token. Nothing here asks for a change to a standard.</li>
+  </ul>
+  <h2>Not drawn</h2>
+  <ul><li>Tool failure rate and tool duration columns (#721), cost per call and the token split (#723) and session time (#722) use the same panel and table pieces as Spend and Sessions here, filtered to the person. They are added as those pages settle; #725's figures are not drawn until it merges.</li></ul>
+</div>
+
+<script>
+(function () {
+  var S = { v: 'usage', th: 'dark', w: 'wide' };
+  var root = document.documentElement, app = document.getElementById('app'), stage = document.getElementById('stage');
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  var logo = '<svg class="lg" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="9" width="12" height="4" rx="1"/><path d="M4 9V5h8v4"/></svg>';
+  var me = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg>';
+
+  /* The top bar is TopBar.tsx: brand, the page's own pill (its button is left off), the connection pill, then Fleet, Board, History,
+     Chat and, for an Administrator, Admin, with the sign-in group after a divider. */
+  function topBar(page, signedIn, showUsage) {
+    var btn = function (t, href) { return page === t ? '' : '<a class="btn" href="' + href + '">' + t + '</a>'; };
+    var tb = '<span class="tb-sep" aria-hidden="true"></span>';
+    if (signedIn) {
+      tb += '<span class="tb-me"><span class="tb-who" tabindex="-1">' + me + 'Signed in as <b>Ed</b></span>' +
+        (showUsage && page !== 'My usage' ? '<a class="btn" href="#/me/usage">My usage</a>' : '') +
+        '<a class="btn" href="#/me/reporters">My reporters · 3 waiting</a><button type="button" class="btn">Sign out</button></span>';
+    } else {
+      tb += '<button type="button" class="btn" aria-haspopup="dialog">Sign in</button>';
+    }
+    return '<header class="top" id="podium-top"><a class="logo" href="#/" aria-label="Podium, fleet">' + logo + 'Podium</a>' +
+      '<span class="pill" data-testid="page-pill">' + page + '</span>' +
+      '<span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>3 reporters live</span><span class="spacer"></span>' +
+      btn('Fleet', '#/') + btn('Board', '#/board') + btn('History', '#/history') + btn('Chat', '#/chat') + (signedIn ? btn('Admin', '#/admin') : '') + tb + '</header>';
+  }
+  /* The banner is FleetApp's: a sentence and WallOptions (#1129), one sliders pill that opens the display controls. It starts shut. */
+  var SLIDERS = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3.5h9M1.5 8.5h9"/><circle class="knob" cx="4" cy="3.5" r="1.7"/><circle class="knob" cx="8" cy="8.5" r="1.7"/></svg>';
+  var CHEVRON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 1.5 7 5 3.5 8.5"/></svg>';
+  function banner(t) {
+    return '<div class="banner has-picker" role="region" aria-label="Display settings"><span>' + t + '</span>' +
+      '<div class="wallopts"><button type="button" class="edge-tab edge-tab-opts" aria-expanded="false" aria-controls="wo-body" aria-label="Wall options" data-tip="Wall options">' + SLIDERS + '</button>' +
+      '<div class="wallopts-body" id="wo-body" hidden>' +
+      '<label class="field"><span>Refresh every</span><select class="sel" title="How often the console redraws from new data"><option>2s</option><option>5s</option><option>10s</option><option>20s</option><option>30s</option><option>60s</option></select></label>' +
+      '<span class="field"><span>Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="false" title="Press \\ for the top bar, [ and ] for the side panes, and w for wall mode. Esc leaves wall mode."></button><span>Off</span></span></span>' +
+      '<div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option><option>Solarized</option><option>Nord</option><option>Gruvbox</option><option>Catppuccin (Latte, Mocha)</option><option>GitHub</option></select></label>' +
+      '<div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false" tabindex="-1">Light</button><button type="button" role="radio" aria-checked="false" tabindex="-1">Dark</button><button type="button" role="radio" aria-checked="true" tabindex="0">System</button></div></div>' +
+      '</div></div></div>';
+  }
+  var EXP = '<div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div>';
+  function pager(n, m) { return '<div class="apager"><span class="hint" role="status">Showing 1 to ' + n + ' of ' + m + '</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>'; }
+
+  function filters() {
+    return '<section class="asec" aria-labelledby="f-h"><div class="asec-h"><div><h2 id="f-h">Period and filters</h2></div></div><div class="panel"><div class="tool">' +
+      '<div class="f"><label class="lab" for="per">Period</label><select class="field" id="per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>' +
+      '<div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>' +
+      '<div class="f"><label class="lab" for="hn">Harness</label><select class="field" id="hn"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>' +
+      '</div><div class="note-line"><b>Only your own sessions, weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live.</div></div></section>';
+  }
+
+  function usagePage() {
+    return '<div class="page-h"><div><h1>My usage</h1><p class="lead">What your own sessions cost, how they ended and what failed. Only you can see this page.</p></div>' + EXP + '</div>' +
+      filters() +
+      '<section class="asec" aria-labelledby="s-h"><div class="asec-h"><div><h2 id="s-h">Spend by week</h2><p class="hint">Estimated from tokens, not a bill. 2026-09-21 to 2026-10-20.</p></div></div><div class="panel">' +
+      '<div class="tool alone"><div class="sum left"><div><span class="big mono">$118.40</span><span class="cap">spent in this period</span></div><div><span class="big mono">$16.40</span><span class="cap">spent today</span></div><div><span class="big mono">94</span><span class="cap">sessions started</span></div><div><span class="big mono">5</span><span class="cap">most live at once</span></div></div></div>' +
+      '<div class="chart"><div class="plot"><div class="yl" aria-hidden="true"><span style="top:20px">$44</span><span style="top:70px">$22</span><span style="top:110px">$0</span></div>' +
+      '<svg viewBox="0 0 600 120" role="img" aria-label="Your spend per week: 5 periods from 2026-09-21 to 2026-10-19, highest $44.10 on 2026-10-05, $118.40 in all." preserveAspectRatio="none"><line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>' +
+      '<rect class="rbar" x="18" y="62" width="84" height="48"/><rect class="rbar" x="138" y="44" width="84" height="66"/><rect class="rbar" x="258" y="20" width="84" height="90"/><rect class="rbar" x="378" y="58" width="84" height="52"/><rect class="rbar" x="498" y="82" width="84" height="28"/></svg></div>' +
+      '<div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div><div class="hint" aria-hidden="true">2026-09-21 to 2026-10-19. Highest: $44.10.</div></div>' +
+      '<div class="tw2"><table class="ptab" aria-label="Your spend by model"><thead><tr><th scope="col">Model</th><th scope="col">Harness</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Tokens in</th><th scope="col" class="n">Tokens out</th><th scope="col" class="n">Spend</th><th scope="col" class="n">Share</th></tr></thead><tbody>' +
+      '<tr><td class="who">Opus 5.5</td><td>Claude Code</td><td class="n mono">31</td><td class="n mono">12.4M</td><td class="n mono">0.9M</td><td class="n mono">$71.20</td><td class="n mono">60%</td></tr>' +
+      '<tr><td class="who">Sonnet 5.5</td><td>Claude Code</td><td class="n mono">48</td><td class="n mono">22.1M</td><td class="n mono">1.4M</td><td class="n mono">$38.90</td><td class="n mono">33%</td></tr>' +
+      '<tr><td class="who">gpt-5-mini</td><td>OpenCode</td><td class="n mono">15</td><td class="n mono">3.0M</td><td class="n mono">0.2M</td><td class="n mono">$8.30</td><td class="n mono">7%</td></tr></tbody>' +
+      '<tfoot><tr><th scope="row">Total</th><td></td><td class="n mono">94</td><td class="n mono">37.5M</td><td class="n mono">2.5M</td><td class="n mono">$118.40</td><td class="n mono">100%</td></tr></tfoot></table></div>' + pager(3, 3) +
+      '<div class="note-line">Shares are of your own total. No other person\'s or group\'s figure is shown.</div></div></section>' +
+
+      '<section class="asec" aria-labelledby="p-h"><div class="asec-h"><div><h2 id="p-h">Spend by project</h2><p class="hint">Your five most costly projects in this period.</p></div></div><div class="panel"><div class="tw2"><table class="ptab" aria-label="Your spend by project"><thead><tr><th scope="col">Project</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Spend</th><th scope="col"><span class="sr-only">History</span></th></tr></thead><tbody>' +
+      '<tr><td class="who">podium</td><td class="n mono">52</td><td class="n mono">$81.60</td><td><a class="klink" href="#">Open</a></td></tr>' +
+      '<tr><td class="who">dotfiles</td><td class="n mono">22</td><td class="n mono">$24.10</td><td><a class="klink" href="#">Open</a></td></tr>' +
+      '<tr><td class="who">scratch-local</td><td class="n mono">20</td><td class="n mono">$12.70</td><td><a class="klink" href="#">Open</a></td></tr></tbody></table></div>' + pager(3, 3) + '</div></section>' +
+
+      '<section class="asec" aria-labelledby="o-h"><div class="asec-h"><div><h2 id="o-h">Sessions by outcome</h2><p class="hint">How your sessions ended, with the model and effort they used.</p></div></div><div class="panel"><div class="tw2"><table class="ptab" aria-label="Your sessions by outcome"><thead><tr><th scope="col">Outcome</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Median length</th><th scope="col" class="n">Longest</th></tr></thead><tbody>' +
+      '<tr><td class="who">Finished</td><td class="n mono">81</td><td class="n mono">14 min</td><td class="n mono">2 h 10 min</td></tr>' +
+      '<tr><td class="who">Stopped by you</td><td class="n mono">9</td><td class="n mono">3 min</td><td class="n mono">41 min</td></tr>' +
+      '<tr><td class="who">Failed</td><td class="n mono">4</td><td class="n mono">6 min</td><td class="n mono">22 min</td></tr></tbody></table></div>' + pager(3, 3) +
+      '<div class="note-line">Effort is reported by Claude Code only. OpenCode sessions are counted but have no effort.</div></div></section>' +
+
+      '<section class="asec" aria-labelledby="x-h"><div class="asec-h"><div><h2 id="x-h">Failures</h2><p class="hint">Each row opens History for your sessions from the last 30 days. Older ones have counts only.</p></div></div><div class="panel"><div class="tw2"><table class="ptab" aria-label="Your failures by class"><thead><tr><th scope="col">Class</th><th scope="col">Tool</th><th scope="col">Harness</th><th scope="col" class="n">Count</th><th scope="col">History</th></tr></thead><tbody>' +
+      '<tr><td class="who">Command failed</td><td class="mono">Bash</td><td>Claude Code</td><td class="n mono">9</td><td><a class="klink" href="#">Open</a></td></tr>' +
+      '<tr><td class="who">Permission denied</td><td class="mono">Edit</td><td>OpenCode</td><td class="n mono">3</td><td><a class="klink" href="#">Open</a></td></tr>' +
+      '<tr><td class="who">Timeout</td><td class="mono">WebFetch</td><td>Claude Code</td><td class="n mono">2</td><td class="muted">Older than 30 days</td></tr></tbody>' +
+      '<tfoot><tr><th scope="row">Total</th><td></td><td></td><td class="n mono">14</td><td></td></tr></tfoot></table></div>' + pager(3, 3) + '</div></section>' +
+
+      '<section class="asec" aria-labelledby="t-h"><div class="asec-h"><div><h2 id="t-h">Tool calls</h2><p class="hint">Names and counts only. No arguments, paths or text are kept.</p></div></div><div class="panel"><div class="tw2"><table class="ptab" aria-label="Your tool calls"><thead><tr><th scope="col">Tool</th><th scope="col">Harness</th><th scope="col" class="n">Calls</th><th scope="col" class="n">Per session</th></tr></thead><tbody>' +
+      '<tr><td class="who mono">Bash</td><td>Claude Code</td><td class="n mono">1,204</td><td class="n mono">12.8</td></tr>' +
+      '<tr><td class="who mono">Edit</td><td>Claude Code</td><td class="n mono">688</td><td class="n mono">7.3</td></tr>' +
+      '<tr><td class="who mono">read</td><td>OpenCode</td><td class="n mono">215</td><td class="n mono">14.3</td></tr></tbody></table></div>' + pager(3, 3) + '</div></section>';
+  }
+
+  function emptyPage() {
+    return '<div class="page-h"><div><h1>My usage</h1><p class="lead">What your own sessions cost, how they ended and what failed. Only you can see this page.</p></div></div>' + filters() +
+      '<section class="asec" aria-labelledby="e-h"><div class="asec-h"><div><h2 id="e-h">Nothing in this period</h2></div></div><div class="panel"><div class="kb-empty">No sessions of yours in the last 30 days. Start a session on one of your reporters, or choose a longer period.</div></div></section>';
+  }
+
+  function signinPage() {
+    return '<div class="page-h"><div><h1>My usage</h1><p class="lead">What your own sessions cost, how they ended and what failed.</p></div></div>' +
+      '<section class="asec" aria-labelledby="g-h"><div class="asec-h"><div><h2 id="g-h">Sign in to see your usage</h2></div></div><div class="panel"><div class="warnbar" role="status"><div class="tx"><b>You are not signed in.</b> My usage shows only your own figures, so Podium needs to know who you are. Sign in from the top bar, then open My usage again.</div></div><div class="row2" style="padding:12px 16px"><button type="button" class="btn pri">Sign in</button></div></div></section>';
+  }
+
+  function adminPage() {
+    return '<div class="page-h"><div><h1>Settings</h1><p class="lead">How this server behaves.</p></div></div>' +
+      '<section class="asec" aria-labelledby="a-h"><div class="asec-h"><div><h2 id="a-h">Reporting</h2><p class="hint">What people can see about their own use.</p></div></div><div class="panel">' +
+      '<div class="srow"><div class="setname"><b id="mu-n">My usage page</b><p class="hint ink2">Each signed-in person sees their own spend, sessions, failures and tool calls under My usage in the top bar. Only their own: it never shows another person, and an Administrator sees their own figures there too. Off by default.</p></div>' +
+      '<div class="sw"><button type="button" role="switch" id="mu-sw" aria-checked="false" aria-labelledby="mu-n mu-s"></button><span id="mu-s">Off</span></div></div></div></section>';
+  }
+
+  function adminNav() {
+    function g(t, items) { return '<div class="ngroup" role="group" aria-label="' + t + '"><span class="gh" aria-hidden="true"><span class="gt">' + t + '</span></span>' + items + '</div>'; }
+    function b(t, cur) { return '<button type="button" class="navbtn"' + (cur ? ' aria-current="page"' : '') + '>' + t + '</button>'; }
+    return '<nav class="nav" aria-label="Admin sections"><div class="navin">' + g('People and access', b('People') + b('Groups') + b('Reporters')) + g('Server', b('Settings', 1) + b('Model prices') + b('Security')) + g('Reporting', b('Usage') + b('Spend') + b('Failures')) + '<div class="navfoot"><button type="button" class="btn">Lock Admin</button><span class="hint">Locks after 10 minutes without activity.</span></div></div></nav>';
+  }
+
+  function render() {
+    var v = S.v, html;
+    if (v === 'admin') {
+      html = '<div class="app">' + topBar('Admin', true, true) + banner('<b>Admin.</b> Tokens, groups, reporters and settings for this server.') + '<main class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></main></div>';
+    } else {
+      var body = v === 'usage' ? usagePage() : v === 'empty' ? emptyPage() : v === 'signin' ? signinPage() : '';
+      if (v === 'off') body = '<div class="page-h"><div><h1>Page not found</h1><p class="lead">There is nothing at this address. Go back to the wall.</p></div></div>';
+      html = '<div class="app">' + topBar(v === 'usage' || v === 'empty' ? 'My usage' : v === 'signin' ? 'My usage' : 'Fleet', v !== 'signin', v === 'usage' || v === 'empty') + banner(v === 'usage' || v === 'empty' ? '<b>My usage.</b> Your own spend, sessions and failures. Cost is an estimate from token counts and a price table, not a bill.' : v === 'signin' ? '<b>My usage.</b> Sign in to see your own figures.' : '<b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.') + '<main class="adminv" aria-label="My usage"><div class="apage"><div class="apage-in">' + body + '</div></div></main></div>';
+    }
+    app.innerHTML = html;
+    var wp = app.querySelector('.edge-tab-opts'), wb = app.querySelector('.wallopts-body'), wr = app.querySelector('.wallopts');
+    if (wp) wp.addEventListener('click', function () { var o = wb.hidden; wb.hidden = !o; wr.classList.toggle('open', o); wp.setAttribute('aria-expanded', String(o)); var nm = o ? 'Hide wall options' : 'Wall options'; wp.setAttribute('aria-label', nm); wp.setAttribute('data-tip', nm); wp.innerHTML = o ? CHEVRON : SLIDERS; });
+    var sw = document.getElementById('mu-sw');
+    if (sw) sw.addEventListener('click', function () { var on = sw.getAttribute('aria-checked') !== 'true'; sw.setAttribute('aria-checked', String(on)); document.getElementById('mu-s').textContent = on ? 'On' : 'Off'; document.getElementById('announce').textContent = 'My usage page ' + (on ? 'on' : 'off') + '.'; });
+  }
+  function press(sel, attr, val) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelectorAll('[data-v]').forEach(function (b) { b.addEventListener('click', function () { S.v = b.getAttribute('data-v'); press('[data-v]', 'data-v', S.v); render(); }); });
+  document.querySelectorAll('[data-th]').forEach(function (b) { b.addEventListener('click', function () { S.th = b.getAttribute('data-th'); root.setAttribute('data-theme', S.th); press('[data-th]', 'data-th', S.th); }); });
+  document.querySelectorAll('[data-w]').forEach(function (b) { b.addEventListener('click', function () { S.w = b.getAttribute('data-w'); stage.classList.toggle('narrow', S.w === 'narrow'); press('[data-w]', 'data-w', S.w); }); });
+  root.setAttribute('data-theme', 'dark');
+  render();
+})();
+</script>

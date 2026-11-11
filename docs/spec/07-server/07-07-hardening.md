@@ -447,6 +447,7 @@ This is the only way anything reaches a session from Podium, so every rule here 
 
 **The browser's credential**
 - Reads stay open, but every respond route except `GET /respond/me` needs a respond session.
+- `GET /respond/usage/:report` (#726) reads the person from the respond session on the server, never from the request. It offers only reports whose every figure is the person's own, and it is off with the `my-usage` flag.
 - `POST /respond/sign-in` takes a name and a token, the same pair as the reporter's `userName` and `token`
   options. It checks them the way a report's credential is checked against its `userName` (`identify` in
   `routes.ts`): a person's token is accepted only with that person's name, compared case-insensitively, and

@@ -8,15 +8,16 @@ import { readJson, writeJson } from "./storage";
 export type Pane = "left" | "right" | "top";
 export type Collapsed = Record<Pane, boolean>;
 /** The console page the flags belong to: each keeps its own. */
-export type PanesPage = "fleet" | "board" | "reporters" | "chat";
+export type PanesPage = "fleet" | "board" | "reporters" | "usage" | "chat";
 const ALL: Collapsed = { left: true, right: true, top: true };
 const FLEET_OPEN: Collapsed = { left: false, right: false, top: false };
-/** The board (#346), My reporters (#446) and Chat (#1034) open with both side panels collapsed, so the page gets the width. */
+/** The board (#346), My reporters (#446), My usage (#726) and Chat (#1034) open with both side panels collapsed, so the page gets the width. */
 const SIDES_SHUT: Collapsed = { left: true, right: true, top: false };
 const PAGES: Record<PanesPage, { key: string; fallback: Collapsed }> = {
   fleet: { key: "podium.collapsed", fallback: FLEET_OPEN },
   board: { key: "podium.collapsed.board", fallback: SIDES_SHUT },
   reporters: { key: "podium.collapsed.reporters", fallback: SIDES_SHUT },
+  usage: { key: "podium.collapsed.usage", fallback: SIDES_SHUT },
   chat: { key: "podium.collapsed.chat", fallback: SIDES_SHUT },
 };
 
@@ -37,7 +38,7 @@ export interface Panes {
 }
 
 export function usePanes(page: PanesPage = "fleet"): Panes {
-  const [savedBy, setSavedBy] = useState<Record<PanesPage, Collapsed>>(() => ({ fleet: load("fleet"), board: load("board"), reporters: load("reporters"), chat: load("chat") }));
+  const [savedBy, setSavedBy] = useState<Record<PanesPage, Collapsed>>(() => ({ fleet: load("fleet"), board: load("board"), reporters: load("reporters"), usage: load("usage"), chat: load("chat") }));
   const saved = savedBy[page];
   const [wall, setWall] = useState(false);
 

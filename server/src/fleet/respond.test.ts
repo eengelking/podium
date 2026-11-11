@@ -450,7 +450,7 @@ describe('the plain-HTTP note on sign-in (#306)', () => {
 describe('the switches', () => {
   it('is off with authentication off, and with either Admin flag off: the routes refuse and the reply says so', async () => {
     const off = await setup({ secret: null });
-    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false });
+    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false, myUsage: false });
     expect((await request(off.app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: off.ed.token })).status).toBe(403);
     const r = await request(off.app).post('/api/fleet/report').send(report('Ed'));
     expect(r.body).toMatchObject({ respond: false, deliveries: [] });
@@ -478,9 +478,9 @@ describe('signing in', () => {
   it('takes a person’s name (any case) with their token, and the name Admin with the admin secret', async () => {
     const { app, ed, people } = await setup();
     const agent = await signedIn(app, 'ed', ed.token);
-    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false });
+    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false, myUsage: false });
     const admin = await signedIn(app, 'Admin', SECRET);
-    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true });
+    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true, myUsage: false });
     expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
   });
 

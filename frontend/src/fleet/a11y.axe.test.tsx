@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import axe from "axe-core";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { HistoryView } from "./HistoryView";
 import { AdminView } from "./admin/AdminView";
@@ -88,6 +88,19 @@ describe("axe on the console's pages (#636)", () => {
     t.unmount();
     const m = render(<FleetView myReporters state={state()} />);
     expect(await violations(m.container, [])).toEqual([]);
+  });
+
+  it("My usage, signed in, with its five sections drawn (#726)", async () => {
+    const reply = (report: string, key: string) => ({
+      report, from: "2026-09-21", to: "2026-10-20", by: "day", tz: "Europe/Berlin", basedOn: "rollups", oldestDay: "2026-03-02", partial: false,
+      columns: [{ key: "period", label: "Period", unit: "date" }, { key: "key", label: key, unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "costUsd", label: "Cost (USD)", unit: "usd" }, { key: "count", label: "Failures", unit: "count" }, { key: "calls", label: "Calls", unit: "count" }],
+      rows: [{ period: "2026-10-05", key: "podium", sessions: 3, costUsd: 4.5, count: 2, calls: 9 }], total: { sessions: 3, costUsd: 4.5, count: 2, calls: 9 }, harnesses: ["claude-code"],
+    });
+    const client = { get: async (path: string) => reply(path.split("?")[0]!.replace("/reports/", ""), "Name"), text: async () => "" } as never;
+    const api = { me: async () => ({ enabled: true, signedIn: true, name: "Ed", admin: false, myUsage: true }) } as never;
+    const { container } = render(<FleetView myUsage state={stateFrom({ sessions, features: { "my-usage": true } })} respondApi={api} usageClient={client} />);
+    await screen.findByRole("table", { name: "Tool calls" });
+    expect(await violations(container, [SEPARATORS])).toEqual([]);
   });
 
   it("History", async () => {

@@ -392,7 +392,7 @@ describe('the activity feed (#118)', () => {
     const r = live();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
     expect((await viewer.get(url(r, r.agents[0]!.id))).body).toMatchObject({ enabled: true, live: true });
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'update-check': true, 'activity-history': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true, 'activity-history': false });
   });
 
   it('with the Admin flag off: no lease, enabled: false, nothing watched, nothing kept; back on resumes', async () => {
@@ -409,7 +409,7 @@ describe('the activity feed (#118)', () => {
     // Turning it off drops every lease and entry at once.
     await fleet.features.setFeature('activity-feed', false);
     expect(fleet.activity.size).toBe(0);
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'update-check': true, 'activity-history': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true, 'activity-history': false });
 
     const off = await viewer.get(url(r, aid));
     expect(off.status).toBe(200);
@@ -440,7 +440,7 @@ describe('the activity feed (#118)', () => {
     await fleet.flush();
     const all = seen.join('');
     expect(all).toContain('event: snapshot');
-    expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"chat-everyone":false,"session-recording":false,"update-check":true,"activity-history":false}');
+    expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"chat-everyone":false,"session-recording":false,"my-usage":false,"update-check":true,"activity-history":false}');
   });
 
   it('a session that is deleted takes its feed with it', async () => {

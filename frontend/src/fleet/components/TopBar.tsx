@@ -27,7 +27,10 @@ export function TopBar(props: {
 }) {
   const { phase, reporters } = props;
   // Admin is offered only to a signed-in Administrator (#215). The server checks it again; hiding the button is not the gate.
-  const admin = useRespond()?.me?.admin === true;
+  const me = useRespond()?.me;
+  const admin = me?.admin === true;
+  // My usage (#726) is offered to a signed-in person while the Admin's setting is on. The server checks it again; hiding the button is not the gate.
+  const myUsage = me?.signedIn === true && me.myUsage === true ? { current: props.page === "My usage" } : undefined;
   return (
     <header className="top" id="podium-top" hidden={props.collapsed}>
       <BrandLink />
@@ -96,7 +99,7 @@ export function TopBar(props: {
         </a>
       )}
       {/* Sign in to respond (#206) stays at the far end, after a divider, so nothing before it moves on signing in or out. */}
-      <TopBarSignIn myReporters={props.myReporters} />
+      <TopBarSignIn myReporters={props.myReporters} myUsage={myUsage} />
       {/* Out of the flex row (absolute, at 50% of the bar), so nothing above can collide with it or move it as the pills' text changes (#91, #402). */}
       {props.onCollapse && <TopBarTab collapsed={false} onToggle={props.onCollapse} />}
     </header>
