@@ -160,6 +160,8 @@
 .adminv .rstate.restart { color: var(--muted); }
 .adminv .thbtn { display: inline-flex; gap: 4px; align-items: center; color: inherit; font-weight: inherit; }
 .adminv .thbtn:hover { color: var(--ink); }
+/* The arrow always takes its room, so showing it, hiding it or moving it to another heading moves nothing (#1144). */
+.adminv .thbtn .sarrow { display: inline-block; width: 1em; text-align: center; }
 .adminv .ptab tr.rw { cursor: pointer; }
 .adminv .ptab tr.rw:hover td { background: var(--hover); }
 .adminv .rname { font-weight: 600; display: block; }

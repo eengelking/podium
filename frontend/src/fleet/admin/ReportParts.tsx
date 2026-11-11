@@ -5,6 +5,7 @@ import { useEffect, useId, useState } from "react";
 import { query, type Paged } from "./adminApi";
 import { Pager } from "./Pager";
 import { Choice } from "./Page";
+import { SortArrow, useHeldColumns } from "./heldColumns";
 import {
   BYS,
   PERIODS,
@@ -380,21 +381,25 @@ export function ReportTable({ reply, label, page, pageSize, history, breakdown =
   const cols = reply.columns;
   // A heading sorts every row of the period, then the page is cut from that. A new reply is a new table and starts in the server's order.
   const [sort, setSort] = useState<{ reply: ReportReply; key: string; dir: 1 | -1 } | null>(null);
+  // Sorting changes which rows are on the page; the columns are held where they were so none moves (#1144).
+  const { head, hold, tableStyle, cols: colgroup } = useHeldColumns(reply);
   const sample = (key: string) => reply.rows.find((x) => x[key] !== null && x[key] !== undefined)?.[key];
   const active = sort && sort.reply === reply ? sort : null;
   const ordered = active ? sortRows(reply.rows, active.key, active.dir, isNumericColumn(cols.find((c) => c.key === active.key) ?? { key: active.key, label: "" }, sample(active.key)), (row) => (active.key === "key" ? keyText(row[active.key], breakdown) : row[active.key])) : reply.rows;
   const shown = ordered.slice((page - 1) * pageSize, page * pageSize);
   const total = reply.total && typeof reply.total === "object" ? reply.total : null;
   const sortBy = (c: ReportColumn, numeric: boolean) => {
+    hold();
     // The first click shows the most of a number (largest first) or the start of text and dates (oldest, A to Z); the next click reverses it.
     setSort({ reply, key: c.key, dir: active?.key === c.key ? (active.dir === 1 ? -1 : 1) : numeric ? -1 : 1 });
     onSort?.();
   };
   return (
     <div className="tw2">
-      <table className="ptab" aria-label={label}>
+      <table className="ptab" aria-label={label} style={tableStyle}>
+        {colgroup}
         <thead>
-          <tr>
+          <tr ref={head}>
             {cols.map((c) => {
               const numeric = isNumericColumn(c, sample(c.key));
               const on = active?.key === c.key;
@@ -402,7 +407,7 @@ export function ReportTable({ reply, label, page, pageSize, history, breakdown =
                 <th key={c.key} scope="col" className={numeric ? "n" : undefined} aria-sort={on ? (active.dir === 1 ? "ascending" : "descending") : "none"}>
                   <button type="button" className="thbtn" onClick={() => sortBy(c, numeric)}>
                     {c.label}
-                    {on ? (active.dir === 1 ? " ↑" : " ↓") : ""}
+                    <SortArrow dir={on ? active.dir : 0} />
                   </button>
                 </th>
               );

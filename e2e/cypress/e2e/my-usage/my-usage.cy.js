@@ -127,6 +127,20 @@ describe('my usage', () => {
       });
     });
 
+    it('moves no column when a heading is clicked to sort (#1144): the Tool calls table', () => {
+      cy.openConsole('#/me/usage');
+      const table = () => cy.get('table[aria-label="Tool calls"]');
+      table().find('tbody tr').should('have.length.greaterThan', 1);
+      cy.columnEdges(table).then(({ edges, now: before }) => {
+        const clicks = [];
+        for (let i = 0; i < before.length; i += 1) clicks.push(i, i);
+        cy.wrap(clicks).each((i) => {
+          table().find('thead th').eq(i).find('button.thbtn').click();
+          table().should(($u) => expect(edges($u), `after clicking heading ${i}`).to.deep.eq(before));
+        });
+      });
+    });
+
     it('serves each of its own reports and refuses the ones that are not one person\'s', () => {
       for (const name of ['spend', 'sessions', 'failures', 'tools']) {
         cy.request(`${USAGE}/${name}`).should((res) => {

@@ -665,6 +665,28 @@ describe("Reporters tab (#142)", () => {
     await waitFor(() => expect(state.calls.some((c) => c.includes("q=studio"))).toBe(true));
   });
 
+  it("sorts by a heading through the server, keeps an arrow slot on every heading and holds the columns until the filter changes (#1144)", async () => {
+    const state = await openReporters();
+    const table = () => screen.getByRole("table");
+    const slots = () => [...table().querySelectorAll("thead .sarrow")].map((s) => s.textContent);
+    // Every sortable heading has its slot from the start, and only the one the list is sorted by (the server's order) holds an arrow.
+    const count = slots().length;
+    expect(count).toBeGreaterThan(1);
+    expect(slots().filter((s) => s !== "")).toHaveLength(1);
+    expect(table().querySelector("colgroup")).toBeNull();
+    fireEvent.click(within(table()).getByRole("button", { name: "Machine" }));
+    await waitFor(() => expect(state.calls.some((c) => c.includes("/reporters") && c.includes("sort=name") && c.includes("dir=1"))).toBe(true));
+    await waitFor(() => expect(slots().filter((s) => s === "↑")).toHaveLength(1));
+    expect(slots()).toHaveLength(count);
+    expect(slots().filter((s) => s !== "")).toHaveLength(1);
+    expect(table().querySelector("colgroup")).not.toBeNull();
+    fireEvent.click(within(table()).getByRole("button", { name: "Machine" }));
+    await waitFor(() => expect(slots().filter((s) => s === "↓")).toHaveLength(1));
+    // Another filter is different content, so the columns are sized to it again.
+    fireEvent.click(within(screen.getByRole("group", { name: "Filter by state" })).getByRole("button", { name: /Silent/ }));
+    await waitFor(() => expect(table().querySelector("colgroup")).toBeNull());
+  });
+
   it("opens a reporter with its details and no secret, and goes back to the list", async () => {
     const state = await openReporters();
     fireEvent.click(screen.getByRole("button", { name: "Open details for studio-m2" }));

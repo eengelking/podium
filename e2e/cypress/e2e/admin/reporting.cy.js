@@ -51,6 +51,24 @@ describe('admin: reporting', () => {
     cy.contains('Showing 1 to').should('exist');
   });
 
+  // #1144: a sort click moves no column. Each heading's left edge (from the table's own, since a wide table scrolls under the click) and width is read before and after every click, over each heading and again to reverse it.
+  for (const [name, rows] of [['Sessions', 2], ['Usage', 1]]) {
+    it(`${name}: no column moves when a heading is clicked to sort`, () => {
+      cy.openAdmin(name);
+      const table = () => cy.get('table.ptab').first();
+      table().find('tbody tr').should('have.length.at.least', rows);
+      cy.columnEdges(table).then(({ edges, now: before }) => {
+        const count = before.length;
+        const clicks = [];
+        for (let i = 0; i < count; i += 1) clicks.push(i, i);
+        cy.wrap(clicks).each((i) => {
+          table().find('thead th').eq(i).find('button.thbtn').click();
+          table().should(($u) => expect(edges($u), `after clicking heading ${i}`).to.deep.eq(before));
+        });
+      });
+    });
+  }
+
   it('Usage: counts the seeded people, reporters and sessions, read live', () => {
     cy.openAdmin('Usage');
     cy.contains('active people').parent().invoke('text').should('match', /^\s*2\s*active people/);

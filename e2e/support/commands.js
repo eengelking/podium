@@ -65,6 +65,31 @@ Cypress.Commands.add('openConsole', (hash = '#/', opts = {}) => {
   cy.get('[data-testid="connection-pill"]', { timeout: 15000 }).should('have.attr', 'data-state', 'live');
 });
 
+// The columns of a table once its layout has stopped changing (#1144): each heading's [left, width], the left taken from the table's own edge because a wide
+// table scrolls under a click. A table that is still drawing (a reply arriving, a column added) is waited out, not measured, so a slow database cannot
+// leave the first measurement ahead of the table.
+Cypress.Commands.add('columnEdges', { prevSubject: false }, (table) => {
+  const edges = ($t) => {
+    const x = $t[0].getBoundingClientRect().left;
+    return [...$t.find('thead th')].map((th) => {
+      const r = th.getBoundingClientRect();
+      return [Math.round((r.left - x) * 10) / 10, Math.round(r.width * 10) / 10];
+    });
+  };
+  let seen = '';
+  let since = 0;
+  const settle = () =>
+    table().should(($t) => {
+      const now = JSON.stringify(edges($t));
+      if (now !== seen) {
+        seen = now;
+        since = Date.now();
+      }
+      expect(Date.now() - since, 'the columns have stopped moving').to.be.at.least(600);
+    });
+  return settle().then(($t) => ({ edges, now: edges($t) }));
+});
+
 /** One seeded card on the wall, by its key in SESSIONS (scripts/e2e-seed.mjs). */
 Cypress.Commands.add('card', (key) => cy.get(`button.card.sc[data-session="${seeded().sessions[key]}"]`));
 
