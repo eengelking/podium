@@ -529,6 +529,11 @@ menu and the page scroll on their own.
     title line, as the Spend projection does. The Harness filter narrows these four sections. The report above them is not kept per harness, so it is never sent the
     filter and the page says it covers every harness. A Person, Group or Model filter holds the four sections back with a line that says why. Where waiting was not
     recorded yet (it is recorded from the upgrade on) the period shows a dash and the page says from which day it is. Durations use the app's duration format.
+    Since #725 (`mockup/podium-admin-reporting-answers.html`) two sections follow *What sessions waited for*: *Answers sent through Podium* (a summary of answers, tool
+    permissions, questions and plans, a chart of the total per day, week or month, a table by kind with a row for the whole period and for each harness, and a pager) and *How
+    long sessions waited for an answer* (the median and 90th percentile in minutes and seconds, by kind with a dash for a message, and by period). Each has its own CSV and JSON,
+    follows the Harness filter and is held back by a Person, Group or Model filter with the same line. Where counting had not begun the period shows a dash and the page says from
+    which day it is. A figure that comes from time classes says it can be a few seconds off, and the page says that an answer given in the terminal is not counted.
     Since #723 (`mockup/podium-admin-reporting-cost-tokens.html`) the page adds two more after them: *Model and effort mix* (the share of sessions on each model, or at each effort with
     **Mix of**, in each day, week or month, the long tail as one column) and *Context fullness at the end* (sessions that ended under 50%, from 50% to 80% and above 80% full, and how many
     compacted on their own or continued after a `/clear`, with a row for each harness). Each has its own CSV and JSON, follows the Harness filter and is held back by a Person, Group or Model

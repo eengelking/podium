@@ -4,7 +4,8 @@
 //
 // It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily, and the
 // tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, what each tool did (#721): tool_stats_daily, and the session time, agents, people and hours
-// of #722: session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, and what sessions cost and how they ended (#723): cost_daily, tool_cost_daily,
+// of #722: session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, the answers sent from Podium (#725: answers_daily, from part way through, as a database upgraded
+// then would hold them), and what sessions cost and how they ended (#723): cost_daily, tool_cost_daily,
 // for Claude Code and OpenCode),
 // plus a few people, groups, reporters and Admin log entries, through the server's own migrations. Every random choice
 // comes from a seeded generator, so one seed and one "today" always give the same rows.
@@ -185,7 +186,7 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
@@ -207,6 +208,10 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
     // What each tool did (#721) draws from a stream of its own too, so it moved none of the rows seeded before it.
     const statRng = new Rng(opt.seed + 721);
     const timeRng = new Rng(opt.seed + 722);
+    const putAnswer = db.prepare('INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, ?, ?, ?, ?)');
+    // The answers sent from Podium (#725) draw from a stream of their own, and begin 60% of the way in, so the first weeks show a dash.
+    const answerRng = new Rng(opt.seed + 725);
+    const answersFrom = addDays(opt.today, -Math.round(opt.days * 0.6));
     const putFleet = db.prepare('INSERT INTO fleet_daily (day, active_people, active_reporters, sessions_started, peak_live_sessions, reporter_versions_json, engine_versions_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
     // Two agent-heavy days, and the two days Sam works (both in the last two weeks, so the projection's window sees 2 of 14).
@@ -479,6 +484,25 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
           putHour.run(day, 'claude-code', hour, Math.max(1, all - oc));
           if (oc > 0) putHour.run(day, 'opencode', hour, oc);
         });
+      }
+      // Answers sent from Podium: per kind, how many and how long each had waited (a permission in seconds, a question or a plan in minutes), and the messages, which have no wait.
+      if (day >= answersFrom) {
+        putAnswer.run(day, '', 'none', -1, 0);
+        const typical = { permission: [1.4, 15_000], question: [0.5, 100_000], plan: [0.2, 180_000] } as const;
+        for (const [harness, t] of times) {
+          for (const kind of ['permission', 'question', 'plan'] as const) {
+            const [per, ms] = typical[kind];
+            const classes = new Map<number, number>();
+            const n = Math.round(t.sessions * per * (0.6 + answerRng.next() * 0.8));
+            for (let i = 0; i < n; i++) {
+              const b = timeBucket(ms * (0.2 + answerRng.next() * answerRng.next() * 5));
+              classes.set(b, (classes.get(b) ?? 0) + 1);
+            }
+            for (const [b, c] of [...classes].sort(([x], [y]) => x - y)) putAnswer.run(day, harness, kind, b, c);
+          }
+          const messages = Math.round(t.sessions * 0.3 * (0.5 + answerRng.next()));
+          if (messages > 0) putAnswer.run(day, harness, 'message', -1, messages);
+        }
       }
       putFleet.run(day, active.size, reporters, started, started === 0 ? 0 : Math.max(1, Math.min(8, Math.round(started / 2 + rng.next() * 2))), JSON.stringify(rv), JSON.stringify(ev));
     });

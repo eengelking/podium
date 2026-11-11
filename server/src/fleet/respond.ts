@@ -60,6 +60,8 @@ interface Closed {
 
 interface AskEntry {
   ask: Ask;
+  /** When the server first heard of the ask, on its own clock, so the time a person left it waiting (#725) does not depend on the reporter's clock. */
+  seenAt: number;
   delivery: DeliveryEntry | null;
   closed: Closed | null;
 }
@@ -330,7 +332,7 @@ export class RespondStore {
     if (open >= RESPOND_LIMITS.asks) return 'full';
     // A new ask ends the readable life of every closed one before it.
     for (const [id, e] of s.asks) if (e.closed) s.asks.delete(id);
-    s.asks.set(ask.id, { ask, delivery: null, closed: null });
+    s.asks.set(ask.id, { ask, seenAt: this.now(), delivery: null, closed: null });
     this.onChange(sessionId);
     return 'ok';
   }
@@ -487,7 +489,7 @@ export class RespondStore {
    * An answer from the browser. `accepts` is what the session's last report said it takes. Only the first answer to an
    * ask is taken; a later one is refused with who answered and when.
    */
-  answer(sessionId: string, askId: string, by: string, body: unknown): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
+  answer(sessionId: string, askId: string, by: string, body: unknown): { ok: true; delivery: Delivery; asked: { kind: Ask['kind']; waitedMs: number } } | { ok: false; err: AnswerError } {
     const e = this.sessions.get(sessionId)?.asks.get(askId);
     if (!e) return { ok: false, err: { status: 404, error: 'unknown ask' } };
     if (e.closed) return { ok: false, err: { status: 410, error: 'closed', outcome: e.closed.outcome, at: e.closed.at } };
@@ -500,7 +502,7 @@ export class RespondStore {
     this.feed?.add(sessionId, e.ask.agentId, delivery.id, { at: delivery.at, text: feedText(delivery, e.ask), by, note: noteFor(delivery, e.ask, null) }, delivery);
     this.wake(sessionId, askId, () => ({ kind: 'delivery', delivery: this.handOver(sessionId, e) ?? delivery }));
     this.onChange(sessionId);
-    return { ok: true, delivery };
+    return { ok: true, delivery, asked: { kind: e.ask.kind, waitedMs: Math.max(0, delivery.at - e.seenAt) } };
   }
 
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */

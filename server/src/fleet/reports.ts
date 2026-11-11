@@ -32,6 +32,7 @@ import {
   type ToolStatDay,
   type UsageDay,
   type AgentDay,
+  type AnswerDay,
   type HourPeakDay,
   type PersonDay,
   type SessionTimeDay,
@@ -62,7 +63,7 @@ export interface ReportDeps {
 export class ReportError extends Error {}
 
 export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload' | 'costs' | 'harness' | 'activity';
-const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 
 export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'tools', 'sessiontime', 'workload', 'costs', 'harness', 'activity'];
 
@@ -96,8 +97,9 @@ export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools' | 's
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
   tools: ['tool', 'session', 'version', 'failures', 'prompts', 'duration', 'skills'],
-  // how long sessions ran and waited by period, what they waited for, which agents they launched, how deep the chains went (#722)
-  sessiontime: ['time', 'reason', 'agents', 'depth'],
+  // how long sessions ran and waited by period, what they waited for, which agents they launched, how deep the chains went (#722), the answers sent from Podium and how long
+  // the sessions had waited for them (#725)
+  sessiontime: ['time', 'reason', 'agents', 'depth', 'answers', 'answerwait'],
   // each person's sessions per active day, and the most sessions live at once in each hour of the day (#722)
   workload: ['person', 'hour', 'places'],
   // what sessions cost per call and session by model, what sessions that used each tool cost, the token split and cache hit rate, the model or effort mix, and how full the context was at the end (#723)
@@ -847,12 +849,95 @@ const REASONS = ['permission', 'question', 'plan'] as const;
 type Reason = (typeof REASONS)[number];
 const waitOf = (r: SessionTimeDay, k: Reason): { s: number; n: number } => (k === 'permission' ? { s: r.permissionS, n: r.permissionN } : k === 'question' ? { s: r.questionS, n: r.questionN } : { s: r.planS, n: r.planN });
 
+// ---- answers sent from Podium and how long sessions waited for them (#725) --------------------------------------
+
+const ANSWER_KINDS = ['permission', 'question', 'plan', 'message'] as const;
+type AnswerKind = (typeof ANSWER_KINDS)[number];
+/** The row `writeRollups` leaves for each day it ran, so "recorded since" is the day Podium began counting and not the day of the first answer. It holds no answer. */
+export const ANSWER_MARKER = 'none';
+const answerOf = (r: Raw): Omit<AnswerDay, 'kind'> & { kind: string } => ({ day: String(r.day), harness: String(r.harness), kind: String(r.kind), bucket: Number(r.bucket), answers: Number(r.count) });
+
+/**
+ * Answers sent from the console, by period, harness and kind (`answers`), and how long the session had waited when each was sent (`answerwait`: a median and a 90th percentile
+ * read from wait classes, so within 10%). Only answers to an ask have a wait: a message goes to a session that is not waiting. The counts are written as each answer is taken, so
+ * today is stored too, and a day before Podium began counting is a dash and not a zero.
+ */
+async function answersReport(deps: ReportDeps, p: Params, breakdown: 'answers' | 'answerwait', harness: string | null): Promise<ReportReply> {
+  const all = (await select(deps.db, 'answers_daily', p.from, p.to)).map(answerOf);
+  const oldestDay = await oldestDayOf(deps.db, ['answers_daily'], p.today);
+  const f = { oldestDay } as Facts;
+  const counted = all.filter((r): r is AnswerDay => r.kind !== ANSWER_MARKER);
+  const harnesses = [...new Set(counted.map((r) => r.harness))].sort(byCode);
+  const mine = counted.filter((r) => harness === null || r.harness === harness);
+  // every period of the range, so one before the counting began is a row with dashes
+  const spans = new Map<string, boolean>();
+  for (let d = p.from; d <= p.to; d = addDays(d, 1)) {
+    const k = bucketOf(d, p.by as 'day' | 'week' | 'month');
+    spans.set(k, (spans.get(k) ?? false) || d >= oldestDay);
+  }
+  const periodsInRange = [...spans.keys()].sort(byCode);
+  // `oldestDay` starts at today and only goes down, so it is always a day: counting has begun by the time anyone reads the report
+  const extra = { harnesses, answersSince: oldestDay };
+  const periodOf = (r: AnswerDay): string => bucketOf(r.day, p.by as 'day' | 'week' | 'month');
+  // group once, so no period or harness re-reads every row
+  const per = (rs: typeof mine, key: (r: AnswerDay) => string): Map<string, typeof mine> => {
+    const m = new Map<string, typeof mine>();
+    for (const r of rs) {
+      const g = m.get(key(r));
+      if (g) g.push(r);
+      else m.set(key(r), [r]);
+    }
+    return m;
+  };
+  const byPeriod = per(mine, periodOf);
+  const ofHarness = per(mine, (r) => r.harness);
+
+  if (breakdown === 'answers') {
+    const kinds = (): Record<AnswerKind, number> => ({ permission: 0, question: 0, plan: 0, message: 0 });
+    const cut = (rows: typeof mine): Record<AnswerKind, number> => {
+      const c = kinds();
+      for (const r of rows) if (ANSWER_KINDS.includes(r.kind)) c[r.kind] += r.answers;
+      return c;
+    };
+    const out = (c: Record<AnswerKind, number>): Row => ({ permission: c.permission, question: c.question, plan: c.plan, message: c.message, all: c.permission + c.question + c.plan + c.message });
+    const rows: Row[] = [...per(mine, (r) => `${periodOf(r)}\u0000${r.harness}`).entries()].sort(([a], [b]) => byCode(a, b)).map(([k, rs]) => ({ period: k.split('\u0000')[0]!, harness: k.split('\u0000')[1]!, ...out(cut(rs)) }));
+    const periods: Row[] = periodsInRange.map((period): Row => (spans.get(period) ? { period, ...out(cut(byPeriod.get(period) ?? [])) } : { period, permission: null, question: null, plan: null, message: null, all: null }));
+    const byHarness: Row[] = harnesses.filter((h) => harness === null || h === harness).map((h) => ({ harness: h, ...out(cut(ofHarness.get(h) ?? [])) }));
+    const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('permission', 'Permission', 'count'), col('question', 'Question', 'count'), col('plan', 'Plan', 'count'), col('message', 'Message', 'count'), col('all', 'All', 'count')];
+    return { ...envelope(p, 'sessiontime', p.by, f, cols, rows, out(cut(mine))), ...extra, periods, byHarness };
+  }
+
+  // a wait is only an answer to an ask, so a message has none
+  const waited = mine.filter((r) => r.kind !== 'message' && r.bucket >= 0);
+  const classes = (rs: typeof mine): Map<number, number> => {
+    const m = new Map<number, number>();
+    for (const r of rs) m.set(r.bucket, (m.get(r.bucket) ?? 0) + r.answers);
+    return m;
+  };
+  const stat = (rs: typeof mine): Row => {
+    const m = classes(rs);
+    const n = [...m.values()].reduce((a, v) => a + v, 0);
+    return { answers: n, medianS: n ? Math.round(bucketMs(nearestRank(m, 0.5)) / 1000) : null, p90S: n ? Math.round(bucketMs(nearestRank(m, 0.9)) / 1000) : null };
+  };
+  const rows: Row[] = [...per(waited, (r) => `${periodOf(r)}\u0000${r.harness}`).entries()].sort(([a], [b]) => byCode(a, b)).map(([k, rs]) => ({ period: k.split('\u0000')[0]!, harness: k.split('\u0000')[1]!, ...stat(rs) }));
+  const waitedByPeriod = per(waited, periodOf);
+  const periods: Row[] = periodsInRange.map((period): Row => (spans.get(period) ? { period, ...stat(waitedByPeriod.get(period) ?? []) } : { period, answers: null, medianS: null, p90S: null }));
+  const kindRows: Row[] = ANSWER_KINDS.map((kind) => {
+    const of = mine.filter((r) => r.kind === kind);
+    return { kind, answers: of.reduce((a, r) => a + r.answers, 0), ...(kind === 'message' ? { medianS: null, p90S: null } : (({ medianS, p90S }) => ({ medianS, p90S }))(stat(of))) };
+  });
+  const byHarness: Row[] = harnesses.filter((h) => harness === null || h === harness).map((h) => ({ harness: h, ...stat(waited.filter((r) => r.harness === h)) }));
+  const cols = [col('period', 'Period', 'date'), col('harness', 'Harness', 'text'), col('answers', 'Answers with a wait', 'count'), col('medianS', 'Median wait', 'seconds'), col('p90S', '90th percentile wait', 'seconds')];
+  return { ...envelope(p, 'sessiontime', p.by, f, cols, rows, stat(waited)), ...extra, periods, kinds: kindRows, byHarness };
+}
+
 async function sessionTimeReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   // Time, agents and waits are kept per harness and day, not per person, group or model, so those filters cannot be honored and are not ignored quietly.
   if (p.person !== null || p.group !== null || p.model !== null) throw new ReportError('the session time report cannot be filtered by person, group or model');
   const breakdown = pick(q, 'sessiontime');
   const harness = harnessFilter(q);
+  if (breakdown === 'answers' || breakdown === 'answerwait') return answersReport(deps, p, breakdown, harness);
   const f = await loadFacts(deps, p.from, p.to, p.today, cost, false, false, true);
   f.oldestDay = await oldestDayOf(deps.db, TIME_TABLES, p.today);
   const harnesses = [...new Set([...f.sessionTime.map((r) => r.harness), ...f.agentTypes.map((r) => r.harness)])].sort(byCode);

@@ -220,7 +220,7 @@ describe('activity and Data kept', () => {
   it('lists the rollup tables and how long everything is kept', async () => {
     const { get } = await api(await filled());
     const r = (await get('retention')).body as { tables: { name: string; rows: number; oldestDay: string | null; keptDays: number }[]; detail: { name: string; keptDays: number }[]; tz: string };
-    expect(r.tables.map((t) => t.name)).toEqual(['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily']);
+    expect(r.tables.map((t) => t.name)).toEqual(['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily']);
     expect(r.tables[0]).toMatchObject({ oldestDay: addDays(TODAY, -3), keptDays: 395 });
     expect(r.tables[0]!.rows).toBeGreaterThan(0);
     expect(r.detail).toEqual([{ name: 'samples', keptDays: 1 }, { name: 'events', keptDays: 30 }, { name: 'sessions', keptDays: 30 }, { name: 'admin_log', keptDays: 90 }]);

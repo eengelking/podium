@@ -8,7 +8,7 @@ import type { AgentRow, SessionWaitRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
 
 const T0 = 1_800_000_000_000;
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
   day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
@@ -93,6 +93,14 @@ export function reportCases(o: Openers): void {
       await rec('hour peaks stored', f.rollupRows('hour_peaks_daily', '2026-10-01', '2026-10-31'));
       await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 2 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 5 }]);
       await rec('hour peak never goes down, and a higher one is kept', f.rollupRows('hour_peaks_daily', '2026-10-02', '2026-10-02'));
+      // answers sent from Podium (#725): counted as each is taken, one row per day, harness, kind and wait class, and never rebuilt
+      for (const [day, harness, kind, bucket] of [['2026-10-02', 'claude-code', 'permission', 20], ['2026-10-02', 'claude-code', 'permission', 20], ['2026-10-02', 'claude-code', 'permission', 30], ['2026-10-02', 'opencode', 'question', 45], ['2026-10-02', 'claude-code', 'message', -1], ['2026-10-01', 'claude-code', 'plan', 50]] as const) {
+        await f.addAnswer(day, harness, kind, bucket);
+      }
+      await rec('answers counted', f.rollupRows('answers_daily', '2026-10-01', '2026-10-31'));
+      await f.markAnswerDay('2026-10-02');
+      await f.markAnswerDay('2026-10-03');
+      await rec('answer days marked, one marker a day and none counted', f.rollupRows('answers_daily', '2026-10-02', '2026-10-03'));
       const fleetDay = (day: string, peakLive: number) => ({ day, activePeople: 2, activeReporters: 3, sessionsStarted: 5, peakLive, reporterVersions: { '1.0.0': 2, '0.9.0': 1 }, engineVersions: {} });
       await f.upsertFleetDays([{ day: fleetDay('2026-10-02', 3), peak: 3 }, { day: fleetDay('2026-10-01', 1), peak: 1 }]);
       await rec('peak stored', f.storedPeak('2026-10-02'));
@@ -124,6 +132,10 @@ export function reportCases(o: Openers): void {
     expect((t.get('rows feature_versions_daily') as unknown[]).length).toBe(5);
     expect((t.get('rows skills_daily') as unknown[]).length).toBe(3);
     expect((t.get('rows person_places_daily') as unknown[]).length).toBe(3);
+    expect((t.get('rows answers_daily') as unknown[]).length).toBe(7);
+    expect((t.get('answer days marked, one marker a day and none counted') as { day: string; harness: string; kind: string; count: number }[]).filter((r) => r.kind === 'none').map((r) => `${r.day}/${r.count}`)).toEqual(['2026-10-02/0', '2026-10-03/0']);
+    const answers = t.get('answers counted') as { day: string; harness: string; kind: string; bucket: number; count: number }[];
+    expect(answers.map((r) => `${r.day}/${r.harness}/${r.kind}/${r.bucket}=${r.count}`)).toEqual(['2026-10-01/claude-code/plan/50=1', '2026-10-02/claude-code/message/-1=1', '2026-10-02/claude-code/permission/20=2', '2026-10-02/claude-code/permission/30=1', '2026-10-02/opencode/question/45=1']);
     expect(t.get('peak never goes down')).toBe(3);
     const hours = t.get('hour peak never goes down, and a higher one is kept') as { harness: string; hour: number; peak: number }[];
     expect(hours.map((r) => `${r.harness || 'all'}/${r.hour}=${r.peak}`)).toEqual(['all/14=3', 'claude-code/9=2', 'opencode/14=5']);

@@ -15,7 +15,7 @@ export type StoredSession = SessionRow & { grp: string | null };
  * took (#721). `session_time_daily`, `agents_daily`, `person_sessions_daily` and `hour_peaks_daily` are how long sessions ran and waited, which agents they launched, who ran them
  * and when they overlapped (#722). `feature_versions_daily` is what each version of a harness sent, `skills_daily` the skills each person used and `person_places_daily` the projects and git branches each person ran in (#724). `cost_daily` and `tool_cost_daily` are what sessions cost and how they ended, by model, effort and tool (#723). Names, counts and times only, kept per harness.
  */
-export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily' | 'tool_stats_daily' | 'session_time_daily' | 'agents_daily' | 'person_sessions_daily' | 'hour_peaks_daily' | 'cost_daily' | 'tool_cost_daily' | 'feature_versions_daily' | 'skills_daily' | 'person_places_daily';
+export type RollupTable = 'usage_daily' | 'sessions_daily' | 'failures_daily' | 'fleet_daily' | 'tools_daily' | 'tool_sessions_daily' | 'harness_versions_daily' | 'tool_stats_daily' | 'session_time_daily' | 'agents_daily' | 'person_sessions_daily' | 'hour_peaks_daily' | 'cost_daily' | 'tool_cost_daily' | 'feature_versions_daily' | 'skills_daily' | 'person_places_daily' | 'answers_daily';
 
 export interface ReportQueries {
   /** Rows of a rollup table for the days `from` to `to`, oldest first. */
@@ -75,6 +75,10 @@ export interface ReportQueries {
   insertPersonSessionsDaily(rows: PersonDay[]): void;
   insertCostDaily(rows: CostDay[]): void;
   insertToolCostDaily(rows: ToolCostDay[]): void;
+  /** Counts one answer sent from Podium (#725) on its day, for its harness and kind, in its wait class (-1 for no wait). Written as the answer is taken, never rebuilt. */
+  addAnswer(day: string, harness: string, kind: string, bucket: number): void;
+  /** Leaves one row with no answer (kind `none`) for `day`, so the first day answers were counted is known when no one answered that day. Marking a day twice changes nothing. */
+  markAnswerDay(day: string): void;
   /** Writes each hour's peak of live sessions (a stored peak never goes down). */
   upsertHourPeaks(rows: HourPeakDay[]): void;
   /** Writes each day's fleet row with its peak of live sessions (a stored peak never goes down). */
