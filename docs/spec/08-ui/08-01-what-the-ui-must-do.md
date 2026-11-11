@@ -467,7 +467,9 @@ menu and the page scroll on their own.
   every row of the period, not only the page shown, and returns to the first page. A number column starts largest
   first; the period and text columns start with the oldest and A to Z; a second click reverses it. A missing value
   goes last either way, a key reads as the words the table prints ("No owner", not "-"), and the Whole period or
-  Total row never moves. The sorted heading shows an arrow and carries `aria-sort`. The sort is not remembered, and a
+  Total row never moves. The sorted heading shows an arrow and carries `aria-sort`. No column moves when a heading is
+  clicked (#1144): every heading keeps room for the arrow, and the columns keep the widths they had at the first click
+  until the period or filter changes. The sort is not remembered, and a
   new period or filter starts in the order the server sent. Export is unchanged and keeps the server's order.
 - A period that reaches before the first rollup day says "Podium has no history before 2026-03-02. The figures
   below cover 2026-03-02 to 2026-04-01." A period with no rows says "Nothing was recorded in this period."
@@ -987,7 +989,8 @@ like the rest of Admin.
     mod" for the settings hooks.
   - Last report ("3 h ago", counted from the server's `serverTime`).
   - Sessions (with "N live").
-- The headers sort (`aria-sort`). The table is paged like the other Admin lists.
+- The headers sort (`aria-sort`), and no column moves when one is clicked (#1144): the arrow has room on every heading,
+  and the columns keep their widths until the search or a filter changes. The table is paged like the other Admin lists.
 - There is no note under the table. What Silent and Not since restart mean is the tooltip on the state chip and
   on the strip button:
   - "Silent means the server has not heard from this reporter for a while. It does not mean the reporter is

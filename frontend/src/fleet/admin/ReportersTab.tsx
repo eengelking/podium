@@ -9,6 +9,7 @@ import { Tip } from "../components/Tip";
 import { Pager } from "./Pager";
 import { Panel, Section } from "./Page";
 import { failText, useList } from "./useList";
+import { SortArrow, useHeldColumns } from "./heldColumns";
 import { useReporterMessaging, WarnIcon } from "./ReporterMessaging";
 import { useFleet, type UseFleetOptions } from "../useFleet";
 import { DESKTOP_OPTIONS, harnessesOnMachine, harnessesToShow, OPENCODE_RESTART, OPENCODE_SETTINGS_FILE, OPTION_CMD, SETUP_HARNESSES, type SetupHarness } from "../pluginOptions";
@@ -143,6 +144,8 @@ export function ReportersTab(props: {
   const [selAll, setSelAll] = useState(false);
   const [pending, setPending] = useState<{ count: number; body: RemoveBody } | null>(null);
   const [err, setErr] = useState("");
+  // A sort keeps the columns where they were (#1144); another search, state, Admin filter or page size is different content and sizes them again.
+  const held = useHeldColumns(`${paging.q}|${paging.state}|${paging.admin}|${paging.pageSize}`);
   const rules = useList<{ rules: IgnoreRule[] }>(api, "/reporters/ignores", props.onLocked);
   const list = useList<ReporterList>(api, `/reporters${query({ page: paging.page, pageSize: paging.pageSize, q: paging.q, state: paging.state, sort: paging.sort, dir: paging.dir, admin: paging.admin ? 1 : "" })}`, props.onLocked);
   useRefresh(list.reload, open === null);
@@ -189,12 +192,16 @@ export function ReportersTab(props: {
     setSel((cur) => (selAll ? rows.map((r) => r.key).filter((k) => k !== key) : on ? [...cur, key] : cur.filter((k) => k !== key)));
     setSelAll(false);
   };
-  const sortBy = (sort: ReporterSort) => onPaging({ sort, dir: paging.sort === sort ? (paging.dir === 1 ? -1 : 1) : 1, page: 1 });
+  const sortBy = (sort: ReporterSort) => {
+    // Measure first: the sort changes the rows, and the widths to keep are the ones on screen now.
+    held.hold();
+    onPaging({ sort, dir: paging.sort === sort ? (paging.dir === 1 ? -1 : 1) : 1, page: 1 });
+  };
   const th = (sort: ReporterSort, label: string, cls = "") => (
     <th className={cls} aria-sort={paging.sort === sort ? (paging.dir === 1 ? "ascending" : "descending") : "none"}>
       <button type="button" className="thbtn" onClick={() => sortBy(sort)}>
         {label}
-        {paging.sort === sort ? (paging.dir === 1 ? " ↑" : " ↓") : ""}
+        <SortArrow dir={paging.sort === sort ? paging.dir : 0} />
       </button>
     </th>
   );
@@ -290,9 +297,10 @@ export function ReportersTab(props: {
         ) : (
           data && (
             <div className="tw2 scroll" tabIndex={0} aria-label="Reporters">
-              <table className="ptab">
+              <table className="ptab" style={held.tableStyle}>
+                {held.cols}
                 <thead>
-                  <tr>
+                  <tr ref={held.head}>
                     <th className="chk">
                       <input
                         type="checkbox"
