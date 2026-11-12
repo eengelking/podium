@@ -7,7 +7,7 @@ order: 9
 
 # Updating the mod
 
-The mod and the server are released separately, so you update them separately. A card marked `reporter 0.1.0 · update`
+The mod and the server share one version number, but they are installed separately, so you update them separately. A card marked `reporter 0.1.0 · update`
 means the mod in that session is older than the server supports. For what each message means, see
 [Gotchas](../gotchas/status-line-update-mod-or-upgrade-server.md).
 

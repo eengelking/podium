@@ -181,7 +181,7 @@ A plan's steps come from OpenCode's todo tool, which exists only with `experimen
 
 ## In the session
 
-The session appears in Podium once you send its first prompt. A session that has done nothing yet is kept
+The session is in Chat's People and agents list as soon as it starts, and it appears on the wall once you send its first prompt. A session that has done nothing yet is kept
 off the wall, because Claude Code's background daemon also runs idle twins and spares that report too (see
 "Sessions that have not done anything yet" in [docs/user-guide/](user-guide/README.md)).
 
