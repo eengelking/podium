@@ -78,7 +78,7 @@ npm run podium:sim -- --sessions 5 --chaos
 ```
 
 `--chaos` adds sessions that go silent, more failures and more context blowouts. `--help` lists the
-other options (`--url`, `--speed`, `--seed`, `--duration`, `--agents`, `--token`, `--person`, `--unnamed`, `--print`). Stop it
+other options (`--url`, `--sessions`, `--speed`, `--seed`, `--duration`, `--chaos`, `--agents`, `--nested`, `--reporter-version`, `--token`, `--person`, `--unnamed`, `--print`, `--ticks`). Stop it
 with Ctrl-C; it ends every session it started, and they leave the console a few seconds later. If the
 server has a token (`podiumctl start` sets one), pass it: `--token "$(podiumctl token)"`.
 

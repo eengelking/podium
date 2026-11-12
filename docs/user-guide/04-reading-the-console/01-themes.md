@@ -14,7 +14,7 @@ or GitHub. Then choose Light, Dark or System for it. System follows your operati
 - Your choice is kept in this browser. A light or dark choice from an older version carries over as Podium in that mode.
 - The palettes belong to their authors. They are credited under Theme credits at the bottom left of the left rail, next
   to a License link, and in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
-- The same footer shows the version of the server you are looking at, for example `Podium v0.1.0`, so you can tell
+- The same footer shows the version of the server you are looking at, for example `Podium v1.6.0`, so you can tell
   which build is live.
 
 <!-- nav:start -->
