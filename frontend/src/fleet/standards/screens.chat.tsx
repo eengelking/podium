@@ -92,9 +92,9 @@ function chatApi(w: World): ChatApi {
     readingChannel: async () => ({ ok: true as const }),
     readingDm: async () => ({ ok: true as const }),
     dmMessages: async (a: string, b: string): Promise<DirectPageRead> => {
-      const key = [a === "me" ? "person:ed" : a, b].sort().join("|");
-      const hit = Object.keys(DMS).find((k) => k.split("|").sort().join("|") === key)!;
-      const d = all().find((x) => [x.a.sessionId, x.b.sessionId].sort().join("|") === key)!;
+      const key = [a === "me" ? "person:ed" : a, b].sort((p, q) => p.localeCompare(q)).join("|");
+      const hit = Object.keys(DMS).find((k) => k.split("|").sort((p, q) => p.localeCompare(q)).join("|") === key)!;
+      const d = all().find((x) => [x.a.sessionId, x.b.sessionId].sort((p, q) => p.localeCompare(q)).join("|") === key)!;
       const t = DMS[hit]!;
       return { ok: true, thread: d.thread, a: d.a, b: d.b, messages: structuredClone(t.messages), older: t.older ?? null, total: t.total, ended: d.ended, owner: d.owner, paused: d.paused, roundTrips: d.roundTrips, cross: d.cross ?? null, pausedBy: d.pausedBy ?? null, pausedByAdmin: d.pausedByAdmin ?? null };
     },
