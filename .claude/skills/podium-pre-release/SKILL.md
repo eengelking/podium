@@ -24,7 +24,7 @@ An issue starts only when every issue before it is merged. The documentation rev
 
 1. Check that the milestone and the `vX.Y` label exist (`gh api repos/:owner/:repo/milestones`, `gh label list`). Create what is missing, with the description "Planned for release vX.Y".
 2. Check for duplicates first (the dependency issue is the one most likely to exist already): `gh issue list --state all --search "<title words> vX.Y"`. Do not file one that exists.
-3. For each issue in the table, copy its template to the scratchpad, replace every `<...>` placeholder (the templates list them at the top), and file it:
+3. For each issue in the table, copy its template to a temporary folder, replace every `<...>` placeholder (the templates list them at the top), and file it:
 
    ```bash
    gh issue create --title "<title>" --body-file <file> --label <label> --label vX.Y --milestone vX.Y
