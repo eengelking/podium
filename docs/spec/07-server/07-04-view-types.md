@@ -12,7 +12,7 @@ Server to UI. Defined once in `protocol.ts`, imported by the UI.
 
 ```ts
 interface SessionView {
-  id: string; name: string; project: string; repoName: string | null; resumeCommand: string; forkCommand: string;
+  id: string; name: string; project: string; repoName: string | null; resumeCommand: string | null; forkCommand: string | null;
   reporterVersion: string | null; reporterBuild: string | null; compat: 'ok' | 'outdated' | 'newer' | 'unknown';  // the mod's version and where it sits against the server's range (6.8)
   git: { branch: string | null; detached: boolean; isWorktree: boolean; worktreePath: string | null; ahead: number; behind: number; dirty: number } | null;
   model: string | null; modelFamily: 'opus'|'sonnet'|'haiku'|'fable'|'other'; effort: string | null;
@@ -37,6 +37,13 @@ interface SessionView {
   owner: string | null;                 // who the server decided the session belongs to from the token (7.7): a person's name, 'Admin', or null
   ownerGroup: string | null;            // that person's group from Admin; null for Admin, no owner, or no group
   machine: { name: string; id: string } | null;  // Report.machine as last sent; null when none was
+  reporter: 'mod' | 'hooks';            // 'mod': the reporter (full detail); 'hooks': classic settings hooks only (no usage, cost, plan)
+  reporterName: string;                 // the reporter that sent it (`podium-reporter-claudecode`, `podium-reporter-opencode`), which the version warning names (#852)
+  cwd: string;
+  waitReason: 'permission' | 'input' | null;
+  activityOutput: boolean | null;       // the reporter's activityOutput option (#431); null as for activityFeed
+  fileDiff: boolean | null;             // the reporter's fileDiff option (#319); null as for activityFeed
+  fileDiffPreload: boolean | null;      // the reporter's fileDiffPreload option (#631); null as for fileDiff
   activityFeed: boolean | null;         // the reporter's activityFeed option (6.4); null for a reporter older than 0.13.0, a settings-hooks session, or no report since the server started (held in memory)
   respond: { level: string; accepts: RespondKind[]; limits: string[] } | null;  // Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory)
   asks: {                               // the session's asks, open, or closed and not yet forgotten (7.2: at idle, or 10 minutes), without their content: that is served only to the owner or an Admin (7.1)

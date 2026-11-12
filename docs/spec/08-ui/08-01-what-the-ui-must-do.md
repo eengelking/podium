@@ -23,18 +23,19 @@ pages, responding, the orchestrator page and the right panel.
 - History and Admin draw this same top bar (#452, #468), so their buttons, connection pill and Sign in match the
   other pages. Neither has a Hide top bar control or wall mode button, because they have no wall and the bar is one
   line; the `\` shortcut does nothing there. The Chat link shows while orchestrator messaging is on, signed in
-  or not, and the My reporters link while it is on and a person is signed in (#470).
+  or not, and the My reporters link while it is on and a person is signed in (#470). The My usage link (#726) sits beside it while the `my-usage` flag is on and a person is signed in, and is left off My usage itself.
 - On Admin the bar's Sign in is the sign-in to respond, the same as everywhere. It does not unlock Admin: the
   Admin session is its own unlock, with its own form on the locked screen and Lock Admin at the bottom of the Admin
   menu. The locked, disabled and checking screens keep the same bar. There is no "Back to fleet" link; Fleet is
   the way back.
 - A pill names the page. The page supplies it, not the top bar: "Fleet" on the wall, "Board" on the board
   (#346), "Orchestrator" on an orchestrator's page (#225), "History" in History, "Admin" in Admin.
-- A connection pill: "N reporters live", or "1 reporter live". There is no synced time (#178). It reads red
+- A connection pill: "N reporters live", or "1 reporter live". There is no synced time (#178). It reads "connecting…" while the first connection is made, and red
   "disconnected, retrying" when SSE is down.
 - Admin's top bar shows this same pill, from the same component and count, right after its "Admin" pill (#187).
-- There is no clock. Nothing goes to the right of the connection pill, because its width changes with the
-  reporter count and anything after it would move.
+- There is no clock. Only notifications go to the right of the connection pill (the certificate pill, "N reporters need an update",
+  "N features stopped after a harness update" and "N reporters newer than the server"), because its width changes with the
+  reporter count and a control after it would move; the buttons stay at the far right.
 - No Pause or simulator buttons (those belong to the simulator script).
 
 **Wall options** (#1129, `mockup/podium-wall-options.html`)
@@ -102,7 +103,7 @@ pages, responding, the orchestrator page and the right panel.
   hover, a pointer cursor and a focus ring) that opens the console's `Modal`, "Keyboard shortcuts" (#828). The modal
   lists every shortcut in two columns split by a 1px `--border` pipe, `\`, `[` and `]` on the left and `w` and `Esc`
   on the right, each key in the inline code chip, with a note where a key does nothing (`[` and `]` on Traffic, `w`
-  on Traffic, Chat and My reporters). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
+  on Traffic, Chat, My reporters and My usage). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
   the dimmed area close it, and focus returns to the word. While the switch is off the word is a plain label. One
   array, `SHORTCUTS`, feeds this list and the switch's hint. Mockup `mockup/podium-shortcuts-help.html`.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
@@ -309,7 +310,7 @@ one page of rows and a pager. When they fit there is no pager and no scrollbar, 
 - Context blowouts.
 - Plan steps done.
 - Est. cost today (sparkline).
-- Tokens in the last minute (sparkline).
+- Tokens, last minute (sparkline).
 
 **Toolbar**
 - Status segments All / Running / Waiting / Stale / Blowouts.
@@ -393,11 +394,20 @@ menu and the page scroll on their own.
 - It is `<nav aria-label="Admin sections">` of buttons, the current one `aria-current="page"`, in four
   groups:
   - People and access: People, Groups, Reporters.
-  - Server: Settings, Model prices, Security, Certificates, Data, Stored activity (#432).
+  - Server: Settings, Model prices, Security, Certificates, Data, Stored activity (#432), About (#862).
   - Reporting (#484): Usage, Spend, People and groups, Sessions, Tools, Harness updates (#724), Failures, Admin activity.
   - Activity: Admin log.
 - The page that was "Reporting and security" is now **Security** (#484), so two entries do not both say
   "Reporting". Its content is unchanged.
+- **About** (#862) is the last page of the Server group: "What software this server and its reporters are running." Its header
+  carries **Copy details**, which puts the whole page on the clipboard as plain text (the button reads Copied, or Copy failed
+  when the browser refuses). It has four sections, read from the running server, with nothing collected from a machine:
+  **Podium server** (version, and the build when the server is not a tagged release; Running as Container or Stand-alone;
+  Started and uptime; System), **Built with** (Node.js and Express as the server runs them, React and TypeScript as the
+  console was built with), **Database** (the adapter in use, the database's version, the schema version reached, and the size
+  when the database can say) and **Reporters** (one row for each reporter and version heard from in the last hour, with the
+  machines that run it, a version outside the range this server reads flagged, and the range shown). It reads again every
+  30 seconds.
 - Each group has a heading (#244, `mockup/podium-admin-menu.html`): a small outline icon, the group's name at
   18 px in the primary ink, and a rule under it, with the groups 24 px apart. The name is 16 px from 761 to
   1280 px of viewport, where the rail is 224 px and 18 px would wrap "People and access". No color is used,
@@ -450,8 +460,9 @@ menu and the page scroll on their own.
 - **Create group**, then **Manage groups**.
 
 <a id="admin-reporting-484"></a>**Reporting (#484, `mockup/podium-admin-reporting.html`)**
-- A menu group of seven pages, all Administrator-only like the rest of Admin. Every page is the usual stack: a
-  header, then one **Period and filters** section above one **Report** section.
+- A menu group of eight pages, all Administrator-only like the rest of Admin. Every page but Spend is the usual stack: a
+  header, then one **Period and filters** section above one **Report** section. Spend (#239) has *Spend today*, *Projection*, then
+  *Spend over time* with its filters inside that panel, then *Tokens and cache hit rate*, and no separate Period and filters section.
 - **Period and filters**: a **Period** choice (Last 7 days, Last 30 days, Last 90 days, This month, Last month,
   Custom with From and To), **By** (Day, Week, Month), and **Person**, **Group** and **Model** where the report has
   them. The default is Last 30 days by day. Under the controls one line states the time zone ("Days are in
@@ -639,13 +650,16 @@ features that can be switched off appear here."
     while the panel is open." Off by default.
   - **Respond from Podium** (`respond`, #206, [7.7](../07-server/07-07-hardening.md)).
   - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
-    the console. The diff is source code, read from the machine while the owner has the session's page open (or only when
-    asked, where the reporter's fileDiffPreload is off) and never stored by the server. Needs the reporter's fileDiff
-    option on the machine as well."
+    the console. The diff is source code, read from the machine only when
+    asked, with secrets hidden, and never stored. Needs the reporter's fileDiff
+    option on the machine as well." (The reporter's `fileDiffPreload`, on by default, reads every changed file's diff while the owner has the page open; see [5.9](../05-mod-api/05-09-mod-configuration-userconfig.md).)
   - **Orchestrator messaging** (`peer-messaging`, #347, [7.7](../07-server/07-07-hardening.md#orchestrator-messaging-347)): "Lets a person's
     orchestrators find and message each other, on the machines they choose, through this server. Only between one
     person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the
     right on My reporters."
+  - **Address @group and @everyone in Chat** (`chat-everyone`, #1034): "Lets a message in Chat address @group (every
+    orchestrator in the sender's group) or @everyone (everyone signed in). Off, a message that uses either is refused and
+    nothing is sent. Addressing one agent as name@location is always allowed. Needs Orchestrator messaging on."
   - **Session recording** (`session-recording`, #353, [7.7](../07-server/07-07-hardening.md#session-recording-353),
     `mockup/podium-recording.html`): "Lets a session's owner, or an Admin, record everything an orchestrator and its
     agents do, so a run can be replayed to see what happened and why. Needs sign-in on the server. Off by default."
@@ -654,14 +668,17 @@ features that can be switched off appear here."
     recorded only when its owner has allowed it in the reporter and someone has chosen it. Only the owner and an
     Admin can read a recording." The row is unavailable, with a line saying a token is needed, when the server has no
     `PODIUM_TOKEN`.
+  - **My usage page** (`my-usage`, #726): "Gives each signed-in person a My usage page in the top bar with their own spend,
+    sessions, failures and tool calls. Only their own: it never shows another person, and an Administrator sees their own
+    figures there too. Needs sign-in on the server. Off by default."
   - **Release check** (`update-check`, #499, [6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml),
     `mockup/podium-update-check-admin.html`): "Asks GitHub once a day for the latest Podium release and says at the
     bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." It is the last row.
-- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off by default.
+- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output` and `my-usage`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
-- A later flag adds one entry to `FEATURES` in `server/src/storage/sqlite/featureFlags.ts`.
+- A later flag adds one entry to `FEATURES` in `server/src/storage/features.ts`.
 - What turning the activity feed off does is under *Right panel* below and in
   [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md).
 
@@ -733,7 +750,7 @@ becomes a standard in the release-prep PR, not in the feature PR.
   and the form says so. A line under it says how many recordings and how much is stored, of the budget. The defaults
   are set from measurement ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)).
 - **Recordings** (a section on the same page) lists every recording, running or kept: the session, who owns it, who
-  started it, its state as shape plus word (Recording, Stopped, Limit reached), size, when it goes, and **Stop** or
+  started it, its state as shape plus word (Recording, Stopped, Limit reached, Budget reached), size, when it goes, and **Stop** or
   **Open replay**, and **Delete**. Stop and Delete ask first in the warning-bordered confirmation box. The state word is
   `.badge.recording` (a filled dot, in the critical color) while it records.
 - *Stored activity* lists the same recordings with its Source filter set to Recordings.
@@ -818,7 +835,7 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - All notices default to on.
 - The notices are the background-sessions note and the update notice. Only the background-sessions note is in
   `NOTICES`; the update notice is handled apart (below). A later notice that has its own switch adds one entry to
-  `NOTICES` in `server/src/storage/sqlite/wallSettings.ts` and one to the stack in `Wall.tsx`.
+  `NOTICES` in `server/src/storage/features.ts` and one to the stack in `Wall.tsx`.
 - **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
   `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
   link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set
@@ -849,7 +866,7 @@ Admin > Model prices is its own page since #143 (under Server, after Settings).
 - A sentence says the figures are US dollars per million tokens, that changing one changes today's cost
   everywhere at once, and the date of the built-in sheet.
 - One table: a row per model (the built-in rows in the sheet's order, then the models the Admin added), with
-  five price columns: Input, Output, Cache read, Cache write 5 min, Cache write 1 hour.
+  five price columns: Input, Output, Cache read, Cache write, 5 min and Cache write, 1 hour.
 - Haiku 5.5 is two peer rows, both named `Haiku 5.5` with the prompt size under the name (`Prompts up to
   100,000 tokens`, `Prompts over 100,000 tokens`), joined by a dashed divider while a full divider separates
   models.
@@ -924,7 +941,7 @@ and the right panel are exactly as above.
   count) is a toggle that narrows the wall and the rail to that person or group, and **All orchestrators**
   undoes it. The wall's control row no longer repeats that with a "Showing X" line.
 - For Group, All and Me each rail row carries the owner's monogram.
-- The right panel on the wall is the activity list alone. Spend by person or group is on Admin > Spend
+- The right panel on the wall is the activity list alone. Spend by person or group is on Admin > Reporting > Spend
   (#239, above).
 
 **Remembered state and "me"**
@@ -1022,7 +1039,8 @@ like the rest of Admin.
   name and state stay on the left; #247). Its label ends in an ellipsis because it opens a choice before
   anything happens, and its tooltip says so. It offers this reporter only, everything from its address, or
   every reporter on its version, and says its reports are turned away.
-- Admin > Settings has **Forget old reporters** (off by default) with a **Days** box (30 by default).
+- Admin > Settings has **Forget old reporters** (off by default) with a **Days** box (30 by default), in its **Reporters** section.
+- Admin > Settings holds, in order: Feature flags; Session recording limits and Recordings (only while `session-recording` is on); Orchestrator messaging limits (only while `peer-messaging` is on); Wall notices; The wall; Reporters.
 
 **Detail**
 - Selecting a row opens its detail in place with an **All reporters** link.
@@ -1118,6 +1136,23 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. With Shortcuts on, `[` and `]` open and
     close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 
+## My usage page (#726, `mockup/podium-my-usage.html`)
+
+`#/me/usage`, a page of the fleet console like My reporters (no wall, and its side panels start shut; its pane widths are kept under
+their own key, `podium.collapsed.usage`). Its pill reads "My usage". It needs sign-in on the server and the Admin's **My usage page**
+switch (`my-usage`, off by default, above). With the switch off there is no top bar link and the address says the page was not found
+(the route answers 404). Signed out, it says how to sign in and shows nothing.
+
+- It shows only the signed-in person's own figures, an Administrator's included: the server decides whose from the sign-in, the page
+  sends no name, group or id, and the server ignores one if it is sent ([7.1](../07-server/07-01-endpoints.md)).
+- The header and the filters are those of the Admin Reporting pages (**Period**, **By**, **Break down by**), with no Person, Group or Model
+  filter, and the same period applies to every section. It opens on the last 30 days by day.
+- Five sections: Spend, Spend by project (it follows Spend), Sessions by outcome, Failures and Tool calls. **Harness** narrows Tool calls
+  only, because the daily figures the others read are not kept per harness, and the page says so.
+- Every table heading is a button that sorts the table, as on Admin Reporting. Every section has **CSV** and **JSON**, and the top has
+  **Print**, for exactly the table shown, with the person's own rows only.
+- A period that reaches before the history says "Podium has no history before ..." and shows what there is, never zeros.
+
 ## Chat page (#1034, `mockup/podium-chat.html`)
 
 Built. A console page, `#/chat`, reached from **Chat** in the top bar after History while orchestrator messaging is on (left off
@@ -1136,8 +1171,8 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   collapsed to their edge tabs, kept under `podium.collapsed.chat` apart from the others. The top bar starts open. It has no
   legend and no Wall mode button. With Shortcuts on, `[` and `]` open and close the panels and `\` the top bar; `w` does nothing.
 - **Sidebar.** Three lists: **Channels** (*General*, and *My group* for a signed-in person), **Direct Messages** (every open or
-  ongoing conversation, with the two agents and the person as the third) and **People and agents** (the person's own orchestrators,
-  subagents and forks, to start a Direct Message with). Each row has an unread count, or a mention count (`@ 2`) when it is
+  ongoing conversation, with the two agents and the person as the third) and **People and agents** (people and orchestrators: the person's own
+  orchestrators, never a subagent or a fork, to start a Direct Message with). Each row has an unread count, or a mention count (`@ 2`) when it is
   addressed to the person. A Direct Message row also shows when part of its conversation has ended ("Tester ended"). A row that
   is an agent shows the app's own state icon (running, waiting for you, delegating, idle on background work, heartbeat lost,
   done) in the same shape and color as the session cards, and a person shows a monogram. A People and agents row takes its state's
@@ -1184,7 +1219,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   "paused" or "resumed" when that is what the Admin did), with the names in `<bdi>`. The server sends each once and marks it seen, so the page keeps what it was
   given while it stays open and a later load does not show it again.
 - **A Direct Message expires and leaves the list when every agent session in it has ended or disconnected from Podium** ([7.5](../07-server/07-05-lifecycle-timers.md)).
-  It comes back with its history if the same peers return within the grace period.
+  It comes back with its history if the same peers return while it is kept (the longest resume window of its agents, or the grace period when none is known, [7.5](../07-server/07-05-lifecycle-timers.md)).
 - **Narrow.** At 760 px and narrower the sidebar and the thread are two screens, with **Back to the list** on the thread.
 - **Not signed in, or the admin secret.** General is read and written by every signed-in person. The admin secret reads General and has
   no group, no Direct Messages and no counts of its own, and says so.
@@ -1196,9 +1231,9 @@ shapes only (#1035 finishes the feature).
 
 ## Traffic page (#347, `mockup/podium-traffic.html`)
 
-**Deprecated (1.6, #1034); removed in 1.9.** Chat replaces it, the same conversations are its Direct Messages, and `#/traffic` opens
-Chat ([DEPRECATIONS](../../DEPRECATIONS.md)). Until then the page and its read still work; it shows a note, "Traffic is retired. Chat
-replaces it", that links to Chat. The rest of this section describes the page as it still works.
+**Replaced by Chat (1.6, #1034); its code is removed in 1.9.** The same conversations are Chat's Direct Messages, and `#/traffic` opens
+Chat at once, so the console never rests on the page and its top bar has no Traffic link ([DEPRECATIONS](../../DEPRECATIONS.md)). The read
+`GET /api/fleet/peers/traffic` keeps working until 1.9. The rest of this section describes the page as it was built, and as its code still draws it.
 
 Built (#417). A console page, `#/traffic`, reached from **Traffic** in the top bar after History while the flag is
 on (left off the bar on the Traffic page itself). It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
@@ -1315,30 +1350,28 @@ The session id is not in the header; it is a cell in the facts grid (#352).
 **Facts grid**
 
 Twelve cells in fixed places, six to a row (two columns at 640 px and narrower, by the page's own width, so six
-rows). Row one is Agents, Est. cost, Tokens, Running for, Agent time, Blowouts. Row two is Machine, System,
-Reporter, Session, Resume, Fork (#352, `mockup/podium-fork.html`; #427, `mockup/podium-facts-system.html`). A cell
+rows). Row one is Agents, Est. cost, Tokens, Running for, Agent time, Blowouts. Row two is Machine and System
+(one cell), Reporter, Session, Resume, Fork and Recording (#352, `mockup/podium-fork.html`; #427, `mockup/podium-facts-system.html`; #353). A cell
 never moves because another has nothing to say.
 
 - **Agents**: running, done, and a red "N failed" button that opens the first failure. The orchestrator counts
   as an agent, running while the session runs, done once it is done, and neither while the session is stale.
-- **Est. cost**: the session's ledger.
+- **Est. cost**: the session's ledger. It reads **Cost**, not Est. cost, when the harness reports the cost itself (`costSource` is `harness`), and its popup says so.
+- **Harness** (#853): when the wall holds sessions of more than one harness, each card's model row and the orchestrator header carry a harness badge (a shape and the harness's name). With one harness on the wall there is no badge.
 - **Tokens**.
 - **Running for**: wall-clock time.
 - **Agent time**: the orchestrator's time plus every agent's own. It can be longer than running for when
   agents run at once.
-- **Machine** (#427) is `machine.name` from the session's report, in the mono face, with the popup "The machine
-  this session runs on. As its reporter named it." A session that sent no machine (no `userName`, so a
-  settings-hooks session or one in the Admin or Unassigned band) reads "Not reported" in the muted face, and the
-  popup says Podium learns the machine only from a reporter that has a user name, and that installing
-  podium-reporter and setting `userName` in its options fills it in.
-- **System** (#427) is `machine.os` as the reporter sent it, such as `Fedora Linux 44` or `macOS 15.4`, with the
-  icon for its family and the wording My reporters and Admin > Reporters use (`systemKind`, `SystemTag`), so the
-  three never disagree. The text is cut with an ellipsis when it is long, and its popup holds the whole text.
-  When the report has a machine but no OS (a reporter older than the one that sends it, or a command that failed
-  on the machine) it reads "Not reported" in the muted face, never blank or "undefined", and the popup says the
-  reporter did not send the system and that updating podium-reporter fills it in. A session that sent no machine
-  reads "Not reported" with the Machine cell's popup. Both cells are focusable, so the popup opens from the
-  keyboard.
+- **Machine** (#427, joined with System in one cell, #353) reads `machine.name | machine.os`, such as `Silverbolt | macOS 26.0`. The name is
+  `machine.name` from the session's report, in the mono face. The system is `machine.os` as the reporter sent it, such as
+  `Fedora Linux 44` or `macOS 15.4`, with the icon for its family and the wording My reporters and Admin > Reporters use
+  (`systemKind`, `SystemTag`), so the three never disagree; it is cut with an ellipsis when it is long. The popup reads "The machine
+  this session runs on, and its system." and says which of the two is missing. A part the report did not send reads "Not reported" in the
+  muted face, never blank or "undefined". A session that sent no machine (no `userName`, so a settings-hooks session or one in the
+  Admin or Unassigned band) has the popup say Podium learns the machine only from a reporter that has a user name, and that installing
+  podium-reporter and setting `userName` in its options fills it in. A machine with no system (a reporter older than the one that sends
+  it, or a command that failed on the machine) has the popup say that updating podium-reporter fills it in. The cell is focusable, so
+  the popup opens from the keyboard.
 - **Reporter** (#124):
   - `reporterVersion` as given, such as `0.11.0`.
   - "Settings hooks" when it is null, with the hooks note as its tooltip.
@@ -1390,7 +1423,7 @@ never moves because another has nothing to say.
 - It uses the card band's states, shapes, sentences and tints (`cardKind`):
   - running: "Running";
   - done: "Done";
-  - waiting: the wait sentence, with the detail "Answer in its terminal." and what it waits on;
+  - waiting: the wait sentence, with the detail "Answer in its terminal." and what it waits on (only when the viewer cannot respond; with Respond on the band, the detail is what it waits on alone);
   - a background wait: its sentence, with the task description as the detail (tooltip: the full text);
   - heartbeat lost: "No heartbeat for 0:38. Goes away in 37s." with the detail "The session may have crashed
     or been closed without a clean exit." and a **Remove now** button laid over its right end as its own
@@ -1670,7 +1703,7 @@ the loop's recent tool calls and the text it writes ([6.4](../06-reporter-protoc
   the line "Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave
   the session."
 - *Finished.* A finished agent (or an ended session) is fetched once more for its last entries, offers no
-  dropdown, and says "Agent finished, no more updates".
+  dropdown, and says "Agent finished, no more updates" (for the orchestrator's main loop, "Session ended, no more updates").
 - *Stored history (#432).* When the Admin keeps the Activity history and a reply carries `history`, the window
   changes as follows. Under the default policy none of it applies and the window is as described above.
   - A viewer who may read it (`canRead`) gets the newest stored page from

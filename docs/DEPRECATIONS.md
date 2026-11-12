@@ -64,13 +64,13 @@ trade-off, and [SPEC 7.7](spec/07-server/07-07-hardening.md) lists the warnings)
 
 ### The Traffic page
 
-The **Traffic** page (`#/traffic`), the map and table of which orchestrators message which, is deprecated. Chat replaces it: the same
+The **Traffic** page (`#/traffic`), the map and table of which orchestrators message which, was replaced by Chat in 1.6. The same
 conversations are its Direct Messages, with the same Pause link and Remove link, and a person can read back, page to older
 messages and add to one.
 
-- **Announced in 1.6, removed in 1.9.** From 1.9 the page and `GET /api/fleet/peers/traffic` are gone.
-- **What keeps working:** the page, its read and its tests. The top bar's Traffic link is now Chat, and `#/traffic` opens Chat. The
-  page shows a note that says so.
+- **Announced in 1.6, removed in 1.9.** From 1.9 the page's code and `GET /api/fleet/peers/traffic` are gone.
+- **What keeps working:** `GET /api/fleet/peers/traffic` and its tests. The top bar's Traffic link is now Chat, and `#/traffic` opens
+  Chat at once, so the page and the note it carries are not shown.
 - **What to do:** open **Chat** from the top bar. The map and the per-range counts have no Chat equivalent; read the conversations
   there. Anything that calls `GET /api/fleet/peers/traffic` should move to the routes in
   [SPEC 7.1](spec/07-server/07-01-endpoints.md#routes-for-chat-1034) before 1.9.

@@ -11,8 +11,7 @@ order: 5
 # 5. The Claude Code mod API: everything the reporter needs
 
 This section describes the Claude Code reporter, the first harness's. Each harness has its own reporter and its own
-API to read; Podium's server and console do not depend on this section (DECISIONS 54, 55). A second harness's reporter is
-specified when it is built (#855) and does not change what is written here.
+API to read; Podium's server and console do not depend on this section (DECISIONS 54, 55). The second harness's reporter, OpenCode's (`plugin/opencode/`, #855), is described in [REPORTER.md](../../REPORTER.md#install-the-opencode-reporter) and its own `plugin/opencode/README.md`, and does not change what is written here.
 
 This section is the working reference. Two labels mark how far to trust a statement:
 

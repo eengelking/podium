@@ -19,7 +19,7 @@ The secret is PODIUM_E2E_SECRET or PODIUM_TOKEN when --secret is not given. The 
   --out FILE       write the manifest (people, tokens, session ids, machine ids) to FILE as JSON
   --flags LIST     which feature flags to turn on: "all" (default), "none", or a comma list of
                    activity-output,respond,file-diff,peer-messaging,session-recording; "defaults" leaves every flag as the
-                   server starts it (five off, the activity feed and the release check on)
+                   server starts it (seven off, the activity feed and the release check on)
   --bulk N         also report N filler sessions (bulk-01 ...), for the rail's paging (default 0)
   --ended N        also report N sessions that have ended (ended-01 ...), for History's paging (default 0)
   --recording      also record the invoice session (its orchestrator, two agents and a fork left out) with about 240 rows,
@@ -35,7 +35,7 @@ The secret is PODIUM_E2E_SECRET or PODIUM_TOKEN when --secret is not given. The 
   --talk           also put eight messages between the orchestrators on Traffic (needs peer-messaging)
   -h, --help       show this help
 
-Fixed values: people Ed and Alex, group Platform (Alex), machines ed-mbp, ci-runner-01 and build-pi, and the session ids in
+Fixed values: people Ed and Alex, group Platform (Alex), machines ed-mbp, ci-runner-01, build-pi and alex-laptop, and the session ids in
 SESSIONS below (they start with "e2e-"). Tokens are issued by the server, so they are fake and fresh for each database; they
 are in the manifest and nowhere else.`;
 

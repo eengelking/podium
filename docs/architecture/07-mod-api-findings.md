@@ -7,6 +7,8 @@ order: 7
 
 # Mod API findings
 
+The paths below are the first build's (`mod/podium-reporter/`); the mod is `plugin/claudecode/` and `plugin/core/` now (DECISIONS 57).
+
 Checked against the engine 2.1.296 type declarations, `claude plugin validate`, `claude plugin test`, and two real
 `claude -p` runs (haiku) on 2026-10-10. The rows marked #206 were checked on 2.1.301 on 2026-10-15 with a
 throwaway mod that recorded every hook's input and timing in an interactive session (SPEC 5.3). The rows marked

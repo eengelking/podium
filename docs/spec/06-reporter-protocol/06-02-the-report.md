@@ -14,7 +14,7 @@ All times are epoch milliseconds. All token counts are integers. Unknown fields 
 interface Report {
   v: 1;
   sentAt: number;
-  reporter: { name: 'podium-reporter' | 'podium-reporter-claudecode'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
+  reporter: { name: 'podium-reporter' | 'podium-reporter-claudecode' | 'podium-reporter-opencode'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
   session: {
     id: string;
     name: string;                       // display name (6.6)
@@ -23,6 +23,7 @@ interface Report {
     waitNote: string | null;            // e.g. "Bash(npm run e2e -- --retries=0)", ≤ 160 chars
     endReason: string | null;           // set with status 'done'
     resumeId: string | null;
+    resumeWindowDays?: number;          // the days the harness lets a person resume a closed session (#1113); absent from an older reporter
     startedAt: number;
     cwd: string;
     projectRoot: string | null;
@@ -56,6 +57,7 @@ interface Report {
       level: 'off' | 'questions' | 'questions-and-plans' | 'everything';   // the `respond` option as set
       accepts: RespondKind[];           // what the session takes now: the level's kinds, empty while `activityFeed` is off or the session is not interactive, less what `limits` removes
       limits: ('no-permission-hooks' | 'not-interactive' | 'no-reply-in-place')[];  // why a kind the level allows is missing: PermissionRequest hooks don't run here (drops plan-approve and permission), a `claude -p` run (drops everything), or the session takes no typed reply in place of a question's answer (drops no kind, #968)
+      // OpenCode takes `/compact` only (it has no `/clear`) and always reports `no-reply-in-place`: a question form is not given up for a typed reply (#968)
     };
     asks?: Ask[];                       // the asks open now, at most 8; sent only while the last reply said `respond: true`, else omitted
     clearedFrom?: string | null;        // the session id this one continues after a /clear (5.8); null or absent otherwise
@@ -65,7 +67,7 @@ interface Report {
   agents: AgentReport[];                // every agent seen this session, running or finished
   events: ActivityEvent[];              // not yet acknowledged
   userName?: string;                    // the person this reporter is set up as (the `userName` option); omitted when empty. The server checks it against the token's owner (7.7)
-  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (on macOS `scutil --get LocalHostName`, else `hostname`, up to the first dot, ≤ 64; the first one read is pinned in `podium-machine-name` beside the id file and reported by every later load, so a name that changes with the network does not show one machine under two names, #715; deleting the file takes the current name) and a random 12-hex id the reporters keep in one file, `~/.podium/machine-id`, made on first use and shared by every load of every reporter on the machine (#856; an id a Claude install already kept in `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`) is copied there, #267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
+  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (on macOS `scutil --get LocalHostName`, else `hostname`, up to the first dot, ≤ 64; the first one read is pinned in the shared `~/.podium/machine-name` (the Claude Code reporter also keeps `podium-machine-name` beside its id file in the Claude config directory, and reads that first, so a name it already reported never changes) and reported by every later load, so a name that changes with the network does not show one machine under two names, #715; deleting the file takes the current name) and a random 12-hex id the reporters keep in one file, `~/.podium/machine-id`, made on first use and shared by every load of every reporter on the machine (#856; an id a Claude install already kept in `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`) is copied there, #267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
 }
 
 interface FilesReport {
@@ -79,7 +81,7 @@ interface FilesReport {
 
 interface Plan {
   title: string | null;
-  source: 'TaskCreate' | 'TodoWrite' | 'podium_plan';
+  source: 'TaskCreate' | 'TodoWrite' | 'podium_plan' | string;   // a harness may send its own: OpenCode sends 'todowrite'
   steps: { id: string; text: string; state: 'pending' | 'active' | 'done' | 'blocked';
            activeText: string | null; ownerAgentId: string | null; ownerLabel: string | null }[];
 }
@@ -126,7 +128,7 @@ interface AgentReport {
   endedAt: number | null;
   context: { tokens: number | null; window: number | null; percent: number | null };
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  costUsdEst: number;
+  costUsdEst: number | null;            // null for a model Podium has no price for (a non-Claude model; 6.5)
   usageByModel?: { model: string; tier: 'std' | 'long'; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number } }[];  // this agent's own loop (#117); absent from a reporter older than 0.12.0
   skills: string[];
   lastTool: string | null;
@@ -193,6 +195,8 @@ interface Delivery {
   mode?: 'auto' | 'acceptEdits' | 'default';   // kind 'plan-approve'
   text?: string;                        // 'reply' (a message in place of an answer), 'plan-feedback', 'deny' (the reason, may be empty) and 'message': ≤ 20,000 chars, line breaks kept
   command?: 'clear' | 'compact';        // kind 'command'
+  chat?: true;                          // kind 'message': the owner's own Chat Direct Message to this agent (#1034); the agent may answer in the thread with `podium_send` to `person:<by>`. Older reporters ignore it
+  channel?: string;                     // kind 'message': set on a message from an `@` in a Chat channel (#1034), the channel's name (`General` or `My group`)
 }
 
 // Orchestrator messaging (#347, 7.7). A message or a notice for this session's orchestrator, in the reply to a report.
@@ -201,7 +205,7 @@ interface PeerDelivery {
   id: string;                           // 'dlv_' and 24 hex characters, made by the server
   kind: 'message' | 'notice';
   at: number;                           // when the server took it (server time)
-  from: { name: string; machine: string; owner: string } | null;   // the sending orchestrator, its machine and its owner
+  from: { name: string; machine: string; owner: string; id?: string; person?: boolean } | null;   // the sending orchestrator, its machine and its owner; `id` is its short session id (the `name@machine#id` form); `person` is true when `name` is a person who wrote through Chat, and then `machine` is empty and `owner` is the person who owns this session
   text: string;                         // ≤ 20,000 chars, line breaks kept; redacted on the sending machine
 }
 
@@ -227,7 +231,7 @@ interface Failure {
   exitCode: number | null;
   outputTail: string[];                 // last ≤ 12 lines of output, each ≤ 240 chars
   evidence: string[];                   // short facts the reporter observed, ≤ 5 lines (e.g. "exceeded the window 3 times", "same file read 4 times")
-  explanation: string | null;           // only when explainFailures is on (Phase 5)
+  explanation: string | null;           // only when explainFailures is on
   retriedAs: string | null;             // agent id that took over the step, when known
 }
 

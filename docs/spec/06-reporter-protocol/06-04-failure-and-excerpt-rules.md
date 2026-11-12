@@ -21,12 +21,12 @@ Module: `failures.ts` (pure).
 - A loop that ends `failed` takes its most recent candidate (≤ 60 s old) as the failure's `tool`, `call` and
   `outputTail`.
 - The failure's class:
-  - `deny` gives `Blocked by permission`.
-  - `turn.complete.reason === "error"` gives `Model API error`, unless a candidate exists.
+  - A `deny` on a candidate no older than 60 s gives `Blocked by permission`.
   - `refusal` gives `Refusal`.
-  - `stopReason === "model_context_window_exceeded"` or blowouts ≥ 3 gives `Context window exhausted`.
+  - `stopReason === "model_context_window_exceeded"` or blowouts ≥ 3 gives `Context window exhausted` (checked before `error`, because the engine's `error` includes running out of context).
+  - `turn.complete.reason === "error"` gives `Model API error`, unless a fresh candidate exists.
   - `aborted` gives `Aborted`.
-  - Otherwise `Tool error` if a candidate exists, else `Unknown`.
+  - Otherwise `Tool error` if a fresh candidate exists, else `Unknown`.
 - `evidence` lines are factual and generated, never invented: blowout count and times, repeated identical
   failing calls ("same call failed 3 times"), repeated reads of one file, the permission denial text.
 - A loop with a failure candidate that later ends `done` is `done`. The candidate is discarded.
@@ -59,7 +59,7 @@ With the `fullPrompts` option on, the mod also keeps each agent's whole task pro
 - One report carries at most 120,000 characters of full text (the 512 KB body limit, [7.7](../07-server/07-07-hardening.md)).
   An agent whose text does not fit goes out in a later report, and a text counts as sent only when the report
   that carried it was accepted.
-- Everyone who can open the console can read them, which is why the option is off by default.
+- Only the session's owner, signed in, and an Admin can read them (#1082; an Admin's read is told to the owner), which is one reason the option is off by default.
 - The server keeps them in `agent_texts` ([7.2](../07-server/07-02-database.md)) and serves them from
   `GET /api/fleet/sessions/:id/agents/:agentId/text`. The state and the stream carry only their lengths
   (`promptChars`, `answerChars`).
@@ -198,7 +198,7 @@ in [7.7](../07-server/07-07-hardening.md#session-recording-353) and the notice a
 All three are carried in `recording.consent` of every reply ([6.1](06-01-endpoint.md)). If any is false the mod captures
 nothing and the server stores nothing. A person who chose a session whose owner has not allowed it is told so in
 the console ("This session's reporter does not allow recording"), and the owner is told in the terminal
-([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#session-recording-from-the-reporter-353)). Turning the flag off, or the option off, ends capture at once; an
+([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#session-recording-from-the-reporter-353); the OpenCode reporter writes no terminal line, and its toast or console line is all there is, #1012). Turning the flag off, or the option off, ends capture at once; an
 Admin turning the flag off also stops every recording, and what was recorded is kept until it expires.
 
 **What is captured.** For each chosen loop (the orchestrator, a subagent, a fork), in the order things happened:
@@ -259,7 +259,7 @@ values of keys whose name says they are secret, and long random-looking values).
 `[redacted]` and the rest of the text stays. The server and the console never see the original, and the server adds no
 second pass. In addition:
 - A `Read`, `Edit` or `Write` of a path on the file diff's never-send list (`.env`, `.env.*`, `*.pem`, `*.key`,
-  `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc`, `credentials*`) records the call with its path and
+  `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `.npmrc`, `.netrc`, `credentials*`) records the call with its path and
   a result of `[withheld: this file is on the never-send list]`, and an `Edit` or `Write` records neither its old nor
   its new text. A Bash command that reads one of them cannot be recognized in general; its output is only redacted.
 - Each redaction counts toward `redactions` in the log line the mod writes, never in the text.
@@ -448,7 +448,7 @@ file in the list while the owner has the session's page open.
 - A diff is cut at 2,000 lines or 200,000 bytes, at a line boundary, and says so: `truncated: true`, with the
   `shownLines` and `totalLines` it kept and had. A binary file sends no text (`status: "binary"`); a path that
   matches the never-send list sends none either (`status: "withheld"`): `.env`, `.env.*`, `*.pem`, `*.key`,
-  `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc`, `credentials*`. A diff whose size cannot
+  `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `.npmrc`, `.netrc`, `credentials*`. A diff whose size cannot
   be bounded (more than 5 MB read, or a file the list counts at more than 200,000 changed lines) is
   `status: "too-large"` and is not read into the report. A single line is cut at 4,000 characters and ends with
   ` … [line cut]`.
@@ -461,7 +461,7 @@ file in the list while the owner has the session's page open.
   - the shapes in the redaction rule above;
   - provider tokens: `sk-…` keys, GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab
     `glpat-`, AWS access key ids (`AKIA`, `ASIA`) and a 40-character secret after `aws_secret`, Google
-    `AIza…`, Slack `xox[abprs]-…`, Stripe `sk_live_`, `sk_test_`, `rk_live_`, `rk_test_` and `whsec_`, npm `npm_…`, SendGrid `SG.…`,
+    `AIza…`, Slack `xox[abprs]-…`, Stripe `sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`, `pk_live_` and `whsec_`, npm `npm_…`, SendGrid `SG.…`,
     Twilio `SK…`, Azure storage `AccountKey=…`, and Anthropic and OpenAI keys;
   - JSON Web Tokens (three base64url parts, the first two starting `eyJ`);
   - a private key block (`-----BEGIN … PRIVATE KEY-----` to the matching `END`), every line of its body, with

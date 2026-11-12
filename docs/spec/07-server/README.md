@@ -14,7 +14,7 @@ order: 7
 
 <!-- entries:start -->
 - [7.1 Endpoints](07-01-endpoints.md): Every server route, grouped as fleet, responding and Admin routes, with its purpose.
-- [7.2 Database (SQLite)](07-02-database.md): The SQLite databases: path, pragmas, migrations and tables.
+- [7.2 Database](07-02-database.md): The databases (SQLite, PostgreSQL and MariaDB): path, pragmas, migrations and tables.
 - [7.3 Ingest rules and derivation](07-03-ingest-rules-and-derivation.md): What the server does with each valid report, and the values it derives from it.
 - [7.4 View types](07-04-view-types.md): The types the server sends to the UI, defined once in protocol.ts.
 - [7.5 Lifecycle timers](07-05-lifecycle-timers.md): The sweeper's timers and their defaults: when a session goes stale, lingers and is dropped.

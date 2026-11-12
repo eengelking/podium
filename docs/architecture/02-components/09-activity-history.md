@@ -7,13 +7,16 @@ order: 9
 
 # Activity history
 
+This page describes the SQLite adapter. The same store, with the same rules, is in each adapter's folder (`server/src/storage/postgres/` and `mariadb/`, where it is `activityHistory.ts` too); what differs is in the first bullet and in [Storage](19-storage.md).
+
 Files: `server/src/storage/sqlite/activityHistory.ts` (the store), `activityDb.ts` (the second database file),
 `activityHistorySettings.ts` (both in `server/src/storage/sqlite/`; the Admin's choice), `activityHistoryTypes.ts` (the shapes shared with the routes and
 the Admin pages), `sweeper.ts` (`purgeActivityHistory`), `frontend/src/fleet/admin/DataPage.tsx` and
 `StoredActivityTab.tsx`, and the window changes in `useActivityFeed.ts` and `ActivityFeed.tsx`. Issue #432; the
 reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `scripts/podium-seed-activity.ts`.
 
-- **A second SQLite file.** `activity.sqlite` sits beside `podium.sqlite` (`activityDbPath`), with its own schema
+- **Where it lives, by adapter.** On SQLite it is a second file (below). On PostgreSQL it is the `podium_activity` schema in the same database, on a pool of its own, and on MariaDB it is tables of their own (`entries`, `stored_sessions`, `loops`) in the same database, with their own record of steps (`activity_schema_migrations`). Neither has a second file. The purge and the chunked removal work the same way; the compaction does nothing on either, because autovacuum (PostgreSQL) and the engine (MariaDB) give the space back, and it frees 0 bytes.
+- **A second SQLite file.** On SQLite, `activity.sqlite` sits beside `podium.sqlite` (`activityDbPath`), with its own schema
   version in `PRAGMA user_version`, WAL, and incremental auto-vacuum (set before the first table exists). Nothing in
   the main database references it and no foreign key crosses files, so code removes a session's rows. It lives in
   the same `/data` volume, so the container and `podiumctl` need no change. Nothing is written to it under the

@@ -7,7 +7,7 @@ order: 8
 
 # Dependencies added
 
-`express-rate-limit` at run time, for the failure limiter (#667). `@types/node` in `server/` went from 20 to 24 so `node:sqlite` is declared.
+`express-rate-limit` at run time, for the failure limiter (#667). `@types/node` in `server/` went from 20 to 24 (and later to 26) so `node:sqlite` is declared.
 
 `express` and `@types/express` in `server/` went from 4 to 5 (#392). Two small helpers keep what Express 4 did: `jsonBody` leaves `req.body` as `{}` when a request has no JSON body, and `serveSpa` names `index.html` relative to its folder.
 

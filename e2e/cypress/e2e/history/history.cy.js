@@ -68,7 +68,7 @@ describe('history', () => {
       cy.location('hash').should('include', 'open=e2e-s-docs-sweep');
       cy.get('main h1').should('have.text', 'docs-sweep');
       cy.contains('button.back', `← Back to ${today()}`);
-      // SPEC 8.1 says the read-only page has no Resume and no Fork cell, but the page draws both. Not asserted either way until the maintainer decides (docs/e2e/COVERAGE.md, open question 1).
+      // SPEC 8.1 and 8.5 say the opened session shows Resume and Fork, and the page draws both. No spec asserts it (docs/e2e/COVERAGE.md, "What no end-to-end spec can reach").
       cy.go('back');
       cy.get('table.htable').should('exist');
     });

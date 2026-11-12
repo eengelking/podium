@@ -84,7 +84,7 @@ where none of those singles the element out. The convention is a kebab-case name
 `data-state` for a state the spec waits for (`connection-pill` is `loading`, `live` or `disconnected`), and no id that carries data or a
 random suffix: the seed gives sessions fixed ids instead, so `cy.card('api')` finds the card by `data-session`. A `data-testid` changes nothing a
 person sees, is added in the same PR as the spec that needs it, and is only added when the spec needs it. The check in `npm test`
-fails on a spec that uses a test id no frontend source defines. The ids today are `connection-pill` in
+fails on a spec that uses a test id no frontend source defines. Two examples are `connection-pill` in
 `frontend/src/fleet/components/ConnectionPill.tsx` and `page-pill` in `frontend/src/fleet/components/TopBar.tsx`.
 
 ## The seed
@@ -166,8 +166,8 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Feature | Spec | Covered by |
 |---|---|---|
 | Sign-in dialog: empty, wrong, success, sign out, no token kept | SPEC 8.1 Signing in | `e2e/cypress/e2e/respond/sign-in.cy.js` |
-| Respond button gating and the modal for each kind of ask | SPEC 8.1 Responding | `e2e/cypress/e2e/respond/respond.cy.js` |
-| Answering: each answer's request body (plan, Allow once, Deny with its reason, a question's answers, a message, /clear, /compact), what the session's hook is handed for an ask (read from the server as the mod would) and the reporter's next check-in carrying a message and a command, with its sender (Ed, or the Admin), the "You, from Podium:" entry, "<Name>, from Podium:" for another person's message, the notes the reporter's result adds (queued, cleared), a reporter's limits removing an ask kind, and what the console says for HTTP 500, 422, 429 and 403 | SPEC 8.1 The modal, The feed | `e2e/cypress/e2e/respond/answer.cy.js` |
+| Respond button gating and the modal for each kind of ask, and a reporter's limits removing an ask kind | SPEC 8.1 Responding | `e2e/cypress/e2e/respond/respond.cy.js` |
+| Answering: each answer's request body (plan, Allow once, Deny with its reason, a question's answers, a message, /clear, /compact), what the session's hook is handed for an ask (read from the server as the mod would) and the reporter's next check-in carrying a message and a command, with its sender (Ed, or the Admin), the "You, from Podium:" entry, "<Name>, from Podium:" for another person's message, the notes the reporter's result adds (queued, cleared), and what the console says for HTTP 500, 422, 429 and 403 | SPEC 8.1 The modal, The feed | `e2e/cypress/e2e/respond/answer.cy.js` |
 | Recording: the notice, the picker's states, start, stop, delete, replay with its loop filter, slider and Jump, History line, and a subset of loops ("Recording 3 of 4 loops") | SPEC 8.1 Session recording | `e2e/cypress/e2e/recording/recording.cy.js` |
 | An Admin's replay told to the owner (#1075): the red notice under the recording layer naming the Admin while the replay is live, the card's second line "... is replaying it now." on the wall, the quiet record line that stays and its X (hides it in that browser only, the record kept), nothing for the Admin or a stranger, nothing recorded for the owner's own replay, the Admin-only ping refused to others | SPEC 8.1 Session recording | `e2e/cypress/e2e/recording/recording-admin-replay.cy.js` |
 
@@ -194,8 +194,8 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 
 | Flag | Covered by |
 |---|---|
-| All seven: the defaults of a fresh server (five off, `activity-feed` and `update-check` on), with nothing enabled | `e2e/cypress/e2e/flags/defaults.cy.js` |
-| All seven: each off, kept over a reload, and on again, in Admin > Settings and in `/api/fleet/state` | `e2e/cypress/e2e/admin/settings.cy.js` |
+| All nine: the defaults of a fresh server (seven off, `activity-feed` and `update-check` on), with nothing enabled | `e2e/cypress/e2e/flags/defaults.cy.js` |
+| All nine: each off, kept over a reload, and on again, in Admin > Settings and in `/api/fleet/state` | `e2e/cypress/e2e/admin/settings.cy.js` |
 | `activity-feed` on, off, and on with the reporter's `activityFeed` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
 | `activity-output` on, off, and on with `activityOutput` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
 | `respond` on and off, and a reporter that cannot answer | `e2e/cypress/e2e/respond/respond.cy.js` |
@@ -246,59 +246,28 @@ The suite does not repeat what a unit test already settles and a browser adds no
 (`server/src/fleet/derive.test.ts`), markdown rendering (`frontend/src/fleet/components/Markdown.test.tsx`), the CSV neutralizing, validation
 messages, and the standards pages (`npm run standards:parity`). A feature with only unit coverage and a layout, focus or live-update behavior gets a spec for that part.
 
-## What runs on PostgreSQL and MariaDB, and whether that is enough for the release gate
+## What runs on PostgreSQL and MariaDB
 
-The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). MariaDB (#823) is
-checked the same way; it is at the end of this section. Each runs on one version, the one Podium supports and tests: PostgreSQL 17
-(`postgres:17` in CI, `postgres:17-alpine` in the Cypress suite) and MariaDB 11.4 (`mariadb:11.4` in CI, `mariadb:11.4.13` in the
-Cypress suite). The supported databases are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4); other versions are
-untested. The decision on the
-gap is the maintainer's; this section states what is true on 2026-11-05 and the options.
+The supported databases are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4). Each non-default one is tested on that one
+version in three places; another version is untested. The maintainer has run the suite on both PostgreSQL and MariaDB.
 
-- **The storage contract and the adapter's own tests** (`server/src/storage/`, about 950 tests) run on PostgreSQL in every CI run, in the
-  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-db.sh`. That job runs the whole server suite with
-  `PODIUM_TEST_PG` set, but only the storage tests use it (and `server/src/fleet/chatGoneReadsPg.test.ts`, one Chat route sequence).
-- **About 50 test files outside `server/src/storage/`** (routes, ingest, the fleet, peers, Admin) open a SQLite storage and nothing else. They
-  have never run on PostgreSQL. They are not to be converted: the contract is where the two databases are compared.
-- **The Cypress suite on PostgreSQL** (`E2E_DB=postgres`, the `databases` input of `e2e.yml`, default `sqlite postgres`) runs on a pull
-  request into `main` and on a manual dispatch, never on a PR into `development`. The default of both databases arrived with the
-  PostgreSQL adapter (#900, 2026-10-31). Every run of the E2E workflow listed by `gh run list` is older than that or ran a branch that did
-  not have it: the release PR for 1.4.0 (2026-10-30) and the three manual dispatches on 2026-10-31 have no PostgreSQL step in their logs. **No
-  CI run has ever run the suite on PostgreSQL**, so the first one will be the v1.5 release PR, which is also the first release that carries the adapter.
+- **The storage contract and each adapter's own tests** (`server/src/storage/`) run on every database in every CI run: the
+  `Test with PostgreSQL` job of `ci.yml` on `postgres:17` and the `Test with MariaDB 11.4` job on `mariadb:11.4`, and locally with
+  `scripts/test-db.sh`. Each job runs the whole server suite with its test server variable set (`PODIUM_TEST_PG`, `PODIUM_TEST_MARIADB`),
+  but only the storage tests use it, plus one Chat route sequence per database (`server/src/fleet/chatGoneReadsPg.test.ts`,
+  `chatGoneReadsMaria.test.ts`).
+- **The test files outside `server/src/storage/`** (routes, ingest, the fleet, peers, Admin) open a SQLite storage and nothing else. They
+  are not converted: the contract is where the databases are compared, and the Cypress run below covers the routes on each.
+- **The Cypress suite on each database** (`E2E_DB=postgres` or `mariadb`, the `databases` input of `e2e.yml`, default
+  `sqlite postgres mariadb`) runs on a pull request into `main` and on a manual dispatch, never on a PR into `development`. It uses
+  `postgres:17-alpine` and `mariadb:11.4.13`, pinned. A release PR runs every database in that list in one job, and `E2E summary` fails
+  when that job fails or is skipped. The run on the 1.5.0 release PR (2026-11-05) ran SQLite and PostgreSQL and passed, as did a manual
+  dispatch on 2026-11-10; a run with MariaDB in the list starts with the next release PR. `npm run e2e` alone runs SQLite only, so a branch
+  that changes `server/src/storage/`, a route or database behavior runs the suite once on each database before its PR (`E2E_DB=<kind>`, or
+  `scripts/e2e-all.sh`).
 
-Is that enough for the release gate? The storage contract settles what a store returns; it does not settle the routes, sign-in,
-recording, peers and live updates sitting on top of it, which only the Cypress run and the unit tests that open SQLite exercise. The
-risk is concentrated in one place: a failure on the release PR on PostgreSQL, with nothing earlier to point at the change that caused it.
-The options, cheapest first:
-
-1. **Rely on the release PR alone** (what is set up). No new cost; a PostgreSQL-only failure appears only when the release is already
-   being cut, and `development` is not known to be green on PostgreSQL between releases.
-2. **Run `E2E` by hand on `development` with `databases: postgres` before the release-prep PR opens**, and once more after any storage change
-   that merges. No workflow change; it is one manual step and it needs to be written into `/podium-release`'s steps to happen.
-3. **Add a `schedule:` (nightly) or a `push` to `development` trigger that runs `postgres` only.** The suite takes about 10 minutes for one
-   database on the self-hosted runner, which also serves the nightly build. It needs an edit to `e2e.yml`, so it is a separate change.
-4. **Run the server's route and ingest tests on PostgreSQL** by making the 50 files open the storage through a switch (`PODIUM_TEST_PG`)
-   that the storage suite already uses. The largest change, and it overlaps with the contract; worth it only if option 2 or 3 keeps
-   finding PostgreSQL-only failures that the contract does not.
-
-Recommendation: 2 now, since it costs nothing and puts a real PostgreSQL run before the release PR rather than inside it, and 3 if that
-first run finds anything. This section changes when the workflow does.
-
-**MariaDB.** The same three places, with these facts on 2026-11-10:
-
-- **The storage contract and the adapter's own tests** (`server/src/storage/mariadb/`) run on MariaDB in every CI run, in the
-  `test-mariadb` job of `ci.yml` (`Test with MariaDB 11.4`), on 11.4, the long-term release and the one version tested, and locally
-  with `scripts/test-db.sh`. As on
-  PostgreSQL the whole server suite runs with `PODIUM_TEST_MARIADB` set, and only the storage tests and one Chat route sequence
-  (`server/src/fleet/chatGoneReadsMaria.test.ts`) use it.
-- **The same 50 files outside `server/src/storage/`** open SQLite only, and have never run on MariaDB.
-- **The Cypress suite on MariaDB** (`E2E_DB=mariadb`, in the default `databases` of `e2e.yml`) runs on 11.4.13, pinned, the same
-  version line as the unit and contract tests above. A release PR runs every database in that default list in one job, and
-  `E2E summary` fails when that job fails or is skipped.
-
-Is that enough for the release gate? The same answer and the same options as for PostgreSQL, with `mariadb` in place of `postgres`
-in options 2 and 3. A MariaDB other than 11.4, like a PostgreSQL other than 17, is reached by no test; `E2E_MARIADB_IMAGE` and
-`E2E_PG_IMAGE` run the suite on another image by hand, which does not make that version supported.
+A version other than PostgreSQL 17 or MariaDB 11.4 is reached by no test. `E2E_PG_IMAGE` and `E2E_MARIADB_IMAGE` run the suite on another
+image by hand, which does not make that version supported.
 
 ## What is still open
 

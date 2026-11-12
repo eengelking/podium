@@ -19,6 +19,9 @@ Every Reporting page works the same way:
 - **What it is based on.** A line under the filters gives the time zone (days are the server's calendar days; weeks start
   on Monday), what the figures are built from and how far back the data goes. If you ask for a period that starts before
   that, the page says "Podium has no history before ..." and shows only what it has. It never fills the gap with zeros.
+- **Sorting.** A table heading is a button. A number column shows the largest first, the period and text columns start with
+  the oldest and A to Z, and a second click reverses it. The sort covers every row of the period before the page is cut, and
+  the Whole period row stays last. A new period or filter goes back to the order the server sent.
 - **Export.** **CSV** and **JSON** download exactly the table you are looking at, for the same period and filters.
   **Print** prints the page without the menu.
 - Costs are estimates from tokens, not a bill. A model without a price shows a dash and is left out of the totals.

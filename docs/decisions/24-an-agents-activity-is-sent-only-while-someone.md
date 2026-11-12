@@ -12,6 +12,8 @@ order: 24
 
 *Amended by 39 (#432): the Admin can now choose to keep it. The default, and everything below, is unchanged.*
 
+*Amended by 62 (#1076): an agent's live activity feed now needs a sign-in as the session's owner or an Admin, and an Admin's read is told to the person. The text below says anyone who can open the console can read it, which was true then.*
+
 **Decision.** The activity feed (#118) has its own reporter option, `activityFeed`, off by default and
 separate from `fullPrompts`.
 

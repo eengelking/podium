@@ -11,8 +11,7 @@ order: 6
 # 6. The reporter protocol
 
 This section describes the report as it is today, which carries Claude Code's fields. A harness-neutral report (`v: 2`,
-with a harness block and the harness's capabilities) is planned for the second harness (DECISIONS 55, #850); the server will
-read both versions. Until that lands, nothing here changes.
+with a harness block and the harness's capabilities, DECISIONS 55, #850) is specified in [6.2](06-02-the-report.md); the server reads both versions, and the OpenCode reporter sends `v: 2`.
 
 ## Pages
 

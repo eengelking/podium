@@ -6,9 +6,9 @@ group: Running it
 
 # Orchestrator messaging
 
-One person's Claude Code orchestrators, on any of their machines, can send each other messages through Podium. This
+One person's Claude Code and OpenCode orchestrators, on any of their machines, can send each other messages through Podium. This
 page is for whoever sets that up and uses it: what it is, how the parts fit, the setup from start to finish, rights,
-limits, what the session sees, Traffic, what is kept, troubleshooting and how to try it end to end.
+limits, what the session sees, Chat and Traffic, what is kept, troubleshooting and how to try it end to end.
 
 The exact rules are in [docs/spec/](spec/README.md): the reporter's side in
 [SPEC 5.3](spec/05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347), the server's in
@@ -64,17 +64,17 @@ What it is not:
   │  peers: on           │ ◄────────┤                          ├───────► │  new turn, framed    │
   └──────────────────────┘ reply    └────────────┬─────────────┘         └──────────────────────┘
                                                  │
-                     My reporters (owner) · Admin > Settings, Admin > Reporters · Traffic (everyone, text for owner and Admin)
+                     My reporters (owner) · Admin > Settings, Admin > Reporters · Chat (the owner and an Admin read the text)
 ```
 
 | Part | What it does there |
 |---|---|
 | The server | Holds the **Orchestrator messaging** flag (`peer-messaging`), the limits, the rights between reporters, the open requests and the messages. It checks every send against the right, the limits and the owner, and hands a message over only when the receiver reports itself idle |
-| podium-reporter, on each machine | With its `peers` option on, gives the orchestrator three tools (`podium_peers`, `podium_send`, `podium_request_access`), submits a received message under Podium's opening line, and shows the owner's requests as a toast that `/podium allow\|decline\|deliver <id>` answers |
+| podium-reporter, on each machine | With its `peers` option on, gives the orchestrator four tools (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`), submits a received message under Podium's opening line, and shows the owner's requests as a toast that `/podium allow\|decline\|deliver <id>` answers |
 | My reporters (`#/me/reporters`) | The owner's page: their reporters, the requests waiting for them, their defaults and stricter limits, and the Grid or Board of who can message whom |
 | Admin | Turns the flag on and sets the limits (Admin > Settings). On Admin > Reporters > a reporter, sees the owner's rights, proposes a right and pauses every link of that reporter at once |
-| Chat (`#/chat`) | Where a person reads and joins the conversations between their orchestrators, and writes in the channels. It replaced Traffic, which is deprecated (`#/traffic` opens Chat). An Admin can read a person's group and Direct Messages there, and the person is always told |
-| Traffic (`#/traffic`), deprecated | A map and a table of who talks to whom. The owner and an Admin read the text; everyone else sees the counts. The owner pauses or removes a link there |
+| Chat (`#/chat`) | Where a person reads and joins the conversations between their orchestrators, and writes in the channels. It replaced Traffic (`#/traffic` opens Chat). An Admin can read a person's group and Direct Messages there, and the person is always told |
+| Traffic (`#/traffic`), replaced by Chat | The old map and table of who talks to whom. `#/traffic` opens Chat at once; the owner pauses or removes a link in the conversation's menu in Chat |
 
 A **reporter** is one machine plus one person's token. Rights belong to reporters, not to sessions, so they outlast
 any one session. A **link** is a pair of reporters, either way round, the same reporter twice included (two
@@ -106,7 +106,7 @@ orchestrators on one machine). A **conversation** is the messages between two or
 
 What changes on screen:
 
-- **Traffic** joins the top bar after History. It reads "No orchestrator has messaged another yet" for now.
+- **Chat** joins the top bar after History. It has no conversation yet.
 - Admin > Reporters > a reporter adds **System** and **Messaging** rows and a **Messaging** section.
 - Once a person signs in, **My reporters** shows in the top bar.
 
@@ -115,11 +115,12 @@ What changes on screen:
 On every machine that takes part:
 
 1. In Claude Code, run `/plugin configure podium-reporter@eengelking-marketplace`. In the Claude desktop app, open
-   Settings > Plugins > Podium-Reporter > Settings.
+   Settings > Plugins > Podium-Reporter > Settings. In OpenCode, add `PODIUM_PEERS=true` to `~/.podium/config.env` with the server and token
+   ([OpenCode settings](REPORTER.md#opencode-settings)), and restart its service.
 2. Set `serverUrl` to the server, `token` to the person's token, `userName` to the person's name exactly as the
    Admin entered it, and **Message my other orchestrators** (`peers`) to on.
 3. Start a new session and send it a first prompt. A session reports from its first prompt, and once Podium answers
-   that the session takes part, the mod registers the three tools.
+   that the session takes part, the mod registers the four tools.
 
 A machine that reports with a reporter config file takes part the same way. Messaging, the answers to
 permission prompts and Peers all work over the certificate connection, with no token on that machine. `peers` (and
@@ -164,7 +165,7 @@ A change saves at once. If it cannot be saved, the page says so and shows the le
    turn to end, or waiting for your approval.
 3. In the receiving session, a new turn starts once it is idle, under Podium's opening line. The terminal logs
    `a message from <name> on <machine>, delivered now that this turn has ended.`
-4. Open **Traffic**. A line joins the two orchestrators. Select it to read the conversation.
+4. Open **Chat**. The conversation between the two orchestrators is a Direct Message in its list. Select it to read it.
 
 ## Rights and approval
 
@@ -215,14 +216,14 @@ owner approves it.
 
 | Action | Where | What it does |
 |---|---|---|
-| **Pause link** | Traffic, the conversation (owner) | Holds every message on the link, both ways, and keeps the rights |
-| **Resume link** | Traffic, the conversation (owner) | Lets the held messages go |
-| **Remove link…** | Traffic, the conversation (owner) | Asks first. Both ways lose every right, a message still waiting is dropped, and the conversation stays on Traffic until it expires. Under Trust my own reporters, the link is left paused |
+| **Pause link** | Chat, the conversation's menu (owner) | Holds every message on the link, both ways, and keeps the rights |
+| **Resume link** | Chat, the conversation's menu (owner) | Lets the held messages go |
+| **Remove link…** | Chat, the conversation's menu (owner) | Asks first. Both ways lose every right, a message still waiting is dropped, and the conversation stays in Chat until it expires. Under Trust my own reporters, the link is left paused |
 | **Pause all links** | Admin > Reporters > a reporter (Admin) | Pauses every link of that reporter at once, with no answer needed, as the Admin's pause: it names the Admin, and only an Admin resumes it. **Resume all links** undoes it. The person is told in their reporter sessions, once for the whole change |
 
 Pause and Remove act on the two reporters, so they cover every conversation between the same two machines. A pause
 holds under Trust my own reporters too. The Admin's page has no Remove button; the Admin API can remove a link
-(`DELETE /api/admin/reporters/:key/peers/:other`, [SPEC 7.1](spec/07-server/07-01-endpoints.md#admin-api)). An Admin's pause, resume or removal of a person's links is never quiet: every live session of the person shows a callout naming the Admin, and the Admin log has a line with who and whose. On Traffic the link carries "Paused by an Admin" and Resume link is off, and the Rights grid says "by <Admin>, an Admin" under the Paused mark.
+(`DELETE /api/admin/reporters/:key/peers/:other`, [SPEC 7.1](spec/07-server/07-01-endpoints.md#admin-api)). An Admin's pause, resume or removal of a person's links is never quiet: every live session of the person shows a callout naming the Admin, and the Admin log has a line with who and whose. In Chat the conversation carries "Paused by an Admin" and Resume link is off, and the Rights grid says "by <Admin>, an Admin" under the Paused mark.
 
 ## Limits
 
@@ -266,7 +267,7 @@ as true, so fix the setting.
 
 ### The tools
 
-With `peers` on, and once Podium says the session takes part, the orchestrator has three tools. Each answer is
+With `peers` on, and once Podium says the session takes part, the orchestrator has four tools. Each answer is
 written for the model and for the person reading the transcript.
 
 | Tool | What it answers |
@@ -274,6 +275,7 @@ written for the model and for the person reading the transcript.
 | `podium_peers` | The orchestrators it can see, each with its machine, system, status, project and whether it can send there; a `Not listed:` line for your machines it left out, with the reason (messaging off there, reporter too old, no right to see it, no orchestrator running) |
 | `podium_send(to, text)` | `Sent to …` when the receiver was idle; `Waiting for … It is working, and gets the message when its turn ends`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
 | `podium_request_access(to, right, reason)` | Asked, allowed or declined, by the owner's default. An asked request's answer arrives later as a notice that starts a turn |
+| `podium_chat_read(channel, before?)` | The last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only; a channel it was not called into in that hour is refused (see [The reporter mod](REPORTER.md#messaging-your-other-orchestrators)) |
 
 - `to` is `name@machine`, as `podium_peers` lists it, not case-sensitive. The name is the session's display name, so
   `/rename` or `/podium name` changes it. When several orchestrators on one machine share a name, `podium_peers`
@@ -283,7 +285,7 @@ written for the model and for the person reading the transcript.
   subagent's call: "Not sent. Only an orchestrator can send. Put the message in your result and ask your orchestrator
   to send it."
 - Before the text leaves the machine, the mod replaces anything that looks like a secret with `[redacted]`, and the
-  tool says how many it replaced. The receiver and Traffic see the marker. This is best effort.
+  tool says how many it replaced. The receiver and Chat see the marker. This is best effort.
 - The tool waits up to 8 seconds for Podium. When Podium cannot be reached, nothing is sent and the tool says so.
 
 ### How a message arrives
@@ -316,46 +318,17 @@ is still allowed, so the opening line and the model's judgment are the guard the
 ### Notices and log lines
 
 - A message that could not be delivered (the receiver ended, the link was removed) is a log line in the sender's
-  session that says so, and that the message stays in Traffic. A declined message is a log line there too.
+  session that says so, and that the message stays in Chat. A declined message is a log line there too.
 - A request for the owner is a toast and a log line with its short id (above).
 - `/podium allow|decline|deliver <id>` answers without a model turn, and `/podium` runs at once even during a turn.
 
 ## Traffic
 
-> **Deprecated (1.6), removed in 1.9.** [Chat](user-guide/04-reading-the-console/16-chat.md) replaces Traffic: the same conversations are its
-> Direct Messages, with Pause link, Remove link and Delete conversation in each one's menu, and `#/traffic` opens Chat. The top bar's link is
-> now Chat. Until 1.9 the page below still works. Chat also adds General and My group channels, `@` addressing, and a person writing to
-> another person's agent with its owner's approval. See [Deprecations](DEPRECATIONS.md#the-traffic-page).
-
-**Traffic** (`#/traffic`) is no longer in the top bar; Chat is. Anyone who can read the console sees
-the map and the counts. The text of a conversation opens only for its owner and an Admin; anyone else reads "Only Ed
-and an Admin can read this conversation", and the page never asks the server for the text.
-
-Reading the map:
-
-| You see | It means |
-|---|---|
-| A dashed box with a name and a system | A machine, with its OS. The busiest machine comes first, then by name, so the map does not move as messages arrive |
-| A node with a status shape and a word | An orchestrator, with the wall's status shapes. "ended" once it is no longer live |
-| A solid line | An active conversation |
-| A dashed line in the warning color, with an icon and "waiting" | A message waits for approval. "waiting, paused" means the link is paused too |
-| A dotted, muted line, with an icon and "paused" | The link is paused |
-| A struck circle and "no right to send" on the label | Neither side can send any more, as after Remove link |
-| An arrow at one end | Only that way can send |
-| A thicker line | More messages |
-| The number on a label | The messages in that conversation |
-
-The legend under the map says the same, and names your machines that are not drawn because messaging is off there.
-
-- **Select a line** (click it, or Tab to it and press Enter) to open the conversation beside the map, or below it on a
-  narrow screen: the pair and their machines, its state, the round trips used against the limit, how long it is kept,
-  then the messages oldest first, each with sender, receiver, time and delivery state. A one-way link says which side
-  cannot answer, and that the right is given in My reporters.
-- **Table** shows the same links as text: the pair, the messages, the last message, the round trips and the state. A
-  narrow screen opens on it.
-- **Show** picks **Live sessions** (the default), **Last 24 hours** or **Last 30 days**.
-
-The full tour is in the user guide, [Traffic](user-guide/04-reading-the-console/15-traffic.md).
+**Traffic** (`#/traffic`), the map and table of which orchestrators message which, was replaced by [Chat](user-guide/04-reading-the-console/16-chat.md)
+in 1.6. The same conversations are Chat's Direct Messages, with Pause link, Remove link and Delete conversation in each one's menu, and `#/traffic`
+opens Chat at once. The top bar's link is Chat. Chat also adds General and My group channels, `@` addressing, and a person writing to another person's
+agent with its owner's approval. The text of a conversation opens only for its owner and an Admin. `GET /api/fleet/peers/traffic` keeps working until
+1.9 ([Deprecations](DEPRECATIONS.md#the-traffic-page)). The tour of the console side is in the user guide, [Chat](user-guide/04-reading-the-console/16-chat.md).
 
 ## What is kept and who sees it
 
@@ -392,7 +365,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | "Waiting for Ed to approve it" | The link has **Can send, with approval** | Deliver it on My reporters, or `/podium deliver <id>` in your session on the receiving machine. Or raise the right to **Can send** |
 | "Waiting for Ed. You and X have had N round trips, the limit on this link" | The round-trip limit | Approve it the same way; the count starts again. The owner can raise their own limit up to the Admin's, and the Admin can raise theirs |
 | "Waiting for X. It is working, and gets the message when its turn ends" | The receiver is in a turn, or a permission prompt is open there | Nothing. It arrives when that turn ends |
-| The answer says "The link is paused" | The owner paused the link on Traffic, or an Admin used Pause all links | **Resume link** on Traffic, or **Resume all links** on Admin > Reporters > that reporter |
+| The answer says "The link is paused" | The owner paused the link in Chat, or an Admin used Pause all links | **Resume link** in Chat, or **Resume all links** on Admin > Reporters > that reporter |
 | "There have been N messages between … in the last minute" | The messages-per-minute limit | Wait a minute and send again. Nothing was stored |
 | "The message is N characters, over the limit" | The longest-message limit | Send a shorter message, or a file path instead of the file |
 | "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Send to `name@machine#id`, with the id `podium_peers` shows (renaming one with `/podium name <text>` or `/rename` also works) |
@@ -400,7 +373,6 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | **My reporters** is not in the top bar, or the page shows nothing | Not signed in; signed in with the admin secret, which has no reporters; or the flag is off | Sign in with your own name and token. Ask the Admin to turn on the flag |
 | My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | In Claude Code there, run `/plugin configure podium-reporter@eengelking-marketplace` and set `peers` on; in the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on `peers` |
 | My reporters or Admin shows **Reporter can't message: update it** | The reporter predates the `peers` option | Update podium-reporter on that machine ([Updating the mod](user-guide/09-updating-the-mod.md)) |
-| A machine box on Traffic reads "System not reported" | No live session on that machine and you are not signed in as its owner, or its reporter is too old to send the OS (`machine.os`) | Sign in from the top bar, or start a session on that machine |
 | A session reports to another server, or as another person, than you expect | How the reporter chooses: a session keeps the name and token it started with; at start it takes `PODIUM_USER` and `PODIUM_TOKEN` from the environment, both together, when either is set; otherwise the `userName` and `token` options. The options live under `podium-reporter@eengelking-marketplace` for the installed mod and `podium-reporter` for a `--plugin-dir` copy. A token that does not match its name gets `HTTP 401` | Check the environment and the right options key, then start a new session. See [More than one login on one machine](user-guide/02-set-it-up.md#more-than-one-login-on-one-machine) and [GOTCHAS](gotchas/running-session-keeps-its-old-identity.md) |
 
 ## Testing it end to end
@@ -410,7 +382,7 @@ There are three scripts, from cheapest to most real:
 | Script | What it does | Needs |
 |---|---|---|
 | `scripts/podium-peers-demo.mjs` | Plays reporters against a running server and checks delivery, approval, a refusal between people and the flag going off. Prints PASS or FAIL per check | A throwaway server with auth on |
-| `scripts/podium-peers-seed.mjs` | Seeds one person's made-up machines, rights, requests and, with `--talk`, conversations, for looking at My reporters and Traffic | A throwaway server with auth on |
+| `scripts/podium-peers-seed.mjs` | Seeds one person's made-up machines, rights, requests and, with `--talk`, conversations, for looking at My reporters and Chat | A throwaway server with auth on |
 | `scripts/podium-peers-e2e.sh` | Starts a throwaway server from this checkout, seeds it, and starts real Claude Code or OpenCode sessions (`--harness`, or a mix) in tmux, on a private socket, that report to it | node, curl, git, tmux, Claude Code or OpenCode, and model usage |
 
 Each has `--help`. The demo and the seed change the Admin's settings and add people, so never point them at a server
@@ -444,7 +416,7 @@ you use.
    tmux -L podium-e2e send-keys -t podium-e2e:planner C-m
    ```
 
-6. Watch the tester window take the message as a new turn, and Traffic draw the line.
+6. Watch the tester window take the message as a new turn, and the conversation appear in Chat.
 7. Stop everything. `down` ends the sessions, stops the server it started and removes the work folder (`--keep`
    leaves the database and logs). It removes only a folder `up` made, and never `/`, the home folder, this checkout or
    a folder that holds it:

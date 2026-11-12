@@ -7,7 +7,7 @@ order: 1
 
 # Themes
 
-Pick a color theme from the Theme dropdown in the row under the top bar: Podium, Solarized, Nord, Gruvbox, Catppuccin
+Pick a color theme from the Theme dropdown in Wall options (the button at the right of the row under the top bar): Podium, Solarized, Nord, Gruvbox, Catppuccin
 or GitHub. Then choose Light, Dark or System for it. System follows your operating system and changes with it.
 
 - Podium is the default.

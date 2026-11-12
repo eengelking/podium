@@ -10,6 +10,8 @@ order: 4
 
 # 4. SQLite through `node:sqlite`, validation by hand
 
+*Extended by 48, 53 and #823: SQLite is still the default, and PostgreSQL and MariaDB are the other adapters behind the same storage interfaces. The text below records what was true when this was decided.*
+
 **Decision.** Storage is SQLite via Node's built-in `node:sqlite`. Every report is validated by hand in
 `protocol.ts` instead of with a schema library.
 
@@ -19,7 +21,7 @@ long strings and strip control characters instead of rejecting a whole report (`
 questions 4 to 6).
 
 **Cost.** The validator is code to maintain. `node:sqlite` is loaded through `process.getBuiltinModule`
-because vitest cannot resolve the `sqlite` specifier, and Podium needs Node 24.
+because vitest cannot resolve the `sqlite` specifier, and Podium needs Node 26 (it was 24 when this was decided).
 
 <!-- nav:start -->
 ---

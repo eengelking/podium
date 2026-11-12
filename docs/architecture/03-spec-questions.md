@@ -86,16 +86,15 @@ numbers, so they stay fixed.
     - `/state` gained `config` (stale, drop and linger timings), so a stale card can say "dropped from the fleet
       at 1:15" without hard-coding server settings. Since #41 the card counts down to the per-session `dropAt`
       instead, which stays right after a restart and for hook-only sessions.
-21. **CSS scoping.** Every Podium rule is scoped under `.podium` and the tokens are defined on `.podium`, not
-    `:root`, apart from a small document base (`html`, `body`, `#root` height and margin) in `fleet.css`.
+21. **CSS scoping.** Every Podium rule is scoped under `.podium` and the tokens are defined on `:root` and `.podium`, apart from a small document base (`html`, `body`, `#root` height and margin) in `fleet.css`.
     The theme attributes live on `<html>`: `data-theme` (resolved light or dark, as in the mockup),
     `data-theme-name` (the palette) and `data-mode` (light, dark or system). Every palette, Podium's
     and the other five, is a set of token blocks in `tokens.css`, the one source of color tokens (#354), selected
     by `[data-theme-name][data-theme]`. The blocks also apply on `<html>`, which is how the page background reads `--bg`. `useTheme` sets the attributes and an inline script in
     `index.html` sets them before first paint from the same `podium.theme` value (`themes.test.ts` checks the
     two lists agree).
-22. **Routing.** `main.tsx` picks the view with `routeFor` (`route.ts`): `#/history` is the history view and
-    every other hash, including the retired `#/usage`, is the fleet console. The mockup's Pause, Start session
+22. **Routing.** `main.tsx` picks the view with `routeFor` (`route.ts`): at the first build `#/history` was the history view and
+    every other hash, including the retired `#/usage`, was the fleet console; the routes now are in `route.ts`. The mockup's Pause, Start session
     and Clear buttons are left out (8.1 says they belong to the simulator).
 23. **Resync on reconnect.** The server sends a full `snapshot` (the `/state` body) on every SSE connect,
     so a reconnect resyncs from it rather than issuing a separate `GET /state`. The first paint still

@@ -9,7 +9,7 @@ order: 8
 
 A session is put on the wall once it has done something: it is running, or it has tokens, cost, context use, a blowout,
 an agent or a plan. Until you send it a prompt it is not shown, and the status line in a fresh session reads
-`podium ● 0 live`. This is on purpose.
+`podium v<version> ● 0 live`. This is on purpose.
 
 Claude Code's background daemon runs sessions you did not start by hand. On Claude Code 2.1.296 we saw a parked
 background twin of each interactive window and a pool of pre-warmed spare processes. Every one of them loads the
@@ -20,7 +20,7 @@ shows them the moment they start work. The rule is in [SPEC 7.5](../../spec/07-s
 What that means in practice:
 
 - Open Claude Code in a project: no card yet. Send a prompt and one card appears.
-- The `N` in `podium ● N live` is the number of cards on the wall, not the number of Claude Code processes on your
+- The `N` in `podium v<version> ● N live` is the number of cards on the wall, not the number of Claude Code processes on your
   machine.
 - After `/clear` the old card ends and the new session gets a card once you send its first prompt.
 - Sessions you started without the mod, reported through settings hooks, are never hidden this way, because hooks carry

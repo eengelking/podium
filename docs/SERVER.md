@@ -35,7 +35,7 @@ Contents:
 `bin/podiumctl` starts, stops and watches the server without a dev setup. It has no dependencies of its own
 and runs Podium in one of two modes:
 
-- **Podman container.** The default when Podman is installed.
+- **Container.** Podman, the default when it is installed, or Docker (`--engine docker`).
 - **Standalone.** A plain Node process on the host.
 
 Install it on your PATH from the repo with `npm link`, or run `bin/podiumctl <command>` (no `node` in
@@ -56,9 +56,11 @@ podiumctl rm --purge --yes          # remove the container, its data volume and 
 
 `--mode`, `--port` and `--bind` are saved, so later commands reuse them. Where the data lives:
 
-- Container mode keeps the database in the Podman volume `podium-data`. If the Admin keeps Activity history it adds a
+- Container mode keeps the database in the Podman volume `podium-data`. On SQLite, if the Admin keeps Activity history it adds a
   second file, `activity.sqlite`, in the same folder.
-- Standalone mode keeps it in `~/.podium/data/`, with `activity.sqlite` beside it when Activity history is kept.
+- Standalone mode keeps it in `~/.podium/data/`, with `activity.sqlite` beside it when Activity history is kept (on SQLite).
+- On PostgreSQL or MariaDB there is no second file: the Activity history is in the database you name with `PODIUM_DB`
+  (the `podium_activity` schema on PostgreSQL, tables of its own on MariaDB).
 
 By default, container mode publishes the port on `127.0.0.1` only. `--bind` sets the address it publishes on.
 
@@ -226,7 +228,7 @@ and the reporter's `sessionRecording` option on the machine. The rules are in
   kept (6 hours, 1 hour to 7 days), the disk budget for all recordings (4 GB) and the limit for one session (512 MB).
   Each change is written to the Admin log as `recording_settings_changed`. A shorter keep time removes recordings that
   are already older.
-- Recordings are stored in `activity.sqlite`, beside the main database. Reporters send a batch every 5 seconds per
+- Recordings are stored with the Activity history: in `activity.sqlite`, beside the main database, on SQLite, and in the `podium_activity` schema or tables of their own on PostgreSQL and MariaDB. Reporters send a batch every 5 seconds per
   recorded session, so the server's disk use follows the number of recorded sessions: about 9.5 MB an hour for each
   busy loop in simulated traffic, 38 MB an hour for a busy session of four loops. The disk budget is a safety stop:
   reaching it stops every recording.

@@ -17,6 +17,9 @@ podiumctl rm --purge --yes        # removes the container, its data volume and t
 Then remove the mod with `claude plugin uninstall podium-reporter@eengelking-marketplace`, and delete `~/.podium` if you
 want the saved config and token gone too.
 
+If you installed the OpenCode reporter from Git, run `opencode plugin list` to see its name, then `opencode plugin remove <name>` and
+`opencode service restart`. If you unzipped it, delete `~/.config/opencode/plugins/podium` and restart the service.
+
 <!-- nav:start -->
 ---
 

@@ -10,6 +10,8 @@ order: 39
 
 # 39. The Admin can keep the activity feed, in a second SQLite file (#432)
 
+*Extended by 53 and #823: this describes SQLite, where the history is a second file, `activity.sqlite`. On PostgreSQL it is the `podium_activity` schema in the same database, and on MariaDB tables of their own in the same database.*
+
 **Context.** DECISIONS 24 kept the feed in memory, only while someone watched, because the question it answers is about
 now. A person who wants to look back at what a session did, after they closed the window or after it ended, could not.
 The Admin also needs a way to clear it: to stop keeping it, to remove something private that leaked, or to save space.

@@ -8,7 +8,7 @@ order: 12
 
 # 12. Open questions and flagged assumptions
 
-These were not resolvable from the type declarations alone. The implementer verifies each and records the answer in `docs/architecture/`. None blocks starting.
+These were not resolvable from the type declarations alone. The implementer verified each and recorded the answer in `docs/architecture/` ([the mod API findings](../architecture/07-mod-api-findings.md) and [the spec questions](../architecture/03-spec-questions.md)). The list is kept as the record of what was asked; the questions are answered, not open.
 
 1. Does `$.session.usage().cost.usd` include subagent spend? (T3.4)
 2. Are `classic.PermissionRequest` and `classic.Notification` hookable from a mod, and do they fire for a permission dialog in a headless run? If not, `waiting` is derived from main-loop `turn.complete` only. (T3.4)
