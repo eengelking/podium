@@ -64,3 +64,7 @@ Run `/eengelking:github-release`'s `resources/release-check.md` (a fresh, non-fo
 - `npm run standards:parity` passes, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).
 
 Fix every failure and run the agent once more; if the second run still fails, stop and ask. Run `npm test` and `npm run build` yourself too.
+
+## Filing the release issue
+
+The last issue of a milestone is filed from `resources/issue-release.md` (replace every `<X.Y>` and `<X.Y.0>`, label `housekeeping` and `vX.Y`, milestone `vX.Y`). The issues before it, the documentation review and the pre-release prep with its run record, are `/podium-pre-release`'s, and the prep runs before this release starts. Filing the release issue is not a decision to release: the maintainer makes that decision, and the issue waits for it.
