@@ -313,11 +313,11 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
       <h3 class="sub mt2">How much is tested</h3>
       <div class="panel pad mt">
         <div class="cl"><span><i style="background:var(--c-reporter)"></i>Source lines</span><span><i style="background:var(--c-server)"></i>Test lines</span></div>
-        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 46.7 thousand source, 45.8 thousand test. Reporter mod 15.5 and 19.2. Console 33.6 and 27.8. Scripts 9.8 and 7.6."></svg>
+        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 46.7 thousand source, 45.8 thousand test. Reporter mod 15.5 and 19.2. Console 33.6 and 27.9. Scripts 9.8 and 7.6."></svg>
         <details class="tv"><summary>View as a table</summary>
           <table><thead><tr><th>Area</th><th>Source</th><th>Tests</th></tr></thead><tbody>
             <tr><td>Server</td><td>46,721</td><td>45,809</td></tr><tr><td>Reporter mod</td><td>15,562</td><td>19,205</td></tr>
-            <tr><td>Console</td><td>33,595</td><td>27,830</td></tr><tr><td>Scripts</td><td>9,828</td><td>7,575</td></tr></tbody></table>
+            <tr><td>Console</td><td>33,595</td><td>27,855</td></tr><tr><td>Scripts</td><td>9,828</td><td>7,575</td></tr></tbody></table>
         </details>
         <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-11-11: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts the Claude Code hooks folder, the shared core and the OpenCode adapter, because the reporter code moved out of the hooks folder into the shared core; its Claude Code type declarations add 12 lines. Tests fail the build if the version numbers drift from the code. The design standards are compared with the app by <code>npm run standards:parity</code>, which CI runs on pull requests into main. Prose docs are not checked against code.</p>
       </div>
@@ -1296,7 +1296,7 @@ const pr=$("#princ");PR.forEach(p=>pr.append(el("div",{class:"pr"},[el("div",{},
 
 /* ---------- chart ---------- */
 (function(){
- const D=[["Console",33595,27830],["Server",46721,45809],["Reporter mod",15562,19205],["Scripts",9828,7575]];
+ const D=[["Console",33595,27855],["Server",46721,45809],["Reporter mod",15562,19205],["Scripts",9828,7575]];
  const c=$("#chart"),max=50000,x0=130,W=560,rowH=58,y0=14;
  [0,10000,20000,30000,40000,50000].forEach(v=>{const x=x0+v/max*W;c.append(sv("line",{x1:x,x2:x,y1:y0-6,y2:y0+rowH*D.length-8,class:"gr"}));c.append(sv("text",{x,y:y0+rowH*D.length+10,class:"ax","text-anchor":"middle",text:v===0?"0":(v/1000)+"k"}))});
  D.forEach((d,i)=>{const y=y0+i*rowH;
