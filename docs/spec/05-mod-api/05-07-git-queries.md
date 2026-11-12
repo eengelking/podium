@@ -11,7 +11,7 @@ order: 7
 Run from the session's `cwd`. Poll every 10 s and on `session.start`, never per event.
 
 ```
-git rev-parse --abbrev-ref HEAD                  → branch ("HEAD" means detached; report the short sha instead)
+git rev-parse --abbrev-ref HEAD                  → branch ("HEAD" means detached; report the short sha instead). In a repo with no commits it falls back to `git symbolic-ref --short HEAD` (#1013)
 git rev-parse --git-dir ; git rev-parse --git-common-dir
         → isWorktree = (resolve(git-dir) !== resolve(git-common-dir))
 git rev-parse --show-toplevel                    → worktreePath (when isWorktree)
@@ -35,7 +35,7 @@ git merge-base HEAD @{upstream}                  → the fallback base; with no 
 git diff --name-status -z -M <base>              → status and rename pairs
 git diff --numstat -z -M <base>                  → added and removed lines per file (`-` for a binary file)
 git ls-files -z --others --exclude-standard --full-name   → untracked files
-git grep --no-index -I -c -z '' -- <paths>       → their line counts, one process per 100 files; it leaves out empty and binary files
+git --literal-pathspecs grep --no-index -I -c -z '' -- <paths>       → their line counts, one process per 100 files; it leaves out empty and binary files
 git diff --no-index --numstat -- /dev/null <path> → those left-out files, one process each, for at most 20 per read
 git hash-object -- <paths>                       → each listed file's content hash (`rev`, #631), one process per 100 files; a deleted file has none
 ```

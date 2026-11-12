@@ -21,7 +21,7 @@ that leaves it is refused, so shared code outside the folder cannot ship. Entry 
 
 - **The layout.** `plugin/core/` holds the code every harness shares (the report types, transport, failures, redaction, plan,
   machine id and the git and build helpers). `plugin/claudecode/` holds only what is specific to Claude Code (the hooks, the
-  manifest, the engine's types). `plugin/opencode/` holds what is specific to OpenCode and is a placeholder until #855.
+  manifest, the engine's types). `plugin/opencode/` holds what is specific to OpenCode and was a placeholder until #855 and is the OpenCode reporter now.
   `mod/` is gone.
 - **The direction of imports.** A harness folder may import `core`. `core` never imports a harness, and one harness never imports
   the other. `server/src/plugin.test.ts` fails when one does.

@@ -9,7 +9,7 @@ order: 2
 
 For a wall display, collapse what you do not need.
 
-The keys in the last column are off until you turn on **Shortcuts** in the bar above the wall (left of Theme). The
+The keys in the last column are off until you turn on **Shortcuts** in Wall options (the button at the right of the row under the top bar). The
 choice is kept in this browser, so each browser you use needs it turned on once. With it off, the buttons still work
 and `Esc` still leaves wall mode.
 

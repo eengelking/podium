@@ -36,6 +36,18 @@ a newer mod yet (a release reaches it as a new commit on `main`). Refreshing the
 
 It updates the plugin on disk some minutes after you send a first message, and the new version loads in your next session.
 
+**OpenCode.** A reporter installed from Git updates with OpenCode's own commands, then a restart of its service:
+
+```sh
+opencode plugin check            # shows whether a newer release is out
+opencode plugin update
+opencode service restart
+```
+
+One installed from the zip is replaced by unzipping the newer `podium-opencode-<version>.zip` over the `podium` folder in
+`~/.config/opencode/plugins/`, then restarting the service ([Install the OpenCode reporter](../REPORTER.md#install-the-opencode-reporter)).
+A running OpenCode session keeps the version it loaded until the service restarts.
+
 **The other direction.** A card marked `· upgrade server` means the mod is newer than the server. Upgrade the server with
 `podiumctl build` and then `podiumctl restart`. For a plain Node install, pull, run `npm run build`, then restart.
 

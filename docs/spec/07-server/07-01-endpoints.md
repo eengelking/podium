@@ -27,13 +27,14 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `POST /api/fleet/update-notice/close` | Body `{ version }`: the X on the update notice hides the release it names for everyone ([6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)). No token. 400 unless `version` is `MAJOR.MINOR.PATCH` and is not newer than the release on offer (or none is on offer), so a made-up version cannot hide every later release. |
 | `PUT /api/fleet/wall/background-sessions` | Body `{ show: boolean }`: the Show them / Hide them link on the background-sessions note changes this setting. No token. 400 unless `show` is a boolean. |
 | `POST /api/fleet/sessions/:id/drop` | Remove a heartbeat-lost session from the live view now: the same exit as the automatic drop ([7.5](07-05-lifecycle-timers.md)). No token. 404 if the session is not live, 409 if it is not `stale`. |
-| `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured. |
-| `GET /api/fleet/health` | `{ ok, dbPath, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
+| `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured; a person's token works only on that person's own sessions (`403` otherwise). |
+| `GET /api/health` | `{ status: "ok" }`. Any other path under `/api` that no route answers gets the JSON `404 { error: "Not found" }`. |
+| `GET /api/fleet/health` | `{ ok, dbPath, dbKind, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
 | `POST /api/fleet/hook` | Phase 5: classic settings-hook payloads. |
 | `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations, retainDays, serverTime }`. Counts and states, never the text. No token, like the other reads. Details under the messaging routes below. |
 
 **`GET /api/fleet/state`**
-- Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, reporterSupport }, wall, features }`.
+- Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, build, reporterSupport }, wall, features }`.
 - `wall` is the wall's notice and background-sessions settings ([8.1](../08-ui/08-01-what-the-ui-must-do.md)).
 - `features` maps each Admin feature flag's id to whether it is on ([8.1](../08-ui/08-01-what-the-ui-must-do.md)). It also carries one
   derived entry, `activity-history` (#432), true when the Admin keeps the Activity history, a token is set and the
@@ -57,7 +58,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - `enabled` is false while the Admin has the activity feed turned off ([8.1](../08-ui/08-01-what-the-ui-must-do.md)). The
   reply then has no entries and `since: null`, `live` as usual, and no lease is taken.
 - 404 for an unknown session or agent.
-- The entries are in memory only, never in the state or the stream. No token, like the other reads.
+- The entries are in memory only, never in the state or the stream. It needs no `X-Podium-Token`, but it needs the sign-in above.
 - Under a keep policy (#432) the reply may also carry `history`: counts about this loop's stored history,
   with no text (`policy`, `total`, `since`, `keptUntil`, `canRead`, `owner`). `canRead` is true when the
   request carries a respond sign-in for the session's owner or an Admin. The reply has no `history` key
@@ -88,7 +89,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   and `text` is a string only for `"ok"`. `504 { error: "no answer" }` when the mod did not answer.
 - `401` signed out, `403 { error: "not your session", owner }` for anyone who is not the owner (an Admin included),
   `403 { error: "file diff is off" }` while a switch the server knows of is off, `404` for an unknown or
-  not-live session, `400` for a missing path.
+  not-live session, `400` for a missing path, and `429 { error: "too many diffs are waiting for this session" }`. The switch check (`403 file diff is off`) comes before the sign-in check (`401`).
 - `ahead=1` marks a load nobody asked for yet (#631): `403 { error: "loading diffs ahead is off" }` unless the
   reporter sent `fileDiffPreload`, and the admin log records `file_diff_loaded` instead of `file_diff_opened`.
 - `Cache-Control: no-store`. The text is never logged and never kept ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)).
@@ -309,7 +310,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   allowed access request nor an accepted proposal lowers a right, even one that rose after it was made). `paused: true` is there only when a delivered
   message's link is paused, so the message waits for Resume link and `/podium deliver` says so. The request closes in
   Podium too.
-- `404` unknown, `403` another owner's, `410` already answered (the error says how), `422` an answer that does not fit
+- `404` unknown, `403` another owner's or one about the session itself (a session cannot answer a request that concerns it), `410` already answered (the error says how), `422` an answer that does not fit
   (`deliver` is for a message; `allow` for a proposal or an access request).
 
 **`POST /api/fleet/sessions/:id/peers/deliveries/:deliveryId/result`**: what became of a peer delivery.
@@ -569,19 +570,19 @@ as the Activity history, [7.7](07-07-hardening.md#activity-history-432)): `401` 
 
 ## Browser routes for an Admin's read of a person's session (#1073, #1074)
 
-An Admin never reads in silence. When an Admin reads the content of a session that is not their own (a waiting ask, kind `ask`; one loop's stored Activity, kind `activity`), the read is recorded before anything is sent, the Admin log gets a line from the route that serves the read, the owner's console shows a red notice while the read is live and a quiet line after, and the owner's reporter sessions show a one-line callout (`Root (an Admin) is reading your waiting plan on history-paging.`). A session owned by the shared Admin name, or by no one, has no person to tell, and an owner's own read tells no one. A record is a row of `chat_admin_reads` under the thread `ask:<session>` or `activity:<session>:<loop>`, with the owner in `people`; reads of one thread by one Admin less than 30 minutes apart are one record. It holds a name and a time, never any text.
+An Admin never reads in silence. When an Admin reads the content of a session that is not their own (a waiting ask, kind `ask`; one loop's stored Activity, kind `activity`; an agent's full text, kind `text`; one loop's live feed, kind `live`), the read is recorded before anything is sent, the Admin log gets a line from the route that serves the read, the owner's console shows a red notice while the read is live and a quiet line after, and the owner's reporter sessions show a one-line callout (`Root (an Admin) is reading your waiting plan on history-paging.`). A session owned by the shared Admin name, or by no one, has no person to tell, and an owner's own read tells no one. A record is a row of `chat_admin_reads` under the thread `ask:<session>` or `activity:<session>:<loop>`, with the owner in `people`; reads of one thread by one Admin less than 30 minutes apart are one record. It holds a name and a time, never any text.
 
-On responding's `/respond` router, with its sign-in and `X-Podium-Respond: 1` on a change; `404` while authentication is off, `401` without a sign-in, `400` for a kind other than `ask` or `activity`, `404` for an unknown session.
+On responding's `/respond` router, with its sign-in and `X-Podium-Respond: 1` on a change; `404` while authentication is off, `401` without a sign-in, `400` for a kind other than `ask`, `activity`, `text` or `live`, `404` for an unknown session.
 
 - **`GET /api/fleet/respond/session-reads`**: `{ ok, serverTime, readers }`, where `readers` is `{ <kind>: { <sessionId>: [{ admin, since, until }] } }` for the signed-in person's own sessions only: the Admins who read in the last 30 seconds. The console reads it when the stream's `reads` event, which carries a counter and nothing else, moves.
 - **`GET /api/fleet/respond/sessions/:id/admin-reads/:kind`**: the session's owner only (`403` for anyone else, an Admin included). `{ ok, serverTime, adminReads, adminReading }`: the records of that kind (every loop for `activity`), oldest first, and who reads now. Loading it is the owner seeing the records: every record of that kind for the session is marked seen when the owner's console loads it, whether or not the console shows it (it shows three lines, and a close button hides one in that browser). This is the chosen guarantee (#1102), the same as Chat's: Podium sent the record to the person's console.
-- **`POST /api/fleet/respond/sessions/:id/admin-reads/:kind/reading`**: an Admin's open read pings this every 15 seconds so the owner keeps seeing it. Body `{ loop }` for `activity` (one loop id, no colon), none for `ask`. It records the read if it has not begun, and answers `404` (nothing recorded) for a `loop` the session does not have (`main` or one of its agents). Only a read that begins wakes the consoles with the `reads` event; a ping does not, since a console re-reads when the end it holds passes. Admin only (`403`); an Admin's own session tells no one.
+- **`POST /api/fleet/respond/sessions/:id/admin-reads/:kind/reading`**: an Admin's open read pings this every 15 seconds so the owner keeps seeing it. Body `{ loop }` for `activity`, `text` and `live` (one loop id, no colon), none for `ask`. It records the read if it has not begun, and answers `404` (nothing recorded) for a `loop` the session does not have (`main` or one of its agents). Only a read that begins wakes the consoles with the `reads` event; a ping does not, since a console re-reads when the end it holds passes. Admin only (`403`); an Admin's own session tells no one.
 
 ## Admin API
 
 The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
 
-- Session and sign-in: `GET session` (`{ enabled, unlocked, version }`), `POST unlock` (body `{ name, token }`),
+- Session and sign-in: `GET session` (`{ enabled, unlocked, version, build }`), `POST unlock` (body `{ name, token }`),
   `POST unlock/from-respond` (a browser signed in to respond as an Administrator), `POST lock`.
 - With an unlocked session:
   - People: `GET/POST people`, `POST people/:id/rotate`, `POST people/:id/revoke`, `PUT people/:id/group`, and
@@ -746,7 +747,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - the admin-secret switch;
     - the feature flags: `features` lists `{ id, name, description, on }` and a change sends
       `{ features: { <id>: boolean } }` (an unknown id is a 400);
-    - the wall notice switches and the background-sessions setting;
+    - the wall notice switches, the background-sessions setting and `cardTitleMachine` (a boolean: titles a card with the machine and the session name, or the session name alone; written to the Admin log as `wall_card_title_changed`);
     - `forgetReporters` (`{ enabled?, days? }`; days a whole number from 1 to 3650);
     - the model prices: `modelPrice` `{ key, std, long? }` saves one model, `resetModelPrice` `key` removes the
       change;
@@ -814,12 +815,12 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once). Pause all links records the Admin as the pauser of each link it pauses (`pausedBy` `admin`, `pausedByAdmin` the Admin's name), so only an Admin resumes it. A pause, resume or removal is never quiet: every live reporter session of the person gets one `adminNotices` callout naming the Admin, once for a bulk change, and the Admin log gets `peer_links_paused`, `peer_links_resumed` or `peer_link_removed` with who and whose reporter, never text.
   - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner. Reading one conversation's text is never quiet (#1072): the read is recorded on the conversation's `dm:` thread before the text is answered (a record that cannot be written stops the read), the Admin log gets `chat_admin_read` with who and whose and never text, and the owner is told in the console and in their reporter sessions, as for an Admin's read in Chat.
   - `GET log`.
-- Lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return
-  `{ total, page, pageSize, rows }`. The reporters list also takes `state`, `sort` and `dir` and adds `counts`
+- The people, groups and reporters lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return
+  `{ total, page, pageSize, rows }`. The stored-activity and recordings lists take `page` and `pageSize` too, but default to 25 and allow at most 200, and answer `400` for a value out of range. The reporters list also takes `state`, `sort` and `dir` and adds `counts`
   and `serverTime`.
 
 <!-- nav:start -->
 ---
 
-Up: [7. The server](README.md) · Next: [7.2 Database (SQLite)](07-02-database.md)
+Up: [7. The server](README.md) · Next: [7.2 Database](07-02-database.md)
 <!-- nav:end -->

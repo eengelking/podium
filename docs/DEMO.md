@@ -57,7 +57,7 @@ viewer sees both at once.
 2. Open http://localhost:5173/#/ in the browser. With nothing reporting, the wall explains how to start a
    session. That empty state is a good first shot.
 
-3. Pick the theme you want from the Theme dropdown in the row under the top bar and size the window before
+3. Pick the theme you want from the Theme dropdown in Wall options (the button at the right of the row under the top bar) and size the window before
    you start recording. Layout changes mid-take are distracting.
 
 4. In the second terminal, start Claude Code with the mod installed. Install it once from the
@@ -177,7 +177,7 @@ This makes the point that you do not have to restart anything.
 ## Beat 4: history (optional)
 
 `#/history` lists the sessions that ended on a chosen day. Open one to see its agent detail from stored
-rows. This works after a server restart too, because everything is in SQLite.
+rows. This works after a server restart too, because everything is in the database (SQLite by default).
 
 To show that nothing is lost, run `podiumctl restart` (or stop and start `npm run dev`) with a session live.
 The session comes back as stale and recovers as soon as its reporter sends again.

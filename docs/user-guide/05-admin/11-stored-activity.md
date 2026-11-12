@@ -8,8 +8,8 @@ order: 11
 # Stored activity
 
 The Activity history Podium holds, by session. Set **Source** to Recordings to list session recordings instead
-([Session recording](../04-reading-the-console/13-session-recording.md)). At the top are the totals (entries, size on disk and sessions). Filter
-by session, loop, project, owner, age, or a range of dates (**Entries from** and **to**), tick sessions and delete:
+([Session recording](../04-reading-the-console/13-session-recording.md)). Filter
+by session, loop, project, owner, age, or a range of dates (**Entries from** and **to**). A row of totals under the filters shows the entries, the size on disk and the sessions that match. Tick sessions and delete:
 
 - **Delete N…** removes the ticked sessions' history.
 - **Delete all N that match…** removes everything the filter matches (it needs a filter).

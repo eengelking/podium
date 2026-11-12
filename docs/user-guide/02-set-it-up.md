@@ -7,7 +7,7 @@ order: 2
 
 # Set it up
 
-There are two parts: the server (the console) and the reporter mod (inside each Claude Code session).
+There are two parts: the server (the console) and the reporter (inside each Claude Code or OpenCode session). The steps below use Claude Code; [OpenCode](#using-opencode-instead) is below them.
 
 ## 1. Start the server
 
@@ -45,6 +45,27 @@ can see. If you put a TLS proxy in front of it, see [Behind a reverse proxy](../
 Admin's log shows each person's address and one person's wrong tries do not lock everyone out.
 
 To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine). To report to more than one Podium server (a home one and a work one, say), see [Contexts](../REPORTER.md#contexts-more-than-one-podium-server).
+
+## Using OpenCode instead
+
+Podium also watches OpenCode 2.x sessions, and sessions from both show up side by side. The reporter is the OpenCode plugin
+`podium-reporter`. Start the server as in step 1, then install the plugin from Git and restart OpenCode's service:
+
+```sh
+opencode plugin add "git+https://github.com/eengelking/podium.git#main::path:dist/opencode"
+opencode service restart
+```
+
+OpenCode reads its settings from `~/.podium/config.env` (the file `podiumctl start` writes and the Claude Code reporter reads) and not from
+`opencode.json`. Put the token there, from `podiumctl token`:
+
+```sh
+PODIUM_SERVER=http://127.0.0.1:4317
+PODIUM_TOKEN=<token>
+```
+
+The archive install, every setting and what the OpenCode reporter cannot do are in
+[Install the OpenCode reporter](../REPORTER.md#install-the-opencode-reporter) and [OpenCode settings](../REPORTER.md#opencode-settings).
 
 ## Installing in the Claude desktop app on Windows 11
 

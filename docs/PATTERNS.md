@@ -45,7 +45,7 @@ A pattern changes only on an exceptional argument. A feature or fix PR never cha
 - A [decision](decisions/README.md) entry that gives the argument.
 - The maintainer's approval before any code is written.
 - Every use of the old pattern updated across the codebase in the same effort, not left as a mix.
-- A full pass showing nothing broke: `npm test`, `npm run test:mod`, `npm run typecheck:mod`, the e2e suite, and the adapter contract
+- A full pass showing nothing broke: `npm test`, `npm run test:core`, every harness's `test:mod:<harness>` and `typecheck:mod:<harness>`, the e2e suite, and the adapter contract
   where storage is involved.
 
 A change that finds code departing from a pattern files an issue for the departure and leaves the code as it is.
@@ -69,8 +69,8 @@ A change that finds code departing from a pattern files an issue for the departu
 | Pattern | Rule and why | Example | Held by |
 |---|---|---|---|
 | Middleware order | `hostCheck`, then security headers, the reporter gate, request log, the failure limiter on `/api`, then the routers, then the 404 and the single-page app. | `server/src/index.ts:108` | `server/src/hostCheck.test.ts`, `server/src/securityHeaders.test.ts`, `server/src/failureLimiter.test.ts`; no test pins the order itself |
-| Async handlers go through `asyncHandler` | A rejected promise in an Express 4 handler is otherwise unhandled. | `server/src/fleet/asyncHandler.ts:11` | `server/src/fleet/asyncHandler.test.ts` |
-| Token check before the body is parsed | A write route runs `requireToken` before the JSON parser, so an unauthenticated body is never read. | `server/src/fleet/routes.ts:204` | `server/src/fleet/routes.auth.test.ts` |
+| Async handlers go through `asyncHandler` | Express 5 hands a rejected promise to the error middleware itself; the wrapper stays because every route uses it and it types the route's parameters (#392). | `server/src/fleet/asyncHandler.ts:11` | `server/src/fleet/asyncHandler.test.ts` |
+| Token check before the body is parsed | A write route runs `requireToken` before the JSON parser, so an unauthenticated body is never read. | `server/src/fleet/routes.ts:213` | `server/src/fleet/routes.auth.test.ts` |
 | A write route has a gate or a written reason | A `POST`, `PUT`, `PATCH` or `DELETE` is behind `requireToken`, the unlocked Admin session or the signed-in viewer, or is on the list in the test with why it takes none. A new write route that skips all of them fails the run. | `server/src/fleet/routes.ts:448` | `server/src/fleet/routeAuth.test.ts` |
 | Token comparison is a hash and `timingSafeEqual` | A person token is 192 random bits and is never throttled. A wrong admin secret feeds the guess throttle and answers `429` with `Retry-After`. See [decision 32](decisions/32-throttling-wrong-admin-secret-guesses-on-the-report.md). | `server/src/fleet/tokens.ts:34` | `server/src/fleet/tokens.test.ts` |
 | Admin routes sit behind one gate | After the shared guards, one `router.use` requires the unlock, and a write needs a same-origin `Origin` plus the `X-Podium-Admin: 1` header. Each write is recorded in the Admin log with `audit()`. | `server/src/admin/adminRouter.ts` | `server/src/admin/admin.test.ts`, `server/src/admin/auditAwait.test.ts` |
@@ -83,7 +83,7 @@ A change that finds code departing from a pattern files an issue for the departu
 | Test-only timings need a flag | `PODIUM_TEST_*` counts only with `PODIUM_TEST_TIMINGS=1`, and a bad value stops the server at start. See [decision 50](decisions/50-test-only-timing-variables-let-the-end-to-end-suite-reach-the-idle-and-lock-times.md). | `server/src/testTimings.ts:16` | `server/src/testTimings.test.ts` |
 | Secrets reach a process by environment | `podman run -e NAME` with no value, and nothing on a command line others can read. See [decision 10](decisions/10-the-token-is-generated-on-first-start-and-secrets.md). | `bin/podiumctl` | none |
 | A call that returns a person's content is in the Admin read registry | A route that returns a message, prompt, answer, tool input or the like adds an entry to `adminReads.registry.ts`: `told` (recorded, and the person is told in the console and in `podium-reporter`, with a named case that signs in as an Admin), `owner-only` (an Admin is refused) or `open` (with the decision or open issue). See [decision 63](decisions/63-a-route-that-returns-a-persons-content-must-be-listed-in-a-registry-or-the-build-fails.md) and PROJECT.md "An Admin Never Reads in Silence". | `server/src/fleet/adminReads.registry.ts` | `server/src/fleet/adminReads.test.ts` |
-| A feature the Admin can switch is read through `featureOn` | Consumers receive the flag as a closure, so turning it off takes effect without a restart. | `server/src/fleet/fleet.ts:221` | `server/src/storage/contractSettings.ts` |
+| A feature the Admin can switch is read through `featureOn` | Consumers receive the flag as a closure, so turning it off takes effect without a restart. | `server/src/fleet/fleet.ts:228` | `server/src/storage/contractSettings.ts` |
 
 ## Consent and what Podium may do
 
@@ -99,7 +99,7 @@ A change that finds code departing from a pattern files an issue for the departu
 | Import direction | A harness may import `plugin/core/`. Core never imports a harness, and harnesses never import each other. See [decision 56](decisions/56-the-reporters-live-in-plugin-with-a-core-and-a-folder-per.md). | `plugin/claudecode/hooks/report.ts` | `server/src/plugin.test.ts` |
 | One copy of the report contract | The report types live in `plugin/core/protocol.ts`; the server re-exports it and the UI imports it. See [decision 57](decisions/57-the-report-types-and-shared-reporter-code-live-once-in-plugin-core.md). | `server/src/fleet/protocol.ts` | `server/src/plugin.test.ts`, `scripts/mod-report.test.ts` |
 | `protocol.ts` imports no Node module | The UI imports it and the bundler does not tree-shake. | `plugin/core/protocol.ts` | `server/src/fleet/protocol.browser.test.ts` |
-| A shared rule lives in `plugin/core/` | A behavior on the wall reads the same on every harness, so a reporter change considers each harness and has a test in each, or says why one needs nothing. | `plugin/core/feed.ts` | none (see [findings](#findings-not-patterns)) |
+| A shared rule lives in `plugin/core/` | A behavior on the wall reads the same on every harness, so a reporter change considers each harness and has a test in each, or says why one needs nothing. | `plugin/core/feed.ts` | none; the move of the copied helpers in #1055 is the example |
 | Mod logic lives in a plain module | Logic goes in a module that imports nothing from the engine; `register.ts` stays a few lines of glue, so the coverage gate can see it. | `plugin/claudecode/hooks/place.ts` | `scripts/place.test.ts` |
 | A plugin loads only from a built folder | A plugin cannot import outside its folder. Use `npm run plugin:dev:claudecode`. See [the gotcha](gotchas/plugin-source-folder-cannot-be-loaded-on-its-own.md). | `scripts/plugin-build.mjs` | the self-containment check in `scripts/plugin-build.mjs` |
 | Every harness has a check pair and a live-test reference | `test:mod:<harness>`, `typecheck:mod:<harness>` and `.claude/skills/podium-live-test/references/<harness>.md`. | `package.json` | `scripts/harness-scripts.test.ts`, `scripts/live-test-parity.test.ts` |
@@ -132,7 +132,7 @@ holds only the code patterns.
 | Server tests bind `127.0.0.1` | A wildcard bind collides on macOS. A new `setupFiles` list keeps `testSetup.ts`. | `server/src/testSetup.ts` | `server/src/testSetup.ts` |
 | Guard tests scan the source | A rule about the whole tree is a test that reads it. | `server/src/storage/neutral.test.ts` | itself |
 | End-to-end tests run in containers | Cypress runs only through `scripts/e2e-up.sh`; nothing is installed on the host. A feature change ships its specs and its row in `docs/e2e/COVERAGE.md`. See [decision 49](decisions/49-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md). | `scripts/e2e-up.sh` | `scripts/e2e-map.test.ts` |
-| E2E selectors | A role and name, a label or text first; `data-testid` only when none works. | `e2e/support/commands.js:72` | `scripts/e2e-map.mjs` checks each testid exists |
+| E2E selectors | A role and name, a label or text first; `data-testid` only when none works. | `e2e/support/commands.js:94` | `scripts/e2e-map.mjs` checks each testid exists |
 | New lines are tested | The SonarCloud gate needs 80% coverage on new lines. A `[SKIPPED]` analysis is reported as skipped. | `sonar analyze` | the SonarCloud gate |
 | A throwaway server and database for checks | Never point a check at the maintainer's own server or a database that matters. | `scripts/throwaway-db.mjs` | `scripts/throwaway-leak.test.ts` |
 
@@ -162,11 +162,7 @@ holds only the code patterns.
 
 The survey for this page found places where the code does not follow a candidate pattern consistently. They are not patterns. Each is its own issue.
 
-| What | Issue |
-|---|---|
-| Four write routes on the fleet router have no token and no test lists them | [#1052](https://github.com/eengelking/podium/issues/1052) |
-| Reporter helpers are copied between harnesses instead of living in `plugin/core/` | [#1055](https://github.com/eengelking/podium/issues/1055) |
-| E2E specs use a real sleep and clock-derived data | [#1056](https://github.com/eengelking/podium/issues/1056) |
+None is open. The three that the first survey found (#1052, #1055 and #1056) are fixed: the fleet router's write routes are held by `server/src/fleet/routeAuth.test.ts`, the copied reporter helpers now live in `plugin/core/`, and the e2e specs follow their determinism rules.
 
 ## Related
 

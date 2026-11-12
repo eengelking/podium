@@ -89,7 +89,7 @@ stream clients kept receiving to the end. The agent count stayed near 300 the wh
 a plateau, but one hour at one fleet size cannot rule out a slow leak (see below).
 
 The build: one JavaScript file of 622 KB (183 KB gzipped) and one stylesheet of 141 KB (25 KB gzipped). The container image
-(`localhost/podium`) is 271 MB. `server/dist` was 2.1 MB, of which 1.3 MB was 81 compiled test files (the server has 137 test files now). Since #927 the compiled server sits at `server/dist/server/src/`, with the one file it imports from `plugin/core/` compiled beside it at `server/dist/plugin/core/`, and `server/dist/index.js` starts it. These sizes were measured before that move.
+(`localhost/podium`) is 271 MB. `server/dist` was 2.1 MB, of which 1.3 MB was 81 compiled test files (the server has 192 test files now). Since #927 the compiled server sits at `server/dist/server/src/`, with the one file it imports from `plugin/core/` compiled beside it at `server/dist/plugin/core/`, and `server/dist/index.js` starts it. These sizes were measured before that move.
 
 The reporter, from `scripts/podium-perf-mod.mjs` (400 tool calls per count):
 
@@ -200,7 +200,7 @@ touches a design standard.
 |---|---|---|---|---|---|
 | 1 | The event stream and `/api/fleet/state` are not compressed. Gzip takes the large stream from 1.15 MB/s to about 136 KB/s and the state from 1.39 MB to 171 KB. The reporter never reads the stream or the state, so SPEC 6.8 does not apply (SPEC 7.6 covers the stream), and a client that sends no `Accept-Encoding`, such as the health check, `podiumctl` and the scripts, would still get plain JSON | High | Low | `server/src/fleet/routes.ts` | #745 |
 | 2 | Every `session` event carries the whole session view, rebuilt from about six queries and every agent. It is 98% of the stream. Slimming the card view or sending only what changed needs a frontend change and a change to SPEC 7.6 | High | Medium | `server/src/fleet/fleet.ts`, `derive.ts` | #746 |
-| 3 | The built page is served with no compression and no cache headers: 622 KB of script where 183 KB would do, and every visit fetches it again | High on a slow link | Low | `server/src/index.ts` | #747 |
+| 3 | The built page is served with no compression and no cache headers: 622 KB of script where 183 KB would do, and every visit fetches it again | High on a slow link | Low | `server/src/spa.ts` | #747 |
 | 4 | No backpressure on the stream. `res.write`'s return value is ignored, so a client that stops reading makes the server buffer every message for it without limit, at about 70 MB a minute at the large size | Medium | Medium | `server/src/fleet/sse.ts`, `routes.ts` | #748 |
 | 5 | The two-second tick computes the fleet's KPIs, which rebuilds every session's view and runs fleet-wide queries, even with no client connected | Medium | Low | `server/src/fleet/fleet.ts` | #749 |
 | 6 | The one-second sweep reads and writes one `samples` row for each live session, each in its own transaction | Medium | Low | `server/src/fleet/fleet.ts` | #750 |
@@ -209,7 +209,7 @@ touches a design standard.
 | 9 | The reporter's git poll starts 11 to 13 git processes for each session every 10 seconds, on the developer's machine | Medium | Medium | `plugin/core/git.ts`, `plugin/claudecode/hooks/register.ts` | #753 |
 | 10 | Admin, history and the replay pages are in the one 622 KB script, though few viewers open them | Medium | Low | `frontend/src/main.tsx` | #754 |
 | 11 | `samples` has no index on `t`. The fleet-wide token and cost queries and the hourly retention delete scan the whole table | Low now, grows with retention | Low | `server/src/storage/sqlite/db.ts` | #755 |
-| 12 | 81 compiled test files (1.3 MB, measured before #927; 137 test files now) ship in `server/dist` and the container image, because the server's tsconfig has no exclude | Low | Low | `server/tsconfig.json` | #756 |
+| 12 | 81 compiled test files (1.3 MB, measured before #927; 192 test files now) ship in `server/dist` and the container image, because the server's tsconfig has no exclude | Low | Low | `server/tsconfig.json` | #756 |
 | 13 | The reporter's report POST passes no timeout of its own, so a server that accepts the connection and never answers holds the in-flight slot until the host gives up | Low | Low | `plugin/core/transport.ts` | #757 |
 | 14 | `SessionCard` is not memoized, so each redraw renders every card. No problem is measured at 52 sessions, so measure at 200 first | Low | Medium | `frontend/src/fleet/components/Wall.tsx`, `SessionCard.tsx` | #758 |
 | 15 | The container health check fetches the whole fleet state every 30 seconds (1.39 MB and a new Node process at the large fleet), and `podiumctl` does the same. `/api/health` exists. The deeper check may be intended, so this is a decision, not a defect | Low | Low | `bin/podiumctl` | #767 |

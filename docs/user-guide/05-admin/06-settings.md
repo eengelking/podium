@@ -23,6 +23,10 @@ These settings apply to every browser and stay after a restart.
   Admin turned the feed off, the server asks no mod for activity and forgets what it held, whatever each machine's
   `activityFeed` option says. Turned back on, open panels start the feed again, empty, without a reload. Turned off, nothing
   new is stored either, even if the Admin keeps stored history.
+- **Bash output in the activity feed** (`activity-output`) is off by default. On, a person can open a Bash row in the
+  Activity feed to see what the command printed and how it exited. It needs the Agent activity feed on, and the
+  `activityOutput` option on the machine as well. The output is held in memory while the panel is open and is never
+  stored. Off, no output is captured or sent.
 - **File diff** (`file-diff`) is off by default. On, only the owner of a session, signed in, can click a file in
   the Files list to read its diff in a window, and step to the next or previous file with the buttons at the window's lower left. The diff is source code: the mod reads it from the machine only if that machine's `fileDiff` option is on. With the
   `fileDiffPreload` option also on (the default), it reads the diff of every changed file while the owner has the session's page

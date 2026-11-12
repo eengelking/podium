@@ -7,7 +7,7 @@ order: 9
 
 # Phase log
 
-This page records, phase by phase, what the build delivered and what each phase learned.
+This page records, phase by phase, what the build delivered and what each phase learned. The paths are the first build's: the mod was `mod/podium-reporter/` then, and is `plugin/claudecode/` and `plugin/core/` now (DECISIONS 57).
 
 ## Phase 0: contract and scaffolding
 

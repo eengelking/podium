@@ -17,7 +17,7 @@ order: 2
 | Frontend | React 19 + Vite + TypeScript (already in the repo) | Matches the existing `frontend/` workspace. |
 | Charts | Hand-written inline SVG | The mockup's charts are small polylines with markers; a library would fight the design. |
 | Styling | Plain CSS with custom properties, ported from the mockup | The mockup defines the tokens for both themes. |
-| Tests | vitest (server, frontend), `claude plugin test` (mod) | vitest is already configured. The mod's tests must run on the engine itself. |
+| Tests | vitest (server, frontend, `plugin/core/` and the OpenCode reporter), `claude plugin test` (Claude Code mod) | vitest is already configured. The Claude Code mod's tests must run on the engine itself; the OpenCode reporter's run on its built folder (`npm run test:mod:opencode`, DECISIONS 54, 56) and the shared core's with no harness installed (`npm run test:core`). |
 | Fonts | Schibsted Grotesk and JetBrains Mono from Google Fonts, with system fallbacks | Same as the mockup. The app must still work offline with the fallbacks. |
 
 No other runtime dependencies without a written reason in `docs/architecture/`.

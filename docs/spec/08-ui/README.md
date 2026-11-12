@@ -10,7 +10,7 @@ order: 8
 
 # 8. The UI
 
-`mockup/podium.html` is the specification. Open it, read all of it (about 1,100 lines), and reproduce its behavior in React. Where the mockup simulates data, the UI consumes `SessionView`. Do not redesign. New UI follows the standards in `docs/standards/` and starts with a mockup that links `tokens.css`. `mockup/podium-wall.html` shows the collapsed panes, the disconnect strip and wall mode added in #33.
+`mockup/podium.html` is the specification. Open it, read all of it (about 1,000 lines), and reproduce its behavior in React. Where the mockup simulates data, the UI consumes `SessionView`. Do not redesign. New UI follows the standards in `docs/standards/` and starts with a mockup that links `tokens.css`. `mockup/podium-wall.html` shows the collapsed panes, the disconnect strip and wall mode added in #33.
 
 ## Pages
 

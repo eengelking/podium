@@ -30,11 +30,14 @@ All hook inputs are plain frozen data. Do not mutate them.
 | `classic.PermissionRequest` | A permission dialog is about to show (Verified hookable on 2.1.301, #206; it fires as the dialog opens, and the terminal draws the dialog while the hook waits) | `tool_name`, `tool_input`, `permission_mode`, and inside a subagent `agent_id`, `agent_type`. No `tool_use_id` |
 | `classic.Notification` | Claude Code raises a notification (needs permission, idle for input) | `message`, `title?`, `notification_type` |
 | `classic.Stop` | The main loop stops and waits (#119) | `background_tasks?` (`{ id, type, status, description, command? }`), `session_crons?` (`{ id, schedule, recurring, prompt }`) |
-| `classic.SubagentStart`, `classic.SubagentStop` | Subagent lifecycle | `agent_id`, `agent_type`, plus on stop `last_assistant_message?`, `agent_transcript_path` |
-| `classic.PreCompact`, `classic.PostCompact` | Compaction | `trigger`, `compact_summary` (PostCompact) |
-| `classic.TaskCreated`, `classic.TaskCompleted` | Task tool lifecycle | `task_id`, `task_subject`, `teammate_name?` |
-| `prompt.submit`, `prompt.compose`, `skill.prompt` | Prompt and skill events | `skill.prompt`: `skill`, `text` |
-| `telemetry.*` (matcher `{ to: "collector" }` or `"anthropic"`) | Engine telemetry | varies |
+| `classic.SubagentStart`, `classic.SubagentStop` | Subagent lifecycle (not hooked by the Claude Code reporter) | `agent_id`, `agent_type`, plus on stop `last_assistant_message?`, `agent_transcript_path` |
+| `classic.PreCompact`, `classic.PostCompact` | Compaction (not hooked) | `trigger`, `compact_summary` (PostCompact) |
+| `classic.TaskCreated`, `classic.TaskCompleted` | Task tool lifecycle (not hooked) | `task_id`, `task_subject`, `teammate_name?` |
+| `classic.SessionStart`, `classic.UserPromptSubmit` | Claude Code's own session start and a submitted prompt | `session_title`, `cwd` (the name rules in [6.6](../06-reporter-protocol/06-06-session-display-name.md)) |
+| `command.run` | A slash command of the mod runs (`/podium`) | the command and its arguments |
+| `prompt.submit`, `prompt.compose` | Prompt events (not hooked) | |
+| `skill.prompt` | A skill's prompt | `skill`, `text` |
+| `telemetry.*` (matcher `{ to: "collector" }` or `"anthropic"`) | Engine telemetry (not hooked) | varies |
 
 ## What the reporter does with each event
 
@@ -71,7 +74,7 @@ All hook inputs are plain frozen data. Do not mutate them.
    [Responding](#responding-from-podium) below).
 
 **`tool.check`** (result: `{ decision: 'allow' | 'ask' | 'deny', … }`)
-- Only while the mod responds. Await `next(e)` and return it unchanged.
+- Not gated on responding (#741): the wait on the card does not depend on Podium answering. Await `next(e)` and return it unchanged.
 - When it resolves to `ask`, note that a prompt should follow, to find out whether `classic.PermissionRequest`
   hooks run here (see [Responding](#responding-from-podium)).
 
@@ -143,7 +146,7 @@ evaluates to the result)
 - A shell's command is never kept: a task with no description is named by the command's first word.
 
 **`classic.SubagentStart`, `classic.SubagentStop`**
-- Reconciliation only. `agent.spawn` and `turn.complete` are primary.
+- Not hooked. Would be reconciliation only. `agent.spawn` and `turn.complete` are primary.
 
 **`classic.PreCompact`, `classic.PostCompact`**
 - Not needed if `session.compact` works. Fallback.
@@ -225,7 +228,7 @@ Otherwise every hook below observes exactly as before, and the mod announces not
 **A question** (`tool.call` on `AskUserQuestion`)
 
 The hook announces the ask (each question's text, `header` and `multiSelect`, and each option's `label`,
-`description` and `preview`), then races `next(e)`, which is the terminal's dialog, against the held request.
+`description` and `preview`), then races `next(e)`, which is the terminal's dialog, against the held request. A question with more than 4 options is left to the terminal by every harness, never truncated (#1012).
 
 - *Podium first.* The hook returns `{ result: { questions: e.questions, answers } }` while `next(e)` is still
   pending, which closes the terminal's dialog ("returning with `next` pending aborts what runs beneath").
@@ -540,7 +543,7 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 
 **A callout when an Admin reads or stops a conversation (#1034)**
 - When a reply carries `adminNotices` ([6.1](../06-reporter-protocol/06-01-endpoint.md#responses)), the mod shows each notice once, by its `id`, to the
-  person only: a `$.ui.toast` that stays up for 60 seconds ("Podium: <sentence>") and a `$.ui.log` line with the sentence.
+  person only: a `$.ui.toast` that stays up for 60 seconds ("Podium: <sentence>") and a `$.ui.log` line with the sentence. The OpenCode reporter shows a toast and, while the reading lasts (10 minutes at most), a board of up to 5 lines above the prompt; it writes no transcript line.
   The sentence names the Admin and the conversation ("Root (an Admin) is reading your Podium group.") and holds no message text.
 - It is not a prompt, a turn, a tool's answer or system text, so the model never reads it, and it is shown whether or not the
   `peers` option is on. An older server sends none, and an older mod ignores the field.

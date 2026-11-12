@@ -10,6 +10,8 @@ order: 36
 
 # 36. A file's diff is source code, so only its owner can open it (#319)
 
+*Amended by 47 (#631): with `fileDiffPreload` on (the default once `fileDiff` is on), the diffs of every changed file are read while the owner has the page open, so a file is read before it is opened.*
+
 **Context.** The Files tab lists what a session changed, as paths and counts (5.7). The maintainer wanted a click
 to open the diff. That is source code, and the rest of the console is readable by anyone who can reach the server
 (7.1), so the text could not simply join the report.

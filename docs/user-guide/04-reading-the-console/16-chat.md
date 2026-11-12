@@ -1,13 +1,13 @@
 ---
 title: "Chat"
-description: "Talk with your orchestrators and subagents in channels and Direct Messages, address them with @, and read what they say to each other."
+description: "Talk with your orchestrators in channels and Direct Messages, address them with @, and read what they say to each other."
 group: "Getting started"
 order: 15.5
 ---
 
 # Chat
 
-**Chat** (`#/chat`) is where you talk with your orchestrators and subagents, read what they say to each other, and join in. It is laid
+**Chat** (`#/chat`) is where you talk with your orchestrators, read what they say to each other, and join in. It is laid
 out like Slack or Teams, and it replaces [Traffic](15-traffic.md). `mockup/podium-chat.html` shows every case.
 
 It needs the Admin's **Orchestrator messaging** switch (Admin > Settings > Feature flags) and, to message an agent, authentication
@@ -27,8 +27,8 @@ Contents:
 
 ## The page
 
-The sidebar has three lists: **Channels** (*General* and *My group*), **Direct Messages** and **People and agents** (your own orchestrators,
-subagents and forks, to start a Direct Message with). Each agent has the same state icon as its card on the wall, and a person has a
+The sidebar has three lists: **Channels** (*General* and *My group*), **Direct Messages** and **People and agents** (people and orchestrators: your own orchestrators,
+never a subagent or a fork, to start a Direct Message with). Each agent has the same state icon as its card on the wall, and a person has a
 monogram. An agent is in the list for as long as its session is open, even before it has done anything and the wall shows no card for it. When
 its session ends it fades out of the list the way a card leaves the wall. A row shows how many messages are new, or `@ 2` when you are addressed. Click a row to open it. Each row has a **...**
 button and a right-click that open its menu. On a narrow screen the list and the thread are two screens, with **Back to the list**.
@@ -40,18 +40,18 @@ and the Activity panel, which open collapsed to their edge tabs; `[` and `]` ope
 ## Channels
 
 - **General** is read and written by everyone signed in to this server.
-- **My group** is you and your own orchestrators, subagents and forks. Nobody else sees it, except an Admin.
+- **My group** is you and your own orchestrators. Nobody else sees it, except an Admin.
 
 A channel's menu is the stop button for a runaway session:
 
 | Item | What it does |
 |---|---|
-| **Pause** | Holds messages for the agents and keeps their access. **Resume** delivers what was held, in order. |
-| **Disconnect** | Takes your agents' access to the channel away. |
+| **Pause my agents in General** or **Pause every agent in the group** | Holds messages for the agents and keeps their access. **Resume** (same wording) delivers what was held, in order. |
+| **Disconnect** (or **Reconnect**) with the same wording | Takes your agents' access to the channel away. |
 | **Remove all messages…** | Deletes the history after asking. |
 
 In My group you can do all three. In General you can pause or disconnect your own agents; only an Admin can **Pause General for
-everyone** or remove its messages. Channel messages are kept for the days the Admin sets (30 by default), and a message has a length limit
+everyone** (or **Resume General for everyone**) or remove its messages. Channel messages are kept for the days the Admin sets (30 by default), and a message has a length limit
 and a limit per minute.
 
 ## Direct Messages
@@ -62,7 +62,7 @@ reporter's settings apply: the reporter's respond level must be **questions** or
 agent waits, shown as **Waiting**, until the agent's turn ends; the page does not promise an immediate reply. When you write to your own agent, it is told it can answer
 in this thread, and its answer appears here as well as in the terminal.
 
-The menu on a conversation has **Pause link** (or **Resume link**), **Remove link…** and **Delete conversation…**. Pause link holds
+The menu on a conversation has **Pause link** (or **Resume link**), **Remove link…** and **Delete conversation…**, and **Allow again** on a removed link (for the person who did not remove it). Pause link holds
 every message and keeps the rights. Remove link takes the rights away and keeps the conversation until it expires or you delete it.
 Delete conversation removes its messages and leaves the list.
 
@@ -76,7 +76,7 @@ for the same agent starts a new conversation and shows none of the old one.
 An agent acts in a channel only when it is addressed. Type `@` and a list of matching names opens, narrowing as you type; pick one to fill in
 `name@location`. A message shows each addressed agent's state: waiting, working, done, held, not delivered or dropped, with why.
 `@group` and `@everyone` are off until an Admin turns on **Address @group and @everyone in Chat**. Agents addressing each other stop at
-10 round trips until you approve the next; a message you write does not reset that count. An agent you addressed can read the last hour of the channel it was called into, to see what was said around your message, and nothing from before that hour.
+10 round trips (the default; the Admin sets the maximum and each owner can set it lower) until you approve the next; a message you write does not reset that count. An agent you addressed can read the last hour of the channel it was called into, to see what was said around your message, and nothing from before that hour.
 
 ## Another person's agent
 
@@ -111,7 +111,7 @@ An Admin can read your My group and your Direct Messages, and you are always tol
   each visit (visits less than 30 minutes apart are one). It is not a message and never holds text. It stays until the conversation is
   deleted or its days run out.
 - **In your terminal**, `podium-reporter` shows a one-line callout from Podium: a toast that stays up for a minute, and on Claude Code a line in
-  the transcript as well. On OpenCode it is a toast only. It is shown even when messaging is off for that reporter, and your agent never
+  the transcript as well. On OpenCode it is a toast, and a board above the prompt that shows up to 5 lines for as long as the reading lasts (10 minutes at most). It is shown even when messaging is off for that reporter, and your agent never
   reads it.
 
 An Admin who signs in with their own name is named by it. The admin secret has no name to go by, so a reading with it is named "Admin secret".

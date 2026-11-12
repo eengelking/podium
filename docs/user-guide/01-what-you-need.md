@@ -7,7 +7,7 @@ order: 1
 
 # What you need
 
-- Claude Code, to run the sessions you want to watch.
+- Claude Code or OpenCode 2.x, to run the sessions you want to watch.
 - Node 26 and npm, to get the server and `podiumctl`.
 - On Windows 11, in the Claude desktop app: Node.js 20.17 or later, if you report with a reporter config file (built-in TLS). The
   reporter starts a small helper with `node` to make the secure connection. Install it from nodejs.org before you start the app,

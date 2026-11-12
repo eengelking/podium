@@ -12,7 +12,7 @@ File: `FocusView.tsx`. Issues #165, #197 and #287. Mockup: `mockup/podium-orches
 **Layout**
 
 - `FocusView` renders `.op`, a size container, so the page's breakpoints are `@container` queries on its own
-  width: facts to two columns at 520 px, plan and tree stacked at 700 px.
+  width: facts to two columns at 640 px, plan and tree stacked at 700 px.
 - `.op` holds `.osum`, the one bordered surface, and `.two`.
 - `.osum` has the children `.fh` (`FocusHeader`), the blowout detail `.bdet` only while open, `.facts`
   (`FactsBar`) and `.band` (`StatusBand`), always in that order and with the band last.

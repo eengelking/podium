@@ -25,10 +25,10 @@ order: 18
   (DECISIONS 18). `build.ts` names the server's own build (`PODIUM_BUILD`, else `server/build.json`) for the footers
   and the report reply; the mod finds its own with `plugin/core/build.ts` and sends it as `reporter.build` (SPEC 6.8, Builds).
 - **The stream.** `sse.ts` sends `snapshot` (on every connect), `session`, `activity`, `removed`, `tick` (every
-  2 s) and `wall`, and accepts at most 100 clients.
-- **Admin pages.** `AdminView` lists sixteen pages in four groups: People, Groups and Reporters (People and
-  access); Settings, Model prices, Security, Certificates, Data and Stored activity (Server); Usage, Spend, People and groups,
-  Sessions, Failures and Admin activity (Reporting); Admin log (Activity). Most have a `*Tab.tsx` file under
+  2 s), `wall`, `chat`, `reads` and `replay`, and accepts at most 100 clients.
+- **Admin pages.** `AdminView` lists nineteen pages in four groups: People, Groups and Reporters (People and
+  access); Settings, Model prices, Security, Certificates, Data, Stored activity and About (Server); Usage, Spend, People and groups,
+  Sessions, Tools, Harness updates, Failures and Admin activity (Reporting); Admin log (Activity). Most have a `*Tab.tsx` file under
   `frontend/src/fleet/admin/`, the Reporting pages share `ReportPages.tsx`, and Data and Stored activity are
   `DataPage.tsx` and `StoredActivityTab.tsx` (#432). Certificates (`CertificatesTab.tsx`, #586) reads
   `GET /api/admin/certificates`; the header's certificate pill (`CertPill.tsx`) reads the open `GET /api/tls/status` every

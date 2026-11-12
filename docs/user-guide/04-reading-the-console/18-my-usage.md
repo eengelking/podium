@@ -25,6 +25,8 @@ The page opens on the last 30 days. **Period**, **By** (day, week or month) and 
 
 **Harness** narrows Tool calls. Spend, sessions and failures cover every harness, because the daily figures they read are not kept per harness, and the page says so.
 
+A table heading is a button: click it to sort the table (the largest first for a number column, a second click reverses it).
+
 Every section has **CSV** and **JSON**, and the top **Print**, for exactly the table you see. They hold your rows only.
 
 ## How far back it goes

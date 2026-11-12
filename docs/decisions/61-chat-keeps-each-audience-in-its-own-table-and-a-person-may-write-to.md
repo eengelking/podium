@@ -10,6 +10,8 @@ order: 61
 
 # 61. Chat keeps each audience in its own table, and a person may write to another person's agent only with its owner's approval (#1034)
 
+*Amended by 66 (#1113): a hidden Direct Message is kept for the harness's resume window when it is known, not only the Admin's flat grace period.*
+
 *Amends 37 (#347): messaging between people was blocked on the terms of use; one narrow path is now open. Amends 48 in that the storage interface gains a Chat store.*
 
 ## Context

@@ -5,8 +5,8 @@ propose a change, and how it gets merged.
 
 ## What belongs in this repo
 
-Podium shows every Claude Code session on one machine in one browser tab. This repo holds the whole thing:
-the reporter mod (`plugin/claudecode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
+Podium shows every Claude Code and OpenCode session on one machine in one browser tab. This repo holds the whole thing:
+the reporters (`plugin/claudecode/` and `plugin/opencode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
 container image.
 
 A change fits if it makes Podium better at watching sessions. Some things are out on purpose, and

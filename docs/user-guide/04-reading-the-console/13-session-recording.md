@@ -20,8 +20,7 @@ To record and replay:
 3. A red band on the card and a layer on the page say that it is being recorded, by whom, and when it is deleted. They
    have no X and cannot be hidden, for anyone, while the session is recorded. The owner's terminal says it too.
 4. **Stop recording** ends it and keeps what was recorded. **Open replay** plays it back, oldest first: filter by agent,
-   drag the slider, **Jump to next failure**, and **Show older** for a long run. **Delete recording** removes it. Each of
-   these asks first.
+   drag the slider, **Jump to next failure**, and **Show older** for a long run. **Delete recording** removes it. Stop recording and Delete recording ask first; Open replay opens at once.
 5. A session that has ended is reached from History, whose row says "recording kept until `<time>`", or from Admin >
    Settings > Recordings.
 

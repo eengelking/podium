@@ -13,7 +13,7 @@ order: 18
 **You see:** After `podiumctl disable`, a standalone server is no longer running.
 
 **Why:** Under the launchd or systemd service the server is the service's child, so removing the service stops it. In
-container mode the container keeps running.
+container mode, systemd stops the container too (`disable --now` runs its stop command), and launchd leaves the container running.
 
 **Do:** Check with `podiumctl status`, then `podiumctl start` if you want it back.
 

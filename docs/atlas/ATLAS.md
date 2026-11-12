@@ -8,7 +8,7 @@ group: Reference
 
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text
 companion to the interactive page [`docs/atlas/podium-atlas.html`](podium-atlas.html) (open it in a browser):
-the first section lists the thirty-five parts on that page's system map, the second lists the reporter's hooks and
+the first section lists the parts of the system, thirty-five on that page's system map (its one Storage adapters box is the three adapter rows here), the second lists the reporter's hooks and
 timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../architecture/README.md), [Server](../SERVER.md) and
 [Reporter](../REPORTER.md); intended behavior is in [Spec](../spec/README.md).
 
@@ -68,7 +68,7 @@ to do travels back in the reply to a report.
 | Server | Ingest | Validates each report field by field, then stores it in one database transaction. A session id that starts with `person:`, is only dots or holds a pipe, a plus or a slash is refused (`badSessionId`), since Chat uses those to name a person's end and join two ends. A report may carry `signals`, counts of the hooks and event fields the harness sent the reporter (`hook:…` and `field:…`, at most 64 names); a name of another form is dropped, and a reporter older than 1.6.0 sends none. |
 | Server | Fleet | Owns the set of live sessions and the clock, and turns rows into the `SessionView` every browser sees (state, context fill, cost). It takes one `Storage`, loads its settings in `init()` before the server listens, and sends every broadcast through one ordered queue. |
 | Server | Sweeper | A one-second loop that marks quiet sessions stale, drops lost ones, removes ended ones and fills quiet seconds in the charts. A timer body whose previous run is still going is skipped. |
-| Server | State and stream | `GET /state` for the first paint and `GET /stream`, a server-sent-events feed of changes: `snapshot`, `session`, `activity`, `removed`, `tick`, `wall`, `chat`, `replay` and `reads` (a counter only, sent when an Admin begins or keeps reading a session's ask or stored Activity; it names no one). |
+| Server | State and stream | `GET /state` for the first paint and `GET /stream`, a server-sent-events feed of changes: `snapshot`, `session`, `activity`, `removed`, `tick`, `wall`, `chat`, `replay` and `reads` (a counter only, sent when an Admin begins reading, or resumes after a lapse of more than 30 s, a session's ask, text, live feed or stored Activity; it names no one). |
 | Server | Routers and identity | The routes for reports, hooks, state, stream and sessions, and the code that turns a certificate or token into an owner. |
 | Server | Guard chain | Middleware that runs first on the HTTP port: Host check, security headers, the reporter HTTP gate, request log and the failed-request limiter. |
 | Server | Admin API | A separate router for people, groups, reporters, settings, feature flags, certificates, usage reports (including a Tools report of tool calls, failure rate, permission prompts and call length across every harness, and Sessions and Usage reports of session time, waits on a person, agents and the busiest hours, and cost per tool call and per session, the token split and cache hit rate, the model and effort mix and how full the context was at the end, and a Harness updates report of the hooks, event fields and tool names a newer harness version stopped sending, the reporters behind the newest version and the platform of each reporter, with skills used on the Tools report and projects and branches per person on the Usage report), the Admin log and a read-only About page (`GET /api/admin/about`: versions, runtime, database engine, reporters in use) and `GET /api/admin/notice`, which tells an unlocked Admin how many features stopped after a harness update (the top bar's pill) without counting as Admin activity. The Admin flag `my-usage` (off by default; it also lets a browser sign in) opens a My usage page, `GET /api/fleet/respond/usage/:report` on the respond router, for the Spend, Sessions, Failures and Tools reports of the signed-in person only: the person comes from the respond session, never from the request, and an Admin gets their own figures too. |
@@ -137,7 +137,7 @@ is logged and never passed on, so a bug in Podium cannot fail a tool call.
 | Location | Item | Description |
 |---|---|---|
 | Server | Sweeper | Removes a card after a `done` report (an 8 s linger) or after reports stop (stale at 15 s, dropped 60 s later). |
-| Server | Hourly retention | Prunes stored data, and runs Chat's upkeep: Direct Messages are hidden when every agent in them has left (and shown again if the same peers return), channel messages older than 30 days are purged, hidden Direct Messages are purged after 24 hours, and the rate-limit keys of authors idle for a minute are forgotten. The limits are the Admin settings API's `chat` block. Admin read records older than the channel retention days, and those of a conversation that no longer exists, are purged too, except a record a person it is owed to has not yet seen. |
+| Server | Hourly retention | Prunes stored data, and runs Chat's upkeep: Direct Messages are hidden when every agent in them has left (and shown again if the same peers return), channel messages older than 30 days are purged, hidden Direct Messages are purged after the longest resume window of their agents (30 days unless the harness says otherwise; 24 hours when none is known), and the rate-limit keys of authors idle for a minute are forgotten. The limits are the Admin settings API's `chat` block. Admin read records older than the channel retention days, and those of a conversation that no longer exists, are purged too, except a record a person it is owed to has not yet seen. |
 
 ## Key functions
 
@@ -247,7 +247,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `init` | Loads the stored settings and the live candidates; the server listens only after it. In `server/src/fleet/fleet.ts`. |
 | Server | `noteOrchestrator` | Puts the reporter in the peer directory, in the session's own serial turn. In `server/src/fleet/fleet.ts`. |
 | Server | `state()` | The snapshot for a browser's first paint. In `server/src/fleet/fleet.ts`. |
-| Server | `sessionReadsChanged` | Tells open consoles with a counter that an Admin began or kept reading a session. In `server/src/fleet/fleet.ts`. |
+| Server | `sessionReadsChanged` | Tells open consoles with a counter that an Admin began or resumed reading a session. In `server/src/fleet/fleet.ts`. |
 | Server | `enqueue` | Every broadcast goes through one ordered queue. In `server/src/fleet/fleet.ts`. |
 | Server | `flush` | Waits until every queued message is sent; shutdown calls it before the databases close. In `server/src/fleet/fleet.ts`. |
 | Server | `class Serializer` | One turn at a time per session id, and exclusive jobs for sweeps. In `server/src/fleet/serial.ts`. |

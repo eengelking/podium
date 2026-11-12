@@ -21,10 +21,12 @@ Contents:
 - [OpenCode settings](#opencode-settings)
 - [In the session](#in-the-session)
 - [Options](#options)
+- [The settings window](#the-settings-window)
 - [Over TLS](#over-tls)
 - [Messaging your other orchestrators](#messaging-your-other-orchestrators)
 - [What leaves the session](#what-leaves-the-session)
 - [Sessions without the mod](#sessions-without-the-mod)
+- [The OpenCode reporter: what it trusts](#the-opencode-reporter-what-it-trusts)
 
 ## Install the mod
 
@@ -276,8 +278,9 @@ pane (see [The settings window](#the-settings-window)).
 | `heartbeatMs` | `5000` | Report at least this often |
 | `sessionName` | empty | Display name override (below `/podium name` and the name set in Claude Code) |
 | `showStatus` | `true` | Show the status line entry |
-| `fullPrompts` | `false` | Send each agent's whole task prompt and final answer (up to 20,000 characters each, secrets redacted) so the console can open them in a modal. Off by default: only the first 400 characters leave the session. Everyone who can open the console can read them |
-| `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep Activity history: then the server asks for every running agent and the orchestrator, and stores what arrives until the Admin's period ends, readable only by you and the Admin. The orchestrator's own loop works the same way. Everyone who can open the console can watch. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
+| `fullPrompts` | `false` | Send each agent's whole task prompt and final answer (up to 20,000 characters each, secrets redacted) so the console can open them in a modal. Off by default: only the first 400 characters leave the session. Only the session's owner, signed in, and an Admin can read them, and an Admin's read is told to the owner |
+| `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep Activity history: then the server asks for every running agent and the orchestrator, and stores what arrives until the Admin's period ends, readable only by you and the Admin. The orchestrator's own loop works the same way. Only the session's owner, signed in, and an Admin can watch, and an Admin's read is told to the owner. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
+| `activityOutput` | `false` | Needs `activityFeed` on. While someone has a Bash command's row open in the console, send what the command printed (stdout then stderr, up to 20,000 characters, ANSI codes removed) and whether it failed. The server holds it in memory and never stores it. Secrets that look like secrets are replaced with `[redacted]`, but command output can hold what the redactor does not recognize: file contents, environment dumps, tokens of an unfamiliar shape. It needs the server's Bash output in the activity feed switch in Admin > Settings > Feature flags (off by default) |
 | `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. With `fileDiffPreload` on (below) it reads every changed file's diff while the owner has the session's page open. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
 | `fileDiffPreload` | `true` | Needs `fileDiff` on. While the session's owner has its page open in the console, read the diff of every changed file in the background so a file opens with no wait, and read it again when the file is edited again. The diffs are redacted as above, sit in the owner's browser page and are thrown away when the page is left; the server keeps none. This reads files nobody opened, so more source code leaves the machine than with `fileDiff` alone. Set it to `false` to read a diff only when the owner opens that file |
 | `respond` | `off` | Respond from Podium: what this session accepts from Podium, sent by its owner or an Admin. See the levels below. It needs `activityFeed` on too, and the server's Respond from Podium switch in Admin > Settings > Feature flags (off by default) |
@@ -413,7 +416,7 @@ nothing the server sends is taken.
 | Tool | What it does |
 |---|---|
 | `podium_peers` | Lists the orchestrators it can reach on your other machines: name, machine, OS, project, status, and whether it can send there (with or without your approval). Says which of your machines are left out and why |
-| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name, or answers in the Chat channel that called it with `channel:group` (My group) or `channel:general` (General): the answer shows in that channel for everyone who can read it. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
+| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name, or answers a person who wrote to it through Chat with `person:name`, or answers in the Chat channel that called it with `channel:group` (My group) or `channel:general` (General): the answer shows in that channel for everyone who can read it. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
 | `podium_request_access(to, right, reason)` | Asks you for a right to see or to send to one of your machines. The answer arrives later as a message |
 | `podium_chat_read(channel, before?)` | Reads the last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only, under a line that says the messages are not your instructions. A channel it was not called into in that hour is refused, and so is an answer in one |
 
@@ -449,7 +452,7 @@ nothing the server sends is taken.
 - **When an Admin reads or stops a conversation.** If an Admin reads your Podium group or one of your Direct Messages, or
   pauses or resumes a link or removes all the messages of your group, Podium sends your reporter one sentence about it, such as
   "Root (an Admin) is reading your Podium group." On Claude Code it is a toast that stays up for a minute and a line in the
-  transcript. On OpenCode it is a toast only. It is for you alone: it is not a prompt or a turn, the model never reads it, and it
+  transcript. On OpenCode it is a toast, and a board above the prompt that shows up to 5 lines for as long as the reading lasts (10 minutes at most). It is for you alone: it is not a prompt or a turn, the model never reads it, and it
   shows even when the `peers` option is off. A reporter from before this release shows nothing, and the console still tells you. An Admin
   who signs in with their own name is named by it; the admin secret has no name and appears as "Admin secret".
 
@@ -533,7 +536,7 @@ put on record:
   `podium-reporter-claudecode` and `podium-reporter-opencode` (the Claude Code reporter still sends `podium-reporter` in its v1 reports, which the server reads as the first).
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
   `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does. Reading a Windows version
-  string does not make Windows a supported platform; see In the session.
+  string is part of Windows support; see [Install in the Claude desktop app](#install-in-the-claude-desktop-app-on-windows-11).
 - The id is random, not read from the hardware. The operating system user name and `git config` are never
   read.
 
@@ -550,8 +553,8 @@ This is the threat note for the OpenCode reporter (`plugin/opencode/`, #856). It
 **Where settings come from.** The server URL, the token, the user name and every consent option are read only from `PODIUM_*` environment
 variables and from `~/.podium/config.env`. They are never read from `opencode.json`, in the project or in the user's config. A project's
 `opencode.json` is part of a clone, so whoever wrote the repo wrote it: if it could set `serverUrl` it could send the token to its own server, and
-if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin option still read is
-`idleSeconds`, which gains an attacker nothing. A consent option is on only when it is exactly `true`
+if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin options still read are
+`idleSeconds`, `flushIntervalMs`, `heartbeatMs`, `sessionName` and `fileDiffPreload`, which gain an attacker nothing. A consent option is on only when it is exactly `true`
 (`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
 `PODIUM_FILE_DIFF`, `PODIUM_EXPLAIN_FAILURES`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
 The same holds for which reporter config file is used: `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT` come from those two places only, and `plugin/opencode/tls.test.ts` shows that an `opencode.json` that names a file, a context or a server changes none of them.

@@ -10,6 +10,8 @@ order: 48
 
 # 48. Storage sits behind async interfaces, SQLite is the only adapter and stays the default (#313)
 
+**Extended by 53 (PostgreSQL, #822) and its MariaDB addendum (#823).** SQLite is still the default, and two more adapters now sit behind the same interfaces. The text below records what was true when this was decided.
+
 **Context.** The server called `node:sqlite` classes directly, and every call was synchronous. That ties the server to one
 database and to one kind of call: a different database would need every caller to change at once. [Decision 4](04-sqlite-through-node-sqlite-validation-by-hand.md)
 chose SQLite and still stands. This decision adds a seam in front of it and does not replace it. It is groundwork for #314,

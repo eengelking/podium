@@ -10,6 +10,8 @@ order: 49
 
 # 49. End-to-end tests run Cypress from an e2e folder against the built server (#782)
 
+*Extended by 53 and #823: the suite runs on every registered database (`E2E_DB`: sqlite, postgres, mariadb), not only on a SQLite file.*
+
 **Context.** CI ran unit tests (vitest with jsdom) and the build, and nothing exercised the real console in a browser, so a change could pass every check and still break a page (#787 was found that way). jsdom does no layout, so several tests only read `fleet.css`. The maintainer asked for a suite that covers every feature and for a process that keeps it true. #403 and #782 asked for the same platform; #403 was closed in favor of #782.
 
 **Decision.** End-to-end tests are written with Cypress and run in GitHub Actions.

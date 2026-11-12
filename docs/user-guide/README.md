@@ -7,10 +7,10 @@ entries: "list"
 
 # User guide
 
-How to set up Podium, read the console and fix common problems. It is for anyone who runs Claude Code sessions and
+How to set up Podium, read the console and fix common problems. It is for anyone who runs Claude Code or OpenCode sessions and
 wants to watch them, and for the person who runs the server, whose part is in [Admin](05-admin/README.md).
 
-Podium shows every Claude Code session on your machine in one browser tab. It watches. The one thing it can send is an
+Podium shows every Claude Code and OpenCode session on your machine in one browser tab. It watches. The one thing it can send is an
 answer to a session that is waiting on you (a question, a plan, a tool's permission prompt, a message, `/clear` or `/compact`), and only
 when the server's Admin and the session's owner have both turned on [answering from Podium](04-reading-the-console/12-answering-a-session-from-podium.md). It
 never types into a terminal.

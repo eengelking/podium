@@ -1,12 +1,12 @@
 ---
-title: "7.2 Database (SQLite)"
-description: "The SQLite databases: path, pragmas, migrations and tables."
+title: "7.2 Database"
+description: "The databases (SQLite, PostgreSQL and MariaDB): path, pragmas, migrations and tables."
 group: "Reference"
 section: "7.2"
 order: 2
 ---
 
-# 7.2 Database (SQLite)
+# 7.2 Database
 
 Path: `PODIUM_DB` env, default `<repo>/data/podium.sqlite` (add `data/` to `.gitignore`). Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`. Migrations are a numbered list applied in order and recorded in `schema_migrations`.
 
@@ -14,11 +14,12 @@ The server reaches the database through async storage interfaces, and SQLite is 
 
 The Activity history (#432) is a second file, `activity.sqlite`, in the same folder (`:memory:` when the main
 database is). It has its own schema version in `PRAGMA user_version`, WAL, `synchronous=NORMAL` and incremental
-auto-vacuum, and holds only these tables, which nothing in the main database references:
+auto-vacuum (schema version 5), and holds these tables and the recording tables `rec_sessions` and `rec_entries` (below), which nothing in the main database references:
 
 ```sql
 CREATE TABLE entries (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, loop TEXT NOT NULL, seq INTEGER NOT NULL,
-  at INTEGER NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, "by" TEXT, note TEXT, ref TEXT);
+  at INTEGER NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, "by" TEXT, note TEXT, ref TEXT,
+  command TEXT, command_cut INTEGER);  -- command and command_cut hold a Bash row's command and whether it was cut (schema version 5, #431)
   -- unique (session_id, loop, seq); indexes on t and on (session_id, ref); `at` is the entry's own time, `t` the same
   -- instant on the server's clock; "by", note and ref are set only for an entry sent from Podium
 CREATE TABLE stored_sessions (session_id TEXT PRIMARY KEY, name TEXT NOT NULL, project TEXT, owner TEXT,
@@ -111,7 +112,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off, #206, #319, #347, #353, #431); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here; chat_scope, `chat.*` and `chat.flag.*`: Chat's server scope, limits and channel flags ([What Chat keeps](#what-chat-keeps-and-where-1034), #1034)
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output` and `my-usage`, which are off, #206, #319, #347, #353, #431, #726, #1034); wall_card_title_machine and wall_update_dismissed (#1129 and the release check's close); tls.* (`tls.serving.*`, `tls.reporter.lifetimeDays`, `tls.header.countdown`, `tls.allowReportersOverHttp`); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here; chat_scope, `chat.*` and `chat.flag.*`: Chat's server scope, limits and channel flags ([What Chat keeps](#what-chat-keeps-and-where-1034), #1034)
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -159,6 +160,9 @@ CREATE TABLE harness_versions_daily ( -- how many reporters ran a version of a h
 );
 ```
 
+The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
+sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
+
 Migration 38 (#721; PostgreSQL and MariaDB main step 14) adds what each tool did, under the same rule. `agents.tool_stats_json` is the agent's `toolStats`
 as JSON (NULL from a reporter that does not send it); the main loop's own are in `sessions.loop_json`. The same migration makes the tool
 counts above include the main loop's own calls, which `tools_daily` read from the agents only until then.
@@ -171,9 +175,6 @@ CREATE TABLE tool_stats_daily (      -- one row per day, harness and tool that h
   PRIMARY KEY (day, harness, tool)
 );
 ```
-
-The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
-sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
 
 Migration 39 (#722; PostgreSQL and MariaDB main step 15) adds how long sessions ran and waited on a person, which agents they launched and how deep the chains went, who ran
 sessions on a day, and the peak of live sessions in each hour. Names, counts and times only: never a question, a plan, a tool's input, a note or a path. They are
@@ -206,6 +207,10 @@ CREATE TABLE hour_peaks_daily (     -- harness '' is every harness together: the
 );
 ```
 
+The four daily tables fill from the rows still stored on each run, except `hour_peaks_daily`, which is upserted so an hour's stored peak never goes down once the
+samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
+the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
+
 Migration 40 (#723; PostgreSQL and MariaDB main step 16) adds what sessions cost and how they ended, kept per harness: counts, tokens and names only, never a prompt, a tool's input or a path.
 
 ```sql
@@ -226,10 +231,6 @@ CREATE TABLE tool_cost_daily (      -- the sessions that called one tool on a da
 
 Both fill from the rows still stored on each run, like the other rebuilt tables. Compactions are counted from the stored `compact` events, which are kept 30 days, and a day older than
 that is not rebuilt. A database upgraded to this migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...".
-
-The four daily tables fill from the rows still stored on each run, except `hour_peaks_daily`, which is upserted so an hour's stored peak never goes down once the
-samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
-the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
 
 Migration 41 (#724; PostgreSQL and MariaDB main step 17) adds what each version of a harness sent, the skills each person used and where each person worked: names and counts only, never a prompt, a tool's input, a command's text or a path.
 
@@ -273,6 +274,28 @@ Migration 15 (#206) links a session to the one it continues after a `/clear` (5.
 ```sql
 ALTER TABLE sessions ADD COLUMN cleared_from TEXT;                        -- Report.session.clearedFrom; NULL when the session does not continue another
 CREATE INDEX sessions_cleared_from ON sessions(cleared_from);             -- finds clearedInto for History
+```
+
+Migrations 14, 19, 21, 23, 24 and 26 change the tables above without a block of their own (14, 19, 21, 23 and 24 are in the PostgreSQL and MariaDB baseline, main step 1; 26 is main step 2):
+
+```sql
+-- 14 (#172): the built-in Administrators group, and who made each Admin change
+INSERT OR IGNORE INTO groups (name, name_lower, created_at) VALUES ('Administrators', 'administrators', <now>);
+ALTER TABLE admin_log ADD COLUMN actor TEXT;                   -- NULL for rows from before it existed
+-- 19 (#400): the commit of a dev build of the mod; NULL for a release, a hooks-only session and an older mod
+ALTER TABLE sessions ADD COLUMN reporter_build TEXT;
+-- 21 (#465): the last plan a session reported, kept while a report carries none, so the finish order survives the gap
+ALTER TABLE sessions ADD COLUMN plan_kept_json TEXT;
+-- 23 (#583): the client certificate each person's reporter authenticates with, found by SHA-256 fingerprint; a revoked row stays
+CREATE TABLE person_certificates (fingerprint_sha256 TEXT PRIMARY KEY, serial TEXT NOT NULL, issuer_fingerprint TEXT NOT NULL,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE, cert_pem TEXT NOT NULL,
+  not_before INTEGER NOT NULL, not_after INTEGER NOT NULL, issued_at INTEGER NOT NULL, revoked_at INTEGER, reason TEXT);
+CREATE INDEX person_certificates_person ON person_certificates(person_id);
+-- 24 (#838): the `peers` option each session last reported; a reporter takes part while any of its live sessions does
+ALTER TABLE reporter_sessions ADD COLUMN peers INTEGER;
+-- 26 (#890): open requests are listed oldest first, with an insertion number as peer messages have (migration 25)
+ALTER TABLE peer_requests ADD COLUMN seq INTEGER;              -- existing rows numbered by time, then id
+CREATE INDEX peer_requests_seq ON peer_requests(created_at, seq);
 ```
 
 Migration 28 (#851; PostgreSQL and MariaDB main step 4) records the harness a session runs under and who worked out its cost (6.5):
@@ -395,6 +418,14 @@ ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';     -- 
 ```
 
 A row made before migration 35 owes nobody, so retention treats it as before. General's rows owe nobody either.
+
+Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
+
+```sql
+ALTER TABLE sessions ADD COLUMN resume_window_days INTEGER;   -- the days the harness lets a person resume a closed session; NULL when no report has said (30 days apply)
+```
+
+It is read from the report's `resumeWindowDays` ([6.2](../06-reporter-protocol/06-02-the-report.md)) and decides how long a hidden Direct Message is kept ([7.5](07-05-lifecycle-timers.md)).
 
 A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds
 are one row for each stop (an Admin's remove all messages, pause or resume), never a session. A look at a person's list of conversations is a reading of the

@@ -10,6 +10,8 @@ order: 40
 
 # 40. A session can be recorded whole, with three yes answers (#353)
 
+*Extended by 53 and #823: this describes SQLite, where the history is a second file, `activity.sqlite`. On PostgreSQL it is the `podium_activity` schema in the same database, and on MariaDB tables of their own in the same database.*
+
 **Context.** The Activity feed shows the last 20 short lines of a loop, and #432 (DECISIONS 39) can keep them. Neither
 answers "what exactly did this agent read and run, and why". A recording keeps all of it, whole, which is the most Podium
 ever holds of a conversation. The details are in [REPLAY.md](../REPLAY.md).

@@ -17,7 +17,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
 
   ```
   { "ok": true, "serverTime": <epoch ms>, "ackedEvents": <n>, "sessionId": "…", "liveSessions": <n>,
-    "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" } | null,
+    "serverVersion": "…", "serverBuild": "…" | null, "reporterSupport": { "min": "…", "max": "…" } | null,
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
     "watch": ["<agentId>" | "@orchestrator", …], "watchOutput": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
     "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[],
@@ -39,13 +39,17 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
   | `recording` | The session's recording state (#353, [6.4](06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)): `{ state: "off" \| "recording" \| "stopped" \| "limit", consent: { admin, chosen, owner }, loops, limit: "session" \| "budget" \| null, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes }`. The mod captures only while `state` is `recording` and all three `consent` answers are true. `state` is `off` and `loops` empty whenever nothing is chosen or kept for this session, which is every reply while the Admin's `session-recording` flag is off or the server has no token. An older server sends no field, which a mod reads as `off`. |
 
 - `400 { "ok": false, "error": "…", "path": "…" }` for a body that fails validation. The mod drops that report
-  and logs once to debug. It never retries a 400.
+  and logs once to debug. It never retries a 400, 409 or 413: it drops the report and backs off.
 - `401` for a missing, wrong, revoked or mismatched credential. The mod logs a 401 once and retries about once
   a minute.
 - `409` when the session id already belongs to another owner. The mod shows "refused: session belongs to
   someone else" on its status line instead of "connecting", tells the user once (a toast and `/podium`) to
   start a new session, logs it once, and clears the message at the next accepted report.
 - `413` above 512 KB.
+- `403 { "ok": false, "error": "this reporter is ignored by the Admin" }` for a reporter the Admin ignores; nothing is stored. A `403` that carries `X-Podium-Helper-Error: ROUTE_NOT_ALLOWED` (the helper refused the route) makes the mod hold for 60 s.
+- `401 { "error": "client certificate refused" }` for a client certificate the server refuses, and `429` with `Retry-After` for an address that made too many wrong secrets.
+- `409` at `$.harness.id` when the session id belongs to a session of another harness.
+- `500 { "error": "ingest failed" }` when the server could not take the report. Any other failure is an outage: the mod backs off 1, 2, 5, then 10 s.
 
 The mod sends a **full snapshot** every time (idempotent upsert) plus the **events not yet acknowledged**. The
 server never needs a previous report to understand a new one.

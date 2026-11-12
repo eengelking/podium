@@ -10,6 +10,8 @@ order: 18
 
 # 18. A supported range of reporter versions, not a protocol number
 
+*Extended by 55 (#852): the range is kept for each reporter name (`REPORTER_SUPPORT` in `server/src/fleet/compat.ts`), not as one range.*
+
 **Context.** Issue #49 asked whether to follow `kubectl`, which allows a skew of one minor version, or to
 add a protocol version that changes only with the report format.
 

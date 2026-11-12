@@ -10,6 +10,8 @@ order: 42
 
 # 42. Podium makes its own CA, and the reporter authenticates with a certificate (#577)
 
+*Amended by 51 and #834: Windows 11 is supported for the reporter now, in Claude Code and in the Claude desktop app. The line below, "Windows is unsupported", was true when this was decided.*
+
 **Context.** Podium's traffic is plain HTTP. A reporter sends its token, its reports and the answers it holds
 over HTTP, and the browser signs in with a name and a token over HTTP, so anyone on the path can read and
 change them. The only advice was a TLS proxy (20, 28, 31). #323 designed the fix over 17 comments and #577

@@ -8,7 +8,7 @@ order: 6
 
 # 7.6 SSE stream
 
-`GET /api/fleet/stream` sends `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, and flushes headers at once. Messages (`event:` name, `data:` one JSON line):
+`GET /api/fleet/stream` sends `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Connection: keep-alive`, `X-Accel-Buffering: no`, and flushes headers at once. Messages (`event:` name, `data:` one JSON line):
 
 | Event | Data | When |
 |---|---|---|
@@ -18,10 +18,11 @@ order: 6
 | `removed` | `{ sessionId, reason: 'done'\|'dropped'\|'deleted' }` | leaves the live set |
 | `wall` | `{ notices, showBackgroundSessions, cardTitleMachine }` | when an Admin setting or a closed notice changes the wall's notices (8.1) |
 | `chat` | `{ rev, scope: 'public'\|'group'\|'dm' }` | a Chat thread changed, or an Admin began reading one. It carries no text, no person's name, no count and no id, because every open console receives it: `rev` is a change counter and `scope` says which kind of thread. A console asks the Chat routes, which check who is asking, for its own person's counts and for anything else (#1034) |
+| `reads` | `{ rev }` | an Admin began reading a session's content, or resumed after a lapse of more than 30 s (not at each ping); it carries a change counter and nothing else, so the owner's console asks for the readers |
 | `replay` | `{ rev }` | an Admin opened, paged or left a replay of someone's recorded session (#1075). It carries a change counter and nothing else, because every open console receives it: the owner's console reads who is replaying from `GET /api/fleet/respond/recording-reads`. |
 | `tick` | `{ serverTime, kpis }` | every 2 s (also serves as keepalive; the client treats 6 s of silence as disconnected) |
 
-The registry removes a client on `close`/`error`, and a write that throws never crashes the process. Supports 100 simultaneous clients. Send `retry: 2000`.
+The registry removes a client on `close`/`error`, and a write that throws never crashes the process. Supports 100 simultaneous clients; past that the stream answers `event: error` with `{"error":"too many clients"}` and ends. Send `retry: 2000`.
 
 <!-- nav:start -->
 ---

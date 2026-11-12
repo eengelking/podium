@@ -128,7 +128,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Acceptance:**
   1. Selecting a card or rail item shows the page; Back (the "All orchestrators" rail item) returns to the wall; the selection survives `session` updates and clears with a message if the session is removed.
      The open orchestrator is in the address (`#/?open=<id>`), so a reload, a shared link and the browser's Back button land on the same page (see "Address" under the orchestrator page).
-  2. The header, charts, facts grid and status band match the mockup's layout at 1440 px (`mockup/podium-orchestrator.html`, #165; `mockup/podium-facts-reporter.html` for the Reporter cell, #124); the status band is the last row of the summary surface and **Fork** is the last cell of the facts grid, after Session and **Resume** (`mockup/podium-fork.html`, #352).
+  2. The header, charts, facts grid and status band match the mockup's layout at 1440 px (`mockup/podium-orchestrator.html`, #165; `mockup/podium-facts-reporter.html` for the Reporter cell, #124); the status band is the last row of the summary surface and **Fork** was the last cell of the facts grid when it was added, after Session and **Resume** (`mockup/podium-fork.html`, #352); **Recording** (#353) is last now.
   3. Charts: three charts of 60 points from `series`; `peakContext` fixed 0..100%; red markers at `blowoutSecondsAgo`; caption counts markers; hover shows a crosshair and the value and time under the pointer and restores the live value on leave. A pure function converts a series to polyline points and is tested (empty, single point, all zeros, max scaling).
   4. The agent tree builds from `parentId`; guides draw correctly for last and non-last children; sorting by Model/Effort/Context/Tokens/Cost/Time/Status orders siblings and keeps the tree (#101) and clicking the same header again reverses it; "Launch order" clears the sort. Unit-tested.
   5. Plan panel shows state icons, the owner label, and "No plan reported. Agents were launched ad hoc." when `plan` is null.
@@ -160,7 +160,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 **Goal:** a real Claude Code session appears in the dashboard with everything section 6 describes.
 
 ### T3.1 Pure modules
-- **Scope:** `hooks/state.ts`, `hooks/plan.ts`, `hooks/failures.ts`, `hooks/models.ts`, `hooks/report.ts` and their tests.
+- **Scope:** `hooks/state.ts`, `plan.ts`, `failures.ts`, `hooks/models.ts`, `hooks/report.ts` and their tests (`plan.ts` and `failures.ts` are in `plugin/core/` now, DECISIONS 57).
 - **Depends on:** T0.1.
 - **Acceptance:**
   1. `plan.ts` handles TaskCreate, TaskUpdate (every status incl. `deleted`, `addBlockedBy`, `owner`), TodoWrite replace, title rules and owner matching, with tests for each and for a malformed input (ignored, never throws).
@@ -170,7 +170,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
   5. Blowout counting: auto compaction counts, manual does not, `model_context_window_exceeded` counts, duplicate signals within 2 s for the same loop count once.
 
 ### T3.2 Transport and git
-- **Scope:** `hooks/transport.ts`, `hooks/git.ts` and tests.
+- **Scope:** `transport.ts`, `git.ts` and tests (both are in `plugin/core/` now, DECISIONS 57).
 - **Depends on:** T3.1.
 - **Acceptance:**
   1. With a mocked `$.http.fetch`: a flush posts one JSON report with the right headers (`X-Podium-Token` only when configured); a 400 drops the report; a network error keeps the snapshot and events and retries with backoff 1/2/5/10 s; the queue holds at most 500 events, dropping oldest; success clears acknowledged events.

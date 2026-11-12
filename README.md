@@ -131,7 +131,8 @@ opencode service restart
 Or download `podium-opencode-<version>.zip` from the [releases page](https://github.com/eengelking/podium/releases) and unzip it
 into `~/.config/opencode/plugins/podium`. The server address, token and name come from the environment and
 `~/.podium/config.env`, the same file the Claude Code reporter reads, and not from `opencode.json`. From a checkout of this
-repository, `npm run plugin:dev:opencode` builds `dist-dev/opencode` and starts OpenCode with it loaded.
+repository, OpenCode has no dev runner yet (`npm run plugin:dev:opencode` exits with an error that says what to run). Build it with
+`node scripts/plugin-build.mjs opencode --dev-stamp` and load `dist-dev/opencode` as described in [Contributing](CONTRIBUTING.md).
 
 All the options for both harnesses, what leaves a session, and what each harness cannot do are in [The reporter mod](docs/REPORTER.md).
 

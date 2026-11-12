@@ -13,6 +13,7 @@ Files: `server/src/storage/sqlite/recordings.ts` (the store), `recordingRoutes.t
 `frontend/src/fleet/admin/RecordingAdmin.tsx`. Issue #353; the reasoning is DECISIONS 40, and the feature end to end is
 [REPLAY.md](../../REPLAY.md). This section keeps only the structure.
 
+- **Where it lives, by adapter.** The tables below are in `activity.sqlite` on SQLite, in the `podium_activity` schema on PostgreSQL, and as tables of their own in the same database on MariaDB; the store has the same name and the same rules in each adapter's folder ([Storage](19-storage.md)).
 - **Tables.** `rec_sessions` (one row per recording: state, limit, who started and stopped it, loops, counters) and
   `rec_entries` (one row per entry, numbered `n` in the server's order, with the mod's `loop` and `seq` and a stored time
   `t`) in `activity.sqlite`, added as schema steps of `activityDb.ts`. Indexes are `(session_id, n)` and `t`. Nothing in

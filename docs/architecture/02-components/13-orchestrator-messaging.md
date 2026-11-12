@@ -7,8 +7,7 @@ order: 13
 
 # Orchestrator messaging
 
-Files: `server/src/fleet/peerTypes.ts`, `peerSettings.ts`, `peerRights.ts`, `peerMessages.ts`, `peers.ts`,
-`peerRoutes.ts`; `scripts/podium-peers-demo.mjs`; the mod's `plugin/core/peers.ts` and the messaging block in
+Files: `server/src/fleet/peerTypes.ts` and `peerRoutes.ts`; the stores `peerSettings.ts`, `peerRights.ts`, `peerMessages.ts`, `peers.ts` and `peerService.ts` in each adapter's folder under `server/src/storage/`; `scripts/podium-peers-demo.mjs`; the mod's `plugin/core/peers.ts` and the messaging block in
 `plugin/claudecode/hooks/register.ts`; the console's `MyReporters.tsx`, `useMyPeers.ts`, `peers.ts`, `components/PeerRights.tsx` and
 `components/PeerLimits.tsx`; Admin's `admin/ReporterMessaging.tsx`; Traffic's `Traffic.tsx`, `trafficData.ts`,
 `useTraffic.ts` and `components/TrafficMap.tsx` (deprecated in 1.6, replaced by Chat; see [Chat](#chat-1034)). Issue #412 builds the server half of #347, #414 the mod, #415 My
@@ -173,9 +172,9 @@ Admin stops or deletes a person's recording, stored activity, session, access or
 `goneReadsOf` puts those rows on the overview with the conversations that are gone, and `isActRecord` in `chatData.ts` words them without a conversation.
 No table or column changed: the kinds are text in every adapter.
 
-**Not in this release.** The agent's side of the channels is plumbing: the reporter-token routes in `chatAgentRoutes.ts` and the
-paged read capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000), and
-the finished tools are #1035. Delivery is `queue` on both harnesses; OpenCode can also deliver at the next step of a running
+**The agent's side of the channels.** The reporter-token routes are in `chatAgentRoutes.ts` and the
+paged read is capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000). The tools are
+`podium_chat_read` and `podium_send` to `channel:group` or `channel:general` (#1035). Delivery is `queue` on both harnesses; OpenCode can also deliver at the next step of a running
 turn (`delivery: 'steer'`, verified in #1033), which was evaluated and left for later so the two harnesses read the same.
 "Send selected messages to an agent" did not ship.
 

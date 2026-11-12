@@ -13,7 +13,7 @@ order: 7
 - Bind `127.0.0.1` by default. The container image listens on `0.0.0.0` inside the container, and `podiumctl`
   publishes it on the host's `127.0.0.1` ([4.4](../04-architecture.md#44-packaging-running-and-distribution)).
 - If `PODIUM_TOKEN` is set, `POST /report`, `DELETE` and `POST /hook` require `X-Podium-Token`. Reads and the
-  `drop` route stay open on localhost.
+  `drop` route stay open on localhost, except the reads that need a sign-in as the session's owner or an Admin: a file's diff, an agent's full text and live activity, stored activity, recordings and Chat.
 - Over plain HTTP, tokens and the admin secret travel in a header, so a server reachable over a network needs
   a trusted network or a TLS proxy. With built-in TLS on, the server opens a second port for reporters, which needs a
   client certificate, and a reporter with a certificate sends no token (*Built-in TLS*, below). The console stays on
@@ -37,7 +37,7 @@ log line and leaves HTTP working.
 Containerfile exposes both. The port a reporter config names is the one people reach, `PODIUM_TLS_PUBLIC_PORT` when it
 is set and the listening port otherwise; `podiumctl` sets it in container mode to the host's `PODIUM_TLS_PORT`, since
 the server listens on 4318 inside (#649). A value that is not a port is ignored. The reporter port serves only the
-routes a reporter calls (`POST /api/fleet/report` and `/hook`, the peers, asks, diffs, deliveries and recording routes
+routes a reporter calls (`POST /api/fleet/report` and `/hook`, the peers, asks, diffs, deliveries, Chat channel and recording routes
 under a session, and `POST /api/reporter/renew`); any other path on it is a `404` and the console is not reachable there. The Host check
 applies to both ports (DECISIONS 33).
 
@@ -52,7 +52,7 @@ with `openssl` (called with `execFile`, no shell).
 
 **Storage.** In `/data/tls` (`data/tls` in standalone mode): `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and
 `previous/` (the last 3 replaced serving certificates). Every key is mode 0600 and the directory 0700. `/data` is
-durable, so a restart or a rebuild keeps the CA. Person certificates are in a table in `podium.sqlite` with
+durable, so a restart or a rebuild keeps the CA. Person certificates are in a table of the main database (every adapter) with
 `fingerprint_sha256` (unique), `serial`, `issuer_fingerprint`, `person_id`, `not_before`, `not_after`,
 `issued_at`, `revoked_at` and `reason`. The CA's and the serving certificate's dates and fingerprint are in a
 small metadata table or in settings rows. Podium keeps only a person's certificate, never their key.
@@ -156,7 +156,7 @@ its own certificate's end needs a reissue.
 name-and-token sign-in, and a person who wants HTTPS for them puts a proxy in front. No browser needs the CA, so the
 Certificates page has no Download CA and no browser-trust text.
 
-**Platforms and limits.** macOS and Linux are in scope, Windows is unsupported ([5.9](../05-mod-api/05-09-mod-configuration-userconfig.md)).
+**Platforms and limits.** The reporter supports macOS, Linux and Windows 11, and the server runs on macOS and Linux ([5.9](../05-mod-api/05-09-mod-configuration-userconfig.md)).
 A public certificate authority and ACME are out of scope: a server with a real name can sit behind a TLS proxy
 (#305).
 
@@ -177,11 +177,11 @@ A public certificate authority and ACME are out of scope: a server with a real n
 - With no `PODIUM_TOKEN` and no person token, a report is accepted with no owner ("Unassigned"). A person token
   that is presented is still checked.
 - A session id that already belongs to another owner is refused with `409`.
-- Any valid credential may `DELETE` a session.
+- Any valid credential may `DELETE` a session, but a person's token only on a session that person owns (`403` for another person's).
 
 ## Activity history (#432)
 
-Stored activity is reported text and can hold anything an agent read or ran, so it is the second read that is not open.
+Stored activity is reported text and can hold anything an agent read or ran, so it is one of the reads that are not open (with a file's diff, an agent's full text and its live feed).
 
 - Keeping it needs authentication on. Without a token the server runs the *Not stored* policy and refuses to save
   another.
@@ -206,7 +206,7 @@ Stored activity is reported text and can hold anything an agent read or ran, so 
 ## Session recording (#353)
 
 A recording is the most Podium keeps of a conversation: whole prompts, file contents, command output and tool results
-([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)). It is the third read that is not open, and the only one whose content is written
+([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)). It is one of the reads that are not open, and the only one whose content is written
 as it happens.
 
 - **It needs all three yes answers** to capture or store anything: the Admin's `session-recording` flag, a choice by
@@ -255,7 +255,7 @@ as it happens.
 
 ## File diff (#319)
 
-A file's diff is source code. Reads are open by design, so this is the one read that is not.
+A file's diff is source code. Reads are open by design, so this is one of the few that are not.
 
 - It needs authentication on, the Admin's `file-diff` flag, and the reporter's `fileDiff` option on the machine.
 - It needs a respond session, as responding does (the sign-in to respond, under *Responding* in [8.1](../08-ui/08-01-what-the-ui-must-do.md)). Only the
@@ -446,7 +446,7 @@ This is the only way anything reaches a session from Podium, so every rule here 
   whose session it is.
 
 **The browser's credential**
-- Reads stay open, but every respond route except `GET /respond/me` needs a respond session.
+- Reads stay open, except those named above that need a sign-in, and every respond route except `GET /respond/me` needs a respond session.
 - `GET /respond/usage/:report` (#726) reads the person from the respond session on the server, never from the request. It offers only reports whose every figure is the person's own, and it is off with the `my-usage` flag.
 - `POST /respond/sign-in` takes a name and a token, the same pair as the reporter's `userName` and `token`
   options. It checks them the way a report's credential is checked against its `userName` (`identify` in
@@ -917,7 +917,7 @@ Other places the warning shows:
 ## The release check's request (#499)
 
 The release check ([6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)) is the only request the
-server makes to a site of its own choosing, and the only one that does not answer a reporter or a browser.
+server makes to a site that is not set by the operator (log shipping, `PODIUM_LOG_SHIP_URL`, goes to an address the operator names), and the only one that does not answer a reporter or a browser.
 
 - It is one HTTPS `GET` to `api.github.com` a day, with `User-Agent: podium-release-check` and no body, no token and no
   identifying field. The reply is read as JSON and only `tag_name`, `prerelease` and `draft` are used.
@@ -965,8 +965,11 @@ Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY
   allowed by its SHA-256, computed from the built page at start);
 - styles from the server, inline styles and Google Fonts;
 - fonts from the server and `fonts.gstatic.com`;
+- images from the server and `data:` URIs (`img-src 'self' data:`);
 - `connect-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'self'` and
   `frame-ancestors 'none'`.
+
+The route that serves the page (`index.html`) is limited to 600 page fetches a minute for each address, successful or not (CodeQL `js/missing-rate-limiting`); past that it answers `429 too many requests`. No API call counts.
 
 A new third-party origin or a second inline script needs the policy changed in
 `server/src/securityHeaders.ts`. `podiumctl` starts the container with `--cap-drop ALL` and

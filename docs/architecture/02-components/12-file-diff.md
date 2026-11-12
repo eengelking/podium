@@ -14,7 +14,7 @@ DECISIONS 36.
 **Flow.** The owner's browser calls `GET /api/fleet/respond/sessions/:id/files/diff?path=`. The route checks the
 `file-diff` flag, the respond sign-in, that the signed-in name is the session's owner, and that the reporter said
 `fileDiff: true`. It then calls `DiffBroker.ask`, which holds the request in memory for 15 seconds. The next reply to
-the session's report lists it in `diffs`; the mod (`handleDiffs` in `register.ts`) reads it with `readFileDiff` and
+the session's report lists it in `diffs`; the mod (`handleDiffs` in `register.ts`, and in `plugin/opencode/reporter.ts` for OpenCode) reads it with `readFileDiff` and
 answers `PUT …/diffs/:requestId`; the broker resolves the waiting request and drops its entry.
 
 **Loading ahead (#631, DECISIONS 47).** With `session.fileDiffPreload` true, `FilesList` makes a `DiffPreloader`
@@ -30,13 +30,12 @@ diffs against the same base as the list (`resolveRef`, shared with `readChanges`
 2,000 lines or 200,000 bytes, then `redactDiff` replaces anything that looks like a secret. Cutting comes first, so
 the redaction count is for what is sent.
 
-**Tests.** The mod's tests need Claude Code (`npm run test:mod:claudecode`), so CI cannot run them. The four that need no
-engine (`diffRedact`, `fileDiff`, `git`, `transport`) also run under the server's vitest, through an alias for
-`claude-code/testing` in `server/vitest.config.ts`, so SonarCloud's coverage gate sees the mod's pure modules.
+**Tests.** The Claude Code mod's own tests need Claude Code (`npm run test:mod:claudecode`), so CI cannot run them. The shared code in `plugin/core/` and the OpenCode reporter's tests run under the server's vitest and in CI (`npm run test:core`, `npm run test:mod:opencode`), and a few of the Claude Code hooks' tests that need no engine (`fileDiffMod`, `transport`, `peers`) run there too, through an alias for
+`claude-code/testing` in `server/vitest.config.ts`, so SonarCloud's coverage gate sees the pure modules.
 
 **Server.** `DiffBroker` is the only holder of a diff, and only while a browser waits. The sign-in routes stay
 available when only `file-diff` is on (`signInEnabled` in `respondRoutes.ts`); the respond routes still need their
-own flags. `GET /respond/me` reports `enabled` for either feature, so the top bar offers the sign-in.
+own flags. `GET /respond/me` reports `enabled` when any feature that needs the sign-in is on (Respond, File diff, Activity history or My usage), so the top bar offers the sign-in.
 
 **Console.** `FilesList` decides with `diffAccess` whether a row is a button, a plain row with a line saying why, or
 unchanged. `FileDiffModal` builds on `Modal` and draws `parseDiff` rows as text nodes, twice: two panes and one column.

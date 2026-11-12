@@ -34,5 +34,5 @@ order: 50
 
 **Cost.**
 
-- Three more variables in `index.ts` and one flag to explain. They are not in `docs/SERVER.md`'s settings table, because no person should set them.
+- Three more variables in `index.ts` and one flag to explain. `docs/SERVER.md` lists them in its settings table, marked as for the end-to-end suite only, because no person should set them.
 - The sign-in idle spec takes about 70 s, because the page checks its sign-in once a minute. The Admin idle lock spec takes about 12 s and the lockout spec about 8 s.

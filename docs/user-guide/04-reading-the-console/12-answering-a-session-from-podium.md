@@ -31,6 +31,8 @@ It also needs podium-reporter 0.14.0 or later and a server started with a token.
 | `questions-and-plans` | The above, plus approving or rejecting a plan |
 | `everything` | The above, plus allowing or denying a tool (allow once only), and `/clear`, `/compact` |
 
+OpenCode answers too: set `PODIUM_RESPOND` (the same four levels) and `PODIUM_ACTIVITY_FEED=true` in `~/.podium/config.env`. It cannot approve a plan, has no `/clear`, and takes `/compact` as its only command ([OpenCode settings](../../REPORTER.md#opencode-settings)).
+
 ## Sign in
 
 To answer, sign in with your name and token, the same ones as the mod's `userName` and `token` options. An Admin can use

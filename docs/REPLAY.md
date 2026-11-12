@@ -64,7 +64,7 @@ mod captures only while they are all true.
 |---|---|---|---|
 | 1 | The Admin | Turns on the **Session recording** feature flag (`session-recording`) in Admin > Settings > Feature flags. It needs the server's auth on: with no token the switch is unavailable | Off |
 | 2 | The session's owner, or an Admin | Chooses to record this session and which loops, with **Record** on the orchestrator page | Not chosen |
-| 3 | The session's owner, on their machine | Sets the reporter's `sessionRecording` option ("Allow session recording") to on | Off |
+| 3 | The session's owner, on their machine | Sets the reporter's `sessionRecording` option ("Allow session recording"; `PODIUM_SESSION_RECORDING=true` on OpenCode, see [OpenCode settings](REPORTER.md#opencode-settings)) to on | Off |
 
 The third is the one the owner holds on the machine, so the browser cannot overrule it. If a session is chosen but the
 option is off, the console says "This session's reporter does not allow recording", the owner's terminal says so, and
@@ -80,7 +80,7 @@ stops every recording, and what was recorded stays until it expires. The option 
 3. Press **Start recording**. Nothing before that moment is kept, and a short delay before capture begins is normal.
    A loop that starts later is not recorded unless you add it by choosing again.
 
-The owner and an Admin can both start, stop and delete, and an Admin can do it without the owner knowing. That is why
+The owner and an Admin can both start, stop and delete, and an Admin can do it without the owner's say-so. That is why
 the notice cannot be hidden and the owner's terminal is told every time. Everyone else sees the state and no button.
 
 The Admin sets the limits in Admin > Settings > Session recording and sees every recording in the Recordings table
@@ -170,13 +170,13 @@ A recorded session says so, to everyone who can open the console, for as long as
 
 **It cannot be dismissed.** It is not a wall notice. There is no X and no switch, on the wall or in Admin. A wall
 notice is an informational note that someone may close for everyone. Consent is not that: the people whose work is being
-kept have to be able to see that it is, and an Admin can start a recording without the owner's knowledge. The notice
+kept have to be able to see that it is, and an Admin can start a recording without the owner's say-so (the owner is told every time). The notice
 shows state only and never any content. The approved exception to the wall-notice rules is recorded in the
 [changelog](../CHANGELOG.md).
 
 ## Where it is stored and for how long
 
-Recordings live in the Activity history's second file, `activity.sqlite`, beside `podium.sqlite`, in their own tables
+Recordings live with the Activity history: on SQLite in its second file, `activity.sqlite`, beside `podium.sqlite` (on PostgreSQL and MariaDB, in the database's Activity history tables), in their own tables
 (`rec_sessions` and `rec_entries`), so the main database's backups, vacuum and retention are not slowed by them. They
 appear in Admin > Server > Stored activity with Source set to Recordings. The data path and the tables are in
 [docs/architecture/](architecture/02-components/10-session-recording.md).

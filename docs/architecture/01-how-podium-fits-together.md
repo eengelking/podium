@@ -21,7 +21,7 @@ This page shows how the reporter mod, the server and the UI connect, for a contr
 
 ## The mod
 
-`plugin/claudecode/` runs in each Claude Code process, installed from the built folder `dist/claudecode/` (DECISIONS 56). `dist/` is a build of `plugin/` and is left out of CodeQL and SonarCloud analysis, because the source is scanned (DECISIONS 60). The code every reporter shares is in `plugin/core/`.
+`plugin/claudecode/` runs in each Claude Code process (`plugin/opencode/` is the OpenCode reporter, over the same `plugin/core/`; this page follows the Claude Code one), installed from the built folder `dist/claudecode/` (DECISIONS 56). `dist/` is a build of `plugin/` and is left out of CodeQL and SonarCloud analysis, because the source is scanned (DECISIONS 60). The code every reporter shares is in `plugin/core/`.
 
 - Hooks only update an in-memory model through pure reducers (`state.ts`, `plan.ts`, `failures.ts`). They never
   wait on the network.

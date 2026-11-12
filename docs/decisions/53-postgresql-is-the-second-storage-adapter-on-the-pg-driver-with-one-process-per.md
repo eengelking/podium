@@ -45,7 +45,7 @@ order: 53
 - No data moves from a SQLite file into PostgreSQL. A migration tool is a follow-up if people ask for it.
 - One server process per database. There are no read replicas and no high availability, and connection-string options go only as far as `pg` takes them from the URL.
 - Reads that cost microseconds in-process cost milliseconds over a network, and the server makes many small reads per report.
-- Two adapters to keep in step. `contract.ts` runs against both, and the PostgreSQL tests run only when `PODIUM_TEST_PG` names a server.
+- Adapters to keep in step (three now, with MariaDB, #823). `contract.ts` runs against each, and `npm test` fails when an adapter's test server (`PODIUM_TEST_PG`, `PODIUM_TEST_MARIADB`) is not configured; `PODIUM_TEST_ONLY` leaves one out on purpose and the run says NOT RUN.
 
 **Addition (#823, MariaDB).** MariaDB is the third adapter, built on the groundwork above. `PODIUM_DB=mariadb://user:pass@host:3306/dbname` selects a `mariadb` kind in the same registry, and nothing outside `server/src/storage/mariadb/` imports its driver. The choices that differ from PostgreSQL's:
 
