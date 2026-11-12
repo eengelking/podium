@@ -7,7 +7,7 @@ import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
 import { MAIN_LOOP, type ToolStat, type ActivityEntry, type BackgroundWait, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
-import { bumpStat, MAX_TOOL_NAMES } from '../core/toolStats.ts';
+import { askEndedEvent, bumpStat, callEndedEvent, MAX_TOOL_NAMES } from '../core/toolStats.ts';
 import { bumpSignals, type Signals } from '../core/signals.ts';
 import { OPENCODE_EVENTS, OPENCODE_FIELDS } from './signals.ts';
 import { Recorder } from '../core/recording.ts';
@@ -406,7 +406,7 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   s.lastTool = call.tool;
   s.toolCounts[call.tool] = (s.toolCounts[call.tool] ?? 0) + 1;
   // A call whose start was never seen has no length, and one a person refused did not fail: the refusal is counted with its ask (#721).
-  bumpStat(s.toolStats, call.tool, { failed: failed && call.refused !== true, ms: known ? at - (known.ranAt ?? known.at) : undefined }, MAX_TOOL_NAMES);
+  bumpStat(s.toolStats, call.tool, callEndedEvent(failed, call.refused === true, known ? at - (known.ranAt ?? known.at) : undefined), MAX_TOOL_NAMES);
   if (!failed) {
     if (call.tool === 'Skill') skillLoaded(root, s, str(d.metadata?.name) ?? str(call.input.skill), at);
     return;
@@ -591,7 +591,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const open = root.asks.get(String(d.requestID ?? ''));
       // A refused permission is the likeliest cause of what fails next in that session.
       const owner = open ? (root.sessions.get(open.sessionId) ?? s) : s;
-      if (open?.tool) bumpStat(owner.toolStats, open.tool, { allowed: d.reply !== 'reject', denied: d.reply === 'reject', podium: root.podiumAnswered.has(open.id) }, MAX_TOOL_NAMES);
+      if (open?.tool) bumpStat(owner.toolStats, open.tool, askEndedEvent(d.reply === 'reject', root.podiumAnswered.has(open.id)), MAX_TOOL_NAMES);
       if (open && d.reply === 'reject') {
         const refused = open.callId ? owner.calls.get(open.callId) : undefined;
         if (refused) refused.refused = true;

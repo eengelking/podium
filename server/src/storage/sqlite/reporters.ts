@@ -7,7 +7,7 @@ import { checkReporter } from '../../fleet/compat.js';
 import { clampPage, likeTerm } from './people.js';
 import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-import { checkTime, keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -94,7 +94,7 @@ export class ReporterStore {
   private accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): string {
     const own = ReporterStore.keyOf(s);
     if (!s.machineId) return own;
-    const apart = `${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`;
+    const apart = apartKeyOf(s);
     const has = (key: string) => this.stmt('SELECT owner FROM reporters WHERE key = ?').get(key) as { owner: string | null } | undefined;
     if (has(apart)) return apart;
     const bare = has(own);
@@ -126,7 +126,7 @@ export class ReporterStore {
     const account = this.accountKey({ ...s, owner: s.owner ?? null });
     // The machine id comes first, so a rule on it covers every account on the machine (#221).
     // The per-account form is always included, so a rule on `<machine id>#<owner>` still turns that account away when its row is keyed on the bare machine id.
-    const apart = s.machineId ? [`${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`] : [];
+    const apart = s.machineId ? [apartKeyOf(s)] : [];
     // A rule on the bare machine id also covers a reporter other than the Claude Code one on that machine (#849).
     const machine = s.machineId ? [s.machineId] : [];
     return [...new Set([own, account, ...machine, ...apart, ...(known ? [known] : [])])];
@@ -153,7 +153,7 @@ export class ReporterStore {
       canonicalReporterName(s.reporterName),
       s.machineId,
       s.machineName?.slice(0, 64) ?? null,
-      s.source?.slice(0, 120) ?? null,
+      s.source?.slice(0, SOURCE_MAX) ?? null,
       s.owner,
       s.credential,
       s.version.slice(0, 64),

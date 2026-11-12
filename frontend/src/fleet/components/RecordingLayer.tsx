@@ -52,7 +52,7 @@ export function recordingFail(e: unknown, what: string): string {
 
 /**
  * What an Admin's replay of the person's own recorded session tells the person (#1075, mockup/podium-replay-notice.html): a red notice while an Admin replays,
- * and a quiet line for each replay after, newest first, three at most. Each has an X that hides it on this browser; the record and the Admin log stay. Only
+ * and a quiet line for each replay after, newest first, three at most. The red notice has no X; each quiet line has one that hides it on this browser; the record and the Admin log stay. Only
  * the session's owner sees these: an Admin who is not the owner sees nothing, and cannot dismiss another person's. Words only, never any text of the recording.
  */
 function ReplayNotes({ s }: { s: SessionView }) {
@@ -80,7 +80,8 @@ function ReplayNotes({ s }: { s: SessionView }) {
   }, [owns, api, s.id, rev]);
   if (!owns || !reads) return null;
   const now = reads.serverNow();
-  const readers = reads.readers(s.id).filter((r) => !dismissed.has(readingKey(s.id, r.admin, r.since)));
+  // The live red notice has no X and no dismissal: it shows for as long as the replay is live.
+  const readers = reads.readers(s.id);
   const liveStarts = new Set(reads.readers(s.id).map((r) => readingKey(s.id, r.admin, r.since)));
   const lines = records
     .filter((r) => !liveStarts.has(readingKey(s.id, r.admin, r.startedAt)) && !dismissed.has(readingKey(s.id, r.admin, r.startedAt)))
@@ -102,7 +103,6 @@ function ReplayNotes({ s }: { s: SessionView }) {
           <span>
             <b>{replayersLine(readers)}</b> {replayersRest(readers)}
           </span>
-          {close("an Admin replaying this recording", readingKey(s.id, readers[0]!.admin, readers[0]!.since))}
         </div>
       )}
       {lines.map((r) => (

@@ -1,12 +1,12 @@
 // What an Admin's read of the person's own session tells the person (#1073, #1074, mockup/podium-admin-read-notices.html): a red notice while an Admin reads,
-// and a quiet line for each read after, newest first, three at most. Each has an X that hides it on this browser; the record and the Admin log stay. Only the
+// and a quiet line for each read after, newest first, three at most. The red notice has no X; each quiet line has one that hides it on this browser; the record and the Admin log stay. Only the
 // session's owner sees these: an Admin who is not the owner sees nothing, and cannot dismiss another person's. Words only, never any text of the session.
 import { useEffect, useState } from "react";
 import "../chat.css";
 import type { AdminRead } from "../chatData";
 import type { SessionReadKind } from "../respondApi";
 import { nameKey } from "../respond";
-import { readingKey, readingLabel, readingLine, readingRest, readRecordLine, recordLabel, useDismissed, useSessionReads } from "../sessionReads";
+import { readingKey, readingLine, readingRest, readRecordLine, recordLabel, useDismissed, useSessionReads } from "../sessionReads";
 import { useRespond } from "../useRespond";
 import { ChEye } from "./ChatIcons";
 
@@ -42,7 +42,8 @@ export function SessionReadNotes({ kind, session, placement = "band" }: { kind: 
   const now = reads.serverNow();
   const key = (admin: string, start: number) => readingKey(kind, session.id, admin, start);
   const all = reads.readers(kind, session.id);
-  const readers = all.filter((r) => !dismissed.has(key(r.admin, r.since)));
+  // The live red notice has no X and no dismissal: it shows for as long as the read is live (PROJECT.md, "An Admin Never Reads in Silence").
+  const readers = all;
   // An Admin who reads now (any loop of the session) is the one red notice; their records are plain lines only once they stop.
   const liveAdmins = new Set(all.map((r) => nameKey(r.admin)));
   const lines = records
@@ -65,10 +66,6 @@ export function SessionReadNotes({ kind, session, placement = "band" }: { kind: 
           <span>
             <b>{readingLine(kind, session.name, readers)}</b> {readingRest(readers)}
           </span>
-          {close(
-            readingLabel(kind),
-            readers.map((r) => key(r.admin, r.since)),
-          )}
         </div>
       )}
       {lines.map((r) => (

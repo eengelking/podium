@@ -41,6 +41,19 @@ export function bumpStat(stats: Record<string, ToolStat>, tool: string, e: ToolE
   return stats;
 }
 
+/**
+ * How a prompt a call raised ended, as an event (#1167): allowed or denied, never both, and whether Podium answered it. The one rule for every
+ * harness, so a denied ask reads the same on the wall whichever harness ran the session.
+ */
+export function askEndedEvent(denied: boolean, podium: boolean): ToolEvent {
+  return { allowed: !denied, denied, podium };
+}
+
+/** A finished call as an event: a call that was denied, at a prompt or by a rule, did not run, so it is not a failed call (#1167). */
+export function callEndedEvent(failed: boolean, denied: boolean, ms?: number): ToolEvent {
+  return { failed: failed && !denied, ms };
+}
+
 /** A copy of `stats` that can be changed without changing it. */
 export function copyStats(stats: Record<string, ToolStat>): Record<string, ToolStat> {
   return Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, { ...v, ...(v.times ? { times: { ...v.times } } : {}) }]));

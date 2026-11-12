@@ -1344,9 +1344,9 @@ async function permissionAsk($: Engine, r: Runtime, e: { tool_name: string; tool
  * The tool call of a permission ask ended: what happened is read from how it ended, since nothing else says (SPEC 5.3).
  * An answer from Podium that matches what happened took; otherwise the terminal answered first.
  */
-function settleToolAsk(id: string, res: ToolResult | undefined): boolean {
+function settleToolAsk(id: string, res: ToolResult | undefined): { podium: boolean; denied: boolean | null } {
   const a = asks.get(id);
-  if (!a || a.ask.kind !== 'permission') return false;
+  if (!a || a.ask.kind !== 'permission') return { podium: false, denied: null };
   const d = a.answered;
   const sent = d && d.kind !== 'allow-once' ? (toolDecision(d.kind === 'reply' ? { ...d, kind: 'deny' } : d).decision as { message?: string }).message : undefined;
   const denied = toolDenied(res, sent);
@@ -1355,11 +1355,11 @@ function settleToolAsk(id: string, res: ToolResult | undefined): boolean {
     queueResult(a.sessionId, d.id, 'took');
     // Only now, once the call ended the way the decision said: a decision the terminal beat is not recorded as Podium's.
     recordDecision(a.ask.agentId, id, d, 'permission', undefined, a.answeredAt);
-    return true;
+    return { podium: true, denied };
   }
   if (d) queueResult(a.sessionId, d.id, 'closed');
   queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
-  return false;
+  return { podium: false, denied };
 }
 
 // ---- file diff on request (#319) ----------------------------------------------------------------
@@ -2387,12 +2387,12 @@ export const register: Register = (on, rawOptions) => {
     safe('tool.call.result', (r) => {
       const result = (res ?? {}) as { deny?: string; isError?: boolean; text?: string };
       if (e.tool_use_id && checks.has(e.tool_use_id)) endedChecks.add(e.tool_use_id);
-      const answeredFromPodium = e.tool_use_id ? settleToolAsk(e.tool_use_id, res as ToolResult | undefined) : false;
+      const settled = e.tool_use_id ? settleToolAsk(e.tool_use_id, res as ToolResult | undefined) : { podium: false, denied: null };
       // A prompt this call raised ends with it: allowed, or denied when the result says so (#721).
       const askKey = `${loopKey(e.agentId)}\u0000${cap(tool, 120)}`;
       const waiting = pendingAsks.get(askKey) ?? 0;
       if (waiting > 0) pendingAsks.set(askKey, waiting - 1);
-      const ask = waiting > 0 ? { denied: toolDenied(result), podium: answeredFromPodium } : null;
+      const ask = waiting > 0 ? { denied: settled.denied ?? toolDenied(result), podium: settled.podium } : null;
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result, ms: nowMs() - startedAt, ask }, nowMs());
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {

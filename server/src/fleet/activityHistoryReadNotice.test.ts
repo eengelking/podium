@@ -81,6 +81,22 @@ describe('an Admin paging through stored Activity (#1074)', () => {
     expect(JSON.stringify(rows)).not.toContain(TEXT);
   });
 
+  it('writes the one Admin log line when a ping began the reading first (#1166)', async () => {
+    const s = await setup();
+    const boss = await signedIn(s.app, 'Boss', s.boss.token);
+    const ping = () => boss.post(`/api/fleet/respond/sessions/${SID}/admin-reads/activity/reading`).set(H).send({ loop: MAIN_LOOP });
+    expect((await ping()).status).toBe(200);
+    expect(await s.logRows()).toHaveLength(0);
+    expect((await boss.get(READ())).status).toBe(200);
+    expect((await boss.get(READ())).status).toBe(200);
+    expect((await ping()).status).toBe(200);
+    expect((await boss.get(READ())).status).toBe(200);
+    expect(await s.reads()).toHaveLength(1);
+    const rows = await s.logRows();
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toContain(TEXT);
+  });
+
   it('is a second record and a second log line for a second loop of the session', async () => {
     const s = await setup();
     const boss = await signedIn(s.app, 'Boss', s.boss.token);

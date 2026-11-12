@@ -101,6 +101,16 @@ describe("Admin About page", () => {
     }
   });
 
+  it("says Loading… in the muted empty style until the server answers", async () => {
+    fakeServer({ unlocked: true });
+    render(<AdminView />);
+    fireEvent.click(await screen.findByRole("button", { name: "About" }));
+    const word = screen.getByText("Loading…");
+    expect(word).toHaveClass("empty");
+    expect(await screen.findByRole("heading", { level: 2, name: "Podium server" })).toBeInTheDocument();
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
   it("says what went wrong when the page cannot be read", async () => {
     const srv = fakeServer({ unlocked: true });
     srv.aboutFails = true;

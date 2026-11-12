@@ -16,7 +16,7 @@ import {
 } from '../../core/failures.ts';
 import { costOf, shortName, windowOf } from './models.ts';
 import { assignOwners, emptyPlan, setTitle, taskCreate, taskUpdate, todoWrite, type PlanState } from '../../core/plan.ts';
-import { bumpStat, copyStats, MAX_TOOL_NAMES } from '../../core/toolStats.ts';
+import { askEndedEvent, bumpStat, callEndedEvent, copyStats, MAX_TOOL_NAMES } from '../../core/toolStats.ts';
 import { backgroundSummary, MAIN_LOOP, type ToolStat, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from '../../core/protocol.ts';
 
 export const BLOWOUT_DEDUP_MS = 2000;
@@ -797,7 +797,7 @@ export function toolResult(s0: SessionState, i: ToolResultInput, now: number): S
     // A call that was denied, at the prompt or by a rule, is not a failed call: it did not run.
     const denied = typeof i.result.deny === 'string' || i.ask?.denied === true;
     const stats = copyStats(loop.toolStats);
-    bumpStat(stats, tool, { failed: i.result.isError === true && !denied, ms: i.ms, allowed: i.ask ? !i.ask.denied : false, denied: i.ask?.denied === true, podium: i.ask?.podium === true }, MAX_TOOL_NAMES);
+    bumpStat(stats, tool, { ...callEndedEvent(i.result.isError === true, denied, i.ms), ...(i.ask ? askEndedEvent(i.ask.denied, i.ask.podium) : {}) }, MAX_TOOL_NAMES);
     next.toolStats = stats;
     if (i.tool === 'Read' && typeof i.input.file_path === 'string') {
       const f = cap(i.input.file_path, 200);

@@ -358,6 +358,23 @@ function ownCases(adapter: ContractAdapter): void {
       await store.close();
     });
 
+    it('files a reporter with a very long source address under a key clipped to the stored address, on every adapter', async () => {
+      const store = await open();
+      const long = 'x'.repeat(1000);
+      const noId = (over: Partial<ReporterSeen>) => mkSeen('x', 'box', { machineId: null, ...over });
+      const addr = await store.reporters.record(noId({ source: long, sessionId: 'l1' }), T0);
+      const hooks = await store.reporters.record(noId({ kind: 'hooks', source: long, sessionId: 'l2' }), T0 + 1);
+      expect(addr).toBe(`addr:${'x'.repeat(120)}`);
+      expect(hooks).toBe(`hooks:${'x'.repeat(120)}`);
+      expect(await store.reporters.record(noId({ source: long, sessionId: 'l1' }), T0 + 2)).toBe(addr);
+      expect((await store.reporters.get(addr, T0 + 3))!.source).toBe('x'.repeat(120));
+      // A second account on one machine with a very long owner name is keyed the same way on every adapter.
+      await store.reporters.record(mkSeen('mach', 'box', { owner: 'a' }), T0 + 4);
+      const apart = await store.reporters.record(mkSeen('mach', 'box', { owner: 'o'.repeat(1000) }), T0 + 5);
+      expect(apart.length).toBeLessThanOrEqual(383);
+      await store.close();
+    });
+
     it('keeps two reporters on one machine as two rows, each with its own kind and version (#849)', async () => {
       const store = await open();
       const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.4.0' }), T0);

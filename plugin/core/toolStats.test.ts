@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing';
-import { bumpStat, copyStats, reportStats } from './toolStats.ts';
+import { askEndedEvent, bumpStat, callEndedEvent, copyStats, reportStats } from './toolStats.ts';
 import { timeBucket } from './protocol.ts';
 
 describe('bumpStat', () => {
@@ -41,5 +41,14 @@ describe('copyStats and reportStats', () => {
 
   test('clips the names and drops a tool with nothing in it', () => {
     expect(reportStats({ abcdef: { failed: 1 }, empty: {} }, (n) => n.slice(0, 3))).toEqual({ abc: { failed: 1 } });
+  });
+});
+
+describe('askEndedEvent and callEndedEvent (#1167)', () => {
+  test('a denied prompt is denied and not allowed, and its call is not failed', () => {
+    expect(askEndedEvent(true, true)).toEqual({ allowed: false, denied: true, podium: true });
+    expect(askEndedEvent(false, false)).toEqual({ allowed: true, denied: false, podium: false });
+    expect(callEndedEvent(true, true, 5)).toEqual({ failed: false, ms: 5 });
+    expect(callEndedEvent(true, false)).toEqual({ failed: true, ms: undefined });
   });
 });

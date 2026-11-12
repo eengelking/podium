@@ -553,10 +553,21 @@ export interface PurgeRecordingsResult {
 
 export type StoredState = Exclude<RecordingState, 'off'>;
 
+/** The longest source address stored, and so the longest one a key holds: a key column can be bounded in one adapter and not another, so the cut is made here, once, for all (#1153). */
+export const SOURCE_MAX = 120;
+
 /** The key a reporter is known by. */
 export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'reporterName'>): string {
-  const base = s.machineId ? s.machineId : `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+  const base = s.machineId ? s.machineId : `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source?.slice(0, SOURCE_MAX) ?? 'unknown'}`;
   return base + nameSuffix(s.reporterName);
+}
+
+/** The longest owner name a second account's key holds, cut here for the same reason as `SOURCE_MAX` (#1153). */
+export const OWNER_KEY_MAX = 120;
+
+/** The key a second account on one machine is filed under: `<machine id>#<owner>` plus the name suffix (#221). */
+export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> & { owner?: string | null }): string {
+  return `${s.machineId}#${(s.owner ?? '').slice(0, OWNER_KEY_MAX)}${nameSuffix(s.reporterName)}`;
 }
 
 /**

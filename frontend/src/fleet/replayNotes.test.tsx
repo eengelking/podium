@@ -74,18 +74,13 @@ describe("the owner's red notice while an Admin replays", () => {
     expect(note.querySelector("svg")).not.toBeNull();
   });
 
-  it("hides on the X, for that reading only, and stays hidden when the page is opened again; a later replay shows again", async () => {
+  it("has no X and cannot be hidden, even by an old dismissal of the same reading", async () => {
     const s = makeSession({ owner: "Dana" });
-    const first = await layer(fakeApi({ reads: { [s.id]: [live("Root", NOW - 20_000)] } }));
-    fireEvent.click(screen.getByRole("button", { name: /Close notice: an Admin replaying this recording/ }));
-    expect(first.container.querySelector("[data-testid='replay-reading-notice']")).toBeNull();
-    expect(JSON.parse(window.localStorage.getItem("podium.replay.dismissed")!)).toEqual([readingKey(s.id, "Root", NOW - 20_000)]);
-    first.unmount();
-    const again = await layer(fakeApi({ reads: { [s.id]: [live("Root", NOW - 20_000)] } }));
-    expect(again.container.querySelector("[data-testid='replay-reading-notice']")).toBeNull();
-    again.unmount();
-    const later = await layer(fakeApi({ reads: { [s.id]: [live("Root", NOW - 1_000)] } }));
-    expect(later.container.querySelector("[data-testid='replay-reading-notice']")).not.toBeNull();
+    window.localStorage.setItem("podium.replay.dismissed", JSON.stringify([readingKey(s.id, "Root", NOW - 20_000)]));
+    const { container } = await layer(fakeApi({ reads: { [s.id]: [live("Root", NOW - 20_000)] } }));
+    const note = container.querySelector("[data-testid='replay-reading-notice']")!;
+    expect(note).not.toBeNull();
+    expect(note.querySelector("button")).toBeNull();
   });
 
   it("is seen by the owner only: an Admin who is not the owner, and a person who is not, see nothing", async () => {
@@ -98,12 +93,11 @@ describe("the owner's red notice while an Admin replays", () => {
     }
   });
 
-  it("is seen by an Admin who is the session's owner, and the Admin can dismiss it", async () => {
+  it("is seen by an Admin who is the session's owner, with no X either", async () => {
     const s = makeSession({ owner: "Root" });
     const { container } = await layer(fakeApi({ me: ADMIN_ME, reads: { [s.id]: [live("Sam")] } }), "Root");
     expect(container.querySelector("[data-testid='replay-reading-notice']")!.textContent).toContain("Sam (an Admin) is replaying this recording.");
-    fireEvent.click(screen.getByRole("button", { name: /Close notice/ }));
-    expect(container.querySelector("[data-testid='replay-reading-notice']")).toBeNull();
+    expect(container.querySelector("[data-testid='replay-reading-notice'] button")).toBeNull();
   });
 
   it("is gone once the Admin's reading has ended by the server's clock, and when the Admin has stopped it is not asked again", async () => {
