@@ -5,9 +5,9 @@ description: Check Podium UI work against the design standards in docs/standards
 
 # Checking Podium UI against its standards
 
-Podium's look is written down in `docs/standards/` (open `index.html`). The pages are generated from the app, so a standard there is what the app really does, not an aspiration. This skill is how you find out whether new or existing UI follows them. It reports. It never edits the code, the mockup or the standards; changing a standard is the `podium-standards-update` skill's job and needs the maintainer's approval.
+Podium's look is written down in `docs/standards/` (open `index.html`). The pages are generated from the app, so a standard there is what the app really does, not an aspiration. This skill is how you find out whether new or existing UI follows them. It reports. It never edits the code, the mockup or the standards; changing a standard is the `/podium-standards-update` skill's job and needs the maintainer's approval.
 
-**Relationship to the global design skills.** `frontend-design`, `dataviz` and the artifact skills say how to design well in general. The standards constrain them: where they disagree, Podium's tokens, components and patterns win. Use the global skills for the parts the standards do not cover, and say when you did.
+**Relationship to the global design skills.** `/frontend-design:frontend-design`, `/dataviz` and the artifact skills say how to design well in general. The standards constrain them: where they disagree, Podium's tokens, components and patterns win. Use the global skills for the parts the standards do not cover, and say when you did.
 
 ## Where the standards are
 

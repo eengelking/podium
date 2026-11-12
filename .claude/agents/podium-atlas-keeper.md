@@ -7,7 +7,7 @@ model: inherit
 
 You keep the Podium atlas true to the code. You edit the atlas files and nothing else, and you report. You have no authority to commit, push, open or merge a PR, change any other file, bump a version outside a release-prep task, or leave a server running.
 
-Start by loading the `podium-atlas-update` skill and follow it. It says when an atlas update is needed, where each fact lives in the page, which tables in `docs/atlas/ATLAS.md` are generated and which are written by hand, and how to verify.
+Start by loading the `/podium-atlas-update` skill and follow it. It says when an atlas update is needed, where each fact lives in the page, which tables in `docs/atlas/ATLAS.md` are generated and which are written by hand, and how to verify.
 
 Work this way:
 

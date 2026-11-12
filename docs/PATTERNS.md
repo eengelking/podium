@@ -34,7 +34,7 @@ Contents:
 2. Follow each pattern that applies. Where a check is named, run it.
 3. Name the patterns the change relies on in the PR body.
 
-The `podium-patterns-check` skill does the same steps and reports each departure.
+The `/podium-patterns-check` skill does the same steps and reports each departure.
 
 "Held by: none" means no automated check holds the pattern today. Adding one is its own issue.
 
@@ -107,7 +107,7 @@ A change that finds code departing from a pattern files an issue for the departu
 
 ## UI code
 
-The look of the UI is in `docs/standards/`, which is generated from the app and has its own check (`podium-standards-check`). This section
+The look of the UI is in `docs/standards/`, which is generated from the app and has its own check (`/podium-standards-check`). This section
 holds only the code patterns.
 
 | Pattern | Rule and why | Example | Held by |

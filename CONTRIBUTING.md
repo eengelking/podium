@@ -90,7 +90,7 @@ private container network beside the pinned `cypress/included` container, seeds 
 network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). Run
 one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
-test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
+test-id convention, and the `/podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
 **The tests of the adapters that need a database server** (PostgreSQL in `server/src/storage/postgres/`, decision 53; MariaDB in `server/src/storage/mariadb/`, #823) run against the server each one's variable names (`PODIUM_TEST_PG`, `PODIUM_TEST_MARIADB`), and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without a variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without one on purpose, set `PODIUM_TEST_ONLY` to the kinds to run (for example `sqlite,postgres`): the run then prints which adapters were NOT RUN, and that is not a pass for a pull request. If a variable is set and no server answers, the run fails.
 
@@ -314,7 +314,7 @@ python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 ```
 
 The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
-`podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
+`/podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
 ### The plugin build and the tracked dist/
 
@@ -346,7 +346,7 @@ version files alone. The maintainer decides when `development` is ready to relea
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
-"Releases", says how the bump level is chosen, and the `podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
+"Releases", says how the bump level is chosen, and the `/podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
 
 If the bump is a new minor version, also move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
 that version. Each reporter has its own entry, so another reporter's range moves only with that reporter's releases. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
