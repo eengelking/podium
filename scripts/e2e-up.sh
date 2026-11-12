@@ -5,7 +5,7 @@
 set -uo pipefail
 
 # Pinned by version and digest (an index covering amd64 and arm64). Change both together, on purpose, and update DECISIONS 49.
-CYPRESS_IMAGE="${E2E_CYPRESS_IMAGE:-docker.io/cypress/included:16.2.0@sha256:c196ed896aec24c7ea8fc1d4185b210493e311339b6c09d0153f9b8dfc6a6058}"
+CYPRESS_IMAGE="${E2E_CYPRESS_IMAGE:-docker.io/cypress/included:16.3.0@sha256:3efa8d156a094a6c13ddf3fba616e97f7492706685064b75a39823e1147eca97}"
 # The tag carries a checksum of this checkout's path, so two worktrees (or two sessions) never overwrite each other's image: a shared
 # "latest" let one run test another branch's code.
 SERVER_IMAGE="${E2E_SERVER_IMAGE:-localhost/podium-e2e:$(cd "$(dirname "$0")/.." && pwd | cksum | cut -d' ' -f1)}"
