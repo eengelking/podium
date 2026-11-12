@@ -113,6 +113,8 @@ export class Answering {
       if (ask.kind === 'permission') {
         const reply = permissionReply(d.kind);
         if (!reply) return this.result(root, d, 'refused');
+        // OpenCode announces the reply as an event a moment later; that event is Podium's, which the count of asks answered from Podium reads (#721).
+        root.podiumAnswered.add(ask.id);
         if (reply === 'once') await this.host.permissionReply(ask.sessionId, ask.id, reply);
         else await this.host.permissionReply(ask.sessionId, ask.id, reply, rejectMessage(d));
         this.record(root, ask, d);

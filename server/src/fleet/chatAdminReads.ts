@@ -70,6 +70,8 @@ export class AdminReads {
   /** When a replay was last read or noted, and whether the records have been scanned for one since this server started. */
   private replayAt = 0;
   private replayScanned = false;
+  /** The record (by its start) whose Admin log line a read has written, per thread and Admin, so a ping that began the reading does not leave the read quiet (#1166). */
+  private readonly lined = new Map<string, number>();
 
   constructor(private readonly core: ChatCore) {}
 
@@ -186,10 +188,11 @@ export class AdminReads {
    * which needs `loop`). Records it first, like `note`, so nothing is read without a record: a failure here stops the read. A read of the Admin's own session,
    * of a session nobody owns or the shared Admin name owns, or by a viewer who is not an Admin, tells no one and records nothing. Reads of one thread by
    * one Admin less than 30 minutes apart are one record; a ping keeps a read that stays open live and wakes no console, because a console re-reads when the end it holds passes. The Admin log line is the route's own, so this writes none.
-   * Returns whether a person is told and whether the read just began, so the route can wake that person's console.
+   * Returns whether a person is told and whether the read just began, so the route can wake that person's console. A route that serves the read passes
+   * `serving`, and `logDue` is then true once for each record: the first read of it, even when a ping began it, so the Admin log line is never missed (#1166).
    */
-  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null }, loop?: string): Promise<{ told: boolean; changed: boolean }> {
-    const none = { told: false, changed: false };
+  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null }, loop?: string, serving = false): Promise<{ told: boolean; changed: boolean; logDue: boolean }> {
+    const none = { told: false, changed: false, logDue: false };
     if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return none;
     if (readNeedsLoop(kind) && !(loop && LOOP_ID.test(loop))) throw new Error(`a ${kind} read needs a loop id`);
     const s = sessionSubject(kind, { id: session.id, name: session.name, owner: session.owner }, loop);
@@ -198,7 +201,13 @@ export class AdminReads {
     this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], phrase: s.phrase }, at: this.core.host.now() });
     // a read that lapsed (no ping for LIVE_MS) and resumes is live again, which no console holds an end for, so it wakes them like a start
     const resumed = got.previousSeenAt !== null && this.core.host.now() - got.previousSeenAt > LIVE_MS;
-    return { told: true, changed: got.started || resumed };
+    let logDue = false;
+    if (serving) {
+      const key = `${s.thread}\n${nameKey(viewer.actor)}`;
+      logDue = this.lined.get(key) !== got.record.startedAt;
+      if (logDue) this.lined.set(key, got.record.startedAt); // forgotten at a restart, a record can at worst write its line once more, never none
+    }
+    return { told: true, changed: got.started || resumed, logDue };
   }
 
   /**

@@ -72,10 +72,10 @@ describe("the notice under the status band", () => {
     expect(quiet.container.querySelector("[data-testid='read-notes-activity'] [data-testid='read-record']")!.textContent).toContain("Root (an Admin) read the stored Activity of stored-run on");
   });
 
-  it("hides on the X for that reading only", async () => {
+  it("has no X on the live notice", async () => {
     const { container } = await page(api(DANA, live));
-    fireEvent.click(screen.getByRole("button", { name: "Close notice: Admin reading your stored Activity" }));
-    expect(container.querySelector("[data-testid='read-notice']")).toBeNull();
+    expect(container.querySelector("[data-testid='read-notice']")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Close notice: Admin reading your stored Activity" })).toBeNull();
   });
 
   it("shows nothing to the Admin who reads, to another person, or on a session nobody owns", async () => {

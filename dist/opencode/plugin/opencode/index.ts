@@ -3,10 +3,13 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
-import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
+import { settingsPath } from '../core/settings.ts';
+import { Attachments, tuiId } from './attachment.ts';
+import { BRIDGE, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
+import { configEvent, openConfigWindow, type ConfigEvent } from './configWindow.ts';
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
 import { runContext } from './contextVerb.ts';
@@ -90,9 +93,10 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const build = await buildOf(packageRoot(import.meta.url), runIn(process.cwd()), (path) => readFile(path, 'utf8').catch(() => null));
   const options = { ...(await withMachine(withLink(trusted, link))), build };
   const bridge = {
-    seenAt: 0,
+    tuis: new Attachments(),
     emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>),
     notify: undefined as undefined | ((n: NoticeEvent) => Promise<void>),
+    config: undefined as undefined | ((c: ConfigEvent) => Promise<void>),
     status: new StatusRelay(),
     reporter: undefined as Reporter | undefined,
   };
@@ -104,7 +108,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
           api: apiOf(ctx),
           emitAnswer: async (e) => bridge.emit?.(e),
           // A TUI part counts as attached only once the RPC it answers through is registered, or its answer would go nowhere.
-          tuiSeenAt: () => (bridge.emit ? bridge.seenAt : 0),
+          tuiSeenAt: () => (bridge.emit ? bridge.tuis.lastSeen() : 0),
           isOpen: (id) => !!bridge.reporter && [...bridge.reporter.store.roots.values()].some((r) => r.asks.has(id)),
           readService: () => { try { return readFileSync(servicePath(process.env, homedir()), 'utf8'); } catch { return null; } },
           hasService: () => existsSync(servicePath(process.env, homedir())),
@@ -123,8 +127,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       runIn,
       log: dedupe((line) => console.warn(line)),
       // The TUI part says it is attached every ATTACH_EVERY_MS; an idle session stays open (and reachable) while it does (#984).
-      attached: () => !!bridge.emit && bridge.seenAt > 0 && Date.now() - bridge.seenAt < ATTACH_TTL_MS,
-      notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }),
+      attached: () => !!bridge.emit && bridge.tuis.attached(Date.now()),
+      notify: (line, o) => void show({ title: 'Podium', message: line, variant: 'info', ...(o?.durationMs ? { duration: o.durationMs } : {}), ...(o?.id ? { id: o.id } : {}), ...(o?.admin ? { admin: true } : {}) }),
       problem: link?.problem,
       answering,
       loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
@@ -136,24 +140,33 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     options,
   );
   bridge.reporter = reporter;
+  // OpenCode makes no session until the first prompt, so announce this launch to the chat now (#1112): a placeholder the wall does not show.
+  reporter.announce(String((ctx.location as { directory?: string } | undefined)?.directory ?? process.cwd()));
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
-  void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); bridge.status.attached(); return { ok: true }; } }).then(
+  void ctx.rpc.register(BRIDGE, {
+    attach: async (input) => { bridge.tuis.attach(tuiId(input), Date.now()); bridge.status.attached(); return { ok: true }; },
+    // The last TUI part is closing (#1029): the sessions that are quiet end now, as they would after the attach time limit and the idle wait.
+    detach: async (input) => { if (bridge.tuis.detach(tuiId(input), Date.now())) reporter.detached(); return { ok: true }; },
+    // The TUI part showed an Admin callout (#1051): it is not offered again.
+    shown: async (input) => { const id = (input as { id?: unknown } | null)?.id; if (typeof id === 'string') reporter.adminShown(id); return { ok: true }; },
+  }).then(
     (reg) => {
-      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status', data: AnswerEvent | NoticeEvent | StatusEvent) => Promise<void> } }).events;
+      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status' | 'config', data: AnswerEvent | NoticeEvent | StatusEvent | ConfigEvent) => Promise<void> } }).events;
       bridge.emit = async (e) => events.emit('answer', e);
       bridge.notify = async (n) => events.emit('notice', n);
+      bridge.config = async (c) => events.emit('config', c);
       bridge.status.send = async (s) => events.emit('status', s);
       bridge.status.attached();
     },
     () => undefined,
   );
-  const show = (n: Notice): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
+  const show = (n: Notice & { duration?: number; id?: string; admin?: boolean }): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
   // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
   // `/podium allow|decline|deliver <id>` answers a messaging request, `/podium name <text>` names the session and `/podium context ...` picks the Podium server.
   void ctx.command.transform((editor) =>
     editor.add({
       name: 'podium',
-      description: 'Show where Podium reports go and how the connection is; name this session (name <text>); choose the Podium server (context); answer a messaging request with allow, decline or deliver and its id',
+      description: 'Show where Podium reports go and how the connection is; open the settings window (config); name this session (name <text>); choose the Podium server (context); answer a messaging request with allow, decline or deliver and its id',
       execute: async (invocation) => {
         const sessionID = invocation.sessionID;
         const message = await runPodium(argsOf(invocation?.prompt?.text), {
@@ -165,6 +178,16 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
             return `Podium: this session is now named "${name}".`;
           },
           context: (args) => runContext(args, homeOf(process.env), process.env.PODIUM_REPORTER_CONTEXT || undefined),
+          // `/podium config` (#1001): the TUI part draws the window from the live settings; with none attached, where the settings are.
+          config: async () => {
+            const path = settingsPath(homedir());
+            return openConfigWindow({
+              attached: bridge.tuis.attached(Date.now()),
+              emit: bridge.config,
+              path,
+              event: () => configEvent({ options, env: process.env, projectOptions: ctx.options, context: link?.context ?? (options.reporterContext || null), host: hostname(), path, ...(sessionID ? { sessionID } : {}) }),
+            });
+          },
           status: () => {
             const status = podiumText(reporter.summary(), {
               serverUrl: options.serverUrl,
@@ -180,7 +203,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
             return waiting ? `${status}\n${waiting}` : status;
           },
         });
-        return show({ title: 'Podium', message, variant: 'info' });
+        // An empty answer is a window the TUI part opened: there is nothing to say on top of it.
+        return message ? show({ title: 'Podium', message, variant: 'info' }) : undefined;
       },
     }),
   ).catch(() => undefined);

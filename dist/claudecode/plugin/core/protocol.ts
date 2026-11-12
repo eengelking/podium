@@ -155,6 +155,40 @@ export interface Failure {
 }
 
 /**
+ * What one tool did in one loop, as counts only (#721): never an argument, a path, a command or an error's text. Every field is omitted when it is 0.
+ * `asked` is the permission prompts the tool raised; `allowed` and `denied` are how they ended, and an ask with neither is still open or never
+ * answered. `podium` is the asks answered from Podium, whether it allowed or denied. `times` is calls by length: a key is a `timeBucket` and the value
+ * is how many calls fell in it.
+ */
+export interface ToolStat {
+  failed?: number;
+  asked?: number;
+  allowed?: number;
+  denied?: number;
+  podium?: number;
+  times?: Record<string, number>;
+}
+
+/** Each call length bucket is this much longer than the one before, so a percentile read from the buckets is within 10% of the call's real length. */
+export const TIME_BUCKET_RATIO = 1.1;
+/** The longest call that is told apart: an hour. Longer calls count in the last bucket. */
+export const TIME_BUCKET_MAX_MS = 3_600_000;
+
+/** The bucket a call of `ms` milliseconds counts in: 0 up to 1 ms, then one step for each 10% more. */
+export function timeBucket(ms: number): number {
+  const capped = Math.min(Math.max(ms, 0), TIME_BUCKET_MAX_MS);
+  return capped <= 1 ? 0 : Math.ceil(Math.log(capped) / Math.log(TIME_BUCKET_RATIO));
+}
+
+/** The length a bucket stands for: the longest call that counts in it, in milliseconds. */
+export function bucketMs(bucket: number): number {
+  return bucket <= 0 ? 1 : Math.round(TIME_BUCKET_RATIO ** bucket);
+}
+
+/** The number of buckets there are, so a report that names more is refused. */
+export const TIME_BUCKETS = timeBucket(TIME_BUCKET_MAX_MS) + 1;
+
+/**
  * What the orchestrator's main loop reports about its own work, in the shapes an AgentReport uses for
  * the fields of the same name. Calls made by agents it launched are not counted here.
  */
@@ -163,6 +197,8 @@ export interface LoopReport {
   lastTool: string | null;
   toolCalls: number;
   toolCounts: Record<string, number>;
+  /** What each tool did beyond being called (#721). Absent from a reporter that does not send it. */
+  toolStats?: Record<string, ToolStat>;
   steps: { done: number; total: null };
 }
 
@@ -255,12 +291,17 @@ export interface Capabilities {
   context?: boolean;
   git?: boolean;
   respond?: boolean;
+  /**
+   * The reporter shows its person the Admin callout (`adminNotices` in a report's reply) and frames a person's text as a person's (#1051). Podium sends a person's
+   * text to an agent across owners only when its reporter declares this as an explicit `true`; a reporter that does not say counts as not showing it.
+   */
+  adminNotices?: boolean;
   /** The slash commands Podium may send to the session (for example `/clear`). Empty when none. */
   commands: string[];
 }
 
 /** The capability keys a v2 report may declare, besides `commands`. */
-export const CAPABILITY_KEYS = ['effort', 'plan', 'agents', 'cost', 'context', 'git', 'respond'] as const;
+export const CAPABILITY_KEYS = ['effort', 'plan', 'agents', 'cost', 'context', 'git', 'respond', 'adminNotices'] as const;
 
 export interface AgentReport {
   id: string;
@@ -290,6 +331,8 @@ export interface AgentReport {
   toolCalls: number;
   /** Finished calls per tool name. null when the reporter is too old to send it. */
   toolCounts: Record<string, number> | null;
+  /** What each tool did beyond being called (#721). Absent from a reporter that does not send it. */
+  toolStats?: Record<string, ToolStat>;
   blowouts: number;
   steps: { done: number; total: number | null } | null;
   promptExcerpt: string;
@@ -338,6 +381,8 @@ export interface SessionReport {
   waitNote: string | null;
   endReason: string | null;
   resumeId: string | null;
+  /** The days the harness lets a person resume this session once it is closed (#1113). Podium keeps the session's chat that long. Absent when the reporter is too old to send it. */
+  resumeWindowDays?: number;
   startedAt: number;
   cwd: string;
   projectRoot: string | null;
@@ -401,6 +446,11 @@ export interface Report {
   harness?: HarnessInfo;
   /** What the reporter can send (v2). Absent from a v1 report, which means everything Claude Code has. */
   capabilities?: Capabilities;
+  /**
+   * The `adminNotices` capability for a v1 report, which has no capabilities block (and whose absent block means every command Claude Code has): an explicit
+   * `true` when the reporter shows the Admin callout. A v2 report declares it in `capabilities`. Absent means no (#1051).
+   */
+  adminNotices?: boolean;
   /** `build` is the commit hash of a dev build of the mod (#400). A release, and a mod that predates it, leave it out. */
   reporter: { name: ReporterName; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
   session: SessionReport;
@@ -410,6 +460,12 @@ export interface Report {
   userName?: string | null;
   /** The machine the session runs on. Sent only with a userName, so nothing identifying leaves an unnamed reporter. Omitted or null from a reporter older than 0.9.0. */
   machine?: MachineInfo | null;
+  /**
+   * What the harness sent this reporter in this session (#724): `hook:<hook>` for each hook that ran and `field:<hook>.<field>` for each field its event
+   * carried, as counts (at most 64 names). Names and counts only, so the server can tell which version of a harness stopped sending something. Absent from
+   * a reporter older than 1.6.0, which the comparison leaves out.
+   */
+  signals?: Record<string, number>;
 }
 
 /** Which machine a session runs on: its host name, and a random id the reporter keeps so two machines with one host name stay apart. */
@@ -549,6 +605,10 @@ export interface Delivery {
   mode?: PlanMode;
   text?: string;
   command?: PodiumCommand;
+  /** Set on a message that is the owner's own Chat Direct Message to this agent (#1034): the agent may answer it in the thread with `podium_send` to `person:<by>`. Older reporters ignore it. */
+  chat?: true;
+  /** Set on a message from an `@` in a Chat channel (#1034), to a session whose reporter has peer tools: the channel's name (`General` or `My group`). The reporter adds where to read what was said around it. Older reporters ignore it. */
+  channel?: string;
 }
 
 /** What became of a delivery, as the mod reports it. */
@@ -595,6 +655,11 @@ export interface PeerParty {
   owner: string;
   /** The sender's short session id, for `name@machine#id`; absent from a server older than #500. */
   id?: string;
+  /**
+   * True when `name` is a person, not an orchestrator (#1034): another person who wrote to this one's agent through Podium Chat, with their owner's say-so.
+   * Then `machine` is empty and `owner` is the person who owns this session, so the frame can say the text is not theirs.
+   */
+  person?: boolean;
 }
 
 /**
@@ -641,6 +706,17 @@ export interface PeerRequest {
   text: string | null;
 }
 
+/**
+ * A callout for this session's person (#1034): an Admin started reading, or paused, resumed or removed all messages of, one of their Podium conversations.
+ * One content-free sentence naming the Admin, never any message text. The server hands the same one over for a few minutes; `id` lets the mod show it once.
+ * It is for the person only: a mod shows it as a toast and a transcript line and never submits it to the model. Not gated by the `peers` option.
+ */
+export interface AdminNotice {
+  id: string;
+  at: number;
+  text: string;
+}
+
 /** The reply to an accepted report. Older servers send only some of it. */
 export interface ReportReply {
   ok: true;
@@ -671,6 +747,8 @@ export interface ReportReply {
   peerDeliveries?: PeerDelivery[];
   /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
   peerRequests?: PeerRequest[];
+  /** Callouts for the person, present only while there is one (#1034). Absent from a server older than the release that adds it; an older reporter ignores it. */
+  adminNotices?: AdminNotice[];
   /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
   recording?: RecordingGrant;
 }

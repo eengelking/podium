@@ -3,6 +3,7 @@
  * already holds, so the lines reveal no token and no secret. The rule for who takes part is SPEC 5.3 "When the mod takes
  * part"; this only says which part of it failed.
  */
+import { podiumSays, SERVER_FLAG_OFF } from '../../core/messagingStatus.ts';
 
 export interface MessagingFacts {
   /** The `peers` option, as the mod read it. */
@@ -33,14 +34,14 @@ export function messagingOffReason(f: MessagingFacts): string | null {
   if (!f.interactive) return 'the session is not interactive (a `claude -p` run has no client on it), so it never takes part';
   if (!f.signedIn) return "there is no per-person token with a userName, or reporter config file: messaging is only between one person's own reporters, so set both";
   if (!f.reported) return 'the session has not reported yet: send it a prompt';
-  if (!f.serverSays) return "Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret, which belongs to no person";
+  if (!f.serverSays) return SERVER_FLAG_OFF;
   return null;
 }
 
 /** The `Messaging:` line of `/podium`: the verdict, then each fact behind it. */
 export function messagingLine(f: MessagingFacts): string {
   const why = messagingOffReason(f);
-  const says = !f.reported ? 'nothing yet' : f.serverSays ? 'takes part' : 'does not take part';
+  const says = podiumSays(f.reported, f.serverSays);
   const facts = `peers option: ${f.option ? 'on' : 'off'}; interactive: ${f.interactive ? 'yes' : 'no'} (started on ${f.surface ?? 'no surface'}); Podium says: ${says}`;
   return `Messaging: ${why === null ? 'on' : `off, because ${why}`}. ${facts}`;
 }

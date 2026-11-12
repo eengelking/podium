@@ -160,7 +160,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(0);
   const [busy, setBusy] = useState(false);
-  const focusHeading = useRef(false);
+  // Counts the times a thread was opened; each one asks for the focus to move to its heading (see the effect below).
+  const [focusAsk, setFocusAsk] = useState(0);
   const keepBtn = useRef<HTMLButtonElement>(null);
 
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
@@ -186,7 +187,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setClearAsk(false);
     setActionErr(null);
     setSendErr(null);
-    focusHeading.current = true;
+    setFocusAsk((n) => n + 1);
   };
   // The orchestrator page's "Chat with Agent" button opens #/chat?with=<id> (#1067): the person's own conversation with that agent, or one
   // ready to start when there is none. It applies once per address, so a later choice is never undone; an id Chat does not list leaves General.
@@ -201,12 +202,11 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     const existing = ownDmWith(o.directs, a.sessionId);
     select(existing ? { kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: dmKey(existing) } : { kind: "dm", a: "me", b: a.sessionId, key: a.sessionId, fresh: true });
   }, [o, stale, want]);
+  // The request is state, so this runs only in the commit that carries the open (the thread's screen showing at 400 px). A ref read by an
+  // effect of every render could be spent by an earlier commit's effects that ran late, on a heading still hidden, and the open then found it spent.
   useEffect(() => {
-    if (focusHeading.current) {
-      focusHeading.current = false;
-      document.getElementById("th-h")?.focus();
-    }
-  });
+    if (focusAsk > 0) document.getElementById("th-h")?.focus();
+  }, [focusAsk]);
   useEffect(() => {
     if (confirm) keepBtn.current?.focus();
   }, [confirm]);

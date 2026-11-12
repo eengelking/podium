@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { SessionReadNotes } from "./components/SessionReadNotes";
 import { RespondError, type RespondApi, type SessionReadersReply } from "./respondApi";
-import { PING_MS, SessionReadsProvider, readRecordLine, readingKey, readingLabel, readingLine, readingRest, recordLabel, useReadingPing } from "./sessionReads";
+import { PING_MS, SessionReadsProvider, readRecordLine, readingKey, readingLine, readingRest, recordLabel, useReadingPing } from "./sessionReads";
 import { RespondProvider } from "./useRespond";
 import { fleetReducer, initialState } from "./store";
 import { isUrgentChange } from "./updateInterval";
@@ -92,17 +92,13 @@ describe("the owner's red notice while an Admin reads", () => {
     expect(container.querySelector(".read-notes")).toBeNull();
   });
 
-  it("hides on the X, for that reading only, and stays hidden when the page is opened again; a later read shows again", async () => {
-    const first = await notes(fakeApi({ readers: { ask: { s1: [live("Root", NOW - 20_000)] } } }));
-    fireEvent.click(screen.getByRole("button", { name: "Close notice: Admin reading your waiting plan, question or tool request" }));
-    expect(first.container.querySelector("[data-testid='read-notice']")).toBeNull();
-    expect(JSON.parse(window.localStorage.getItem("podium.sessionreads.dismissed")!)).toEqual([readingKey("ask", "s1", "Root", NOW - 20_000)]);
-    first.unmount();
-    const again = await notes(fakeApi({ readers: { ask: { s1: [live("Root", NOW - 20_000)] } } }));
-    expect(again.container.querySelector("[data-testid='read-notice']")).toBeNull();
-    again.unmount();
-    const later = await notes(fakeApi({ readers: { ask: { s1: [live("Root", NOW - 1_000)] } } }));
-    expect(later.container.querySelector("[data-testid='read-notice']")).not.toBeNull();
+  it("has no X and cannot be hidden, even by an old dismissal of the same reading", async () => {
+    window.localStorage.setItem("podium.sessionreads.dismissed", JSON.stringify([readingKey("ask", "s1", "Root", NOW - 20_000)]));
+    const { container } = await notes(fakeApi({ readers: { ask: { s1: [live("Root", NOW - 20_000)] } } }));
+    const note = container.querySelector("[data-testid='read-notice']")!;
+    expect(note).not.toBeNull();
+    expect(note.querySelector("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Close notice: Admin reading/ })).toBeNull();
   });
 
   it("is seen by the owner only: an Admin who is not the owner, a person who is not, and a session of the shared Admin name see nothing", async () => {
@@ -119,11 +115,10 @@ describe("the owner's red notice while an Admin reads", () => {
     }
   });
 
-  it("is seen by an Admin who is the session's owner, and the Admin can dismiss it", async () => {
+  it("is seen by an Admin who is the session's owner, with no X either", async () => {
     const { container } = await notes(fakeApi({ me: ADMIN_ME, readers: { ask: { s1: [live("Sam")] } } }), "ask", { ...SESSION, owner: "Root" });
     expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Sam (an Admin) is reading your waiting plan, question or tool request.");
-    fireEvent.click(screen.getByRole("button", { name: /Close notice/ }));
-    expect(container.querySelector("[data-testid='read-notice']")).toBeNull();
+    expect(container.querySelector("[data-testid='read-notice'] button")).toBeNull();
   });
 
   it("is gone once the Admin's reading has ended by the server's clock", async () => {
@@ -131,11 +126,10 @@ describe("the owner's red notice while an Admin reads", () => {
     expect(container.querySelector("[data-testid='read-notice']")).toBeNull();
   });
 
-  it("hides every Admin of one notice with one X", async () => {
+  it("names every Admin of one notice, still with no X", async () => {
     const { container } = await notes(fakeApi({ readers: { ask: { s1: [live("Root"), live("Sam", NOW - 10_000)] } } }));
     expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Root and Sam (Admins) are reading your waiting plan, question or tool request.");
-    fireEvent.click(screen.getByRole("button", { name: /Close notice/ }));
-    expect(container.querySelector("[data-testid='read-notice']")).toBeNull();
+    expect(container.querySelector("[data-testid='read-notice'] button")).toBeNull();
   });
 });
 
@@ -286,7 +280,6 @@ describe("the words", () => {
     expect(readingLine("ask", "x", [live("Root"), live("Sam"), live("Kim"), live("Lee")])).toBe("Root, Sam and 2 more Admins are reading your waiting plan, question or tool request.");
     expect(readingRest([live("Root"), live("Sam")])).toBe("Only you and Admins can open it. The notice clears about 30 seconds after the last of them stops.");
     expect(readRecordLine("ask", "x", read("Root", at(14, 2)), NOW)).toBe("Root (an Admin) opened your waiting plan, question or tool request on 14:02.");
-    expect(readingLabel("activity")).toBe("Admin reading your stored Activity");
     expect(recordLabel("activity", "x", read("Root", at(14, 2)))).toBe("Root (an Admin) read the stored Activity of x");
   });
 });

@@ -111,6 +111,23 @@ describe.each([
     expect(JSON.stringify(told)).not.toContain(PROMPT);
   });
 
+  it('writes the one Admin log line when a ping began the reading first (#1166), and not again for a second read or a second ping', async () => {
+    const s = await setup();
+    const boss = await signedIn(s.app, 'Boss', s.boss.token);
+    const ping = () => boss.post(`/api/fleet/respond/sessions/${SID}/admin-reads/${kind}/reading`).set(H).send({ loop: s.agentId });
+    expect((await ping()).status).toBe(200);
+    expect(await s.logRows(log)).toHaveLength(0); // a ping reads nothing, so it writes no line
+    expect((await boss.get(url(s))).status).toBe(200);
+    expect((await boss.get(url(s))).status).toBe(200);
+    expect((await ping()).status).toBe(200);
+    expect((await boss.get(url(s))).status).toBe(200);
+    expect(await s.reads(kind)).toHaveLength(1);
+    const rows = await s.logRows(log);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toContain('Boss');
+    expect(JSON.stringify(rows)).not.toContain(PROMPT);
+  });
+
   it('names the admin secret by the name the Admin log gives it', async () => {
     const s = await setup();
     const root = await signedIn(s.app, 'Admin', SECRET);

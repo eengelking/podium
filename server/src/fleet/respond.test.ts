@@ -1092,6 +1092,25 @@ describe('an Admin opening a waiting ask (#1073)', () => {
     expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read')).toHaveLength(1);
   });
 
+  it('writes the one Admin log line when a ping began the reading first (#1166)', async () => {
+    const { app, fleet, people, boss } = await withAsk();
+    const changed = vi.spyOn(fleet, 'sessionReadsChanged');
+    const b = await signedIn(app, 'Boss', boss.token);
+    const ping = () => b.post('/api/fleet/respond/sessions/sess-ed/admin-reads/ask/reading').set({ 'X-Podium-Respond': '1' }).send({});
+    expect((await ping()).status).toBe(200);
+    const logged = async () => (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read');
+    expect(await logged()).toHaveLength(0);
+    expect((await b.get(askUrl)).status).toBe(200);
+    expect((await b.get(askUrl)).status).toBe(200);
+    expect((await ping()).status).toBe(200);
+    expect((await b.get(askUrl)).status).toBe(200);
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toHaveLength(1);
+    const rows = await logged();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toContain('toolu_q');
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   it('does not notice the owner\'s own open, an unknown ask, or an ask of a session the shared Admin name owns', async () => {
     const { app, fleet, people, ed } = await withAsk();
     const e = await signedIn(app, 'Ed', ed.token);

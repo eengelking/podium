@@ -289,6 +289,20 @@ describe('a tool permission decided from Podium', () => {
     expect(shape(e)[2]).toEqual([3, 'result', 'Bash', 1, true, undefined])
   })
 
+  test('a Podium Deny counts as denied in the tool stats, not as allowed or failed (#1167)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    const { call, pr, id } = await prompt($, w)
+    w.deliver(by('deny', id, { text: 'Run the build first.' }))
+    await pr
+    w.toolRun.resolve!({ isError: true, text: 'Run the build first.', result: 'Run the build first.' })
+    await call
+    await sent(w)
+    const reports = w.calls.filter((c) => c.path === '/api/fleet/report').map((c) => c.body as Report)
+    const stats = reports.map((r) => r.session?.loop?.toolStats?.Bash).filter(Boolean).at(-1)
+    expect(stats).toEqual({ asked: 1, denied: 1, podium: 1, times: expect.any(Object) })
+  })
+
   test('a Podium Deny that the terminal beat is not recorded', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)

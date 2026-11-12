@@ -80,15 +80,18 @@ describe('noteSession', () => {
     const reads = fleet.chat.adminReads;
     const viewer = (n: string, admin: boolean) => ({ name: n, actor: n, admin, personId: 1 });
     const s = { id: SID, name, owner: 'Ed' };
-    expect(await reads.noteSession(viewer('Alex', false), 'ask', s)).toEqual({ told: false, changed: false });
-    expect(await reads.noteSession(viewer('Ed', true), 'ask', s)).toEqual({ told: false, changed: false });
-    expect(await reads.noteSession(viewer('Boss', true), 'ask', { ...s, owner: null })).toEqual({ told: false, changed: false });
-    expect(await reads.noteSession(viewer('Boss', true), 'ask', { ...s, owner: ADMIN_OWNER })).toEqual({ told: false, changed: false });
+    expect(await reads.noteSession(viewer('Alex', false), 'ask', s)).toEqual({ told: false, changed: false, logDue: false });
+    expect(await reads.noteSession(viewer('Ed', true), 'ask', s)).toEqual({ told: false, changed: false, logDue: false });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', { ...s, owner: null })).toEqual({ told: false, changed: false, logDue: false });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', { ...s, owner: ADMIN_OWNER })).toEqual({ told: false, changed: false, logDue: false });
     expect(await reads.list(`ask:${SID}`)).toEqual([]);
-    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: true });
-    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: false });
-    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: false });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: true, logDue: false });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: false, logDue: false });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', s)).toEqual({ told: true, changed: false, logDue: false });
     expect((await reads.list(`ask:${SID}`)).map((r) => r.admin)).toEqual(['Boss']);
+    // a read that serves the content owes its Admin log line once for the record, even though the notes above (pings) began it
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', s, undefined, true)).toEqual({ told: true, changed: false, logDue: true });
+    expect(await reads.noteSession(viewer('Boss', true), 'ask', s, undefined, true)).toEqual({ told: true, changed: false, logDue: false });
     expect(boss.person.name).toBe('Boss');
     expect(alex.person.name).toBe('Alex');
   });

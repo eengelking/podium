@@ -1,6 +1,7 @@
 // The words `/podium` takes in OpenCode (#987, #969): which one was typed, and the text that answers it. Pure; index.ts passes what each
 // word needs and shows the answer where the host allows (a toast).
 import { contextArgs, nameArg } from '../core/podiumCommand.ts';
+import { isConfigArgs } from '../core/settingsWindow.ts';
 import { parseAnswer } from '../core/peers.ts';
 
 export interface CommandDeps {
@@ -12,6 +13,8 @@ export interface CommandDeps {
   context: (args: string) => Promise<string>;
   /** The connection's status, and the requests waiting. */
   status: () => string;
+  /** `/podium config` (#1001): opens the settings window, and answers '' when it did, or says where the settings are. */
+  config: () => Promise<string>;
 }
 
 /** The text the prompt of the command holds, without the command word. */
@@ -19,6 +22,7 @@ export const argsOf = (text: unknown): string => String(text ?? '').replace(/^\/
 
 /** Runs what was typed after `/podium`. A word it does not know gives the status. */
 export async function runPodium(args: string, d: CommandDeps): Promise<string> {
+  if (isConfigArgs(args)) return d.config();
   const asked = parseAnswer(args);
   if (asked) return d.answer(asked.answer, asked.id);
   const context = contextArgs(args);

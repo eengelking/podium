@@ -342,14 +342,14 @@ Do not bump the version in a feature or fix PR, including one that changes the m
 `plugin/claudecode/` or `plugin/core/` other than its tests). Add a changelog fragment and leave the
 version files alone. The maintainer decides when `development` is ready to release. A release-prep PR into
 `development` then sets one number in `plugin/claudecode/.claude-plugin/plugin.json` (and in the version file of any other harness that has one), `VERSION` in `plugin/claudecode/hooks/register.ts`, the three
-`package.json` files and the lockfile (`npm install --package-lock-only`), assembles the changelog fragments and renames `[Unreleased]`; a test checks
+`package.json` files, `plugin/opencode/package.json` and `plugin/opencode/version.ts`, and the lockfile (`npm install --package-lock-only`), assembles the changelog fragments and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
 "Releases", says how the bump level is chosen, and the `/podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
 
-If the bump is a new minor version, also move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
-that version. Each reporter has its own entry, so another reporter's range moves only with that reporter's releases. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
+If the bump is a new minor version, also move `max` in both entries of `REPORTER_SUPPORT` (`podium-reporter-claudecode` and `podium-reporter-opencode`, in `server/src/fleet/compat.ts`) to
+that version, because the two reporters share the product's version. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
 `min` only when the server stops reading older reports correctly. SPEC 6.8 has the rule.
 
 ### The report format

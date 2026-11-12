@@ -129,18 +129,18 @@ describe('an Admin never reads in silence: what the person is told', () => {
     cy.contains('td', 'read the stored Activity of stored-run').should('contain.text', 'owned by Ed');
   });
 
-  it('hides a notice with its X on this browser only: it stays hidden after a reload, and the record stays on the server', () => {
+  it('has no X on the live red notice: it cannot be closed, it is still there after a reload, and the record stays on the server', () => {
     // A second read of the same thread within 30 minutes is the same record, live again.
     adminPagesActivity();
     cy.signIn('Ed');
     const id = seeded().sessions.stored;
     cy.openConsole(`#/?open=${id}`);
     notes('activity').find('[data-testid=read-notice]').should('exist');
-    notes('activity').find('[data-testid=read-notice] button.x').should('have.attr', 'aria-label', 'Close notice: Admin reading your stored Activity').click();
-    notes('activity').should('not.exist');
+    notes('activity').find('[data-testid=read-notice] button').should('not.exist');
     cy.reload();
     cy.get('[data-testid="connection-pill"]', { timeout: 15000 }).should('have.attr', 'data-state', 'live');
-    notes('activity').should('not.exist');
+    notes('activity').find('[data-testid=read-notice]').should('exist');
+    notes('activity').find('[data-testid=read-notice] button').should('not.exist');
     records('activity', id).should('have.length', 1);
   });
   it('tells no one when the owner reads the whole text and the live activity of his own agent', () => {

@@ -9,7 +9,7 @@ order: 10
 
 Data leaves a session only to the server URL you set, and only the fields
 [REPORTER.md](../REPORTER.md#what-leaves-the-session) lists. Text is cut to fixed limits, and anything that looks like a
-secret is replaced with `[redacted]` before it is sent. Podium does not read whole conversations or send whole files, except through the opt-in options that REPORTER.md lists.
+secret is replaced with `[redacted]` before it is sent. Podium does not read whole conversations or send whole files, except through the opt-in options that REPORTER.md lists. The options below are named as Claude Code has them; on OpenCode each is a `PODIUM_*` variable (`PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED` and so on), except `fileDiffPreload`, which is a plugin option in `opencode.json`. REPORTER.md lists them.
 
 | What | When it leaves the session |
 |---|---|

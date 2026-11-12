@@ -7,7 +7,7 @@ order: 9
 
 # Updating the mod
 
-The mod and the server are released separately, so you update them separately. A card marked `reporter 0.1.0 · update`
+The mod and the server share one version number, but they are installed separately, so you update them separately. A card marked `reporter 0.1.0 · update`
 means the mod in that session is older than the server supports. For what each message means, see
 [Gotchas](../gotchas/status-line-update-mod-or-upgrade-server.md).
 
@@ -51,13 +51,13 @@ A running OpenCode session keeps the version it loaded until the service restart
 **The other direction.** A card marked `· upgrade server` means the mod is newer than the server. Upgrade the server with
 `podiumctl build` and then `podiumctl restart`. For a plain Node install, pull, run `npm run build`, then restart.
 
-**Which build is this?** The footer at the bottom of the left list and of Admin shows `Podium v1.1.0` for a release.
+**Which build is this?** The footer at the bottom of the left list and of Admin shows `Podium v` and the release's number (for example `Podium v1.6.0`) for a release.
 A build of any other commit, such as one from the `development` branch, adds a row above the version that reads
 `Dev: a1b2c3d4`, the commit it was built from, with `-dirty` after it when the tree had local edits. The row comes
 from `podiumctl build`, which records the commit, so a server built another way (`npm run build`, or an image built
 with plain `podman build` or `docker build`) shows the version alone. The reporter mod does the same when you run it from a checkout of
-this repository: its status line reads `podium v1.1.0 | dev: a1b2c3d4 ● 2 live`, and the Reporter cell on a session's
-page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release. A mod you run from `dist-dev/claudecode/` after `npm run plugin:build` still shows the commit, because that build writes it into the folder; a folder built any other way shows the version alone.
+this repository: its status line reads `podium v1.6.0 | dev: a1b2c3d4 ● 2 live`, and the Reporter cell on a session's
+page reads `1.6.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release. A mod you run from `dist-dev/claudecode/` after `npm run plugin:build` still shows the commit, because that build writes it into the folder; a folder built any other way shows the version alone.
 
 <!-- nav:start -->
 ---

@@ -364,7 +364,7 @@ PostgreSQL and MariaDB are untested, and MySQL is not supported.
 ## Using PostgreSQL
 
 SQLite is the default and needs nothing from you. Set `PODIUM_DB` to a `postgres://` URL to keep the same data in PostgreSQL
-instead. Nothing is copied over from a SQLite file. This is a new option in 1.5 and has had less use than SQLite, so read the
+instead. Nothing is copied over from a SQLite file. PostgreSQL arrived in 1.5 and has had less use than SQLite, so read the
 limits below before you rely on it.
 
 **What the database needs**

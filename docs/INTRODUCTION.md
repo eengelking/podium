@@ -33,7 +33,7 @@ Podium has two parts, and you run both yourself:
 |---|---|
 | Set Podium up and read the console | [User guide](user-guide/README.md) |
 | Run the server for yourself or a team | [Running the server](SERVER.md) |
-| Install and configure the mod | [Reporter](REPORTER.md) |
+| Install and configure the reporter (Claude Code or OpenCode) | [Reporter](REPORTER.md) |
 | Let your own orchestrators message each other | [Messaging](MESSAGING.md) |
 | Record a session and play it back | [Session recording and replay](REPLAY.md) |
 | Show Podium to other people | [Demo](DEMO.md) |

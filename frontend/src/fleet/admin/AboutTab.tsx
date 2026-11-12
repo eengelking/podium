@@ -58,6 +58,7 @@ export function AboutTab({ api, onLocked }: { api: AdminApi; onLocked: () => voi
           {about === null ? `Could not load this page (${error}). Reload it to try again.` : `Could not refresh this page (${error}). It shows what was last read.`}
         </div>
       )}
+      {about === null && !error && <div className="empty">Loading…</div>}
       {about && (
         <>
           <Section id="about-server-h" title="Podium server" help="Read from the running server. Nothing is collected from a machine for this page.">
