@@ -92,7 +92,7 @@ export const STATIC_DIRS = [
 ];
 
 /** The app stylesheets the standards pages load, copied unchanged from the same version of the repository. */
-export const STYLES = ["frontend/src/fleet/tokens.css", "frontend/src/fleet/fleet.css", "frontend/src/fleet/admin/admin.css"];
+export const STYLES = ["frontend/src/fleet/tokens.css", "frontend/src/fleet/fleet.css", "frontend/src/fleet/admin/admin.css", "frontend/src/fleet/chat.css"];
 
 export const REPO = "eengelking/podium";
 export const SITE_ORIGIN = "https://podium.engelking.dev";

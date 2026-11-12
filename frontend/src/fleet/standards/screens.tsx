@@ -9,6 +9,7 @@ import { stateFrom } from "../testState";
 import type { Failure, LifecycleConfig, SessionView } from "../types";
 import { ADMIN_SCREENS } from "./screens.admin";
 import { APP_SCREENS } from "./screens.app";
+import { CHAT_SCREENS } from "./screens.chat";
 import { MESSAGING_SCREENS } from "./screens.messaging";
 import { RESPOND_SCREENS } from "./screens.respond";
 import { RECORDING_SCREENS } from "./screens.recording";
@@ -97,6 +98,7 @@ export const SCREENS: Record<string, Screen> = {
   ...MESSAGING_SCREENS,
   ...RESPOND_SCREENS,
   ...APP_SCREENS,
+  ...CHAT_SCREENS,
   ...STATE_SCREENS,
   ...RECORDING_SCREENS,
 };
