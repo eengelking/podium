@@ -3,7 +3,7 @@
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { withBuild } from './build.ts';
 import { trimTrailingSlashes } from './machine.ts';
-import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
+import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent, type AdminNotice, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
@@ -16,6 +16,7 @@ const MAX_WATCHED = 201;
 const MAX_DIFF_REQUESTS = 4;
 /** Messages and commands one reply can hand over (#206). */
 const MAX_DELIVERIES = 20;
+const MAX_ADMIN_NOTICES = 8;
 
 /** Why a refusal is one the user can act on (#850): a v2 report an older server cannot read (its 400 names `$.v`), or a session id kept by another harness. */
 function rejectReasonOf(status: number, text: string, version: number): 'version' | 'harness' | null {
@@ -47,6 +48,12 @@ export function isPeerRequest(v: unknown): v is PeerRequest {
   const r = v as Partial<PeerRequest> | null;
   const side = (s: unknown) => !!s && typeof s === 'object' && typeof (s as { machine?: unknown }).machine === 'string';
   return !!r && typeof r === 'object' && typeof r.id === 'string' && r.id.length > 0 && (r.kind === 'proposal' || r.kind === 'access' || r.kind === 'message') && side(r.from) && side(r.to) && typeof r.by === 'string';
+}
+
+/** A callout for the person as the server sends it (#1034): only its shape is checked here. */
+export function isAdminNotice(v: unknown): v is AdminNotice {
+  const n = v as Partial<AdminNotice> | null;
+  return !!n && typeof n === 'object' && typeof n.id === 'string' && n.id.length > 0 && typeof n.text === 'string' && typeof n.at === 'number';
 }
 
 /** A grant as the server sends it: only its shape is checked here. */
@@ -154,6 +161,8 @@ export class Transport {
   peerDeliveries: PeerDelivery[] = [];
   /** The owner's open requests about this reporter, from the last reply (#347); empty while `peers` is false. */
   peerRequests: PeerRequest[] = [];
+  /** Callouts for the person from the last reply (#1034), whatever the `peers` option: a mod shows each once, to the person only, and empties this. */
+  adminNotices: AdminNotice[] = [];
   /** Session recording's state from the last accepted report's reply (#353); null from a server that predates it, which a mod reads as off. */
   recording: RecordingGrant | null = null;
   inFlight = false;
@@ -230,7 +239,7 @@ export class Transport {
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; recording?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; adminNotices?: unknown; recording?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
@@ -246,6 +255,7 @@ export class Transport {
           this.peers = body.peers === true;
           this.peerDeliveries = this.peers && Array.isArray(body.peerDeliveries) ? body.peerDeliveries.filter(isPeerDelivery).slice(0, PEER_LIMITS.deliveries) : [];
           this.peerRequests = this.peers && Array.isArray(body.peerRequests) ? body.peerRequests.filter(isPeerRequest).slice(0, PEER_LIMITS.requests) : [];
+          this.adminNotices = Array.isArray(body.adminNotices) ? body.adminNotices.filter(isAdminNotice).slice(0, MAX_ADMIN_NOTICES) : [];
           this.recording = isRecordingGrant(body.recording) ? body.recording : null;
         } catch {
           // a 200 without a JSON body still acks what was sent

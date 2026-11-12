@@ -4,8 +4,10 @@
 import { excerpt, explainPrompt } from '../core/failures.ts';
 import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
+import { isLaunchId, LAUNCH_ENDED, launchId, launchName } from '../core/launch.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
-import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
+import type { AdminNotice, DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
+import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeToast } from '../core/adminNotice.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
@@ -13,7 +15,7 @@ import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { apply, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
+import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -55,10 +57,14 @@ export interface ReporterDeps {
   log: (line: string) => void;
   /** The name `/podium name` kept for a session (`ctx.storage`), or null; asked once for each root when it appears (#987). */
   loadName?: (rootId: string) => Promise<string | null>;
-  /** Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. */
+  /**
+   * Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. Where it is given, an Admin
+   * callout is held until it is true and counts as shown only when the TUI part says so (`adminShown`, #1051): the TUI part may be gone for up to the attach
+   * time limit, or not listening yet, and a toast sent then goes nowhere.
+   */
   attached?: () => boolean;
   /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
-  notify?: (line: string) => void;
+  notify?: (line: string, opts?: { durationMs?: number; id?: string; admin?: boolean }) => void;
   /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
   problem?: () => { status: string } | null;
   /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
@@ -124,6 +130,9 @@ export interface Summary {
   messaging: { option: boolean; canPrompt: boolean; reported: boolean; serverSays: boolean };
 }
 
+/** How long after a callout was offered to the TUI part, with no word that it was shown, it is offered again. A report goes out every few seconds, so this is a few reports. */
+export const ADMIN_OFFER_AGAIN_MS = 10_000;
+
 export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
 export class Reporter {
@@ -141,6 +150,12 @@ export class Reporter {
   /** Answering from Podium (#858); null when the person has not allowed it or the host cannot do it. */
   private readonly answering: Answering | null;
   private readonly responder: Responder;
+  /** The callouts an Admin's reading earned that were shown already (#1034); a notice the server keeps handing over is shown once. */
+  private readonly adminSeen = new AdminNoticeSeen();
+  /** When each callout that waits for the TUI part's word was last offered to it. */
+  private readonly adminOffered = new Map<string, number>();
+  /** Callouts the server handed over while no TUI part was attached, kept until one is: the server's list of them is in memory and each reply replaces the last. */
+  private readonly adminHeld = new Map<string, AdminNotice>();
   /** Orchestrator messaging (#347); null unless the person allowed it (`PODIUM_PEERS`) and the host can submit a prompt. */
   private readonly peers: Peers | null;
   /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
@@ -163,6 +178,33 @@ export class Reporter {
     this.peers = opts.peers && deps.prompt ? new Peers({ responder: this.responder, prompt: deps.prompt, notify: deps.notify, now: deps.now, owner: () => opts.userName, machine: () => opts.machine?.name ?? null, callMs: deps.peerCallMs, log: deps.log }) : null;
   }
 
+  /** The placeholder session reported at launch (#1112), while it is open; null before it and after it ended. */
+  private launchRoot: string | null = null;
+  /** Whether the launch was announced: it is announced once, and never again after the first real session. */
+  private announced = false;
+
+  /**
+   * Announces this launch to the chat before any session exists (#1112): a placeholder session that has done nothing, so the server lists it in
+   * People and agents and keeps it off the wall. It ends when the first real session starts. Nothing is sent from here: the timer sends it.
+   */
+  announce(cwd: string | null): void {
+    if (this.closed || this.announced || [...this.store.roots.values()].some((r) => !isLaunchId(r.id))) return;
+    this.announced = true;
+    const now = this.deps.now();
+    const root = announceRoot(this.store, launchId(globalThis.crypto.randomUUID()), cwd, now, launchName(cwd, 'OpenCode'));
+    this.launchRoot = root.id;
+    this.refreshGit(root, now);
+  }
+
+  /** The first real session has started, so the placeholder has done its work: it ends and the chat lists the real one. */
+  private retireLaunch(now: number): void {
+    const root = this.launchRoot ? this.store.roots.get(this.launchRoot) : undefined;
+    this.launchRoot = null;
+    if (!root) return;
+    finish(root, now, LAUNCH_ENDED);
+    this.queue(root);
+  }
+
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */
   handle(ev: BusEvent): void {
     if (this.closed) return;
@@ -176,6 +218,7 @@ export class Reporter {
     const root = apply(this.store, ev, this.deps.now());
     if (ev.type === 'session.step.started') this.wantWindow(ev.data?.model?.providerID, ev.data?.model?.id);
     if (root) {
+      if (this.launchRoot && !isLaunchId(root.id)) this.retireLaunch(this.deps.now());
       this.queue(root);
       if (!root.done) {
         this.refreshGit(root, this.deps.now());
@@ -263,7 +306,7 @@ export class Reporter {
 
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */
   sessionIds(): string[] {
-    return [...this.store.rootOf.keys()];
+    return [...this.store.rootOf.keys()].filter((id) => !isLaunchId(id));
   }
 
   /** Permissions that were open when the plugin reloaded (`ctx.permission.list`): the bus will not announce them again. */
@@ -331,6 +374,43 @@ export class Reporter {
     setWatched(root, o.activityFeed ? t.watch : []);
     setWatchedOutput(root, o.activityFeed && o.activityOutput ? t.watchOutput.filter((id) => root.watched.includes(id)) : []);
     this.takeRecording(root, t.recording);
+    this.takeAdminNotices(t);
+  }
+
+  /**
+   * An Admin read, paused, resumed or removed the messages of one of this person's Podium conversations (#1034): a toast, each once. It is for the person
+   * only, never a prompt, a turn or a tool's answer, so the model does not read it, and it does not depend on the messaging option.
+   *
+   * With a TUI part to confirm (`attached` is given) a callout is offered while the part is attached, again after `ADMIN_OFFER_AGAIN_MS` until `adminShown` says it
+   * was shown, and held while none is attached (the server hands it over for minutes, so it is shown when a TUI part comes). Without one it is shown once.
+   */
+  private takeAdminNotices(t: Transport): void {
+    const confirms = !!this.deps.attached;
+    if (confirms && !this.deps.attached!()) {
+      // Held, not dropped: none that was shown (or is held already) is added again, and the oldest go past 50.
+      for (const n of t.adminNotices) if (!this.adminSeen.has(n.id)) this.adminHeld.set(n.id, n);
+      for (const id of this.adminHeld.keys()) if (this.adminHeld.size <= 50) break; else this.adminHeld.delete(id);
+      return;
+    }
+    const list = [...new Map([...this.adminHeld, ...t.adminNotices.map((n): [string, AdminNotice] => [n.id, n])]).values()];
+    this.adminHeld.clear();
+    t.adminNotices = [];
+    const now = this.deps.now();
+    for (const n of list) {
+      if (this.adminSeen.has(n.id)) continue;
+      const told = this.adminOffered.get(n.id);
+      if (confirms && told !== undefined && now - told < ADMIN_OFFER_AGAIN_MS) continue;
+      if (!confirms) this.adminSeen.add(n.id);
+      else this.adminOffered.set(n.id, now);
+      this.deps.notify?.(adminNoticeToast(n), { durationMs: ADMIN_NOTICE_TOAST_MS, id: n.id, admin: true });
+    }
+    for (const id of this.adminOffered.keys()) if (this.adminOffered.size <= 100) break; else this.adminOffered.delete(id);
+  }
+
+  /** The TUI part showed the Admin callout `id` (#1051): it is not offered again. */
+  adminShown(id: string): void {
+    this.adminSeen.add(id);
+    this.adminOffered.delete(id);
   }
 
   /** Takes the server's grant for the recording and tells the owner what changed. Capture needs the owner's option on as well; with it off nothing is captured. */
@@ -446,6 +526,12 @@ export class Reporter {
     }
   }
 
+  /** The last TUI part left (#1029): every root that is quiet now is over, and the next tick reports it, without the idle wait. */
+  detached(): void {
+    if (this.closed) return;
+    endQuiet(this.store, this.deps.now(), 'detached');
+  }
+
   /**
    * One pass of the flush timer: finish quiet roots, then send what is due. Resolves when this pass's sends have
    * settled, which only the timer's caller waits on, never `handle`.
@@ -468,7 +554,9 @@ export class Reporter {
     await Promise.all(sends);
     await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));
     if (this.peers) {
-      for (const root of this.store.roots.values()) this.peers.take(root, this.transportOf(root));
+      // A real session first: the placeholder (#1112) only refuses what a real one did not take.
+      const roots = [...this.store.roots.values()].sort((a, b) => Number(isLaunchId(a.id)) - Number(isLaunchId(b.id)));
+      for (const root of roots) this.peers.take(root, this.transportOf(root));
       await this.responder.flush();
     }
     for (const root of this.store.roots.values()) this.handleDiffs(root, this.transportOf(root));
@@ -489,6 +577,8 @@ export class Reporter {
       for (const s of root.sessions.values()) {
         // Only an agent's failure reaches a report, as in Claude Code; the root session's would be explained for nobody (#1012).
         if (s.id === root.id) continue;
+        // Nor an agent that finished normally after a failing call: its report carries no failure (#1021).
+        if (s.end !== 'failed' && s.end !== 'aborted') continue;
         const f = s.failure;
         if (!f || f.explanation || s.explainedAt === f.at) continue;
         if (this.explaining >= EXPLAIN_AT_ONCE) return;
@@ -519,14 +609,15 @@ export class Reporter {
    * that it takes part. Claude Code's mod shows its tools on the same word. The tools come and go with it (`ctx.tool.reload`).
    */
   get offersMessaging(): boolean {
-    return this.peers !== null && [...this.transports.values()].some((t) => t.peers);
+    // The launch placeholder's word does not count (#1112): it is no session a tool could run in, and its transport outlives it until it is forgotten.
+    return this.peers !== null && [...this.transports].some(([id, t]) => t.peers && !isLaunchId(id));
   }
 
   /**
-   * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`) from the session it ran in. A call from a subagent's
+   * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`) from the session it ran in. A call from a subagent's
    * session is refused: only an orchestrator takes part. The answer is the tool's text, never a thrown error.
    */
-  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access', sessionId: string, input: unknown): Promise<string> {
+  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access' | 'podium_chat_read', sessionId: string, input: unknown): Promise<string> {
     const peers = this.peers;
     if (!peers) return 'Not taking part. Orchestrator messaging is off on this machine.';
     const rootId = this.store.rootOf.get(sessionId);
@@ -536,6 +627,7 @@ export class Reporter {
     const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
     if (name === 'podium_peers') return peers.list(root, t, sub);
     if (name === 'podium_send') return peers.send(root, t, sub, args);
+    if (name === 'podium_chat_read') return peers.chatRead(root, t, sub, args);
     return peers.access(root, t, sub, args);
   }
 

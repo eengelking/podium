@@ -25,6 +25,7 @@ import {
   newSession,
   notification,
   permissionRequest,
+  permissionAsked,
   PLAN_TOOL,
   reconcile,
   resetForNewId,
@@ -57,22 +58,31 @@ import {
 import { nextCronAt } from './cron.ts';
 import { Transport, type FetchLike } from '../../core/transport.ts';
 import { Responder, newResponderState, sessionPath } from '../../core/respond.ts';
+import { bumpSignals, reportSignals, type Signals } from '../../core/signals.ts';
+import { CLAUDE_FIELDS } from './signals.ts';
 import { findLinkConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { readHome } from '../../core/tls/findConfig.ts';
 import { contextArgs } from '../../core/podiumCommand.ts';
+import { isConfigArgs } from '../../core/settingsWindow.ts';
+import { registerConfigPane } from './configPane.tsx';
 import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
-import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
+import { activityCall, activityText, cap, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { pinnedMachineName, readOsName, type HostIO } from '../../core/machineHost.ts';
+import { claudeSettingsPath, resumeWindowFromSettings } from '../../core/resumeWindow.ts';
 import { chooseMachineId, sharedMachineIdPath, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, machineInfo, newMachineId, platformRandom, type RandomSource, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
-import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
+import { MAIN_LOOP, RECORDING_LIMITS, type ActivityEntry, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
 import { isRecordingGrant } from '../../core/transport.ts';
 import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
 import { redactText } from '../../core/diffRedact.ts';
 import {
   accessAnswer,
   answerPaused,
+  channelArgument,
+  chatReadAnswer,
+  channelSendAnswer,
+  channelSendTarget,
   appliedLevel,
   deliveredLine,
   errorOf,
@@ -90,12 +100,18 @@ import {
   requestLine,
   requestToast,
   sendAnswer,
+  withChatHint,
+  SEND_TO_DESCRIPTION,
+  CHAT_READ_BEFORE_DESCRIPTION,
+  CHAT_READ_CHANNEL_DESCRIPTION,
   shortId,
   SUBAGENT_ACCESS,
+  SUBAGENT_CHAT_READ,
   SUBAGENT_PEERS,
   SUBAGENT_SEND,
   TOOL_DESCRIPTIONS,
 } from '../../core/peers.ts';
+import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeLine, adminNoticeToast } from '../../core/adminNotice.ts';
 import { connectionLine, messagingLine, optionProblem, messagingOffReason, nonBooleanOptions, type MessagingFacts } from './messagingStatus.ts';
 import {
   answeredLine,
@@ -116,7 +132,7 @@ import {
   toolDenied,
 } from './respond.ts';
 
-export const VERSION = '1.5.1';
+export const VERSION = '1.6.0';
 const GIT_POLL_MS = 10_000;
 /** The app's title is read on every third git poll, so about every 30 s: it costs a process each time (#595). */
 const APP_TITLE_EVERY = 3;
@@ -183,6 +199,8 @@ interface Runtime {
   sawDesktop: boolean;
   /** The commit of a dev build of this mod, found once per load (#400); null for a release or an installed copy. */
   build: string | null;
+  /** The days Claude Code lets a person resume a closed session, from its `cleanupPeriodDays` (#1113). Read when the runtime is made. */
+  resumeWindowDays: number;
   flushing: boolean;
   /** A tool's early run is making calls (`flushPeers`); kept apart from `flushing` so a slow report never holds it. */
   peerFlushing: boolean;
@@ -258,6 +276,8 @@ let linking: Promise<void> | null = null;
 let generation = 0;
 let errors: { at: number; where: string; message: string }[] = [];
 let stats: Record<string, HookStat> = {};
+/** What the engine sent this reporter: each hook that ran and the fields the reporter reads from its event, as counts (#724). Sent with every report of the session. */
+let signals: Signals = {};
 /** Agents whose failure was sent for an explanation: at most one call per failure, never retried. */
 let explained = new Set<string>();
 
@@ -316,6 +336,8 @@ let classicSeen = false;
 let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
+/** Permission prompts raised and not yet settled, by loop and tool, so the call that ends says how its prompt ended (#721). A PermissionRequest has no tool_use_id. */
+let pendingAsks = new Map<string, number>();
 /** Calls that ended while their tool.check was still waiting for a PermissionRequest: answered, so no prompt is left to show (#741). */
 let endedChecks = new Set<string>();
 /** The `seq` a recorded tool call got, by its tool_use_id, so an answer or approval from Podium points at its call (#353). Dropped when the call ends. */
@@ -349,10 +371,12 @@ const PEER_KICK_MS = 50;
 const PEER_REQUESTS_KEPT = 50;
 
 let peerCalls: PeerCall[] = [];
-/** The three tools were registered in this load: once the reply first says the session takes part. */
+/** The tools were registered in this load: once the reply first says the session takes part. */
 let peerToolsRegistered = false;
 /** Requests seen in this load, by id, oldest first: each is toasted once. */
 let peerKnown = new Map<string, PeerRequest>();
+/** The callouts an Admin's reading earned, shown already (#1034). */
+let adminNoticesSeen = new AdminNoticeSeen();
 /** The ids the last reply listed as open. */
 let peerOpen: string[] = [];
 
@@ -377,6 +401,15 @@ function record($: Engine, where: string, err: unknown): void {
     $.ui.log(`podium-reporter: ${where}: ${message}`, { to: 'debug' });
   } catch {
     // logging is best effort
+  }
+}
+
+/** Counts one run of a hook and the listed fields its event carried (#724), before any reporter logic reads them, so a field that went missing shows even when the logic copes with it. */
+function seen(hook: string, event: unknown): void {
+  try {
+    bumpSignals(signals, hook, event, CLAUDE_FIELDS[hook]);
+  } catch {
+    // counting is best effort and never breaks a hook
   }
 }
 
@@ -452,6 +485,8 @@ function metaOf(r: Runtime, now: number) {
     engineVersion: r.engineVersion,
     hostSurface: r.hostSurface,
     build: r.build,
+    resumeWindowDays: r.resumeWindowDays,
+    signals: reportSignals(signals, (k) => k.slice(0, 120)),
     now,
     storedName: r.storedName,
     claudeName: (r.claudeName?.id === r.state.id ? r.claudeName.name : null) ?? (r.appName?.id === r.state.id ? r.appName.name : null),
@@ -573,6 +608,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     toastOnce($, r, true);
     handleDeliveries($, r);
     handleDiffs($, r);
+    handleAdminNotices($, r);
     handlePeers($, r);
     messagesLine($, r);
     takeRecording($, r.transport.recording);
@@ -875,6 +911,12 @@ async function machineId($: Engine): Promise<string> {
   if (sharedPath) await attempt(() => $.fs.write(sharedPath, `${id}\n`), undefined);
   if (path) await attempt(() => $.fs.write(path, `${id}\n`), undefined);
   return (await current()) ?? id;
+}
+
+/** The days Claude Code keeps a session resumable: `cleanupPeriodDays` in its user settings, else 30. A Desktop or Cowork session has no expiry by default, and no expiry is 30 as well (#1113). */
+async function readResumeWindow($: Engine): Promise<number> {
+  const path = claudeSettingsPath(await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined), (await readHome($)).home);
+  return resumeWindowFromSettings(path ? await attempt(async () => (await $.fs.read(path)) as string, null) : null);
 }
 
 /**
@@ -1201,9 +1243,17 @@ function loopKey(agentId: string | null | undefined): string {
   return agentId ?? '@main';
 }
 
+function withSortedKeys(o: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/**
+ * A tool's arguments as one string to compare, whatever order the keys came in: a call and its PermissionRequest list
+ * them differently (Edit carries `replace_all` first in the call and last in the request, #1044).
+ */
 function inputKey(input: unknown): string {
   try {
-    return JSON.stringify(input ?? null);
+    return JSON.stringify(input ?? null, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? withSortedKeys(v as Record<string, unknown>) : v));
   } catch {
     return '';
   }
@@ -1294,9 +1344,9 @@ async function permissionAsk($: Engine, r: Runtime, e: { tool_name: string; tool
  * The tool call of a permission ask ended: what happened is read from how it ended, since nothing else says (SPEC 5.3).
  * An answer from Podium that matches what happened took; otherwise the terminal answered first.
  */
-function settleToolAsk(id: string, res: ToolResult | undefined): void {
+function settleToolAsk(id: string, res: ToolResult | undefined): boolean {
   const a = asks.get(id);
-  if (!a || a.ask.kind !== 'permission') return;
+  if (!a || a.ask.kind !== 'permission') return false;
   const d = a.answered;
   const sent = d && d.kind !== 'allow-once' ? (toolDecision(d.kind === 'reply' ? { ...d, kind: 'deny' } : d).decision as { message?: string }).message : undefined;
   const denied = toolDenied(res, sent);
@@ -1305,10 +1355,11 @@ function settleToolAsk(id: string, res: ToolResult | undefined): void {
     queueResult(a.sessionId, d.id, 'took');
     // Only now, once the call ended the way the decision said: a decision the terminal beat is not recorded as Podium's.
     recordDecision(a.ask.agentId, id, d, 'permission', undefined, a.answeredAt);
-  } else {
-    if (d) queueResult(a.sessionId, d.id, 'closed');
-    queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
+    return true;
   }
+  if (d) queueResult(a.sessionId, d.id, 'closed');
+  queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
+  return false;
 }
 
 // ---- file diff on request (#319) ----------------------------------------------------------------
@@ -1371,7 +1422,8 @@ async function submitMessage($: Engine, sid: string, d: Delivery): Promise<void>
   sentFromPodium.push(text);
   if (sentFromPodium.length > 20) sentFromPodium.shift();
   try {
-    await $.prompt.submit({ text });
+    // The owner's own Chat message ends with where to answer, so the answer lands in the thread (#1034). The recording still keeps the bare text.
+    await $.prompt.submit({ text: withChatHint(text, d) });
     transcriptLine($, answeredLine(d, nowMs()));
     queueResult(sid, d.id, 'took');
   } catch (err) {
@@ -1419,6 +1471,24 @@ function peerPath(sessionId: string, rest: string): string {
 /** What became of a peer delivery: through the peer route, never responding's, from the same queue of 50. */
 function queuePeerResult(sessionId: string, deliveryId: string, result: PeerResult): void {
   queueOut({ path: peerPath(sessionId, `/deliveries/${encodeURIComponent(deliveryId)}/result`), body: { result, at: nowMs() } });
+}
+
+/**
+ * An Admin read, paused, resumed or removed the messages of one of this person's Podium conversations (#1034): a toast and a transcript line, each once.
+ * For the person only. It is not a prompt, a turn, a tool's answer or system text, so the model never reads it, and it does not depend on the messaging
+ * option: the person is told whether or not their agents take part in messaging.
+ */
+function handleAdminNotices($: Engine, r: Runtime): void {
+  const list = r.transport.adminNotices;
+  r.transport.adminNotices = [];
+  for (const n of adminNoticesSeen.fresh(list)) {
+    try {
+      $.ui.toast(adminNoticeToast(n), { timeoutMs: ADMIN_NOTICE_TOAST_MS });
+    } catch {
+      // no toasts on this host
+    }
+    transcriptLine($, adminNoticeLine(n));
+  }
 }
 
 /** The reply's messaging fields. Unless the mod takes part, nothing in them is taken, whatever the reply says. */
@@ -1501,7 +1571,7 @@ function showRequests($: Engine, list: PeerRequest[]): void {
   }
 }
 
-/** The three tools, once the reply first says this session takes part (SPEC 5.3): never offered while it does not. */
+/** The four tools, once the reply first says this session takes part (SPEC 5.3): never offered while it does not. */
 async function registerPeerTools($: Engine): Promise<void> {
   try {
     await $.tool.register({ name: 'podium_peers', description: TOOL_DESCRIPTIONS.peers, inputSchema: { type: 'object', properties: {} } });
@@ -1510,7 +1580,7 @@ async function registerPeerTools($: Engine): Promise<void> {
       description: TOOL_DESCRIPTIONS.send,
       inputSchema: {
         type: 'object',
-        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine", or "name@machine#id" when podium_peers shows an id' }, text: { type: 'string', description: 'The message' } },
+        properties: { to: { type: 'string', description: SEND_TO_DESCRIPTION }, text: { type: 'string', description: 'The message' } },
         required: ['to', 'text'],
       },
     });
@@ -1525,6 +1595,15 @@ async function registerPeerTools($: Engine): Promise<void> {
           reason: { type: 'string', description: 'Why, in a sentence' },
         },
         required: ['to', 'right', 'reason'],
+      },
+    });
+    await $.tool.register({
+      name: 'podium_chat_read',
+      description: TOOL_DESCRIPTIONS.chatRead,
+      inputSchema: {
+        type: 'object',
+        properties: { channel: { type: 'string', enum: ['general', 'group'], description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
+        required: ['channel'],
       },
     });
   } catch (err) {
@@ -1645,6 +1724,14 @@ async function sendTool($: Engine, e: { agentId?: unknown; to?: unknown; text?: 
   if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
   // Secrets go before the text leaves the machine, with the same redactor as a file's diff (SPEC 6.4).
   const red = redactText(raw);
+  // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
+  const target = channelSendTarget(to);
+  if (target && 'refusal' in target) return target.refusal;
+  if (target) {
+    const channel = target.channel;
+    const posted = await peerCall($, 'POST', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages`, { text: red.text });
+    return peerOutcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: ownerName(), redactions: red.redactions }));
+  }
   const out = await peerCall($, 'POST', peerPath(r.state.id, '/messages'), { to, text: red.text });
   return peerOutcome('Not sent.', out, (body) => sendAnswer(body, { owner: ownerName(), here: r.machine?.name ?? null, to, redactions: red.redactions }));
 }
@@ -1660,6 +1747,17 @@ async function accessTool($: Engine, e: { agentId?: unknown; to?: unknown; right
   const reason = typeof e.reason === 'string' ? redactText(e.reason).text : '';
   const out = await peerCall($, 'POST', peerPath(r.state.id, '/access'), { to, right, reason });
   return peerOutcome('Not asked.', out, (body) => accessAnswer(body, { owner: ownerName(), right, to }));
+}
+
+async function chatReadTool($: Engine, e: { agentId?: unknown; channel?: unknown; before?: unknown }): Promise<string> {
+  if (fromSubagent(e)) return SUBAGENT_CHAT_READ;
+  const r = rt;
+  if (!peersOn(r)) return notTakingPart('Not read.');
+  const channel = channelArgument(e.channel);
+  if (!channel) return 'Not read. channel must be general or group.';
+  const before = typeof e.before === 'string' && e.before.trim() ? `?before=${encodeURIComponent(e.before.trim())}` : '';
+  const out = await peerCall($, 'GET', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages${before}`);
+  return peerOutcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: ownerName() }));
 }
 
 // ---- orchestrator messaging: answering a request in the terminal (#414) ----------------------------------------
@@ -1773,6 +1871,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     state,
     transport,
     build,
+    resumeWindowDays: await readResumeWindow($),
     timers: [],
     flushSoon: (first) =>
       $.clock.after(PEER_KICK_MS, () => {
@@ -1809,8 +1908,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     // immediate: an answer to a request typed during a turn runs at once, not when the turn ends (#411). The other verbs run mid-turn too.
     await $.command.register({
       name: 'podium',
-      description: 'Podium fleet console: link, connection state, naming this session, which Podium server (context), and answering a messaging request',
-      argumentHint: '[name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
+      description: 'Podium fleet console: link, connection state, the settings window (config), naming this session, which Podium server (context), and answering a messaging request',
+      argumentHint: '[config | name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
       immediate: true,
     });
   } catch (err) {
@@ -2045,6 +2144,7 @@ export const register: Register = (on, rawOptions) => {
   generation++;
   errors = [];
   stats = {};
+  signals = {};
   explained = new Set();
   recorder = new Recorder();
   asks = new Map();
@@ -2055,6 +2155,7 @@ export const register: Register = (on, rawOptions) => {
   for (const c of checks.values()) c.cancel();
   checks = new Map();
   lastCalls = new Map();
+  pendingAsks = new Map();
   endedChecks = new Set();
   callSeqs = new Map();
   ranFromPodium = null;
@@ -2063,9 +2164,11 @@ export const register: Register = (on, rawOptions) => {
   peerCalls = [];
   peerToolsRegistered = false;
   peerKnown = new Map();
+  adminNoticesSeen = new AdminNoticeSeen();
   peerOpen = [];
 
   on('session.start', async ($, e, next) => {
+    seen('session.start', e);
     const res = await next(e);
     try {
       await start($, e);
@@ -2076,6 +2179,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('session.end', async ($, e, next) => {
+    seen('session.end', e);
     const res = await next(e);
     try {
       await end($, e, next.signal);
@@ -2086,6 +2190,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('turn.start', async ($, e, next) => {
+    seen('turn.start', e);
     safe('turn.start', (r) => {
       r.state = turnStart(r.state);
       recorder.prompt(recLoop(e.agentId), e.agentId ? e.text : unframeSent(e.text, sentFromPodium), nowMs());
@@ -2093,7 +2198,21 @@ export const register: Register = (on, rawOptions) => {
     return next(e);
   }).catch(($, e, next) => next(e));
 
+  // A step in progress for a watched loop (#899): the tool calls that start before its text is complete wait here, so the feed lists
+  // the text first, as it happened, and the call right after it. The text keeps the time the step began.
+  const steps = new Map<string, { at: number; held: ActivityEntry[] }>();
+  const releaseStep = (key: string, agentId: string | undefined, text: string) => {
+    const st = steps.get(key);
+    if (!st) return;
+    steps.delete(key);
+    safe('turn.step.release', (r) => {
+      if (text) r.state = addActivity(r.state, agentId, { at: st.at, kind: 'text', text });
+      for (const entry of st.held) r.state = addActivity(r.state, agentId, entry);
+    });
+  };
+
   on('turn.step', async function* ($, e, next) {
+    seen('turn.step', e);
     // A loop someone is watching, with the activityFeed option on (#118): read the text chunks as they pass and keep
     // the step's text as one entry. Every chunk is yielded on as it came, the same object, in order. Any other step
     // takes the plain path. `for await` drops a stream's return value, so the result is `stream.result`.
@@ -2103,11 +2222,13 @@ export const register: Register = (on, rawOptions) => {
     safe('turn.step.watch', (r) => {
       watching = opts.activityFeed && isWatched(r.state, e.agentId);
       recording = recorder.want(recLoop(e.agentId));
+      if (watching && !steps.has(loopKey(e.agentId))) steps.set(loopKey(e.agentId), { at: nowMs(), held: [] });
     });
     let res: Awaited<ReturnType<typeof next>['result']>;
     let text = '';
     let wrote = '';
     const thought = new Set<number>();
+    try {
     if (!watching && !recording) res = yield* next(e);
     else {
       const stream = next(e);
@@ -2136,16 +2257,20 @@ export const register: Register = (on, rawOptions) => {
     }
     safe('turn.step', (r) => {
       r.state = step(r.state, { agentId: e.agentId, model: e.model, effort: e.effort, usage: res?.usage ?? null, stopReason: res?.stopReason ?? null }, nowMs());
-      const said = text ? activityText(text) : '';
-      if (said) r.state = addActivity(r.state, e.agentId, { at: nowMs(), kind: 'text', text: said });
       recorder.said(recLoop(e.agentId), wrote, nowMs());
     });
+    releaseStep(loopKey(e.agentId), e.agentId, text ? activityText(text) : '');
     return res;
+    } finally {
+      // A step that ends in an error still lists the calls that started during it.
+      releaseStep(loopKey(e.agentId), e.agentId, '');
+    }
   }).catch(async function* ($, e, next) {
     return yield* next(e);
   });
 
   on('turn.complete', async ($, e, next) => {
+    seen('turn.complete', e);
     const res = await next(e);
     safe('turn.complete', (r) => {
       r.state = turnComplete(r.state, { agentId: e.agentId, reason: e.reason, answer: e.answer }, nowMs());
@@ -2155,6 +2280,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('session.compact', async ($, e, next) => {
+    seen('session.compact', e);
     const res = await next(e);
     safe('session.compact', (r) => {
       if (e.trigger === 'precompute' || !res || res.skip !== undefined || !res.messages) return;
@@ -2168,18 +2294,21 @@ export const register: Register = (on, rawOptions) => {
 
   // A client joining or leaving is a prompt to look at the roster now; the flush timer reads it too.
   on('session.attach', async ($, e, next) => {
+    seen('session.attach', e);
     const res = await next(e);
     if (rt) await readSurfaces($, rt);
     return res;
   }).catch(($, e, next) => next(e));
 
   on('session.detach', async ($, e, next) => {
+    seen('session.detach', e);
     const res = await next(e);
     if (rt) await readSurfaces($, rt);
     return res;
   }).catch(($, e, next) => next(e));
 
   on('session.measure', async ($, e, next) => {
+    seen('session.measure', e);
     safe('session.measure', (r) => {
       r.state = measure(r.state, { context: freshContext(r, e.context), cost: e.cost ?? null, rateLimits: e.rateLimits });
     });
@@ -2187,6 +2316,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('agent.spawn', async ($, e, next) => {
+    seen('agent.spawn', e);
     const res = await next(e);
     safe('agent.spawn', (r) => {
       if (!res || res.deny !== undefined || !res.agentId) return;
@@ -2212,11 +2342,17 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('tool.call', async ($, e, next) => {
+    seen('tool.call', e);
     const tool = String(e.tool);
     const input = e as unknown as Record<string, unknown>;
     safe('tool.call', (r) => {
       r.state = toolStarted(r.state, e.agentId, tool, nowMs());
-      if (opts.activityFeed && isWatched(r.state, e.agentId)) r.state = addActivity(r.state, e.agentId, activityEntry(tool, input, e.tool_use_id, nowMs()));
+      if (opts.activityFeed && isWatched(r.state, e.agentId)) {
+        const entry = activityEntry(tool, input, e.tool_use_id, nowMs());
+        const st = steps.get(loopKey(e.agentId));
+        if (st) st.held.push(entry);
+        else r.state = addActivity(r.state, e.agentId, entry);
+      }
       if (tool === 'Agent' && e.tool_use_id) r.state = agentRequested(r.state, e.tool_use_id, input, nowMs());
       if (tool === 'Skill') r.skillCalls++;
       // The arguments as a PermissionRequest will carry them: the call's own, without the event's fields.
@@ -2231,6 +2367,7 @@ export const register: Register = (on, rawOptions) => {
       callSeq = recorder.call(recLoop(e.agentId), tool, input, nowMs());
       if (callSeq !== null && e.tool_use_id) callSeqs.set(e.tool_use_id, callSeq);
     });
+    const startedAt = nowMs();
     let res: Awaited<ReturnType<typeof next>>;
     try {
       // While the mod responds, a question or a plan races the terminal's dialog against an answer from Podium (#206).
@@ -2248,13 +2385,23 @@ export const register: Register = (on, rawOptions) => {
       });
     }
     safe('tool.call.result', (r) => {
-      r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
+      const result = (res ?? {}) as { deny?: string; isError?: boolean; text?: string };
       if (e.tool_use_id && checks.has(e.tool_use_id)) endedChecks.add(e.tool_use_id);
-      if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
+      const answeredFromPodium = e.tool_use_id ? settleToolAsk(e.tool_use_id, res as ToolResult | undefined) : false;
+      // A prompt this call raised ends with it: allowed, or denied when the result says so (#721).
+      const askKey = `${loopKey(e.agentId)}\u0000${cap(tool, 120)}`;
+      const waiting = pendingAsks.get(askKey) ?? 0;
+      if (waiting > 0) pendingAsks.set(askKey, waiting - 1);
+      const ask = waiting > 0 ? { denied: toolDenied(result), podium: answeredFromPodium } : null;
+      r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result, ms: nowMs() - startedAt, ask }, nowMs());
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
         const withOutput = opts.activityOutput && isWatchedOutput(r.state, e.agentId);
-        r.state = finishActivity(r.state, e.agentId, e.tool_use_id, finishedCall((res ?? {}) as BashResult, withOutput));
+        const patch = finishedCall((res ?? {}) as BashResult, withOutput);
+        // A call that ended before its step did is still waiting for its place in the feed: it settles there.
+        const held = steps.get(loopKey(e.agentId))?.held.find((x) => x.id === e.tool_use_id);
+        if (held) Object.assign(held, patch);
+        else r.state = finishActivity(r.state, e.agentId, e.tool_use_id, patch);
       }
       recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
       if (e.tool_use_id) callSeqs.delete(e.tool_use_id);
@@ -2264,6 +2411,7 @@ export const register: Register = (on, rawOptions) => {
 
   // Where a prompt is about to show, a PermissionRequest should follow: if none does, the hooks don't run here (#206).
   on('tool.check', async ($, e, next) => {
+    seen('tool.check', e);
     const res = await next(e);
     safe('tool.check', () => {
       const id = (e as { tool_use_id?: string }).tool_use_id;
@@ -2286,9 +2434,11 @@ export const register: Register = (on, rawOptions) => {
   const peerFallback = { result: 'podium-reporter could not finish this call, so it may not have gone. podium_peers and Podium > Traffic show what arrived; /podium shows the connection.' };
   on('tool.call', { tool: 'mcp__podium-reporter__podium_peers' }, async ($, e) => ({ result: await peersTool($, e as never) })).catch(() => peerFallback);
   on('tool.call', { tool: 'mcp__podium-reporter__podium_send' }, async ($, e) => ({ result: await sendTool($, e as never) })).catch(() => peerFallback);
+  on('tool.call', { tool: 'mcp__podium-reporter__podium_chat_read' }, async ($, e) => ({ result: await chatReadTool($, e as never) })).catch(() => peerFallback);
   on('tool.call', { tool: 'mcp__podium-reporter__podium_request_access' }, async ($, e) => ({ result: await accessTool($, e as never) })).catch(() => peerFallback);
 
   on('skill.prompt', async ($, e, next) => {
+    seen('skill.prompt', e);
     safe('skill.prompt', (r) => {
       // A Skill tool call records its own loop; an agent may be preloading it: skip when ambiguous.
       const agentsRunning = Object.values(r.state.agents).some((a) => a.status === 'running');
@@ -2298,10 +2448,17 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.PermissionRequest', async ($, e, next) => {
+    seen('classic.PermissionRequest', e);
     const agentId = (e as { agent_id?: string }).agent_id;
     classicSeen = true;
     safe('classic.PermissionRequest', (r) => {
       recordPermission(r, e.tool_name, e.tool_input);
+      // A plan's approval and a question are not permissions; every other prompt is counted for its tool (#721).
+      if (e.tool_name !== 'ExitPlanMode' && e.tool_name !== 'AskUserQuestion') {
+        r.state = permissionAsked(r.state, agentId, e.tool_name);
+        const askKey = `${loopKey(agentId)}\u0000${cap(e.tool_name, 120)}`;
+        pendingAsks.set(askKey, (pendingAsks.get(askKey) ?? 0) + 1);
+      }
       const call = lastCalls.get(loopKey(agentId));
       permissionSeen(r, call && call.tool === e.tool_name ? call.id : null);
     });
@@ -2321,6 +2478,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.Notification', async ($, e, next) => {
+    seen('classic.Notification', e);
     classicSeen = true;
     safe('classic.Notification', (r) => {
       r.state = notification(r.state, e.notification_type, e.message, nowMs());
@@ -2330,6 +2488,7 @@ export const register: Register = (on, rawOptions) => {
 
   // Claude Code's own session name (#322): the title rides on these two hooks, so a rename shows from the next prompt.
   on('classic.SessionStart', async ($, e, next) => {
+    seen('classic.SessionStart', e);
     classicSeen = true;
     safe('classic.SessionStart', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
@@ -2337,6 +2496,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    seen('classic.UserPromptSubmit', e);
     classicSeen = true;
     safe('classic.UserPromptSubmit', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
@@ -2346,6 +2506,7 @@ export const register: Register = (on, rawOptions) => {
   // The Stop hook lists the background work and scheduled wake-ups still in flight (#119): a session idle on
   // them is not waiting on the person.
   on('classic.Stop', async ($, e, next) => {
+    seen('classic.Stop', e);
     classicSeen = true;
     safe('classic.Stop', (r) => {
       const now = nowMs();
@@ -2355,5 +2516,7 @@ export const register: Register = (on, rawOptions) => {
     return next(e);
   }).catch(($, e, next) => next(e));
 
-  on('command.run', { command: 'podium' }, async ($, e) => ({ text: await podiumCommand($, e.args ?? '') }));
+  // `/podium config` (#1001) is the settings pane's (configPane.tsx); each hook hands the other's word on, whichever runs first.
+  on('command.run', { command: 'podium' }, async ($, e, next) => (seen('command.run', e), isConfigArgs(e.args) ? next(e) : { text: await podiumCommand($, e.args ?? '') }));
+  registerConfigPane(on, () => ({ serverUrl: serverBase(), userName: who.userName, context: linkContext.name }));
 };

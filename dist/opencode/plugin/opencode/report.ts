@@ -1,8 +1,12 @@
 // A Root as a v2 report (#855). Pure. The harness block, the capabilities and the session's `harness` come from here;
 // everything shared (the report types, redaction, the plan) comes from core.
-import { cap, clip, excerpt, whole, LIMITS } from '../core/failures.ts';
+import { pct } from '../core/contextFill.ts';
+import { cap, clip, excerpt, whole, LIMITS, reportedFailure } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
+import { DEFAULT_RESUME_WINDOW_DAYS } from '../core/resumeWindow.ts';
+import { reportStats } from '../core/toolStats.ts';
+import { reportSignals } from '../core/signals.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
@@ -45,11 +49,6 @@ export interface ReportMeta {
   peers?: boolean;
 }
 
-function pct(tokens: number | null, window: number | null): number | null {
-  if (tokens === null || !window) return null;
-  return Math.round(Math.min(100, (tokens / window) * 100) * 10) / 10;
-}
-
 function contextOf(s: Sess, meta: ReportMeta): ContextFill {
   const w = meta.windowOf?.(s.provider, s.model) ?? null;
   const window = w === null ? null : whole(w);
@@ -69,7 +68,7 @@ function usageRows(...sets: Record<string, ModelUsage>[]): ModelUsage[] {
 }
 
 /** What this reporter sends before it is allowed to answer: it watches only. Effort is the model's variant and the window comes from the model list. */
-export const CAPABILITIES: Capabilities = { effort: true, plan: true, agents: true, cost: true, context: true, git: true, respond: false, commands: [] };
+export const CAPABILITIES: Capabilities = { effort: true, plan: true, agents: true, cost: true, context: true, git: true, respond: false, adminNotices: true, commands: [] };
 
 /** The capabilities for what the session takes now: `respond` and `/compact` only when something can be answered (#858). OpenCode has no `/clear`. */
 export function capabilities(info: RespondInfo | null): Capabilities {
@@ -106,6 +105,7 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     lastTool: s.lastTool,
     toolCalls: s.toolCalls,
     toolCounts: { ...s.toolCounts },
+    toolStats: reportStats(s.toolStats, (k) => cap(k, 120)),
     blowouts: s.blowouts,
     steps: { done: s.steps, total: null },
     promptExcerpt: excerpt(s.prompt),
@@ -113,7 +113,7 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     ...(meta.fullText && s.promptText && !s.promptSent ? { promptText: s.promptText } : {}),
     ...(meta.fullText && s.answerText && !s.answerSent ? { answerText: s.answerText } : {}),
     ...(meta.activity && s.activity.length ? { activity: feedOf(s.activity, meta.activityOutput === true) } : {}),
-    failure: s.failure,
+    failure: reportedFailure(agentStatus(s), s.failure),
   };
 }
 
@@ -143,12 +143,15 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     capabilities: capabilities(meta.respond?.info ?? null),
     reporter: { name: 'podium-reporter-opencode', version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
+    signals: reportSignals(root.signals, (k) => cap(k, 120)),
     session: {
       id: root.id,
       name: clip(root.storedName || main.title || meta.optionName?.trim() || root.id, 80),
       ...st,
       endReason: st.status === 'done' ? root.endReason : null,
       resumeId: null,
+      // OpenCode has no session expiry, so its sessions stay until the person deletes them and the shared default applies (#1113).
+      resumeWindowDays: DEFAULT_RESUME_WINDOW_DAYS,
       startedAt: root.startedAt,
       cwd,
       projectRoot: root.place?.projectRoot ?? (cwd || null),
@@ -167,7 +170,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       blowouts: main.blowouts,
       // A plan with steps came from the todo tool; one the plan tool only named is its title alone, which core's `toPlan` already makes (#1012).
       plan: plan?.steps.length ? { ...plan, source: 'todowrite' } : plan,
-      loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, steps: { done: main.steps, total: null } },
+      loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, toolStats: reportStats(main.toolStats, (k) => cap(k, 120)), steps: { done: main.steps, total: null } },
       files: root.files ? { ...root.files, files: root.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) } : null,
       fileDiff: meta.fileDiff === true,
       fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,
