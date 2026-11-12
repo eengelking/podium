@@ -138,6 +138,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - Admin > Reporting > Tools counted only the calls of an orchestrator's agents. The orchestrator's own calls, which are most of them, are now added to the calls by tool and to the calls per session (#721).
 - End-to-end specs no longer read a value once or move on from an action before the page has settled: counts and lists are matched with retrying assertions, and a spec waits for a write or a redirect to finish before it reloads or visits another page, so they pass when the machine is busy (#1137).
 - Clicking a heading to sort a table no longer moves its columns. On every report table (Admin > Reporting and My usage) and on Admin > Reporters, the sort arrow has its own room on every heading, and the columns keep the width they had when the first heading was clicked until the search, filter or period changes (#1144).
+- **Opening a thread in Chat moves the focus to its heading even when the open comes right after the page drew something else (#1153).** The request to focus was a flag that every render's effect could spend, so an earlier render's late effects could spend it on the heading while the narrow layout still hid it, and the open then found it spent: at 400 px the thread opened with the focus lost. The request is now a count in state, so only the render that opens the thread acts on it.
 
 ### Not in this release
 

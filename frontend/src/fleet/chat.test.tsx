@@ -2305,3 +2305,28 @@ describe("the Chat button on the orchestrator page (#1067)", () => {
     expect(screen.getByRole("heading", { level: 1, name: /claude-dashboard/ })).toBeInTheDocument();
   });
 });
+
+describe("opening a thread moves the focus to its heading", () => {
+  it("only once the thread's screen is showing, even when an earlier render's effects were still waiting", async () => {
+    const p = page();
+    await flush();
+    // The narrow layout hides the thread until data-pane says "thread"; a focus() on the hidden heading does nothing.
+    const panes: (string | null)[] = [];
+    const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+      if (this.id === "th-h") panes.push(screen.getByTestId("chat-split").getAttribute("data-pane"));
+    });
+    try {
+      // A signal lands, and the person's click comes before its effects have run.
+      await act(async () => {
+        p.signal();
+        fireEvent.click(rowBtn("d:dm:s-dash|s-tester"));
+      });
+      await flush();
+      expect(panes.length).toBeGreaterThan(0);
+      expect(panes).not.toContain("side");
+      expect(panes[panes.length - 1]).toBe("thread");
+    } finally {
+      focus.mockRestore();
+    }
+  });
+});
