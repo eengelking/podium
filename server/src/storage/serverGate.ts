@@ -13,7 +13,7 @@ export function notRunNotice(names: string[]): string {
   return [
     '',
     `  ! NOT RUN: ${names.join(', ')}. PODIUM_TEST_ONLY limits this run, so the contract, the upgrade cases and the differential test did not run on ${names.length > 1 ? 'them' : 'it'}.`,
-    '    A green run here says nothing about them, and it is not a pass for a pull request. Run them with a throwaway container:  scripts/test-pg.sh',
+    '    A green run here says nothing about them, and it is not a pass for a pull request. Run them with a throwaway container each:  scripts/test-db.sh',
     '',
   ].join('\n');
 }
@@ -34,7 +34,7 @@ export function checkServers(env: Record<string, string | undefined>, adapters: 
   for (const a of adapters) {
     if (!a.serverVar || env[a.serverVar]) continue;
     if (only && !only.includes(a.name)) { skipped.push(a.name); continue; }
-    throw new Error(`${a.serverVar} is not set, so the ${a.name} storage tests cannot run, and a run that leaves one out is not a pass. Run them with a throwaway container: scripts/test-pg.sh. PODIUM_TEST_ONLY=<the kinds to run> leaves an adapter out on purpose and is not a way past this error: a pull request needs every adapter to have run, so set it only when the person running the tests asked for that.`);
+    throw new Error(`${a.serverVar} is not set, so the ${a.name} storage tests cannot run, and a run that leaves one out is not a pass. Run them with a throwaway container each: scripts/test-db.sh. PODIUM_TEST_ONLY=<the kinds to run> leaves an adapter out on purpose and is not a way past this error: a pull request needs every adapter to have run, so set it only when the person running the tests asked for that.`);
   }
   if (skipped.length) print(notRunNotice(skipped));
 }

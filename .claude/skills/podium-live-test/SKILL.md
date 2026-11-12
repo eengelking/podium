@@ -13,7 +13,7 @@ Read `references/<harness>.md` for each harness you drive: `claudecode.md`, `ope
 
 ## When it runs
 
-Whenever a change touches the harness contract: `plugin/core/`, `plugin/<harness>/`, ask kinds, `respond.accepts` and its limits, the answer, message and command routes, consent options and Admin flags, or what a reporter sends. A change in `plugin/core/` or the server runs every harness; a change in one `plugin/<harness>/` runs that harness. A change that touches nothing here says so in the PR. Unit tests still run first (`podium-pr-workflow`).
+Whenever a change touches the harness contract: `plugin/core/`, `plugin/<harness>/`, ask kinds, `respond.accepts` and its limits, the answer, message and command routes, consent options and Admin flags, or what a reporter sends. A change in `plugin/core/` or the server runs every harness; a change in one `plugin/<harness>/` runs that harness. A change that touches nothing here says so in the PR. Unit tests still run first (`/podium-pr-workflow`).
 
 The orchestrator may run it itself or hand it to a fresh, non-fork subagent. State the agent's authority in its prompt: it runs the test and reports; it edits nothing in the repo, commits, pushes and merges nothing, and stops what it started. Say which model drives the session and that the run spends tokens before starting one for someone else.
 

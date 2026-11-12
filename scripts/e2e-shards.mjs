@@ -38,6 +38,7 @@ const USAGE = `Usage: node scripts/e2e-shards.mjs --shards N [--explain] | --lis
                   average a spec over the logs that have it, and write ${TIMES_FILE}. A spec on disk that no log has keeps
                   its time from the file, and a spec no longer on disk is dropped. Record from the logs of a whole run of the
                   suite on every database, for example: node scripts/e2e-shards.mjs --record <out>/sqlite*.log <out>/postgres*.log
+                  <out>/mariadb*.log
   -h, --help      Show this help.
 
 The groups are computed from the files on disk each time; a recorded time for a spec that is no longer there is ignored, and the

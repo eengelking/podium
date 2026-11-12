@@ -126,16 +126,16 @@ channels' retention (`retainDays`).
 
 **Across owners.** `sendAcross` stores a person's message to another person's agent as `approval` with a request in the owner's
 list (`fromKey` is `person:<name>`; `fromPerson` on the view). A link from a person (`person:<name>`) to a reporter is a row in
-`peer_rights` (`personLink`, `setPersonLink`; the SQLite and PostgreSQL stores each), so it holds until removed. Allow
+`peer_rights` (`personLink`, `setPersonLink`; the SQLite, PostgreSQL and MariaDB stores each), so it holds until removed. Allow
 delivers the message and opens the link, so the next one goes without asking; Decline drops it and tells the sender; Pause, Remove
 and `paused_by` (who may resume) are the link's. At most 5 messages from a person wait at one owner. The plugin frames the text
 by `PeerParty.person` (`plugin/core/peers.ts`), so it is never taken for its owner's words, and the frame gives the agent the address to
 answer: `person:<name>`.
 
-**An agent answers a person.** `podium_send` with `to` `person:<name>` reaches `replyToPerson` in each adapter's `peerMessages` store (SQLite and
-PostgreSQL, one test in `contractPeers.ts`), before the usual resolution of `name@machine`. It needs a stored message from that person to
+**An agent answers a person.** `podium_send` with `to` `person:<name>` reaches `replyToPerson` in each adapter's `peerMessages` store (SQLite,
+PostgreSQL and MariaDB, one test in `contractPeers.ts`), before the usual resolution of `name@machine`. It needs a stored message from that person to
 this very session and a person link (`personLink`) that is open or paused; otherwise it returns the same `404` words as an orchestrator
-the sender cannot see (`REPLY_WORDS.unseen` in `peerText.ts`, which both adapters share), so a refusal says nothing about the owner's
+the sender cannot see (`REPLY_WORDS.unseen` in `peerText.ts`, which every adapter shares), so a refusal says nothing about the owner's
 other agents. A removed link is a `403`, a paused one a `409` (refused and not held), and the per-minute limit a `429`, counted over
 the agent's answers to that person. The answer is stored at once as an `agent` message, `delivered`, with `to_session` `person:<key>`, and
 the `delivered` trail runs, which is how `peer_delivered` reaches the Admin log and how `DirectChat.peerTrail` adds one unread and a mention for the person and one
@@ -171,7 +171,7 @@ banners, the red tags and the record lines, and the Admin's page hides People an
 Admin stops or deletes a person's recording, stored activity, session, access or reporter. It writes a `chat_admin_reads` row on the `act:<name>` thread
 (`AdminReads.record`) and pushes the sentence to each live session of the person (`AdminReads.tell`), so the reporter side is unchanged. Chat's
 `goneReadsOf` puts those rows on the overview with the conversations that are gone, and `isActRecord` in `chatData.ts` words them without a conversation.
-No table or column changed: the kinds are text in both adapters.
+No table or column changed: the kinds are text in every adapter.
 
 **Not in this release.** The agent's side of the channels is plumbing: the reporter-token routes in `chatAgentRoutes.ts` and the
 paged read capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000), and

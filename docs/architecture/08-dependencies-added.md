@@ -13,6 +13,10 @@ order: 8
 
 `typescript` in `frontend/` and `server/` went from 5.9 to 7.0 (#291). TypeScript 7 has no JavaScript compiler API, so `@typescript/typescript6` is a dev dependency at the root, for the two storage guard tests and `scripts/promise-misuse.mjs`. It brings a second `tsc` command, which is why the scripts run TypeScript 7 by its path.
 
+`pg` (#822) and `mariadb` (#823) in `server/` at run time: the drivers of the PostgreSQL and MariaDB adapters, `mariadb` being the
+official MariaDB connector. Each is loaded only when `PODIUM_DB` chooses its kind, and only its adapter's folder imports it
+(`server/src/storage/neutral.test.ts`). Both are plain JavaScript, so `npm ci --ignore-scripts` needs no install script for them.
+
 `astro`, `@astrojs/starlight` and `starlight-links-validator` in `site/`, for the docs site (#688). They are build tools for the site only and are not part of the server, the UI or the mod.
 
 <!-- nav:start -->

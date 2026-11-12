@@ -34,7 +34,7 @@ Contents:
 2. Follow each pattern that applies. Where a check is named, run it.
 3. Name the patterns the change relies on in the PR body.
 
-The `podium-patterns-check` skill does the same steps and reports each departure.
+The `/podium-patterns-check` skill does the same steps and reports each departure.
 
 "Held by: none" means no automated check holds the pattern today. Adding one is its own issue.
 
@@ -54,12 +54,12 @@ A change that finds code departing from a pattern files an issue for the departu
 
 | Pattern | Rule and why | Example | Held by |
 |---|---|---|---|
-| All database access goes through `Storage` | No `node:sqlite`, `sqliteHandle`, `activityHandle` or raw SQL outside `server/src/storage/sqlite/`. A new query is a method in `types.ts`. Other databases are adapters behind the same interfaces. See [decision 48](decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md). | `server/src/storage/index.ts` | `server/src/storage/neutral.test.ts` |
+| All database access goes through `Storage` | No `node:sqlite`, `sqliteHandle`, `activityHandle` or raw SQL outside the adapter folders under `server/src/storage/`. A new query is a method in `types.ts`. SQLite, PostgreSQL and MariaDB are adapters behind the same interfaces, and a further database would be another. See [decision 48](decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md). | `server/src/storage/index.ts` | `server/src/storage/neutral.test.ts` |
 | A schema change lands in every adapter | A column, table, index or key change carries its own schema step and migration in each adapter, with a `contract.ts` case, because an interface creates nothing in a database. | `server/src/storage/contract.ts` | `server/src/storage/adapters.test.ts` |
 | One test, every adapter, no oracle | The contract, upgrade and differential cases run over every registered kind. A case is never skipped or loosened for one adapter. A difference that is not a defect goes in `contractSame.ts`. | `server/src/storage/contractSame.ts` | `server/src/storage/adapters.test.ts` |
-| Every adapter runs before a PR | `scripts/test-pg.sh` runs the server tests on all adapters. A run that leaves one out is reported as limited, never as a pass. See [decision 53](decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md). | `scripts/test-pg.sh` | `npm test` fails when an adapter's server is not configured |
+| Every adapter runs before a PR | `scripts/test-db.sh` runs the server tests on all adapters, with a throwaway container for each one that needs a database server (PostgreSQL, MariaDB). A run that leaves one out is reported as limited, never as a pass. See [decision 53](decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md). | `scripts/test-db.sh` | `npm test` fails when an adapter's server is not configured |
 | Portable SQL | No `json_extract`-style functions in SQL; other databases spell them differently. | `server/src/storage/sqlite/` | `server/src/storage/sqlite/portableSql.test.ts` |
-| Every list query has a defined `ORDER BY` | Ordering is decided by the database otherwise, and two adapters would answer in different orders. | `server/src/storage/` | `scripts/storage-order-parity.mjs` |
+| Every list query has a defined `ORDER BY` | Ordering is decided by the database otherwise, and the adapters (SQLite, PostgreSQL and MariaDB) would answer in different orders. | `server/src/storage/` | `scripts/storage-order-parity.mjs` |
 | Await every store call | A store call is async. A missing `await` compiles and answers wrongly. A deliberate exception takes `// promise-ok: <why>`. See [the gotcha](gotchas/a-store-call-without-await-compiles-and-answers-wrongly.md). | `server/src/fleet/asyncHandler.ts` | `scripts/promise-misuse.mjs`, `scripts/promise-misuse.repo.test.ts` |
 | Do not hold a transaction across a wait outside storage | Network, OpenSSL and timers run before or after `Storage.tx`, which holds the connection lock. A read followed by a write over several awaits needs a `tx`. | `docs/architecture/02-components/19-storage.md` | none |
 | Settings read synchronously come from the `Live*` cache | A card or report is built synchronously, so do not add an async read there. | `server/src/fleet/fleet.ts` | none |
@@ -107,7 +107,7 @@ A change that finds code departing from a pattern files an issue for the departu
 
 ## UI code
 
-The look of the UI is in `docs/standards/`, which is generated from the app and has its own check (`podium-standards-check`). This section
+The look of the UI is in `docs/standards/`, which is generated from the app and has its own check (`/podium-standards-check`). This section
 holds only the code patterns.
 
 | Pattern | Rule and why | Example | Held by |

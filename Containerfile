@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
 COPY frontend/package.json frontend/
-# --ignore-scripts: no dependency needs an install script (the database is node:sqlite, esbuild ships a prebuilt
+# --ignore-scripts: no dependency needs an install script (SQLite is node:sqlite, the pg and mariadb drivers are plain JavaScript, esbuild ships a prebuilt
 # binary), so none is trusted to run. If one ever does, rebuild just that package with `npm rebuild <pkg>`.
 RUN npm ci --ignore-scripts
 # The UI imports the view types from server/src/fleet, so both trees are needed before either build.

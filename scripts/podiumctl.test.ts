@@ -338,6 +338,11 @@ describe("podiumctl command construction", () => {
     expect(isNetworkDb("sqlite://x.db")).toBe(false);
     expect(isNetworkDb("x.db")).toBe(false);
     expect(isNetworkDb("postgres://h/d")).toBe(true);
+    // MariaDB (#823) is a database on the network the same way: passed through, labelled by host:port/dbname, its password hidden.
+    expect(isNetworkDb("mariadb://h/d")).toBe(true);
+    expect(dbLabel("mariadb://podium:hunter2@db.lan:3306/podium")).toBe("db.lan:3306/podium");
+    expect(JSON.stringify(maskConfig({ PODIUM_DB: "mariadb://podium:hunter2@db.lan:3306/podium" }))).not.toContain("hunter2");
+    expect(serverEnv(resolveConfig({ PODIUM_TOKEN: "t", PODIUM_DB: "mariadb://u:p@db.lan:3306/podium" }), true)).toMatchObject({ PODIUM_DB: "mariadb://u:p@db.lan:3306/podium", PODIUM_DATA_DIR: "/data" });
     const shown = maskConfig({ PODIUM_DB: "postgres://podium:hunter2@db.lan:5432/podium" }) as Record<string, string>;
     expect(JSON.stringify(shown)).not.toContain("hunter2");
     expect(shown.PODIUM_DB).toContain("db.lan:5432/podium");

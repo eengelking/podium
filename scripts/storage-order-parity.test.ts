@@ -1,9 +1,9 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { check, nullableColumns, orderOf, run, subOrderOf } from "./storage-order-parity.mjs";
+import { check, DIALECTS, expandMacros, nullableColumns, orderOf, run, subOrderOf } from "./storage-order-parity.mjs";
 
 const made: string[] = [];
 afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -24,6 +24,7 @@ const sqlite = (body: string) => `export class Notes {\n  list() {\n    ${body}\
 const pg = (body: string) => `export class PgNotes {\n  async list() {\n    ${body}\n  }\n}\n`;
 const lite = (sql: string, mark = "") => sqlite(`${mark}return this.stmt('${sql}').all() as Row[];`);
 const pgq = (sql: string, mark = "") => pg(`${mark}return this.db.all<Row>('${sql}');`);
+const mdb = (sql: string) => `export class MariaNotes {\n  async list() {\n    return this.db.all<Row>('${sql}');\n  }\n}\n`;
 
 describe("orderOf", () => {
   it("removes what the dialects do differently", () => {
@@ -70,6 +71,51 @@ describe("orderOf and the placement of NULLs", () => {
     const found = nullableColumns(repo({ sqlite: { "schema.ts": ddl } }));
     expect([...(found.get("notes") ?? [])].sort()).toEqual(["extra", "rank"]);
   });
+
+  it("writes out a schema's type words before it reads the columns, and reads a quoted table name (#823)", () => {
+    const src = [
+      "const typed = (sql: string) => sql.replace(/\\bAUTO_ID\\b/g, 'BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY').replace(/\\bTXT\\b/g, `LONGTEXT`);",
+      'const DDL = \'CREATE TABLE IF NOT EXISTS "groups" (id AUTO_ID, name TXT NOT NULL, note TXT); CREATE TABLE `marks` (`id` AUTO_ID, `at` TXT)\';',
+    ].join("\n");
+    expect(expandMacros(src)).toContain("(id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name LONGTEXT NOT NULL, note LONGTEXT)");
+    const found = nullableColumns(repo({ mariadb: { "schema.ts": src } }));
+    expect([...(found.get("groups") ?? [])]).toEqual(["note"]);
+    expect([...(found.get("marks") ?? [])]).toEqual(["at"]);
+  });
+});
+
+describe("MariaDB's placement of NULLs (#823)", () => {
+  const schema = new Map([["notes", new Set(["rank"])]]);
+  const sql = (order: string) => `SELECT * FROM notes WHERE a = ? ORDER BY ${order}`;
+
+  it("puts NULLs first in ASC and last in DESC when the query does not say, as SQLite does", () => {
+    expect(DIALECTS.mariadb).toMatchObject({ nulls: "first", statesNulls: false });
+    expect(orderOf(sql("rank, id"), "mariadb", schema)).toBe(orderOf(sql("rank, id"), "sqlite", schema));
+    expect(orderOf(sql("`rank` DESC, `id`"), "mariadb", schema)).toBe("rank desc nulls last, id");
+  });
+
+  it("reads an IS NULL term before the column as the placement it gives", () => {
+    expect(orderOf(sql("rank IS NULL, rank, id"), "mariadb", schema)).toBe(orderOf(sql("rank NULLS LAST, id"), "postgres", schema));
+    expect(orderOf(sql("rank IS NULL DESC, rank DESC, id"), "mariadb", schema)).toBe("rank desc nulls first, id");
+    expect(orderOf(sql("n.rank IS NOT NULL, n.rank, id"), "mariadb", schema)).toBe("rank nulls first, id");
+    expect(orderOf(sql("n.rank IS NOT NULL DESC, n.rank DESC, id"), "mariadb", schema)).toBe("rank desc nulls last, id");
+    expect(orderOf(sql("ISNULL(rank), rank"), "mariadb", schema)).toBe("rank nulls last");
+  });
+
+  it("reads an IS NULL term with any spacing and an explicit ASC", () => {
+    expect(orderOf(sql("rank   IS\n NULL ASC, rank, id"), "mariadb", schema)).toBe("rank nulls last, id");
+    expect(orderOf(sql("ISNULL (rank) DESC, rank DESC"), "mariadb", schema)).toBe("rank desc nulls first");
+  });
+
+  it("leaves an IS NULL term that is not followed by its column as a term of its own", () => {
+    expect(orderOf(sql("rank IS NULL, id"), "mariadb", schema)).toBe("rank is null nulls first, id");
+  });
+
+  it("has a dialect entry for every adapter folder in this repository", () => {
+    const base = join(dirname(fileURLToPath(import.meta.url)), "..", "server", "src", "storage");
+    const folders = readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    expect(folders.filter((f) => !(f in DIALECTS))).toEqual([]);
+  });
 });
 
 describe("check", () => {
@@ -93,6 +139,57 @@ describe("check", () => {
       postgres: { "notes.ts": DDL + pgq("SELECT * FROM notes ORDER BY rank DESC NULLS LAST, name NULLS FIRST, id") },
     });
     expect(check(root).problems).toEqual([]);
+  });
+
+  it("accepts a MariaDB query that places NULLs with an IS NULL term where PostgreSQL says NULLS LAST", () => {
+    const root = repo({
+      sqlite: { "notes.ts": DDL + lite("SELECT * FROM notes ORDER BY rank NULLS LAST, id") },
+      postgres: { "notes.ts": DDL + pgq("SELECT * FROM notes ORDER BY rank NULLS LAST, id") },
+      mariadb: { "notes.ts": DDL + mdb("SELECT * FROM notes ORDER BY rank IS NULL, rank, id") },
+    });
+    expect(check(root).problems).toEqual([]);
+  });
+
+  it("fails a MariaDB query that leaves NULLs where its dialect puts them when the others put them last, and names MariaDB", () => {
+    const root = repo({
+      sqlite: { "notes.ts": DDL + lite("SELECT * FROM notes ORDER BY rank NULLS LAST, id") },
+      postgres: { "notes.ts": DDL + pgq("SELECT * FROM notes ORDER BY rank, id") },
+      mariadb: { "notes.ts": DDL + mdb("SELECT * FROM notes ORDER BY rank, id") },
+    });
+    const [p, ...rest] = check(root).problems;
+    expect(rest).toEqual([]);
+    expect(p).toMatchObject({ adapter: "mariadb", file: "server/src/storage/mariadb/notes.ts", method: "list" });
+    expect(p.message).toBe("orders by rank nulls first, id but postgres orders by rank nulls last, id");
+  });
+
+  it("fails NULLS FIRST or NULLS LAST anywhere in MariaDB's SQL, built at run time or marked order-insensitive", () => {
+    const built = "export class MariaNotes {\n  async list(asc: boolean) {\n    const nulls = asc ? 'NULLS FIRST' : 'NULLS LAST';\n    return this.db.all(`SELECT * FROM notes ORDER BY rank ${nulls}, id`);\n  }\n}\n";
+    const root = repo({
+      sqlite: { "notes.ts": DDL + lite("SELECT * FROM notes ORDER BY rank, id") },
+      postgres: { "notes.ts": DDL + pgq("SELECT * FROM notes ORDER BY rank NULLS FIRST, id") },
+      mariadb: { "notes.ts": DDL + built },
+    });
+    const found = check(root).problems;
+    expect(found.map((p) => `${p.adapter} ${p.line} ${p.method}`)).toEqual(["mariadb 4 (sql)"]);
+    expect(found[0].message).toMatch(/no NULLS FIRST or NULLS LAST.*IS NULL/);
+  });
+
+  it("fails an adapter folder that has no dialect entry, so a new adapter cannot be read with another's defaults", () => {
+    const root = repo({
+      sqlite: { "notes.ts": lite("SELECT * FROM notes ORDER BY id") },
+      postgres: { "notes.ts": pgq("SELECT * FROM notes ORDER BY id") },
+      oracle: { "notes.ts": pgq("SELECT * FROM notes") },
+    });
+    expect(check(root).problems.map((p) => `${p.adapter} ${p.method}: ${p.message}`)).toEqual([expect.stringMatching(/^oracle \(dialect\): no entry for oracle in DIALECTS/)]);
+  });
+
+  it("names the adapter that differs from the most others, whatever its name", () => {
+    const root = repo({
+      sqlite: { "notes.ts": lite("SELECT * FROM notes ORDER BY id") },
+      postgres: { "notes.ts": pgq("SELECT * FROM notes ORDER BY id DESC") },
+      mariadb: { "notes.ts": mdb("SELECT * FROM notes ORDER BY id") },
+    });
+    expect(check(root).problems.map((p) => `${p.adapter}: ${p.message}`)).toEqual(["postgres: orders by id desc but mariadb orders by id"]);
   });
 
   it("compares a single-row read that orders and takes the first row", () => {
@@ -263,38 +360,77 @@ describe("this repository", () => {
     expect(r.problems.map((p) => `${p.file}:${p.line} ${p.message}`)).toEqual([]);
   });
 
-  /** A copy of the real adapters' source with one edit to a PostgreSQL file, so the guard is shown to catch the drift it is for. */
-  function seeded(file: string, from: string, to: string, adapters = ["postgres"]): string {
-    const here = join(dirname(fileURLToPath(import.meta.url)), "..", "server", "src", "storage");
+  const STORAGE = join(dirname(fileURLToPath(import.meta.url)), "..", "server", "src", "storage");
+  /** The adapter folders of this repository. */
+  const real = readdirSync(STORAGE, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  /** The file of a store in an adapter: SQLite keeps the fleet store in db.ts. */
+  const fileIn = (adapter: string, file: string) => (adapter === "sqlite" && file === "fleet.ts" ? "db.ts" : file);
+
+  /**
+   * A copy of the real adapters' source with one edit in each adapter named, so the guard is shown to catch the drift it is for. Returns
+   * the problems the edit adds: what the copy reports before the edit (a query an adapter is still being written in) is left out, and
+   * the test above reports it.
+   */
+  function seeded(file: string, from: string, to: string, adapters: string[]): string[] {
     const root = mkdtempSync(join(tmpdir(), "orderparity-real-"));
     made.push(root);
     const dest = join(root, "server", "src", "storage");
-    cpSync(here, dest, { recursive: true, filter: (src) => !/\.test\.ts$|contract|node_modules/.test(src) });
+    cpSync(STORAGE, dest, { recursive: true, filter: (src) => !/\.test\.ts$|contract|node_modules/.test(src) });
+    const key = (p: { adapter: string; method: string; message: string }) => `${p.adapter} ${p.method}: ${p.message}`;
+    const before = new Set(check(root).problems.map(key));
     for (const adapter of adapters) {
-      const target = join(dest, adapter, file);
+      const target = join(dest, adapter, fileIn(adapter, file));
       const text = readFileSync(target, "utf8");
-      expect(text).toContain(from);
+      expect(text, `${adapter}/${fileIn(adapter, file)}`).toContain(from);
       writeFileSync(target, text.replace(from, to));
     }
-    return root;
+    return check(root).problems.map(key).filter((p) => !before.has(p));
   }
 
-  it("catches a single-row read that PostgreSQL orders differently from SQLite", () => {
-    const root = seeded("fleet.ts", "FROM samples WHERE session_id = ? ORDER BY t DESC LIMIT 1", "FROM samples WHERE session_id = ? ORDER BY t LIMIT 1");
-    expect(check(root).problems.map((p) => `${p.adapter} ${p.method}`)).toEqual(["sqlite latestSample"]);
+  const latest = "FROM samples WHERE session_id = ? ORDER BY t DESC LIMIT 1";
+
+  it("catches a single-row read that one adapter orders differently from the others", () => {
+    const found = seeded("fleet.ts", latest, "FROM samples WHERE session_id = ? ORDER BY t LIMIT 1", ["postgres"]);
+    expect(found).toHaveLength(1);
+    // With two adapters the second in name order is named; with more, the one that differs.
+    expect(found[0]).toMatch(real.length > 2 ? /^postgres latestSample: orders by t but \w+ orders by t desc$/ : /^sqlite latestSample: orders by t desc but postgres orders by t$/);
   });
 
   it("catches a single-row read that PostgreSQL leaves unordered", () => {
-    const root = seeded("fleet.ts", "FROM samples WHERE session_id = ? ORDER BY t DESC LIMIT 1", "FROM samples WHERE session_id = ? LIMIT 1");
-    expect(check(root).problems.map((p) => `${p.adapter} ${p.method}`).sort()).toEqual(["postgres latestSample"]);
+    expect(seeded("fleet.ts", latest, "FROM samples WHERE session_id = ? LIMIT 1", ["postgres"])).toEqual([expect.stringMatching(/^postgres latestSample: reads one row out of several with no ORDER BY/)]);
   });
 
   it("catches a column that can be NULL given a different NULLS placement in PostgreSQL", () => {
-    // Both adapters order by stored_sessions.oldest_t, a nullable column, and neither says where NULLs go: SQLite puts them last in a
-    // descending order and PostgreSQL first, with the same text in both.
-    const root = seeded("activityHistory.ts", "ORDER BY s.last_t DESC, s.session_id", "ORDER BY s.oldest_t DESC, s.session_id", ["sqlite", "postgres"]);
-    const found = check(root).problems.map((p) => p.message);
+    // Every adapter orders by stored_sessions.oldest_t, a nullable column, and none says where NULLs go: SQLite and MariaDB put them last
+    // in a descending order and PostgreSQL first, with the same text in all.
+    const found = seeded("activityHistory.ts", "ORDER BY s.last_t DESC, s.session_id", "ORDER BY s.oldest_t DESC, s.session_id", real);
     expect(found).toHaveLength(1);
-    expect(found[0]).toContain("oldest_t desc nulls");
+    expect(found[0]).toMatch(/oldest_t desc nulls/);
+  });
+
+  it.runIf(existsSync(join(STORAGE, "mariadb", "fleet.ts")))("catches a MariaDB read that orders differently from SQLite and PostgreSQL (#823)", () => {
+    expect(seeded("fleet.ts", latest, "FROM samples WHERE session_id = ? ORDER BY t LIMIT 1", ["mariadb"])).toEqual(["mariadb latestSample: orders by t but postgres orders by t desc"]);
+  });
+
+  it.runIf(existsSync(join(STORAGE, "mariadb", "activityHistory.ts")))("catches a MariaDB query that relies on PostgreSQL's NULLS placement for a nullable column (#823)", () => {
+    // SQLite and PostgreSQL say NULLS LAST; MariaDB, which cannot say it, leaves NULLs first, its default in ASC.
+    const order = "ORDER BY s.last_t DESC, s.session_id";
+    const pick = (a: string) => (a === "mariadb" ? "ORDER BY s.oldest_t, s.session_id" : "ORDER BY s.oldest_t NULLS LAST, s.session_id");
+    const root = mkdtempSync(join(tmpdir(), "orderparity-real-"));
+    made.push(root);
+    const dest = join(root, "server", "src", "storage");
+    cpSync(STORAGE, dest, { recursive: true, filter: (src) => !/\.test\.ts$|contract|node_modules/.test(src) });
+    const before = new Set(check(root).problems.map((p) => `${p.adapter} ${p.method}`));
+    for (const a of real) {
+      const target = join(dest, a, "activityHistory.ts");
+      writeFileSync(target, readFileSync(target, "utf8").replace(order, pick(a)));
+    }
+    const found = check(root).problems.filter((p) => !before.has(`${p.adapter} ${p.method}`));
+    expect(found.map((p) => `${p.adapter} ${p.method}`)).toEqual([expect.stringMatching(/^mariadb /)]);
+    expect(found[0].message).toContain("oldest_t nulls first");
+    // The fix MariaDB has to write: an IS NULL term before the column.
+    const fixed = join(dest, "mariadb", "activityHistory.ts");
+    writeFileSync(fixed, readFileSync(fixed, "utf8").replace("ORDER BY s.oldest_t, s.session_id", "ORDER BY s.oldest_t IS NULL, s.oldest_t, s.session_id"));
+    expect(check(root).problems.filter((p) => !before.has(`${p.adapter} ${p.method}`))).toEqual([]);
   });
 });

@@ -123,7 +123,7 @@ describe('the Admin read registry (#1080)', () => {
     expect(rows.size).toBeGreaterThan(5); // the scan found the row types: a change to how they are declared must not make it pass on nothing
     const covered = new Set<string>([...ADMIN_READS.flatMap((e) => [e.call.split('.').pop()!, ...(e.covers ?? [])]), ...Object.keys(NOT_A_READ)]);
     const offenders: string[] = [];
-    for (const sf of files.filter((f) => !/(^|\/)storage\/(sqlite|postgres)\//.test(rel(f.fileName)))) {
+    for (const sf of files.filter((f) => !/(^|\/)storage\/(sqlite|postgres|mariadb)\//.test(rel(f.fileName)))) {
       const visit = (n: ts.Node): void => {
         // A private method cannot be called from a route, so it cannot be a read of its own.
         const isPrivate = ts.isMethodDeclaration(n) && !!n.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword);
@@ -141,7 +141,7 @@ describe('the Admin read registry (#1080)', () => {
   });
 
   it('keeps NOT_A_READ to methods that exist and that no entry already covers', () => {
-    const all = sourceFiles(SRC).filter((f) => !/(^|\/)storage\/(sqlite|postgres)\//.test(rel(f))).map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+    const all = sourceFiles(SRC).filter((f) => !/(^|\/)storage\/(sqlite|postgres|mariadb)\//.test(rel(f))).map((f) => fs.readFileSync(f, 'utf8')).join('\n');
     const covered = new Set<string>(ADMIN_READS.map((e: AdminReadEntry) => e.call.split('.').pop()!));
     const problems = Object.keys(NOT_A_READ).flatMap((m) => [
       ...(new RegExp(`\\b${m}\\(`).test(all) ? [] : [`${m} is in NOT_A_READ and is no method of any store or service`]),

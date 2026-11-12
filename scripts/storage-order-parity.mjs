@@ -9,26 +9,39 @@ import { fileURLToPath } from "node:url";
 import ts from "@typescript/typescript6";
 
 const HELP = `Usage: node scripts/storage-order-parity.mjs [--root <repo folder>] [--list]
-Reads every query in each adapter folder under server/src/storage/ (the sub-folders: sqlite, postgres, and any later one), pairs each
+Reads every query in each adapter folder under server/src/storage/ (the sub-folders: sqlite, postgres, mariadb, and any later one), pairs each
 store method with its counterpart in the other adapters, and fails (exit 1) when a method that returns a list (a SELECT run with
 .all), one row picked from several (a SELECT with an ORDER BY or a LIMIT run with .get) or a write with a subquery that takes the
 first row of an ordered set (ORDER BY ... LIMIT in a subquery) is unordered or ordered differently:
   - one adapter states an ORDER BY and another does not;
   - the adapters order by different columns, after the dialect is normalized (podium_lower and lower, placeholders, collation,
     table aliases, ASC);
-  - the adapters put NULLs in different places for a column the schema lets be NULL. SQLite sorts NULL first in ASC and last in DESC,
-    PostgreSQL the reverse, so a term that says nothing is read by its dialect's default and one that says NULLS FIRST or LAST by what
-    it says; a column declared NOT NULL, a COALESCE, and the sequence numbers in NEVER_NULL have no NULLs to place;
+  - the adapters put NULLs in different places for a column the schema lets be NULL. SQLite and MariaDB sort NULL first in ASC and
+    last in DESC, PostgreSQL the reverse, so a term that says nothing is read by its dialect's default and one that says NULLS FIRST or
+    LAST by what it says. MariaDB has no NULLS FIRST or LAST: it places NULLs with a term of their own before the column, \`x IS NULL\`
+    (NULLs last in ASC) or \`x IS NOT NULL\` (first), which is read as the placement it gives, and a NULLS FIRST or LAST in its SQL fails.
+    A column declared NOT NULL, a COALESCE, and the sequence numbers in NEVER_NULL have no NULLs to place;
   - an adapter has no ORDER BY and the query is not marked order-insensitive (a .get that takes the first row with no ORDER BY; a
     SELECT 1 probe for existence is not one);
   - a method that runs a list query has no counterpart in another adapter.
-Each failure names the method, the adapter, the file and the line.
+  - an adapter folder has no entry in DIALECTS (at the top of this file), which says how its SQL places NULLs.
+Each failure names the method, the adapter, the file and the line. When the adapters disagree, the one that differs from the most
+others is named (with two, the second in name order).
 A list whose order does not matter (a set of ids, a total) is marked with a comment next to the query that gives the reason:
   // order-insensitive: <why>
 --list prints every list query it found with its normalized order. --root defaults to this repository.`;
 
-// File names that differ between the adapters for the same store: the SQLite file name -> the PostgreSQL one.
-const FILE_ALIASES = { db: "fleet" };
+/**
+ * What each adapter's SQL does that the comparison has to undo, one entry per adapter folder (#823); a new adapter is one line here.
+ *   nulls        where a NULL sorts in an ascending order when the term does not say: "first" (the smallest value) or "last".
+ *   statesNulls  whether the dialect has NULLS FIRST and NULLS LAST. One that has not places NULLs with an `x IS NULL` term.
+ *   files        a store's file name that differs from the other adapters' (this adapter's name -> theirs).
+ */
+export const DIALECTS = {
+  sqlite: { nulls: "first", statesNulls: true, files: { db: "fleet" } },
+  postgres: { nulls: "last", statesNulls: true },
+  mariadb: { nulls: "first", statesNulls: false },
+};
 // Files that are not stores: tests, fixtures and the schema.
 const SKIP_FILE = /(\.test\.|testing|Testing|Fixtures|contractReference|contractAdapter|schema\.)/;
 const MARKER = /order-insensitive:[ \t]*\S/;
@@ -226,8 +239,12 @@ function terms(clause) {
   return out;
 }
 
-/** Where a NULL sorts when the term does not say: SQLite treats NULL as the smallest value, PostgreSQL as the largest. */
-const defaultNulls = (adapter, desc) => ((adapter === "sqlite") !== desc ? "first" : "last");
+/** Where a NULL sorts when the term does not say, by the adapter's dialect: its ascending default, flipped by DESC. */
+const defaultNulls = (adapter, desc) => {
+  const asc = DIALECTS[adapter]?.nulls;
+  if (!asc) throw new Error(`no dialect entry for "${adapter}" in DIALECTS (scripts/storage-order-parity.mjs)`);
+  return (asc === "first") !== desc ? "first" : "last";
+};
 
 /** A test for "can this column be NULL in a table the query reads", from the schema's { table -> nullable columns }; null with no schema. */
 function nullTest(sql, schema) {
@@ -236,16 +253,11 @@ function nullTest(sql, schema) {
   return (id) => tables.some((t) => schema.get(t)?.has(id) && !NEVER_NULL.has(`${t}.${id}`));
 }
 
-/**
- * One ORDER BY term with the dialect differences removed. When `nullable` (a test from nullTest)
- * is given and the term reads a column that can be NULL, the term ends with the placement of NULLs it really has: the one it states, or else its
- * dialect's default. A term over a column that cannot be NULL, or one wrapped in COALESCE, has no NULLs to place.
- */
-function termOf(t, adapter, nullable) {
-  const low = t.toLowerCase();
-  const stated = /\bnulls\s+(first|last)\b/.exec(low)?.[1];
-  const desc = /\bdesc\b/.test(low);
-  const expr = low
+/** A term's text with the dialect differences removed (case, quoting, podium_lower, collation, placeholders, table aliases, ASC, NULLS). */
+function normalized(t) {
+  return t
+    .toLowerCase()
+    .replace(/`/g, "")
     .replace(/\bnulls\s+(first|last)\b/g, "")
     .replace(/podium_lower\(/g, "lower(")
     .replace(/\bcollate\s+("[^"]*"|\w+)/g, "")
@@ -254,17 +266,64 @@ function termOf(t, adapter, nullable) {
     .replace(/\basc\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * One ORDER BY term with the dialect differences removed. When `nullable` (a test from nullTest)
+ * is given and the term reads a column that can be NULL, the term ends with the placement of NULLs it really has: the one it states, or else its
+ * dialect's default. A term over a column that cannot be NULL, or one wrapped in COALESCE, has no NULLs to place.
+ * `placed` is the placement a preceding `x IS NULL` term already gave this one (see clauseOf).
+ */
+function termOf(t, adapter, nullable, placed) {
+  const low = t.toLowerCase();
+  const stated = placed ?? /\bnulls\s+(first|last)\b/.exec(low)?.[1];
+  const desc = /\bdesc\b/.test(low);
+  const expr = normalized(t);
   // every identifier that is not a function name (not followed by an opening parenthesis)
   const reads = [...expr.matchAll(/[a-z_]\w*/g)].some((m) => !/^\s*\(/.test(expr.slice(m.index + m[0].length)) && nullable?.(m[0]));
   const nulls = nullable && reads && !expr.includes("coalesce(") ? ` nulls ${stated ?? defaultNulls(adapter, desc)}` : "";
   return expr + nulls;
 }
 
-const clauseOf = (c, adapter, nullable) =>
-  terms(c)
-    .map((t) => termOf(t, adapter, nullable))
-    .join(", ")
-    .replace(/ ?, ?/g, ", ");
+/**
+ * `x IS NULL`, `x IS NOT NULL` or `ISNULL(x)`, with an optional direction: a term that only places the NULLs of x.
+ * Read with string steps, not one regular expression: the pieces of that expression overlap and backtrack (SonarCloud S8786).
+ * Returns `{ expr, not, dir }`, or null when the term is anything else.
+ */
+function isNullTerm(t) {
+  let s = t.replace(/\s+/g, " ").trim();
+  let dir;
+  const tail = /\s(asc|desc)$/i.exec(s);
+  if (tail) {
+    dir = tail[1].toLowerCase();
+    s = s.slice(0, tail.index);
+  }
+  const low = s.toLowerCase();
+  if (low.endsWith(" is not null")) return { expr: s.slice(0, -" is not null".length), not: true, dir };
+  if (low.endsWith(" is null")) return { expr: s.slice(0, -" is null".length), not: false, dir };
+  const fn = /^isnull ?\(/i.exec(s);
+  if (fn && s.endsWith(")")) return { expr: s.slice(fn[0].length, -1), not: false, dir };
+  return null;
+}
+const bare = (t) => normalized(t).replace(/\bdesc\b/g, "").replace(/\s+/g, " ").trim();
+
+/**
+ * One ORDER BY clause, term by term. A term that places the NULLs of the column the next term orders by (MariaDB's way, having no
+ * NULLS FIRST or LAST) is folded into that term as the placement it gives: `x IS NULL` sorts the rows with a value (false, 0) before
+ * the NULLs (true, 1), so NULLs come last in ASC and first in DESC; `x IS NOT NULL` the reverse.
+ */
+function clauseOf(c, adapter, nullable) {
+  const list = terms(c);
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const m = isNullTerm(list[i]);
+    if (m?.expr.trim() && i + 1 < list.length && bare(m.expr) === bare(list[i + 1])) {
+      const last = !m.not !== (m.dir === "desc");
+      out.push(termOf(list[++i], adapter, nullable, last ? "last" : "first"));
+    } else out.push(termOf(list[i], adapter, nullable));
+  }
+  return out.join(", ").replace(/ ?, ?/g, ", ");
+}
 
 /**
  * The ORDER BY clauses of the whole query as one string with the dialect differences removed; "" when there is none. Without
@@ -302,6 +361,17 @@ const NEVER_NULL = new Set([
   "person_certificates.seq", // the same
 ]);
 
+/**
+ * A schema file's text with its type words written out: a schema that writes `id AUTO_ID` and turns it into SQL with
+ * `.replace(/\bAUTO_ID\b/g, 'BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY')` (MariaDB's, #823) declares a column that cannot be NULL.
+ */
+export function expandMacros(src) {
+  let out = src;
+  // The word is replaced in the replace call too, which changes nothing this check reads.
+  for (const m of src.matchAll(/\.replace\(\/\\b(\w+)\\b\/g,\s*(['"`])([^'"`$]*)\2\)/g)) out = out.replace(new RegExp(`\\b${m[1]}\\b`, "g"), () => m[3]);
+  return out;
+}
+
 /** The columns the schemas in the adapters declare without NOT NULL or a key, as a Map of table name -> Set of lower-case column names. */
 export function nullableColumns(root) {
   const schema = new Map();
@@ -309,15 +379,15 @@ export function nullableColumns(root) {
   const skip = /^(primary|unique|foreign|check|constraint)\b/i;
   for (const { dir } of adapterFolders(root)) {
     for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts") && !/\.test\./.test(x))) {
-      const src = readFileSync(join(dir, f), "utf8");
-      for (const m of src.matchAll(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+([^;`'\n]*)/gi)) if (!/not\s+null/i.test(m[3])) add(m[1].toLowerCase(), m[2].toLowerCase());
-      for (const m of src.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\w+\.)?(\w+)\s*\(/gi)) {
+      const src = expandMacros(readFileSync(join(dir, f), "utf8"));
+      for (const m of src.matchAll(/ALTER\s+TABLE\s+`?(\w+)`?\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?\s+([^;`'\n]*)/gi)) if (!/not\s+null/i.test(m[3])) add(m[1].toLowerCase(), m[2].toLowerCase());
+      for (const m of src.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\w+\.)?["`]?(\w+)["`]?\s*\(/gi)) {
         let depth = 1;
         let end = m.index + m[0].length;
         while (end < src.length && depth > 0) depth += src[end++] === "(" ? 1 : src[end - 1] === ")" ? -1 : 0;
         for (const part of terms(src.slice(m.index + m[0].length, end - 1))) {
           const def = part.trim();
-          const col = /^"?(\w+)"?\s+\w+/.exec(def);
+          const col = /^["`]?(\w+)["`]?\s+\w+/.exec(def);
           if (col && !skip.test(def) && !/not\s+null|primary\s+key|generated/i.test(def)) add(m[1].toLowerCase(), col[1].toLowerCase());
         }
       }
@@ -338,11 +408,11 @@ function orderFields(text, adapter, schema) {
 export function collect(root) {
   const all = [];
   const schema = nullableColumns(root);
-  for (const { name, dir } of adapterFolders(root)) {
+  for (const { name, dir } of adapterFolders(root).filter((a) => DIALECTS[a.name])) {
     for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts") && !SKIP_FILE.test(x)).sort((a, b) => a.localeCompare(b))) {
       const stem = basename(f, ".ts");
       for (const q of listQueries(join(dir, f))) {
-        const fileKey = name === "sqlite" ? (FILE_ALIASES[stem] ?? stem) : stem;
+        const fileKey = DIALECTS[name].files?.[stem] ?? stem;
         all.push({ adapter: name, file: `server/src/storage/${name}/${f}`, key: `${fileKey}#${q.method}`, ...q, ...orderFields(q.text, name, schema) });
       }
     }
@@ -374,21 +444,51 @@ export function problems(queries, adapters) {
       }
     }
     // An ORDER BY with a ${...} in it is built at run time: it counts as stated, and its columns cannot be compared here.
-    const ordered = adapters.map((a) => ({ a, set: [...new Set(group.filter((q) => q.adapter === a && !q.marked && q.cmp && !q.cmp.includes("…")).map((q) => q.cmp))].sort((a, b) => a.localeCompare(b)) })).filter((x) => x.set.length);
-    for (let i = 1; i < ordered.length; i++) {
-      if (ordered[0].set.join(" ; ") !== ordered[i].set.join(" ; ")) {
-        const q = group.find((x) => x.adapter === ordered[i].a && x.cmp);
-        add(q, `orders by ${ordered[i].set.join(" ; ")} but ${ordered[0].a} orders by ${ordered[0].set.join(" ; ")}`);
-      }
+    const ordered = adapters.map((a) => ({ a, set: [...new Set(group.filter((q) => q.adapter === a && !q.marked && q.cmp && !q.cmp.includes("…")).map((q) => q.cmp))].sort((a, b) => a.localeCompare(b)).join(" ; ") })).filter((x) => x.set);
+    // None is the reference: the order most adapters share is compared against, and with a tie the first adapter's in name order.
+    const votes = (set) => ordered.filter((x) => x.set === set).length;
+    const ref = ordered.reduce((best, x) => (votes(x.set) > votes(best.set) ? x : best), ordered[0]);
+    for (const o of ordered.filter((x) => x.set !== ref?.set)) {
+      const q = group.find((x) => x.adapter === o.a && x.cmp);
+      add(q, `orders by ${o.set} but ${ref.a} orders by ${ref.set}`);
     }
   }
   return out;
 }
 
+/** The string literals and template parts in a file that hold NULLS FIRST or NULLS LAST, as { line, text }, one per line. Comments are not read. */
+export function statedNulls(file) {
+  const src = readFileSync(file, "utf8");
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true);
+  const out = [];
+  const visit = (n) => {
+    if ((ts.isStringLiteralLike(n) || ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) && /\bnulls\s+(first|last)\b/i.test(n.text)) {
+      const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+      if (!out.some((o) => o.line === line)) out.push({ line, text: n.text });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
 /** Run the check on the repository at `root`; the result has the problems and the queries read. */
 export function check(root) {
+  const folders = adapterFolders(root);
   const queries = collect(root);
-  return { queries, problems: problems(queries, adapterFolders(root).map((a) => a.name)) };
+  const found = problems(queries, folders.filter((a) => DIALECTS[a.name]).map((a) => a.name));
+  // A dialect with no NULLS FIRST or LAST refuses the statement, so any SQL text in its folder that says it is a problem, built at run time or not.
+  for (const { name, dir } of folders.filter((a) => DIALECTS[a.name]?.statesNulls === false)) {
+    for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts") && !/\.test\./.test(x)).sort((a, b) => a.localeCompare(b))) {
+      for (const hit of statedNulls(join(dir, f))) {
+        found.push({ adapter: name, file: `server/src/storage/${name}/${f}`, line: hit.line, method: "(sql)", message: `${name} has no NULLS FIRST or NULLS LAST; place the NULLs with a term of their own before the column (\`x IS NULL, x\` puts them last in ASC)` });
+      }
+    }
+  }
+  for (const { name } of folders.filter((a) => !DIALECTS[a.name])) {
+    found.push({ adapter: name, file: `server/src/storage/${name}/`, line: 0, method: "(dialect)", message: `no entry for ${name} in DIALECTS (scripts/storage-order-parity.mjs): say where its NULLs sort and whether it has NULLS FIRST and LAST` });
+  }
+  return { queries, problems: found };
 }
 
 export function run(argv, log = console.log) {

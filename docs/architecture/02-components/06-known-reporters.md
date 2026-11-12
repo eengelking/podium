@@ -28,7 +28,7 @@ and #221.
   Claude Code reporter. A v2 report must carry its harness's own name (`namesFor` in `protocol.ts`). `nameSuffix` adds nothing for that reporter, so a legacy report and a new-name report from one
   machine are one row with one key.
 - No migration: a row made before holds `podium-reporter` in `reporter_name` and is read as the Claude Code reporter in
-  both adapters. `record` writes the canonical name, so the row takes the new name the next time its reporter reports,
+  every adapter. `record` writes the canonical name, so the row takes the new name the next time its reporter reports,
   and `knownKey` matches either spelling. The same case in `contract.ts` and `contractUpgrade.ts` runs on each adapter.
 - `validateReport` accepts the legacy and the Claude Code name in v1, all three in v2, and answers 400 for any other.
 

@@ -15,7 +15,7 @@ Contents:
 - [The shape of it](#the-shape-of-it)
 - [How to measure](#how-to-measure)
 - [Baselines](#baselines)
-- [Storage latency: SQLite and PostgreSQL](#storage-latency-sqlite-and-postgresql)
+- [Storage latency: SQLite, PostgreSQL and MariaDB](#storage-latency-sqlite-postgresql-and-mariadb)
 - [Findings, ranked](#findings-ranked)
 - [Looked at and left alone](#looked-at-and-left-alone)
 - [What is still open](#what-is-still-open)
@@ -39,7 +39,7 @@ stops everything it started. None of them touches a server you use. Build first 
 |---|---|
 | `scripts/podium-perf.mjs` | Server CPU and resident memory, event-loop delay, SSE bytes and messages per second by event type (raw and gzipped), the size of the full state. Idle, small, medium and large fleets, two runs each, and whether the two runs agree within a margin |
 | `scripts/podium-perf-browser.sh` | An open tab in headless Chrome: DOM nodes, JavaScript heap, long tasks, frames per second, bytes transferred |
-| `scripts/podium-perf-storage.mjs` | The report and snapshot paths on one database, SQLite or PostgreSQL, on the same machine or behind a delay proxy with a stated round-trip time: latency percentiles, throughput, queries per report and per snapshot, and which statements they are |
+| `scripts/podium-perf-storage.mjs` | The report and snapshot paths on one database, SQLite, PostgreSQL or MariaDB, on the same machine or behind a delay proxy with a stated round-trip time: latency percentiles, throughput, and on PostgreSQL the queries per report and per snapshot and which statements they are |
 | `scripts/podium-perf-mod.mjs` | The reporter mod's own code: what one tool call adds to a session's state, and what building and serializing one report costs, by number of agents |
 
 Existing scripts that belong with these: `scripts/podium-soak.sh` for resident memory over a long run, `scripts/gpu-sample.sh` for the GPU
@@ -99,12 +99,15 @@ The reporter, from `scripts/podium-perf-mod.mjs` (400 tool calls per count):
 | 20 | 1.17 / 1.42 | 0.08 | 18.1 |
 | 200 | 4.58 / 46.04 | 0.42 | 155.6 |
 
-## Storage latency: SQLite and PostgreSQL
+## Storage latency: SQLite, PostgreSQL and MariaDB
 
 The server reads the database in many small steps: a report was about 67 statements on PostgreSQL and a snapshot about 205 (about 19 and about 15 to 19 after #906, below). In-process
 SQLite makes each one cost microseconds. On PostgreSQL each one is a network round trip, so the cost of a path is close to its number of
 statements times the round-trip time. This section records that cost (#822), and which reads to batch. The measurements are for the
 `postgres` adapter before #906; no product code was changed to take them. The table after the batching is under "Which reads were batched".
+The databases Podium supports are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4), as
+[Running the server](SERVER.md#using-postgresql) says. The MariaDB rows below were taken on 11.4; the PostgreSQL server's version was not
+recorded with these runs.
 
 How it was taken: `scripts/podium-perf-storage.mjs`, on the maintainer's Mac (Node 24, macOS arm64), 2026-10-31, simulator seed 822, 20
 sessions with 10 agents each, and one stream client open, as a console would be. A report is posted to a throwaway server (a free port, a
@@ -154,7 +157,7 @@ of the SQL text. On the same machine:
 ### Which reads were batched (#906)
 
 None of these removes a live stream field or reads it less often. Each reads or writes the same data in fewer round trips, and each is a
-new method on the store interface in `server/src/storage/types.ts`, in both adapters, with a case in `server/src/storage/contract.ts`.
+new method on the store interface in `server/src/storage/types.ts`, in every adapter, with a case in `server/src/storage/contract.ts`.
 SQLite runs the same `IN (...)` read (cut into pieces of 500), so the result and its order match; a statement costs it microseconds, so the gain there is small.
 
 1. **`visibleCount()` (24 of 67 statements per report).** It reads the live sessions' rows with `getSessions` and the agents of those that
@@ -173,6 +176,10 @@ Same scenario as the table above, taken again on 2026-11-01 (three runs each, lo
 | SQLite | none | 0.72 to 0.83 (was 0.71 to 0.79) | not counted | 3.2 to 3.4 (was 3.8 to 4.0) | not counted |
 | PostgreSQL, same machine | none | 6.0 to 7.2 (was 18.3 to 19.4) | 19 (was 67) | 8.6 to 9.1 (was 58 to 62) | 15 to 19 (was 205) |
 | PostgreSQL, network hop | 1 ms | 74 to 81 (was 229 to 233) | 32 to 33 (was 111) | 60 to 72 (was 658 to 685) | 19 to 25 (was 287 to 291) |
+| MariaDB, same machine | none | 8.6 to 8.7 | not counted | 12.8 to 17.4 | not counted |
+| MariaDB, network hop | 1 ms | 67 to 75 | not counted | 81 to 94 | not counted |
+
+The two MariaDB rows (#823) were taken on 2026-11-11 with the same script, scenario and machine as the rows above (600 reports, 200 of them one at a time, 20 snapshot reads, three runs), against MariaDB 11.4 in a Podman container; they are not part of the 2026-11-01 run. The report's p95 at 1 ms was 483 to 509 ms, and eight reports at a time had a p50 of 797 to 859 ms. The script counts queries only through the `pg` driver, so the query columns are blank.
 
 Against the yardstick (a report under 100 ms and a snapshot under 250 ms on a hop of 1 ms or less, confirmed by the maintainer on #906), both
 now meet it at 1 ms. The report's p50 at 1 ms is still 74 ms because of its floor: the transaction's `BEGIN` and `COMMIT`, the session
@@ -180,7 +187,8 @@ read and write, the events, the sample and the settings read. The count at 1 ms 
 the per-session throttle expire and more work runs between reports (see above). SQLite's report median is within the spread of the earlier runs and its snapshot is faster, so it is not slower. Nothing the stream carries is cached.
 
 To take the numbers again: `npm run build -w server`, then `node scripts/podium-perf-storage.mjs --help`. For example,
-`--db "$PODIUM_TEST_PG" --rtt 1 --reports 600 --serial 200 --states 20 --runs 3`. Omit `--db` for SQLite.
+`--db "$PODIUM_TEST_PG" --rtt 1 --reports 600 --serial 200 --states 20 --runs 3`, or `--db "$PODIUM_TEST_MARIADB"` for MariaDB.
+Omit `--db` for SQLite. The script counts queries only through the `pg` driver, so a MariaDB run has no query counts.
 
 ## Findings, ranked
 
