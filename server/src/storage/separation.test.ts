@@ -10,7 +10,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (f: string): string => readFileSync(path.join(here, f), 'utf8');
 
 describe('direct messages and channel messages stay apart', () => {
-  for (const adapter of ['sqlite', 'postgres']) {
+  for (const adapter of ['sqlite', 'postgres', 'mariadb']) {
     it(`${adapter}: the channel store never names peer_messages, and the message store never names a channel table`, () => {
       const chat = read(`${adapter}/chat.ts`);
       expect(chat).toContain('group_messages');

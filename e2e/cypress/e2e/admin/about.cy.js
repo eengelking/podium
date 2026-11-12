@@ -35,7 +35,7 @@ describe('admin: About, with reporters of other versions', () => {
 
   it('names the database in use, with its engine and schema version', () => {
     cy.contains('h2', 'Database');
-    fact('Database', 'Adapter').invoke('text').should('match', /^(SQLite|PostgreSQL)$/);
+    fact('Database', 'Adapter').invoke('text').should('match', /^(SQLite|PostgreSQL|MariaDB)$/);
     fact('Database', 'Engine version').invoke('text').should('match', /\d/);
     fact('Database', 'Schema version').invoke('text').should('match', /^\d+$/);
     fact('Database', 'Size').invoke('text').should('match', /\d/);

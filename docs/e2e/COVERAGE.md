@@ -37,9 +37,10 @@ npm run e2e -- -- --spec "cypress/e2e/wall/**" # one folder (everything after th
 npm run e2e -- --no-build                      # reuse the image built by the last run
 npm run e2e:down                               # remove anything an interrupted run left behind
 E2E_DB=postgres npm run e2e                    # the same suite with PostgreSQL behind the server (default: sqlite)
+E2E_DB=mariadb npm run e2e                     # the same suite with MariaDB behind the server
 ```
 
-`scripts/e2e-up.sh --help` lists the options. `bash scripts/e2e-all.sh --out <folder outside the repo>` runs the whole suite once on every database in `e2e.yml` together and ends with one `E2E RESULT:` line. `--shards N` splits each database's run into N runs at once, each with its own server, database and Cypress container and a disjoint group of the spec files, which `scripts/e2e-shards.mjs` computes from the files on disk (a new spec lands in a group by itself). It balances the groups by the seconds each spec took in a recorded run, kept in `e2e/spec-times.json`, and weighs a spec with no recorded time at the median; `node scripts/e2e-shards.mjs --record <logs>` refreshes the file from the logs of a whole run. The result line names each shard, and the specs counted over a database's shards must equal the files on disk. Each run logs how long each server restart, pause and resume took, and their totals at its end. `bash scripts/e2e-all.sh --help` says how to choose N for a machine: each run takes about 1.1 GB, so keep N times the databases at most the CPUs and at most the memory in GB divided by 2. On a 6-CPU, 16 GB podman machine it is 3 for two databases (about 7m20s against 16m40s for one shard); 4 was no faster, and one 4-shard run had a shard hang for 15 minutes, cause not known. To see what the machine does while a run goes, start `python3 -I scripts/e2e-sample.py 5 > <file>.csv` beside it: it records the host's load and busy percent, and each container's CPU and memory, every few seconds (`--help`). With `E2E_DB=postgres` a PostgreSQL container (`E2E_PG_IMAGE`, default `postgres:17-alpine`) runs beside the server on the same private network, the server gets `PODIUM_DB=postgres://...` for it, and the specs' "fresh database" restart drops and recreates that database instead of emptying `/data`. Its password is random per run and scrubbed from the server log copy. The specs are the same for both databases. A run builds the image, makes a private network with a fresh admin secret that
+`scripts/e2e-up.sh --help` lists the options. `bash scripts/e2e-all.sh --out <folder outside the repo>` runs the whole suite once on every database in `e2e.yml` together and ends with one `E2E RESULT:` line. `--shards N` splits each database's run into N runs at once, each with its own server, database and Cypress container and a disjoint group of the spec files, which `scripts/e2e-shards.mjs` computes from the files on disk (a new spec lands in a group by itself). It balances the groups by the seconds each spec took in a recorded run, kept in `e2e/spec-times.json`, and weighs a spec with no recorded time at the median; `node scripts/e2e-shards.mjs --record <logs>` refreshes the file from the logs of a whole run. The result line names each shard, and the specs counted over a database's shards must equal the files on disk. Each run logs how long each server restart, pause and resume took, and their totals at its end. `bash scripts/e2e-all.sh --help` says how to choose N for a machine: each run takes about 1.1 GB, so keep N times the databases at most the CPUs and at most the memory in GB divided by 2. On a 6-CPU, 16 GB podman machine it was 3 for two databases (about 7m20s against 16m40s for one shard), and the same rule gives 2 for the three databases of today; 4 was no faster, and one 4-shard run had a shard hang for 15 minutes, cause not known. To see what the machine does while a run goes, start `python3 -I scripts/e2e-sample.py 5 > <file>.csv` beside it: it records the host's load and busy percent, and each container's CPU and memory, every few seconds (`--help`). With `E2E_DB=postgres` a PostgreSQL container (`E2E_PG_IMAGE`, default `postgres:17-alpine`) runs beside the server on the same private network, the server gets `PODIUM_DB=postgres://...` for it, and the specs' "fresh database" restart drops and recreates that database instead of emptying `/data`. Its password is random per run and scrubbed from the server log copy. `E2E_DB=mariadb` does the same with a MariaDB container (`E2E_MARIADB_IMAGE`, default `mariadb:11.4.13`, the version tested, pinned). The databases, their images and their reset commands are one table, `scripts/db-adapters.mjs`, which `E2E_DB` is checked against. The specs are the same for every database. A run builds the image, makes a private network with a fresh admin secret that
 nothing prints, starts the server on it, seeds it with `scripts/e2e-seed.mjs`, runs Cypress in a second container and then
 removes every container, network and volume it made, whatever the result. No port is opened on your machine and your own
 Podium is never touched. The first run pulls the Cypress image, about 2.5 GB.
@@ -53,13 +54,13 @@ passes when the run was skipped, so it can be a required check for the release P
 1. Open the failed job and find the spec file and test title in the Cypress output: the group is the feature, the title is the rule.
 2. Download the `e2e-failure` artifact from the run. It holds `screenshots/<spec>/<test> (failed).png`, one for each failure, and
    `server.log`, the server's log with the admin secret scrubbed. It is kept 7 days. There is no video.
-3. The workflow's `databases` input (default `sqlite postgres`) picks which database the server runs on; each is a full run of the suite, one after the other, so the job's limit is 180 minutes. Run it with `sqlite` or `postgres` alone to reproduce one. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
+3. The workflow's `databases` input (default `sqlite postgres mariadb`) picks which database the server runs on; each is a full run of the suite, one after the other, so the job's limit is 240 minutes. Run it with one database alone to reproduce a failure on it. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
 4. To reproduce it, run the same spec locally with `--spec`. A failure that shows only on some runs is a flaky spec: do not
    add a retry or a wait. Find the assertion that reads something before it settles and make it a retrying one.
 
 ## Add or change a spec
 
-A change to what the console does comes with its specs in the same PR. Load the `podium-e2e-update` skill (or start the
+A change to what the console does comes with its specs in the same PR. Load the `/podium-e2e-update` skill (or start the
 `podium-e2e-keeper` agent): it works out which specs the change touches, updates them and this map, and runs the whole suite
 to green. By hand:
 
@@ -233,7 +234,7 @@ Each of these is a stated gap, not a covered feature.
 | The retired Traffic page's own note ("Traffic is retired. Chat replaces it") | `#/traffic` is replaced with `#/chat` as soon as the address is read, so a browser never rests on the note. The spec asserts the redirect, and the note is covered by `frontend/src/fleet/traffic.test.tsx`. The old `/api/fleet/peers/traffic` read still answers and `e2e/cypress/e2e/flags/messaging-flag.cy.js` still asserts its off answer. |
 | The color a People and agents row takes when pointed at | `:hover` cannot be forced in Cypress without a real pointer. The spec asserts the row's state class (`hl-waiting`, `hl-running`, `hl-deleg`) and the state in words that the stylesheet colors by; the colors themselves are tokens checked by `npm test`. |
 | A hidden Direct Message purged after its harness's resume window (`resumeWindowDays`, 30 days from the seed, #1113) or, with no window, its grace period, and a channel message past its retention | Both run in the hourly sweep and the shortest setting is one hour or one day (`graceHours` 1 to 720, `retainDays` 1 to 365), and a window is days, so reaching them takes a test-only clock that none of the timings in `PODIUM_TEST_TIMINGS` offers. The spec asserts the hide (a conversation leaves the list at once when every agent has ended), its return with its content on a resume and the empty start of a new session, and covers the kept-past-the-grace-period and purge-after-the-window cases in `server/src/fleet/chatRoutes.test.ts`. Chat's limits (`chat` in Admin > Settings) have no boxes yet and are covered there too. |
-| The callout an Admin's read or stop raises in the person's terminal | It is shown by `podium-reporter` inside the session, not in the console, and the suite plays the mod's reports and nothing more. The console side (banner, tag, record line; and the line for an Admin's stop of a recording, #1078, in `e2e/cypress/e2e/recording/recording.cy.js`; and, for a replay, `e2e/cypress/e2e/recording/recording-admin-replay.cy.js`) is covered by `e2e/cypress/e2e/chat/chat-admin.cy.js` and, for an agent conversation, an ask, stored Activity and an agent's whole text and live activity (#1072, #1073, #1074, #1082), `e2e/cypress/e2e/chat/admin-read-notices.cy.js`; the callout is covered by the plugin tests (`npm run test:core`, `npm run test:mod:claudecode`) and by `podium-live-test`. |
+| The callout an Admin's read or stop raises in the person's terminal | It is shown by `podium-reporter` inside the session, not in the console, and the suite plays the mod's reports and nothing more. The console side (banner, tag, record line; and the line for an Admin's stop of a recording, #1078, in `e2e/cypress/e2e/recording/recording.cy.js`; and, for a replay, `e2e/cypress/e2e/recording/recording-admin-replay.cy.js`) is covered by `e2e/cypress/e2e/chat/chat-admin.cy.js` and, for an agent conversation, an ask, stored Activity and an agent's whole text and live activity (#1072, #1073, #1074, #1082), `e2e/cypress/e2e/chat/admin-read-notices.cy.js`; the callout is covered by the plugin tests (`npm run test:core`, `npm run test:mod:claudecode`) and by `/podium-live-test`. |
 | Reporters in the Silent state (over an hour without a report) | The one-hour threshold is a constant in `server/src/storage/rows.ts` and the server stamps a report with its own clock, so reaching it takes an hour or a test-only clock. Idle (two minutes) and "Not since restart" are covered. Only its look is covered: `a11y/axe-more.cy.js` answers the Reporters list with one reporter silent and runs axe (#1098). |
 | An untracked file's diff as its own case | A file the reporter lists as untracked arrives as status `added` (`server/src/fleet/protocol.ts` has no fifth status), so it is the added file in `e2e/cypress/e2e/orchestrator/file-diff.cy.js`. |
 | History's Resume and Fork cells | SPEC 8.5 now says an opened session shows them; no spec asserts it yet. |
@@ -245,14 +246,18 @@ The suite does not repeat what a unit test already settles and a browser adds no
 (`server/src/fleet/derive.test.ts`), markdown rendering (`frontend/src/fleet/components/Markdown.test.tsx`), the CSV neutralizing, validation
 messages, and the standards pages (`npm run standards:parity`). A feature with only unit coverage and a layout, focus or live-update behavior gets a spec for that part.
 
-## What runs on PostgreSQL, and whether that is enough for the release gate
+## What runs on PostgreSQL and MariaDB, and whether that is enough for the release gate
 
-The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). The decision on the
+The storage layer is checked against PostgreSQL in two places, and the rest of the server is not (#1007, item 6). MariaDB (#823) is
+checked the same way; it is at the end of this section. Each runs on one version, the one Podium supports and tests: PostgreSQL 17
+(`postgres:17` in CI, `postgres:17-alpine` in the Cypress suite) and MariaDB 11.4 (`mariadb:11.4` in CI, `mariadb:11.4.13` in the
+Cypress suite). The supported databases are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4); other versions are
+untested. The decision on the
 gap is the maintainer's; this section states what is true on 2026-11-05 and the options.
 
 - **The storage contract and the adapter's own tests** (`server/src/storage/`, about 950 tests) run on PostgreSQL in every CI run, in the
-  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-pg.sh`. That job runs the whole server suite with
-  `PODIUM_TEST_PG` set, but only the storage tests use it.
+  `Test with PostgreSQL` job of `ci.yml`, and locally with `scripts/test-db.sh`. That job runs the whole server suite with
+  `PODIUM_TEST_PG` set, but only the storage tests use it (and `server/src/fleet/chatGoneReadsPg.test.ts`, one Chat route sequence).
 - **About 50 test files outside `server/src/storage/`** (routes, ingest, the fleet, peers, Admin) open a SQLite storage and nothing else. They
   have never run on PostgreSQL. They are not to be converted: the contract is where the two databases are compared.
 - **The Cypress suite on PostgreSQL** (`E2E_DB=postgres`, the `databases` input of `e2e.yml`, default `sqlite postgres`) runs on a pull
@@ -269,7 +274,7 @@ The options, cheapest first:
 1. **Rely on the release PR alone** (what is set up). No new cost; a PostgreSQL-only failure appears only when the release is already
    being cut, and `development` is not known to be green on PostgreSQL between releases.
 2. **Run `E2E` by hand on `development` with `databases: postgres` before the release-prep PR opens**, and once more after any storage change
-   that merges. No workflow change; it is one manual step and it needs to be written into `podium-release`'s steps to happen.
+   that merges. No workflow change; it is one manual step and it needs to be written into `/podium-release`'s steps to happen.
 3. **Add a `schedule:` (nightly) or a `push` to `development` trigger that runs `postgres` only.** The suite takes about 10 minutes for one
    database on the self-hosted runner, which also serves the nightly build. It needs an edit to `e2e.yml`, so it is a separate change.
 4. **Run the server's route and ingest tests on PostgreSQL** by making the 50 files open the storage through a switch (`PODIUM_TEST_PG`)
@@ -278,6 +283,22 @@ The options, cheapest first:
 
 Recommendation: 2 now, since it costs nothing and puts a real PostgreSQL run before the release PR rather than inside it, and 3 if that
 first run finds anything. This section changes when the workflow does.
+
+**MariaDB.** The same three places, with these facts on 2026-11-10:
+
+- **The storage contract and the adapter's own tests** (`server/src/storage/mariadb/`) run on MariaDB in every CI run, in the
+  `test-mariadb` job of `ci.yml` (`Test with MariaDB 11.4`), on 11.4, the long-term release and the one version tested, and locally
+  with `scripts/test-db.sh`. As on
+  PostgreSQL the whole server suite runs with `PODIUM_TEST_MARIADB` set, and only the storage tests and one Chat route sequence
+  (`server/src/fleet/chatGoneReadsMaria.test.ts`) use it.
+- **The same 50 files outside `server/src/storage/`** open SQLite only, and have never run on MariaDB.
+- **The Cypress suite on MariaDB** (`E2E_DB=mariadb`, in the default `databases` of `e2e.yml`) runs on 11.4.13, pinned, the same
+  version line as the unit and contract tests above. A release PR runs every database in that default list in one job, and
+  `E2E summary` fails when that job fails or is skipped.
+
+Is that enough for the release gate? The same answer and the same options as for PostgreSQL, with `mariadb` in place of `postgres`
+in options 2 and 3. A MariaDB other than 11.4, like a PostgreSQL other than 17, is reached by no test; `E2E_MARIADB_IMAGE` and
+`E2E_PG_IMAGE` run the suite on another image by hand, which does not make that version supported.
 
 ## What is still open
 

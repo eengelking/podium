@@ -28,8 +28,9 @@ jobs:
         # A failed attempt is retried twice (scripts/ci-retry.sh), so a flaky test does not fail the PR; each retry leaves a warning.
         run: scripts/ci-retry.sh --name "Test" --timeout 15m -- npm test
         env:
-          # This job has no database server. It says so, and the run prints that PostgreSQL was NOT RUN; the "Test with PostgreSQL" job below runs it,
-          # and every other adapter has a job of its own, which a test in server/src/storage/adapters.test.ts requires (#1008).
+          # This job has no database server. It says so, and the run prints that PostgreSQL and MariaDB were NOT RUN; the "Test with PostgreSQL"
+          # and "Test with MariaDB 11.4" jobs below run them, and every adapter with a server has a job of its own, which a test in
+          # server/src/storage/adapters.test.ts requires (#1008).
           PODIUM_TEST_ONLY: sqlite
 
       - name: Build (UI, server, scripts type-check)
@@ -70,6 +71,8 @@ jobs:
           --health-retries 12
     env:
       PODIUM_TEST_PG: postgres://postgres@localhost:5432/postgres
+      # MariaDB runs in its own job below; this one says so, and the run prints that it was NOT RUN here.
+      PODIUM_TEST_ONLY: sqlite,postgres
     steps:
       - uses: actions/checkout@v7
 
@@ -84,6 +87,45 @@ jobs:
       # The server's suite holds the adapter's tests and the scripts' tests (throwaway-db among them). The frontend's already ran above.
       - name: Test the server with PostgreSQL behind it
         run: scripts/ci-retry.sh --name "Test the server with PostgreSQL behind it" --timeout 10m -- npm test -w server
+
+  # The MariaDB adapter's tests (#823), the same way as PostgreSQL's above: PODIUM_TEST_MARIADB names a service container on a GitHub-hosted
+  # runner, and each test file makes and drops its own database on it. Podium supports MariaDB 11.x and tests one version, 11.4, the
+  # long-term release scripts/db-adapters.mjs names (scripts/db-adapters.test.ts holds them together); other versions are untested. The
+  # root password is empty: the service lives for one job and only the runner reaches it.
+  test-mariadb:
+    name: Test with MariaDB 11.4
+    runs-on: ubuntu-latest
+    timeout-minutes: 40 # three test attempts of up to 10 minutes, plus install
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1"
+          MARIADB_DATABASE: podium_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
+    env:
+      PODIUM_TEST_MARIADB: mariadb://root@127.0.0.1:3306/podium_test
+      # PostgreSQL runs in its own job above; this one says so, and the run prints that it was NOT RUN here.
+      PODIUM_TEST_ONLY: sqlite,mariadb
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Test the server with MariaDB behind it
+        run: scripts/ci-retry.sh --name "Test the server with MariaDB behind it" --timeout 10m -- npm test -w server
 
   # The reporters' shared code (#934). `npm test` above also runs these files through the server's config; this job runs them
   # on their own, with no harness CLI and no harness API types, which is how a change to plugin/core/ is judged for every harness.

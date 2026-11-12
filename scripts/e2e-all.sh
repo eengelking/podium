@@ -9,10 +9,10 @@ set -uo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/e2e-all.sh [--out DIR] [--no-build] [--databases "sqlite postgres"] [--shards N] [-- <cypress run arguments>]
+Usage: scripts/e2e-all.sh [--out DIR] [--no-build] [--databases "sqlite postgres mariadb"] [--shards N] [-- <cypress run arguments>]
 
 Runs the whole suite once per database, all at once, waits for every run, and prints one last line:
-  E2E RESULT: PASS|FAIL sqlite=PASS postgres=FAIL(1) ...                     (one shard, the default)
+  E2E RESULT: PASS|FAIL sqlite=PASS postgres=FAIL(1) mariadb=PASS            (one shard, the default)
   E2E RESULT: PASS|FAIL sqlite.1=PASS sqlite.2=FAIL(1) ... postgres.3=PASS   (--shards 3)
 In FAIL(n), n is the run's exit code (1 a spec failed, 2 it could not run), not a count of failing tests.
 Exit code: 0 every run passed, 1 any run failed, 2 a setup error: the image build, the spec groups, or a run that could not start
@@ -32,16 +32,17 @@ Options:
   -h, --help         Show this help.
 Anything after -- goes to `cypress run` in every run. With --shards above 1 it may not hold --spec: the groups set it.
 
-Choosing --shards. Runs at once = shards x databases, and each is a server, a Chrome and, for postgres, a PostgreSQL, about 1.1 GB
-of memory as measured. Keep that number at most the engine's CPUs and at most its memory in GB divided by 2 (`podman machine inspect`
+Choosing --shards. Runs at once = shards x databases, and each is a server, a Chrome and, for a database server (postgres,
+mariadb), its container, about 1.1 GB of memory as measured with PostgreSQL. Keep that number at most the engine's CPUs and at most its memory in GB divided by 2 (`podman machine inspect`
 shows both; a GitHub runner is 2 CPUs and 7 GB). On a 6-CPU, 16 GB podman machine with two databases, use --shards 3: the whole
 suite took about 7m20s against 16m40s with one shard. --shards 4 took about 8 minutes there, no faster, with 8 runs on 6 CPUs, and
 one such run had a shard hang for 15 minutes (the cause is not known), so 4 is not the setting to use. Past the CPUs every run
 slows down, and a run that cannot get its containers is a setup error. The script warns when shards x databases is more than the
 engine's CPUs. The floor is a few specs that wait on real timers (about 5 minutes of the suite), so more shards stop helping.
+With the three databases of today (sqlite, postgres, mariadb) on that 6-CPU machine, the same rule gives --shards 2.
 
 The groups come out even only if the recorded times are current. After specs are added or changed a lot, refresh them from the
-logs of a whole run: node scripts/e2e-shards.mjs --record <out>/sqlite*.log <out>/postgres*.log (a spec with no recorded time is
+logs of a whole run: node scripts/e2e-shards.mjs --record <out>/sqlite*.log <out>/postgres*.log <out>/mariadb*.log (a spec with no recorded time is
 weighed at the median, and the script names it).
 
 On a run of the whole suite (no --spec after --) each database's specs, added over its shards, must equal the spec files on disk,

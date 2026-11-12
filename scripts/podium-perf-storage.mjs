@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Storage latency for the Podium server (#822): the same report load and snapshot load against SQLite and against PostgreSQL, on the
+// Storage latency for the Podium server (#822, #823): the same report load and snapshot load against SQLite, PostgreSQL or MariaDB, on the
 // same machine or over a network hop with a stated round-trip time. Starts its own throwaway server (built server/dist, a free port, a
 // throwaway database it drops) and stops everything it started. Run `--help` for options.
 //
@@ -14,7 +14,8 @@ import { existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createDatabase, dropDatabase, isPostgresUrl, labelOf } from './throwaway-db.mjs';
+import { createDatabase, dropDatabase, isServerUrl, labelOf } from './throwaway-db.mjs';
+import { adapter, kindOf } from './db-adapters.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,8 +25,9 @@ Posts a pool of simulator reports to a throwaway Podium server and times the rep
 first (npm run build -w server). It never touches a server, port or database you use.
 
 Options
-  --db <v>         sqlite (default), or a postgres:// URL of a PostgreSQL server (a database of its own is made on it and dropped)
-  --rtt <ms>       with a postgres:// URL: put a TCP delay proxy in front of the server so each query pays this round-trip time in
+  --db <v>         sqlite (default), or a postgres:// or mariadb:// URL of a database server (a database of its own is made on it and
+                   dropped)
+  --rtt <ms>       with a server URL: put a TCP delay proxy in front of the server so each query pays this round-trip time in
                    addition to the real one (the delay is rtt/2 on each direction of every chunk). Default 0: no proxy
   --sessions <n>   simulated sessions (default 20), each with --agents extra agents (default 10)
   --reports <n>    reports in the pool (default 1200); the first --serial of them are posted one at a time, the rest --concurrency at a time
@@ -37,9 +39,10 @@ Options
   --json <file>    also write the result as JSON
   -h, --help       show this help
 
-Query counts need PostgreSQL: a preload counts the pg driver's calls (BEGIN and COMMIT included) and the idle rate is taken off.
+Query counts need PostgreSQL: a preload counts the pg driver's calls (BEGIN and COMMIT included) and the idle rate is taken off. On
+SQLite and MariaDB the result has no query counts.
 Environment
-  PODIUM_DB        used for --db when --db is not given and it is a postgres:// URL.`;
+  PODIUM_DB        used for --db when --db is not given and it is a postgres:// or mariadb:// URL.`;
 
 const args = process.argv.slice(2);
 if (args.includes('-h') || args.includes('--help')) {
@@ -52,8 +55,10 @@ const num = (n, d) => {
   if (!Number.isFinite(v) || v < 0) throw new Error(`${n} must be a number of at least 0`);
   return v;
 };
-const DB = arg('--db', isPostgresUrl(process.env.PODIUM_DB) ? process.env.PODIUM_DB : 'sqlite');
-const PG = isPostgresUrl(DB);
+const DB = arg('--db', isServerUrl(process.env.PODIUM_DB) ? process.env.PODIUM_DB : 'sqlite');
+/** The kind of database server --db names (postgres, mariadb), or null for SQLite. */
+const SERVER = isServerUrl(DB) ? kindOf(DB) : null;
+const PG = SERVER === 'postgres';
 const RTT = num('--rtt', 0);
 const SESSIONS = Math.min(50, Math.max(1, Math.floor(num('--sessions', 20))));
 const AGENTS = num('--agents', 10);
@@ -64,7 +69,7 @@ const STATES = Math.floor(num('--states', 30));
 const RUNS = Math.max(1, Math.floor(num('--runs', 3)));
 const SEED = num('--seed', 822);
 const JSON_OUT = arg('--json', '');
-if (RTT > 0 && !PG) throw new Error('--rtt needs a postgres:// --db');
+if (RTT > 0 && !SERVER) throw new Error('--rtt needs a postgres:// or mariadb:// --db');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (m) => console.error(`podium-perf-storage: ${m}`);
 
@@ -144,12 +149,12 @@ async function oneRun(pool, n) {
   let child = null;
   let sse = null;
   try {
-    if (PG) {
+    if (SERVER) {
       throwaway = await createDatabase(DB, 'perfstorage');
       dbUrl = throwaway;
       if (RTT > 0) {
         const u = new URL(throwaway);
-        proxy = await delayProxy(u.hostname, Number(u.port || 5432), RTT / 2);
+        proxy = await delayProxy(u.hostname, Number(u.port || adapter(SERVER).port), RTT / 2);
         u.hostname = '127.0.0.1';
         u.port = String(proxy.port);
         dbUrl = u.toString();
@@ -278,12 +283,12 @@ async function oneRun(pool, n) {
 
 if (!existsSync(path.join(ROOT, 'server/dist/index.js'))) throw new Error('server/dist is missing: run npm run build -w server first');
 const pool = makePool();
-log(`${pool.length} reports, ${SESSIONS} sessions x ${AGENTS} agents, db ${PG ? labelOf(DB) : 'sqlite'}${RTT ? `, +${RTT} ms round trip` : ''}`);
+log(`${pool.length} reports, ${SESSIONS} sessions x ${AGENTS} agents, db ${SERVER ? labelOf(DB) : 'sqlite'}${RTT ? `, +${RTT} ms round trip` : ''}`);
 const runs = [];
 for (let i = 1; i <= RUNS; i++) {
   runs.push(await oneRun(pool, i));
   log(`run ${i}: ${JSON.stringify(runs[i - 1].report)} state p50 ${runs[i - 1].state.p50}`);
 }
-const result = { db: PG ? 'postgres' : 'sqlite', rttMs: RTT, sessions: SESSIONS, agents: AGENTS, reports: REPORTS, serial: SERIAL, runs };
+const result = { db: SERVER ?? 'sqlite', rttMs: RTT, sessions: SESSIONS, agents: AGENTS, reports: REPORTS, serial: SERIAL, runs };
 if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify(result, null, 2));
 console.log(JSON.stringify(result, null, 2));

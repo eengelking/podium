@@ -79,7 +79,7 @@ unchanged. Remove `fix` when #700 is fixed in the standards generator.
 
 ## What not to do
 
-- Do not edit anything under `docs/standards/` through the site: it is generated from the app (`podium-standards-update`).
+- Do not edit anything under `docs/standards/` through the site: it is generated from the app (`/podium-standards-update`).
 - Do not copy docs into `site/`, or keep a second copy of a page.
 - Do not add a new color. Use a token.
 - Do not run the site's `npm install` from the repo root; `site/` has its own `package.json` and lockfile and is not an npm workspace.

@@ -7,7 +7,7 @@ description: Find and apply Podium's development patterns from docs/PATTERNS.md.
 
 `docs/PATTERNS.md` is the list of development patterns the code follows. This skill is how you use it: it holds the steps and none of the patterns, so the page stays the only place a pattern is described. It reports. It never edits the code or the page, and it never decides that a pattern should change; that is the maintainer's decision under "Changing a pattern" on the page.
 
-**Relationship to the standards.** The look of the UI is `docs/standards/`, checked by `podium-standards-check`. For a change under `frontend/` or `mockup/`, load that skill too; it wins on color, components, copy and layout. This skill covers the code patterns in the same files (the live stream, text nodes, `EdgeTab`) and everything outside the UI.
+**Relationship to the standards.** The look of the UI is `docs/standards/`, checked by `/podium-standards-check`. For a change under `frontend/` or `mockup/`, load that skill too; it wins on color, components, copy and layout. This skill covers the code patterns in the same files (the live stream, text nodes, `EdgeTab`) and everything outside the UI.
 
 ## Three steps
 
@@ -22,7 +22,7 @@ description: Find and apply Podium's development patterns from docs/PATTERNS.md.
    | `server/src/` routes, middleware, auth, logging, config or environment | Server routes, auth and logging |
    | Anything a session or person can turn on, or that answers into a session | Consent and what Podium may do |
    | `plugin/` | Reporter and plugin |
-   | `frontend/` | UI code (and load `podium-standards-check`) |
+   | `frontend/` | UI code (and load `/podium-standards-check`) |
    | A test, a spec or a script | Tests |
    | A page under `docs/` | Docs |
    | A version, `dist/`, a PR target, a release | Release |
