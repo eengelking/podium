@@ -231,7 +231,7 @@ as it happens.
   apart, so paging back is the same record. The owner is told in two places and the Admin log keeps `recording_read`. (1)
   The console shows the owner a red notice on the orchestrator page and on the card's recording band while the replay
   is live (30 seconds after the Admin's last read or ping), and a quiet line for each earlier replay, newest first,
-  three at most, until the owner has seen it. Each has an X that hides it in that browser, and only the owner (an Admin
+  three at most, until the owner has seen it. The red notice has no X (it is shown while the replay is live), and each quiet line has an X that hides it in that browser, and only the owner (an Admin
   only for a session of their own) can use it; the record, the log line and the callout stay. (2) The reporter's
   next report reply carries one content-free callout, `<Admin> (an Admin) is replaying your recorded Podium session
   <name>.`, for the person only and never for the model, even when peer messaging is off. The stream carries only the

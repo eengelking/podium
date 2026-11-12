@@ -780,9 +780,10 @@ becomes a standard in the release-prep PR, not in the feature PR.
   Under the layer, a red notice (`.ch-nav.ro.crit`, an eye and words) names the Admin, says only the owner and Admins can
   open it and that it clears about 30 seconds after the Admin stops, and the card's recording band gains a second line,
   "`<Admin>` (an Admin) is replaying it now." After the replay a quiet line stays for each one, newest first, three at
-  most: "`<Admin>` (an Admin) replayed this recording on `<time>`, for `<n>` minutes." The notice and each line have an
-  X (`.x`) at the far right that hides it in that browser. Only the owner sees them, and so only the owner can close
-  them (an Admin for a session of their own). The band's line has no X.
+  most: "`<Admin>` (an Admin) replayed this recording on `<time>`, for `<n>` minutes." The red notice has no X: it is shown while the
+  replay is live and nothing a viewer does hides it. Each quiet line has an X (`.x`) at the far right that hides it in
+  that browser. Only the owner sees them, and so only the owner can close them (an Admin for a session of their own).
+  The band's line has no X.
 - The terminal shows the same text ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#session-recording-from-the-reporter-353)).
 
 **Stopped, ended and limit**
