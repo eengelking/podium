@@ -261,6 +261,25 @@ class SseClient {
 
 const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
 
+/** `GET /api/fleet/state` as it goes over the wire, asked two ways: what a client that sends no Accept-Encoding gets, and what one that sends gzip gets. Best of 5 for the time. */
+async function measureStateWire(url) {
+  const one = async (encoding) => {
+    let best = Infinity;
+    let bytes = 0;
+    let coding = null;
+    for (let i = 0; i < 5; i++) {
+      const t0 = process.hrtime.bigint();
+      const res = await fetch(`${url}/api/fleet/state`, { headers: { 'Accept-Encoding': encoding } });
+      const text = await res.text();
+      best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6);
+      coding = res.headers.get('content-encoding');
+      bytes = Number(res.headers.get('content-length') ?? Buffer.byteLength(text));
+    }
+    return { bytes, contentEncoding: coding, bestMs: round(best, 1) };
+  };
+  return { identity: await one('identity'), gzip: await one('gzip') };
+}
+
 async function runOnce(name, fleet, run) {
   const server = new Server();
   let sim = null;
@@ -283,7 +302,8 @@ async function runOnce(name, fleet, run) {
     const s1 = procStats(server.child.pid);
     clients.forEach((c) => c.end());
     const el = await server.eventLoop();
-    const state = await (await fetch(`${server.url}/api/fleet/state`)).text();
+    const state = await (await fetch(`${server.url}/api/fleet/state`, { headers: { 'Accept-Encoding': 'identity' } })).text();
+    const stateWire = await measureStateWire(server.url);
     const first = clients[0];
     const secs = wallNs / 1e9;
     const sessionCount = JSON.parse(state).sessions?.length ?? 0;
@@ -306,6 +326,7 @@ async function runOnce(name, fleet, run) {
       },
       stateBytes: Buffer.byteLength(state),
       stateGzipBytes: gzipSync(state).length,
+      stateWire,
     };
   } finally {
     clients.forEach((c) => c.close());
@@ -371,5 +392,6 @@ console.log(row(['fleet', 'run', 'sessions', 'cpu %', 'rss MB', 'B/s', 'msg/s', 
 for (const f of results) {
   for (const r of f.runs) {
     console.log(row([r.fleet, r.run, r.sessions, r.cpuPercentOfOneCore, r.rssMb, r.sse.bytesPerSecond, r.sse.messagesPerSecond, r.sse.gzipBytesPerSecond]) + `  ${String(r.eventLoop?.p99Ms ?? 'n/a').padEnd(11)}  ${r.run === 1 ? (f.repeat ? (f.repeat.repeatable ? 'ok' : 'NOT repeatable') : '-') : ''}`);
+    console.log(`${' '.repeat(14)}/state on the wire, run ${r.run}: no encoding ${r.stateWire.identity.bytes} B in ${r.stateWire.identity.bestMs} ms; gzip ${r.stateWire.gzip.bytes} B (${r.stateWire.gzip.contentEncoding ?? 'plain'}) in ${r.stateWire.gzip.bestMs} ms`);
   }
 }

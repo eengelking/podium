@@ -22,6 +22,7 @@ import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
 import { refusableOverHttp, type ReporterTransport } from '../tlsHttp.js';
 import { asyncHandler } from './asyncHandler.js';
+import { sendJson } from '../compress.js';
 import { certAuth, type ClientSocket } from '../tlsClientAuth.js';
 
 export interface FleetRouterOptions {
@@ -49,6 +50,8 @@ export interface FleetRouterOptions {
   certs?: { store: PersonCertsApi; trustedIssuers: () => string[] };
   /** Built-in TLS (#589): told which transport each reporter last used, for the Admin's count of reporters on HTTP. */
   transport?: ReporterTransport;
+  /** Gzip /state for a client that accepts it (#745). On when absent; PODIUM_COMPRESSION=off passes false. */
+  compression?: boolean;
 }
 
 export const BODY_LIMIT = '512kb';
@@ -366,8 +369,9 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     }
   }));
 
-  router.get('/state', asyncHandler(async (_req, res) => {
-    res.json(await fleet.state());
+  // Gzipped for a client that accepts it (#745). The stream below is not: see SPEC 7.6.
+  router.get('/state', asyncHandler(async (req, res) => {
+    await sendJson(req, res, await fleet.state(), opts.compression ?? true);
   }));
 
   router.get('/stream', asyncHandler(async (req, res) => {
