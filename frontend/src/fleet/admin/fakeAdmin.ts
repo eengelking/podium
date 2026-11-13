@@ -93,6 +93,8 @@ const SPEND_COLS = [
   { key: "unpricedSessions", label: "Unpriced sessions", unit: "count" },
 ];
 
+const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+
 /** A report as the server would answer it (docs/spec/ "Reports (#484)"), with the query echoed back. */
 function fakeReport(report: string, url: URL) {
   const from = url.searchParams.get("from") ?? "2026-10-01";
@@ -129,6 +131,236 @@ function fakeReport(report: string, url: URL) {
   }
   if (report === "sessions") {
     return { ...base, by, columns: [{ key: "period", label: "Day", unit: "date" }, { key: "key", label: "Outcome", unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "avgDurationS", label: "Average duration", unit: "seconds" }, { key: "maxContextPct", label: "Fullest window", unit: "percent" }], rows: [{ period: "2026-10-19", key: "ended", sessions: 12, avgDurationS: 754, maxContextPct: 91 }], total: { sessions: 12, blowouts: 1 } };
+  }
+  if (report === "harness") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const harnesses = ["claude-code", "opencode"];
+    const cols = (...k: [string, string, string][]) => k.map(([key, label, unit]) => ({ key, label, unit }));
+    if (url.searchParams.get("breakdown") === "platform") {
+      const rows = [
+        { harness: "claude-code", platform: "macOS", version: "1.5.1", reporters: 4, status: "Current" },
+        { harness: "claude-code", platform: "Linux", version: "1.4.0", reporters: 1, status: "Update available" },
+        { harness: "opencode", platform: "Not reported", version: "1.5.1", reporters: 1, status: "Current" },
+      ].filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by: null, harnesses, columns: cols(["harness", "Harness", "text"], ["platform", "Platform", "text"], ["version", "Reporter version", "text"], ["reporters", "Reporters", "count"], ["status", "Status", "text"]), rows, total: { reporters: rows.reduce((n, r) => n + r.reporters, 0) } };
+    }
+    if (url.searchParams.get("breakdown") === "behind") {
+      const all = [
+        { period: "2026-10-12", harness: "claude-code", newest: "2.1.319", reporters: 10, onNewest: 5, behind: 5 },
+        { period: "2026-10-12", harness: "opencode", newest: "1.4.2", reporters: 3, onNewest: 3, behind: 0 },
+        { period: "2026-10-19", harness: "claude-code", newest: "2.1.319", reporters: 6, onNewest: 4, behind: 2 },
+        { period: "2026-10-19", harness: "opencode", newest: "1.4.2", reporters: 2, onNewest: 2, behind: 0 },
+      ].filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by, harnesses, columns: cols(["period", "Period", "date"], ["harness", "Harness", "text"], ["newest", "Newest seen", "text"], ["reporters", "Reporters", "count"], ["onNewest", "On the newest", "count"], ["behind", "Behind", "count"]), rows: all, total: {} };
+    }
+    const all = [
+      { harness: "claude-code", version: "2.1.319", previous: "2.1.305", feature: "field:tool_response.duration_ms", kind: "field", before: 98, now: 0, reporters: 4, effect: "Call duration on Tools shows a dash." },
+      { harness: "claude-code", version: "2.1.319", previous: "2.1.305", feature: "hook:tool.check", kind: "hook", before: 96, now: 0, reporters: 4, effect: "Permission prompts are not counted." },
+      { harness: "opencode", version: "1.4.2", previous: "1.3.9", feature: "tool:webfetch", kind: "tool", before: 31, now: 2, reporters: 2, effect: "Calls by tool shows no webfetch for OpenCode. A person may simply have stopped using it." },
+    ].filter((x) => harness === "" || x.harness === harness);
+    const versions = new Set(all.map((x) => `${x.harness}${x.version}`)).size;
+    return { ...base, by: null, harnesses, columns: cols(["harness", "Harness", "text"], ["version", "Version", "text"], ["previous", "Compared with", "text"], ["feature", "What stopped", "text"], ["kind", "Kind", "text"], ["before", "Seen before", "percent"], ["now", "Seen now", "percent"], ["reporters", "Reporters on it", "count"], ["effect", "What it affects", "text"]), rows: all, total: { features: all.length, versions, reporters: harness === "opencode" ? 2 : harness === "claude-code" ? 4 : 6 } };
+  }
+  if (report === "workload" && url.searchParams.get("breakdown") === "places") {
+    const rows = [
+      { person: "Maya Okafor", group: "Platform", projects: 4, branches: 19, topProject: "acme/podium" },
+      { person: "Jonas Weber", group: "Research", projects: 3, branches: 11, topProject: "acme/eval" },
+      { person: "Cai Lindqvist", group: "Platform", projects: 0, branches: 0, topProject: null },
+    ];
+    return { ...base, by: null, harnesses: ["claude-code", "opencode"], columns: [col("person", "Person", "text"), col("group", "Group", "text"), col("projects", "Projects", "count"), col("branches", "Branches", "count"), col("topProject", "Most used project", "text")], rows, total: { people: 3, projects: 6, branches: 27 } };
+  }
+  if (report === "tools") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const breakdown = url.searchParams.get("breakdown") ?? "tool";
+    const harnesses = ["claude-code", "opencode"];
+    if (breakdown === "skills") {
+      const rows = [
+        { skill: "code-review", harness: "claude-code", sessions: 38, people: 5 },
+        { skill: "code-review", harness: "opencode", sessions: 4, people: 1 },
+        { skill: "simplify", harness: "claude-code", sessions: 17, people: 3 },
+      ].filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by: null, harnesses, columns: [col("skill", "Skill", "text"), col("harness", "Harness", "text"), col("sessions", "Sessions that used it", "count"), col("people", "People", "count")], rows, total: { skills: 2 }, bySkill: [{ skill: "code-review", sessions: 42, people: 5 }, { skill: "simplify", sessions: 17, people: 3 }] };
+    }
+    if (breakdown === "session") {
+      const all = [{ period: "2026-10-19", harness: "claude-code", sessions: 14, median: 58, p90: 214 }, { period: "2026-10-19", harness: "opencode", sessions: 6, median: 49, p90: 171 }];
+      const rows = all.filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by, harnesses, columns: [{ key: "period", label: "Period", unit: "date" }, { key: "harness", label: "Harness", unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "median", label: "Median calls", unit: "count" }, { key: "p90", label: "90th percentile calls", unit: "count" }], rows, total: { sessions: rows.reduce((n, x) => n + x.sessions, 0), median: 55, p90: 203 }, byHarness: all.map(({ harness: h, sessions, median, p90 }) => ({ harness: h, sessions, median, p90 })) };
+    }
+    const keyed = (x: { harness: string }) => harness === "" || x.harness === harness;
+    const cols = (...k: [string, string, string][]) => k.map(([key, label, unit]) => ({ key, label, unit }));
+    const toolCols = cols(["period", "Period", "date"], ["harness", "Harness", "text"], ["server", "MCP server", "text"], ["tool", "Tool", "text"]);
+    if (breakdown === "failures") {
+      const all = [
+        { period: "2026-10-19", harness: "claude-code", server: "", tool: "Bash", calls: 4310, failed: 150, rate: 3.5, stored: 2, sessionIds: ["s1", "s2"] },
+        { period: "2026-10-19", harness: "opencode", server: "", tool: "Bash", calls: 1594, failed: 64, rate: 4, stored: 0 },
+        { period: "2026-10-19", harness: "claude-code", server: "", tool: "Read", calls: 3602, failed: 22, rate: 0.6, stored: 3 },
+        { period: "2026-10-19", harness: "claude-code", server: "github", tool: "search_code", calls: 900, failed: 12, rate: 1.3, stored: 1, sessionIds: ["s3"] },
+        { period: "2026-10-19", harness: "claude-code", server: "github", tool: "get_file", calls: 400, failed: 11, rate: 2.8, stored: 0 },
+      ].filter(keyed);
+      const sum = (k: "calls" | "failed") => rows.reduce((n, x) => n + x[k], 0);
+      const rows = all;
+      return { ...base, by, harnesses, columns: [...toolCols, ...cols(["calls", "Calls", "count"], ["failed", "Failures", "count"], ["rate", "Failure rate", "percent"], ["stored", "Sessions in History", "count"], ["sessionIds", "Sessions", "text"])], rows, total: { calls: sum("calls"), failed: sum("failed") } };
+    }
+    if (breakdown === "prompts") {
+      const rows = [
+        { period: "2026-10-19", harness: "claude-code", server: "", tool: "Bash", calls: 4310, asked: 500, allowed: 430, denied: 50, noAnswer: 20, podium: 100 },
+        { period: "2026-10-19", harness: "opencode", server: "", tool: "Bash", calls: 1594, asked: 140, allowed: 118, denied: 21, noAnswer: 1, podium: 39 },
+        { period: "2026-10-19", harness: "claude-code", server: "github", tool: "search_code", calls: 900, asked: 52, allowed: 49, denied: 2, noAnswer: 1, podium: 9 },
+      ].filter(keyed);
+      const sum = (k: "asked" | "allowed" | "denied" | "noAnswer" | "podium") => rows.reduce((n, x) => n + x[k], 0);
+      return { ...base, by, harnesses, columns: [...toolCols, ...cols(["calls", "Calls", "count"], ["asked", "Asked", "count"], ["allowed", "Allowed", "count"], ["denied", "Denied", "count"], ["noAnswer", "No answer", "count"], ["podium", "Answered in Podium", "count"])], rows, total: { calls: 10806, asked: sum("asked"), allowed: sum("allowed"), denied: sum("denied"), noAnswer: sum("noAnswer"), podium: sum("podium") } };
+    }
+    if (breakdown === "duration") {
+      const timed = harness === "" || harness === "claude-code";
+      const rows = timed ? [{ period: "2026-10-19", harness: "claude-code", server: "", tool: "Bash", timed: 4310, p50Ms: 1800, p95Ms: 41000 }] : [];
+      const byTool = timed ? [
+        { server: "", tool: "Bash", timed: 4310, p50Ms: 1800, p95Ms: 41000 },
+        { server: "github", tool: "", timed: 1300, p50Ms: 900, p95Ms: 4200 },
+        { server: "github", tool: "search_code", timed: 900, p50Ms: 800, p95Ms: 3900 },
+        { server: "", tool: "Read", timed: 3602, p50Ms: 40, p95Ms: 310 },
+      ] : [];
+      return { ...base, by, harnesses, timedHarnesses: timed ? ["claude-code"] : [], byTool, columns: [...toolCols, ...cols(["timed", "Calls timed", "count"], ["p50Ms", "Median (ms)", "count"], ["p95Ms", "95th percentile (ms)", "count"])], rows, total: timed ? { timed: 9212, p50Ms: 80, p95Ms: 9400 } : { timed: 0, p50Ms: 0, p95Ms: 0 } };
+    }
+    if (breakdown === "version") {
+      const all = [
+        { period: "2026-10-12", harness: "claude-code", version: "2.1.305", reporters: 3, newest: "Older" }, { period: "2026-10-12", harness: "claude-code", version: "2.1.319", reporters: 5, newest: "Newest seen" },
+        { period: "2026-10-19", harness: "claude-code", version: "2.1.305", reporters: 2, newest: "Older" }, { period: "2026-10-19", harness: "claude-code", version: "2.1.319", reporters: 4, newest: "Newest seen" },
+        { period: "2026-10-19", harness: "opencode", version: "1.4.2", reporters: 2, newest: "Newest seen" },
+      ];
+      const rows = all.filter((x) => harness === "" || x.harness === harness);
+      return { ...base, by, harnesses, columns: [{ key: "period", label: "Period", unit: "date" }, { key: "harness", label: "Harness", unit: "text" }, { key: "version", label: "Version", unit: "text" }, { key: "reporters", label: "Reporters", unit: "count" }, { key: "newest", label: "Newest", unit: "text" }], rows, total: {}, behind: [{ harness: "claude-code", newest: "2.1.319", behind: 2, reporters: 6 }, { harness: "opencode", newest: "1.4.2", behind: 0, reporters: 2 }].filter((x) => harness === "" || x.harness === harness) };
+    }
+    const all = [
+      { period: "2026-10-12", harness: "claude-code", server: "", tool: "Bash", calls: 4310 }, { period: "2026-10-12", harness: "opencode", server: "", tool: "Bash", calls: 1594 },
+      { period: "2026-10-19", harness: "claude-code", server: "", tool: "Read", calls: 3602 }, { period: "2026-10-19", harness: "claude-code", server: "github", tool: "search_code", calls: 900 },
+      { period: "2026-10-19", harness: "opencode", server: "github", tool: "search_code", calls: 220 }, { period: "2026-10-19", harness: "claude-code", server: "github", tool: "get_file", calls: 400 },
+    ];
+    const rows = all.filter((x) => harness === "" || x.harness === harness);
+    return { ...base, by, harnesses, columns: [{ key: "period", label: "Period", unit: "date" }, { key: "harness", label: "Harness", unit: "text" }, { key: "server", label: "MCP server", unit: "text" }, { key: "tool", label: "Tool", unit: "text" }, { key: "calls", label: "Calls", unit: "count" }], rows, total: { calls: rows.reduce((n, x) => n + x.calls, 0) } };
+  }
+  if (report === "sessiontime") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const breakdown = url.searchParams.get("breakdown") ?? "time";
+    const harnesses = ["claude-code", "opencode"];
+    const keep = <T extends { harness: string }>(all: T[]): T[] => all.filter((x) => harness === "" || x.harness === harness);
+    const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+    const extra = { harnesses, waitSince: "2026-10-12" };
+    if (breakdown === "reason") {
+      return {
+        ...base, ...extra, by: null, columns: [col("reason", "Waiting for", "text"), col("harness", "Harness", "text"), col("waits", "Waits", "count"), col("waitS", "Time waiting", "seconds"), col("avgWaitS", "Average wait", "seconds"), col("sharePct", "Share", "percent")],
+        rows: keep([{ reason: "permission", harness: "claude-code", waits: 640, waitS: 1865, avgWaitS: 175, sharePct: 56 }, { reason: "question", harness: "opencode", waits: 186, waitS: 1120, avgWaitS: 361, sharePct: 34 }]),
+        total: { waits: 826, waitS: 2985, avgWaitS: 217 },
+        byReason: [{ reason: "permission", waits: 640, waitS: 1865, avgWaitS: 175, sharePct: 62.5 }, { reason: "question", waits: 186, waitS: 1120, avgWaitS: 361, sharePct: 37.5 }, { reason: "plan", waits: 0, waitS: 0, avgWaitS: null, sharePct: 0 }],
+      };
+    }
+    // answers sent from Podium and how long sessions had waited for them (#725): counting began on 2026-10-05, so the first two weeks are dashes
+    if (breakdown === "answers") {
+      const kinds = (permission: number, question: number, plan: number, message: number) => ({ permission, question, plan, message, all: permission + question + plan + message });
+      const all = [{ period: "2026-10-05", harness: "claude-code", ...kinds(33, 13, 5, 7) }, { period: "2026-10-05", harness: "opencode", ...kinds(0, 0, 0, 0) }, { period: "2026-10-12", harness: "claude-code", ...kinds(20, 7, 2, 5) }, { period: "2026-10-12", harness: "opencode", ...kinds(5, 2, 0, 3) }];
+      const dash = { permission: null, question: null, plan: null, message: null, all: null };
+      const total = harness === "opencode" ? kinds(5, 2, 0, 3) : harness === "claude-code" ? kinds(53, 20, 7, 12) : kinds(58, 22, 7, 15);
+      return {
+        ...base, harnesses, answersSince: "2026-10-05", by, partial: true,
+        columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("permission", "Permission", "count"), col("question", "Question", "count"), col("plan", "Plan", "count"), col("message", "Message", "count"), col("all", "All", "count")],
+        rows: keep(all), total,
+        periods: [{ period: "2026-09-21", ...dash }, { period: "2026-09-28", ...dash }, { period: "2026-10-05", ...kinds(33, 13, 5, 7) }, { period: "2026-10-12", ...kinds(25, 9, 2, 8) }],
+        byHarness: keep([{ harness: "claude-code", ...kinds(53, 20, 7, 12) }, { harness: "opencode", ...kinds(5, 2, 0, 3) }]),
+      };
+    }
+    if (breakdown === "answerwait") {
+      const all = [{ period: "2026-10-05", harness: "claude-code", answers: 51, medianS: 40, p90S: 380 }, { period: "2026-10-12", harness: "opencode", answers: 7, medianS: 45, p90S: 390 }];
+      const mine = harness === "opencode" ? { answers: 7, medianS: 45, p90S: 390 } : harness === "claude-code" ? { answers: 51, medianS: 30, p90S: 300 } : { answers: 58, medianS: 32, p90S: 320 };
+      return {
+        ...base, harnesses, answersSince: "2026-10-05", by, partial: true,
+        columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("answers", "Answers with a wait", "count"), col("medianS", "Median wait", "seconds"), col("p90S", "90th percentile wait", "seconds")],
+        rows: keep(all), total: mine,
+        periods: [{ period: "2026-09-21", answers: null, medianS: null, p90S: null }, { period: "2026-09-28", answers: null, medianS: null, p90S: null }, { period: "2026-10-05", answers: 51, medianS: 40, p90S: 380 }, { period: "2026-10-12", answers: 7, medianS: 45, p90S: 390 }],
+        kinds: [{ kind: "permission", answers: 58, medianS: 18, p90S: 130 }, { kind: "question", answers: 22, medianS: 100, p90S: 540 }, { kind: "plan", answers: 7, medianS: 185, p90S: 660 }, { kind: "message", answers: 15, medianS: null, p90S: null }],
+        byHarness: keep([{ harness: "claude-code", answers: 51, medianS: 30, p90S: 300 }, { harness: "opencode", answers: 7, medianS: 45, p90S: 390 }]),
+      };
+    }
+    if (breakdown === "agents") {
+      const rows = keep([
+        { type: "general-purpose", harness: "claude-code", agents: 520, sharePct: 42.8 }, { type: "general-purpose", harness: "opencode", agents: 96, sharePct: 7.9 }, { type: "Explore", harness: "claude-code", agents: 310, sharePct: 25.5 },
+        { type: "Plan", harness: "claude-code", agents: 96, sharePct: 7.9 }, { type: "Review", harness: "claude-code", agents: 60, sharePct: 4.9 }, { type: "build", harness: "opencode", agents: 46, sharePct: 3.8 },
+      ]);
+      return { ...base, ...extra, by: null, columns: [col("type", "Agent type", "text"), col("harness", "Harness", "text"), col("agents", "Agents launched", "count"), col("sharePct", "Share", "percent")], rows, total: { agents: rows.reduce((n, x) => n + x.agents, 0), sessions: 312, agentsPerSession: 3.9 } };
+    }
+    if (breakdown === "depth") {
+      const rows = keep([{ depth: 1, harness: "claude-code", agents: 1010, sharePct: 83 }, { depth: 1, harness: "opencode", agents: 124, sharePct: 10.2 }, { depth: 2, harness: "claude-code", agents: 58, sharePct: 4.8 }, { depth: 3, harness: "opencode", agents: 2, sharePct: 0.2 }]);
+      return { ...base, ...extra, by: null, columns: [col("depth", "Chain depth", "count"), col("harness", "Harness", "text"), col("agents", "Agents", "count"), col("sharePct", "Share", "percent")], rows, total: { agents: rows.reduce((n, x) => n + x.agents, 0), deepest: 4 } };
+    }
+    const all = [
+      { period: "2026-10-05", harness: "claude-code", sessions: 60, avgDurationS: 3400, maxDurationS: 25_500, waitS: 72_360, waitSharePct: 24 }, { period: "2026-10-12", harness: "claude-code", sessions: 50, avgDurationS: 3000, maxDurationS: 17_700, waitS: 39_240, waitSharePct: 19 },
+      { period: "2026-10-12", harness: "opencode", sessions: 19, avgDurationS: 2700, maxDurationS: 13_200, waitS: 9000, waitSharePct: 17 },
+    ];
+    const rows = keep(all);
+    return {
+      ...base, ...extra, by, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("sessions", "Sessions", "count"), col("avgDurationS", "Average length", "seconds"), col("maxDurationS", "Longest", "seconds"), col("waitS", "Time waiting on people", "seconds"), col("waitSharePct", "Share of time waiting", "percent")],
+      rows, total: { sessions: 129, avgDurationS: 3100, maxDurationS: 25_500, waitS: 120_600, waitSharePct: 21 },
+      periods: [{ period: "2026-10-05", sessions: 60, avgDurationS: 3400, maxDurationS: 25_500, waitS: 72_360, waitSharePct: 24 }, { period: "2026-10-12", sessions: 69, avgDurationS: 2950, maxDurationS: 17_700, waitS: 48_240, waitSharePct: 18 }],
+      byHarness: keep([{ harness: "claude-code", sessions: 110, avgDurationS: 3200, maxDurationS: 25_500, waitS: 111_600, waitSharePct: 21 }, { harness: "opencode", sessions: 19, avgDurationS: 2700, maxDurationS: 13_200, waitS: 9000, waitSharePct: 17 }]),
+    };
+  }
+  if (report === "costs") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const breakdown = url.searchParams.get("breakdown") ?? "model";
+    const harnesses = ["claude-code", "opencode"];
+    const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+    const keep = <T extends { harness: string }>(all: T[]): T[] => all.filter((x) => harness === "" || x.harness === harness);
+    const extra = { harnesses };
+    if (breakdown === "tool") {
+      const tools = [{ tool: "Bash", sessions: 248, avgSpendUsd: 2.71, avgCalls: 31 }, { tool: "Edit", sessions: 231, avgSpendUsd: 2.94, avgCalls: 19 }, { tool: "WebFetch", sessions: 52, avgSpendUsd: null, avgCalls: 27 }];
+      return { ...base, ...extra, by: null, columns: [col("tool", "Tool", "text"), col("harness", "Harness", "text"), col("sessions", "Sessions that called it", "count"), col("avgSpendUsd", "Average spend of those sessions", "usd"), col("avgCalls", "Average calls of it in a session", "count")], rows: tools.map((t) => ({ ...t, harness: "claude-code" })), total: { tools: tools.length }, tools };
+    }
+    if (breakdown === "tokens") {
+      const periods = [{ period: "2026-10-05", tokIn: 10_200_000, tokOut: 1_400_000, tokCr: 49_900_000, tokCw: 5_800_000, cacheHitPct: 76 }, { period: "2026-10-12", tokIn: 8_400_000, tokOut: 1_100_000, tokCr: 41_600_000, tokCw: 4_900_000, cacheHitPct: 76 }];
+      return {
+        ...base, ...extra, by, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("tokIn", "Input tokens", "tokens"), col("tokOut", "Output tokens", "tokens"), col("tokCr", "Cache read tokens", "tokens"), col("tokCw", "Cache write tokens", "tokens"), col("cacheHitPct", "Cache hit rate", "percent")],
+        rows: keep(periods.map((p) => ({ ...p, harness: "claude-code" }))), total: { tokIn: 18_600_000, tokOut: 2_500_000, tokCr: 91_500_000, tokCw: 10_700_000, cacheHitPct: 76 }, periods,
+        byHarness: keep([{ harness: "claude-code", tokIn: 14_000_000, tokOut: 2_000_000, tokCr: 80_000_000, tokCw: 9_000_000, cacheHitPct: 78 }, { harness: "opencode", tokIn: 4_600_000, tokOut: 500_000, tokCr: 11_500_000, tokCw: 1_700_000, cacheHitPct: 65 }]),
+      };
+    }
+    if (breakdown === "mix") {
+      const mixOf = url.searchParams.get("mixof") ?? "model";
+      const names = mixOf === "effort" ? ["high", "-"] : ["Opus 5.5", "Sonnet 5.5", "-"];
+      const combined = ["2026-10-05", "2026-10-12"].flatMap((period) => names.map((n, i) => ({ period, [mixOf]: n, sessions: [30, 20, 10][i] ?? 0, sharePct: [50, 33, 17][i] ?? 0 })));
+      return { ...base, ...extra, by, mixOf, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col(mixOf, mixOf === "model" ? "Model" : "Effort", "text"), col("sessions", "Sessions", "count"), col("sharePct", "Share of sessions", "percent")], rows: keep(combined.map((c) => ({ ...c, harness: "claude-code" }))), total: { sessions: 120 }, combined, periods: [{ period: "2026-10-05", sessions: 60 }, { period: "2026-10-12", sessions: 60 }] };
+    }
+    if (breakdown === "context") {
+      return {
+        ...base, ...extra, by, columns: [col("period", "Period", "date"), col("harness", "Harness", "text"), col("sessions", "Sessions", "count")], rows: keep([{ period: "2026-10-05", harness: "claude-code", sessions: 60 }, { period: "2026-10-05", harness: "opencode", sessions: 30 }]),
+        total: { sessions: 120, endedLow: 60, endedMid: 40, endedHigh: 14, endedUnknown: 6, endedHighPct: 12.3, compacted: 18, cleared: 7 },
+        byHarness: keep([{ harness: "claude-code", sessions: 90, endedLow: 40, endedMid: 30, endedHigh: 14, endedUnknown: 6, endedHighPct: 16.7, compacted: 18, cleared: 7 }, { harness: "opencode", sessions: 30, endedLow: 20, endedMid: 10, endedHigh: 0, endedUnknown: 0, endedHighPct: 0, compacted: 0, cleared: 0 }]),
+      };
+    }
+    const models = [{ model: "Opus 5.5", sessions: 96, calls: 4118, spendUsd: 412.8, perCallUsd: 0.1, perSessionUsd: 4.3 }, { model: "mystery-model", sessions: 3, calls: 122, spendUsd: null, perCallUsd: null, perSessionUsd: null }];
+    return {
+      ...base, ...extra, by: null, columns: [col("model", "Model", "text"), col("harness", "Harness", "text"), col("sessions", "Sessions", "count"), col("calls", "Tool calls", "count"), col("spendUsd", "Spend", "usd"), col("perCallUsd", "Per tool call", "usd"), col("perSessionUsd", "Per session", "usd")],
+      rows: keep(models.map((m) => ({ ...m, harness: "claude-code" }))), total: { sessions: 99, pricedSessions: 96, pricedCalls: 4118, unpricedCalls: 122, spendUsd: 412.8, perCallUsd: 0.1, perSessionUsd: 4.3 }, models,
+    };
+  }
+  if (report === "workload") {
+    const harness = url.searchParams.get("harness") ?? "";
+    const group = url.searchParams.get("group") ?? "";
+    const col = (key: string, label: string, unit: string) => ({ key, label, unit });
+    const harnesses = ["claude-code", "opencode"];
+    if (url.searchParams.get("breakdown") === "hour") {
+      const peaks = [0, 0, 0, 0, 0, 0, 1, 2, 4, 7, 8, 9, 6, 7, 9, 8, 7, 5, 3, 2, 2, 1, 1, 0];
+      const rows = peaks.map((p, h) => ({ hour: `${String(h).padStart(2, "0")}:00`, harness: harness === "" ? "all" : harness, peak: harness === "opencode" ? Math.round(p * 0.3) : p }));
+      return { ...base, harnesses, by: null, columns: [col("hour", "Hour", "text"), col("harness", "Harness", "text"), col("peak", "Most sessions live at once", "count")], rows, total: { peak: 9, busiestHour: "11:00" } };
+    }
+    const all = [
+      { person: "Maya Okafor", group: "Platform", activeDays: 22, sessions: 118, perActiveDay: 5.4, busiestDay: "2026-10-07", busiestDaySessions: 11 },
+      { person: "Jonas Weber", group: "Research", activeDays: 19, sessions: 74, perActiveDay: 3.9, busiestDay: "2026-10-14", busiestDaySessions: 8 },
+      { person: "Cai Lindqvist", group: "Platform", activeDays: 9, sessions: 31, perActiveDay: 3.4, busiestDay: "2026-10-02", busiestDaySessions: 7 },
+      { person: "-", group: "-", activeDays: 6, sessions: 14, perActiveDay: 2.3, busiestDay: "2026-10-09", busiestDaySessions: 4 },
+    ];
+    const rows = all.filter((x) => group === "" || x.group === group);
+    return {
+      ...base, harnesses, by: null, columns: [col("person", "Person", "text"), col("group", "Group", "text"), col("activeDays", "Days active", "count"), col("sessions", "Sessions", "count"), col("perActiveDay", "Per active day", "count"), col("busiestDay", "Busiest day", "date"), col("busiestDaySessions", "Sessions on busiest day", "count")],
+      rows: harness === "opencode" ? rows.slice(0, 1) : rows, total: { people: rows.length, activeDays: 56, sessions: 237, perActiveDay: 4.2, busiestDay: "2026-10-07", busiestDaySessions: 21 },
+    };
   }
   if (report === "failures") {
     return {
@@ -184,6 +416,20 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     people: Array.from({ length: opts.people ?? 0 }, (_, i): P => ({ id: i + 1, name: `person-${String(i).padStart(3, "0")}`, groupId: null, revokedAt: null })),
     groups: [] as { id: number; name: string; builtIn?: boolean }[],
     calls: [] as string[],
+    /** True makes GET /about fail with a 500. */
+    aboutFails: false,
+    /** What GET /about answers (#862). */
+    about: {
+      server: { version: "1.1.0", build: null as string | null, runtime: "standalone", startedAt: 1_000_000, system: "darwin arm64" },
+      stack: { node: "24.11.0", express: "5.3.0" },
+      database: { engine: "SQLite", version: "3.50.4", schemaVersion: 52, sizeBytes: 432_013_312 as number | null },
+      reporters: [
+        { reporterName: "podium-reporter-claudecode", version: "1.5.0", machines: 5, compat: "ok", support: { min: "0.2.0", max: "1.5.0" } },
+        { reporterName: "podium-reporter-claudecode", version: "1.3.2", machines: 2, compat: "outdated", support: { min: "0.2.0", max: "1.5.0" } },
+        { reporterName: "podium-reporter-opencode", version: "1.5.0", machines: 1, compat: "ok", support: { min: "1.4.0", max: "1.5.0" } },
+      ] as unknown[],
+      serverTime: 1_000_000 + 3 * 86_400_000 + 4 * 3_600_000,
+    },
     expire: false,
     notices: { "background-sessions": true } as Record<string, boolean>,
     features: { "activity-feed": true } as Record<string, boolean>,
@@ -341,6 +587,10 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       if (act[2] !== "certificate/revoke") who.revokedAt = 5;
       if (act[2] !== "revoke") who.certificate = { notAfter: who.certificate?.notAfter ?? "2027-01-19T00:00:00.000Z", revoked: true };
       return json(200, { ok: true });
+    }
+    if (path === "/about" && method === "GET") {
+      if (state.aboutFails) return json(500, { ok: false, error: "HTTP 500" });
+      return json(200, state.about);
     }
     if (path === "/reporters" && method === "GET") {
       const st = url.searchParams.get("state") ?? "";

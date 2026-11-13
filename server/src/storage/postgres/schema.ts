@@ -196,6 +196,181 @@ ALTER TABLE agents ADD COLUMN model_label TXT;
 ALTER TABLE agents ADD COLUMN model_provider TXT;
 `),
   },
+  {
+    version: 7,
+    // The Chat page (#1034), as SQLite migration 31 makes it. A direct message records who wrote it (every message stored before this was an agent's) and
+    // when every agent in its conversation had left (hidden_at). Group and General messages are tables of their own, one per audience, with the same row
+    // shape; a direct message is never copied into either. A person's unread and mention counts are kept per thread.
+    sql: typed(`
+ALTER TABLE peer_messages ADD COLUMN author TXT NOT NULL DEFAULT 'agent';
+ALTER TABLE peer_messages ADD COLUMN hidden_at INT;
+CREATE INDEX peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TXT PRIMARY KEY, owner TXT NOT NULL, group_id TXT NOT NULL, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL,
+  text TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL, issue TXT, project TXT, milestone TXT, reply_to TXT,
+  mentions_json TXT NOT NULL DEFAULT '[]', seq INT NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (
+  id TXT PRIMARY KEY, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL,
+  text TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL, issue TXT, project TXT, milestone TXT, reply_to TXT,
+  mentions_json TXT NOT NULL DEFAULT '[]', seq INT NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (
+  person TXT NOT NULL, thread TXT NOT NULL, last_read TXT, unread INT NOT NULL DEFAULT 0, mentions INT NOT NULL DEFAULT 0,
+  updated_at INT NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
+`),
+  },
+  {
+    version: 8,
+    // Who paused a person's link to another person's agent (#1034), as SQLite migration 32 keeps it. NULL means not paused, or paused before this was kept.
+    sql: typed(`ALTER TABLE peer_rights ADD COLUMN paused_by TXT;`),
+  },
+  {
+    version: 9,
+    // An Admin reading a person's group or a Direct Message (#1034), as SQLite migration 33 keeps it: one record per reading session, who and when, never any text.
+    // The Admin who paused a link is named with the pause (paused_by_admin), so the owner knows whom to ask.
+    sql: typed(`
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TXT;
+CREATE TABLE chat_admin_reads (
+  thread TXT NOT NULL, admin_key TXT NOT NULL, admin TXT NOT NULL, started_at INT NOT NULL, last_seen_at INT NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
+`),
+  },
+  {
+    version: 10,
+    // What an Admin record says (#1034), as SQLite migration 34 keeps it: a reading (every record before this one), or one of the Admin's stops that stay on
+    // the record for good: removed all messages, paused, resumed.
+    sql: typed(`ALTER TABLE chat_admin_reads ADD COLUMN kind TXT NOT NULL DEFAULT 'read';`),
+  },
+  {
+    version: 11,
+    // An Admin record is kept until the person has seen it (#1051), as SQLite migration 35 keeps it: who it is owed to (`people`) and who has seen it (`seen`),
+    // each a JSON list of folded names. The rows already there owe nothing, so retention treats them as before.
+    sql: typed(`
+ALTER TABLE chat_admin_reads ADD COLUMN people TXT NOT NULL DEFAULT '[]';
+ALTER TABLE chat_admin_reads ADD COLUMN seen TXT NOT NULL DEFAULT '[]';
+`),
+  },
+  {
+    version: 12,
+    // The days the harness lets a person resume a session once it is closed (#1113), as SQLite migration 36 keeps it. NULL means no report has said: the default of 30 days applies.
+    sql: typed('ALTER TABLE sessions ADD COLUMN resume_window_days INT;'),
+  },
+  {
+    version: 13,
+    // The tool counts behind Admin > Reporting > Tools (#720), as SQLite migration 37 keeps them: names and counts only, per harness.
+    sql: typed(`
+CREATE TABLE tools_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL, calls INT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+CREATE TABLE tool_sessions_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, bucket INT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, harness, bucket)
+);
+CREATE TABLE harness_versions_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, version TXT NOT NULL, reporters INT NOT NULL,
+  PRIMARY KEY (day, harness, version)
+);
+`),
+  },
+  {
+    version: 14,
+    // What each tool did beyond being called (#721), as SQLite migration 38 keeps it: the agent's per-tool stats as JSON, and the day's totals per harness and tool.
+    sql: typed(`
+ALTER TABLE agents ADD COLUMN tool_stats_json TXT;
+CREATE TABLE tool_stats_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL,
+  failed INT NOT NULL, asked INT NOT NULL, allowed INT NOT NULL, denied INT NOT NULL, podium INT NOT NULL, times_json TXT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+`),
+  },
+  {
+    version: 15,
+    // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), as SQLite migration 39 keeps them:
+    // names, counts and times only. `session_waits` goes with its session.
+    sql: typed(`
+CREATE TABLE session_waits (
+  session_id TXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  permission_ms INT NOT NULL, permission_n INT NOT NULL, question_ms INT NOT NULL, question_n INT NOT NULL, plan_ms INT NOT NULL, plan_n INT NOT NULL,
+  tracked_since INT NOT NULL, open_kind TXT, open_since INT
+);
+CREATE TABLE session_time_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, sessions INT NOT NULL, duration_s INT NOT NULL, max_duration_s INT NOT NULL,
+  tracked_sessions INT NOT NULL, tracked_s INT NOT NULL,
+  permission_s INT NOT NULL, permission_n INT NOT NULL, question_s INT NOT NULL, question_n INT NOT NULL, plan_s INT NOT NULL, plan_n INT NOT NULL,
+  PRIMARY KEY (day, harness)
+);
+CREATE TABLE agents_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, type TXT NOT NULL, depth INT NOT NULL, agents INT NOT NULL,
+  PRIMARY KEY (day, harness, type, depth)
+);
+CREATE TABLE person_sessions_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, group_name TXT NOT NULL, harness TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness)
+);
+CREATE TABLE hour_peaks_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, hour INT NOT NULL, peak INT NOT NULL,
+  PRIMARY KEY (day, harness, hour)
+);
+`),
+  },
+  {
+    version: 16,
+    // What sessions cost and how they ended (#723), as SQLite migration 40 keeps it: counts, tokens and names only.
+    sql: typed(`
+CREATE TABLE cost_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, model TXT NOT NULL, effort TXT NOT NULL,
+  sessions INT NOT NULL, priced_sessions INT NOT NULL, calls INT NOT NULL, priced_calls INT NOT NULL, cost_usd REAL NOT NULL, call_cost_usd REAL NOT NULL,
+  tok_in INT NOT NULL, tok_out INT NOT NULL, tok_cr INT NOT NULL, tok_cw INT NOT NULL,
+  ended_low INT NOT NULL, ended_mid INT NOT NULL, ended_high INT NOT NULL, ended_unknown INT NOT NULL,
+  compacted INT NOT NULL, cleared INT NOT NULL,
+  PRIMARY KEY (day, harness, model, effort)
+);
+CREATE TABLE tool_cost_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, tool TXT NOT NULL,
+  sessions INT NOT NULL, priced_sessions INT NOT NULL, cost_usd REAL NOT NULL, calls INT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+`),
+  },
+  {
+    version: 17,
+    // What each version of a harness sent (#724), as SQLite migration 41 keeps it: names and counts only.
+    sql: typed(`
+ALTER TABLE sessions ADD COLUMN signals_json TXT;
+CREATE TABLE feature_versions_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, version TXT NOT NULL, feature TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);
+CREATE TABLE skills_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, harness TXT NOT NULL, skill TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE person_places_daily (
+  day TXT NOT NULL, owner TXT NOT NULL, group_name TXT NOT NULL, harness TXT NOT NULL, project TXT NOT NULL, branch TXT NOT NULL, sessions INT NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);
+`),
+  },
+  {
+    version: 18,
+    // How often sessions were answered from Podium and how long they had waited (#725), as SQLite migration 42 keeps it: kinds, days and wait classes only.
+    sql: typed(`
+CREATE TABLE answers_daily (
+  day TXT NOT NULL, harness TXT NOT NULL, kind TXT NOT NULL, bucket INT NOT NULL, count INT NOT NULL,
+  PRIMARY KEY (day, harness, kind, bucket)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

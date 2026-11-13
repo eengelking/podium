@@ -10,49 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
 <link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
-<style>
-/* Mockup for #354. Layout: the standards site shell. A left list of the pages, a top bar with the theme and mode switch, and a main column. Two views are shown: the index, and one component page (Chips) with live samples, rules, states, accessibility and a parity line. In the built pages the samples use the app's real CSS (tokens.css, fleet.css) instead of the copy below; the page chrome below is the only copy, and it is renamed (.c*, .snav) so it cannot collide with the app's classes. This file is the last mockup that carries its own :root. */
-:root {
-  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --hover: rgba(255,255,255,.045); --sel: rgba(255,255,255,.08);
-  --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --fable: #d95926; --other: #898781;
-  --good: #0ca30c; --good-text: #3dbb3d; --warn: #fab219; --serious: #ec835a; --crit: #d03b3b; --crit-text: #ee6a6a;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --hover: rgba(11,11,11,.04); --sel: rgba(11,11,11,.07);
-    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
-    --good-text: #006300; --crit-text: #b52a2a; color-scheme: light;
-  }
-}
-:root[data-theme="light"] {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --hover: rgba(11,11,11,.04); --sel: rgba(11,11,11,.07);
-  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
-  --good-text: #006300; --crit-text: #b52a2a; color-scheme: light;
-}
-:root[data-theme-name="nord"] {
-  --bg: #2e3440; --surface: #3b4252; --raised: #434c5e; --ink: #eceff4; --ink2: #d8dee9; --muted: #aab4c6;
-  --grid: #434c5e; --axis: #4c566a; --border: rgba(236,239,244,.14); --hover: rgba(236,239,244,.05); --sel: rgba(236,239,244,.09);
-  --opus: #b48ead; --sonnet: #81a1c1; --haiku: #a3be8c; --fable: #d08770; --other: #aab4c6; color-scheme: dark;
-}
-@media (prefers-color-scheme: light) {
-  :root[data-theme-name="nord"]:not([data-theme="dark"]) {
-    --bg: #eceff4; --surface: #f5f7fa; --raised: #e5e9f0; --ink: #2e3440; --ink2: #434c5e; --muted: #5c6679;
-    --grid: #d8dee9; --axis: #b9c2d3; --border: rgba(46,52,64,.14); --hover: rgba(46,52,64,.05); --sel: rgba(46,52,64,.08);
-    --opus: #8c5f93; --sonnet: #5e81ac; --haiku: #6f8f58; --fable: #b25a3f; --other: #5c6679; color-scheme: light;
-  }
-}
-:root[data-theme-name="nord"][data-theme="light"] {
-  --bg: #eceff4; --surface: #f5f7fa; --raised: #e5e9f0; --ink: #2e3440; --ink2: #434c5e; --muted: #5c6679;
-  --grid: #d8dee9; --axis: #b9c2d3; --border: rgba(46,52,64,.14); --hover: rgba(46,52,64,.05); --sel: rgba(46,52,64,.08);
-  --opus: #8c5f93; --sonnet: #5e81ac; --haiku: #6f8f58; --fable: #b25a3f; --other: #5c6679; color-scheme: light;
-}
-:root[data-theme="dark"] { --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --hover: rgba(255,255,255,.045); --sel: rgba(255,255,255,.08); --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --fable: #d95926; --other: #898781; --good-text: #3dbb3d; --crit-text: #ee6a6a; color-scheme: dark; }
+<style>/* Mockup for #354. Layout: the standards site shell. A left list of the pages, a top bar with the theme and mode switch, and a main column. Two views are shown: the index, and one component page (Chips) with live samples, rules, states, accessibility and a parity line. In the built pages the samples use the app's real CSS (tokens.css, fleet.css) instead of the copy below; the page chrome below is the only copy, and it is renamed (.c*, .snav) so it cannot collide with the app's classes. This file is the last mockup that carries its own :root. */
 * { box-sizing: border-box; }
 body { margin: 0; font: 13px/1.45 var(--font-ui); background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
 a { color: inherit; }

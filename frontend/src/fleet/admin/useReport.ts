@@ -15,14 +15,21 @@ import {
   type ReportsClient,
 } from "./reportsApi";
 
-export type FilterId = "person" | "group" | "model";
+export type FilterId = "person" | "group" | "model" | "harness";
 export interface ReportConfig {
   report: ReportId;
+  /** What the page's choices are remembered under, when it is not `report`: My usage (#726) asks for the same reports as Admin but keeps its own period and breakdown. */
+  prefsKey?: string;
   title: string;
   lead: string;
   /** Whether the report is cut into days, weeks or months. The Admin activity and People and groups reports are not. */
   hasBy: boolean;
   filters: FilterId[];
+  /**
+   * The page offers the Harness filter for the sections it adds (#722), not for the report it is built on, which is not kept per harness. The filter is
+   * never sent with that report, and the page says so.
+   */
+  extraHarness?: boolean;
   /** A `breakdown` the page can ask for: [value, label]. The first is the default and is not sent when it is `none`. */
   breakdowns?: [string, string][];
   /** The Admin activity report is filtered by the kind of entry. */
@@ -56,7 +63,7 @@ export interface ReportState {
 }
 
 export function useReport(client: ReportsClient, cfg: ReportConfig, onLocked: () => void): ReportState {
-  const [prefs, setPrefsState] = useState<ReportPrefs>(() => readReportPrefs(cfg.report, cfg.breakdowns?.[0]?.[0] ?? ""));
+  const [prefs, setPrefsState] = useState<ReportPrefs>(() => readReportPrefs(cfg.prefsKey ?? cfg.report, cfg.breakdowns?.[0]?.[0] ?? ""));
   const [page, setPage] = useState(1);
   const [reply, setReply] = useState<ReportReply | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,12 +80,12 @@ export function useReport(client: ReportsClient, cfg: ReportConfig, onLocked: ()
       const next = { ...prev, ...p };
       // Choosing Custom starts from the dates the last choice covered, so the fields are never blank.
       if (p.period === "custom" && !(prev.from && prev.to)) Object.assign(next, periodRange(prev.period, { from: prev.from, to: prev.to }));
-      writeReportPrefs(cfg.report, next);
+      writeReportPrefs(cfg.prefsKey ?? cfg.report, next);
       return next;
     });
     // A new choice starts at page 1; a new page size does too.
     setPage(1);
-  }, [cfg.report]);
+  }, [cfg.report, cfg.prefsKey]);
 
   const range = useMemo(() => periodRange(prefs.period, { from: prefs.from, to: prefs.to }), [prefs.period, prefs.from, prefs.to]);
   const problem = rangeProblem(range.from, range.to);
@@ -94,6 +101,7 @@ export function useReport(client: ReportsClient, cfg: ReportConfig, onLocked: ()
       person: cfg.filters.includes("person") ? prefs.person : undefined,
       group: cfg.filters.includes("group") ? prefs.group : undefined,
       model: cfg.filters.includes("model") ? prefs.model : undefined,
+      harness: cfg.filters.includes("harness") && !cfg.extraHarness ? prefs.harness : undefined,
       kind: cfg.kinds ? prefs.kind : undefined,
     })}`;
   }, [problem, cfg, prefs, range.from, range.to]);

@@ -14,8 +14,8 @@ and cache write for 1 hour. They start as the prices on Anthropic's pricing shee
   changes to match at once, including for sessions already running, and the change stays after a restart.
 - A changed row shows **Changed** and a **Reset to built-in** button.
 - Haiku 5.5 has a second row for prompts over 100,000 tokens, which cost more.
-- To price a model Podium has no price for, such as a local model, type its id in **Model id** under **Add a model**, fill
-  in the five prices and save. Until then its cost reads "n/a".
+- To price a model Podium has no price for, such as a local model, type its id in **Model id** under **Add a model**, press **Add model**, fill
+  in the five prices and press **Save** (or **Cancel**). A model you added has a **Remove** button. Until then its cost reads "n/a".
 - Cache writes use the 5-minute price unless Claude Code reports which writes were 1-hour ones.
 
 <!-- nav:start -->

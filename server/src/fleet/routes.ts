@@ -12,8 +12,11 @@ import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi } from '../storag
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
+import type { AdminNotice } from './chatAdminNotices.js';
 import { mountRespondRoutes, replyFor, type RespondAccess } from './respondRoutes.js';
+import { mountChatAgentRoutes, mountChatBrowserRoutes } from './chatRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
+import { mountSessionReadRoutes } from './sessionReadRoutes.js';
 import { mountRecordingBrowserRoutes, mountRecordingRoutes, recordingEnabled, wireRecordingLogs } from './recordingRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
@@ -135,6 +138,12 @@ function intParam(v: unknown): number | null | 'bad' {
 
 /** The route a request matched, as `/api/fleet/report`. */
 const routeName = (req: Request): string => `${req.baseUrl}${(req.route as { path?: string } | undefined)?.path ?? req.path}`;
+
+/** The callouts for this session's person when an Admin read or stopped their conversation (#1034): present only while there is one. Older reporters ignore the field. */
+async function adminNoticesOf(fleet: Fleet, sessionId: string): Promise<{ adminNotices?: AdminNotice[] }> {
+  const adminNotices = await fleet.chat.adminNoticesFor(sessionId);
+  return adminNotices.length ? { adminNotices } : {};
+}
 
 export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): Router {
   const logger = opts.logger ?? (opts.log ? loggerFromLine(opts.log) : createLogger({ secrets: opts.token ? [opts.token] : [] }));
@@ -280,7 +289,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...(await adminNoticesOf(fleet, out.sessionId)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof HarnessConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
@@ -404,6 +413,8 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   // The whole prompt and answer, fetched when the console opens them (issue #97). Not in the state or
   // the stream: they can be tens of kilobytes per agent.
   router.get('/sessions/:id/agents/:agentId/text', asyncHandler(async (req, res) => {
+    // Only the session's owner or an Admin, signed in; an Admin's read is recorded and the person told (#1082).
+    if (!respondAccess || !(await respondAccess.agentRead(req, res, 'text', req.params.id, req.params.agentId))) return;
     const t = await fleet.db.getAgentTexts(req.params.id, req.params.agentId);
     if (!t) {
       res.status(404).json({ ok: false, error: 'no full text for this agent', path: '$.agentId' });
@@ -414,13 +425,11 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
 
   // An agent's recent activity (#118). Each fetch takes or renews the viewer's lease on that loop for `every` seconds
   // plus a margin; the reply to the next report then asks the mod for its entries. `@orchestrator` is the main loop.
-  // In memory only, never in the state or the stream. No token, like the other reads.
+  // In memory only, never in the state or the stream.
   router.get('/sessions/:id/agents/:agentId/activity', asyncHandler(async (req, res) => {
     const { id, agentId } = req.params;
-    if (!(await fleet.db.getSession(id)) || (agentId !== MAIN_LOOP && !(await fleet.db.getAgents(id)).some((a) => a.id === agentId))) {
-      res.status(404).json({ ok: false, error: 'unknown session or agent', path: '$.agentId' });
-      return;
-    }
+    // Only the session's owner or an Admin, signed in, before any lease is taken; an Admin's read is recorded and the person told (#1082).
+    if (!respondAccess || !(await respondAccess.agentRead(req, res, 'live', id, agentId))) return;
     // With the Admin's flag off (Admin > Settings > Feature flags) no lease is taken; the panel keeps asking and says so.
     let body: ActivityReply;
     if (!fleet.activity.on) body = { entries: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };
@@ -437,8 +446,15 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   }));
 
   router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
-    if (!(await fleet.deleteSession(req.params.id))) {
+    const id = identityOf(res);
+    // The admin secret deletes any session; the owner is told who did it (#1078). A server with no sign-in has no Admin to name.
+    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.name : undefined, id.kind === 'admin' ? 'Admin' : undefined);
+    if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (out === 'forbidden') {
+      res.status(403).json({ ok: false, error: 'that session belongs to someone else', path: '$.id' });
       return;
     }
     res.json({ ok: true });
@@ -551,6 +567,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   // Orchestrator messaging (#347): the mod's routes here, the owner's on responding's browser router below.
   const peerDeps: PeerDeps = { fleet, token: opts.token ?? null, people: opts.people ?? null, logger, requireToken, identityOf };
   mountPeerRoutes(router, peerDeps);
+  mountChatAgentRoutes(router, peerDeps);
 
   // Session recording (#353): the mod's batch route here, the owner's and the Admin's on responding's browser router below.
   wireRecordingLogs(fleet, opts.people ?? null, logger);
@@ -571,7 +588,9 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     alsoSignIn: () => peersEnabled(fleet, opts.token ?? null) || recordingEnabled(fleet, opts.token ?? null),
     extendBrowser: (browser, h) => {
       mountPeerBrowserRoutes(browser, peerDeps, h);
+      mountChatBrowserRoutes(browser, peerDeps, h);
       mountRecordingBrowserRoutes(browser, peerDeps, h);
+      mountSessionReadRoutes(browser, peerDeps, h);
     },
   });
 

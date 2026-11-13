@@ -9,6 +9,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listSpecs } from "./e2e-shards.mjs";
 
 export const MAP = "docs/e2e/COVERAGE.md";
 const SPEC_DIR = "e2e/cypress/e2e";
@@ -84,7 +85,8 @@ export function mapProblems(root) {
   if (!existsSync(join(root, MAP))) return [`${MAP} does not exist`];
   const problems = [];
   const known = routesIn(root);
-  const specs = walk(join(root, SPEC_DIR), (p) => p.endsWith(".cy.js")).map((p) => p.slice(root.length + 1)).sort();
+  // One list of spec files for the map and for the shards of scripts/e2e-all.sh (#1130), so the two cannot disagree on what a spec is.
+  const specs = listSpecs(root).map((p) => `e2e/${p}`);
   const mapped = new Set();
   const seen = new Set();
   for (const token of tokensIn(readFileSync(join(root, MAP), "utf8"))) {
@@ -110,12 +112,18 @@ export function mapProblems(root) {
   const defined = new Set();
   for (const f of sources(root, "frontend/src")) for (const m of readFileSync(f, "utf8").matchAll(/data-testid=["{]\s*["'`]?([A-Za-z0-9_-]+)/g)) defined.add(m[1]);
   for (const s of specs) for (const id of testIdsUsed(root, s)) if (!defined.has(id)) problems.push(`${s} uses data-testid "${id}", which no frontend source defines`);
+  for (const s of specs) {
+    const lines = readFileSync(join(root, s), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (/\bcy\.wait\(\s*(?!['"`]@)(?=\S)/.test(line)) problems.push(`${s}:${i + 1} waits on something other than a named request: use a retrying assertion, never cy.wait(<time>) (#1056)`);
+    });
+  }
   return problems;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (process.argv.includes("-h") || process.argv.includes("--help")) {
-    console.log("Usage: node scripts/e2e-map.mjs\nChecks docs/e2e/COVERAGE.md against the repository: every file, route and test id it names exists, and every spec is named.");
+    console.log("Usage: node scripts/e2e-map.mjs\nChecks docs/e2e/COVERAGE.md against the repository: every file, route and test id it names exists, every spec is named, and no spec calls cy.wait with a time.");
     process.exit(0);
   }
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");

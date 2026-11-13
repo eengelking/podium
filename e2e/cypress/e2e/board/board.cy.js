@@ -14,7 +14,7 @@ describe('board', () => {
   });
 
   it('lists the five columns in order, each with its count', () => {
-    cy.get('section.kb-col h3').then(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Pending', 'In progress', 'Review', 'Blocked', 'Done']));
+    cy.get('section.kb-col h3').should(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Pending', 'In progress', 'Review', 'Blocked', 'Done']));
     col('Pending').should('have.attr', 'aria-label', 'Pending, 1 step');
     col('In progress').should('have.attr', 'aria-label', 'In progress, 1 step');
     col('Review').should('have.attr', 'aria-label', 'Review, 6 steps');
@@ -66,7 +66,7 @@ describe('board', () => {
     cy.get('section[aria-label="Sessions with no open steps"]').should('not.exist');
     // A session with no plan has no Review card on Plans.
     col('Review').should('not.contain.text', 'claude-dashboard');
-    cy.window().its('localStorage').invoke('getItem', 'podium.board').then((raw) => expect(JSON.parse(raw).view).to.eq('plans'));
+    cy.window().its('localStorage').invoke('getItem', 'podium.board').should((raw) => expect(JSON.parse(raw).view).to.eq('plans'));
     cy.reload();
     cy.get('[aria-label="Sessions shown"] button[aria-pressed=true], [aria-label="Sessions shown"] [aria-checked=true]').should('contain.text', 'Plans');
     cy.get('[aria-label="Sessions shown"]').contains('button', /^All$/).click();
@@ -77,7 +77,7 @@ describe('board', () => {
     cy.get('[aria-label="Layout"]').contains('button', 'By orchestrator').click();
     cy.get('.kb-lane').should('contain.text', 'invoice-v2');
     col('In progress').find('a.kb-card .kb-title').should('not.exist');
-    cy.window().its('localStorage').invoke('getItem', 'podium.board').then((raw) => expect(JSON.parse(raw).group).to.eq(true));
+    cy.window().its('localStorage').invoke('getItem', 'podium.board').should((raw) => expect(JSON.parse(raw).group).to.eq(true));
     cy.get('[aria-label="Layout"]').contains('button', 'Mixed').click();
     cy.get('.kb-lane').should('not.exist');
   });
@@ -130,7 +130,7 @@ describe('board', () => {
 
   it('keeps its own collapsed flags apart from the wall\'s', () => {
     cy.get('button.edge-tab-left').click();
-    cy.window().its('localStorage').invoke('getItem', 'podium.collapsed.board').then((raw) => expect(JSON.parse(raw).left).to.eq(false));
+    cy.window().its('localStorage').invoke('getItem', 'podium.collapsed.board').should((raw) => expect(JSON.parse(raw).left).to.eq(false));
     cy.window().its('localStorage').invoke('getItem', 'podium.collapsed').should('be.null');
   });
 

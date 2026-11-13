@@ -1,8 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { FailureDay, FleetDay, SessionsDay, UsageDay } from '../../fleet/rollups.js';
+import type { AgentDay, CostDay, ToolCostDay, FailureDay, FleetDay, FeatureVersionDay, HarnessVersionDay, HourPeakDay, PlaceDay, SkillDay, PersonDay, SessionTimeDay, SessionsDay, ToolDay, ToolSessionDay, ToolStatDay, UsageDay } from '../../fleet/rollups.js';
 import type { ReportQueries, RollupRaw, RollupTable, StoredSession } from '../reportQueries.js';
+import type { SessionWaitRow } from '../rows.js';
 
-const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
+/** The tables that are rebuilt from the stored sessions (the fleet table and the hour peaks are upserted, so a peak never goes down). */
+const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily'];
 
 /** The columns after `day` that make a rollup row unique, so rows of one day come back in one order everywhere. */
 const ROW_KEY: Record<RollupTable, string> = {
@@ -10,6 +13,20 @@ const ROW_KEY: Record<RollupTable, string> = {
   sessions_daily: ', outcome, model, effort, plan',
   failures_daily: ', owner, class, tool',
   fleet_daily: '',
+  tools_daily: ', harness, tool',
+  tool_sessions_daily: ', harness, bucket',
+  harness_versions_daily: ', harness, version',
+  tool_stats_daily: ', harness, tool',
+  feature_versions_daily: ', harness, version, feature',
+  skills_daily: ', owner, harness, skill',
+  person_places_daily: ', owner, harness, project, branch',
+  answers_daily: ', harness, kind, bucket',
+  session_time_daily: ', harness',
+  agents_daily: ', harness, type, depth',
+  person_sessions_daily: ', owner, harness',
+  hour_peaks_daily: ', harness, hour',
+  cost_daily: ', harness, model, effort',
+  tool_cost_daily: ', harness, tool',
 };
 
 /** The SQL the reports and rollups ran from reports.ts and rollups.ts, moved here unchanged. */
@@ -75,8 +92,32 @@ export class SqliteReportQueries implements ReportQueries {
     return this.db.prepare(`SELECT session_id AS id, failure_json AS f FROM agents WHERE failure_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; f: string }[];
   }
 
+  skillsSince(fromMs: number): { id: string; k: string }[] {
+    return this.db.prepare(`SELECT session_id AS id, skills_json AS k FROM agents WHERE skills_json IS NOT NULL AND skills_json <> '[]' AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; k: string }[];
+  }
+
+  toolCountsSince(fromMs: number): { id: string; c: string }[] {
+    return this.db.prepare(`SELECT session_id AS id, tool_counts_json AS c FROM agents WHERE tool_counts_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; c: string }[];
+  }
+
+  toolStatsSince(fromMs: number): { id: string; s: string }[] {
+    return this.db.prepare(`SELECT session_id AS id, tool_stats_json AS s FROM agents WHERE tool_stats_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; s: string }[];
+  }
+
   sampleSpans(): { a: number; b: number }[] {
     return this.db.prepare('SELECT MIN(t) AS a, MAX(t) AS b FROM samples GROUP BY session_id ORDER BY session_id').all() as unknown as { a: number; b: number }[];
+  }
+
+  sampleSpansByHarness(): { a: number; b: number; harness: string }[] {
+    return this.db.prepare('SELECT MIN(x.t) AS a, MAX(x.t) AS b, s.harness AS harness FROM samples x JOIN sessions s ON s.id = x.session_id GROUP BY x.session_id ORDER BY x.session_id').all() as unknown as { a: number; b: number; harness: string }[];
+  }
+
+  waitsSince(fromMs: number): SessionWaitRow[] {
+    return this.db.prepare(`SELECT * FROM session_waits WHERE session_id IN (${CHOSEN}) ORDER BY session_id`).all(fromMs) as unknown as SessionWaitRow[];
+  }
+
+  agentLinksSince(fromMs: number): { id: string; agent: string; parent: string | null; type: string }[] {
+    return this.db.prepare(`SELECT session_id AS id, id AS agent, parent_id AS parent, type FROM agents WHERE session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; agent: string; parent: string | null; type: string }[];
   }
 
   oldestSessionSeen(): number | null {
@@ -92,7 +133,7 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   deleteRollupsFrom(day: string): void {
-    for (const table of ['usage_daily', 'sessions_daily', 'failures_daily']) this.db.prepare(`DELETE FROM ${table} WHERE day >= ?`).run(day);
+    for (const table of REBUILT) this.db.prepare(`DELETE FROM ${table} WHERE day >= ?`).run(day);
   }
 
   insertUsage(rows: UsageDay[]): void {
@@ -108,6 +149,83 @@ export class SqliteReportQueries implements ReportQueries {
   insertFailures(rows: FailureDay[]): void {
     const putFailure = this.db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
     for (const f of rows) putFailure.run(f.day, f.owner, f.cls, f.tool, f.count);
+  }
+
+  insertToolsDaily(rows: ToolDay[]): void {
+    const put = this.db.prepare('INSERT INTO tools_daily (day, harness, tool, calls) VALUES (?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.tool, r.calls);
+  }
+
+  insertToolSessionsDaily(rows: ToolSessionDay[]): void {
+    const put = this.db.prepare('INSERT INTO tool_sessions_daily (day, harness, bucket, sessions) VALUES (?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.bucket, r.sessions);
+  }
+
+  insertHarnessVersionsDaily(rows: HarnessVersionDay[]): void {
+    const put = this.db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.version, r.reporters);
+  }
+
+  insertSkillsDaily(rows: SkillDay[]): void {
+    const put = this.db.prepare('INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.owner, r.harness, r.skill, r.sessions);
+  }
+
+  insertPlacesDaily(rows: PlaceDay[]): void {
+    const put = this.db.prepare('INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.owner, r.group, r.harness, r.project, r.branch, r.sessions);
+  }
+
+  insertFeatureVersionsDaily(rows: FeatureVersionDay[]): void {
+    const put = this.db.prepare('INSERT INTO feature_versions_daily (day, harness, version, feature, sessions) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.version, r.feature, r.sessions);
+  }
+
+  insertToolStatsDaily(rows: ToolStatDay[]): void {
+    const put = this.db.prepare('INSERT INTO tool_stats_daily (day, harness, tool, failed, asked, allowed, denied, podium, times_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.tool, r.failed, r.asked, r.allowed, r.denied, r.podium, r.timesJson);
+  }
+
+  insertSessionTimeDaily(rows: SessionTimeDay[]): void {
+    const put = this.db.prepare(
+      'INSERT INTO session_time_daily (day, harness, sessions, duration_s, max_duration_s, tracked_sessions, tracked_s, permission_s, permission_n, question_s, question_n, plan_s, plan_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const r of rows) put.run(r.day, r.harness, r.sessions, r.durationS, r.maxDurationS, r.trackedSessions, r.trackedS, r.permissionS, r.permissionN, r.questionS, r.questionN, r.planS, r.planN);
+  }
+
+  insertAgentsDaily(rows: AgentDay[]): void {
+    const put = this.db.prepare('INSERT INTO agents_daily (day, harness, type, depth, agents) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.type, r.depth, r.agents);
+  }
+
+  insertPersonSessionsDaily(rows: PersonDay[]): void {
+    const put = this.db.prepare('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.owner, r.group, r.harness, r.sessions);
+  }
+
+  insertCostDaily(rows: CostDay[]): void {
+    const put = this.db.prepare(
+      'INSERT INTO cost_daily (day, harness, model, effort, sessions, priced_sessions, calls, priced_calls, cost_usd, call_cost_usd, tok_in, tok_out, tok_cr, tok_cw, ended_low, ended_mid, ended_high, ended_unknown, compacted, cleared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const r of rows) put.run(r.day, r.harness, r.model, r.effort, r.sessions, r.pricedSessions, r.calls, r.pricedCalls, r.costUsd, r.callCostUsd, r.tokIn, r.tokOut, r.tokCr, r.tokCw, r.endedLow, r.endedMid, r.endedHigh, r.endedUnknown, r.compacted, r.cleared);
+  }
+
+  insertToolCostDaily(rows: ToolCostDay[]): void {
+    const put = this.db.prepare('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.harness, r.tool, r.sessions, r.pricedSessions, r.costUsd, r.calls);
+  }
+
+  addAnswer(day: string, harness: string, kind: string, bucket: number): void {
+    this.db.prepare('INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, ?, ?, ?, 1) ON CONFLICT(day, harness, kind, bucket) DO UPDATE SET count = answers_daily.count + 1').run(day, harness, kind, bucket);
+  }
+
+  markAnswerDay(day: string): void {
+    this.db.prepare("INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, '', 'none', -1, 0) ON CONFLICT(day, harness, kind, bucket) DO NOTHING").run(day);
+  }
+
+  upsertHourPeaks(rows: HourPeakDay[]): void {
+    const put = this.db.prepare('INSERT INTO hour_peaks_daily (day, harness, hour, peak) VALUES (?, ?, ?, ?) ON CONFLICT(day, harness, hour) DO UPDATE SET peak = MAX(hour_peaks_daily.peak, excluded.peak)');
+    for (const r of rows) put.run(r.day, r.harness, r.hour, r.peak);
   }
 
   upsertFleetDays(rows: { day: FleetDay; peak: number }[]): void {

@@ -23,6 +23,10 @@ These settings apply to every browser and stay after a restart.
   Admin turned the feed off, the server asks no mod for activity and forgets what it held, whatever each machine's
   `activityFeed` option says. Turned back on, open panels start the feed again, empty, without a reload. Turned off, nothing
   new is stored either, even if the Admin keeps stored history.
+- **Bash output in the activity feed** (`activity-output`) is off by default. On, a person can open a Bash row in the
+  Activity feed to see what the command printed and how it exited. It needs the Agent activity feed on, and the
+  `activityOutput` option on the machine as well. The output is held in memory while the panel is open and is never
+  stored. Off, no output is captured or sent.
 - **File diff** (`file-diff`) is off by default. On, only the owner of a session, signed in, can click a file in
   the Files list to read its diff in a window, and step to the next or previous file with the buttons at the window's lower left. The diff is source code: the mod reads it from the machine only if that machine's `fileDiff` option is on. With the
   `fileDiffPreload` option also on (the default), it reads the diff of every changed file while the owner has the session's page
@@ -40,7 +44,16 @@ These settings apply to every browser and stay after a restart.
   other, only between that person's own machines, once each machine's podium-reporter has its `peers` option on and the
   owner has given the pair a right on [My reporters](../04-reading-the-console/14-my-reporters.md). It needs authentication on. Turned on, it adds an
   **Orchestrator messaging** section here, a Messaging section on each reporter, [My reporters](../04-reading-the-console/14-my-reporters.md) and
-  [Traffic](../04-reading-the-console/15-traffic.md).
+  [Chat](../04-reading-the-console/16-chat.md). Chat has its own switch, below. ([Traffic](../04-reading-the-console/15-traffic.md) is deprecated.)
+- **My usage page** (`my-usage`) is off by default. It needs authentication on. Turned on, each signed-in person gets a **My usage** button in the top bar
+  that opens [My usage](../04-reading-the-console/18-my-usage.md): their own spend, sessions, failures and tool calls, and nobody else's. An Administrator who opens it sees their own figures too, not the fleet's.
+  Turned off, the button and the page are gone. It reads only; it changes nothing.
+- **Address @group and @everyone in Chat** (`chat-everyone`) is off by default and needs Orchestrator messaging on. Turned on, a
+  message in [Chat](../04-reading-the-console/16-chat.md) can address `@group` (every agent in the sender's group) or `@everyone`.
+  Turned off, a message that uses either is refused and nothing is sent. Addressing one agent as `name@location` is always allowed.
+  Chat's limits (how many days a channel keeps its messages, how long a Direct Message with no agents left is kept when its harness gave no resume window, the longest
+  message and the posts a minute) are settings in the Admin API (`chat`, [SPEC 7.1](../../spec/07-server/07-01-endpoints.md)); this page has no
+  boxes for them yet.
 
 - **Session recording** (`session-recording`) is off by default. It lets the owner of a session, or an Admin, record the
   session whole and replay it (see [Session recording](../04-reading-the-console/13-session-recording.md)). It needs authentication on, and the switch is

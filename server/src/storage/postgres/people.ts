@@ -1,7 +1,9 @@
 // People, their tokens, groups and the admin log on PostgreSQL (#822): the SQLite store's logic over `PgDb`. A method that reads and
 // then writes is one transaction, which is what the SQLite lock gave it.
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
-import { PeopleError, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
+import { stripFormat } from '../peerText.js';
+import { withoutPerson } from '../chatRows.js';
+import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 import type { PeopleStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 
@@ -22,9 +24,10 @@ export function clampPage(p: Partial<PageIn>): PageIn {
 }
 
 function cleanName(raw: string, max: number, what: string): string {
-  const name = raw.trim().replace(/ +/g, ' ');
+  // Format characters draw nothing, so they are dropped (#1051); the line separators U+0085, U+2028 and U+2029 are refused with the control characters.
+  const name = stripFormat(raw).trim().replace(/ +/g, ' ');
   // eslint-disable-next-line no-control-regex
-  if (name.length < 1 || name.length > max || /[\u0000-\u001f\u007f]/.test(name)) {
+  if (name.length < 1 || name.length > max || /[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(name)) {
     throw new PeopleError('invalid', `${what} must be 1 to ${max} characters, with no control characters`);
   }
   return name;
@@ -70,6 +73,7 @@ export class PgPeopleStore implements PeopleStoreApi {
     if (name.toLowerCase() === ADMIN_OWNER.toLowerCase()) throw new PeopleError('invalid', `${ADMIN_OWNER} is reserved for the admin secret`);
     // The Admin log's Who column shows this actor for the secret; a person of that name would be indistinguishable from it.
     if (name.toLowerCase() === ADMIN_SECRET_ACTOR.toLowerCase()) throw new PeopleError('invalid', `${ADMIN_SECRET_ACTOR} is reserved for the admin secret`);
+    checkTime(now, 'A creation time');
     return await this.db.tx(async () => {
       if (await this.findByName(name)) throw new PeopleError('duplicate', 'That name is already taken');
       if (groupId !== null && !(await this.db.get('SELECT 1 AS x FROM groups WHERE id = ?', [groupId]))) throw new PeopleError('not_found', 'That group does not exist');
@@ -139,9 +143,36 @@ export class PgPeopleStore implements PeopleStoreApi {
       if (adminsId !== null && goingAdmins.length > 0 && goingAdmins.length >= (await this.activeAdministrators(adminsId))) {
         throw new PeopleError('invalid', `That would remove the last person in ${ADMINISTRATORS_GROUP}. Add or move another person into it first.`);
       }
-      for (const p of found) await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
+      for (const p of found) {
+        await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
+        await this.forgetChat(p.name);
+      }
       return found;
     });
+  }
+
+  /** Everything Chat and the peer stores keep under a deleted person's name (#1051); the same set as the SQLite adapter's `forgetChat`. */
+  private async forgetChat(name: string): Promise<void> {
+    const key = nameKey(name);
+    const pk = `person:${key}`;
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
+      const owners = (await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`)).map((r) => r.owner).filter((o) => nameKey(o) === key);
+      for (const o of owners) await this.db.run(`DELETE FROM ${table} WHERE owner = ?`, [o]);
+    }
+    await this.db.run('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?', [pk, pk]);
+    await this.db.run('DELETE FROM peer_rights WHERE from_key = ?', [pk]);
+    await this.db.run('DELETE FROM peer_requests WHERE from_key = ?', [pk]);
+    await this.db.run('DELETE FROM peer_owner_settings WHERE owner_lower = ?', [key]);
+    await this.db.run('DELETE FROM group_messages WHERE owner = ?', [key]);
+    await this.db.run('DELETE FROM chat_read_state WHERE person = ?', [key]);
+    // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
+    const reads = await this.db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads ORDER BY thread, started_at, admin_key');
+    for (const r of reads) {
+      const out = withoutPerson(r, key);
+      if (out === 'none') continue;
+      if (out === 'drop') await this.db.run('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?', [r.thread, r.admin_key, r.started_at]);
+      else await this.db.run('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [out.people, out.seen, r.thread, r.admin_key, r.started_at]);
+    }
   }
 
   touch(personId: number, address: string | null, now: number, machine?: { name: string; id: string } | null): Promise<void> {
@@ -209,6 +240,7 @@ export class PgPeopleStore implements PeopleStoreApi {
 
   async createGroup(rawName: string, now = Date.now()): Promise<{ id: number; name: string }> {
     const name = cleanName(rawName, GROUP_MAX, 'A group name');
+    checkTime(now, 'A group time');
     return await this.db.tx(async () => {
       if (await this.db.get('SELECT 1 AS x FROM groups WHERE name_lower = ?', [name.toLowerCase()])) throw new PeopleError('duplicate', 'That group already exists');
       const r = await this.db.get<{ id: number }>('INSERT INTO groups (name, name_lower, created_at) VALUES (?, ?, ?) RETURNING id', [name, name.toLowerCase(), now]);
@@ -278,6 +310,7 @@ export class PgPeopleStore implements PeopleStoreApi {
 
   /** Never pass a token or the admin secret in `detail`. */
   async log(kind: string, detail: string, source: string, now = Date.now(), actor: string | null = null): Promise<void> {
+    checkTime(now, 'A log time');
     await this.db.run('INSERT INTO admin_log (t, kind, detail, source, actor) VALUES (?, ?, ?, ?, ?)', [now, kind.slice(0, 40), detail.slice(0, 300), source.slice(0, 80), actor === null ? null : actor.slice(0, 80)]);
   }
 

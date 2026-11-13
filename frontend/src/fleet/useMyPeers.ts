@@ -30,7 +30,8 @@ export function failReason(err: unknown): string {
   return "the server did not answer";
 }
 
-export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
+/** `rev` is the console's content-free `chat` signal: when it moves the read is asked again, so a person's message to an agent shows at once (#1034). */
+export function useMyPeers(api: PeersApi, on: boolean, fast: boolean, rev = 0): MyPeers {
   const [data, setData] = useState<PeersRead | null>(null);
   const [loadError, setLoadError] = useState<MyPeers["loadError"]>(null);
   const [skew, setSkew] = useState(0);
@@ -77,6 +78,13 @@ export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
       gen.current++;
     };
   }, [on, fast, reload]);
+
+  const seenRev = useRef(rev);
+  useEffect(() => {
+    if (seenRev.current === rev) return;
+    seenRev.current = rev;
+    if (on) void reload();
+  }, [rev, on, reload]);
 
   const change = useCallback(
     async (run: () => Promise<unknown>, optimistic?: (d: PeersRead) => PeersRead) => {

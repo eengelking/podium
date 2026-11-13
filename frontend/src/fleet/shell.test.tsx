@@ -7,6 +7,7 @@ import { useFleet, type FleetSource } from "./useFleet";
 import { useTheme } from "./useTheme";
 import { makeSession, makeState } from "./fixtures";
 import { stateFrom } from "./testState";
+import { openWallOptions } from "./wallOptionsTesting";
 
 beforeEach(() => {
   localStorage.clear();
@@ -204,6 +205,7 @@ describe("accessibility", () => {
     for (const i of imgs) expect(i).toHaveAccessibleName(/last 60 seconds/);
     const clickables = [...container.querySelectorAll("[onclick], [role=button]")];
     expect(clickables).toHaveLength(0);
+    openWallOptions();
     expect(screen.getByRole("combobox", { name: "Theme" })).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Mode" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "History" })).toHaveAttribute("href", "#/history");
@@ -283,6 +285,7 @@ describe("theme picker", () => {
   it("lists every theme, shows the current one, and changes theme and mode from the top bar", () => {
     osPrefers(true);
     render(<FleetView state={stateFrom()} />);
+    openWallOptions();
     const select = screen.getByRole("combobox", { name: "Theme" }) as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).toEqual(["podium", "solarized", "nord", "gruvbox", "catppuccin", "github"]);
     expect(select.value).toBe("podium");
@@ -301,6 +304,7 @@ describe("theme picker", () => {
   it("sits in the info row under the top bar, not in the top bar", () => {
     osPrefers(true);
     const { container } = render(<FleetView state={stateFrom()} />);
+    openWallOptions();
     const select = screen.getByRole("combobox", { name: "Theme" });
     expect(select.closest(".banner")).not.toBeNull();
     expect(container.querySelector(".top")!.contains(select)).toBe(false);
@@ -385,6 +389,43 @@ describe("useFleet", () => {
     expect(result.current.phase).toBe("live");
     expect(Object.keys(result.current.sessions)).toEqual(["s3"]);
     expect(result.current.gone.s1).toBe("done");
+  });
+
+  it("counts the stream's content-free chat event, for Chat to read again (#1034)", async () => {
+    vi.useFakeTimers();
+    const fetchState = vi.fn().mockResolvedValue(makeState());
+    const { result } = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const before = result.current.chatRev;
+    act(() => FakeSource.last!.emit("chat", { scope: "dm", owner: null, rev: 1 }));
+    expect(result.current.chatRev).toBe(before + 1);
+  });
+
+  it("counts the stream's content-free reads event, for the owner's notice of an Admin's read to be read again (#1073, #1074)", async () => {
+    vi.useFakeTimers();
+    const fetchState = vi.fn().mockResolvedValue(makeState());
+    const { result } = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const before = result.current.readsRev;
+    act(() => FakeSource.last!.emit("reads", { rev: 1 }));
+    expect(result.current.readsRev).toBe(before + 1);
+  });
+
+  it("counts the stream's content-free replay event, for the owner to read who is replaying again (#1075)", async () => {
+    vi.useFakeTimers();
+    const fetchState = vi.fn().mockResolvedValue(makeState());
+    const { result } = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const before = result.current.replayRev;
+    act(() => FakeSource.last!.emit("replay", { rev: 1 }));
+    expect(result.current.replayRev).toBe(before + 1);
+    expect(result.current.chatRev).toBe(before);
   });
 
   it("reopens a stream the browser closed on error", () => {

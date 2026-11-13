@@ -2,13 +2,13 @@
 describe('the page title and motion', () => {
   before(() => cy.resetServer());
 
-  it('names the tab after the page: the wall, the board, an orchestrator, History and Admin', () => {
+  it('names the tab after the page: the wall, the board, Chat, an orchestrator, History and Admin', () => {
     cy.openConsole('#/');
     cy.title().should('eq', 'Podium');
     cy.visit('/#/board');
     cy.title().should('eq', 'Podium board');
-    cy.visit('/#/traffic');
-    cy.title().should('eq', 'Podium traffic');
+    cy.visit('/#/chat');
+    cy.title().should('eq', 'Podium chat');
     cy.visit('/#/?open=e2e-s-api-gateway');
     cy.title().should('eq', 'api-gateway - Podium');
     cy.visit('/#/history');
@@ -75,6 +75,6 @@ describe('People view: order by Spend', () => {
     cy.get('[aria-label="Order by"]').contains('button', 'Spend').click().should('have.attr', 'aria-pressed', 'true');
     cy.get('button.bh').first().should('contain.text', 'Ed');
     cy.get('[aria-label="Group by"]').contains('button', 'Group').click();
-    cy.get('button.bh').then(($b) => expect([...$b].map((b) => b.textContent)).to.satisfy((t) => t.some((x) => x.includes('Platform')) && t.some((x) => x.includes('Unassigned'))));
+    cy.get('button.bh').should(($b) => expect([...$b].map((b) => b.textContent)).to.satisfy((t) => t.some((x) => x.includes('Platform')) && t.some((x) => x.includes('Unassigned'))));
   });
 });

@@ -65,8 +65,7 @@ Files: `server/src/fleet/rollups.ts`, `reports.ts`, `reportRoutes.ts`, `reportDe
 
 **Mod**
 
-`machine.ts` cuts `hostname` output to the short name and makes the random id kept under `machineId` in
-`$.store`. `register.ts` reads both once per load and only when `userName` is set.
+`machine.ts` cuts `hostname` output to the short name and makes the random machine id, kept in the files named under "What leaves the session" in [REPORTER.md](../../REPORTER.md#what-leaves-the-session). `register.ts` reads both once per load and only when `userName` is set.
 
 <!-- nav:start -->
 ---

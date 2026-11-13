@@ -56,7 +56,9 @@ server/src/fleet/
   lockout.ts                         wrong-credential lockout shared by Admin and the sign-in to respond
   *.test.ts
 server/src/storage/                  the async interfaces the server calls, and openStorage, which picks the implementation (#313)
-  sqlite/                            the only adapter: schema, migrations and queries (db.ts), the stores, the lock, activity.sqlite
+  sqlite/                            the default adapter: schema, migrations and queries (db.ts), the stores, the lock, activity.sqlite
+  postgres/                          the PostgreSQL adapter (#822): its schemas, steps and stores, over the pg driver
+  mariadb/                           the MariaDB adapter (#823): its tables, steps and stores, over the mariadb driver
 frontend/src/fleet/
   FleetApp.tsx, useFleet.ts (SSE + reducer), store.ts, format.ts
   components/…                       see section 8.2
@@ -82,7 +84,9 @@ Containerfile, .containerignore      the server and UI as a container image (4.4
 - `FleetApp` for `#/` (the default);
 - `FleetApp` for `#/board` (the same console with the kanban board in the middle, [8.1](08-ui/08-01-what-the-ui-must-do.md));
 - `FleetApp` for `#/me/reporters` (the same console with My reporters under the top bar, [8.1](08-ui/08-01-what-the-ui-must-do.md));
-- `FleetApp` for `#/traffic` (the same console with Traffic under the top bar, [8.1](08-ui/08-01-what-the-ui-must-do.md));
+- `FleetApp` for `#/me/usage` (the same console with My usage under the top bar, [8.1](08-ui/08-01-what-the-ui-must-do.md); #726);
+- `FleetApp` for `#/chat` (the same console with Chat in the middle, [8.1](08-ui/08-01-what-the-ui-must-do.md); it replaced Traffic in 1.6, #1034);
+- `FleetApp` for `#/traffic` (replaced by Chat; the address redirects to Chat at once, and the page's code stays until 1.9, [8.1](08-ui/08-01-what-the-ui-must-do.md));
 - `HistoryView` for `#/history`;
 - `AdminView` for `#/admin`.
 

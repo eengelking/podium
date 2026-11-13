@@ -10,6 +10,8 @@ order: 59
 
 # 59. An OpenCode session stays open, and reachable, while a TUI is attached (#984)
 
+*Extended by 65 (#1029): closing the last OpenCode TUI now ends the sessions that are quiet at once.*
+
 *Amends #847's choice that idle means done (decision 4 of that issue): that still holds when no TUI is attached.*
 
 **Context.** The OpenCode reporter swept a session quiet for `idleSeconds` (60 by default) to `done`, stopped reporting it, and the

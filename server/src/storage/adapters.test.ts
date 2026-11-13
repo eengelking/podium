@@ -41,7 +41,7 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
   differentialCases({ adapters: running });
 
   describe('upgrade contract', () => {
-    for (const a of running) describe(a.name, () => upgradeCases({ openUpgraded: (rows, reporters, sessions) => a.openUpgraded(rows, reporters, sessions) }));
+    for (const a of running) describe(a.name, () => upgradeCases({ openUpgraded: (rows, reporters, sessions, messages, rights, adminReads) => a.openUpgraded(rows, reporters, sessions, messages, rights, adminReads) }));
   });
 
   // A table, column or index in one adapter's schema and not in another's is a database change made in one adapter only.
@@ -95,10 +95,10 @@ describe('the server gate', () => {
     expect(() => checkServers({ PODIUM_TEST_ONLY: 'sqlte' }, need, () => undefined)).toThrow(/sqlte.*not a registered storage kind.*sqlite, postgres, other/);
   });
 
-  it('names scripts/test-pg.sh first when a server is missing, and says PODIUM_TEST_ONLY is not a way past the error (#1011)', () => {
+  it('names scripts/test-db.sh first when a server is missing, and says PODIUM_TEST_ONLY is not a way past the error (#1011)', () => {
     let msg = '';
     try { checkServers({}, need, () => undefined); } catch (e) { msg = (e as Error).message; }
-    expect(msg).toMatch(/scripts\/test-pg\.sh.*PODIUM_TEST_ONLY/s);
+    expect(msg).toMatch(/scripts\/test-db\.sh.*PODIUM_TEST_ONLY/s);
     expect(msg).toMatch(/not a way past this error/);
     expect(msg).toMatch(/every adapter/);
   });

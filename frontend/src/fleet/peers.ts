@@ -35,6 +35,10 @@ export interface PeerRight {
   owner: string;
   level: PeerLevel;
   paused: boolean;
+  /** Who holds the pause, while `paused`. Only an Admin lifts an Admin's (#1034). */
+  pausedBy?: "owner" | "sender" | "admin";
+  /** The Admin's name, while `pausedBy` is `admin` (#1077). */
+  pausedByAdmin?: string;
   setAt: number;
 }
 
@@ -51,8 +55,14 @@ export interface PeerLimitsView {
   maxChars: number;
 }
 
-/** A request as the owner's read lists it: the reporters by machine for the words, and by key to find their Grid cell. */
-export type PeerRequestView = PeerRequest & { fromKey: string; toKey: string; messageId: string | null };
+/** A request as the owner's read lists it: the reporters by machine for the words, and by key to find their Grid cell (a person's message has no cell). */
+export type PeerRequestView = PeerRequest & {
+  fromKey: string;
+  toKey: string;
+  messageId: string | null;
+  /** The request is a person's message to the owner's agent (#1034): `fromKey` is `person:<name>`, not a reporter, so no Grid cell matches it. */
+  fromPerson?: boolean;
+};
 
 /** My reporters in one read. */
 export interface PeersRead {
@@ -99,6 +109,8 @@ export interface RightsModel {
   /** Why the pair has no messaging, when one of the two machines has it off. */
   off: (a: string, b: string) => string | null;
   paused: (a: string, b: string) => boolean;
+  /** The Admin who paused the pair, or null when no Admin holds the pause. The name is null when the server did not give one. */
+  adminPause: (a: string, b: string) => { name: string | null } | null;
   /** An Admin's proposal for the pair that waits for the owner. */
   proposed: (a: string, b: string) => PeerLevel | null;
 }
@@ -124,6 +136,10 @@ export function rightsModel(d: Pick<PeersRead, "reporters" | "rights" | "default
     level: (a, b) => (off(a, b) ? "none" : trust ? "send" : (stored.get(pairKey(a, b))?.level ?? "none")),
     locked: (a, b) => trust || off(a, b) !== null,
     paused: (a, b) => stored.get(pairKey(a, b))?.paused ?? false,
+    adminPause: (a, b) => {
+      const r = stored.get(pairKey(a, b));
+      return r?.paused && r.pausedBy === "admin" ? { name: r.pausedByAdmin ?? null } : null;
+    },
     proposed: (a, b) => proposals.get(pairKey(a, b)) ?? null,
   };
 }
@@ -166,5 +182,5 @@ export function withRight(d: PeersRead, from: string, to: string, level: PeerLev
   const had = d.rights.find((r) => r.from === from && r.to === to);
   const rest = d.rights.filter((r) => r !== had);
   if (level === "none" && !had?.paused) return { ...d, rights: rest };
-  return { ...d, rights: [...rest, { from, to, owner: d.owner, level, paused: had?.paused ?? false, setAt: had?.setAt ?? 0 }] };
+  return { ...d, rights: [...rest, { from, to, owner: d.owner, level, paused: had?.paused ?? false, ...(had?.paused && had.pausedBy ? { pausedBy: had.pausedBy } : {}), ...(had?.paused && had.pausedByAdmin ? { pausedByAdmin: had.pausedByAdmin } : {}), setAt: had?.setAt ?? 0 }] };
 }

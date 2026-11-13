@@ -18,8 +18,8 @@ export interface Openers {
   adapters: ContractAdapter[];
 }
 
-/** A generated id (`prq_` or `dlv_` and 24 hex digits): random by design, so it differs between two storages and is not compared. */
-const GENERATED = /^(prq|dlv)_[0-9a-f]{24}$/;
+/** A generated id (`prq_` or `dlv_` and 24 hex digits; a channel message's `grp_` or `pub_`, the server's 8 hex digits of scope and 24 hex digits): random by design, so it differs between two storages and is not compared. */
+const GENERATED = /^((prq|dlv)_[0-9a-f]{24}|(grp|pub)_[0-9a-f]{8}_[0-9a-f]{24})$/;
 
 /**
  * The one list of differences between databases that are not defects (#1008): a field a database reports about its own storage is a

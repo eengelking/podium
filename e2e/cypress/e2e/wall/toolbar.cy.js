@@ -48,12 +48,12 @@ describe('wall: toolbar', () => {
   });
 
   it('sorts by Model so the Sonnet session is apart from the Opus ones, and puts waiting sessions together under Status', () => {
-    sortedBy('Model').then(($c) => {
+    sortedBy('Model').should(($c) => {
       const ids = [...$c].map((c) => c.getAttribute('data-session'));
       const api = ids.indexOf('e2e-s-api-gateway');
       expect(api === 0 || api === ids.length - 1, 'the only Sonnet card is at one end').to.eq(true);
     });
-    sortedBy('Status').then(($c) => {
+    sortedBy('Status').should(($c) => {
       const waiting = [...$c].map((c) => /Waiting for/.test(c.textContent));
       const first = waiting.indexOf(true);
       const last = waiting.lastIndexOf(true);
@@ -66,7 +66,7 @@ describe('wall: toolbar', () => {
     // (arm64-check last of Ed's, then Tester, and invoice-v2 first of all), and fails if the server does not keep them (#898).
     sortedBy('Newest').should('have.length', 12).first().should('have.attr', 'data-session', 'e2e-s-arm64-check');
     cy.cards().eq(1).should('have.attr', 'data-session', 'e2e-s-tester');
-    cy.cards().then(($c) => expect($c[$c.length - 1].getAttribute('data-session')).to.eq('e2e-s-invoice'));
-    cy.get('#podium-sort option').then(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Status', 'Model', 'Context blowouts', 'Context used', 'Cost', 'Newest']));
+    cy.cards().should(($c) => expect($c[$c.length - 1].getAttribute('data-session')).to.eq('e2e-s-invoice'));
+    cy.get('#podium-sort option').should(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Status', 'Model', 'Context blowouts', 'Context used', 'Cost', 'Newest']));
   });
 });

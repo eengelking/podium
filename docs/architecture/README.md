@@ -20,7 +20,7 @@ Related documents:
   the map before the detail below; [the interactive version](../atlas/podium-atlas.html) opens in a browser.
 
 Podium is a live fleet console for Claude Code sessions. This repo holds the reporter mod
-(`plugin/claudecode/`, with the code every reporter shares in `plugin/core/`), an Express server (`server/src/fleet/`) and a Vite frontend (`frontend/src/fleet/`),
+(`plugin/claudecode/` and `plugin/opencode/`, with the code every reporter shares in `plugin/core/`), an Express server (`server/src/fleet/`) and a Vite frontend (`frontend/src/fleet/`),
 with the default view at `#/`. An earlier usage dashboard lived here until it was removed (DECISIONS 15).
 
 ## Pages

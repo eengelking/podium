@@ -7,7 +7,7 @@
 // both signed in as "Admin" with the admin secret, the respond one as --person when given; both are signed out again at the end):
 //   Fleet (open):      GET /api/health, /api/fleet/health, /api/fleet/state, /api/fleet/events (all, and per session),
 //                      /api/fleet/history (the days the sessions started on), /api/fleet/sessions/:id,
-//                      /api/fleet/sessions/:id/agents/:agentId/text, /api/fleet/peers/traffic?range=live|24h|30d,
+//                      /api/fleet/sessions/:id/agents/:agentId/text (signed in, #1082), /api/fleet/peers/traffic?range=live|24h|30d,
 //                      /api/tls/status
 //   Fleet (token):     GET /api/fleet/sessions/:id/peers (X-Podium-Token: the admin secret, or --person's token)
 //   Fleet stream:      the first SSE event of GET /api/fleet/stream, then the connection is closed
@@ -350,7 +350,7 @@ async function capture() {
     await read(`${F}/events?sessionId=${id}&limit=200`);
     const view = await read(`${F}/sessions/${id}`);
     for (const a of (Array.isArray(view.body?.agents) ? view.body.agents : []).sort((x, y) => String(x.id).localeCompare(String(y.id)))) {
-      await read(`${F}/sessions/${id}/agents/${encodeURIComponent(a.id)}/text`);
+      await read(`${F}/sessions/${id}/agents/${encodeURIComponent(a.id)}/text`, 'respond');
     }
     await read(`${F}/sessions/${id}/peers`, undefined, tok);
     await read(`${R}/sessions/${id}/recording`, 'respond');

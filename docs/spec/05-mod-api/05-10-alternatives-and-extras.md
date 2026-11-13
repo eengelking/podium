@@ -13,7 +13,7 @@ order: 10
 - **`telemetry.*` hooks** can forward engine telemetry to a collector. Out of scope.
 - **Status line command** (`statusLine` setting) can show Podium's URL in the terminal. Out of scope; the mod uses `$.ui.status`.
 - **OpenTelemetry**: the engine can export OTel metrics natively. Out of scope; noted so nobody rebuilds it.
-- **`$.model.complete`** with `model: "haiku"`, `effort: "low"` is the cheapest way to produce a one-paragraph failure explanation (Phase 5, opt-in).
+- **`$.model.complete`** with `model: "haiku"`, `effort: "low"` is the cheapest way to produce a one-paragraph failure explanation (opt-in).
 - **`claude-api` skill** (invoke it) is the source for current model ids, context windows and prices when filling `models.ts`. Do not guess prices from memory.
 
 <!-- nav:start -->

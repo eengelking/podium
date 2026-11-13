@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, ADMIN_LOG_KEEP } from '../rows.js';
+import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 
@@ -365,6 +365,194 @@ ALTER TABLE sessions ADD COLUMN model_provider TEXT;`,
     sql: `ALTER TABLE agents ADD COLUMN model_label TEXT;
 ALTER TABLE agents ADD COLUMN model_provider TEXT;`,
   },
+  {
+    version: 31,
+    // The Chat page (#1034). A direct message records who wrote it, an agent or the owning person (every message stored before this was an agent's), and
+    // when every agent in its conversation had left (hidden_at), so the conversation is kept for a grace period and comes back if the same peers return.
+    // Group and General messages are tables of their own, one per audience, with the same row shape (the group's also carries its owner and group); a
+    // direct message is never copied into either. A person's unread and mention counts are kept per thread.
+    sql: `
+ALTER TABLE peer_messages ADD COLUMN author TEXT NOT NULL DEFAULT 'agent';
+ALTER TABLE peer_messages ADD COLUMN hidden_at INTEGER;
+CREATE INDEX IF NOT EXISTS peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, group_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (
+  person TEXT NOT NULL, thread TEXT NOT NULL, last_read TEXT, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
+  },
+  {
+    version: 32,
+    // Who paused a person's link to another person's agent (#1034): the person, the agent's owner or an Admin, so only they (or an Admin) can resume it.
+    // NULL means not paused, or paused before this was kept, which either owner may resume.
+    sql: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;`,
+  },
+  {
+    version: 33,
+    // An Admin reading a person's group or a Direct Message (#1034): one record per reading session, so the people in the thread can be told. It holds who,
+    // which thread and when, never any text. A session is the Admin's reads of one thread with less than 30 minutes between them.
+    // The Admin who paused a link is named with the pause (paused_by_admin), so the owner knows whom to ask.
+    sql: `
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TEXT;
+CREATE TABLE chat_admin_reads (
+  thread TEXT NOT NULL, admin_key TEXT NOT NULL, admin TEXT NOT NULL, started_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);`,
+  },
+  {
+    version: 34,
+    // What an Admin record says (#1034): a reading (every record before this one), or one of the Admin's stops that stay on the record for good: removed all
+    // messages, paused, resumed. The rows already there are readings, which the default says.
+    sql: `ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';`,
+  },
+  {
+    version: 35,
+    // An Admin record is kept until the person has seen it (#1051): who it is owed to (`people`) and who has seen it (`seen`), each a JSON list of folded names.
+    // The rows already there owe nothing, so retention treats them as before.
+    sql: `
+ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';`,
+  },
+  {
+    version: 36,
+    // The days the harness lets a person resume a session once it is closed (#1113), which is how long its chat is kept. NULL means no report has said, as for every
+    // session stored before this: the default of 30 days applies.
+    sql: 'ALTER TABLE sessions ADD COLUMN resume_window_days INTEGER;',
+  },
+  {
+    version: 37,
+    // The tool counts behind Admin > Reporting > Tools (#720), from every harness. Names and counts only: never a tool's input, a path or a
+    // command. `tools_daily` is calls per tool; `tool_sessions_daily` is how many sessions made about that many calls (a bucket, so a
+    // median and a 90th percentile survive being added across days); `harness_versions_daily` is how many reporters ran each version of a
+    // harness. A day is a calendar day in the server's time zone and a session counts on the day it was last seen, as in migration 22.
+    sql: `
+CREATE TABLE IF NOT EXISTS tools_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+CREATE TABLE IF NOT EXISTS tool_sessions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, bucket INTEGER NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, bucket)
+);
+CREATE TABLE IF NOT EXISTS harness_versions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, reporters INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version)
+);`,
+  },
+  {
+    version: 38,
+    // What each tool did beyond being called (#721), from every harness: counts only, never a tool's input, a path or an error's text. An agent
+    // keeps its reporter's per-tool stats as JSON (NULL from a reporter that does not send them). `tool_stats_daily` is the day's totals per
+    // harness and tool: failed calls, permission asks and how they ended, the ones answered from Podium, and the call lengths as JSON of
+    // bucket to calls (a bucket is a step of 10%, so a median and a 95th percentile survive being added across days).
+    sql: `
+ALTER TABLE agents ADD COLUMN tool_stats_json TEXT;
+CREATE TABLE IF NOT EXISTS tool_stats_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  failed INTEGER NOT NULL, asked INTEGER NOT NULL, allowed INTEGER NOT NULL, denied INTEGER NOT NULL, podium INTEGER NOT NULL, times_json TEXT NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);`,
+  },
+  {
+    version: 39,
+    // How long sessions ran and waited on their person, which agents they launched, who ran them and when they overlapped (#722), behind Admin > Reporting
+    // > Sessions and Usage. Names, counts and times only: never a question, a plan, a tool's input or a path.
+    // `session_waits` is added up as reports arrive (a session is blocked on its person for a permission, a question or a plan) and goes with its session.
+    // The four daily tables are written by the hourly retention like the others, per harness; the peak of an hour is upserted, so it never goes down.
+    sql: `
+CREATE TABLE IF NOT EXISTS session_waits (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  permission_ms INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_ms INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_ms INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  tracked_since INTEGER NOT NULL, open_kind TEXT, open_since INTEGER
+);
+CREATE TABLE IF NOT EXISTS session_time_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL,
+  tracked_sessions INTEGER NOT NULL, tracked_s INTEGER NOT NULL,
+  permission_s INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_s INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_s INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  PRIMARY KEY (day, harness)
+);
+CREATE TABLE IF NOT EXISTS agents_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, type TEXT NOT NULL, depth INTEGER NOT NULL, agents INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, type, depth)
+);
+CREATE TABLE IF NOT EXISTS person_sessions_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness)
+);
+CREATE TABLE IF NOT EXISTS hour_peaks_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, hour INTEGER NOT NULL, peak INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, hour)
+);`,
+  },
+  {
+    version: 40,
+    // What sessions cost and how they ended (#723), behind Admin > Reporting > Tools, Spend and Sessions. `cost_daily` is a day's sessions of one harness, model and
+    // effort: their count, the calls they made, the priced cost, the token split and how full their context was when they ended. `tool_cost_daily` is the sessions that
+    // called one tool and what they cost. Counts, tokens and names only: never a prompt, a tool's input or a path. Written by the hourly retention like the other rollups.
+    sql: `
+CREATE TABLE IF NOT EXISTS cost_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, calls INTEGER NOT NULL, priced_calls INTEGER NOT NULL, cost_usd REAL NOT NULL, call_cost_usd REAL NOT NULL,
+  tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL,
+  ended_low INTEGER NOT NULL, ended_mid INTEGER NOT NULL, ended_high INTEGER NOT NULL, ended_unknown INTEGER NOT NULL,
+  compacted INTEGER NOT NULL, cleared INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, model, effort)
+);
+CREATE TABLE IF NOT EXISTS tool_cost_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, cost_usd REAL NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);`,
+  },
+  {
+    version: 41,
+    // What each version of a harness sent (#724), behind Admin > Reporting > Harness updates, so a hook, an event field or a tool name that stops after an update is found.
+    // A session keeps what its reporter counted as JSON of signal name to count (NULL from a reporter that does not send it). `feature_versions_daily` is, per day, harness and
+    // harness version, how many sessions sent each feature (`hook:...`, `field:...`, or `tool:...` from the tool counts), and how many sessions there were to compare
+    // against (the reserved names `signals` and `tools`: the sessions whose reporter sent signals, and the sessions that have tool counts). Names and counts only.
+    sql: `
+ALTER TABLE sessions ADD COLUMN signals_json TEXT;
+CREATE TABLE IF NOT EXISTS feature_versions_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, feature TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);
+-- Which skills each person used and where each person worked (#724): names and counts only. A project is the repository's name and a branch is the git branch's name, both
+-- already on the wall; never a path or a prompt. A day is a calendar day in the server's time zone and a session counts on the day it was last seen.
+CREATE TABLE IF NOT EXISTS skills_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, harness TEXT NOT NULL, skill TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE IF NOT EXISTS person_places_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);`,
+  },
+  {
+    version: 42,
+    // How often sessions were answered from Podium and how long they had waited (#725), behind Admin > Reporting > Sessions. One row per day, harness, kind of answer
+    // (`permission`, `question`, `plan` or `message`) and wait class, with how many answers fell in it. A wait class is a `timeBucket` of the milliseconds between the ask
+    // opening and the answer being sent, and -1 for an answer that has no wait (a message goes to a session that is not waiting). Kinds, days and times only: never what
+    // was said. Unlike the other daily tables it is written as each answer is taken and is not rebuilt from the stored sessions, because nothing else keeps an answer.
+    sql: `
+CREATE TABLE IF NOT EXISTS answers_daily (
+  day TEXT NOT NULL, harness TEXT NOT NULL, kind TEXT NOT NULL, bucket INTEGER NOT NULL, count INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, kind, bucket)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -465,6 +653,19 @@ export class FleetDb {
     return this.stmt('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
   }
 
+  getSessionWait(id: string): SessionWaitRow | undefined {
+    return this.stmt('SELECT * FROM session_waits WHERE session_id = ?').get(id) as SessionWaitRow | undefined;
+  }
+
+  putSessionWait(row: SessionWaitRow): void {
+    this.stmt(
+      `INSERT INTO session_waits (session_id, permission_ms, permission_n, question_ms, question_n, plan_ms, plan_n, tracked_since, open_kind, open_since)
+       VALUES (:session_id, :permission_ms, :permission_n, :question_ms, :question_n, :plan_ms, :plan_n, :tracked_since, :open_kind, :open_since)
+       ON CONFLICT(session_id) DO UPDATE SET permission_ms = excluded.permission_ms, permission_n = excluded.permission_n, question_ms = excluded.question_ms, question_n = excluded.question_n,
+         plan_ms = excluded.plan_ms, plan_n = excluded.plan_n, tracked_since = excluded.tracked_since, open_kind = excluded.open_kind, open_since = excluded.open_since`,
+    ).run(row as unknown as Params);
+  }
+
   /** `getSession` for many ids, in the order given (#906), in one statement per 500. */
   getSessions(ids: string[]): SessionRow[] {
     const found = new Map<string, SessionRow>();
@@ -493,6 +694,7 @@ export class FleetDb {
       this.stmt('DELETE FROM samples WHERE session_id = ?').run(id);
       this.stmt('DELETE FROM agents WHERE session_id = ?').run(id);
       this.stmt('DELETE FROM agent_texts WHERE session_id = ?').run(id);
+      this.stmt('DELETE FROM session_waits WHERE session_id = ?').run(id);
       return Number(this.stmt('DELETE FROM sessions WHERE id = ?').run(id).changes) > 0;
     });
   }
@@ -655,6 +857,14 @@ export class FleetDb {
         v: string;
       }[]
     ).map((r) => r.v);
+  }
+
+  engineInfo(): StorageInfo {
+    const version = (this.db.prepare('SELECT sqlite_version() AS v').get() as { v: string }).v;
+    const schema = (this.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get() as { v: number | null }).v ?? 0;
+    const pages = (this.db.prepare('PRAGMA page_count').get() as { page_count: number }).page_count;
+    const size = (this.db.prepare('PRAGMA page_size').get() as { page_size: number }).page_size;
+    return { engine: 'SQLite', version, schemaVersion: schema, sizeBytes: pages * size };
   }
 
   // ---- agents ---------------------------------------------------------------------------------
@@ -958,6 +1168,7 @@ export class FleetDb {
         this.stmt('DELETE FROM samples WHERE session_id = ?').run(id);
         this.stmt('DELETE FROM agents WHERE session_id = ?').run(id);
         this.stmt('DELETE FROM agent_texts WHERE session_id = ?').run(id);
+        this.stmt('DELETE FROM session_waits WHERE session_id = ?').run(id);
         this.stmt('DELETE FROM sessions WHERE id = ?').run(id);
       }
       const adminLog = Number(

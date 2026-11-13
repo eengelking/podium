@@ -120,7 +120,7 @@ describe('openStorage', () => {
   });
 
   it('names an unknown kind in the error', () => {
-    expect(() => openStorage({ PODIUM_DB: 'mysql://h/db' })).toThrow(/unknown storage kind "mysql".*known: sqlite, postgres/);
+    expect(() => openStorage({ PODIUM_DB: 'mysql://h/db' })).toThrow(/unknown storage kind "mysql".*known: sqlite, postgres, mariadb/);
   });
 
   it('defaults to a database file under the repo data folder', () => {

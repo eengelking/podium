@@ -13,7 +13,7 @@ Create these. Split further only if a file passes about 250 lines.
 - **Pages and layout:** `FleetApp`, `TopBar`, `Rail`, `Legend`.
 - **Wall:** `Wall` (with `KpiStrip`, `Toolbar`, `SessionCard`).
 - **Board:** `Board` (with `RunningCounts` and `board.ts`, the pure bucketing the page and its tests share).
-- **People:** `People` (`Monogram`, `PeopleBar`, `Band`, `OwnerLine`).
+- **People:** `People` (`Monogram`, `PeopleCluster`, `Band`, `OwnerLine`).
 - **Orchestrator page:** `FocusView` (with `FocusHeader`, `MiniCharts`, `FactsBar`, `BlowoutCallout`,
   `PlanPanel`, `AgentTree`, `AgentRow`).
 - **Side panel:** `SidePanel` (with `ActivityList`, `AgentDetail`, `FailureBox`, `BlowoutBox`, `ReportDocs`,

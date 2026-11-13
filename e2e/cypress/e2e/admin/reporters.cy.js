@@ -15,12 +15,13 @@ describe('admin: reporters', () => {
 
   it('counts the reporters in each state filter', () => {
     cy.get('[role=group][aria-label="Filter by state"]').within(() => {
-      const n = (name) => cy.contains('button', name).invoke('text').then((t) => Number(/(\d+)\s*$/.exec(t.trim())[1]));
-      n('All reporters').should('eq', 4);
-      n('Reporting').should('eq', 4);
-      n('Idle').should('eq', 0);
-      n('Silent').should('eq', 0);
-      n('Not since restart').should('eq', 0);
+      // The button's text retries until the count has rendered, so a busy machine cannot read it too early.
+      const count = (name, want) => cy.contains('button', name).should(($b) => expect($b.text().trim(), `${name} count`).to.match(new RegExp(`(^|\\D)${want}\\s*$`)));
+      count('All reporters', 4);
+      count('Reporting', 4);
+      count('Idle', 0);
+      count('Silent', 0);
+      count('Not since restart', 0);
       cy.contains('button', 'Idle').click();
     });
     cy.get('table tbody tr').should('not.exist');
@@ -38,6 +39,20 @@ describe('admin: reporters', () => {
     cy.get('table tbody tr').first().should('contain.text', 'alex-laptop');
     cy.contains('button.thbtn', 'Machine').click();
     cy.get('table tbody tr').first().should('contain.text', 'ed-mbp');
+  });
+
+  // #1144: a sort click moves no column. Each heading's left edge (from the table's own, since a wide table scrolls under the click) and width is read before and after every click.
+  it('moves no column when a heading is clicked to sort', () => {
+    const table = () => cy.get('table.ptab').first();
+    table().find('tbody tr').should('have.length.greaterThan', 1);
+    cy.columnEdges(table).then(({ edges, now: before }) => {
+      const clicks = [];
+      for (let i = 1; i < before.length; i += 1) clicks.push(i, i);
+      cy.wrap(clicks).each((i) => {
+        table().find('thead th').eq(i).find('button.thbtn').click();
+        table().should(($u) => expect(edges($u), `after clicking heading ${i}`).to.deep.eq(before));
+      });
+    });
   });
 
   it('opens a reporter\'s details: where it comes from, its sessions and what the server turned away', () => {

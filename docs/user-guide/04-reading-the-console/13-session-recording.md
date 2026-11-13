@@ -20,8 +20,7 @@ To record and replay:
 3. A red band on the card and a layer on the page say that it is being recorded, by whom, and when it is deleted. They
    have no X and cannot be hidden, for anyone, while the session is recorded. The owner's terminal says it too.
 4. **Stop recording** ends it and keeps what was recorded. **Open replay** plays it back, oldest first: filter by agent,
-   drag the slider, **Jump to next failure**, and **Show older** for a long run. **Delete recording** removes it. Each of
-   these asks first.
+   drag the slider, **Jump to next failure**, and **Show older** for a long run. **Delete recording** removes it. Stop recording and Delete recording ask first; Open replay opens at once.
 5. A session that has ended is reached from History, whose row says "recording kept until `<time>`", or from Admin >
    Settings > Recordings.
 
@@ -29,6 +28,11 @@ What to know:
 
 - Only the session's owner and an Admin can stop, delete or replay it. Everyone sees that it is recorded and never what
   is in it.
+- When an Admin replays your recorded session, you are told. While they replay it, a red notice under the recording
+  layer on the session's page names them, and the session's card on the wall says so on its second line; your terminal
+  shows one line as well. Afterwards a quiet line stays for each replay, with who, when and for how long. The red notice has no X
+  while the replay is live. Click the X on a quiet line to hide it in this browser. Hiding it changes nothing else: the replay stays in Podium's records and in the
+  Admin log.
 - It keeps whole prompts, file contents, command output and tool results. Anything that looks like a secret is replaced
   with `[redacted]` on the machine, but that is not a guarantee, so do not record a session you would not want an Admin
   to read.

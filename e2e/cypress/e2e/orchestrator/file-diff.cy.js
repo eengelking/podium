@@ -91,7 +91,7 @@ describe('file diff dialog', () => {
 
     it('asks for every file\'s diff before any row is clicked when the reporter preloads', () => {
       cy.get('@diffReq.all', { timeout: 15000 }).should('have.length.greaterThan', 0);
-      cy.get('@diffReq.all').then((calls) => expect(new Set(calls.map((c) => new URL(c.request.url).searchParams.get('path'))).size, 'files asked for').to.be.greaterThan(1));
+      cy.get('@diffReq.all').should((calls) => expect(new Set(calls.map((c) => new URL(c.request.url).searchParams.get('path'))).size, 'files asked for').to.be.greaterThan(1));
     });
 
     it('asks for nothing until a row is opened when preload is off, then for that file only', () => {
@@ -140,7 +140,7 @@ describe('file diff dialog', () => {
       rowFor('src/invoice/export.ts').click();
       cy.get('[role=dialog]').contains('export const header = "invoice-v2";', { timeout: 15000 });
       cy.get('[role=dialog]').should(($d) => expect($d[0].getBoundingClientRect().width).to.be.lessThan(600));
-      cy.document().then((doc) => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth));
+      cy.document().should((doc) => expect(doc.documentElement.scrollWidth).to.be.at.most(doc.documentElement.clientWidth));
     });
 
     it('closes with Esc and returns focus to the row', () => {

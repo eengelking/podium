@@ -11,7 +11,7 @@ import { Router, type Request, type RequestHandler, type Response } from 'expres
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, type SessionRow } from '../storage/rows.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -23,6 +23,10 @@ import type { BrowserHelpers } from './peerRoutes.js';
 import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
 import { parseRead } from './activityHistoryInput.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
+import { noteAnswer } from './answers.js';
+import { MY_REPORT_NAMES, ReportError, runMyReport, type MyReportName } from './reports.js';
+import { reportDepsOf } from './reportDeps.js';
+import { sendReport } from './reportRoutes.js';
 
 export interface RespondDeps {
   fleet: Fleet;
@@ -108,6 +112,12 @@ export interface RespondAccess {
    * refuses or throws, so a route that has no sign-in of its own can ask without changing who it answers.
    */
   reader: (req: Request) => Promise<(row: SessionRow) => boolean>;
+  /**
+   * The gate of an agent's whole prompt and answer (`text`) and its live Activity (`live`), #1082. Only the session's owner or an Admin, signed in: otherwise it
+   * answers 401 or 403 and returns null. An unknown session or agent answers 404. An Admin's read is recorded first (a failure stops the read), the person is
+   * told, and one content-free Admin log line is written per reading session. Returns the session when the read may go on, after which the route sends it.
+   */
+  agentRead: (req: Request, res: Response, kind: 'text' | 'live', sessionId: string, agentId: string) => Promise<SessionRow | null>;
 }
 
 export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAccess {
@@ -125,7 +135,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   /** A browser can sign in when any feature that needs the sign-in is on. The respond routes still need `enabled()`. */
   /** Authentication on and a keep policy for the Activity history (#432): stored entries are read by a signed-in owner or Admin. */
   const historyEnabled = (): boolean => d.token !== null && fleet.activityHistorySettings.get().policy !== 'default';
-  const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || (d.alsoSignIn?.() ?? false);
+  /** Authentication on and the Admin's My usage flag (#726): a person signs in to see their own figures. */
+  const myUsageEnabled = (): boolean => d.token !== null && fleet.features.featureOn(MY_USAGE);
+  const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || myUsageEnabled() || (d.alsoSignIn?.() ?? false);
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
     logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
@@ -364,8 +376,32 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
 
   browser.get('/me', asyncHandler(async (req, res) => {
     const v = signInEnabled() ? await viewerOf(req) : null;
-    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false };
+    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false, myUsage: myUsageEnabled() };
     res.json(me);
+  }));
+
+  /**
+   * A person's own usage (#726). Whose figures it is comes only from the sign-in, read here on the server; the request holds no person, group or id, and a query key
+   * that names one is dropped before a report sees it. With the Admin's setting off the page does not exist (404, as for an unknown report), and with nobody signed in it
+   * answers 403 and no figure. An Administrator, or the admin secret, gets their own figures like anyone else, never the fleet's.
+   */
+  browser.get('/usage/:report', asyncHandler(async (req, res) => {
+    const gone = () => void res.status(404).json({ ok: false, error: 'no such report' });
+    if (!myUsageEnabled()) return gone();
+    const v = await viewerOf(req);
+    if (!v) return refuse(req, res, 403, 'sign in to see your usage');
+    const name = req.params.report as MyReportName;
+    if (!MY_REPORT_NAMES.includes(name)) return gone();
+    const format = req.query.format;
+    if (format !== undefined && format !== 'csv' && format !== 'json') return void res.status(400).json({ ok: false, error: 'format must be json or csv' });
+    try {
+      const reply = await runMyReport(reportDepsOf(fleet), v.name, name, req.query);
+      if (format === 'csv') sendReport(res, reply);
+      else res.json(reply);
+    } catch (err) {
+      if (!(err instanceof ReportError)) throw err;
+      res.status(400).json({ ok: false, error: err.message });
+    }
   }));
 
   browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), asyncHandler(async (req, res) => {
@@ -559,6 +595,15 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown ask' });
       return;
     }
+    // An Admin opening an ask that is not their own shows them the question, plan or tool input in full (#1073): the read is recorded before it is sent, the
+    // Admin log hears of it (who, whose, which ask, never the text) and the owner is told in the console and in their reporter. The owner's own open is not noticed.
+    const read = await fleet.chat.adminReads.noteSession(got.v, 'ask', got.row, undefined, true);
+    // The Admin log gets one line per reading session, as Chat does: at the first read of it, even when a ping began it, not at every fetch.
+    if (read.logDue) {
+      await people?.log('ask_read', `${got.v.name} opened an ask of ${got.row.owner} in ${got.row.name} (${shortId(got.row.id)}) [${req.params.askId}]`, sourceOf(req), now(), got.v.actor);
+      logger.info('respond.ask_read', `podium: an Admin opened an ask in session ${got.row.id}`, { session_id: got.row.id, ask_id: req.params.askId ?? null, by: got.v.actor, owner: got.row.owner, source: sourceOf(req) });
+    }
+    if (read.changed) fleet.sessionReadsChanged();
     res.json(detail);
   }));
 
@@ -572,6 +617,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     await audit(req, got.v, got.row, out.delivery);
+    await noteAnswer(fleet.db, logger, got.row, out.asked.kind, out.asked.waitedMs, out.delivery.at);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id });
   }));
 
@@ -584,6 +630,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     await audit(req, got.v, got.row, out.delivery);
+    // A command (/clear, /compact) is not an answer: only a message is counted.
+    if (out.delivery.kind === 'message') await noteAnswer(fleet.db, logger, got.row, 'message', null, out.delivery.at);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id, queued: got.row.status === 'running' });
   }));
 
@@ -638,14 +686,46 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(400).json({ ok: false, error: read.error, path: '$.query' });
       return;
     }
+    // An Admin reading a person's stored Activity: recorded first (a failure stops the read, so nothing is read without a record), the person told, and one
+    // content-free Admin log line per reading session. The owner's own read, and a session nobody owns, tell no one (#1074).
+    const told = await fleet.chat.adminReads.noteSession(v, 'activity', row, loop, true);
+    if (told.logDue) await people?.log('activity_admin_read', `${v.actor} read the stored Activity of ${row.name} (${shortId(row.id)}), loop ${loop}, owned by ${row.owner ?? ''}`, sourceOf(req), now(), v.actor);
+    if (told.changed) fleet.sessionReadsChanged();
     const limit = Math.min(Math.max(read.value.limit ?? ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
     const page: ActivityHistoryPage = await fleet.activityHistory.page(row.id, loop, read.value.before, limit);
     res.json(page);
   }));
 
+  /** See RespondAccess.agentRead. Sign-in comes first, so a signed-out request learns nothing about which sessions exist. */
+  const agentRead: RespondAccess['agentRead'] = async (req, res, kind, sessionId, agentId) => {
+    const v = await viewerOf(req);
+    if (!v) {
+      refuse(req, res, 401, kind === 'text' ? 'sign in to open the full text' : 'sign in to open the live activity');
+      return null;
+    }
+    const row = await fleet.db.getSession(sessionId);
+    const known = row && ((kind === 'live' && agentId === MAIN_LOOP) || (await fleet.db.getAgents(sessionId)).some((a) => a.id === agentId));
+    if (!row || !known) {
+      res.status(404).json({ ok: false, error: kind === 'text' ? 'no full text for this agent' : 'unknown session or agent', path: '$.agentId' });
+      return null;
+    }
+    if (!viewerOwns(v, row)) {
+      refuse(req, res, 403, 'not your session', { owner: row.owner });
+      return null;
+    }
+    const told = await fleet.chat.adminReads.noteSession(v, kind, row, agentId, true);
+    if (told.logDue) {
+      const what = kind === 'text' ? 'the whole prompt and answer' : 'the live Activity';
+      await people?.log(`${kind}_admin_read`, `${v.actor} read ${what} of agent ${agentId} in ${row.name} (${shortId(row.id)}), owned by ${row.owner ?? ''}`, sourceOf(req), now(), v.actor);
+    }
+    if (told.changed) fleet.sessionReadsChanged();
+    return row;
+  };
+
   d.extendBrowser?.(browser, { viewerOf });
   router.use('/respond', browser);
   return {
+    agentRead,
     reader: async (req) => {
       const v = await viewerOf(req);
       return (row) => v !== null && viewerOwns(v, row);

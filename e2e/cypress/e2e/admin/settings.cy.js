@@ -5,18 +5,42 @@ describe('admin: settings', () => {
   beforeEach(() => cy.openAdmin('Settings'));
 
   const FLAGS = ['activity-feed', 'activity-output', 'respond', 'file-diff', 'peer-messaging', 'session-recording', 'update-check'];
+  // Address @group and @everyone in Chat (#1034) is off on a seeded server; the seed turns on the seven above.
+  const CHAT_EVERYONE = 'chat-everyone';
   // Whatever a test turned off is turned on again here, so a failing test cannot leave a flag off for the next one.
-  afterEach(() => cy.setFlags(Object.fromEntries(FLAGS.map((f) => [f, true]))));
+  // My usage page (#726) is off on a seeded server too.
+  const MY_USAGE = 'my-usage';
+  afterEach(() => cy.setFlags({ ...Object.fromEntries(FLAGS.map((f) => [f, true])), [CHAT_EVERYONE]: false, [MY_USAGE]: false }));
 
   it('has one switch row per feature flag, with its name, its id in mono and a description', () => {
     cy.get('h2#admin-features-h').should('have.text', 'Feature flags');
-    for (const id of FLAGS) cy.settingSwitch(`feature-${id}`).should('exist');
+    for (const id of [...FLAGS, CHAT_EVERYONE, MY_USAGE]) cy.settingSwitch(`feature-${id}`).should('exist');
+    cy.contains('.srow', 'My usage page').should('contain.text', MY_USAGE).and('contain.text', 'Off by default');
+    cy.contains('.srow', 'Address @group and @everyone in Chat').should('contain.text', CHAT_EVERYONE).and('contain.text', 'Off, a message that uses either is refused');
     cy.contains('.srow', 'Agent activity feed').should('contain.text', 'activity-feed').and('contain.text', "Shows an agent's recent tool calls and text in its panel");
     cy.contains('.srow', 'Release check').should('contain.text', 'update-check');
   });
 
   it('shows the seeded state of each flag (all on)', () => {
     for (const id of FLAGS) cy.settingSwitch(`feature-${id}`).should('have.attr', 'aria-checked', 'true');
+  });
+
+  it('starts Address @group and @everyone in Chat off, turns it on and off again, and the server keeps it', () => {
+    cy.settingSwitch(`feature-${CHAT_EVERYONE}`).should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[CHAT_EVERYONE]).to.eq(true));
+    cy.reload();
+    cy.adminPage('Settings');
+    cy.settingSwitch(`feature-${CHAT_EVERYONE}`).should('have.attr', 'aria-checked', 'true').click().should('have.attr', 'aria-checked', 'false');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[CHAT_EVERYONE]).to.eq(false));
+  });
+
+  it('starts My usage page off, turns it on and off again, and the server keeps it', () => {
+    cy.settingSwitch(`feature-${MY_USAGE}`).should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[MY_USAGE]).to.eq(true));
+    cy.reload();
+    cy.adminPage('Settings');
+    cy.settingSwitch(`feature-${MY_USAGE}`).should('have.attr', 'aria-checked', 'true').click().should('have.attr', 'aria-checked', 'false');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[MY_USAGE]).to.eq(false));
   });
 
   it('turns a flag off and on again, and the server keeps it', () => {
@@ -62,13 +86,18 @@ describe('admin: settings', () => {
 
   it('saves a lower messaging limit and refuses a bad one in words', () => {
     cy.get('#lim-roundTrips').should('have.value', '10');
+    // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+    cy.intercept('PUT', '**/api/admin/settings').as('saveSettings');
     cy.get('#lim-roundTrips').clear().type('8').blur();
+    cy.wait('@saveSettings');
     cy.reload();
     cy.adminPage('Settings');
     cy.get('#lim-roundTrips').should('have.value', '8');
     cy.get('#lim-roundTrips').clear().type('0').blur();
     cy.get('#lim-roundTrips').closest('.srow').invoke('text').should('contain', 'Round trips must be a whole number from 1 to 100. Nothing was saved. The saved value, 8, still applies.');
     cy.get('#lim-roundTrips').clear().type('10').blur();
+    // The put-back is waited for too, so it cannot land in the next test (#1137).
+    cy.wait('@saveSettings');
   });
 
   it('refuses a recording limit that is out of range, in words, and saves nothing', () => {
@@ -90,7 +119,10 @@ describe('admin: settings', () => {
     cy.get('#rec-b').should('have.value', '4');
     cy.get('#rec-c').should('have.value', '512');
     cy.get('#rec-n').clear().type('12');
+    // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+    cy.intercept('PUT', '**/api/admin/settings').as('saveSettings');
     cy.get('#rec-n').closest('form').contains('button', 'Save').click();
+    cy.wait('@saveSettings');
     cy.reload();
     cy.adminPage('Settings');
     cy.get('#rec-n').should('have.value', '12');

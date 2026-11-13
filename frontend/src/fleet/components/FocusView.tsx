@@ -8,6 +8,7 @@ import { FocusHeader } from "./FocusHeader";
 import { PlanFoldTab } from "./PlanFoldTab";
 import { PlanPanel, type PlanTab } from "./PlanPanel";
 import { RecordingLayer } from "./RecordingLayer";
+import { SessionReadNotes } from "./SessionReadNotes";
 import { stateKind } from "./Chips";
 import { StatusBand } from "./StatusBand";
 import { usePlanFolded } from "../usePanes";
@@ -28,6 +29,8 @@ export function FocusView(props: {
   flashAgent: string | null;
   onAgent: (id: string) => void;
   onRemove?: (id: string) => void;
+  /** Orchestrator messaging is on: the header carries the Chat with Agent button (#1067). */
+  chat?: boolean;
 }) {
   const { s, now, config } = props;
   // The Files tab needs room for paths, so the left column grows while it is selected.
@@ -47,11 +50,15 @@ export function FocusView(props: {
   return (
     <div className="op">
       <div className={`osum${s.blowouts.level === 2 ? " risk" : ""}`}>
-        <FocusHeader s={s} kind={kind} now={now} showHarness={props.showHarness} />
+        <FocusHeader s={s} kind={kind} now={now} showHarness={props.showHarness} chat={props.chat} />
         {open && <BlowoutCallout s={s} onAgent={props.onAgent} id={detailId} />}
         <FactsBar s={s} now={now} onAgent={props.onAgent} blow={{ open, onToggle: () => setOpenFor(open ? null : s.id), controls: detailId }} />
         <RecordingLayer s={s} now={now} />
         <StatusBand s={s} kind={kind} delegates={delegates} now={now} config={config} onRemove={props.onRemove} />
+        <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
+        <SessionReadNotes kind="activity" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
+        <SessionReadNotes kind="text" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
+        <SessionReadNotes kind="live" session={{ id: s.id, name: s.name, owner: s.owner }} placement="band" />
       </div>
       <div className={`two${folded ? " folded" : tab === "files" ? " wide" : ""}`}>
         <div className={`fold-col${folded ? " shut" : ""}${tab === "files" ? " files" : ""}`}>

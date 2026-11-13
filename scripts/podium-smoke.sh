@@ -21,7 +21,7 @@ that no process it started is left running.
   --keep      Keep the temporary directory (logs, database) for inspection
   -h, --help  Show this help
 
-PODIUM_DB: a postgres:// URL makes the server use a new database on that PostgreSQL server (dropped at the end) instead of a
+PODIUM_DB: a postgres:// or mariadb:// URL makes the server use a new database on that server (dropped at the end) instead of a
 SQLite file. Any other value is ignored.
 
 Exit code 0 when every check passes, 1 when one fails, 2 on a setup error.
@@ -48,7 +48,7 @@ PIDS=()
 FAILED=0
 LINGER_MS=3000
 DB="$TMP/podium.sqlite"
-DB_MADE=0   # 1 once a PostgreSQL database exists that cleanup must drop (or, with --keep, name)
+DB_MADE=0   # 1 once a database on a server exists that cleanup must drop (or, with --keep, name)
 
 free_port() { node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"; }
 pass() { echo "  ok    $*"; }
@@ -73,10 +73,10 @@ cleanup() {
 trap 'cleanup; exit $([[ $FAILED == 0 ]] && echo 0 || echo 1)' EXIT
 trap 'FAILED=1; exit 1' INT TERM
 
-# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
-# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
-if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
-  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-smoke)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; FAILED=1; exit 2; }
+# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL or MariaDB server, a database of its own on that server
+# (dropped at the end; what is already on the server is never touched). Only a server URL (postgres://, mariadb://) is read; a SQLite path is ignored.
+if node "$ROOT/scripts/throwaway-db.mjs" is-server "${PODIUM_DB:-}"; then
+  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-smoke)" || { echo "could not make a database on the database server in PODIUM_DB" >&2; FAILED=1; exit 2; }
   DB_MADE=1
   echo "podium-smoke: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
 fi

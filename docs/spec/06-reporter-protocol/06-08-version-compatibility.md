@@ -50,6 +50,11 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
     instead (a patch difference is not flagged). This needs no new server field.
   - A mod that predates this ignores the fields. A mod talking to a server that predates this sees no
     `reporterCompat` and shows nothing.
+- **Features that stopped (#724).** The top bar also counts the features a newer version of a harness stopped sending, as `N features stopped after a harness update`, a link to
+  Admin > Reporting > Harness updates. Only an unlocked Admin sees it: the console asks `GET /api/admin/notice`, which answers `{ unlocked: false }` to anyone else and
+  `{ unlocked: true, stopped }` to an Admin, and which never counts as Admin activity (it does not hold off the idle lock). The count is the page's own figure for the last 30 days
+  and is kept five minutes. A feature is a hook, an event field or a tool name that at least 25% of the sessions on the previous version of the same harness sent and under a tenth of that
+  share send now, with at least 20 sessions and 2 reporters on the new version.
 - `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterName` (the
   reporter that serves the session's harness, which the warning names), `reporterBuild` (see Builds below) and
   `compat` (always `unknown` for hooks). The reporter rows in Admin and My reporters carry `reporterName` too, and
@@ -72,6 +77,8 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
   page.
 
 ## Responding moves the range to `{ min: "0.2.0", max: "0.14.0" }` (#206)
+
+That was the range at 0.14.0. The ranges now are in `REPORTER_SUPPORT` in `server/src/fleet/compat.ts`, one for each reporter, and each moves its `max` with that reporter's minor release.
 
 Reporter 0.14.0 adds `session.respond`, `session.asks`, `session.clearedFrom`, the ask and delivery routes
 ([7.1](../07-server/07-01-endpoints.md)) and the `respond` option ([5.9](../05-mod-api/05-09-mod-configuration-userconfig.md)). So `plugin.json`'s
@@ -102,7 +109,7 @@ and the `sessionRecording` option ([5.9](../05-mod-api/05-09-mod-configuration-u
   lists a loop to record. The console says "an older podium-reporter" in the picker's note.
 - An older server sends no `recording`, which a newer mod reads as `off`, so it captures nothing.
 - Which release carries it is decided in its `release-prep/<version>` PR, which then moves `plugin.json`, `VERSION`
-  and, on a new minor, `max` in the `podium-reporter` entry of `REPORTER_SUPPORT`. A feature PR for #353 changes none of them.
+  and, on a new minor, `max` in each reporter's entry of `REPORTER_SUPPORT` (`podium-reporter-claudecode`, `podium-reporter-opencode`). A feature PR for #353 changes none of them.
 
 ## The release check (#499, `mockup/podium-update-notice.html`, `mockup/podium-update-check-admin.html`)
 
@@ -179,7 +186,7 @@ with a valid certificate. The console is on the HTTP port.
 ## Compatibility and the certificate reporter (#577)
 
 The reporter that reads a config file and starts the helper is a new minor version of the mod, so it ships with
-a release like any other mod change, and `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` moves to that release's `MAJOR.MINOR.0` in the
+a release like any other mod change, and `max` in the reporter's entry of `REPORTER_SUPPORT` moves to that release's `MAJOR.MINOR.0` in the
 same release-prep PR. A mod without it keeps working against a server with TLS on while the Admin allows
 reporters over HTTP, and a mod with it keeps working against a server with TLS off by using no config file.
 The renewal response carries no new `reporterSupport` field.

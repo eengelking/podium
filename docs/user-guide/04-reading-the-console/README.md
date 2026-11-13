@@ -15,7 +15,8 @@ The console has a top bar, a left rail and a right panel.
   then the connection (`N reporters live`, or a red "disconnected, retrying"). Admin's top bar shows the same
   connection indicator beside its "Admin" pill. With built-in TLS on, a certificate pill can follow the connection:
   see [Certificates](../05-admin/09-certificates.md).
-- **Row under the top bar.** It has the theme picker.
+- **Row under the top bar.** It ends in **Wall options**, a small button that opens a drawer with Refresh every,
+  Shortcuts, Theme and Light / Dark / System. Click outside it or press Esc to close it.
 - **Left rail.** It lists your sessions. When there are more than fit, it shows a page at a time. See
   [Paging the list](07-paging-the-list.md).
 - **Right panel.** It shows [activity](11-activity.md).
@@ -39,9 +40,11 @@ Drag the handles between the columns to resize them.
 - [Answering a session from Podium](12-answering-a-session-from-podium.md): Answer a waiting session from the console when answering is turned on.
 - [Session recording](13-session-recording.md): Turn on session recording and know which three switches must all be on.
 - [My reporters](14-my-reporters.md): See your reporters and choose which of them may see and message each other.
-- [Traffic](15-traffic.md): Read the traffic map of which orchestrators message which, and what they said.
+- [Traffic](15-traffic.md): Traffic, the map of which orchestrators message which, was replaced by Chat in 1.6. Where its conversations went.
+- [Chat](16-chat.md): Talk with your orchestrators in channels and Direct Messages, address them with @, and read what they say to each other.
 - [History](16-history.md): Look up the sessions that ended on a day you pick, with their agent detail.
 - [What the numbers mean](17-what-the-numbers-mean.md): Look up how cost and the other numbers on the console are worked out.
+- [My usage](18-my-usage.md): See your own spend, sessions, failures and tool calls, and nobody else's.
 <!-- entries:end -->
 
 <!-- nav:start -->

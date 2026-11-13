@@ -153,6 +153,13 @@ export const ADMIN_SCREENS: Record<string, Screen> = {
   "admin-report-sessions": admin(/^Sessions/),
   "admin-report-failures": admin(/^Failures/),
   "admin-report-activity": admin(/^Admin activity/),
+  "admin-report-tools": admin(/^Tools/, {}, async () => {
+    const table = await screen.findByRole("table", { name: "Calls by tool" });
+    fireEvent.click(within(table).getByRole("button", { name: /github/ }));
+    await settle();
+  }),
+  "admin-report-harness": admin(/^Harness/),
+  "admin-about": admin(/^About/),
   "admin-people-menu": admin(null, {}, async () => {
     fireEvent.click(await screen.findByLabelText("Actions for person-000"));
     await settle();

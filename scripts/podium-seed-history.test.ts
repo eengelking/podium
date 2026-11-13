@@ -23,10 +23,11 @@ afterEach(() => {
 
 const TODAY = '2026-10-20';
 const NOW = new Date(2026, 9, 20, 15).getTime();
-const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 const dump = (file: string): string => {
   const db = openDb(file);
-  const out = JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY 1, 2, 3, 4, 5`).all()));
+  // ordered by every column up to the fifth, so two runs compare row for row
+  const out = JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY ${[1, 2, 3, 4, 5].slice(0, Math.min(5, db.prepare(`PRAGMA table_info(${t})`).all().length)).join(', ')}`).all()));
   db.close();
   return out;
 };
@@ -122,7 +123,37 @@ describe('podium-seed-history: the history', () => {
     const versions = new Set((db.prepare('SELECT reporter_versions_json AS j FROM fleet_daily').all() as { j: string }[]).flatMap((r) => Object.keys(JSON.parse(r.j))));
     expect(versions.size).toBeGreaterThanOrEqual(3);
     expect(n("SELECT COUNT(DISTINCT kind) FROM admin_log WHERE source = 'seed-history'")).toBeGreaterThan(5);
-    // Rollups hold no content: only counts, tokens, cost and names.
+    // The tool counts (#720): both harnesses, an MCP server's tools, every session sized, and two harnesses' versions.
+    expect(n('SELECT COUNT(DISTINCT harness) FROM tools_daily')).toBe(2);
+    expect(n("SELECT COUNT(DISTINCT tool) FROM tools_daily WHERE tool LIKE 'mcp\\_\\_github\\_\\_%' ESCAPE '\\'")).toBe(2);
+    expect(n("SELECT COUNT(*) FROM tools_daily WHERE harness = 'opencode' AND (tool = 'Agent' OR tool LIKE 'mcp%playwright%')")).toBe(0);
+    expect(n('SELECT SUM(sessions) FROM tool_sessions_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
+    expect(n('SELECT COUNT(DISTINCT harness) FROM harness_versions_daily')).toBe(2);
+    expect(n("SELECT COUNT(DISTINCT version) FROM harness_versions_daily WHERE harness = 'opencode'")).toBe(2);
+    // What each tool did (#721): never more failures than calls, answers that add up to the asks, and lengths for both harnesses.
+    expect(n('SELECT COUNT(*) FROM tool_stats_daily s JOIN tools_daily t USING (day, harness, tool) WHERE s.failed > t.calls OR s.asked > t.calls')).toBe(0);
+    expect(n('SELECT COUNT(*) FROM tool_stats_daily WHERE allowed + denied > asked OR podium > allowed + denied')).toBe(0);
+    expect(n('SELECT COUNT(*) FROM tool_stats_daily s LEFT JOIN tools_daily t USING (day, harness, tool) WHERE t.calls IS NULL')).toBe(0);
+    expect(n('SELECT SUM(failed) FROM tool_stats_daily')).toBeGreaterThan(0);
+    expect(n('SELECT SUM(asked) FROM tool_stats_daily')).toBeGreaterThan(0);
+    expect(n("SELECT COUNT(DISTINCT harness) FROM tool_stats_daily WHERE times_json != '{}'")).toBe(2);
+    // Session time, agents, people and hours (#722): both harnesses, every session timed, waiting only from part way through, chains to depth 4, and 24 hours at most.
+    expect(n('SELECT COUNT(DISTINCT harness) FROM session_time_daily')).toBe(2);
+    expect(n('SELECT SUM(sessions) FROM session_time_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
+    expect(n('SELECT SUM(sessions) FROM person_sessions_daily')).toBe(n('SELECT SUM(sessions) FROM sessions_daily'));
+    expect(n('SELECT SUM(agents) FROM agents_daily')).toBe(n('SELECT SUM(agents) FROM sessions_daily'));
+    expect(n('SELECT COUNT(*) FROM session_time_daily WHERE tracked_sessions = 0')).toBeGreaterThan(0);
+    expect(n('SELECT COUNT(*) FROM session_time_daily WHERE tracked_sessions > 0')).toBeGreaterThan(0);
+    expect(n('SELECT MAX(depth) FROM agents_daily')).toBeGreaterThanOrEqual(3);
+    expect(n("SELECT COUNT(DISTINCT hour) FROM hour_peaks_daily WHERE harness = ''")).toBeLessThanOrEqual(24);
+    expect(n("SELECT COUNT(*) FROM hour_peaks_daily WHERE harness != '' AND peak > (SELECT peak FROM hour_peaks_daily a WHERE a.day = hour_peaks_daily.day AND a.hour = hour_peaks_daily.hour AND a.harness = '')")).toBe(0);
+    // The answers sent from Podium (#725): both harnesses, every kind, waits only on the ones that have one, and counting begins part way through.
+    expect(n('SELECT COUNT(DISTINCT harness) FROM answers_daily WHERE harness != \'\'')).toBe(2);
+    expect(n('SELECT COUNT(DISTINCT kind) FROM answers_daily WHERE kind != \'none\'')).toBe(4);
+    expect(n('SELECT COUNT(*) FROM answers_daily WHERE kind = \'message\' AND bucket != -1')).toBe(0);
+    expect(n('SELECT COUNT(*) FROM answers_daily WHERE kind IN (\'permission\', \'question\', \'plan\') AND bucket < 0')).toBe(0);
+    expect(n('SELECT COUNT(DISTINCT day) FROM answers_daily')).toBeLessThan(n('SELECT COUNT(DISTINCT day) FROM sessions_daily'));
+    // Rollups hold no content: only counts, tokens, cost, times and names.
     expect(JSON.stringify(tables.map((t) => db.prepare(`SELECT * FROM ${t}`).all()))).not.toMatch(/prompt|answer|\/Users/);
     db.close();
   });
@@ -155,6 +186,11 @@ describe('podium-seed-history: the history', () => {
     expect(spend.rows.find((r) => r.key === 'local-llama-3')).toMatchObject({ costUsd: null });
     expect((await runReport(d, 'people', {})).rows.find((r) => r.person === 'Lena')).toMatchObject({ state: 'never' });
     expect((await runReport(d, 'activity', { from: '2026-09-05', to: TODAY })).rows.length).toBe(18);
+    // the seeded newest versions stopped sending something, so Harness updates has a feature to show (#724); OpenCode's has too few reporters for the page to say so, and the other new figures have rows
+    const stopped = await runReport(d, 'harness', { from: '2026-09-05', to: TODAY, by: 'week' });
+    expect(stopped.rows.map((r) => `${r.harness} ${r.feature}`).sort()).toEqual(['claude-code hook:tool.check']);
+    expect((await runReport(d, 'tools', { breakdown: 'skills', from: '2026-09-05', to: TODAY })).rows.length).toBeGreaterThan(0);
+    expect((await runReport(d, 'workload', { breakdown: 'places', from: '2026-09-05', to: TODAY })).rows.length).toBeGreaterThan(0);
   });
 });
 

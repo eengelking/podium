@@ -1,12 +1,16 @@
 // SPEC 8.1 Feature flags and Right panel > Activity section: the Agent activity feed and Bash output, each on, off, and on with the machine's option off.
+const AT = 4102444800000; // 2100-01-01, a fixed moment: the server drops an entry older than the moment the panel opened, so a past one would never show (#1056)
+let calls = 0; // each call is a later moment with its own id, as live data is, so no test meets the last one's entry
 describe('flags: activity feed and Bash output', () => {
   before(() => cy.resetServer());
   // A test that turns a flag off leaves it on for the next one, even when it fails half way.
   afterEach(() => cy.setFlags({ 'activity-feed': true, 'activity-output': true }));
 
   // A reporter whose activityOutput option is off sends the command and the exit, never the output.
-  const bash = (withOutput = true) => ({ at: Date.now(), kind: 'tool', text: 'Bash npm test -- invoice', id: `toolu_e2e_flag_${Date.now()}`, command: 'npm test -- invoice', ...(withOutput ? { output: 'Tests  12 passed' } : {}), done: true, exitCode: 0 });
+  const bash = (withOutput = true) => ({ at: AT + ++calls, kind: 'tool', text: 'Bash npm test -- invoice', id: `toolu_e2e_flag_${calls}`, command: 'npm test -- invoice', ...(withOutput ? { output: 'Tests  12 passed' } : {}), done: true, exitCode: 0 });
   const open = () => {
+    // The live activity is open to the session's owner and the Admin only (#1082).
+    cy.signIn('Ed');
     cy.openConsole('#/');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');

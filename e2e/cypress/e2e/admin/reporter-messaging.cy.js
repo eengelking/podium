@@ -44,6 +44,27 @@ describe('admin: a reporter\'s Messaging section', () => {
     cy.contains('button', 'Pause all links').should('be.visible');
   });
 
+  it('records the Admin as the one who paused every link (#1077): the grid names them to the Admin and to the owner, and the Admin log has one line', () => {
+    open();
+    cy.contains('button', 'Pause all links').click();
+    cy.contains('button', 'Resume all links').should('be.visible');
+    grid().contains('.pm-state.paused', 'Paused').should('exist');
+    // The admin secret signs in as the actor "Admin secret", and that is the name the owner is shown.
+    grid().should('contain.text', 'by Admin secret, an Admin');
+    cy.signIn('Ed');
+    cy.openConsole('#/me/reporters');
+    cy.get('h1').should('have.text', 'My reporters');
+    cy.get('table.pm-grid').should('contain.text', 'by Admin secret, an Admin');
+    cy.openAdmin('Admin log');
+    cy.contains('td', "Admin secret paused all messaging links of Ed's reporter ed-mbp").should('exist');
+    open();
+    cy.contains('button', 'Resume all links').click();
+    cy.contains('button', 'Pause all links').should('be.visible');
+    grid().should('not.contain.text', 'by Admin secret, an Admin');
+    cy.openAdmin('Admin log');
+    cy.contains('td', "Admin secret resumed all messaging links of Ed's reporter ed-mbp").should('exist');
+  });
+
   it('shows a second warnbar and locks the choices while the owner has "Trust my own reporters" on', () => {
     cy.signIn('Ed');
     cy.request({ method: 'PUT', url: '/api/fleet/respond/peers/defaults', headers: { 'X-Podium-Respond': '1' }, body: { trust: true } }).its('status').should('eq', 200);

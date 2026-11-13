@@ -3,14 +3,14 @@
 describe('responsive layout', () => {
   before(() => cy.resetServer({ seedArgs: '--talk' }));
 
-  const noPageScroll = () => cy.document().then((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
+  const noPageScroll = () => cy.document().should((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
 
   // Each page is measured only once its real content is on it, so a half-loaded page cannot pass.
   const PAGES = {
     '#/': () => cy.cards().should('have.length', 12),
     '#/board': () => cy.get('section.kb-col a.kb-card').should('have.length.greaterThan', 5),
     '#/history': () => cy.get('table.htable tbody tr').should('have.length.greaterThan', 0),
-    '#/traffic': () => cy.contains('4 messages').should('exist'),
+    '#/chat': () => cy.chatRow('d:dm:e2e-s-invoice|e2e-s-tester').should('exist'),
     '#/me/reporters': () => cy.get('table.ptab tbody tr').should('have.length', 3),
     '#/?open=e2e-s-invoice': () => cy.contains('.fact', 'Est. cost').should('exist'),
   };
@@ -27,7 +27,7 @@ describe('responsive layout', () => {
   it('Admin has no horizontal page scroll at 400 px', () => {
     cy.atWidth(400);
     cy.openAdmin('Settings');
-    cy.get('[role=switch]').should('have.length.greaterThan', 5);
+    cy.get('main[aria-label=Admin] [role=switch]').should('have.length.greaterThan', 5);
     noPageScroll();
     cy.adminPage('Reporters');
     cy.get('table tbody tr').should('have.length', 4);
@@ -55,8 +55,9 @@ describe('responsive layout', () => {
     cy.openConsole('#/');
     cy.get('.rz').should('not.be.visible');
     cy.get('button[aria-label="Enter wall mode"]').should('not.be.visible');
-    cy.get('#podium-rail-body').then(($r) => cy.get('#podium-main').then(($m) => expect($r[0].getBoundingClientRect().top).to.be.lessThan($m[0].getBoundingClientRect().top)));
-    cy.contains('Square color is the model').then(($l) => cy.cards().last().then(($c) => expect($l[0].getBoundingClientRect().top).to.be.greaterThan($c[0].getBoundingClientRect().bottom - 1)));
+    // Both elements are looked up inside should(), so a re-render cannot leave a stale one behind (#1137).
+    cy.get('#podium-main').should(($m) => expect(Cypress.$('#podium-rail-body')[0].getBoundingClientRect().top).to.be.lessThan($m[0].getBoundingClientRect().top));
+    cy.contains('Square color is the model').should(($l) => expect($l[0].getBoundingClientRect().top).to.be.greaterThan(Cypress.$('button.card.sc').last()[0].getBoundingClientRect().bottom - 1));
   });
 
   it('shows resize handles from 1041 px', () => {
@@ -89,20 +90,20 @@ describe('responsive layout', () => {
   it('lays the Board\'s eight tiles four across, and two across at 640 px', () => {
     cy.atWidth(1440);
     cy.openConsole('#/board');
-    cy.get('.kpis .kpi').then(($k) => expect(new Set([...$k].map((k) => Math.round(k.getBoundingClientRect().left))).size).to.eq(4));
+    cy.get('.kpis .kpi').should(($k) => expect(new Set([...$k].map((k) => Math.round(k.getBoundingClientRect().left))).size).to.eq(4));
     cy.atWidth(600);
-    cy.get('.kpis .kpi').then(($k) => expect(new Set([...$k].map((k) => Math.round(k.getBoundingClientRect().left))).size).to.eq(2));
+    cy.get('.kpis .kpi').should(($k) => expect(new Set([...$k].map((k) => Math.round(k.getBoundingClientRect().left))).size).to.eq(2));
   });
 
   it('puts the orchestrator page\'s facts in six columns, and in two at 640 px', () => {
     cy.atWidth(1440);
     cy.openConsole('#/?open=e2e-s-invoice');
-    cy.contains('.fact', 'Est. cost').then(($f) => {
+    cy.contains('.fact', 'Est. cost').should(($f) => {
       const row = [...$f[0].parentElement.children].filter((e) => Math.abs(e.getBoundingClientRect().top - $f[0].getBoundingClientRect().top) < 4);
       expect(row.length).to.eq(6);
     });
     cy.atWidth(600);
-    cy.contains('.fact', 'Est. cost').then(($f) => {
+    cy.contains('.fact', 'Est. cost').should(($f) => {
       const row = [...$f[0].parentElement.children].filter((e) => Math.abs(e.getBoundingClientRect().top - $f[0].getBoundingClientRect().top) < 4);
       expect(row.length).to.eq(2);
     });
@@ -117,6 +118,6 @@ describe('responsive layout', () => {
     cy.get('button[aria-label="Enter wall mode"]').click();
     cy.get('.podium').should('have.class', 'wall-on');
     noPageScroll();
-    cy.document().then((doc) => expect(doc.documentElement.scrollHeight).to.be.at.most(doc.documentElement.clientHeight + 1));
+    cy.document().should((doc) => expect(doc.documentElement.scrollHeight).to.be.at.most(doc.documentElement.clientHeight + 1));
   });
 });

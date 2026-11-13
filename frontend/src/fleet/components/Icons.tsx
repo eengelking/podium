@@ -27,6 +27,7 @@ export const IconCompact = svg(<path d="M2.5 3.5h11M4.5 8h7M6.5 12.5h3" />);
 export const IconCertCross = svg(<><circle cx="8" cy="8" r="5.5" /><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" /></>);
 export const IconBack = svg(<path d="M10 3L5 8l5 5" />);
 export const IconBranch = svg(<><circle cx="4.5" cy="3.5" r="1.6" /><circle cx="4.5" cy="12.5" r="1.6" /><circle cx="11.5" cy="5.5" r="1.6" /><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6" /></>);
+export const IconChat = svg(<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />);
 export const IconTree = svg(<><rect x="2" y="2.5" width="7" height="5" rx="1" /><rect x="7" y="8.5" width="7" height="5" rx="1" /><path d="M4 7.5v3h3" /></>);
 export const IconUp = svg(<path d="M8 13V3M4 7l4-4 4 4" />);
 export const IconDown = svg(<path d="M8 3v10M4 9l4 4 4-4" />);

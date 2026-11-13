@@ -32,6 +32,6 @@ export async function pgGate(
     await connect(url);
   } catch (e) {
     const why = e instanceof Error ? e.message.split(url).join(label(url)) : 'unknown error';
-    throw new Error(`PODIUM_TEST_PG is set but the PostgreSQL server at ${label(url)} is unreachable (${why}). Start it (scripts/test-pg.sh does) or unset the variable.`);
+    throw new Error(`PODIUM_TEST_PG is set but the PostgreSQL server at ${label(url)} is unreachable (${why}). Start it (scripts/test-db.sh does) or unset the variable.`);
   }
 }

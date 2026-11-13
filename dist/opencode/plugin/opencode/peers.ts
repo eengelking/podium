@@ -9,9 +9,10 @@ import type { PeerDelivery, PeerRequest, PeerResult } from '../core/protocol.ts'
 import { sessionPath, type Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
+import { isLaunchId } from '../core/launch.ts';
 import {
-  accessAnswer, answerPaused, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
-  refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_PEERS, SUBAGENT_SEND,
+  accessAnswer, answerPaused, channelArgument, channelSendAnswer, channelSendTarget, chatReadAnswer, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
+  refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { Root } from './state.ts';
 
@@ -48,6 +49,8 @@ interface ToolInput {
   text?: unknown;
   right?: unknown;
   reason?: unknown;
+  channel?: unknown;
+  before?: unknown;
 }
 
 export class Peers {
@@ -77,7 +80,12 @@ export class Peers {
     t.peerDeliveries = [];
     t.peerRequests = [];
     if (!this.on(root, t)) return;
-    for (const d of deliveries) this.deliver(root, d);
+    // The launch placeholder (#1112) is no OpenCode session, so a message cannot be given to it: the sender is told it was refused at once.
+    if (isLaunchId(root.id)) {
+      for (const d of deliveries) if (this.d.responder.markActed(d.id)) this.result(root, d.id, 'refused');
+    } else {
+      for (const d of deliveries) this.deliver(root, d);
+    }
     this.show(requests);
   }
 
@@ -191,6 +199,14 @@ export class Peers {
     if (!to) return 'Not sent. Say who it is for: to is "name@machine", as podium_peers lists it.';
     if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
     const red = redactText(raw);
+    // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
+    const target = channelSendTarget(to);
+    if (target && 'refusal' in target) return target.refusal;
+    if (target) {
+      const channel = target.channel;
+      const posted = await this.call(t, 'POST', `${sessionPath(root.id)}/chat/channels/${channel}/messages`, { text: red.text });
+      return this.outcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: this.owner(), redactions: red.redactions }));
+    }
     const out = await this.call(t, 'POST', this.path(root, '/messages'), { to, text: red.text });
     return this.outcome('Not sent.', out, (body) => sendAnswer(body, { owner: this.owner(), here: this.d.machine(), to, redactions: red.redactions }));
   }
@@ -206,6 +222,17 @@ export class Peers {
     const reason = typeof input.reason === 'string' ? redactText(input.reason).text : '';
     const out = await this.call(t, 'POST', this.path(root, '/access'), { to, right, reason });
     return this.outcome('Not asked.', out, (body) => accessAnswer(body, { owner: this.owner(), right, to }));
+  }
+
+  /** `podium_chat_read`: the last hour of a channel this orchestrator was called into. Podium decides what it may read; the answer starts with Podium's frame. */
+  async chatRead(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
+    if (sub) return SUBAGENT_CHAT_READ;
+    if (!root || !t || !this.on(root, t)) return this.off('Not read.', root, t);
+    const channel = channelArgument(input.channel);
+    if (!channel) return 'Not read. channel must be general or group.';
+    const before = typeof input.before === 'string' && input.before.trim() ? `?before=${encodeURIComponent(input.before.trim())}` : '';
+    const out = await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels/${channel}/messages${before}`);
+    return this.outcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: this.owner() }));
   }
 
   /** `/podium allow|decline|deliver <id>`: answered through the server's route, and the answer names the id. */

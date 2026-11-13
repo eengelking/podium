@@ -3,6 +3,7 @@ import type { AgentReport, Plan, PlanStepView, PlanView, Report, TokenCounts } f
 import { SAME_USAGE, type AgentRow, type EventRow, type SampleRow, type SessionRow } from '../storage/rows.js';
 import type { Storage } from '../storage/types.js';
 import { family } from './derive.js';
+import { advanceWait, waitKindOf } from './waits.js';
 
 // An older reporter prices a non-Claude model as Sonnet; Podium has no price for it, so drop the figure. A non-Claude model has no ledger price, and a loop that has not reported a model yet has no spend worth showing
 // as $0.00: both stay unknown (null) here. The Admin's prices apply on read, from the usage (issue #117).
@@ -163,6 +164,10 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     // What the harness declares (#940). A report that declares nothing (v1, a settings hook) keeps what was stored; a field sent as null clears it.
     // A label or provider belongs to one model (see modelNames).
     capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
+    // Kept when a later report from an older reporter carries none (#1113).
+    resume_window_days: s.resumeWindowDays ?? prev?.resume_window_days ?? null,
+    // What the harness sent the reporter (#724). Cumulative in the reporter, so the latest report replaces it; a report with none (an older reporter, a hook) keeps what was stored.
+    signals_json: r.signals ? JSON.stringify(r.signals) : prev?.signals_json ?? null,
     ...modelNames(s.model, { label: s.modelLabel, provider: s.modelProvider }, prev),
   };
 }
@@ -194,6 +199,7 @@ function agentRow(sessionId: string, a: AgentReport, fromHarness: boolean, prev:
     last_tool: a.lastTool,
     tool_calls: a.toolCalls,
     tool_counts_json: a.toolCounts ? JSON.stringify(a.toolCounts) : null,
+    tool_stats_json: a.toolStats ? JSON.stringify(a.toolStats) : null,
     usage_json: fromHarness ? null : json(a.usageByModel ?? null),
     blowouts: a.blowouts,
     steps_done: a.steps ? a.steps.done : null,
@@ -229,6 +235,9 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     if (prev && namedHarness(report) !== null && prev.harness !== namedHarness(report)) throw new HarnessConflict('session belongs to another harness');
     const row = sessionRow(report, prev, serverTime, owner);
     await f.upsertSession(row);
+    // What the session waits on its person for, added up as reports arrive (#722). Nothing is written while the state is the same.
+    const wait = advanceWait(await f.getSessionWait(sid), waitKindOf({ waitReason: row.wait_reason, waitNote: row.wait_note, reporterVersion: row.reporter_version }), sid, serverTime, prev?.last_seen_at ?? null);
+    if (wait) await f.putSessionWait(wait);
     const ended = report.session.status === 'done';
     const revived = !!prev && !ended && (prev.ended_at !== null || prev.dropped_at !== null);
 

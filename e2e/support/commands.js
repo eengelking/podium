@@ -65,11 +65,39 @@ Cypress.Commands.add('openConsole', (hash = '#/', opts = {}) => {
   cy.get('[data-testid="connection-pill"]', { timeout: 15000 }).should('have.attr', 'data-state', 'live');
 });
 
+// The columns of a table once its layout has stopped changing (#1144): each heading's [left, width], the left taken from the table's own edge because a wide
+// table scrolls under a click. A table that is still drawing (a reply arriving, a column added) is waited out, not measured, so a slow database cannot
+// leave the first measurement ahead of the table.
+Cypress.Commands.add('columnEdges', { prevSubject: false }, (table) => {
+  const edges = ($t) => {
+    const x = $t[0].getBoundingClientRect().left;
+    return [...$t.find('thead th')].map((th) => {
+      const r = th.getBoundingClientRect();
+      return [Math.round((r.left - x) * 10) / 10, Math.round(r.width * 10) / 10];
+    });
+  };
+  let seen = '';
+  let since = 0;
+  const settle = () =>
+    table().should(($t) => {
+      const now = JSON.stringify(edges($t));
+      if (now !== seen) {
+        seen = now;
+        since = Date.now();
+      }
+      expect(Date.now() - since, 'the columns have stopped moving').to.be.at.least(600);
+    });
+  return settle().then(($t) => ({ edges, now: edges($t) }));
+});
+
 /** One seeded card on the wall, by its key in SESSIONS (scripts/e2e-seed.mjs). */
 Cypress.Commands.add('card', (key) => cy.get(`button.card.sc[data-session="${seeded().sessions[key]}"]`));
 
 /** The element with this data-testid. */
 Cypress.Commands.add('tid', (id, opts) => cy.get(`[data-testid="${id}"]`, opts));
+
+/** A row of Chat's sidebar by its key: `c:general`, `c:group`, `d:<the server's thread, dm:a|b with the two ids sorted>` or `a:<session id>` (its data-testid is `chat-row-<key>`). */
+Cypress.Commands.add('chatRow', (key) => cy.get(`[data-testid="chat-row-${key}"]`));
 
 /** Sets the feature flags (and other settings) through Admin's route. The admin secret stays in Node's env, never in a log. */
 Cypress.Commands.add('putSettings', (body) => {
@@ -114,6 +142,21 @@ Cypress.Commands.add('checkA11y', (opts = {}) => {
 Cypress.Commands.add('grantClipboard', () => {
   cy.then(() => Cypress.automation('remote:debugger:protocol', { command: 'Browser.grantPermissions', params: { permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'], origin: Cypress.config('baseUrl') } }));
 });
+
+/** The banner row under the top bar that holds the Wall options drawer (#1129), on every page that shows the banner. */
+Cypress.Commands.add('displaySettings', () => cy.get('[role=region][aria-label="Display settings"]'));
+
+/**
+ * Opens the Wall options drawer, which starts shut on every page load (#1129), and yields its controls: Refresh every, the Shortcuts switch,
+ * Theme and the Mode radios. A press outside it or Escape shuts it again, so a test opens it right before it uses a control.
+ */
+Cypress.Commands.add('openWallOptions', () => {
+  cy.displaySettings().find('button[aria-label="Wall options"]').click().should('have.attr', 'aria-expanded', 'true');
+  return cy.displaySettings().find('.wallopts-body').should('be.visible');
+});
+
+/** The Shortcuts switch inside the Wall options drawer (open it first with cy.openWallOptions). */
+Cypress.Commands.add('shortcutsSwitch', () => cy.displaySettings().find('.wallopts-body [role=switch]'));
 
 /** The cards on the wall, in the order shown. */
 Cypress.Commands.add('cards', () => cy.get('button.card.sc'));

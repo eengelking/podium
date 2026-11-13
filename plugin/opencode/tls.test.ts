@@ -909,7 +909,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
       const stop = await setup(ctx);
       // Podium has not said yet that the session takes part: the three tools are not offered, and are removed from the host.
       expect(ctx.tools.map((t) => t.name)).toEqual(['plan']);
-      expect(ctx.removed).toEqual(['podium_peers', 'podium_send', 'podium_request_access']);
+      expect(ctx.removed).toEqual(['podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read']);
       await stop();
     });
   });
@@ -925,7 +925,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
         const stop = await setup(ctx);
         const names = () => ctx.tools.map((t) => t.name);
         for (let waited = 0; !names().includes('podium_peers') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
-        expect(names()).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
+        expect(names()).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read']);
         expect(ctx.reloads()).toBe(1);
         expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
         peers = false;
@@ -970,6 +970,8 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
       { id: `${dir}3`, type: 'session.tool.input.started', data: { sessionID: `ses_${dir}k`, id: 'c1', name: 'bash' }, created: at, location: { directory: `/loc/${dir}` } },
       { id: `${dir}4`, type: 'session.tool.called', data: { sessionID: `ses_${dir}k`, id: 'c1', input: { command: 'npm test' } }, created: at, location: { directory: `/loc/${dir}` } },
       { id: `${dir}5`, type: 'session.tool.failed', data: { sessionID: `ses_${dir}k`, id: 'c1', error: { message: 'exit code 2' } }, created: at, location: { directory: `/loc/${dir}` } },
+      // Only an agent whose run ended failed is explained (#1021).
+      { id: `${dir}6`, type: 'session.execution.failed', data: { sessionID: `ses_${dir}k` }, created: at, location: { directory: `/loc/${dir}` } },
     ]);
     await withPodium({}, async () => {
       await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_EXPLAIN_FAILURES: 'true', PODIUM_SERVER: 'http://podium.test:4317' }, async () => {

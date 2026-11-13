@@ -8,8 +8,8 @@ order: 14
 # My reporters
 
 **My reporters** (`#/me/reporters`) lists the machines that report your sessions to this server, and is where you
-decide which of them may see and message each other. Only your own reporters are there: Podium does not carry messages
-between people. `mockup/podium-my-reporters.html` shows every case. To set messaging up from the start, follow
+decide which of them may see and message each other. Only your own reporters are there. A person using [Chat](16-chat.md)
+who wants to message one of your agents asks you first, below. `mockup/podium-my-reporters.html` shows every case. To set messaging up from the start, follow
 [MESSAGING.md](../../MESSAGING.md); this section is a tour of the page.
 
 It needs authentication on and the Admin's **Orchestrator messaging** switch (Admin > Settings > Feature flags). Sign in
@@ -30,6 +30,9 @@ A request shows here until you answer it. Each one names who asked and what woul
   waits for you, whatever your defaults say.
 - **An orchestrator asks for access.** One of your orchestrators asked to see or send to another of your machines.
   Its reason is shown as it wrote it. **Allow** or **Decline**.
+- **A person's message to your agent.** Someone using Chat wrote to one of your agents. Their name and the agent are shown.
+  **Allow** delivers it and opens a link, so that what they write next goes through until you pause or remove it from Chat;
+  **Decline** delivers nothing and tells them.
 - **A message waiting for approval.** On a link with approval, the message is quoted here. **Deliver** sends it when the
   receiving orchestrator's turn has ended; **Decline** drops it, and the sender is told.
 

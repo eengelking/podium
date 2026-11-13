@@ -6,7 +6,7 @@ import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
 import { setTitle } from '../core/plan.ts';
-import { apply, finish, idleFor, newStore, sweep, tokensOf, type BusEvent } from './state.ts';
+import { apply, endQuiet, finish, idleFor, newStore, sweep, tokensOf, type BusEvent } from './state.ts';
 import { VERSION } from './version.ts';
 
 let n = 0;
@@ -141,6 +141,22 @@ describe('state: done after idle, at once on delete or archive, and reopening', 
     expect(root.done).toBe(true);
     expect(root.events.map((e) => e.text)).not.toContain('session reopened');
     expect(root.events.filter((e) => e.kind === 'end')).toHaveLength(1);
+  });
+
+  it('ends every root that is quiet right now when the last TUI part detaches, and none that is running, asking or compacting (#1029)', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1000),
+      ev('session.created', { sessionID: 'ses_busy' }, 1000),
+      ev('session.execution.started', { sessionID: 'ses_busy' }, 1001),
+    );
+    const quiet = s.roots.get(ROOT)!;
+    const busy = s.roots.get('ses_busy')!;
+    // Quiet for one second only: the idle wait does not apply to a person who closed the terminal.
+    expect(endQuiet(s, 2000, 'detached')).toEqual([quiet]);
+    expect(quiet.done).toBe(true);
+    expect(quiet.endReason).toBe('detached');
+    expect(busy.done).toBe(false);
+    expect(endQuiet(s, 3000, 'detached')).toEqual([]);
   });
 
   it('does not sweep a quiet root while a TUI is attached (#984)', () => {
@@ -351,6 +367,22 @@ describe('Reporter', () => {
     expect(bodies.at(-1)!.session).toMatchObject({ status: 'done', endReason: 'idle' });
   });
 
+  it('reports a quiet root done when the last TUI part detaches, long before the idle wait, and keeps a running one (#1029)', async () => {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined, attached: () => true }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(ev('session.created', { sessionID: 'ses_busy' }, 10_000));
+    r.handle(ev('session.execution.started', { sessionID: 'ses_busy' }, 10_001));
+    await r.tick();
+    t.now += 2000;
+    r.detached();
+    await r.tick();
+    const last = (id: string) => bodies.filter((b) => b.session.id === id).at(-1)!.session;
+    expect(last(ROOT)).toMatchObject({ status: 'done', endReason: 'detached' });
+    expect(last('ses_busy').status).not.toBe('done');
+  });
+
   it('sends a heartbeat only while a root is open, and forgets a long-done root', async () => {
     const bodies: Report[] = [];
     const { r, t } = reporter(async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; });
@@ -490,6 +522,11 @@ describe('effort from the model variant', () => {
   it('declares effort and context as capabilities', () => {
     const root = store(ev('session.created', { sessionID: ROOT }, 1)).roots.get(ROOT)!;
     expect(buildReport(root, [], meta).capabilities).toMatchObject({ effort: true, context: true });
+  });
+
+  it('declares adminNotices, because it shows the Admin callout as a toast and a log line (#1051)', () => {
+    const root = store(ev('session.created', { sessionID: ROOT }, 1)).roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).capabilities?.adminNotices).toBe(true);
   });
 });
 
@@ -640,7 +677,32 @@ describe('failure detail', () => {
     apply(s, ev('session.tool.input.started', { sessionID: KID, id, name: tool }, t), t);
     apply(s, ev('session.tool.called', { sessionID: KID, id, input }, t + 1), t + 1);
   };
-  const failureOf = (s: ReturnType<typeof setup>) => buildReport(s.roots.get(ROOT)!, [], meta).agents[0]!.failure!;
+  // The record the agent holds, which a report carries only once the agent has failed (#1021); the detail tests read it directly.
+  const failureOf = (s: ReturnType<typeof setup>) => s.roots.get(ROOT)!.sessions.get(KID)!.failure!;
+  const reported = (s: ReturnType<typeof setup>) => buildReport(s.roots.get(ROOT)!, [], meta).agents[0]!;
+
+  it('reports no failure for an agent that hit a failing call and finished normally, nor while it still runs (#1021)', () => {
+    const s = setup();
+    apply(s, ev('session.execution.started', { sessionID: KID }, 3), 3);
+    call(s, 'c1', 'read', { filePath: '/nonexistent/file.txt' }, 4);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'ENOENT' } }, 6), 6);
+    expect(reported(s)).toMatchObject({ status: 'running', failure: null });
+    apply(s, ev('session.execution.succeeded', { sessionID: KID }, 8), 8);
+    expect(reported(s)).toMatchObject({ status: 'done', failure: null });
+    // The call stays the candidate, so a later real failure is still blamed on it (#986).
+    expect(s.roots.get(ROOT)!.sessions.get(KID)!.candidate).not.toBeNull();
+  });
+
+  it('still reports the failure of an agent whose run fails or is interrupted, with its class (#1021)', () => {
+    const s = setup();
+    call(s, 'c1', 'bash', { command: 'false' }, 4);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'exit code 1' } }, 6), 6);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'stopped' } }, 7), 7);
+    expect(reported(s)).toMatchObject({ status: 'failed', failure: { class: 'Tool error', tool: 'Bash' } });
+    const t = setup();
+    apply(t, ev('session.execution.interrupted', { sessionID: KID }, 7), 7);
+    expect(reported(t)).toMatchObject({ status: 'aborted', failure: { class: 'Aborted' } });
+  });
 
   it('keeps the error text of a failed run and of a failed step', () => {
     const s = setup();
@@ -1192,5 +1254,83 @@ describe('Reporter: /podium name (#987)', () => {
     await new Promise((res) => setTimeout(res, 0));
     await none.tick();
     expect(bodies.at(-1)!.session.name).toBe('OpenCode title');
+  });
+});
+
+// #1113: OpenCode has no session expiry, so it reports the shared 30 day resume window.
+describe('report: the resume window (#1113)', () => {
+  it('is the 30 day default', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1))
+    expect(buildReport(s.roots.get(ROOT)!, [], { now: 9, version: VERSION, engineVersion: null, hostSurface: null }).session.resumeWindowDays).toBe(30)
+  })
+})
+
+describe('Reporter: the launch announce (#1112)', () => {
+  const bodies = (): { list: Report[]; fetch: FetchLike } => {
+    const list: Report[] = [];
+    return { list, fetch: async (_u, init) => { list.push(JSON.parse(init.body!) as Report); return okReply; } };
+  };
+
+  it('reports a placeholder session at launch, before any session exists', async () => {
+    const { list, fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.announce('/work/podium');
+    await r.tick();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.session).toMatchObject({ status: 'waiting', name: 'podium', cwd: '/work/podium', costUsd: 0, harness: 'opencode' });
+    expect(list[0]!.session.id.startsWith('launch-')).toBe(true);
+    expect(list[0]!.session.tokens.input).toBe(0);
+    expect(list[0]!.agents).toEqual([]);
+  });
+
+  it('announces once, however often it is asked', async () => {
+    const { list, fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.announce('/work/podium');
+    r.announce('/work/podium');
+    await r.tick();
+    expect(list).toHaveLength(1);
+  });
+
+  it('announces nothing when a real session is already known', async () => {
+    const { list, fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.announce('/work/podium');
+    await r.tick();
+    expect(list.map((b) => b.session.id)).toEqual([ROOT]);
+  });
+
+  it('ends the placeholder when the first real session starts, so the chat lists one agent', async () => {
+    const { list, fetch } = bodies();
+    const { r, t } = reporter(fetch);
+    r.announce('/work/podium');
+    await r.tick();
+    const launched = list[0]!.session.id;
+    t.now += 1_000;
+    r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }, t.now));
+    await r.tick();
+    const last = new Map(list.map((b) => [b.session.id, b.session]));
+    expect(last.get(launched)).toMatchObject({ status: 'done', endReason: 'launched' });
+    expect(last.get(ROOT)).toMatchObject({ status: 'waiting' });
+  });
+
+  it('does not end the placeholder for being quiet: it stands for an open OpenCode until a session starts or it shuts down', async () => {
+    const { list, fetch } = bodies();
+    const { r, t } = reporter(fetch);
+    r.announce('/work/podium');
+    await r.tick();
+    t.now += 3_600_000;
+    await r.tick();
+    expect(list.at(-1)!.session.status).toBe('waiting');
+    expect(list.every((b) => b.session.status !== 'done')).toBe(true);
+  });
+
+  it('does not ask OpenCode about the placeholder`s permissions on a reload', () => {
+    const { fetch } = bodies();
+    const { r } = reporter(fetch);
+    r.announce('/work/podium');
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    expect(r.sessionIds()).toEqual([ROOT]);
   });
 });

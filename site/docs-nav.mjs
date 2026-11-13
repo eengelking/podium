@@ -44,6 +44,7 @@ export const GROUPS = [
       { dir: "decisions", legacy: "DECISIONS.md", slug: "decisions", label: "Decisions" },
       { dir: "gotchas", legacy: "GOTCHAS.md", slug: "gotchas", label: "Gotchas" },
       { file: "PERFORMANCE.md", slug: "performance", label: "Performance" },
+      { file: "PATTERNS.md", slug: "patterns", label: "Patterns" },
       { file: "e2e/COVERAGE.md", slug: "e2e-coverage", label: "End-to-end tests" },
       { file: "COMMUNITY.md", slug: "community", label: "Community" },
       { file: "THIRD_PARTY_NOTICES.md", slug: "third-party-notices", label: "Third-party notices" },
@@ -91,7 +92,7 @@ export const STATIC_DIRS = [
 ];
 
 /** The app stylesheets the standards pages load, copied unchanged from the same version of the repository. */
-export const STYLES = ["frontend/src/fleet/tokens.css", "frontend/src/fleet/fleet.css", "frontend/src/fleet/admin/admin.css"];
+export const STYLES = ["frontend/src/fleet/tokens.css", "frontend/src/fleet/fleet.css", "frontend/src/fleet/admin/admin.css", "frontend/src/fleet/chat.css"];
 
 export const REPO = "eengelking/podium";
 export const SITE_ORIGIN = "https://podium.engelking.dev";

@@ -32,7 +32,7 @@ what Podium shows and does is the same for any harness, within what the harness 
 10. Color themes (Podium, Solarized, Nord, Gruvbox, Catppuccin, GitHub), each with light and dark, picked from
     a dropdown with a light, dark or system mode. Resizable side panels, keyboard accessible, usable at phone
     width.
-11. Survive restarts: sessions, agents and events persist in SQLite. A restart of the server loses nothing
+11. Survive restarts: sessions, agents and events persist in the database (SQLite by default, or PostgreSQL 17 or MariaDB 11.x, tested on 11.4). A restart of the server loses nothing
     that was already reported.
 12. A simulator script that feeds the server realistic reports so the UI can be developed and demoed with no
     Claude sessions running.
@@ -143,7 +143,8 @@ available ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session
   person in the built-in Administrators group may open Admin with their own name and token too
   ([section 7.7](07-server/07-07-hardening.md)). A person also signs in to the console with their own token, but only to
   respond to their own sessions and to manage their own reporters on My reporters (7.7). Reading the console
-  stays open, except a file's diff and the text of a conversation between orchestrators.
+  stays open, except a file's diff, an agent's full prompt and answer, its live activity feed, a recording, stored Activity history and
+  Chat: each of those needs a sign-in as the session's owner or an Admin (7.1), and an Admin's read is told to the person.
 - No new chart or UI libraries beyond those in [section 2](02-tech-stack.md). Charts are inline SVG, as in the
   mockup.
 

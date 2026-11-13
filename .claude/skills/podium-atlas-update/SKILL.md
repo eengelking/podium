@@ -34,7 +34,7 @@ Work on a branch in a worktree, as for any change (see `.claude/CLAUDE.md`, "Alw
 4. **Regenerate.** `node scripts/atlas-functions.mjs` rewrites the Key functions tables in ATLAS.md. Never edit between the `atlas-functions` markers by hand; the next run would erase it.
 5. **Update the hand-written ATLAS.md tables** that the change touches: the parts, the reporter's hooks and timers, the flows, the four ways to run it, where data lives. Keep the three columns, group by Location, and keep most-important-first order inside each group. A new reporter hook needs a row, and a test fails without one.
 6. **Check every number against the code, not against another doc.** Open the constant or function and read the value. Docs and the page can both be stale; the code cannot.
-7. **Version and line counts** change only in the `release-prep/<version>` PR (feature PRs never bump versions). In a feature PR, add or extend the atlas entry under `[Unreleased]` in `CHANGELOG.md` if a person would notice. At release-prep, see "Version and line counts" below.
+7. **Version and line counts** change only in the `release-prep/<version>` PR (feature PRs never bump versions). In a feature PR, add a changelog fragment (`changelog.d/<issue-or-slug>.<type>.md`) for the atlas if a person would notice. At release-prep, see "Version and line counts" below.
 8. **Verify.**
    - `node scripts/atlas-functions.mjs --check`
    - `cd server && npx vitest run ../scripts/atlas-functions.test.ts`
@@ -53,4 +53,4 @@ The rail says "Reads from the repo at vX.Y.Z" and the footer says "at version X.
 - **A description must be true for the code as it is now**, not as the spec intends or the CHANGELOG once said.
 - **Do not paste file contents, tokens, hosts or paths from a developer's machine** into the page or the doc. Use the repo-relative path and a one-line description.
 - **The page has its own `:root` colors on purpose.** It is a project document, not part of the product, and is exempt from the tokens rule. Do not "fix" them.
-- **Keep the two files in step.** If you add a part to the page, ATLAS.md's parts table needs the row, and the reverse. The count ("thirty-four parts" today) appears in the page's heading and in ATLAS.md's intro; update both when the count changes.
+- **Keep the two files in step.** If you add a part to the page, ATLAS.md's parts table needs the row, and the reverse. The count ("thirty-five parts" today) appears in the page's heading and in ATLAS.md's intro; update both when the count changes.

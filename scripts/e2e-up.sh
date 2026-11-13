@@ -5,23 +5,30 @@
 set -uo pipefail
 
 # Pinned by version and digest (an index covering amd64 and arm64). Change both together, on purpose, and update DECISIONS 49.
-CYPRESS_IMAGE="${E2E_CYPRESS_IMAGE:-docker.io/cypress/included:16.2.0@sha256:c196ed896aec24c7ea8fc1d4185b210493e311339b6c09d0153f9b8dfc6a6058}"
+CYPRESS_IMAGE="${E2E_CYPRESS_IMAGE:-docker.io/cypress/included:16.3.0@sha256:3efa8d156a094a6c13ddf3fba616e97f7492706685064b75a39823e1147eca97}"
 # The tag carries a checksum of this checkout's path, so two worktrees (or two sessions) never overwrite each other's image: a shared
 # "latest" let one run test another branch's code.
 SERVER_IMAGE="${E2E_SERVER_IMAGE:-localhost/podium-e2e:$(cd "$(dirname "$0")/.." && pwd | cksum | cut -d' ' -f1)}"
 
 usage() {
-  cat <<'USAGE'
+  sed "s/@DB_KINDS@/$(node "$(dirname "$0")/db-adapters.mjs" kinds --e2e 2>/dev/null | sed 's/ /, /g')/" <<'USAGE'
 Usage: scripts/e2e-up.sh [run] [options] [-- <cypress run arguments>]
+       scripts/e2e-up.sh build [--no-build] [--engine NAME]
        scripts/e2e-up.sh down
 
 Builds Podium's image from the Containerfile, starts it as the server on a private container network with a fresh database,
 waits until /api/fleet/health answers and its serverVersion equals package.json's, then runs the Cypress suite from e2e/ in the
 pinned cypress/included container. The specs call back into this script (through a mounted folder, not a port) to restart,
-pause and resume the server and to reseed it. At the end, always, every container, network and volume it made is removed.
+pause and resume the server and to reseed it. Each such request logs one line with its time (a restart split into the database,
+the server and the seed), and the run logs the count and total time of each kind at the end. At the end, always, every container,
+network and volume it made is removed.
 
 Commands:
-  run     (default) build, start, test, tear down. The exit code is Cypress's (0 = every spec passed).
+  run     (default) build, start, test, tear down. Exit 0 every spec passed, 1 a spec failed, 2 the run could not start or
+          the Cypress container did not finish (the engine could not start it, or it was killed, for example out of memory).
+  build   Build the server image and pull the Cypress image, then exit (0, or 2 if either fails). scripts/e2e-all.sh runs it once
+          before its runs, which then use --no-build, so parallel runs do not build the same image at the same time. With
+          --no-build it only checks the server image is there and pulls a missing Cypress image.
   down    Remove containers, networks and volumes left behind by an interrupted run of this script (matched by label).
 
 Options:
@@ -39,12 +46,15 @@ Environment:
   E2E_CPUS / E2E_MEMORY
                     Limit the server and Cypress containers (for example E2E_CPUS=2 E2E_MEMORY=4g, the size of a GitHub runner), to
                     reproduce a slow machine. Default: unlimited.
-  E2E_DB            sqlite (default) or postgres. With postgres a PostgreSQL container runs beside the server on the same private
-                    network, the server gets PODIUM_DB=postgres://... for it, and "a fresh database" (the specs' restart) drops and
-                    recreates that database instead of emptying /data. The password is random per run, kept in a mode-600 env file
-                    and scrubbed from the server log copy; the server's own output shows host:port/dbname only.
-  E2E_PG_IMAGE      The PostgreSQL image for E2E_DB=postgres (default docker.io/library/postgres:17-alpine; 13 or newer, for DROP
-                    DATABASE ... WITH (FORCE)).
+  E2E_DB            One of: @DB_KINDS@ (default sqlite; the list is scripts/db-adapters.mjs). With a database server (postgres,
+                    mariadb) its container runs beside the server on the same private network, the server gets PODIUM_DB=<kind>://...
+                    for it, and "a fresh database" (the specs' restart) drops and recreates that database instead of emptying /data.
+                    The password is random per run, kept in mode-600 env files and scrubbed from the server log copy, and printed
+                    nowhere; the server's own output shows host:port/dbname only.
+  E2E_PG_IMAGE      The PostgreSQL image for E2E_DB=postgres (default docker.io/library/postgres:17-alpine, the tested version 17;
+                    another version is untested, and needs 13 or newer for DROP DATABASE ... WITH (FORCE)).
+  E2E_MARIADB_IMAGE The MariaDB image for E2E_DB=mariadb (default docker.io/library/mariadb:11.4.13, the tested version 11.4,
+                    pinned; another version is untested).
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
   E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
 
@@ -55,8 +65,9 @@ USAGE
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DB_KIND="${E2E_DB:-sqlite}"
-PG_IMAGE="${E2E_PG_IMAGE:-docker.io/library/postgres:17-alpine}"
-[[ "$DB_KIND" == sqlite || "$DB_KIND" == postgres ]] || { echo "E2E_DB must be sqlite or postgres, not \"$DB_KIND\" (see --help)" >&2; exit 2; }
+# The kinds and what each database container needs come from one table (scripts/db-adapters.mjs, #823).
+DB_KINDS="$(node "$ROOT/scripts/db-adapters.mjs" kinds --e2e)" || { echo "could not read scripts/db-adapters.mjs (is node on PATH?)" >&2; exit 2; }
+[[ " $DB_KINDS " == *" $DB_KIND "* ]] || { echo "E2E_DB must be one of $DB_KINDS, not \"$DB_KIND\" (see --help)" >&2; exit 2; }
 CMD="run"
 BUILD=1
 ENGINE="${E2E_ENGINE:-}"
@@ -65,7 +76,7 @@ REST=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    run|down) CMD="$1"; shift ;;
+    run|build|down) CMD="$1"; shift ;;
     --no-build) BUILD=0; shift ;;
     --engine) ENGINE="${2:?--engine needs podman or docker}"; shift 2 ;;
     --out) OUT="${2:?--out needs a folder}"; shift 2 ;;
@@ -102,6 +113,19 @@ leftovers() {
   { $E ps -aq --filter "label=$LABEL${1:+=$1}"; $E volume ls -q --filter "label=$LABEL${1:+=$1}"; $E network ls -q --filter "label=$LABEL${1:+=$1}"; } 2>/dev/null
 }
 
+# Builds the server image of this checkout (unless --no-build) and pulls the pinned Cypress image if it is missing. Exit 2 on failure.
+build_images() {
+  if [[ "$BUILD" == 1 ]]; then
+    say "building $SERVER_IMAGE from the Containerfile ($E build, cached layers)"
+    $E build -q --build-arg PODIUM_BUILD= -t "$SERVER_IMAGE" -f "$ROOT/Containerfile" "$ROOT" >/dev/null || { fail "image build failed"; exit 2; }
+  fi
+  $E image inspect "$SERVER_IMAGE" >/dev/null 2>&1 || { fail "$SERVER_IMAGE is not built; run without --no-build"; exit 2; }
+  if ! $E image inspect "$CYPRESS_IMAGE" >/dev/null 2>&1; then
+    say "pulling $CYPRESS_IMAGE (about 2.5 GB the first time)"
+    $E pull -q "$CYPRESS_IMAGE" >/dev/null || { fail "could not pull the Cypress image"; exit 2; }
+  fi
+}
+
 if [[ "$CMD" == down ]]; then
   remove_labelled ""
   if [[ -n "$(leftovers "")" ]]; then fail "something with label $LABEL is still there"; exit 1; fi
@@ -110,6 +134,7 @@ if [[ "$CMD" == down ]]; then
 fi
 
 $E info >/dev/null 2>&1 || { fail "$E is not usable ($E info fails). Is it running? On a Mac: podman machine start"; exit 2; }
+if [[ "$CMD" == build ]]; then build_images; say "images ready"; exit 0; fi
 [[ -f "$ROOT/node_modules/axe-core/axe.min.js" ]] || { fail "node_modules/axe-core is missing: run npm ci --ignore-scripts at the repo root (axe-core is a frontend dev dependency)"; exit 2; }
 
 RUN="$(date +%s)-$$"
@@ -117,9 +142,9 @@ NET="podium-e2e-$RUN"
 SRV="podium-e2e-$RUN-srv"
 VOL="podium-e2e-$RUN-data"
 CYC="podium-e2e-$RUN-cy"
-PG="podium-e2e-$RUN-pg"
-PG_USER=podium
-PG_NAME=podium_e2e
+DBC="podium-e2e-$RUN-db"
+DB_USER=podium
+DB_NAME=podium_e2e
 PORT=4317
 URL="http://$SRV:$PORT"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-e2e.XXXXXX")"
@@ -133,7 +158,15 @@ VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json" | head 
 CTL_PID=""
 # The secret as a sed pattern, so a custom E2E_SECRET with a / or & in it still scrubs.
 SECRET_RE="$(printf '%s' "$SECRET" | sed 's/[][\.*^$/&]/\\&/g')"
-PG_PASS="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
+DB_PASS="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
+# A database server (E2E_DB other than sqlite): its image, env, readiness and reset commands, and the server's URL, from the table. The
+# password goes to it in the environment, never as an argument.
+if [[ "$DB_KIND" != sqlite ]]; then
+  DB_SHELL="$(DB_PASSWORD="$DB_PASS" node "$ROOT/scripts/db-adapters.mjs" shell "$DB_KIND" e2e --set user="$DB_USER" --set db="$DB_NAME" --set host="$DBC")" \
+    || { echo "could not read the $DB_KIND entry of scripts/db-adapters.mjs" >&2; exit 2; }
+  eval "$DB_SHELL"
+  unset DB_SHELL
+fi
 EXTRA_ENV=()
 LIMITS=()
 [[ -n "${E2E_CPUS:-}" ]] && LIMITS+=(--cpus "$E2E_CPUS")
@@ -143,23 +176,23 @@ LIMITS=()
   printf 'PORT=%s\nHOST=0.0.0.0\nPODIUM_TOKEN=%s\nPODIUM_ALLOWED_HOSTS=%s\nPODIUM_LOG=info\nPODIUM_FAILURE_LIMIT=100000\n' "$PORT" "$SECRET" "$SRV" >"$WORK/server.env"
   # A seeded session stays on the wall for the whole run: long stale, linger and drop times, so no spec depends on a clock.
   printf 'STALE_AFTER_MS=7200000\nHOOK_STALE_AFTER_MS=7200000\nDROP_AFTER_MS=14400000\nLINGER_MS=7200000\nDETACHED_HIDE_AFTER_MS=7200000\n' >>"$WORK/server.env"
-  if [[ "$DB_KIND" == postgres ]]; then
+  if [[ "$DB_KIND" != sqlite ]]; then
     # The image sets no PODIUM_DATA_DIR, and a database that is not a file has no folder for the TLS CA, so name /data here.
-    printf 'PODIUM_DB=postgres://%s:%s@%s:5432/%s\nPODIUM_DATA_DIR=/data\n' "$PG_USER" "$PG_PASS" "$PG" "$PG_NAME" >>"$WORK/server.env"
-    printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' "$PG_USER" "$PG_PASS" "$PG_NAME" >"$WORK/pg.env"
+    printf 'PODIUM_DB=%s\nPODIUM_DATA_DIR=/data\n' "$DB_URL" >>"$WORK/server.env"
+    printf '%s\n' "${DB_ENV[@]}" >"$WORK/db.env"
   fi
   printf 'PODIUM_E2E_SECRET=%s\n' "$SECRET" >"$WORK/seed.env"
   printf 'CYPRESS_ADMIN_SECRET=%s\nCYPRESS_E2E_SERVER=%s\nCYPRESS_baseUrl=%s\nCI=1\nNO_COLOR=1\n' "$SECRET" "$SRV" "$URL" >"$WORK/cypress.env"
 )
 # CI masks the secret by itself; this keeps it out of the log when the runner sets it.
-if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND" == postgres ]] && echo "::add-mask::$PG_PASS"; fi
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND" != sqlite ]] && echo "::add-mask::$DB_PASS"; fi
 
 teardown() {
   local code=$?
   trap - EXIT INT TERM
   [[ -n "$CTL_PID" ]] && { touch "$CTL/stop"; wait "$CTL_PID" 2>/dev/null; }
   # The server log, scrubbed of the secret, for the CI artifact. The repo is public and artifacts are world-readable.
-  $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$PG_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
+  $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$DB_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
   chmod 666 "$OUT/server.log" 2>/dev/null
   if [[ "${E2E_KEEP:-0}" == 1 ]]; then
     $E rm -f "$CYC" >/dev/null 2>&1
@@ -168,7 +201,8 @@ teardown() {
   else
     remove_labelled "$RUN"
     rm -rf "$WORK"
-    if [[ -n "$(leftovers "$RUN")" ]]; then fail "containers, volumes or networks of run $RUN are still there"; code=1; else say "removed every container, network and volume of run $RUN"; fi
+    # Leftovers fail a run that passed, but do not turn a setup error (2) into a spec failure (1).
+    if [[ -n "$(leftovers "$RUN")" ]]; then fail "containers, volumes or networks of run $RUN are still there"; ((code == 0)) && code=1; else say "removed every container, network and volume of run $RUN"; fi
   fi
   exit "$code"
 }
@@ -189,30 +223,29 @@ server_wait() {
   if [[ "$got" != "$VERSION" ]]; then fail "serverVersion is $got but package.json says $VERSION: the image is stale (rebuild without --no-build)"; return 1; fi
 }
 
-# ---- the database (E2E_DB=postgres) ------------------------------------------------------------------------------------
+# ---- the database (E2E_DB other than sqlite) --------------------------------------------------------------------------
+# What each kind runs is in scripts/db-adapters.mjs: DB_IMAGE with DB_ARGS, DB_READY (exits 0 once the final server answers: the
+# official images first run a temporary socket-only server for their init, then restart) and DB_RESET (an empty database of the same
+# name, run inside the container with the credentials it already holds).
 
-# psql inside the PostgreSQL container, on its own socket (the image trusts local connections), as the one user the run makes.
-pg_psql() { $E exec -i "$PG" psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" "$@"; }
-
-# The official image starts a temporary server (socket only) to run its init, then restarts: a TCP query on 127.0.0.1 only answers
-# from the final one. fsync off, because this database is thrown away.
-pg_create() {
-  $E run -d --name "$PG" --label "$LABEL=$RUN" --network "$NET" --network-alias "$PG" ${LIMITS[@]+"${LIMITS[@]}"} \
-    --env-file "$WORK/pg.env" "$PG_IMAGE" -c fsync=off -c synchronous_commit=off >/dev/null || return 1
+db_create() {
+  $E run -d --name "$DBC" --label "$LABEL=$RUN" --network "$NET" --network-alias "$DBC" ${LIMITS[@]+"${LIMITS[@]}"} \
+    --env-file "$WORK/db.env" "$DB_IMAGE" ${DB_ARGS[@]+"${DB_ARGS[@]}"} >/dev/null || return 1
   local i
   for i in $(seq 1 120); do
-    pg_psql -h 127.0.0.1 -d "$PG_NAME" -tAc 'select 1' >/dev/null 2>&1 && return 0
-    [[ "$($E inspect -f '{{.State.Running}}' "$PG" 2>/dev/null)" == true ]] || break
+    $E exec "$DBC" "${DB_READY[@]}" >/dev/null 2>&1 && return 0
+    [[ "$($E inspect -f '{{.State.Running}}' "$DBC" 2>/dev/null)" == true ]] || break
     sleep 0.5
   done
-  fail "PostgreSQL did not answer"
-  $E logs --tail 20 "$PG" 2>&1 | sed "s/$PG_PASS/[db password]/g" >&2
+  fail "$DB_LABEL did not answer"
+  $E logs --tail 20 "$DBC" 2>&1 | sed "s/$DB_PASS/[db password]/g" >&2
   return 1
 }
 
 # An empty database of the same name, for a fresh start. The server is down (held) while this runs, so nothing is connected.
-pg_reset() {
-  pg_psql -d postgres -c "DROP DATABASE IF EXISTS $PG_NAME WITH (FORCE)" -c "CREATE DATABASE $PG_NAME"
+db_reset() {
+  $E exec -i "$DBC" "${DB_RESET[@]}" </dev/null 2>&1 | sed "s/$DB_PASS/[db password]/g" >&2
+  return "${PIPESTATUS[0]}"
 }
 
 # The server container is made once and lives for the whole run. Its PID 1 is a small supervisor that starts the server as a child, so a
@@ -262,18 +295,24 @@ server_create() {
   $E rm -f "$SRV" >/dev/null 2>&1
   $E volume rm -f "$VOL" >/dev/null 2>&1
   $E volume create --label "$LABEL=$RUN" "$VOL" >/dev/null || return 1
-  if [[ "$DB_KIND" == postgres ]]; then pg_create || return 1; fi
+  if [[ "$DB_KIND" != sqlite ]]; then db_create || return 1; fi
   $E run -d --name "$SRV" --label "$LABEL=$RUN" --network "$NET" --ip "$SRV_IP" --network-alias "$SRV" ${LIMITS[@]+"${LIMITS[@]}"} \
     --env-file "$WORK/server.env" -v "$VOL:/data" --entrypoint sh "$SERVER_IMAGE" -c "$SUPERVISOR" >/dev/null || return 1
   server_wait
 }
 
-# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV).
+# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV). With a database server, DB_MS
+# is set to the milliseconds the database's drop and recreate took, for the control timing line.
 server_fresh() {
-  local e v vars="" q="'" qq="'\\''"
+  local e v vars="" q="'" qq="'\\''" t0
+  DB_MS=0
   for e in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do v="${e#*=}"; vars+="${e%%=*}='${v//$q/$qq}'"$'\n'; done
-  # With PostgreSQL the supervisor's wipe of /data does not empty the database: hold the server down, recreate the database, then start.
-  if [[ "$DB_KIND" == postgres ]]; then server_kill hold </dev/null && pg_reset || return 1; fi
+  # With a database server the supervisor's wipe of /data does not empty the database: hold the server down, recreate it, then start.
+  if [[ "$DB_KIND" != sqlite ]]; then
+    t0="$(now_ms)"
+    server_kill hold </dev/null && db_reset || return 1
+    DB_MS=$(($(now_ms) - t0))
+  fi
   printf '%s' "$vars" | server_kill restart wipe || return 1
   server_wait && client_wait
 }
@@ -289,8 +328,19 @@ server_seed() {
 # A spec asks for a server restart, pause or resume by writing a request file into the mounted folder; this loop does it and
 # writes the answer. No port, no engine socket in the Cypress container. Request file: first line the command (restart, pause or
 # resume), then optional lines: env=NAME=VALUE, seed=<seed arguments>, noseed=1.
+# Each request logs one line with its time, a restart split into its parts, and the loop logs the count and total of each kind when
+# the run ends (#1130), so a run's log shows how much of it went to restarts.
+
+# Milliseconds since the epoch. perl's Time::HiRes is on macOS and ubuntu alike; date +%N is GNU only. Whole seconds without perl.
+now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000' 2>/dev/null || echo "$(($(date +%s) * 1000))"; }
+# Milliseconds as seconds with two decimals: 3420 -> 3.42s.
+secs() { printf '%d.%02ds' $(($1 / 1000)) $((($1 % 1000) / 10)); }
+
+# Totals per kind for the summary line (bash 3.2 has no associative arrays, and the kinds are fixed).
+N_RESTART=0 MS_RESTART=0 MS_DB=0 MS_SERVER=0 MS_SEED=0 N_PAUSE=0 MS_PAUSE=0 N_RESUME=0 MS_RESUME=0 N_OTHER=0 MS_OTHER=0
+
 handle() {
-  local cmd="" line noseed=0
+  local cmd="" line noseed=0 t0 t1 ms rc parts="" word=failed
   EXTRA_ENV=()
   SEED_ARGS=""
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -302,12 +352,48 @@ handle() {
       *) [[ -z "$cmd" ]] && cmd="$line" ;;
     esac
   done <"$CTL/cur"
+  t0="$(now_ms)"
   case "$cmd" in
-    restart) server_fresh && { [[ $noseed == 1 ]] || server_seed; } ;;
-    pause) server_kill hold </dev/null ;;
-    resume) $E exec "$SRV" rm -f /tmp/hold && server_wait && client_wait ;;
-    *) fail "unknown control command: $cmd"; return 1 ;;
+    restart)
+      server_fresh; rc=$?
+      t1="$(now_ms)"
+      ((DB_MS > 0)) && parts="database $(secs "$DB_MS"), "
+      parts+="server $(secs $((t1 - t0 - DB_MS)))"
+      MS_DB=$((MS_DB + DB_MS)) ; MS_SERVER=$((MS_SERVER + t1 - t0 - DB_MS))
+      if ((rc == 0)) && [[ $noseed != 1 ]]; then
+        server_seed; rc=$?
+        ms=$(($(now_ms) - t1)) ; parts+=", seed $(secs "$ms")" ; MS_SEED=$((MS_SEED + ms))
+      fi
+      ;;
+    pause) server_kill hold </dev/null; rc=$? ;;
+    resume) $E exec "$SRV" rm -f /tmp/hold && server_wait && client_wait; rc=$? ;;
+    *) fail "unknown control command: $cmd"; rc=1 ;;
   esac
+  ms=$(($(now_ms) - t0))
+  case "$cmd" in
+    restart) N_RESTART=$((N_RESTART + 1)) ; MS_RESTART=$((MS_RESTART + ms)) ;;
+    pause) N_PAUSE=$((N_PAUSE + 1)) ; MS_PAUSE=$((MS_PAUSE + ms)) ;;
+    resume) N_RESUME=$((N_RESUME + 1)) ; MS_RESUME=$((MS_RESUME + ms)) ;;
+    *) N_OTHER=$((N_OTHER + 1)) ; MS_OTHER=$((MS_OTHER + ms)) ;;
+  esac
+  ((rc == 0)) && word=ok
+  say "control ${cmd:-(empty)} $(secs "$ms")${parts:+ ($parts)} $word"
+  return "$rc"
+}
+
+# One line at the end of the run: how many requests of each kind, and their total time (a restart's split into its parts).
+control_summary() {
+  local all=$((N_RESTART + N_PAUSE + N_RESUME + N_OTHER)) line=""
+  if ((all == 0)); then say "control requests: none"; return; fi
+  if ((N_RESTART)); then
+    line="restart $N_RESTART in $(secs "$MS_RESTART") ("
+    ((MS_DB > 0)) && line+="database $(secs "$MS_DB"), "
+    line+="server $(secs "$MS_SERVER"), seed $(secs "$MS_SEED"))"
+  fi
+  ((N_PAUSE)) && line+="${line:+, }pause $N_PAUSE in $(secs "$MS_PAUSE")"
+  ((N_RESUME)) && line+="${line:+, }resume $N_RESUME in $(secs "$MS_RESUME")"
+  ((N_OTHER)) && line+="${line:+, }unknown $N_OTHER in $(secs "$MS_OTHER")"
+  say "control requests: $line"
 }
 
 controller() {
@@ -320,19 +406,12 @@ controller() {
     fi
     sleep 0.2
   done
+  control_summary
 }
 
 # ---- run --------------------------------------------------------------------------------------------------------------
 
-if [[ "$BUILD" == 1 ]]; then
-  say "building $SERVER_IMAGE from the Containerfile ($E build, cached layers)"
-  $E build -q --build-arg PODIUM_BUILD= -t "$SERVER_IMAGE" -f "$ROOT/Containerfile" "$ROOT" >/dev/null || { fail "image build failed"; exit 2; }
-fi
-$E image inspect "$SERVER_IMAGE" >/dev/null 2>&1 || { fail "$SERVER_IMAGE is not built; run without --no-build"; exit 2; }
-if ! $E image inspect "$CYPRESS_IMAGE" >/dev/null 2>&1; then
-  say "pulling $CYPRESS_IMAGE (about 2.5 GB the first time)"
-  $E pull -q "$CYPRESS_IMAGE" >/dev/null || { fail "could not pull the Cypress image"; exit 2; }
-fi
+build_images
 
 # The server container is recreated by a restart, and the browser (and Cypress's proxy) cache a name's address, so the server keeps a
 # fixed address on a network of its own. A /24 is picked at random from 10.200.0.0 to 10.249.255.0 and retried if it is taken.
@@ -343,8 +422,9 @@ for _ in 1 2 3 4 5 6 7 8; do
 done
 [[ -n "$SRV_IP" ]] || { fail "could not create the network"; exit 2; }
 say "run $RUN: server $SRV, network $NET, database $DB_KIND"
-server_create || exit 1
-server_seed || exit 1
+# A server that does not start or seed (no memory for another container, a stale image) is a setup error, never a spec failure.
+server_create || exit 2
+server_seed || exit 2
 say "server is $VERSION and seeded"
 
 controller &
@@ -355,7 +435,17 @@ $E run --rm --name "$CYC" --label "$LABEL=$RUN" --network "$NET" --shm-size=1g $
   -v "$ROOT/e2e:/e2e-src:ro" -v "$ROOT/scripts:/repo/scripts:ro" -v "$ROOT/package.json:/repo/package.json:ro" \
   -v "$ROOT/node_modules/axe-core/axe.min.js:/repo/axe.min.js:ro" -v "$CTL:/ctl" -v "$OUT:/out" \
   --entrypoint sh -w / "$CYPRESS_IMAGE" -c \
-  'mkdir -p /e2e && cp -R /e2e-src/cypress /e2e-src/support /e2e-src/cypress.config.cjs /e2e/ && cd /e2e && exec cypress run --project . --config-file cypress.config.cjs --browser chrome "$@"' sh ${REST[@]+"${REST[@]}"}
+  'mkdir -p /e2e && cp -R /e2e-src/cypress /e2e-src/support /e2e-src/cypress.config.cjs /e2e/ && cd /e2e && exec cypress run --project . --config-file cypress.config.cjs --browser chrome "$@"' sh ${REST[@]+"${REST[@]}"} \
+  | tee "$WORK/cypress.log"
 code=$?
-[[ $code -eq 0 ]] && say "all specs passed" || fail "Cypress exited with $code (screenshots, if any, are in $OUT)"
+# Cypress exits with the number of failed tests, which can be any number, so the code alone cannot tell a spec failure from a container
+# the engine could not start (125 to 127) or that was killed (137, out of memory). Cypress prints "(Run Finished)" and its summary
+# only when it got through the run: a failure with that line is a spec failure (1), and one without it never finished, a setup error (2).
+if ((code == 0)); then
+  say "all specs passed"
+elif grep -q '(Run Finished)' "$WORK/cypress.log"; then
+  fail "Cypress reported failures (screenshots, if any, are in $OUT)"; code=1
+else
+  fail "the Cypress container exited $code before Cypress finished the run: the engine could not start it or it was killed (out of memory?)"; code=2
+fi
 exit $code

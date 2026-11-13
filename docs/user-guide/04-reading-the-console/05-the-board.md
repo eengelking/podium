@@ -10,11 +10,13 @@ order: 5
 **Board** in the top bar (`#/board`) shows every session's plan steps as cards in five columns: Pending, In progress,
 Review, Blocked and Done. It answers "what is in progress across all my sessions?" without opening each one.
 
+The board has a **Group** select (shown only while people are grouped) and the same KPI tiles as the wall, which the **Hide KPI rows** and **Show KPI rows** tab at their bottom edge folds away.
+
 Each card is titled with its orchestrator, shows the work under it, and names the agent doing it at the bottom. Click a
 card to open its orchestrator. You cannot move a card: the state comes from Claude Code, and Podium only watches.
 
 - **Review** holds an in-progress step while its session waits on you (a question, a plan or a permission prompt). A
-  session that waits on you but has no plan shows as one card there while the switch is on All, and not on Plans. A Review card says why: the question it asks, or
+  session that waits on you but has no plan shows as one card there while the **Plans | All** switch is on All, and not on Plans. A Review card says why: the question it asks, or
   the tool it wants to use.
 - A card that changes column slides across and flashes for a moment.
 - **Mixed** shows every orchestrator's cards together. **By orchestrator** groups them. **My orchestrators | Everyone** (the switch

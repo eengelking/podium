@@ -1,0 +1,281 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Admin Reporting: Cost, tokens and context</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #723 (cost per call and session, token split, cache hit rate, model and effort mix, context fullness), built on the report shape of #484 and
+   the Tools (#720) and Sessions (#722) pages. Colors, fonts and every report class come from
+   tokens.css, fleet.css and admin.css; this file has no :root block and restyles none of them. Only the demo chrome
+   (.demo, .stage, .frame, .notes) and the page switcher (.pgv, which takes no box so .apage-in keeps spacing the sections) are the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 760px; max-width: 100%; background: var(--bg); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv { display: contents; }
+.pgv[hidden] { display: none; }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Admin Reporting: cost, tokens and context (#723)</b>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-pg="tools" aria-pressed="true">Tools</button>
+    <button type="button" data-pg="spend" aria-pressed="false">Spend</button>
+    <button type="button" data-pg="sessions" aria-pressed="false">Sessions</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn" data-nav="spend">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn" data-nav="sessions">Sessions</button>
+        <button type="button" class="navbtn" data-nav="tools" aria-current="page">Tools</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+
+  <!-- Tools -->
+  <div class="pgv" id="pg-tools">
+    <div class="page-h"><div><h1>Tools</h1><p class="lead">The calls each tool received, what they cost, how long they took and which harness versions run them.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+    <section class="asec" aria-labelledby="t-f"><div class="asec-h"><div><h2 id="t-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="t-per">Period</label><select class="field" id="t-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="t-h">Harness</label><select class="field" id="t-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Figures come from every harness that reports: Claude Code and OpenCode.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="t-c"><div class="asec-h"><div><h2 id="t-c">Cost per tool call and per session</h2><p class="hint">Spend divided by the calls and sessions behind it, by model, 2026-09-21 to 2026-10-20. Priced models only.</p></div></div>
+      <div class="panel">
+        <div class="tool alone"><div class="sum left"><div><span class="big mono">$0.06</span><span class="cap">per tool call</span></div><div><span class="big mono">$2.58</span><span class="cap">per session</span></div><div><span class="big mono">11,520</span><span class="cap">priced calls</span></div><div><span class="big mono">122</span><span class="cap">calls on a model without a price, left out</span></div></div></div>
+        <div class="tw2"><table class="ptab" aria-label="Cost per call by model">
+          <thead><tr><th scope="col">Model</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Tool calls</th><th scope="col" class="n">Spend</th><th scope="col" class="n">Per call</th><th scope="col" class="n">Per session</th></tr></thead>
+          <tbody>
+            <tr><td class="who">Opus 5.5</td><td class="n mono">96</td><td class="n mono">4,118</td><td class="n mono">$412.80</td><td class="n mono">$0.10</td><td class="n mono">$4.30</td></tr>
+            <tr><td class="who">Sonnet 5.5</td><td class="n mono">181</td><td class="n mono">7,402</td><td class="n mono">$301.15</td><td class="n mono">$0.04</td><td class="n mono">$1.66</td></tr>
+            <tr><td class="who">mystery-model</td><td class="n mono">3</td><td class="n mono">122</td><td class="n mono muted">–</td><td class="n mono muted">–</td><td class="n mono muted">–</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Priced total</th><td class="n mono">277</td><td class="n mono">11,520</td><td class="n mono">$713.95</td><td class="n mono">$0.06</td><td class="n mono">$2.58</td></tr></tfoot>
+        </table></div>
+        <div class="note-line"><b>A tool has no cost of its own.</b> A model call costs tokens, and a call to a tool is only one step in it, so Podium cannot say what one tool spent. Per call is a model's spend over all its tool calls.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="t-u"><div class="asec-h"><div><h2 id="t-u">What sessions that used a tool cost</h2><p class="hint">The average priced spend of a session that called the tool at least once. It says where heavy sessions use a tool, not what the tool cost.</p></div></div>
+      <div class="panel">
+        <div class="tw2"><table class="ptab" aria-label="Sessions that used each tool">
+          <thead><tr><th scope="col">Tool</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Average session spend</th><th scope="col" class="n">Average calls in it</th></tr></thead>
+          <tbody>
+            <tr><td class="who mono">Bash</td><td class="n mono">248</td><td class="n mono">$2.71</td><td class="n mono">31</td></tr>
+            <tr><td class="who mono">Edit</td><td class="n mono">231</td><td class="n mono">$2.94</td><td class="n mono">19</td></tr>
+            <tr><td class="who mono">Task</td><td class="n mono">97</td><td class="n mono">$6.08</td><td class="n mono">44</td></tr>
+            <tr><td class="who mono">WebFetch</td><td class="n mono">52</td><td class="n mono">$3.40</td><td class="n mono">27</td></tr>
+          </tbody>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 4 of 23</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 6</span><button type="button" class="btn sm">Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Spend -->
+  <div class="pgv" id="pg-spend" hidden>
+    <div class="page-h"><div><h1>Spend</h1><p class="lead">What was spent, by person, group, model or project, and how many tokens it took. Estimated from tokens, not a bill. The sections for spend today, the projection and spend over time are unchanged.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+    <section class="asec" aria-labelledby="s-f"><div class="asec-h"><div><h2 id="s-f">Period and filters</h2></div></div>
+      <div class="panel">
+
+        <div class="tool">
+          <div class="f"><label class="lab" for="s-per">Period</label><select class="field" id="s-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="s-m">Model</label><select class="field" id="s-m"><option>All models</option></select></div>
+          <div class="f"><label class="lab" for="s-h">Harness</label><select class="field" id="s-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Figures come from every harness that reports: Claude Code and OpenCode.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="s-t"><div class="asec-h"><div><h2 id="s-t">Tokens and cache hit rate</h2><p class="hint">How many tokens went in, came out and were served from the cache, 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone"><div class="sum left"><div><span class="big mono">73%</span><span class="cap">cache hit rate</span></div><div><span class="big mono">38.4M</span><span class="cap">input tokens</span></div><div><span class="big mono">5.0M</span><span class="cap">output tokens</span></div><div><span class="big mono">166.7M</span><span class="cap">read from cache</span></div></div></div>
+        <div class="chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">100%</span><span style="top:70px">50%</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" role="img" aria-label="Cache hit rate per week: 5 periods from 2026-09-21 to 2026-10-19, 68% rising to 76%, 73% over the period." preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+              <rect class="rbar" x="18" y="42.5" width="84" height="67.5"/><rect class="rbar" x="138" y="41.6" width="84" height="68.4"/><rect class="rbar" x="258" y="41.6" width="84" height="68.4"/><rect class="rbar" x="378" y="46.1" width="84" height="63.9"/><rect class="rbar" x="498" y="48.8" width="84" height="61.2"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div>
+          <div class="hint" aria-hidden="true">2026-09-21 to 2026-10-19. Lowest 68%, highest 76%.</div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Tokens by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Input</th><th scope="col" class="n">Output</th><th scope="col" class="n">Cache read</th><th scope="col" class="n">Cache write</th><th scope="col" class="n">Cache hit rate</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19</td><td class="n mono">2.1M</td><td class="n mono">0.4M</td><td class="n mono">9.8M</td><td class="n mono">1.2M</td><td class="n mono">75%</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">8.4M</td><td class="n mono">1.1M</td><td class="n mono">41.6M</td><td class="n mono">4.9M</td><td class="n mono">76%</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">10.2M</td><td class="n mono">1.4M</td><td class="n mono">49.9M</td><td class="n mono">5.8M</td><td class="n mono">76%</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono">9.7M</td><td class="n mono">1.2M</td><td class="n mono">38.1M</td><td class="n mono">5.6M</td><td class="n mono">71%</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono">8.0M</td><td class="n mono">0.9M</td><td class="n mono">27.3M</td><td class="n mono">4.4M</td><td class="n mono">68%</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Whole period, all harnesses</th><td class="n mono">38.4M</td><td class="n mono">5.0M</td><td class="n mono">166.7M</td><td class="n mono">21.9M</td><td class="n mono">73%</td></tr><tr><th scope="row">Claude Code</th><td class="n mono">29.6M</td><td class="n mono">3.9M</td><td class="n mono">140.2M</td><td class="n mono">18.4M</td><td class="n mono">74%</td></tr><tr><th scope="row">OpenCode</th><td class="n mono">8.8M</td><td class="n mono">1.1M</td><td class="n mono">26.5M</td><td class="n mono">3.5M</td><td class="n mono">3.5M</td></tr></tfoot>
+        </table></div>
+        <div class="note-line"><b>Cache hit rate</b> is tokens read from the cache over all input the model was given (input, cache read and cache write). A harness that does not report cache tokens counts as none, so it lowers the rate. Cost estimates are unchanged.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Sessions -->
+  <div class="pgv" id="pg-sessions" hidden>
+    <div class="page-h"><div><h1>Sessions</h1><p class="lead">How sessions ended, on which model, effort and plan, how long they ran, and how full their context windows were. The earlier sections are unchanged.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+    <section class="asec" aria-labelledby="x-f"><div class="asec-h"><div><h2 id="x-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="x-per">Period</label><select class="field" id="x-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="x-h">Harness</label><select class="field" id="x-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Figures come from every harness that reports: Claude Code and OpenCode.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="x-m"><div class="asec-h"><div><h2 id="x-m">Model and effort mix</h2><p class="hint">Each week, the share of sessions on each model, and the share at each effort. A model or effort a harness does not report is counted as Not reported.</p></div></div>
+      <div class="panel">
+        <div class="tool"><div class="f"><span class="lab" aria-hidden="true">Mix of</span><span class="seg" role="group" aria-label="Mix of"><button type="button" aria-pressed="true">Model</button><button type="button" aria-pressed="false">Effort</button></span></div></div>
+        <div class="tw2"><table class="ptab" aria-label="Model mix by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Opus 5.5</th><th scope="col" class="n">Sonnet 5.5</th><th scope="col" class="n">Other, 2 models</th><th scope="col" class="n">No model</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19</td><td class="n mono">20</td><td class="n mono">35%</td><td class="n mono">60%</td><td class="n mono">5%</td><td class="n mono">0%</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">69</td><td class="n mono">32%</td><td class="n mono">58%</td><td class="n mono">9%</td><td class="n mono">1%</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">88</td><td class="n mono">30%</td><td class="n mono">59%</td><td class="n mono">10%</td><td class="n mono">1%</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono">74</td><td class="n mono">28%</td><td class="n mono">61%</td><td class="n mono">10%</td><td class="n mono">1%</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono">61</td><td class="n mono">26%</td><td class="n mono">62%</td><td class="n mono">11%</td><td class="n mono">1%</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Whole period</th><td class="n mono">312</td><td class="n mono">30%</td><td class="n mono">60%</td><td class="n mono">9%</td><td class="n mono">1%</td></tr></tfoot>
+        </table></div>
+        <div class="note-line">A session counts once, on the day it started, under the model and effort it ended on. Each row adds up to 100%. Effort is the setting the harness reports; OpenCode has none, so its sessions show as Not reported when Effort is chosen.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="x-c"><div class="asec-h"><div><h2 id="x-c">Context fullness at the end</h2><p class="hint">How full the context window was when a session ended, and how many sessions compacted or continued after /clear. 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone"><div class="sum left"><div><span class="big mono">41</span><span class="cap">sessions ended above 80%</span></div><div><span class="big mono">13%</span><span class="cap">of sessions ended above 80%</span></div><div><span class="big mono">58</span><span class="cap">sessions compacted on their own</span></div><div><span class="big mono">27</span><span class="cap">sessions continued after /clear</span></div></div></div>
+        <div class="tw2"><table class="ptab" aria-label="Context fullness at the end">
+          <thead><tr><th scope="col">Context used at the end</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Share</th></tr></thead>
+          <tbody>
+            <tr><td class="who">Under 50%</td><td class="n mono">156</td><td class="n mono">53%</td></tr>
+            <tr><td class="who">50% to 80%</td><td class="n mono">115</td><td class="n mono">39%</td></tr>
+            <tr><td class="who">Above 80%</td><td class="n mono">41</td><td class="n mono">14%</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Total, all harnesses</th><td class="n mono">312</td><td class="n mono">100%</td></tr><tr><th scope="row">Claude Code</th><td class="n mono">241</td><td class="n mono">15% above 80%</td></tr><tr><th scope="row">OpenCode</th><td class="n mono">71</td><td class="n mono">9% above 80%</td></tr></tfoot>
+        </table></div>
+        <div class="note-line">Compacted counts sessions Claude Code compacted on its own while its events are kept (30 days); a /compact you ran yourself is not counted. A session that continued after /clear starts again under a new session id, so each /clear is counted once, on the session it started. Sessions that reported no context size are left out of the rows above and counted here: 7.</div>
+      </div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>No new page and no new menu entry.</b> Each figure goes where its neighbours already are: cost on Tools (the tool counts are there), tokens and cache on Spend (which already shows tokens in and out), model, effort and context on Sessions (which already holds outcome, model, effort and blow-outs). Every added section uses the existing classes (<code>.sum</code>, <code>.chart</code>, <code>.ptab</code>, <code>.seg</code>, <code>.note-line</code>), so no color, component or pattern is new and no <code>standards</code> fragment is needed.</li>
+    <li><b>Same shape as the other reports.</b> Period and filters with the Harness filter (#1031), the "based on" line, summary figures, a neutral-ink chart, the table, and CSV, JSON and Print. Every export carries a harness column, and a figure one harness cannot supply shows a dash with the reason in its tooltip and a line under the table.</li>
+    <li><b>Cost per call and per session</b> is a model's priced spend over its tool calls and sessions. A model without a price shows a dash and stays out of the totals, as everywhere else.</li>
+    <li><b>Decision for the maintainer: cost "by tool".</b> The issue asks where cost goes "by tool and model". Podium has the tokens of a session and the calls it made, but not the tokens each call used, so a tool's own cost cannot be measured and splitting spend over calls would invent it. This mockup draws two honest figures instead: cost per call by model, and the average spend of the sessions that used each tool, labelled as what it is. If you want a true per-tool cost, the reporters would have to send tokens per call, which is a larger change and touches every harness.</li>
+    <li><b>Tokens and cache hit rate</b> gives the four token counts per week, the rate as a chart and a column, and a row for each harness.</li>
+    <li><b>Model and effort mix</b> shows the share of sessions per model or per effort each week, switched by Mix of. It is shares and counts only.</li>
+    <li><b>Context fullness</b> buckets sessions by how full the window was at the end, with how many sessions compacted on their own or continued after /clear.</li>
+  </ul>
+  <h2>What it needs underneath (not drawn)</h2>
+  <ul>
+    <li>Tokens (in, out, cache read, cache write) and cost are already in the usage rollup, and model, effort and the highest context percent are in the sessions rollup. New: the context percent <i>at the end</i> as a bucket, a count of /compact and /clear per session, and tool calls joined to cost. These add summary rows in <b>every storage adapter</b> in the same PR, kept 395 days like the others. Only counts and names are stored.</li>
+    <li>#721 is merged, and this adds to the Tools page it changed. Where a harness reports no effort, the Effort mix shows its sessions as Not reported (stated on the page).</li>
+  </ul>
+  <h2>Open questions</h2>
+  <ul>
+    <li>Resolved in the build: the two honest figures (cost per call by model, and the average spend of sessions that used each tool). Per tool cost is not drawn.</li>
+    <li>Resolved in the build: /clear is counted from the session that continues after it (Podium already stores which session it continues), so no reporter change is needed. Only automatic compactions are counted, because those are the compact events Podium keeps; a /compact you ran yourself is not.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function page(id) {
+    document.querySelectorAll(".pgv").forEach(function (p) { p.hidden = p.id !== "pg-" + id; });
+    document.querySelectorAll("[data-nav]").forEach(function (b) { if (b.getAttribute("data-nav") === id) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    press("[data-pg]", "data-pg", id);
+  }
+  document.querySelectorAll("[data-pg]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-pg")); }); });
+  document.querySelectorAll("[data-nav]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-nav")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+
+  root.setAttribute("data-theme", "dark");
+  page("tools");
+})();
+</script>

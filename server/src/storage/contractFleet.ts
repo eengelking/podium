@@ -22,7 +22,7 @@ const sample = (id: string, t: number, over: Partial<SampleRow> = {}): SampleRow
 const agent = (sessionId: string, id: string, over: Partial<AgentRow> = {}): AgentRow => ({
   session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
   status: 'running', started_at: T0, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
-  cost_usd_est: 0.25, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
+  cost_usd_est: 0.25, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, tool_stats_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
   prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null, ...over,
 });
 const seen = (id: string, name: string | null, over: Partial<ReporterSeen> = {}): ReporterSeen => ({
@@ -31,6 +31,17 @@ const seen = (id: string, name: string | null, over: Partial<ReporterSeen> = {})
 });
 
 export function fleetCases(o: Openers): void {
+  it('agrees on every adapter on the shape of what the database says about itself: its engine, version, schema version and size (#862)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const i = await s.fleet.engineInfo();
+      await rec('engine is a name', typeof i.engine === 'string' && i.engine.length > 0);
+      await rec('version is text', typeof i.version === 'string' && /^\d/.test(i.version));
+      await rec('schema version is a whole number above 0', Number.isInteger(i.schemaVersion) && i.schemaVersion > 0);
+      await rec('size is a number or unknown', i.sizeBytes === null || (Number.isInteger(i.sizeBytes) && i.sizeBytes >= 0));
+    });
+    for (const k of [...t.keys()]) expect(t.get(k)).toBe(true);
+  });
+
   it('agrees on every adapter for the spend queries: totals, the split by owner, ties in the order, and the group of an owner', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const f = s.fleet;
@@ -222,6 +233,21 @@ export function fleetCases(o: Openers): void {
     expect(t.get('live kept')).toBeDefined();
   });
 
+  it('keeps the characters that draw nothing out of a person\'s name and a group\'s, and refuses a line separator (#1051)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      await rec('person with bidi and zero-width', s.people.createPerson('Al\u202Eex\u200B', null, T0).then((r) => r.person.name));
+      await rec('the plain name is taken', s.people.createPerson('Alex', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('person with a line separator', s.people.createPerson('A\u2028B', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('person with a next-line', s.people.createPerson('A\u0085B', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('person of only format characters', s.people.createPerson('\u200B\u200D', null, T0).then(() => 'created', (e: Error) => e.message));
+      await rec('group with a bidi control', s.people.createGroup('Ops\u202E', T0).then((g) => g.name));
+    });
+    expect(t.get('person with bidi and zero-width')).toBe('Alex');
+    expect(String(t.get('the plain name is taken'))).toMatch(/taken/);
+    for (const k of ['person with a line separator', 'person with a next-line', 'person of only format characters']) expect(t.get(k), k).not.toBe('created');
+    expect(t.get('group with a bidi control')).toBe('Ops');
+  });
+
   it('stores text with non-ASCII letters, emoji, quotes, backslashes and wildcards as it is, and finds it by a search that treats them as plain characters (#1007)', async () => {
     // Every value here is one a person can type or a harness can send, and the report validator lets it through (it removes control
     // characters, which includes NUL; a NUL never reaches a store, and not every database stores one, so it is no case here).
@@ -265,7 +291,8 @@ export function fleetCases(o: Openers): void {
     });
     // the values themselves, not only the agreement between two databases
     const names = (t.get('people') as { rows: { name: string }[] }).rows.map((p) => p.name).sort(byCode);
-    expect(names).toEqual([...odd].sort(byCode));
+    // a person's name has no format character (a zero-width joiner in the emoji case goes), as the case above says
+    expect(names).toEqual(odd.map((n) => n.replace(/\p{Cf}/gu, '')).sort(byCode));
     const sessions = t.get('sessions') as { name: string; wait_note: string; owner: string }[];
     expect(sessions.map((r) => r.name)).toEqual(odd);
     expect(sessions.map((r) => r.wait_note)).toEqual(odd);
@@ -345,6 +372,30 @@ export function fleetCases(o: Openers): void {
 }
 
 export function peopleCases(o: Openers): void {
+  it('hands out the same group id after a createGroup that failed, on every adapter (#1039)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      // a time that is not a number is refused; only that it was refused is compared, since the message is the database's
+      await rec('refused', s.people.createGroup('s2', Number.NaN).then(() => 'created', () => 'refused'));
+      await rec('next', s.people.createGroup('é', 2 ** 31));
+      await rec('after that', s.people.createGroup('plain', T0));
+      // the same for the other rows that take an id: a person, an Admin log line and an ignore rule, each after a refused call
+      await rec('person refused', s.people.createPerson('p1', null, Number.NaN).then(() => 'created', () => 'refused'));
+      await rec('person', s.people.createPerson('p2', null, T0).then((r) => r.person.id));
+      await rec('log refused', s.people.log('k', 'd', 's', Number.NaN).then(() => 'logged', () => 'refused'));
+      await s.people.log('k', 'second', 's', T0);
+      await rec('log', s.people.listLog({}).then((r) => r.rows.map((l) => [l.id, l.detail])));
+      await rec('rule refused', s.reporters.addIgnore('key', 'z', Number.NaN).then(() => 'added', () => 'refused'));
+      await rec('rule', s.reporters.addIgnore('key', 'a', T0).then((r) => r.id));
+      await rec('rule again', s.reporters.addIgnore('key', 'a', T0).then((r) => r.id));
+      await rec('next rule', s.reporters.addIgnore('key', 'b', T0).then((r) => r.id));
+    });
+    // a failed insert used no id: the next group takes the one the failed call would have taken, one past the built-in group
+    const next = t.get('next') as { id: number };
+    const after = t.get('after that') as { id: number };
+    expect(t.get('refused')).toBe('refused');
+    expect(after.id).toBe(next.id + 1);
+  });
+
   it('agrees on every adapter for looking a person up by key id or administrator token, and for the group they are in', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const p = s.people;
@@ -397,6 +448,42 @@ export function peopleCases(o: Openers): void {
 }
 
 export function reporterCases(o: Openers): void {
+  it('agrees on every adapter for the reporter versions heard from since a time: one count per reporter name and version, hooks-only and silent ones left out (#862)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const r = s.reporters;
+      await r.record(seen('a1', 'one', { version: '1.6.0' }), T0 + 100);
+      await r.record(seen('a2', 'two', { version: '1.6.0' }), T0 + 101);
+      await r.record(seen('a3', 'three', { version: '1.3.2' }), T0 + 102);
+      await r.record(seen('a4', 'four', { version: '1.5.0', reporterName: 'podium-reporter-opencode' }), T0 + 103);
+      await r.record(seen('a5', 'five', { version: '1.10.0' }), T0 + 104);
+      await r.record(seen('a6', 'six', { version: '1.9.0' }), T0 + 105);
+      await r.record(seen('h1', null, { kind: 'hooks', version: 'hooks', credential: null, os: null, peers: null }), T0 + 106);
+      await r.record(seen('old', 'old', { version: '0.9.0' }), T0 + 1);
+      await rec('heard since T0 + 50', r.versionCounts(T0 + 50));
+      await rec('heard since the start', r.versionCounts(0));
+      await rec('heard since the future', r.versionCounts(T0 + 10_000));
+      // the same, cut by the operating system the reporter sent (#724)
+      await r.record(seen('a7', 'seven', { version: '1.6.0', os: 'Ubuntu 24.04' }), T0 + 107);
+      await r.record(seen('a8', 'eight', { version: '1.6.0', os: null }), T0 + 108);
+      await rec('by platform', r.platformCounts(T0 + 50));
+      await rec('by platform (the future)', r.platformCounts(T0 + 10_000));
+    });
+    expect(t.get('heard since T0 + 50')).toEqual([
+      { reporterName: 'podium-reporter-claudecode', version: '1.10.0', machines: 1 },
+      { reporterName: 'podium-reporter-claudecode', version: '1.3.2', machines: 1 },
+      { reporterName: 'podium-reporter-claudecode', version: '1.6.0', machines: 2 },
+      { reporterName: 'podium-reporter-claudecode', version: '1.9.0', machines: 1 },
+      { reporterName: 'podium-reporter-opencode', version: '1.5.0', machines: 1 },
+    ]);
+    expect((t.get('heard since the start') as { version: string }[]).map((v) => v.version)).toContain('0.9.0');
+    expect(t.get('heard since the future')).toEqual([]);
+    // a version splits by system, and a reporter that sent none has a null one
+    expect((t.get('by platform') as { version: string; os: string | null; machines: number }[]).filter((x) => x.version === '1.6.0')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ os: 'macOS', machines: 2 }), expect.objectContaining({ os: 'Ubuntu 24.04', machines: 1 }), expect.objectContaining({ os: null, machines: 1 })]),
+    );
+    expect(t.get('by platform (the future)')).toEqual([]);
+  });
+
   it('agrees on every adapter for the keys a sender is known by, the filtered key list, removing, and the refused-report list', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const r = s.reporters;

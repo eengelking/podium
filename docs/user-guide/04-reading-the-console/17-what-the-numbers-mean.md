@@ -40,5 +40,5 @@ Hover the bars to read the level. Dimmed bars mean the level was not reported.
 <!-- nav:start -->
 ---
 
-Previous: [History](16-history.md) · Up: [Reading the console](README.md)
+Previous: [History](16-history.md) · Up: [Reading the console](README.md) · Next: [My usage](18-my-usage.md)
 <!-- nav:end -->

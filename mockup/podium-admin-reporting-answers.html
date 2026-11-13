@@ -1,0 +1,237 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Admin Reporting: answers sent and time waited</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #725 (answers sent through Podium and how long sessions waited), built on the report shape of #484 and
+   the Tools page of #720 (mockup/podium-admin-reporting-tools.html). Colors, fonts and every report class come from
+   tokens.css, fleet.css and admin.css; this file has no :root block and restyles none of them. Only the demo chrome
+   (.demo, .stage, .frame, .notes) and the page switcher (.pgv, which takes no box so .apage-in keeps spacing the sections) are the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 760px; max-width: 100%; background: var(--bg); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv { display: contents; }
+.pgv[hidden] { display: none; }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Admin Reporting: answers sent and time waited (#725)</b>
+  <span class="grp" role="group" aria-label="State">State
+    <button type="button" data-st="full" aria-pressed="true">Full history</button>
+    <button type="button" data-st="since" aria-pressed="false">Recorded from mid-period</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn" data-nav="sessions" aria-current="page">Sessions</button>
+        <button type="button" class="navbtn">Tools</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+
+  <!-- Sessions -->
+
+  <!-- Sessions: the two new sections sit after "What sessions waited for" (#722); the sections above are drawn in mockup/podium-admin-reporting-session-time.html -->
+  <div class="pgv" id="pg-sessions">
+    <div class="page-h"><div><h1>Sessions</h1><p class="lead">How sessions ended, on which model, effort and plan, how long they ran and waited on people, how often people answered them from Podium, which agents they launched, and how often the context window overflowed.</p></div>
+      <div class="exp-wrap"><div class="exp" role="group" aria-label="Export"><button type="button" class="btn" aria-label="Download CSV">CSV</button><button type="button" class="btn" aria-label="Download JSON">JSON</button><button type="button" class="btn" aria-label="Print this page">Print</button></div></div></div>
+
+    <section class="asec" aria-labelledby="s-f"><div class="asec-h"><div><h2 id="s-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="s-per">Period</label><select class="field" id="s-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="s-g">Group</label><select class="field" id="s-g"><option>All groups</option></select></div>
+          <div class="f"><label class="lab" for="s-h">Harness</label><select class="field" id="s-h"><option>All harnesses</option><option>Claude Code</option><option>OpenCode</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live. Counts come from every harness that reports: Claude Code and OpenCode.</div>
+        <div class="note-line" id="since-note" hidden><b>Answers are recorded from 2026-10-05,</b> when Podium was upgraded to this release. Earlier weeks show a dash, and the totals below count only the weeks that have them.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="a-s"><div class="asec-h"><div><h2 id="a-s">Answers sent through Podium</h2><p class="hint">Each time someone answered a session from the console: a question, a plan, a tool's permission, or a message. 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum left">
+            <div><span class="big mono" data-f="195" data-s="118">195</span><span class="cap" data-f="answers sent" data-s="answers sent, since 2026-10-05">answers sent</span></div>
+            <div><span class="big mono" data-f="112" data-s="68">112</span><span class="cap">tool permissions</span></div>
+            <div><span class="big mono" data-f="41" data-s="26">41</span><span class="cap">questions answered</span></div>
+            <div><span class="big mono" data-f="14" data-s="9">14</span><span class="cap">plans answered</span></div>
+          </div>
+        </div>
+        <div class="chart">
+          <div class="plot">
+            <div class="yl" aria-hidden="true"><span style="top:20px">58</span><span style="top:70px">29</span><span style="top:110px">0</span></div>
+            <svg viewBox="0 0 600 120" role="img" aria-label="Answers sent through Podium per week: 5 periods from 2026-09-21 to 2026-10-19, highest 58 on 2026-10-05, 195 in all." preserveAspectRatio="none">
+              <line class="gl" x1="0" x2="600" y1="20" y2="20"/><line class="gl" x1="0" x2="600" y1="70" y2="70"/><line class="ax" x1="0" x2="600" y1="110" y2="110"/>
+              <rect class="rbar" x="18" y="57.2" width="84" height="52.8"/><rect class="rbar" x="138" y="37.1" width="84" height="72.9"/><rect class="rbar" x="258" y="20" width="84" height="90"/><rect class="rbar" x="378" y="41.7" width="84" height="68.3"/><rect class="rbar" x="498" y="91.4" width="84" height="18.6"/>
+            </svg>
+          </div>
+          <div class="xl" aria-hidden="true"><span>09-21</span><span>10-19*</span></div>
+          <div class="hint" aria-hidden="true">2026-09-21 to 2026-10-19. Highest: 58.</div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Answers sent through Podium by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Permission</th><th scope="col" class="n">Question</th><th scope="col" class="n">Plan</th><th scope="col" class="n">Message</th><th scope="col" class="n">All</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19</td><td class="n mono">8</td><td class="n mono">2</td><td class="n mono">1</td><td class="n mono">1</td><td class="n mono">12</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">25</td><td class="n mono">9</td><td class="n mono">2</td><td class="n mono">8</td><td class="n mono">44</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">33</td><td class="n mono">13</td><td class="n mono">5</td><td class="n mono">7</td><td class="n mono">58</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono wt" data-f="27" data-s="–">27</td><td class="n mono wt" data-f="9" data-s="–">9</td><td class="n mono wt" data-f="3" data-s="–">3</td><td class="n mono wt" data-f="8" data-s="–">8</td><td class="n mono wt" data-f="47" data-s="–">47</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono wt" data-f="19" data-s="–">19</td><td class="n mono wt" data-f="8" data-s="–">8</td><td class="n mono wt" data-f="3" data-s="–">3</td><td class="n mono wt" data-f="4" data-s="–">4</td><td class="n mono wt" data-f="34" data-s="–">34</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><th scope="row">Whole period, all harnesses</th><td class="n mono" data-f="112" data-s="68">112</td><td class="n mono" data-f="41" data-s="26">41</td><td class="n mono" data-f="14" data-s="9">14</td><td class="n mono" data-f="28" data-s="15">28</td><td class="n mono" data-f="195" data-s="118">195</td></tr>
+            <tr><th scope="row">Claude Code</th><td class="n mono" data-f="88" data-s="53">88</td><td class="n mono" data-f="33" data-s="21">33</td><td class="n mono" data-f="11" data-s="7">11</td><td class="n mono" data-f="17" data-s="9">17</td><td class="n mono" data-f="149" data-s="90">149</td></tr>
+            <tr><th scope="row">OpenCode</th><td class="n mono" data-f="24" data-s="15">24</td><td class="n mono" data-f="8" data-s="5">8</td><td class="n mono" data-f="3" data-s="2">3</td><td class="n mono" data-f="11" data-s="6">11</td><td class="n mono" data-f="46" data-s="28">46</td></tr>
+          </tfoot>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 5 of 5</span><span class="row2"><label class="hint" for="a-size">Rows per page</label><select class="field sm" id="a-size"><option>25</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+        <div class="note-line">Only the kind and the time of each answer are kept, never what was said. An answer given in the terminal is not counted: this is how much the console is used to answer sessions, not how many asks there were.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="a-w"><div class="asec-h"><div><h2 id="a-w">How long sessions waited for an answer</h2><p class="hint">From the moment a session asked until the answer was sent from Podium. Half of the waits were shorter than the median; nine in ten were shorter than the 90th percentile.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum left">
+            <div><span class="big mono" data-f="0:32" data-s="0:35">0:32</span><span class="cap">median wait</span></div>
+            <div><span class="big mono" data-f="5:20" data-s="5:48">5:20</span><span class="cap">90th percentile</span></div>
+          </div>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Wait before an answer, by kind">
+          <thead><tr><th scope="col">Answer to</th><th scope="col" class="n">Answers</th><th scope="col" class="n">Median wait</th><th scope="col" class="n">90th percentile</th></tr></thead>
+          <tbody>
+            <tr><td class="who">Permission for a tool</td><td class="n mono" data-f="112" data-s="68">112</td><td class="n mono" data-f="0:18" data-s="0:20">0:18</td><td class="n mono" data-f="2:10" data-s="2:25">2:10</td></tr>
+            <tr><td class="who">A question</td><td class="n mono" data-f="41" data-s="26">41</td><td class="n mono" data-f="1:40" data-s="1:52">1:40</td><td class="n mono" data-f="9:00" data-s="9:30">9:00</td></tr>
+            <tr><td class="who">A plan</td><td class="n mono" data-f="14" data-s="9">14</td><td class="n mono" data-f="3:05" data-s="3:20">3:05</td><td class="n mono" data-f="11:00" data-s="11:40">11:00</td></tr>
+            <tr><td class="who">A message</td><td class="n mono" data-f="28" data-s="15">28</td><td class="n mono muted" title="A message is sent to a session that is not waiting, so it has no wait">–</td><td class="n mono muted" title="A message is sent to a session that is not waiting, so it has no wait">–</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><th scope="row">Whole period, all harnesses</th><td class="n mono" data-f="167" data-s="103">167</td><td class="n mono" data-f="0:32" data-s="0:35">0:32</td><td class="n mono" data-f="5:20" data-s="5:48">5:20</td></tr>
+            <tr><th scope="row">Claude Code</th><td class="n mono" data-f="132" data-s="81">132</td><td class="n mono" data-f="0:30" data-s="0:33">0:30</td><td class="n mono" data-f="5:00" data-s="5:30">5:00</td></tr>
+            <tr><th scope="row">OpenCode</th><td class="n mono" data-f="35" data-s="22">35</td><td class="n mono" data-f="0:45" data-s="0:48">0:45</td><td class="n mono" data-f="6:30" data-s="6:50">6:30</td></tr>
+          </tfoot>
+        </table></div>
+        <div class="tw2"><table class="ptab" aria-label="Wait before an answer, by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">Answers</th><th scope="col" class="n">Median wait</th><th scope="col" class="n">90th percentile</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19</td><td class="n mono">9</td><td class="n mono">0:28</td><td class="n mono">3:50</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">36</td><td class="n mono">0:34</td><td class="n mono">5:10</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">51</td><td class="n mono">0:40</td><td class="n mono">6:20</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono wt" data-f="39" data-s="–">39</td><td class="n mono wt" data-f="0:31" data-s="–">0:31</td><td class="n mono wt" data-f="5:00" data-s="–">5:00</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono wt" data-f="30" data-s="–">30</td><td class="n mono wt" data-f="0:29" data-s="–">0:29</td><td class="n mono wt" data-f="4:40" data-s="–">4:40</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note-line">Times are minutes and seconds. A wait is counted only when someone answered from Podium: an ask answered in the terminal, one that closed unanswered, and a message (which goes to a session that is not waiting) have no wait here. The median and the 90th percentile are read from time classes, so they can be a few seconds off.</div>
+      </div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>Where the figures go.</b> #725 does not name a page. #722 put "what sessions waited for" on Admin > Reporting > Sessions, and this issue is the other half of the same story (what people did about it), so both new sections go on Sessions, after the waiting sections drawn in <code>mockup/podium-admin-reporting-session-time.html</code>. No new page and no new menu entry.</li>
+    <li><b>Answers sent through Podium</b> counts by day, week or month (the existing By control) and by kind: permission, question, plan and message. The chart is the total per week; the table holds the kinds, with a footer row for each harness. The Harness filter narrows it, and every export carries a harness column.</li>
+    <li><b>How long sessions waited for an answer</b> gives the median and the 90th percentile, overall, by kind and by week. A message has a dash, because it goes to a session that is not waiting.</li>
+    <li><b>The state toggle</b> shows the one gap: answers and waits are recorded from the upgrade, so earlier weeks show a dash and the totals say which weeks they cover.</li>
+    <li><b>Both harnesses.</b> A session of either one is answered through the same routes, so there is no gap to state. A figure that covers only answers sent from Podium says so in the line under each table.</li>
+    <li><b>Counts only, no person.</b> Only the kind, the day, the harness and the wait are kept; never what was said. The tables are not by person, and there is no Person filter: #725 puts a per-person ranking out of scope. The Group filter is drawn because the Admin already filters by group elsewhere; the build can drop it if the stored rows cannot carry it.</li>
+    <li><b>No Admin read of content.</b> Nothing here shows a person's text, so the "an Admin never reads in silence" notices do not apply.</li>
+  </ul>
+  <h2>What it needs underneath (not drawn)</h2>
+  <ul>
+    <li>The server already sees every answer (the respond routes) and when the ask was opened, so a new daily summary can hold, per day, harness and kind, the number of answers and the wait in time classes. It lands in <b>every storage adapter</b> in the same PR, with the 395-day retention the other summaries have.</li>
+    <li>Nothing changes in a reporter, so no harness needs a separate change.</li>
+  </ul>
+  <h2>Not new</h2>
+  <ul>
+    <li>Every class on the page exists already (<code>.sum</code>, <code>.chart</code>, <code>.ptab</code>, <code>.seg</code>, <code>.apager</code>, <code>.note-line</code>), and the chart is the same ink bars as Tools and Sessions. No color, component or pattern is added, so no <code>standards</code> fragment is needed.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function state(s) {
+    var since = s === "since";
+    document.getElementById("since-note").hidden = !since;
+    document.querySelectorAll(".wt").forEach(function (el) { el.classList.toggle("muted", since); });
+    document.querySelectorAll("[data-f]").forEach(function (el) { el.textContent = el.getAttribute(since ? "data-s" : "data-f"); });
+    press("[data-st]", "data-st", s);
+  }
+  document.querySelectorAll("[data-st]").forEach(function (b) { b.addEventListener("click", function () { state(b.getAttribute("data-st")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  root.setAttribute("data-theme", "dark");
+})();
+</script>

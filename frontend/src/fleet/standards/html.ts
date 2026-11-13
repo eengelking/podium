@@ -63,6 +63,7 @@ export function pageHtml(opts: { file: string; title: string; body: string }): s
 <link href="${FONTS_HREF}" rel="stylesheet">
 <link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
 <link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/chat.css">
 <link rel="stylesheet" href="standards.css">
 <script src="standards.js"></script>
 </head>

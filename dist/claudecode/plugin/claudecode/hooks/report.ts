@@ -1,9 +1,12 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
+import { pct } from '../../core/contextFill.ts';
 import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
-import { cap, clip, excerpt, LIMITS } from '../../core/failures.ts';
+import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
+import { resumeWindowDays } from '../../core/resumeWindow.ts';
 import { family, windowOf } from './models.ts';
+import { reportStats } from '../../core/toolStats.ts';
 import { toPlan } from '../../core/plan.ts';
 import type { ActivityEntry, ActivityEvent, AgentReport, Ask, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
@@ -27,10 +30,14 @@ export interface ReportMeta {
   claudeName?: string | null;
   /** The `sessionName` option. */
   optionName: string | null;
+  /** The days Claude Code lets a person resume a closed session (its `cleanupPeriodDays`, #1113); absent means the default. */
+  resumeWindowDays?: number | null;
   /** The `userName` option: the person this reporter is configured as. The server checks it against the token. */
   userName?: string | null;
   /** This machine; sent only together with a userName. */
   machine?: MachineInfo | null;
+  /** What the engine sent this reporter in this session (#724): hooks that ran and the fields their events carried, as counts. Names and counts only. */
+  signals?: Record<string, number>;
   /** The `fullPrompts` option: send each agent's whole prompt and answer, once. */
   fullText?: boolean;
   /** The `activityFeed` option: send the feed of each loop the server says is watched (#118). */
@@ -80,11 +87,6 @@ function cleanFailure(f: Failure | null): Failure | null {
   };
 }
 
-function pct(tokens: number | null, window: number | null): number | null {
-  if (tokens === null || !window) return null;
-  return Math.round(Math.min(100, (tokens / window) * 100) * 10) / 10;
-}
-
 /** The fields an agent entry and the main loop's block share: skills, last tool, call counts and steps. */
 function loopFields(l: LoopStats): LoopReport {
   return {
@@ -92,6 +94,7 @@ function loopFields(l: LoopStats): LoopReport {
     lastTool: l.lastTool,
     toolCalls: l.toolCalls,
     toolCounts: Object.fromEntries(Object.entries(l.toolCounts).map(([k, n]) => [cap(k, 120), n])),
+    toolStats: reportStats(l.toolStats, (k) => cap(k, 120)),
     steps: { done: l.steps, total: null },
   };
 }
@@ -127,7 +130,7 @@ export function agentReport(a: AgentState, fullText = false, activity = false, a
     ...(fullText && a.promptText && !a.promptSent ? { promptText: a.promptText } : {}),
     ...(fullText && a.answerText && !a.answerSent ? { answerText: a.answerText } : {}),
     ...(activity && a.activity.length ? { activity: feed(a.activity, activityOutput) } : {}),
-    failure: cleanFailure(a.failure),
+    failure: cleanFailure(reportedFailure(a.status, a.failure)),
   };
 }
 
@@ -143,8 +146,11 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
   const report = withinDetailBudget(withinActivityBudget({
     v: 1,
     sentAt: meta.now,
+    // A v1 report has no capabilities block, so Claude Code declares this one itself: it shows the Admin callout as a toast and a transcript line (#1051).
+    adminNotices: true,
     reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
+    ...(meta.signals && Object.keys(meta.signals).length ? { signals: { ...meta.signals } } : {}),
     session: {
       id: s.id,
       name: displayName(s, meta.storedName, meta.claudeName, meta.optionName),
@@ -153,6 +159,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       waitNote: s.status === 'waiting' && s.waitNote ? clip(s.waitNote, 160) : null,
       endReason: s.status === 'done' ? s.endReason : null,
       resumeId: s.resumeId,
+      resumeWindowDays: resumeWindowDays(meta.resumeWindowDays),
       startedAt: s.startedAt,
       cwd: s.cwd,
       projectRoot: s.projectRoot,

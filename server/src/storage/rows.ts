@@ -16,6 +16,14 @@ export class PeopleError extends Error {
   }
 }
 
+/**
+ * Refuses a time that is not a whole number a database column holds, before anything is written (#1039). Left to the database, one
+ * adapter's id counter can spend an id on the failed insert and another's does not, so the next row's id differs between them.
+ */
+export function checkTime(value: number, what: string): void {
+  if (!Number.isSafeInteger(value)) throw new PeopleError('invalid', `${what} must be a whole number`);
+}
+
 export const MAX_PAGE_SIZE = 100;
 
 export const DEFAULT_PAGE_SIZE = 50;
@@ -147,6 +155,29 @@ export interface ReporterRow {
   peers: boolean | null;
 }
 
+/** How many reporters of one name run one version, among those heard from since a time (#862). */
+export interface ReporterVersionCount {
+  reporterName: string;
+  version: string;
+  machines: number;
+}
+
+/** How many reporters of one name run one version on one operating system, among those heard from since a time (#724). `os` is the text the reporter sent, or null when it sent none. */
+export interface ReporterPlatformCount {
+  reporterName: string;
+  version: string;
+  os: string | null;
+  machines: number;
+}
+
+/** What a database says about itself (#862): the engine's name and version, the schema version Podium reached, and the size when it can be told. */
+export interface StorageInfo {
+  engine: string;
+  version: string;
+  schemaVersion: number;
+  sizeBytes: number | null;
+}
+
 export interface ReporterList extends Paged<ReporterRow> {
   /** When this server started: what "not since restart" is counted from. */
   serverStartedAt: number;
@@ -248,6 +279,10 @@ export interface SessionRow {
   model_label: string | null;
   /** The company or service behind the model (#940); NULL when no report has given one. */
   model_provider: string | null;
+  /** The days the harness lets a person resume this session once it is closed (#1113); chat is kept that long. NULL when no report has said (every session stored before this, or an old reporter): the default of 30 days applies. */
+  resume_window_days?: number | null;
+  /** What the harness sent the reporter in this session (#724): a JSON object of signal name (`hook:...`, `field:...`) to count. NULL when no report has sent any (an older reporter, or a session stored before this). */
+  signals_json?: string | null;
 }
 
 export interface AgentRow {
@@ -276,6 +311,8 @@ export interface AgentRow {
   last_tool: string | null;
   tool_calls: number;
   tool_counts_json: string | null;
+  /** What each tool did beyond being called (#721), as JSON of tool name to counts: failures, permission asks and call lengths. NULL from a reporter that does not send it. */
+  tool_stats_json: string | null;
   usage_json: string | null;
   blowouts: number;
   steps_done: number | null;
@@ -309,6 +346,24 @@ export interface BlowoutRow {
   kind: string;
   tokens_before: number | null;
   tokens_after: number | null;
+}
+
+/**
+ * The time one session has spent blocked on its person (#722), added up as its reports arrive. Only names and times: never a question, a plan or a
+ * tool's input. A row exists from the first report stored after the upgrade (`tracked_since`), so a session older than that is told apart from one
+ * that never waited. An open wait is the one in progress (`open_kind` since `open_since`, server milliseconds); it closes on the next report.
+ */
+export interface SessionWaitRow {
+  session_id: string;
+  permission_ms: number;
+  permission_n: number;
+  question_ms: number;
+  question_n: number;
+  plan_ms: number;
+  plan_n: number;
+  tracked_since: number;
+  open_kind: 'permission' | 'question' | 'plan' | null;
+  open_since: number | null;
 }
 
 export interface SampleRow {
@@ -498,10 +553,21 @@ export interface PurgeRecordingsResult {
 
 export type StoredState = Exclude<RecordingState, 'off'>;
 
+/** The longest source address stored, and so the longest one a key holds: a key column can be bounded in one adapter and not another, so the cut is made here, once, for all (#1153). */
+export const SOURCE_MAX = 120;
+
 /** The key a reporter is known by. */
 export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'reporterName'>): string {
-  const base = s.machineId ? s.machineId : `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+  const base = s.machineId ? s.machineId : `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source?.slice(0, SOURCE_MAX) ?? 'unknown'}`;
   return base + nameSuffix(s.reporterName);
+}
+
+/** The longest owner name a second account's key holds, cut here for the same reason as `SOURCE_MAX` (#1153). */
+export const OWNER_KEY_MAX = 120;
+
+/** The key a second account on one machine is filed under: `<machine id>#<owner>` plus the name suffix (#221). */
+export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> & { owner?: string | null }): string {
+  return `${s.machineId}#${(s.owner ?? '').slice(0, OWNER_KEY_MAX)}${nameSuffix(s.reporterName)}`;
 }
 
 /**

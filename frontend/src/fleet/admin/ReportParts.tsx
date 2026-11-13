@@ -5,11 +5,13 @@ import { useEffect, useId, useState } from "react";
 import { query, type Paged } from "./adminApi";
 import { Pager } from "./Pager";
 import { Choice } from "./Page";
+import { SortArrow, useHeldColumns } from "./heldColumns";
 import {
   BYS,
   PERIODS,
   chartPoints,
   formatCell,
+  harnessName,
   isNumericColumn,
   type PeriodId,
   type ReportColumn,
@@ -120,6 +122,27 @@ function NameSelect(props: { label: string; all: string; none: string; value: st
   );
 }
 
+/** The Tools report's harness filter: every harness the period holds, by the name it goes by. */
+export function HarnessSelect(props: { value: string; ids: string[]; onChange: (v: string) => void }) {
+  const id = useId();
+  const ids = props.value && !props.ids.includes(props.value) ? [props.value, ...props.ids] : props.ids;
+  return (
+    <div className="f">
+      <label className="lab" htmlFor={id}>
+        Harness
+      </label>
+      <select className="field" id={id} value={props.value} onChange={(e) => props.onChange(e.target.value)}>
+        <option value="">All harnesses</option>
+        {ids.map((h) => (
+          <option key={h} value={h}>
+            {harnessName(h)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 const BUCKET: Record<string, string> = { day: "Days are in", week: "Weeks start Monday, in", month: "Months are in" };
 
 /** What the figures are based on, and how far back the data goes. */
@@ -141,7 +164,8 @@ export function partialText(reply: ReportReply): string | null {
 }
 
 /** Period and filters: the controls, the partial-history message and the time-zone line. No panel of its own. */
-export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportState }) {
+/** `harnesses` are the ids the Harness filter offers, when the report the page is built on does not name them (#722). */
+export function ReportFilters({ client, r, harnesses }: { client: ReportsClient; r: ReportState; harnesses?: string[] }) {
   const { cfg, prefs, setPrefs, problem, reply } = r;
   const periodId = useId();
   const fromId = useId();
@@ -199,6 +223,7 @@ export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportS
         )}
         {cfg.filters.includes("person") && <NameSelect label="Person" all="Everyone" none="No owner" value={prefs.person} names={choices.people} onChange={(person) => setPrefs({ person })} />}
         {cfg.filters.includes("group") && <NameSelect label="Group" all="All groups" none="No group" value={prefs.group} names={choices.groups} onChange={(group) => setPrefs({ group })} />}
+        {cfg.filters.includes("harness") && <HarnessSelect value={prefs.harness} ids={harnesses ?? r.reply?.harnesses ?? []} onChange={(harness) => setPrefs({ harness })} />}
         {cfg.filters.includes("model") && <NameSelect label="Model" all="All models" none="Unknown model" value={prefs.model} names={choices.models} onChange={(model) => setPrefs({ model })} />}
         {cfg.kinds && (
           <div className="f">
@@ -241,7 +266,8 @@ export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportS
 }
 
 /** The bars: one per period, in a neutral ink (hues mean model and status). An unknown period is a gap, not a zero. */
-export function ReportChart({ rows, valueKey, column, unit, by }: { rows: ReportRow[]; valueKey: string; column: ReportColumn; unit: string; by?: string }) {
+/** `axis` writes the figures beside the plot when the exact one is too long for the 44 px beside it, such as 20h for 20h 06m; the labels read by a screen reader keep the exact figure. */
+export function ReportChart({ rows, valueKey, column, unit, by, axis }: { rows: ReportRow[]; valueKey: string; column: ReportColumn; unit: string; by?: string; axis?: (v: number) => string }) {
   const points = chartPoints(rows, valueKey);
   if (points.length === 0) return null;
   const known = points.filter((p) => p.value !== null) as { period: string; value: number }[];
@@ -250,6 +276,7 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
   const top = known.find((p) => p.value === max)!;
   const sum = known.reduce((n, p) => n + p.value, 0);
   const fmt = (v: number) => formatCell(column, v);
+  const tick = axis ?? fmt;
   const label = `${unit}${by ? ` per ${by}` : ""}: ${points.length} ${points.length === 1 ? "period" : "periods"} from ${points[0]!.period} to ${points[points.length - 1]!.period}, highest ${fmt(max)} on ${top.period}, ${fmt(sum)} in all.`;
   const W = 600;
   const slot = W / points.length;
@@ -260,9 +287,9 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
     <div className="chart">
       <div className="plot">
         <div className="yl" aria-hidden="true">
-          <span style={{ top: 20 }}>{fmt(max)}</span>
-          <span style={{ top: 70 }}>{fmt(max / 2)}</span>
-          <span style={{ top: 110 }}>{fmt(0)}</span>
+          <span style={{ top: 20 }}>{tick(max)}</span>
+          <span style={{ top: 70 }}>{tick(max / 2)}</span>
+          <span style={{ top: 110 }}>{tick(0)}</span>
         </div>
         <svg viewBox="0 0 600 120" role="img" aria-label={label} preserveAspectRatio="none">
           <line className="gl" x1="0" x2={W} y1="20" y2="20" />
@@ -286,10 +313,10 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
   );
 }
 
-const OLDER = "Older than 30 days";
+export const OLDER = "Older than 30 days";
 
 /** A failure row's links to History for the sessions it counts, while those sessions are still stored. */
-function historyHref(period: unknown, id: string): string {
+export function historyHref(period: unknown, id: string): string {
   const p = typeof period === "string" ? period : "";
   const day = /^\d{4}-\d{2}$/.test(p) ? `${p}-01` : p;
   return `#/history?day=${encodeURIComponent(day)}&page=1&size=50&open=${encodeURIComponent(id)}`;
@@ -335,21 +362,56 @@ function Cell({ col, row, sample, breakdown }: { col: ReportColumn; row: ReportR
   return <td className={time ? "mono muted nowrap" : v === null || v === undefined ? "muted" : undefined}>{formatCell(col, v)}</td>;
 }
 
-export function ReportTable({ reply, label, page, pageSize, history, breakdown = "" }: { reply: ReportReply; label: string; page: number; pageSize: number; history: boolean; breakdown?: string }) {
+/** Rows in the order a clicked heading asks for. A missing value goes last either way; ties keep the order the server sent. `shown` reads a cell as the table prints it, so the order matches the words on screen. */
+function sortRows(rows: ReportRow[], key: string, dir: 1 | -1, numeric: boolean, shown: (row: ReportRow) => unknown): ReportRow[] {
+  const missing = (v: unknown) => v === null || v === undefined || (numeric && !Number.isFinite(Number(v)));
+  const cmp = (a: unknown, b: unknown) => (numeric ? Number(a) - Number(b) : String(a).localeCompare(String(b)));
+  return rows
+    .map((row, i) => ({ row, i, v: shown(row) }))
+    .sort((x, y) => {
+      const a = x.v;
+      const b = y.v;
+      if (missing(a) || missing(b)) return missing(a) && missing(b) ? x.i - y.i : missing(a) ? 1 : -1;
+      return cmp(a, b) * dir || x.i - y.i;
+    })
+    .map((x) => x.row);
+}
+
+export function ReportTable({ reply, label, page, pageSize, history, breakdown = "", onSort }: { reply: ReportReply; label: string; page: number; pageSize: number; history: boolean; breakdown?: string; onSort?: () => void }) {
   const cols = reply.columns;
-  const shown = reply.rows.slice((page - 1) * pageSize, page * pageSize);
+  // A heading sorts every row of the period, then the page is cut from that. A new reply is a new table and starts in the server's order.
+  const [sort, setSort] = useState<{ reply: ReportReply; key: string; dir: 1 | -1 } | null>(null);
+  // Sorting changes which rows are on the page; the columns are held where they were so none moves (#1144).
+  const { head, hold, tableStyle, cols: colgroup } = useHeldColumns(reply);
   const sample = (key: string) => reply.rows.find((x) => x[key] !== null && x[key] !== undefined)?.[key];
+  const active = sort && sort.reply === reply ? sort : null;
+  const ordered = active ? sortRows(reply.rows, active.key, active.dir, isNumericColumn(cols.find((c) => c.key === active.key) ?? { key: active.key, label: "" }, sample(active.key)), (row) => (active.key === "key" ? keyText(row[active.key], breakdown) : row[active.key])) : reply.rows;
+  const shown = ordered.slice((page - 1) * pageSize, page * pageSize);
   const total = reply.total && typeof reply.total === "object" ? reply.total : null;
+  const sortBy = (c: ReportColumn, numeric: boolean) => {
+    hold();
+    // The first click shows the most of a number (largest first) or the start of text and dates (oldest, A to Z); the next click reverses it.
+    setSort({ reply, key: c.key, dir: active?.key === c.key ? (active.dir === 1 ? -1 : 1) : numeric ? -1 : 1 });
+    onSort?.();
+  };
   return (
     <div className="tw2">
-      <table className="ptab" aria-label={label}>
+      <table className="ptab" aria-label={label} style={tableStyle}>
+        {colgroup}
         <thead>
-          <tr>
-            {cols.map((c) => (
-              <th key={c.key} scope="col" className={isNumericColumn(c, sample(c.key)) ? "n" : undefined}>
-                {c.label}
-              </th>
-            ))}
+          <tr ref={head}>
+            {cols.map((c) => {
+              const numeric = isNumericColumn(c, sample(c.key));
+              const on = active?.key === c.key;
+              return (
+                <th key={c.key} scope="col" className={numeric ? "n" : undefined} aria-sort={on ? (active.dir === 1 ? "ascending" : "descending") : "none"}>
+                  <button type="button" className="thbtn" onClick={() => sortBy(c, numeric)}>
+                    {c.label}
+                    <SortArrow dir={on ? active.dir : 0} />
+                  </button>
+                </th>
+              );
+            })}
             {history && <th scope="col">History</th>}
           </tr>
         </thead>
@@ -457,7 +519,7 @@ export function ReportBody({ r }: { r: ReportState }) {
         // A partial period already said why above; the empty line is for a period Podium covers and found nothing in.
         !reply.partial && <div className="empty">Nothing was recorded in this period.</div>
       ) : (
-        <ReportTable reply={reply} label={cfg.title} page={page} pageSize={prefs.pageSize} history={cfg.report === "failures"} breakdown={prefs.breakdown} />
+        <ReportTable reply={reply} label={cfg.title} page={page} pageSize={prefs.pageSize} history={cfg.report === "failures"} breakdown={prefs.breakdown} onSort={() => r.setPage(1)} />
       )}
       {!empty && <Pager id={`rep-${cfg.report}`} page={page} pageSize={prefs.pageSize} total={reply.rows.length} onPage={r.setPage} onSize={(pageSize) => r.setPrefs({ pageSize })} />}
     </>

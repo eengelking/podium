@@ -47,6 +47,7 @@ this page is the one place that shows everything still on its way out.
 | Feature | Announced | Removed | Use instead |
 |---|---|---|---|
 | [Reporter tokens over plain HTTP](#reporter-tokens-over-plain-http) | 1.5 | 1.8 | A reporter config and the reporter port, over [built-in TLS](SERVER.md#built-in-tls) |
+| [The Traffic page](#the-traffic-page) | 1.6 | 1.9 | [Chat](user-guide/04-reading-the-console/16-chat.md), where the same conversations are Direct Messages |
 
 ### Reporter tokens over plain HTTP
 
@@ -60,6 +61,19 @@ trade-off, and [SPEC 7.7](spec/07-server/07-07-hardening.md) lists the warnings)
 - **What to do:** turn on built-in TLS, give each person a reporter config in Admin > People, and turn off **Allow reporters to connect
   over HTTP** once every reporter has its config. The steps are under "Decide about plain HTTP" in [SERVER.md](SERVER.md#built-in-tls).
   The reporter side is "Over TLS" in [REPORTER.md](REPORTER.md#over-tls).
+
+### The Traffic page
+
+The **Traffic** page (`#/traffic`), the map and table of which orchestrators message which, was replaced by Chat in 1.6. The same
+conversations are its Direct Messages, with the same Pause link and Remove link, and a person can read back, page to older
+messages and add to one.
+
+- **Announced in 1.6, removed in 1.9.** From 1.9 the page's code and `GET /api/fleet/peers/traffic` are gone.
+- **What keeps working:** `GET /api/fleet/peers/traffic` and its tests. The top bar's Traffic link is now Chat, and `#/traffic` opens
+  Chat at once, so the page and the note it carries are not shown.
+- **What to do:** open **Chat** from the top bar. The map and the per-range counts have no Chat equivalent; read the conversations
+  there. Anything that calls `GET /api/fleet/peers/traffic` should move to the routes in
+  [SPEC 7.1](spec/07-server/07-01-endpoints.md#routes-for-chat-1034) before 1.9.
 
 ## Removed
 

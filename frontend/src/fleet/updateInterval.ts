@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { readJson, writeJson } from "./storage";
 import type { FleetState } from "./store";
 
@@ -18,6 +19,16 @@ export function writeUpdateEvery(every: number): void {
   writeJson(UPDATE_KEY, every);
 }
 
+/** The stored interval and a setter that saves it, the way useShortcuts keeps the Shortcuts switch. */
+export function useUpdateEvery(): [number, (every: number) => void] {
+  const [every, setEvery] = useState(readUpdateEvery);
+  const set = useCallback((next: number) => {
+    setEvery(next);
+    writeUpdateEvery(next);
+  }, []);
+  return [every, set];
+}
+
 /**
  * True when `next` holds something the viewer should not wait for: a change of connection phase, a change to the wall settings or flags or a session that left, a session that
  * starts waiting for them or goes stale, or an agent that has newly failed. Everything else waits for the interval.
@@ -25,6 +36,11 @@ export function writeUpdateEvery(every: number): void {
 export function isUrgentChange(held: FleetState, next: FleetState): boolean {
   if (held === next) return false;
   if (held.phase !== next.phase) return true;
+  // Chat reads again at once on a signal, not at the next redraw tick (#1034).
+  if (held.chatRev !== next.chatRev) return true;
+  // Who reads a person's sessions is told at once too: the notice is the person's guard (#1073, #1074).
+  if (held.readsRev !== next.readsRev) return true;
+  if (held.replayRev !== next.replayRev) return true;
   // The viewer's own clicks (close a notice, remove a session, show or hide background sessions) come back as these.
   if (held.wall !== next.wall || held.features !== next.features || Object.keys(held.gone).length !== Object.keys(next.gone).length) return true;
   for (const s of Object.values(next.sessions)) {

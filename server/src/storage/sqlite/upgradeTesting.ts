@@ -1,15 +1,15 @@
-// Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28),
-// holding the given requests in the order given. Opening it as a storage then runs migrations 26 to 29 on rows that exist.
+// Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28) and peer messages an author (31), a person's link the one who paused it (32),
+// holding the given requests and messages in the order given. Opening it as a storage then runs migrations 26 to 32 on rows that exist.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
 import { openSqliteStorage } from './index.js';
-import type { LegacyReporter, LegacyRequest, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
-export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = []): { storage: Storage; dir: string } {
+export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = []): { storage: Storage; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'podium-upgrade-'));
   const file = path.join(dir, 'podium.sqlite');
   const old = openDb(file, 25);
@@ -34,6 +34,20 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     insertSession.run(x.id, x.name, x.startedAt, x.startedAt, x.model, x.costUsd);
     if (x.agent) insertAgent.run(x.id, x.agent, x.startedAt);
   }
+  const insertMessage = old.prepare(
+    `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
+     VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
+  );
+  for (const x of messages) insertMessage.run(x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq);
+  const insertRight = old.prepare('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, 0)');
+  for (const x of rights) insertRight.run(x.fromKey, x.toKey, x.owner, x.level, Number(x.paused));
   old.close();
+  if (adminReads.length > 0) {
+    // The Admin read records come from migration 33; migration 34 gave them a kind, so the rows go in at the schema before it.
+    const mid = openDb(file, 33);
+    const insertRead = mid.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?)');
+    for (const x of adminReads) insertRead.run(x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt);
+    mid.close();
+  }
   return { storage: openSqliteStorage(file, 0), dir };
 }

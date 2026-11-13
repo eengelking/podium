@@ -20,7 +20,7 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
 - `ActivityStore` lives on the `Fleet` and holds two maps in process memory. One holds leases (session, then loop
   key: an agent id or `@orchestrator`), each with its start, its expiry and a ring of the last 20 entries numbered
   by `seq`. The other records whether each session's reporter has the option on (`SessionView.activityFeed`).
-- `GET .../agents/:agentId/activity?every=` takes or renews a lease for `every` seconds plus
+- `GET .../agents/:agentId/activity?every=` needs a sign-in as the session's owner or an Admin, checked before any lease is taken (#1082: 401, then 403). An Admin's read of another person's loop is recorded and the owner told (`RespondAccess.agentRead`, kind `live`). It takes or renews a lease for `every` seconds plus
   `ACTIVITY_LEASE_SLACK_MS` (15 s).
 - The report route answers with `watch`, the loops under a live lease.
 - `Fleet.ingest` hands each validated report to the store, which merges only watched loops' entries. It skips any
@@ -41,7 +41,10 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
 - `transport.ts` keeps the reply's `watch` list, and `flushOnce` hands it to `setWatched` in `state.ts` (an empty
   list when the option is off). A loop dropping off the list forgets its ring.
 - `tool.call` adds an entry (`activityCall` in `failures.ts`). A watched `turn.step` reads its text chunks as they
-  pass (`activityText`). Both go through `addActivity`, which does nothing for a loop that is not watched.
+  pass (`activityText`). Both go through `addActivity`, which does nothing for a loop that is not watched. A call that starts
+  while its step is still streaming waits in `steps` and is added right after the step's text, which is stamped with the time the
+  step began (#899), so the feed lists the text first and the call after it, and the server's rule that an entry never goes
+  back in time holds.
 - `report.ts` sends `session.activityFeed` always, and a loop's `activity` only when the option is on and the
   ring is not empty, within a 60,000-character budget per report.
 - Since #431 an entry may also carry a Bash call's `id`, whole `command` and, with the `activityOutput` option and the

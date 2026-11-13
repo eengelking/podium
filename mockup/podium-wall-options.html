@@ -1,0 +1,293 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Wall options (#1129)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style id="proposed">
+/* PROPOSED for fleet.css (#1129). These rules replace `.bannerctl` and `.banner.has-picker .themepick`. They are the whole of the new
+   look: one EdgeTab placement (`edge-tab-opts`) and the drawer it opens (`.wallopts`). Every color is a token; sizes come from scale.html
+   (24 px pill, 8 px radius, 1 px border, 6 px tip gap, .15s motion). */
+.podium .banner.has-picker > span:first-child { flex: 1 1 220px; min-width: 0; }
+/* The drawer keeps the same border box shut and open, so opening it never moves the wall below by a pixel. */
+/* The pill keeps the drawer's top-left corner; only the controls wrap, inside their own box, so the pill never sits alone on a line. */
+.podium .wallopts { margin-left: auto; display: inline-flex; align-items: flex-start; gap: 12px; max-width: 100%; padding: 1px; border: 1px solid transparent; border-radius: 8px; }
+.podium .wallopts.open { border-color: var(--border); background: var(--surface); }
+/* The pill is an EdgeTab that sits in the row instead of on an edge. Shut it shows a sliders glyph; open it shows a chevron pointing
+   right, the way the drawer folds. Its tip hangs below and lines up with the side it is on, so it never runs off the screen. */
+.podium .edge-tab-opts { position: relative; flex: none; }
+.podium .edge-tab-opts svg { width: 12px; height: 12px; }
+.podium .edge-tab-opts .knob { fill: currentColor; stroke: none; }
+.podium .edge-tab-opts::after { left: auto; right: 0; transform: none; }
+.podium .wallopts.open .edge-tab-opts::after { left: 0; right: auto; }
+.podium .wallopts-body { flex: 1 1 auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; min-width: 0; min-height: 24px; }
+.podium .wallopts-body[hidden] { display: none; }
+.podium .wallopts-body .field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.podium .wallopts-body .themepick { margin-left: 0; gap: 6px 16px; }
+.podium .wallopts-body .sel, .podium .wallopts-body .modeseg button { padding-block: 3px; }
+.podium .wallopts.open .wallopts-body { animation: wallopts-in .15s ease-out; }
+@keyframes wallopts-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .podium .wallopts.open .wallopts-body { animation: none; } }
+</style>
+<style>
+/* Mockup chrome for #1129. Everything inside a .frame is the app's own markup and classes (.top, .banner.has-picker, .field, .sel, .sw,
+   .themepick, .modeseg, .edge-tab) plus the PROPOSED block above. Colors come from tokens.css; this file has no :root block and no
+   color of its own. Only the review wrapper (.demo, .review, .note, .stage, .cmp, .pick, .show-tip, .isnew) is the mockup's. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.review { max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; }
+h1.t { font-size: 18px; margin: 0 0 4px; text-wrap: balance; }
+h2.t { font-size: 15px; font-weight: 650; margin: 36px 0 6px; text-wrap: balance; }
+h3.t { font-size: 13px; font-weight: 600; margin: 18px 0 6px; }
+.review p { margin: 0 0 8px; color: var(--ink2); max-width: 74ch; }
+.review code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.note { margin: 8px 0 0; font-size: 12px; color: var(--muted); max-width: 74ch; }
+.frame.podium { width: var(--w, 100%); max-width: 100%; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: visible; height: auto; margin-top: 8px; }
+.frame.podium > :first-child { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.frame.podium .banner { position: relative; }
+.stage { min-height: 120px; padding: 16px; background: var(--bg); color: var(--muted); font-size: 12px; display: grid; place-items: center; border-radius: 0 0 8px 8px; border-top: 1px dashed var(--grid); }
+.stage.short { min-height: 44px; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px; align-items: start; }
+.narrow { --w: 400px; }
+.cap { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.podium .edge-tab.show-tip::after { opacity: 1; }
+.isnew { outline: 2px dashed var(--sonnet); outline-offset: 3px; border-radius: 8px; }
+table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 980px; }
+.cmp th, .cmp td { text-align: left; padding: 6px 16px 6px 0; vertical-align: top; border-bottom: 1px solid var(--grid); }
+.cmp th { color: var(--muted); font-weight: 600; }
+.cmp td:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
+.tbl { overflow-x: auto; }
+.pick { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 16px; max-width: 80ch; margin-top: 8px; }
+.pick ul, .pick ol { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--ink2); }
+.pick b { color: var(--ink); }
+.log { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); margin-top: 6px; min-height: 1.5em; }
+@media (max-width: 520px) { .pair { grid-template-columns: 1fr; } .narrow { --w: 100%; } }
+</style>
+
+<div class="demo" role="region" aria-label="Mockup controls">
+  <b>Wall options, #1129</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+    <button type="button" data-mode="dark" aria-pressed="false">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width of the live frame">Live frame
+    <button type="button" data-width="100%" aria-pressed="true">Wide</button>
+    <button type="button" data-width="400px" aria-pressed="false">400 px</button>
+  </span>
+  <span>The Theme and mode inside a drawer change this page too.</span>
+</div>
+
+<main class="review">
+  <h1 class="t">Fold the display controls into a Wall options drawer</h1>
+  <p>Refresh every, Shortcuts, Theme and Light / Dark / System are set once and rarely touched, but today they fill the right of the banner on every visit, and six pages each draw their own copy. This folds them into one shared drawer, <code>WallOptions</code>, that every page renders the same way.</p>
+
+  <h2 class="t">Try it</h2>
+  <p>Shut, the right of the banner shows one pill. Hover or focus it to read "Wall options". Click it to open the drawer: the pill moves to the drawer's left end and turns into its collapse button, and the four controls follow in today's order. Close it with that button, a click anywhere outside the drawer, or Escape, which puts focus back on the pill.</p>
+  <div class="frame podium" id="live">
+    <header class="top" id="podium-top"><a class="logo" href="#live" aria-label="Podium, fleet"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"></path></svg>Podium</a><span class="pill" data-testid="page-pill">Fleet</span><span class="pill" role="status" data-testid="connection-pill" data-state="live"><span class="dot running" aria-hidden="true"></span>1 reporter live</span><span class="spacer"></span><a class="btn" href="#live">Board</a><a class="btn" href="#live">History</a><button type="button" class="btn wall-enter" aria-label="Enter wall mode" title="Collapse everything for a wall display">Wall mode</button><span class="tb-sep" aria-hidden="true"></span><span class="tb-me"><span class="tb-who" tabindex="-1"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"></circle><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"></path></svg>Signed in as <b>Ed</b></span><button type="button" class="btn">Sign out</button></span><button type="button" class="edge-tab edge-tab-top" aria-expanded="true" aria-controls="podium-top" aria-label="Hide top bar" data-tip="Hide top bar"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5"></path></svg></button></header>
+    <div class="banner has-picker" role="region" aria-label="Display settings">
+      <span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span>
+      <div data-wo></div>
+    </div>
+    <div class="stage">The wall. A click here closes the drawer.</div>
+  </div>
+  <div class="log" id="log" aria-live="polite"></div>
+  <p class="note">At 400 px the top bar here does not wrap the way the app's does, because the app's narrow rules key on the window, not on this frame. The banner and the drawer use no width rule at all: they wrap on their own, so they look the same in a narrow frame as in a narrow window. The built page is checked at 400 px and 1440 px with <code>scripts/page-shot.mjs</code> once the code is written.</p>
+
+  <h2 class="t">Shut, tip, open</h2>
+  <h3 class="t">Wide, shut</h3>
+  <div class="frame podium"><div class="banner has-picker"><span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span><div data-wo="tip"></div></div><div class="stage short">Hover shows the tip</div></div>
+  <p class="cap">One pill, with its tip lined up on its right edge so it stays on screen.</p>
+  <h3 class="t">Wide, open</h3>
+  <div class="frame podium"><div class="banner has-picker"><span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span><div data-wo="open"></div></div><div class="stage short">Open in place, on the banner's own row</div></div>
+  <p class="cap">The pill is now the collapse button at the left end, before Refresh every. Its tip reads "Hide wall options". When the window is too narrow for the text and the drawer side by side, the text wraps first, then the drawer drops to its own row.</p>
+  <div class="pair">
+    <div>
+      <h3 class="t">400 px, shut</h3>
+      <div class="frame podium narrow"><div class="banner has-picker"><span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span><div data-wo></div></div><div class="stage short">The text wraps; the pill keeps its corner</div></div>
+    </div>
+    <div>
+      <h3 class="t">400 px, open</h3>
+      <div class="frame podium narrow"><div class="banner has-picker"><span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span><div data-wo="open"></div></div><div class="stage short">The drawer takes its own row and wraps inside it</div></div>
+      <p class="cap">Nothing runs off the side: the drawer is at most the banner's width and its controls wrap.</p>
+    </div>
+  </div>
+
+  <h2 class="t">The same on every page</h2>
+  <p>These are the six banners that show the row today, each with the one component. They share one setting store, as the pages do through <code>localStorage</code>: set Refresh every on Admin, then open Live fleet, and it shows the new value. History and Admin show and save Refresh every and Shortcuts even though they do not act on them yet.</p>
+  <div id="pages"></div>
+
+  <h2 class="t">How it behaves</h2>
+  <div class="tbl">
+  <table class="cmp">
+    <thead><tr><th scope="col">What</th><th scope="col">How</th></tr></thead>
+    <tbody>
+      <tr><td>Start</td><td>Shut on every page load. Whether it was open is not stored.</td></tr>
+      <tr><td>Open</td><td>Click the pill, or Enter or Space on it. Focus stays on the pill, which is now at the drawer's left end; Tab goes on through Refresh every, Shortcuts, Theme and the mode radios, then out of the banner.</td></tr>
+      <tr><td>Close</td><td>The same pill (now the collapse button); a press anywhere outside the drawer; Escape, from anywhere on the page while it is open, which puts focus back on the pill.</td></tr>
+      <tr><td>Stays open</td><td>Any click inside the drawer: a select, picking a theme from it, the Shortcuts switch, a mode. Opening the Keyboard shortcuts list from the word Shortcuts keeps the drawer open behind it, and Escape closes the list first.</td></tr>
+      <tr><td>Names</td><td>The pill is a button with <code>aria-expanded</code> and <code>aria-controls</code> pointing at the controls. Its name says what a click does, as every EdgeTab's does: "Wall options" shut, "Hide wall options" open. The tip carries the same words.</td></tr>
+      <tr><td>Settings</td><td>Unchanged: <code>podium.updateEvery</code>, <code>podium.shortcuts</code> and the theme and mode keys. Each page passes what it has (the live interval on the console pages); History and Admin read and write the stored value directly.</td></tr>
+      <tr><td>Motion</td><td>The controls slide 8 px in from the right over .15s as the drawer opens, and not at all with reduced motion. Where the text and the drawer fit on one row, shut and open have the same height, so the wall below does not move.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 class="t">Standards change</h2>
+  <p>Collapse and open controls are <code>EdgeTab</code> (<code>components.html#top-bar</code>, #626). This keeps that rule and widens EdgeTab by one placement rather than adding a new kind of button.</p>
+  <div class="pick">
+    <b>Proposed</b>
+    <ol>
+      <li><b>EdgeTab gains a placement, <code>opts</code>.</b> Same 32 by 24 pill, border, radius, hover and tip as the others. It sits in the row at the right end of the banner instead of on an edge, and its tip lines up with the side it is on. Shut it draws a sliders glyph, the one EdgeTab that does not draw a chevron, because what it opens has no edge to point at. Open it draws the chevron pointing right, the way the drawer folds.</li>
+      <li><b>A new component, Wall options (<code>components/WallOptions.tsx</code>, <code>.wallopts</code>),</b> in the Top bar section: the pill plus the four controls, the only way a page shows them. It replaces <code>.bannerctl</code>, which goes away.</li>
+      <li><b>One pill for open and close.</b> The issue asks for an icon that opens the drawer and a collapse button at the drawer's left end. Here they are the same button: it moves from the right end to the left end as the drawer opens. That keeps focus where it was, keeps <code>aria-expanded</code> on a button that is always there, and matches how the top bar's and the panes' EdgeTabs work.</li>
+    </ol>
+    <p class="note">If you would rather keep EdgeTab to chevrons only, the other way is a separate icon button (a new component) that hides while the drawer is open, with a chevron EdgeTab as the collapse button inside it. It costs one more component, two buttons for one action, and focus that has to be moved by hand on open.</p>
+  </div>
+
+  <h2 class="t">For review</h2>
+  <ul class="pick">
+    <li>Accept the one-pill design (EdgeTab <code>opts</code> with the sliders glyph), or ask for the separate icon button.</li>
+    <li>The name and tip: "Wall options" shut and "Hide wall options" open.</li>
+    <li>The drawer on <code>--surface</code> with a <code>--border</code> outline inside the <code>--raised</code> banner.</li>
+  </ul>
+</main>
+
+<template id="wo">
+  <div class="wallopts">
+    <button type="button" class="edge-tab edge-tab-opts" aria-expanded="false"></button>
+    <div class="wallopts-body" hidden>
+      <label class="field"><span>Refresh every</span><select class="sel" data-k="every" title="How often the console redraws from new data"><option value="2">2s</option><option value="5">5s</option><option value="10">10s</option><option value="20">20s</option><option value="30">30s</option><option value="60">60s</option></select></label>
+      <span class="field"><span data-n>Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="false" data-k="shortcuts" title="Press \ for the top bar, [ and ] for the side panes, and w for wall mode. Esc leaves wall mode."></button><span data-s>Off</span></span></span>
+      <div class="themepick">
+        <label class="field"><span>Theme</span><select class="sel" data-k="theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+        <div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" data-m="light">Light</button><button type="button" role="radio" data-m="dark">Dark</button><button type="button" role="radio" data-m="system">System</button></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const SLIDERS = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3.5h9M1.5 8.5h9"/><circle class="knob" cx="4" cy="3.5" r="1.7"/><circle class="knob" cx="8" cy="8.5" r="1.7"/></svg>';
+  const CHEVRON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 1.5 7 5 3.5 8.5"/></svg>';
+  const PAGES = [
+    ["Live fleet", "Cost is an estimate from token counts and a price table, not a bill."],
+    ["My reporters", "Your own machines, and which of them may message each other."],
+    ["Traffic", "Which orchestrators message each other, and what they said."],
+    ["Chat", "Talk with your orchestrators and subagents, and read what they say to each other."],
+    ["Past sessions", "Read-only: built from what the server stored. Cost is an estimate, not a bill."],
+    ["Admin", "Tokens, groups, reporters and settings for this server."],
+  ];
+  const sys = window.matchMedia("(prefers-color-scheme: dark)");
+  const store = { every: "2", shortcuts: false, theme: "podium", mode: root.dataset.theme === "light" ? "light" : root.dataset.theme === "dark" ? "dark" : "system" };
+  const all = [];
+  let n = 0;
+  const log = (t) => { const l = document.getElementById("log"); if (l) l.textContent = t; };
+
+  const pages = document.getElementById("pages");
+  for (const [name, text] of PAGES) {
+    const f = document.createElement("div");
+    f.className = "frame podium";
+    f.innerHTML = `<div class="banner has-picker" role="region" aria-label="Display settings, ${name}"><span><b>${name}.</b> ${text}</span><div data-wo></div></div>`;
+    pages.append(f);
+  }
+
+  function apply() {
+    const dark = store.mode === "dark" || (store.mode === "system" && sys.matches);
+    root.dataset.themeName = store.theme;
+    root.dataset.theme = dark ? "dark" : "light";
+    root.style.colorScheme = dark ? "dark" : "light";
+    for (const b of document.querySelectorAll(".demo [data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === root.dataset.theme));
+    for (const w of all) w.sync();
+  }
+
+  function mount(slot) {
+    const id = `wo-${++n}`;
+    const el = document.getElementById("wo").content.firstElementChild.cloneNode(true);
+    const pill = el.querySelector(".edge-tab-opts");
+    const body = el.querySelector(".wallopts-body");
+    body.id = id;
+    pill.setAttribute("aria-controls", id);
+    const sw = el.querySelector("[role=switch]");
+    const nm = el.querySelector("[data-n]"), st = el.querySelector("[data-s]");
+    nm.id = `${id}-n`; st.id = `${id}-s`;
+    sw.setAttribute("aria-labelledby", `${id}-n ${id}-s`);
+    const radios = [...el.querySelectorAll("[role=radio]")];
+    let open = false;
+    const set = (o, focus) => {
+      open = o;
+      el.classList.toggle("open", o);
+      body.hidden = !o;
+      pill.setAttribute("aria-expanded", String(o));
+      const name = o ? "Hide wall options" : "Wall options";
+      pill.setAttribute("aria-label", name);
+      pill.dataset.tip = name;
+      pill.innerHTML = o ? CHEVRON : SLIDERS;
+      if (focus) pill.focus();
+    };
+    const w = {
+      el, get open() { return open; }, close: (focus) => set(false, focus),
+      sync() {
+        el.querySelector('[data-k="every"]').value = store.every;
+        el.querySelector('[data-k="theme"]').value = store.theme;
+        sw.setAttribute("aria-checked", String(store.shortcuts));
+        st.textContent = store.shortcuts ? "On" : "Off";
+        for (const r of radios) { const on = r.dataset.m === store.mode; r.setAttribute("aria-checked", String(on)); r.tabIndex = on ? 0 : -1; }
+      },
+    };
+    pill.addEventListener("click", () => { set(!open, false); log(open ? "Opened. Focus stays on the pill." : "Closed with the collapse button."); });
+    el.querySelector('[data-k="every"]').addEventListener("change", (e) => { store.every = e.target.value; apply(); log(`Refresh every ${store.every}s, saved to podium.updateEvery and shown on every page.`); });
+    el.querySelector('[data-k="theme"]').addEventListener("change", (e) => { store.theme = e.target.value; apply(); log("Theme applied at once; the drawer stays open."); });
+    sw.addEventListener("click", () => { store.shortcuts = !store.shortcuts; apply(); });
+    radios.forEach((r) => {
+      r.addEventListener("click", () => { store.mode = r.dataset.m; apply(); });
+      r.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const i = (radios.indexOf(r) + step + radios.length) % radios.length;
+        store.mode = radios[i].dataset.m; apply(); radios[i].focus();
+      });
+    });
+    const kind = slot.dataset.wo;
+    // The reference samples stay as drawn while you click around the page; the live frame and the six pages behave as the app will.
+    w.pinned = kind === "open" || kind === "tip";
+    slot.replaceWith(el);
+    set(kind === "open", false);
+    if (kind === "tip") pill.classList.add("show-tip");
+    all.push(w);
+  }
+
+  document.querySelectorAll("[data-wo]").forEach(mount);
+
+  // A press outside a drawer closes it. Pressing inside, a native select's list included, does not.
+  document.addEventListener("mousedown", (e) => {
+    for (const w of all) if (w.open && !w.pinned && !w.el.contains(e.target)) { w.close(false); log("Closed by a click outside."); }
+  });
+  // Escape closes the open drawer and puts focus back on its pill.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const w of all) if (w.open && !w.pinned) { w.close(true); log("Closed with Escape; focus is back on the pill."); }
+  });
+
+  for (const b of document.querySelectorAll(".demo [data-mode]")) b.addEventListener("click", () => { store.mode = b.dataset.mode; apply(); });
+  for (const b of document.querySelectorAll(".demo [data-width]")) b.addEventListener("click", () => {
+    document.getElementById("live").style.setProperty("--w", b.dataset.width);
+    for (const o of document.querySelectorAll(".demo [data-width]")) o.setAttribute("aria-pressed", String(o === b));
+  });
+  sys.addEventListener("change", apply);
+  apply();
+})();
+</script>

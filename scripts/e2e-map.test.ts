@@ -53,6 +53,14 @@ describe("mapProblems", () => {
     expect(mapProblems(repo(GOOD))).toEqual([]);
   });
 
+  it("fails on cy.wait with a number or any value that is not a named request, and lets cy.wait('@alias') through (#1056)", () => {
+    const wait = (body: string) => mapProblems(repo(GOOD, { "e2e/cypress/e2e/wall/cards.cy.js": `cy.tid('page-pill');\n${body}\n` }));
+    expect(wait("cy.wait('@answer');")).toEqual([]);
+    expect(wait("cy.wait(500);")).toEqual(["e2e/cypress/e2e/wall/cards.cy.js:2 waits on something other than a named request: use a retrying assertion, never cy.wait(<time>) (#1056)"]);
+    expect(wait("cy.wait(res.body.retryAfterSec * 1000 + 500);")).toHaveLength(1);
+    expect(wait("cy.wait(ms);")).toHaveLength(1);
+  });
+
   it("names a spec file the map lists that no longer exists", () => {
     const bad = GOOD.replace("wall/rail.cy.js", "wall/gone.cy.js");
     const problems = mapProblems(repo(bad));

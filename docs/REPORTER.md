@@ -21,10 +21,12 @@ Contents:
 - [OpenCode settings](#opencode-settings)
 - [In the session](#in-the-session)
 - [Options](#options)
+- [The settings window](#the-settings-window)
 - [Over TLS](#over-tls)
 - [Messaging your other orchestrators](#messaging-your-other-orchestrators)
 - [What leaves the session](#what-leaves-the-session)
 - [Sessions without the mod](#sessions-without-the-mod)
+- [The OpenCode reporter: what it trusts](#the-opencode-reporter-what-it-trusts)
 
 ## Install the mod
 
@@ -143,14 +145,14 @@ See [what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts), 
 
 The OpenCode reporter reads these from the environment and `~/.podium/config.env`. A variable that is set, even to nothing, wins over the file. Each
 switch is off unless it is exactly `true`; `PODIUM_RESPOND` is the one that also takes a level name. Nothing here is read from `opencode.json`, except the
-five plugin options at the end of the table.
+five plugin options at the end of the table. `/podium config` changes four of them in the file from the terminal UI (see [The settings window](#the-settings-window)).
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `PODIUM_SERVER` | `http://127.0.0.1:4317` | Where reports go |
 | `PODIUM_TOKEN` | empty | Sent as `X-Podium-Token` |
 | `PODIUM_USER` | empty | The name your token was made for |
-| `PODIUM_IDLE_SECONDS` | `60` | A session is `done` after this long with no activity (at least 5), unless the OpenCode terminal UI is attached: then it stays `waiting` and keeps taking messages until it is closed or deleted (DECISIONS 59). Also the `idleSeconds` plugin option |
+| `PODIUM_IDLE_SECONDS` | `60` | A session is `done` after this long with no activity (at least 5), unless the OpenCode terminal UI is attached: then it stays `waiting` and keeps taking messages until it is closed or deleted (DECISIONS 59), and ends at once, not after this wait, when the last terminal UI closes (DECISIONS 65). Also the `idleSeconds` plugin option |
 | `PODIUM_REPORTER_CONFIG`, `PODIUM_REPORTER_CONTEXT` | empty | Which reporter config file to use over TLS (see [Over TLS](#over-tls)) |
 | `PODIUM_ACTIVITY_FEED` | off | The activity feed, as for Claude Code's `activityFeed` option. Answering needs it too |
 | `PODIUM_ACTIVITY_OUTPUT` | off | A shell call's output in the feed. Needs the feed on |
@@ -158,7 +160,7 @@ five plugin options at the end of the table.
 | `PODIUM_SESSION_RECORDING` | off | Allow session recording, as for `sessionRecording`. The person is told through a toast when a recording starts or stops |
 | `PODIUM_FILE_DIFF` | off | Send a changed file's diff on request, as for `fileDiff`. The list of changed files is always sent |
 | `PODIUM_RESPOND` | off | How far Podium may answer: `true` or `questions`, `questions-and-plans`, or `everything`. Needs `PODIUM_ACTIVITY_FEED` too, and the Admin's Respond from Podium switch |
-| `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send` and `podium_request_access` tools once Podium says the session takes part, and withdraws them if it stops (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
+| `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send`, `podium_request_access` and `podium_chat_read` tools once Podium says the session takes part, and withdraws them if it stops (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
 | `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with the cheapest small model in OpenCode's model list (an enabled chat model whose id names a Haiku, mini, nano, flash, lite or small tier) and uses OpenCode's default model only when none is listed (a chosen model that fails gives no explanation, so the expensive default is never the retry). The explanation ends with the model that wrote it. It is cut at 400 characters, and its cost is not counted anywhere |
 | `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds`, `fileDiffPreload` | `1000`, `5000`, empty, `60`, on | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named. `fileDiffPreload: false` turns off sending the diffs ahead of a request; it only narrows `PODIUM_FILE_DIFF`, so it never turns a diff on. These five are read only if OpenCode hands the plugin its options, and the PR that added them (#978) found they cannot be set on an auto-discovered plugin, which every install above is. That is not confirmed with a live run, so use the environment variable (`PODIUM_IDLE_SECONDS`) where one exists |
 
@@ -168,7 +170,7 @@ model, the plan (from the todo tool, or the name the `plan` tool gives it), the 
 
 Not available on OpenCode, and why:
 
-- **Messages after the session goes `done`.** A session reports `done` after `idleSeconds` of quiet (60 by default) unless the OpenCode terminal UI is attached. A `done` session is a closed one: a question or permission still open on it is closed as ended, and the session takes no message from Podium until it reports activity again, which reopens it under the same id. With the terminal UI attached it stays `waiting` and keeps taking messages (DECISIONS 59). Under `opencode --standalone` or with the service disabled, the command ending also ends the reporter.
+- **Messages after the session goes `done`.** A session reports `done` after `idleSeconds` of quiet (60 by default) unless the OpenCode terminal UI is attached. A `done` session is a closed one: a question or permission still open on it is closed as ended, and the session takes no message from Podium until it reports activity again, which reopens it under the same id. With the terminal UI attached it stays `waiting` and keeps taking messages (DECISIONS 59). When the last terminal UI closes, a session that is quiet at that moment reports `done` with `endReason: detached` at once, and its card leaves about ten seconds after the terminal closes (DECISIONS 65). A session that is running, or has a question or permission open, is kept. Under `opencode --standalone` or with the service disabled, the command ending also ends the reporter.
 - **`attached` is `true` or unknown, never `false`.** The reporter sees only its own terminal UI part. A session run from `opencode serve`'s web client, the desktop app or `opencode run` has a client it cannot see, and `false` would make Podium hide the card after a minute (the rule for a Claude Code session left running after `/exit`). So `attached` is `true` while the terminal UI part is attached and unknown (`null`) otherwise, and the console cannot tell a session left running without a terminal from one with a web client.
 - **Plan approval and `/clear`.** OpenCode has no plan-approval step and no equivalent of `/clear`, so the console does not offer them for an OpenCode session.
 - **The fork command.** The console's fork command is a shell line (`claude --resume <id> --fork-session`). Podium knows no OpenCode command line that starts a new session from a copy of one, so the cell reads as not available. The resume command works.
@@ -179,7 +181,7 @@ A plan's steps come from OpenCode's todo tool, which exists only with `experimen
 
 ## In the session
 
-The session appears in Podium once you send its first prompt. A session that has done nothing yet is kept
+The session is in Chat's People and agents list as soon as it starts, and it appears on the wall once you send its first prompt. A session that has done nothing yet is kept
 off the wall, because Claude Code's background daemon also runs idle twins and spares that report too (see
 "Sessions that have not done anything yet" in [docs/user-guide/](user-guide/README.md)).
 
@@ -197,6 +199,7 @@ off the wall, because Claude Code's background daemon also runs idle twins and s
     read such a text as true, so a consent option is never turned on by a stray value; it uses the default and the line
     says which option to fix.
 - In OpenCode `/podium` shows the same `Sign-in:`, `Messaging:` and `Context:` lines, and ends with the two commands below. `Messaging:` gives the reason it is off, the first that applies: `PODIUM_PEERS` is off, OpenCode cannot submit a prompt, there is no per-person token with a user name and no reporter config file, no session has reported yet, or Podium says no. There is no `interactive` fact and no `Option problem:` line. The answer is a toast, because the command has no way to print a reply. The status line also stays in the prompt's footer, not only as a toast on change.
+- `/podium config` opens the settings window, in Claude Code and in OpenCode (see [The settings window](#the-settings-window)).
 - `/podium name <text>` gives the session a display name. OpenCode keeps it in its plugin storage, so it survives a restart, and it wins over the title OpenCode gives the session and the `sessionName` option. Without one, a name you gave the session in Claude
   Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The title the Claude
   desktop app shows for the session comes next, read from `claude agents --json` about every 30 seconds (#595); it is
@@ -223,12 +226,48 @@ The status line under the prompt reads:
 Claude Code puts a `⚠` and the mod's name in front of the line. That is how it draws every mod's status
 line, not a Podium warning (see [docs/gotchas/](gotchas/README.md)).
 
+## The settings window
+
+`/podium config` opens a settings window (#1001). It shows the same groups in the same order with the same words in every harness:
+Consent (Respond from Podium, Message my other orchestrators, Share the activity feed), Connection (the server and your name), Timing and
+Context. Every change takes effect at the next start of the reporter, and each row says so. The token is never shown or set in it.
+
+| | Claude Code | OpenCode |
+|---|---|---|
+| What opens | A pane under the prompt, one control per setting; each control saves on its own. Esc closes it | A stack of the terminal UI's dialogs: the menu, then a list or a value for the row you pick. Esc closes each |
+| What you can change | `respond`, `peers`, `activityFeed`, `flushIntervalMs` (at least 200) and `heartbeatMs` (at least 1000) | `PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_ACTIVITY_FEED` and `PODIUM_IDLE_SECONDS` (at least 5) |
+| Where it writes | Where Claude Code keeps the plugin's options, through its own settings call, as the `/config` menu does | `~/.podium/config.env`, mode `0600` in a `0700` folder. Only those four keys; every other line, the token's included, is kept as it was |
+| Shown only | The server and your name (change them with `/plugin configure podium-reporter`), and the context (`/podium context use <name>`) | The server and your name (`PODIUM_SERVER` and `PODIUM_USER` in `~/.podium/config.env`), and the context |
+| A row it cannot change | A row your organization's managed settings own says `set by managed settings` | A row a `PODIUM_*` variable decides says `set by PODIUM_X` and shows the value the reporter runs with, not the file's. An `idleSeconds` in `opencode.json` wins over both and says `set by opencode.json` |
+| With no window | `claude -p`, or any mode with no surface to draw a pane: the command says `No settings window in this mode. Run /plugin configure podium-reporter.` | No terminal UI part attached: the command says the window needs the terminal UI, that your settings are in `~/.podium/config.env`, to edit it or set the `PODIUM_*` variables, and that they are read at the next start. Under `opencode run` the command is not run at all and the text goes to the model |
+
+A change is made only from your own pick in the window, in your own session. A project's files are never read for a consent option, and the
+reporter gives the model no tool that changes one. In OpenCode the terminal UI part writes the file itself; there is no RPC method that writes a setting (see
+[what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts)). It writes only when it runs on the same machine, with the same home,
+as the reporter: a terminal UI attached from another machine is told where the file is and changes nothing.
+
+Limits found so far:
+
+- **Claude Code keyboard.** The pane asks for the keyboard when it opens and again about 150 ms after the command returns. In a live run
+  (Claude Code 2.1.319) the keys reached the pane with no click when the person waited about a second with an empty composer; a key typed in
+  the first moment went to the composer and the pane never took the keyboard. `ctrl+x`, then `Tab`, moves the keyboard into the pane at any time.
+  The footer also names `/plugin configure podium-reporter`.
+- **When a change takes effect.** Claude Code reloads the mod when one of its options changes. That was seen to apply the report interval,
+  but not shown for a consent option, so the window promises only the next start. The OpenCode reporter reads its settings at its start only.
+- **Desktop and web apps.** The Claude desktop app, VS Code and OpenCode's desktop and web apps have not been checked (#1122).
+- **Narrow terminals.** Below 60 columns both windows use short labels (`Respond`, `Peers`). An OpenCode dialog cuts a long line rather
+  than wrapping it. At 50 columns Claude Code draws the pane as a bottom pane of about 14 rows that does not scroll, so the last rows and the
+  footer are cut off; `/plugin configure podium-reporter` shows them all.
+- **Environment variables in Claude Code.** Claude Code ignores `PODIUM_*` variables, so its pane marks a row only when managed settings decide
+  it ("set by managed settings"). OpenCode marks a row a `PODIUM_*` variable decides.
+
 ## Options
 
 Set the mod's options with `/plugin configure podium-reporter@eengelking-marketplace`, or in
 `~/.claude/settings.json` under `pluginConfigs`, `podium-reporter@eengelking-marketplace`, `options`
 (`podium-reporter` for a copy loaded with `--plugin-dir`). Claude Code keeps `token` in its secure storage
-instead. Everything except `token` also has a row in the `/config` menu.
+instead. Everything except `token` also has a row in the `/config` menu. `/podium config` changes the consent and timing options from a
+pane (see [The settings window](#the-settings-window)).
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -239,8 +278,9 @@ instead. Everything except `token` also has a row in the `/config` menu.
 | `heartbeatMs` | `5000` | Report at least this often |
 | `sessionName` | empty | Display name override (below `/podium name` and the name set in Claude Code) |
 | `showStatus` | `true` | Show the status line entry |
-| `fullPrompts` | `false` | Send each agent's whole task prompt and final answer (up to 20,000 characters each, secrets redacted) so the console can open them in a modal. Off by default: only the first 400 characters leave the session. Everyone who can open the console can read them |
-| `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep Activity history: then the server asks for every running agent and the orchestrator, and stores what arrives until the Admin's period ends, readable only by you and the Admin. The orchestrator's own loop works the same way. Everyone who can open the console can watch. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
+| `fullPrompts` | `false` | Send each agent's whole task prompt and final answer (up to 20,000 characters each, secrets redacted) so the console can open them in a modal. Off by default: only the first 400 characters leave the session. Only the session's owner, signed in, and an Admin can read them, and an Admin's read is told to the owner |
+| `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep Activity history: then the server asks for every running agent and the orchestrator, and stores what arrives until the Admin's period ends, readable only by you and the Admin. The orchestrator's own loop works the same way. Only the session's owner, signed in, and an Admin can watch, and an Admin's read is told to the owner. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
+| `activityOutput` | `false` | Needs `activityFeed` on. While someone has a Bash command's row open in the console, send what the command printed (stdout then stderr, up to 20,000 characters, ANSI codes removed) and whether it failed. The server holds it in memory and never stores it. Secrets that look like secrets are replaced with `[redacted]`, but command output can hold what the redactor does not recognize: file contents, environment dumps, tokens of an unfamiliar shape. It needs the server's Bash output in the activity feed switch in Admin > Settings > Feature flags (off by default) |
 | `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. With `fileDiffPreload` on (below) it reads every changed file's diff while the owner has the session's page open. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
 | `fileDiffPreload` | `true` | Needs `fileDiff` on. While the session's owner has its page open in the console, read the diff of every changed file in the background so a file opens with no wait, and read it again when the file is edited again. The diffs are redacted as above, sit in the owner's browser page and are thrown away when the page is left; the server keeps none. This reads files nobody opened, so more source code leaves the machine than with `fileDiff` alone. Set it to `false` to read a diff only when the owner opens that file |
 | `respond` | `off` | Respond from Podium: what this session accepts from Podium, sent by its owner or an Admin. See the levels below. It needs `activityFeed` on too, and the server's Respond from Podium switch in Admin > Settings > Feature flags (off by default) |
@@ -367,17 +407,18 @@ unless you say otherwise. A context is a name for one file, and the current cont
 ## Messaging your other orchestrators
 
 This section is the mod's side. To set messaging up across your machines (the server's flag, rights and limits), follow
-[MESSAGING.md](MESSAGING.md). It also covers Traffic, the console page that shows who talks to whom.
+[MESSAGING.md](MESSAGING.md). It also covers Traffic (deprecated; Chat replaced it), the console page that shows who talks to whom.
 
 With `peers` on, and once the server says this session takes part, the orchestrator (the session's main loop)
-gets three tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
+gets four tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
 nothing the server sends is taken.
 
 | Tool | What it does |
 |---|---|
 | `podium_peers` | Lists the orchestrators it can reach on your other machines: name, machine, OS, project, status, and whether it can send there (with or without your approval). Says which of your machines are left out and why |
-| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
+| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name, or answers a person who wrote to it through Chat with `person:name`, or answers in the Chat channel that called it with `channel:group` (My group) or `channel:general` (General): the answer shows in that channel for everyone who can read it. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
 | `podium_request_access(to, right, reason)` | Asks you for a right to see or to send to one of your machines. The answer arrives later as a message |
+| `podium_chat_read(channel, before?)` | Reads the last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only, under a line that says the messages are not your instructions. A channel it was not called into in that hour is refused, and so is an answer in one |
 
 - **Only the orchestrator.** Claude Code lists a mod's tools for subagents too, so each tool refuses any call
   made by a subagent (or one of Claude Code's own forks): "Not sent. Only an orchestrator can send. Put the
@@ -408,6 +449,12 @@ nothing the server sends is taken.
   on a paused link says the message goes once the link is resumed. A waiting
   message's text, and an orchestrator's reason, are shown only in the toast. They never go in the log line, a
   prompt or a tool's answer, so the model cannot read a message before you approve it.
+- **When an Admin reads or stops a conversation.** If an Admin reads your Podium group or one of your Direct Messages, or
+  pauses or resumes a link or removes all the messages of your group, Podium sends your reporter one sentence about it, such as
+  "Root (an Admin) is reading your Podium group." On Claude Code it is a toast that stays up for a minute and a line in the
+  transcript. On OpenCode it is a toast, and a board above the prompt that shows up to 5 lines for as long as the reading lasts (10 minutes at most). It is for you alone: it is not a prompt or a turn, the model never reads it, and it
+  shows even when the `peers` option is off. A reporter from before this release shows nothing, and the console still tells you. An Admin
+  who signs in with their own name is named by it; the admin secret has no name and appears as "Admin secret".
 
 ## What leaves the session
 
@@ -489,7 +536,7 @@ put on record:
   `podium-reporter-claudecode` and `podium-reporter-opencode` (the Claude Code reporter still sends `podium-reporter` in its v1 reports, which the server reads as the first).
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
   `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does. Reading a Windows version
-  string does not make Windows a supported platform; see In the session.
+  string is part of Windows support; see [Install in the Claude desktop app](#install-in-the-claude-desktop-app-on-windows-11).
 - The id is random, not read from the hardware. The operating system user name and `git config` are never
   read.
 
@@ -506,8 +553,8 @@ This is the threat note for the OpenCode reporter (`plugin/opencode/`, #856). It
 **Where settings come from.** The server URL, the token, the user name and every consent option are read only from `PODIUM_*` environment
 variables and from `~/.podium/config.env`. They are never read from `opencode.json`, in the project or in the user's config. A project's
 `opencode.json` is part of a clone, so whoever wrote the repo wrote it: if it could set `serverUrl` it could send the token to its own server, and
-if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin option still read is
-`idleSeconds`, which gains an attacker nothing. A consent option is on only when it is exactly `true`
+if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin options still read are
+`idleSeconds`, `flushIntervalMs`, `heartbeatMs`, `sessionName` and `fileDiffPreload`, which gain an attacker nothing. A consent option is on only when it is exactly `true`
 (`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
 `PODIUM_FILE_DIFF`, `PODIUM_EXPLAIN_FAILURES`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
 The same holds for which reporter config file is used: `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT` come from those two places only, and `plugin/opencode/tls.test.ts` shows that an `opencode.json` that names a file, a context or a server changes none of them.
@@ -538,6 +585,14 @@ When messaging is on, framing that says a message came from another orchestrator
 **The TUI part.** Answering a question needs a second part of the plugin that runs in the terminal UI (`plugin/opencode/tui.ts`). It talks only to the server part, over
 OpenCode's plugin RPC for the same project, and it reads nothing from Podium. It replies to a form only when the server part hands it an answer, which the server part does
 only for an answer Podium delivered with the Admin's flags and `PODIUM_RESPOND` on.
+
+**The settings window.** `/podium config` (#1001) is drawn by the TUI part, and the TUI part writes `~/.podium/config.env` itself, only after the
+person picks a row and a value in its dialogs, and only the four keys on the allow-list in `plugin/core/settingsWindow.ts`, to a value that has no
+line break. The server part only sends it the rows as an event. There is deliberately no RPC method that writes a setting: a plugin RPC method is a
+route on OpenCode's HTTP API (`POST /api/rpc/podium-reporter/<method>`), which any other plugin, and any process that can reach that API with its
+password, can call. An event changes nothing, so a forged one can at most open the window with wrong values; the write still needs the person's pick,
+and goes to the file the TUI part finds in its own home, never to a path the event names. As said above, a plugin in the same process can write the
+file directly; the window does not change that.
 
 **A repo that removes the reporter.** A project can list the plugin as removed (`"plugins":["-podium.reporter"]`). A session that was already reporting then
 stops, and the console shows it going stale like any other session whose reporter went quiet. The limit: a session that never loaded the reporter never reported, so

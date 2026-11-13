@@ -2,7 +2,7 @@
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { keyOf, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -102,7 +102,7 @@ export class PgReporterStore implements ReporterStoreApi {
   private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): Promise<string> {
     const own = keyOf(s);
     if (!s.machineId) return own;
-    const apart = `${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`;
+    const apart = apartKeyOf(s);
     const has = (key: string) => this.db.get<{ owner: string | null }>('SELECT owner FROM reporters WHERE key = ?', [key]);
     if (await has(apart)) return apart;
     const bare = await has(own);
@@ -134,7 +134,7 @@ export class PgReporterStore implements ReporterStoreApi {
     const account = await this.accountKey({ ...s, owner: s.owner ?? null });
     // The machine id comes first, so a rule on it covers every account on the machine (#221).
     // The per-account form is always included, so a rule on `<machine id>#<owner>` still turns that account away when its row is keyed on the bare machine id.
-    const apart = s.machineId ? [`${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`] : [];
+    const apart = s.machineId ? [apartKeyOf(s)] : [];
     // A rule on the bare machine id also covers a reporter other than the Claude Code one on that machine (#849).
     const machine = s.machineId ? [s.machineId] : [];
     return [...new Set([own, account, ...machine, ...apart, ...(known ? [known] : [])])];
@@ -161,7 +161,7 @@ export class PgReporterStore implements ReporterStoreApi {
           canonicalReporterName(s.reporterName),
           s.machineId,
           s.machineName?.slice(0, 64) ?? null,
-          s.source?.slice(0, 120) ?? null,
+          s.source?.slice(0, SOURCE_MAX) ?? null,
           s.owner,
           s.credential,
           s.version.slice(0, 64),
@@ -254,6 +254,24 @@ export class PgReporterStore implements ReporterStoreApi {
     const filter = state ? ' WHERE q.state = :state' : '';
     if (state) params.state = state;
     return { sub, params, filter, base };
+  }
+
+  async versionCounts(since: number): Promise<ReporterVersionCount[]> {
+    const rows = await this.db.all<{ name: string; version: string; machines: number | string }>(
+      `SELECT reporter_name AS name, reporter_version AS version, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version ORDER BY reporter_name, reporter_version`,
+      { since },
+    );
+    return rows.map((r) => ({ reporterName: r.name, version: r.version, machines: Number(r.machines) }));
+  }
+
+  async platformCounts(since: number): Promise<ReporterPlatformCount[]> {
+    const rows = await this.db.all<{ name: string; version: string; os: string | null; machines: number | string }>(
+      `SELECT reporter_name AS name, reporter_version AS version, os, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE('a' || os, '')`,
+      { since },
+    );
+    return rows.map((r) => ({ reporterName: r.name, version: r.version, os: r.os, machines: Number(r.machines) }));
   }
 
   async list(opts: { page?: number; pageSize?: number; q?: string; state?: string; sort?: string; dir?: number; admin?: boolean }, now: number): Promise<ReporterList> {
@@ -358,6 +376,7 @@ export class PgReporterStore implements ReporterStoreApi {
     if (!IGNORE_KINDS.includes(kind)) throw new Error('kind must be key, address or version');
     if (/^\*+$/.test(p)) throw new Error('pattern must name something besides *');
     if (p.length < 1 || p.length > MAX_PATTERN) throw new Error(`pattern must be 1 to ${MAX_PATTERN} characters`);
+    checkTime(now, 'A rule time');
     return this.db.tx(async () => {
       await this.db.run('INSERT INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [kind, p, now]);
       const rule = ruleOf((await this.db.get<{ id: number; kind: string; pattern: string; created_at: number }>('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?', [kind, p]))!);

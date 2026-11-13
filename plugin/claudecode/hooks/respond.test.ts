@@ -120,7 +120,7 @@ function world(on: On): World {
       onDialog.run?.()
       return new Promise((resolve) => (dialog.resolve = resolve as (r: unknown) => void))
     }
-    if (e.tool === 'Bash') return new Promise((resolve) => (toolRun.resolve = resolve as (r: unknown) => void))
+    if (e.tool === 'Bash' || e.tool === 'Edit') return new Promise((resolve) => (toolRun.resolve = resolve as (r: unknown) => void))
     return { result: { ok: true }, text: 'ok' }
   })
   on('classic.PermissionRequest', () => ({}))
@@ -544,6 +544,33 @@ describe('respond: a tool permission', () => {
     expect(closes(w)).toEqual([])
   })
 
+  test('an Edit whose PermissionRequest lists its arguments in another order is still announced and answerable (#1044)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    // As seen live on Claude Code: the call carries replace_all first, the PermissionRequest carries it last.
+    const call = $.tool.call({ tool: 'Edit', replace_all: false, file_path: '/p/note.txt', old_string: 'hi', new_string: 'bye' } as never)
+    await settle(w)
+    const input = { file_path: '/p/note.txt', old_string: 'hi', new_string: 'bye', replace_all: false }
+    const pr = $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: input } as never)
+    await settle(w)
+    const ask = puts(w)[0]!
+    expect(ask).toMatchObject({ kind: 'permission', tool: { name: 'Edit' } })
+    w.deliver(by('allow-once', ask.id))
+    expect(await pr).toEqual({ decision: { behavior: 'allow' } })
+    w.toolRun.resolve!({ result: {}, text: 'ok' })
+    await call
+  })
+
+  test('a PermissionRequest whose arguments differ in value is not paired with the call (#1044)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    leaveOpen($.tool.call({ tool: 'Write', file_path: '/p/a.txt', content: { b: 1, a: 2 } } as never))
+    await settle(w)
+    leaveOpen($.classic.PermissionRequest({ tool_name: 'Write', tool_input: { file_path: '/p/other.txt', content: { a: 2, b: 1 } } } as never))
+    await settle(w)
+    expect(puts(w)).toEqual([])
+  })
+
   test('Deny from Podium with a reason: the call is refused with it, and the answer took', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)
@@ -623,6 +650,29 @@ describe('respond: messages and commands', () => {
     expect(w.logs.some((l) => l.startsWith('Sent from Podium by Ed at '))).toBe(true)
     await w.clock.advance(1000)
     expect(results(w)).toEqual([['dlv_m1', 'took']])
+  })
+
+  test("the owner's own Chat message ends with where to answer, and nothing else does (#1034)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.deliveries.push(by('message', null, { id: 'dlv_c1', text: 'Is the build green?', chat: true }))
+    w.server.deliveries.push(by('message', null, { id: 'dlv_c2', text: 'A console message.' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    expect(w.submitted).toEqual(['Is the build green?\n\nTo answer in the Chat thread, use podium_send to "person:Ed".', 'A console message.'])
+  })
+
+  test('a message from an @ in a channel ends with where to read around it, in the channel it came from (#1034)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.deliveries.push(by('message', null, { id: 'dlv_g1', text: 'From Podium Chat, My group, Ed wrote:\nlook', channel: 'My group' }))
+    w.server.deliveries.push(by('message', null, { id: 'dlv_g2', text: 'From Podium Chat, General, Ed wrote:\nlook', channel: 'General' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    expect(w.submitted).toEqual([
+      'From Podium Chat, My group, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:group".',
+      'From Podium Chat, General, Ed wrote:\nlook\n\nTo see what was said around it, use podium_chat_read with channel "general". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:general".',
+    ])
   })
 
   test('a result the server answers 404 to is dropped, not sent again (#329)', { options: ON }, async ($, on) => {

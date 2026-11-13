@@ -10,6 +10,8 @@ order: 37
 
 # 37. Orchestrators can message each other, but only one person's own (#347)
 
+*Amended by 61 (#1034): messaging between people was blocked on the terms of use; one narrow path is now open, a person writing in Chat to another person's agent with the owner's approval.*
+
 **Context.** The maintainer had a development agent on a Mac and needed `systemd` tested on Linux, so a second
 agent ran on a Linux machine and the maintainer pasted text between the two by hand. Podium already knows every
 live session and owner, so it could carry that text. But this is a new kind of traffic: text one agent wrote

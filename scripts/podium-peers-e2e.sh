@@ -17,7 +17,7 @@ up    Makes a work folder and writes a new admin secret to a file in it (mode 06
       The folder must be new or empty, or one an earlier up made. Builds the server
       and the UI from this checkout (npm run build), unless --no-build. Starts
       the server on --port in the background, with its database in the work folder
-      (or, when $PODIUM_DB is a postgres:// URL, a new database on that server, whose
+      (or, when $PODIUM_DB is a postgres:// or mariadb:// URL, a new database on that server, whose
       URL goes in a 0600 file in the work folder; down drops it), and waits for it. Seeds one person with podium-peers-seed.mjs --talk, which turns
       on the messaging, responding and activity-feed flags, adds four made-up machines
       with conversations, and writes the person's name and token to a 0600 file. Then
@@ -28,7 +28,7 @@ up    Makes a work folder and writes a new admin secret to a file in it (mode 06
       a shell or edit call, and runs `opencode --standalone`. Prints the URL, the person's
       name and where the token and secret files are, never the token or the secret.
 down  Kills the tmux server up started (a private one, see --tmux), stops the server that up started (by its saved pid) and
-      drops the PostgreSQL database up made, if any, and removes the work folder,
+      drops the throwaway database up made, if any, and removes the work folder,
       unless --keep (which keeps both). It removes only a folder up made, and
       never /, the home folder, this checkout, a folder holding it, or a link. Nothing is
       left behind: no tmux server, no process, no port, no scratch folder.
@@ -274,17 +274,17 @@ up() {
     if (( ! DRY )) && [[ ! -f "$ROOT/server/dist/index.js" || ! -f "$ROOT/frontend/dist/index.html" ]]; then die "--no-build, but server/dist or frontend/dist is missing; run up without it"; fi
   fi
 
-  # A SQLite file in the work folder, or, when PODIUM_DB is a postgres:// URL, a database of its own on that server, which down drops.
+  # A SQLite file in the work folder, or, when PODIUM_DB is a postgres:// or mariadb:// URL, a database of its own on that server, which down drops.
   # Its URL (it holds the password) goes in a 0600 file, never on a command line or in the output.
   local db="$DIR/podium.sqlite" dblabel="$DIR/podium.sqlite"
-  if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+  if node "$ROOT/scripts/throwaway-db.mjs" is-server "${PODIUM_DB:-}"; then
     dblabel="a throwaway database on $(node "$ROOT/scripts/throwaway-db.mjs" label "$PODIUM_DB")"
     if (( ! DRY )); then
       # Installed before the database is made: an up that fails from here on (the server does not start, the seed fails) drops it
       # again, so a failed up leaves no database behind. A finished up clears UP_DB, and down drops the database from then on.
       UP_DB=""
       trap 'drop_failed_up_db' EXIT
-      db="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" peers)" || die "could not make a database on the PostgreSQL server in PODIUM_DB"
+      db="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" peers)" || die "could not make a database on the database server in PODIUM_DB"
       UP_DB="$db"
       printf '%s\n' "$db" >"$DB_URL_FILE"
       dblabel="$(node "$ROOT/scripts/throwaway-db.mjs" label "$db")"
@@ -469,12 +469,12 @@ down() {
   fi
 
   if (( DRY )); then
-    step "drop the PostgreSQL database up made, if $DB_URL_FILE exists"
+    step "drop the throwaway database up made, if $DB_URL_FILE exists"
   elif [[ -f "$DIR/$MARKER" && -f "$DB_URL_FILE" ]]; then
     if (( KEEP )); then
-      say "keeping the PostgreSQL database named in $DB_URL_FILE"
+      say "keeping the throwaway database named in $DB_URL_FILE"
     else
-      step "drop the throwaway PostgreSQL database up made"
+      step "drop the throwaway database up made"
       node "$ROOT/scripts/throwaway-db.mjs" drop "$(cat "$DB_URL_FILE")" || say "could not drop it; drop it by hand (its name is in $DB_URL_FILE)"
     fi
   fi

@@ -5,8 +5,8 @@ propose a change, and how it gets merged.
 
 ## What belongs in this repo
 
-Podium shows every Claude Code session on one machine in one browser tab. This repo holds the whole thing:
-the reporter mod (`plugin/claudecode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
+Podium shows every Claude Code and OpenCode session on one machine in one browser tab. This repo holds the whole thing:
+the reporters (`plugin/claudecode/` and `plugin/opencode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
 container image.
 
 A change fits if it makes Podium better at watching sessions. Some things are out on purpose, and
@@ -66,7 +66,9 @@ npm run test:mod:claudecode       # build the plugin with its tests into .build-
 npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
-E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs both)
+E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs every database)
+E2E_DB=mariadb npm run e2e   # the same suite with MariaDB behind the server
+bash scripts/e2e-all.sh --shards 2 --out <folder outside the repo>  # every database at once, each split into 2 runs (--help says how to choose the count)
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
@@ -88,19 +90,21 @@ private container network beside the pinned `cypress/included` container, seeds 
 network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). Run
 one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
-test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
+test-id convention, and the `/podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
-**The PostgreSQL adapter's tests** (`server/src/storage/postgres/`, decision 53) run against the server `PODIUM_TEST_PG` names, and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without the variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without it on purpose, set `PODIUM_TEST_ONLY=sqlite` (the kinds to run): the run then prints that PostgreSQL was NOT RUN, and that is not a pass for a pull request, so use `scripts/test-pg.sh` before one. If the variable is set and no server answers, the run fails. `scripts/test-pg.sh [vitest args]` does the container steps below for you and removes the container after (#891). Each test file makes its own database on that server and drops it after, so the server can be shared and the tests can run in parallel. Start a throwaway server in a container, with a placeholder password of your own, and never point the variable at a database you care about:
+**The tests of the adapters that need a database server** (PostgreSQL in `server/src/storage/postgres/`, decision 53; MariaDB in `server/src/storage/mariadb/`, #823) run against the server each one's variable names (`PODIUM_TEST_PG`, `PODIUM_TEST_MARIADB`), and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without a variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without one on purpose, set `PODIUM_TEST_ONLY` to the kinds to run (for example `sqlite,postgres`): the run then prints which adapters were NOT RUN, and that is not a pass for a pull request. If a variable is set and no server answers, the run fails.
+
+`scripts/test-db.sh [vitest args]` does it all for you (#891, #823): it starts a throwaway container for every database that has a test server, all at once, with a placeholder password on a free local port, sets each variable, runs the server suite and removes every container after. Each database runs on the one version Podium tests, PostgreSQL 17 and MariaDB 11.4 (the supported databases are SQLite, built in, PostgreSQL 17 and MariaDB 11.x, tested on 11.4); `--image KIND=REF` runs another version, which is untested. The databases, their images and their variables are one table, `scripts/db-adapters.mjs`, so a new adapter is one entry there. Each test file makes its own database on each server and drops it after, so a server can be shared and the tests can run in parallel. To start one by hand instead, use a container with a placeholder password of your own, and never point a variable at a database you care about:
 
 ```sh
-podman run -d --name podium-test-pg -e POSTGRES_PASSWORD=change-me -p 55432:5432 docker.io/library/postgres:17
-export PODIUM_TEST_PG=postgres://postgres:change-me@localhost:55432/postgres
-npm test -w server                                       # the whole server suite, PostgreSQL tests included
-npx vitest run server/src/storage/postgres/people.test.ts # one file
-podman rm -f podium-test-pg                              # when you are done
+scripts/test-db.sh                                       # the whole server suite on every adapter
+scripts/test-db.sh src/storage/adapters.test.ts          # one file (the path is from server/)
+podman run -d --name podium-test-mariadb -e MARIADB_ROOT_PASSWORD=change-me -e MARIADB_DATABASE=podium_test -p 53306:3306 docker.io/library/mariadb:11.4
+export PODIUM_TEST_MARIADB=mariadb://root:change-me@127.0.0.1:53306/podium_test
+podman rm -f podium-test-mariadb                         # when you are done
 ```
 
-CI's `test-postgres` job does the same with a service container. `scripts/throwaway-db.mjs` makes and drops a database on a PostgreSQL server for the scripts that start their own server (smoke, soak, perf, the peers e2e): when `PODIUM_DB` names one, they use a database of their own on it instead of a SQLite file (`--help` lists the commands). `E2E_DB=postgres npm run e2e` runs the Cypress suite against PostgreSQL in containers.
+CI runs each adapter in a job of its own with a service container (`Test with PostgreSQL` on PostgreSQL 17, and `Test with MariaDB 11.4` on MariaDB 11.4). `scripts/throwaway-db.mjs` makes and drops a database on a PostgreSQL or MariaDB server for the scripts that start their own server (smoke, soak, perf, the peers e2e): when `PODIUM_DB` names one, they use a database of their own on it instead of a SQLite file (`--help` lists the commands). `E2E_DB=postgres npm run e2e` and `E2E_DB=mariadb npm run e2e` run the Cypress suite against that database in containers.
 
 The `PODIUM_TEST_*` variables (decision 50) shorten the Admin idle lock, the sign-in idle end and the lockout so a spec can reach them. They are for the end-to-end suite only, count only with `PODIUM_TEST_TIMINGS=1`, and are never set on a real server.
 
@@ -174,6 +178,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/e2e/COVERAGE.md` | The end-to-end suite: the map of every feature to its Cypress spec, how to run it, how to read a CI failure, how to add a spec, the test-id convention |
 | `.claude/skills/podium-live-test/` | The live test with real harness sessions (Claude Code, OpenCode): tmux, a throwaway server, keeping the session off your real server, answering from the API, shutting it down. Run it when a change touches the harness contract |
 | `docs/PERFORMANCE.md` | What Podium costs to run at four fleet sizes, how to measure it again (`scripts/podium-perf*`), and the ranked findings of the performance audit |
+| `docs/PATTERNS.md` | The development patterns the code follows, each with where it applies, why, an example and the check that holds it, and the rule for changing one. Read the sections that cover your change before you write it |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |
@@ -182,13 +187,15 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/templates/` | The page templates (guide, reference, internals, and the index, entry, section and chapter pages of a split topic). Copy one to start a page; the rules are under "Writing docs" |
 | `CHANGELOG.md` | One entry per release |
 
-Update the docs that describe your change in the same PR, and add a line under `[Unreleased]` in
-`CHANGELOG.md` for anything a user would notice.
+Update the docs that describe your change in the same PR. For anything a user would notice, add a changelog fragment:
+a file `changelog.d/<issue-or-slug>.<type>.md` that holds the text of one entry (`added`, `changed`, `deprecated`, `removed` or
+`fixed`; see `changelog.d/README.md`). Do not edit `CHANGELOG.md` in a feature or fix PR. Two PRs then never touch the same file,
+and the release-prep PR folds the fragments into it (DECISIONS 67).
 
 A change to the UI also follows the standards in `docs/standards/`, and starts with a mockup that links
 `frontend/src/fleet/tokens.css` instead of carrying a `:root` block. A PR into `development` does not edit the standards,
 the same way it does not bump the version. If the maintainer approved a change to a token, a component, a variant or a pattern rule,
-add a line that starts `Standards:` under `[Unreleased]` that names the change and the approval. A change that changes no
+add a fragment of the type `standards` (`changelog.d/<issue-or-slug>.standards.md`) that names the change and the approval; the release assembles it into a line that starts `Standards:`. A change that changes no
 standard needs no line. Either way the release-prep PR brings the standards in line (`npm run standards:sync`, then
 `npm run standards:parity` must pass), so parity can fail on `development` until then. A PR into `main` is valid only if parity passes.
 
@@ -243,7 +250,7 @@ whole, and a short log still splits. A section that is itself a set of subsectio
   single-file paths (the five old files are short stubs that point at the folders, for links from outside the repo).
 - **Moved text is not reworded.** Only headings, frontmatter, links and the generated parts change.
 - **A deprecation goes in `docs/DEPRECATIONS.md`.** A feature marked for deprecation is removed within three minor releases, the announcing
-  one counted as the first. Add a row to "Deprecated now" with a `Deprecated` line under `[Unreleased]`. `node scripts/check-deprecations.mjs`
+  one counted as the first. Add a row to "Deprecated now" with a `deprecated` changelog fragment. `node scripts/check-deprecations.mjs`
   (also in `npm test`) fails when the version reaches a removal that has not been done.
 
 The templates for these pages are `topic-index.md` (the folder's `README.md`), `decision-entry.md`, `gotcha-entry.md`,
@@ -307,7 +314,7 @@ python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 ```
 
 The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
-`podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
+`/podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
 ### The plugin build and the tracked dist/
 
@@ -332,17 +339,17 @@ reporter (#855, DECISIONS 56). They are installed from a built folder, not from 
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under
-`plugin/claudecode/` or `plugin/core/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
+`plugin/claudecode/` or `plugin/core/` other than its tests). Add a changelog fragment and leave the
 version files alone. The maintainer decides when `development` is ready to release. A release-prep PR into
 `development` then sets one number in `plugin/claudecode/.claude-plugin/plugin.json` (and in the version file of any other harness that has one), `VERSION` in `plugin/claudecode/hooks/register.ts`, the three
-`package.json` files and the lockfile (`npm install --package-lock-only`), and renames `[Unreleased]`; a test checks
+`package.json` files, `plugin/opencode/package.json` and `plugin/opencode/version.ts`, and the lockfile (`npm install --package-lock-only`), assembles the changelog fragments and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
-"Releases", says how the bump level is chosen, and the `podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
+"Releases", says how the bump level is chosen, and the `/podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
 
-If the bump is a new minor version, also move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
-that version. Each reporter has its own entry, so another reporter's range moves only with that reporter's releases. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
+If the bump is a new minor version, also move `max` in both entries of `REPORTER_SUPPORT` (`podium-reporter-claudecode` and `podium-reporter-opencode`, in `server/src/fleet/compat.ts`) to
+that version, because the two reporters share the product's version. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
 `min` only when the server stops reading older reports correctly. SPEC 6.8 has the rule.
 
 ### The report format

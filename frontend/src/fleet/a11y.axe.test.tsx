@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import axe from "axe-core";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { HistoryView } from "./HistoryView";
 import { AdminView } from "./admin/AdminView";
@@ -64,6 +64,13 @@ describe("axe on the console's pages (#636)", () => {
     expect(await violations(container, [SEPARATORS, CARD_COPY])).toEqual([]);
   });
 
+  it("the wall with the Wall options drawer open (#1129)", async () => {
+    const { container, getByRole } = render(<FleetView state={state()} />);
+    fireEvent.click(getByRole("button", { name: "Wall options" }));
+    expect(getByRole("button", { name: "Hide wall options" })).toHaveAttribute("aria-expanded", "true");
+    expect(await violations(container, [SEPARATORS, CARD_COPY])).toEqual([]);
+  });
+
   it("an orchestrator's page", async () => {
     window.history.replaceState(null, "", "#/?open=s1");
     const { container } = render(<FleetView state={state()} />);
@@ -83,6 +90,19 @@ describe("axe on the console's pages (#636)", () => {
     expect(await violations(m.container, [])).toEqual([]);
   });
 
+  it("My usage, signed in, with its five sections drawn (#726)", async () => {
+    const reply = (report: string, key: string) => ({
+      report, from: "2026-09-21", to: "2026-10-20", by: "day", tz: "Europe/Berlin", basedOn: "rollups", oldestDay: "2026-03-02", partial: false,
+      columns: [{ key: "period", label: "Period", unit: "date" }, { key: "key", label: key, unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "costUsd", label: "Cost (USD)", unit: "usd" }, { key: "count", label: "Failures", unit: "count" }, { key: "calls", label: "Calls", unit: "count" }],
+      rows: [{ period: "2026-10-05", key: "podium", sessions: 3, costUsd: 4.5, count: 2, calls: 9 }], total: { sessions: 3, costUsd: 4.5, count: 2, calls: 9 }, harnesses: ["claude-code"],
+    });
+    const client = { get: async (path: string) => reply(path.split("?")[0]!.replace("/reports/", ""), "Name"), text: async () => "" } as never;
+    const api = { me: async () => ({ enabled: true, signedIn: true, name: "Ed", admin: false, myUsage: true }) } as never;
+    const { container } = render(<FleetView myUsage state={stateFrom({ sessions, features: { "my-usage": true } })} respondApi={api} usageClient={client} />);
+    await screen.findByRole("table", { name: "Tool calls" });
+    expect(await violations(container, [SEPARATORS])).toEqual([]);
+  });
+
   it("History", async () => {
     vi.stubGlobal(
       "fetch",
@@ -93,6 +113,48 @@ describe("axe on the console's pages (#636)", () => {
       ),
     );
     const { container } = render(<HistoryView initialDay="2026-10-10" />);
+    expect(await violations(container, [])).toEqual([]);
+  });
+
+  it("Admin > Reporting > Tools, with an MCP server opened in the calls and in the failures (#720, #721)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getAllByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Tools" }));
+    await findByRole("table", { name: "Reporters by harness version and period" });
+    await findByRole("table", { name: "Call duration by tool" });
+    for (const server of getAllByRole("button", { name: /github/ })) fireEvent.click(server);
+    expect(await violations(container, [])).toEqual([]);
+  });
+
+  it("Admin > Reporting > Sessions, with its length, waiting, agent and depth sections (#722)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Sessions" }));
+    await findByRole("table", { name: "Agent chain depth" });
+    await findByRole("table", { name: "Waiting by reason" });
+    expect(getByRole("img", { name: /Time waiting on people/ })).toBeTruthy();
+    expect(await violations(container, [])).toEqual([]);
+  });
+
+  it("Admin > Reporting > Sessions, with the answers sent through Podium and the wait before them (#725)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Sessions" }));
+    await findByRole("table", { name: "Answers sent through Podium by day" });
+    await findByRole("table", { name: "Wait before an answer, by kind" });
+    expect(getByRole("img", { name: /Answers sent through Podium per day/ })).toBeTruthy();
+    expect(await violations(container, [])).toEqual([]);
+  });
+
+  it("Admin > Reporting > Usage, with people per day and the busiest hours as a chart and as a table (#722)", async () => {
+    fakeServer({ unlocked: true });
+    const { container, findByRole, getByRole } = render(<AdminView />);
+    fireEvent.click(await findByRole("button", { name: "Usage" }));
+    await findByRole("table", { name: "Sessions per person per day" });
+    await findByRole("img", { name: /Most sessions live at once by hour of day/ });
+    expect(await violations(container, [])).toEqual([]);
+    fireEvent.click(getByRole("button", { name: "Table" }));
+    await findByRole("table", { name: "Most sessions live at once by hour of day" });
     expect(await violations(container, [])).toEqual([]);
   });
 

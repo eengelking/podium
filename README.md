@@ -78,7 +78,7 @@ npm run podium:sim -- --sessions 5 --chaos
 ```
 
 `--chaos` adds sessions that go silent, more failures and more context blowouts. `--help` lists the
-other options (`--url`, `--speed`, `--seed`, `--duration`, `--agents`, `--token`, `--person`, `--unnamed`, `--print`). Stop it
+other options (`--url`, `--sessions`, `--speed`, `--seed`, `--duration`, `--chaos`, `--agents`, `--nested`, `--reporter-version`, `--token`, `--person`, `--unnamed`, `--print`, `--ticks`). Stop it
 with Ctrl-C; it ends every session it started, and they leave the console a few seconds later. If the
 server has a token (`podiumctl start` sets one), pass it: `--token "$(podiumctl token)"`.
 
@@ -131,7 +131,8 @@ opencode service restart
 Or download `podium-opencode-<version>.zip` from the [releases page](https://github.com/eengelking/podium/releases) and unzip it
 into `~/.config/opencode/plugins/podium`. The server address, token and name come from the environment and
 `~/.podium/config.env`, the same file the Claude Code reporter reads, and not from `opencode.json`. From a checkout of this
-repository, `npm run plugin:dev:opencode` builds `dist-dev/opencode` and starts OpenCode with it loaded.
+repository, OpenCode has no dev runner yet (`npm run plugin:dev:opencode` exits with an error that says what to run). Build it with
+`node scripts/plugin-build.mjs opencode --dev-stamp` and load `dist-dev/opencode` as described in [Contributing](CONTRIBUTING.md).
 
 All the options for both harnesses, what leaves a session, and what each harness cannot do are in [The reporter mod](docs/REPORTER.md).
 
@@ -145,7 +146,7 @@ All the options for both harnesses, what leaves a session, and what each harness
 | [User guide](docs/user-guide/README.md) | Set Podium up, read the console and use Admin |
 | [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy) or turn on [built-in TLS](docs/SERVER.md#built-in-tls), and change its settings |
 | [The reporter mod](docs/REPORTER.md) | Install `podium-reporter` for [Claude Code](docs/REPORTER.md#install-the-mod) (in a terminal, or by uploading the archive in the Claude desktop app on Windows 11) or for [OpenCode](docs/REPORTER.md#install-the-opencode-reporter), set its options and see what leaves a session |
-| [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |
+| [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Chat (which replaced Traffic), troubleshooting and an end-to-end test |
 | [Session recording and replay](docs/REPLAY.md) | Record a session whole and play it back: the three yes answers, what is and is not captured, the notice, retention, limits and who can read it |
 | [Gotchas](docs/gotchas/README.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/gotchas/README.md#reporters-and-machines) |
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |

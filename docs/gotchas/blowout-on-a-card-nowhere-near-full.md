@@ -13,9 +13,9 @@ order: 58
 
 **You see:** A card, the orchestrator page or the Blowouts KPI shows one blowout, but the context bar is far from full and no usage limit was reached.
 
-**Why:** Claude Code compacted the session on its own, most likely after a quiet stretch such as a prompt-cache timeout, while it waited on a background agent. Older reporters counted every automatic compaction as a blowout. It is not a usage reset and not an overflow. The cause is "likely" until the event's `idleMs` confirms a long idle gap.
+**Why:** Claude Code compacted the session on its own, most likely after a quiet stretch such as a prompt-cache timeout, while it waited on a background agent. Reporters older than 1.4.0 counted every automatic compaction as a blowout. It is not a usage reset and not an overflow. The cause is "likely" until the event's `idleMs` confirms a long idle gap.
 
-**Do:** Update the reporter. From the next release an automatic compaction below 80% full is a `compact` event ("auto-compacted at 22%") and the count stays 0. A blowout already stored for a past session stays. To check a new one, open the event in the feed and read `idleMs` in its data.
+**Do:** Update the reporter to 1.4.0 or later. From 1.4.0 an automatic compaction below 80% full is a `compact` event ("auto-compacted at 22%") and the count stays 0. A blowout already stored for a past session stays. To check a new one, open the event in the feed and read `idleMs` in its data.
 
 <!-- nav:start -->
 ---

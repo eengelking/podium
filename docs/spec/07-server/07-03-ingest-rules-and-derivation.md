@@ -59,5 +59,5 @@ sends them as blowouts, so it shows no pill.
 <!-- nav:start -->
 ---
 
-Previous: [7.2 Database (SQLite)](07-02-database.md) · Up: [7. The server](README.md) · Next: [7.4 View types](07-04-view-types.md)
+Previous: [7.2 Database](07-02-database.md) · Up: [7. The server](README.md) · Next: [7.4 View types](07-04-view-types.md)
 <!-- nav:end -->

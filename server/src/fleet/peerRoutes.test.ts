@@ -11,6 +11,7 @@ import { createRespondBridge } from './respondBridge.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 import { PEER_MESSAGING } from '../storage/features.js';
+import { ADMIN_SECRET_ACTOR as SECRET_ACTOR } from '../storage/rows.js';
 
 const SECRET = 'admin-secret-for-the-peer-tests';
 const H = { 'X-Podium-Respond': '1' };
@@ -20,7 +21,7 @@ afterEach(() => {
   for (const c of closers.splice(0)) c();
 });
 
-async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
+async function setup(opts: { secret?: string | null; flag?: boolean; toldThrows?: boolean; recordThrows?: boolean; noRecorder?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
   let clock = 1_800_000_000_000;
   const now = () => clock;
@@ -35,7 +36,7 @@ async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const logger = createLogger({ format: 'json', level: 'debug', write: (l) => lines.push(l) });
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters, lockout, respondBridge, logger }));
-  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, lockout, respondBridge, now, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, toldLinkStop: (a, o, w) => { if (opts.toldThrows) throw new Error('no session store'); return fleet.chat.toldLinkStop(a, o, w); }, ...(opts.noRecorder ? {} : { noteConversationRead: (v: Parameters<typeof fleet.chat.noteConversationRead>[0], a: string, b: string) => { if (opts.recordThrows) return Promise.reject(new Error('no record store')); return fleet.chat.noteConversationRead(v, a, b); } }), lockout, respondBridge, now, log: () => {} }));
   await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) await fleet.features.setFeature(PEER_MESSAGING, true);
@@ -89,6 +90,12 @@ async function linked(level: 'see' | 'ask' | 'send' = 'send', opts: Parameters<t
   expect(set.status).toBe(200);
   return { ...s, edBrowser: ed };
 }
+
+/** Ed's third session on the sender's machine: the one a person types /podium deliver in, since the sender and the target may not answer (#1051). */
+const third = async (s: S) => {
+  expect((await post(s, s.ed.token, report('Ed', 'sess-third', 'third', MAC))).status).toBe(200);
+  return (id: string, a: string) => request(s.app).post(`/api/fleet/sessions/sess-third/peers/requests/${id}`).set('X-Podium-Token', s.ed.token).send({ answer: a });
+};
 
 const logKinds = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 100 })).rows.map((r) => r.kind);
 const storedMessages = (s: S) => (s.db.prepare('SELECT COUNT(*) AS n FROM peer_messages').get() as { n: number }).n;
@@ -167,15 +174,33 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     expect(ok.body).toEqual({ ok: true, outcome: 'delivered' });
     expect((await testerReport(s)).body.peerDeliveries.map((d: { id: string }) => d.id)).toEqual([sent.body.id]);
     // Answered in one place, it is closed in the other.
-    const again = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'decline' });
+    const again = await (await third(s))(sent.body.requestId, 'decline');
     expect(again.status).toBe(410);
     expect(await logKinds(s)).toContain('peer_approved');
+  });
+
+  it('refuses an answer from the session that sent the message or the one it was sent to, and takes it from a third session (#1051)', async () => {
+    const s = await linked('ask');
+    const sent = await send(s, 'please run it');
+    const via = (sid: string) => request(s.app).post(`/api/fleet/sessions/${sid}/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'deliver' });
+    expect((await via('sess-dev')).status).toBe(403);
+    expect((await via('sess-tester')).status).toBe(403);
+    expect((await s.edBrowser.get('/api/fleet/respond/peers')).body.requests).toHaveLength(1);
+    expect((await (await third(s))(sent.body.requestId, 'deliver')).body).toEqual({ ok: true, outcome: 'delivered' });
+  });
+
+  it('refuses the session that asked for access to answer its own request (#1051)', async () => {
+    const s = await linked('ask');
+    const asked = await request(s.app).post('/api/fleet/sessions/sess-dev/peers/access').set('X-Podium-Token', s.ed.token).send({ to: 'ci-runner-01', right: 'send', reason: 'Linux tests.' });
+    const out = await request(s.app).post(`/api/fleet/sessions/sess-dev/peers/requests/${asked.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'allow' });
+    expect(out.status).toBe(403);
+    expect((await s.edBrowser.get('/api/fleet/respond/peers')).body.requests).toHaveLength(1);
   });
 
   it('can be declined from a session, and its sender is told', async () => {
     const s = await linked('ask');
     const sent = await send(s, 'no thanks');
-    const out = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'decline' });
+    const out = await (await third(s))(sent.body.requestId, 'decline');
     expect(out.body).toEqual({ ok: true, outcome: 'declined' });
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
     expect((await devReport(s)).body.peerDeliveries).toEqual([expect.objectContaining({ kind: 'notice', from: null })]);
@@ -184,7 +209,8 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
 
   it('delivered from a session on a paused link, says the link is paused, so /podium deliver says it waits for Resume', async () => {
     const s = await linked('ask');
-    const answer = (id: string) => request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${id}`).set('X-Podium-Token', s.ed.token).send({ answer: 'deliver' });
+    const viaThird = await third(s);
+    const answer = (id: string) => viaThird(id, 'deliver');
     const first = await send(s, 'on an open link');
     expect((await answer(first.body.requestId)).body).toEqual({ ok: true, outcome: 'delivered' });
     await s.edBrowser.put('/api/fleet/respond/peers/links').set(H).send({ a: MAC.id, b: LINUX.id, paused: true });
@@ -449,6 +475,29 @@ describe('the owner’s routes (#412)', () => {
     const admin = await signedIn(s, 'Admin', SECRET);
     expect((await admin.get(`/api/fleet/respond/peers/conversations/${a}/${b}`)).status).toBe(200);
   });
+
+  it('tells the owner when an Admin reads the conversation here, and not when the owner does (#1072)', async () => {
+    const s = await linked('send');
+    await send(s, 'private to Ed and the Admin');
+    const notices = async () => (((await devReport(s)).body as { adminNotices?: { text: string }[] }).adminNotices ?? []).map((n) => n.text);
+    const url = '/api/fleet/respond/peers/conversations/sess-dev/sess-tester';
+    expect((await s.edBrowser.get(url)).status).toBe(200);
+    expect(await notices()).toEqual([]);
+    expect(await logKinds(s)).not.toContain('chat_admin_read');
+    // A read that finds no conversation records nothing.
+    const admin = await signedIn(s, 'Admin', SECRET);
+    expect((await admin.get('/api/fleet/respond/peers/conversations/sess-dev/sess-none')).status).toBe(404);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-none')).toEqual([]);
+    expect((await admin.get(url)).status).toBe(200);
+    // The record exists, the Admin log has a line, and the owner's reporter session is told by name, with no text anywhere.
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-tester')).toEqual([expect.objectContaining({ admin: SECRET_ACTOR })]);
+    expect(await notices()).toEqual([`${SECRET_ACTOR} (an Admin) is reading your Podium conversation between dev and Tester.`]);
+    const rows = (await s.people.listLog({ page: 1, pageSize: 100 })).rows.filter((r) => r.kind === 'chat_admin_read');
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toContain('private to Ed and the Admin');
+    // Alex, who is not in it, is told nothing.
+    expect(((await alexReport(s)).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+  });
 });
 
 describe('Traffic’s open read (#412)', () => {
@@ -530,6 +579,88 @@ describe('the Admin’s side (#412)', () => {
     expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: 'yes' })).status).toBe(400);
     expect((await admin.delete(`/api/admin/reporters/${MAC.id}/peers/${LINUX.id}`).set(HA)).status).toBe(200);
     expect((await send(s, 'after the removal')).status).toBe(404);
+  });
+
+  it('tells each person an Admin pauses, resumes or removes their links, by name, once, and the other person not at all (#1077)', async () => {
+    const s = await linked('send');
+    const admin = await adminAgent(s);
+    const notices = async (token: string, r: Report) => (((await post(s, token, r)).body as { adminNotices?: { id: string; text: string }[] }).adminNotices ?? []).map((n) => n.text);
+    const edDev = () => report('Ed', 'sess-dev', 'dev', MAC, { status: 'running', waitReason: null });
+    const edTester = () => report('Ed', 'sess-tester', 'Tester', LINUX);
+    expect(await notices(s.ed.token, edDev())).toEqual([]);
+
+    expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: true })).status).toBe(200);
+    // Every live session of Ed is told once for the whole bulk pause, not once per link, and Alex is told nothing.
+    expect(await notices(s.ed.token, edDev())).toEqual([`${SECRET_ACTOR} (an Admin) paused all messaging links of your reporter ${MAC.name}.`]);
+    expect(await notices(s.ed.token, edTester())).toEqual([`${SECRET_ACTOR} (an Admin) paused all messaging links of your reporter ${MAC.name}.`]);
+    expect(await notices(s.alex.token, report('Alex', 'sess-alex', 'review', ALEX_BOX))).toEqual([]);
+    // The pause is the Admin's, named, on the owner's read.
+    const view = (await s.edBrowser.get('/api/fleet/respond/peers').set(H)).body as { rights: { from: string; to: string; pausedBy?: string; pausedByAdmin?: string }[] };
+    expect(view.rights.find((e) => e.from === MAC.id && e.to === LINUX.id)).toMatchObject({ pausedBy: 'admin', pausedByAdmin: SECRET_ACTOR });
+
+    expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: false })).status).toBe(200);
+    expect(await notices(s.ed.token, edDev())).toContain(`${SECRET_ACTOR} (an Admin) resumed all messaging links of your reporter ${MAC.name}.`);
+    expect((await admin.delete(`/api/admin/reporters/${MAC.id}/peers/${LINUX.id}`).set(HA)).status).toBe(200);
+    expect(await notices(s.ed.token, edDev())).toContain(`${SECRET_ACTOR} (an Admin) removed the messaging link between your reporters ${MAC.name} and ${LINUX.name}.`);
+    // The Admin log has a line for each, naming the Admin and never any text.
+    expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_links_paused', 'peer_links_resumed', 'peer_link_removed']));
+    // The log line names the owner, not "your", and never holds text.
+    const rows = (await s.people.listLog({ page: 1, pageSize: 100 })).rows;
+    expect(rows.find((r) => r.kind === 'peer_links_paused')?.detail).toBe(`${SECRET_ACTOR} paused all messaging links of Ed's reporter ${MAC.name}`);
+  });
+
+  it('keeps the stop and still writes the Admin log line when the person cannot be told (#1077)', async () => {
+    const s = await linked('send', { toldThrows: true });
+    const admin = await adminAgent(s);
+    expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: true })).status).toBe(200);
+    expect((await send(s, 'paused by the Admin')).body.paused).toBe(true);
+    expect(await logKinds(s)).toContain('peer_links_paused');
+  });
+
+  it('does not record, log or tell anyone when an Administrator reads the conversation between their own agents (#1072)', async () => {
+    const s = await linked('send');
+    await send(s, 'my own text');
+    expect(await s.people.setGroup(s.ed.person.id, (await s.people.administratorsGroupId())!)).toBe(true);
+    const own = request.agent(s.app);
+    expect((await own.post('/api/admin/unlock').set(HA).send({ name: 'Ed', token: s.ed.token })).status).toBe(200);
+    const res = await own.get('/api/admin/peers/conversations/sess-dev/sess-tester');
+    expect(res.body.messages).toEqual([expect.objectContaining({ text: 'my own text' })]);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-tester')).toEqual([]);
+    expect(await logKinds(s)).not.toContain('chat_admin_read');
+    expect(((await devReport(s)).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+    // Another Administrator reading the same conversation is still recorded and told.
+    expect((await (await adminAgent(s)).get('/api/admin/peers/conversations/sess-dev/sess-tester')).status).toBe(200);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-tester')).toHaveLength(1);
+  });
+
+  it('tells the owner when an Admin reads a conversation here, writes the record before the text, and serves nothing it cannot record (#1072)', async () => {
+    const s = await linked('send');
+    await send(s, 'text the Admin reads');
+    const admin = await adminAgent(s);
+    const notices = async () => (((await devReport(s)).body as { adminNotices?: { text: string }[] }).adminNotices ?? []).map((n) => n.text);
+    expect(await notices()).toEqual([]);
+    expect((await admin.get('/api/admin/peers/conversations/sess-dev/sess-none')).status).toBe(404);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-none')).toEqual([]);
+    expect((await admin.get('/api/admin/peers/conversations/sess-dev/sess-tester')).status).toBe(200);
+    expect(await s.fleet.chat.adminReads.list('dm:sess-dev|sess-tester')).toEqual([expect.objectContaining({ admin: SECRET_ACTOR })]);
+    expect(await notices()).toEqual([`${SECRET_ACTOR} (an Admin) is reading your Podium conversation between dev and Tester.`]);
+    const rows = (await s.people.listLog({ page: 1, pageSize: 100 })).rows.filter((r) => r.kind === 'chat_admin_read');
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toContain('text the Admin reads');
+    expect(((await alexReport(s)).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+
+    // A record that cannot be written stops the read, so nothing is read in silence.
+    const broken = await linked('send', { recordThrows: true });
+    await send(broken, 'never served');
+    const res = await (await adminAgent(broken)).get('/api/admin/peers/conversations/sess-dev/sess-tester');
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).not.toContain('never served');
+    // Without a way to record it, the router serves no text either.
+    const bare = await linked('send', { noRecorder: true });
+    await send(bare, 'never served either');
+    const none = await (await adminAgent(bare)).get('/api/admin/peers/conversations/sess-dev/sess-tester');
+    expect(none.status).toBe(503);
+    expect(JSON.stringify(none.body)).not.toContain('never served either');
   });
 
   it('reads the conversations and their text', async () => {

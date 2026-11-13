@@ -28,7 +28,7 @@ Find what you see, then follow the fix. [docs/gotchas/](../gotchas/README.md) ha
 | A card shows `reporter 0.1.0 · update`, the top bar says reporters need an update, or the status line ends in `· update mod` | The mod in that session is older than the server supports. It keeps reporting meanwhile. See [Updating the mod](09-updating-the-mod.md) |
 | The status line ends in `· update available` | Your mod works, but the server supports a newer one. See [Updating the mod](09-updating-the-mod.md) |
 | A card or the status line shows `· upgrade server` | The mod is newer than the server supports. Upgrade the server (see [Updating the mod](09-updating-the-mod.md)) |
-| The status line starts with `⚠` (`⚠ podium v1.1.0 ● 6 live`) | The mod's server URL is `http://` to another machine, so its token is not encrypted in transit. Put a TLS proxy in front of Podium (and [tell the server to trust it](../SERVER.md#behind-a-reverse-proxy)) and set the server URL to `https://...` in the podium-reporter settings, or accept the risk on a network you trust. Reporting continues |
+| The status line starts with `⚠` (`⚠ podium v1.6.0 ● 6 live`) | The mod's server URL is `http://` to another machine, so its token is not encrypted in transit. Put a TLS proxy in front of Podium (and [tell the server to trust it](../SERVER.md#behind-a-reverse-proxy)) and set the server URL to `https://...` in the podium-reporter settings, or accept the risk on a network you trust. Reporting continues |
 
 **Asking for help or filing a bug.** Include the output of `/podium` and of `podiumctl status`.
 

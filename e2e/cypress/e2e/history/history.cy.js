@@ -6,6 +6,7 @@ describe('history', () => {
     // server was reset (cy.clock with only Date faked, so no timer is touched), so the day the page opens on is the day they ended however long
     // the file runs; a run does not depend on crossing midnight after the reset. The one moment left is a reset that itself straddles midnight
     // (the seed takes about a second), which nothing in a browser can hold still; the day is read from the page's own date field either way.
+    // The one clock read left in the suite (#1056): the seeded sessions are stamped with the server's real day, so no fixed moment can stand for it.
     let day = '';
     let seededAt = 0;
     before(() => {
@@ -18,6 +19,7 @@ describe('history', () => {
     beforeEach(() => {
       cy.clock(seededAt, ['Date']);
       cy.visit('/#/history');
+      // The date is matched with a retrying assertion first; then() only keeps the value that matched (#1137).
       cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((v) => {
         day = v;
       });
@@ -26,7 +28,7 @@ describe('history', () => {
     it('opens on today with the sessions that ended, newest first, and the count', () => {
       cy.get('#podium-day').should('have.value', today());
       cy.contains('.kpi-cap', /61 sessions ended/);
-      cy.get('table.htable thead th').then(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Session', 'Project', 'Model', 'Ended', 'Duration', 'Est. cost', 'Blowouts', 'Agents', 'End reason']));
+      cy.get('table.htable thead th').should(($h) => expect([...$h].map((h) => h.textContent)).to.deep.eq(['Session', 'Project', 'Model', 'Ended', 'Duration', 'Est. cost', 'Blowouts', 'Agents', 'End reason']));
       cy.get('table.htable tbody tr').should('have.length', 50);
       cy.contains('tr', 'ended-60').and('contain.text', 'Opus 5.5');
       // The oldest ended session of the seed is on the last page.
@@ -66,7 +68,7 @@ describe('history', () => {
       cy.location('hash').should('include', 'open=e2e-s-docs-sweep');
       cy.get('main h1').should('have.text', 'docs-sweep');
       cy.contains('button.back', `← Back to ${today()}`);
-      // SPEC 8.1 says the read-only page has no Resume and no Fork cell, but the page draws both. Not asserted either way until the maintainer decides (docs/e2e/COVERAGE.md, open question 1).
+      // SPEC 8.1 and 8.5 say the opened session shows Resume and Fork, and the page draws both. No spec asserts it (docs/e2e/COVERAGE.md, "What no end-to-end spec can reach").
       cy.go('back');
       cy.get('table.htable').should('exist');
     });

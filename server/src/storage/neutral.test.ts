@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import ts from '@typescript/typescript6';
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ADAPTERS = [path.join(SRC, 'storage', 'sqlite'), path.join(SRC, 'storage', 'postgres')];
+const ADAPTERS = [path.join(SRC, 'storage', 'sqlite'), path.join(SRC, 'storage', 'postgres'), path.join(SRC, 'storage', 'mariadb')];
 const REGISTRY = path.join(SRC, 'storage', 'index.ts');
 
 function sourceFiles(dir: string): string[] {
@@ -44,7 +44,8 @@ function staticSpecifiers(file: string): string[] {
 
 const names = (s: string): boolean =>
   s.includes('storage/sqlite/') || s.includes('./sqlite/') || s.includes('node:sqlite') ||
-  s.includes('storage/postgres/') || s.includes('./postgres/') || s === 'pg' || s.startsWith('pg/') || s === 'postgres' || s === 'postgres-js';
+  s.includes('storage/postgres/') || s.includes('./postgres/') || s === 'pg' || s.startsWith('pg/') || s === 'postgres' || s === 'postgres-js' ||
+  s.includes('storage/mariadb/') || s.includes('./mariadb/') || s === 'mariadb' || s.startsWith('mariadb/') || s === 'mysql' || s === 'mysql2' || s.startsWith('mysql2/');
 
 describe('the neutral storage contract', () => {
   const neutral = sourceFiles(SRC).filter((f) => !ADAPTERS.some((a) => f.startsWith(a + path.sep)) && f !== REGISTRY);
@@ -54,7 +55,7 @@ describe('the neutral storage contract', () => {
     expect(neutral.some((f) => f.endsWith(path.join('fleet', 'protocol.ts')))).toBe(true);
   });
 
-  it('is not imported by name from an adapter (SQLite or PostgreSQL) or its driver outside the adapters and the registry', () => {
+  it('is not imported by name from an adapter (SQLite, PostgreSQL or MariaDB) or its driver outside the adapters and the registry', () => {
     const offenders = neutral.flatMap((f) => specifiers(f).filter(names).map((s) => `${path.relative(SRC, f)} imports "${s}"`));
     expect(offenders).toEqual([]);
   });
@@ -70,11 +71,21 @@ describe('the neutral storage contract', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps the adapters apart: neither imports the other or the other\'s driver (test files may)', () => {
-    const [sqliteDir, pgDir] = ADAPTERS as [string, string];
+  it('keeps the MariaDB driver out of every file but the MariaDB adapter', () => {
+    const all = sourceFiles(SRC).filter((f) => !f.startsWith(ADAPTERS[2]! + path.sep));
+    const offenders = all.flatMap((f) => specifiers(f).filter((s) => s === 'mariadb' || s.startsWith('mariadb/')).map((s) => `${path.relative(SRC, f)} imports "${s}"`));
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps the adapters apart: none imports another or another\'s driver (test files may)', () => {
+    const [sqliteDir, pgDir, mariaDir] = ADAPTERS as [string, string, string];
+    const sqliteSpec = (s: string) => s.includes('/sqlite/') || s.startsWith('../sqlite') || s === 'node:sqlite';
+    const pgSpec = (s: string) => s.includes('/postgres/') || s.startsWith('../postgres') || s === 'pg' || s.startsWith('pg/');
+    const mariaSpec = (s: string) => s.includes('/mariadb/') || s.startsWith('../mariadb') || s === 'mariadb' || s.startsWith('mariadb/');
     const offenders = [
-      ...sourceFiles(sqliteDir).flatMap((f) => specifiers(f).filter((s) => s.includes('/postgres/') || s.startsWith('../postgres') || s === 'pg' || s.startsWith('pg/')).map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
-      ...sourceFiles(pgDir).flatMap((f) => specifiers(f).filter((s) => s.includes('/sqlite/') || s.startsWith('../sqlite') || s === 'node:sqlite').map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
+      ...sourceFiles(sqliteDir).flatMap((f) => specifiers(f).filter((s) => pgSpec(s) || mariaSpec(s)).map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
+      ...sourceFiles(pgDir).flatMap((f) => specifiers(f).filter((s) => sqliteSpec(s) || mariaSpec(s)).map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
+      ...sourceFiles(mariaDir).flatMap((f) => specifiers(f).filter((s) => sqliteSpec(s) || pgSpec(s)).map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
     ];
     expect(offenders).toEqual([]);
   });
@@ -85,7 +96,7 @@ describe('the neutral storage contract', () => {
   });
 
   it('names no database outside the adapter and the registry, in code, strings or comments', () => {
-    const word = /\b(sqlite|vacuum|pragma|rowid|wal|postgres|postgresql|pg_\w+|podium_lower)\b/i;
+    const word = /\b(sqlite|vacuum|pragma|rowid|wal|postgres|postgresql|pg_\w+|podium_lower|mariadb|mysql|innodb)\b/i;
     const hits = neutral.flatMap((f) =>
       fs.readFileSync(f, 'utf8').split('\n').flatMap((line, i) => {
         const m = word.exec(line);

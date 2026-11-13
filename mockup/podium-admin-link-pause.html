@@ -1,0 +1,117 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium: an Admin pauses or removes your links (#1077)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1077. Example data only. It defines no tokens: colors and fonts come from tokens.css. Every class below already exists in the app
+   (.pm-conv, .sub, .pm-state.paused, .tag.crit, .btn, .hint, .note, .pm-grid). The only new rules are the demo bar and the frame (not part of the app).
+   Why: when an Admin pauses all of a reporter's links, the owner saw an ordinary "Paused" and the Resume link button failed with an error. Chat already
+   says "Paused by an Admin" in a red tag; Traffic and the Rights grid get the same tag and the Admin's name, and the Resume button is off with the reason
+   beside it, so the owner is not offered something that will be refused. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); padding: 16px; box-sizing: border-box; }
+.sc { margin: 0 0 28px; }
+.sc > h2 { margin: 0 0 4px; font-size: 15px; font-weight: 650; }
+.sc > p { margin: 0 0 10px; color: var(--ink2); max-width: 78ch; }
+.panel { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+/* Placement only: the tag sits in the sub line like Chat's, and the Admin's name follows it as muted text. */
+.pm-conv .sub .tag.crit { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; color: var(--crit-text); font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; }
+.pm-conv .sub .tag svg { width: 14px; height: 14px; }
+.pm-conv .btn[disabled] { opacity: .55; cursor: not-allowed; }
+.pm-conv .acts .hint { align-self: center; }
+.stage.narrow .pm-gridwrap { overflow-x: auto; }
+.callout { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 8px; background: var(--surface); }
+.callout code { font-family: var(--font-mono); font-size: 12px; color: var(--crit-text); }
+.callout .hint { margin: 0; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>An Admin pauses or removes your links (#1077)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app">
+
+<section class="sc" aria-labelledby="s1">
+  <h2 id="s1">1. Today: Dana sees an ordinary pause</h2>
+  <p>Root pauses all links of Dana's reporter <b>dana-mbp</b>. Dana's Traffic page says only "Paused", and Resume link looks available. Pressing it fails with an error, because only an Admin can lift an Admin's pause.</p>
+  <div class="panel"><section class="pm-conv" aria-labelledby="c1">
+    <h2 id="c1">dana-mbp <span class="sep" aria-hidden="true">⇄</span><span class="vh"> and </span> ci-runner-01</h2>
+    <div class="sub"><span>Dana's two machines</span><span>12 messages</span>
+      <span class="pm-state paused"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg><span>Paused</span></span></div>
+    <div class="acts"><button type="button" class="btn sm">Resume link</button><button type="button" class="btn sm">Remove link</button></div>
+  </section></div>
+</section>
+
+<section class="sc" aria-labelledby="s2">
+  <h2 id="s2">2. Proposed: the same red tag Chat uses, with the name, and Resume off</h2>
+  <p>The link head shows <b>Paused by an Admin</b> in the red tag Chat already uses for the same fact, and the line under it names Root. Resume link is off, with the reason beside it as a hint, so the page never offers an action it will refuse. Remove link stays, because the owner may always remove their own link.</p>
+  <div class="panel"><section class="pm-conv" aria-labelledby="c2">
+    <h2 id="c2">dana-mbp <span class="sep" aria-hidden="true">⇄</span><span class="vh"> and </span> ci-runner-01</h2>
+    <div class="sub"><span>Dana's two machines</span><span>12 messages</span>
+      <span class="tag crit" data-testid="link-tag-paused"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg><span>Paused by an Admin</span></span></div>
+    <div class="sub"><span>Root paused all of dana-mbp's links. Only an Admin can resume them.</span></div>
+    <div class="acts"><button type="button" class="btn sm" disabled aria-describedby="why">Resume link</button><button type="button" class="btn sm">Remove link</button><span class="hint" id="why">Ask Root to resume it.</span></div>
+  </section></div>
+
+  <h2 style="margin-top:20px;font-size:13px">The Rights grid, after Root pauses all of dana-mbp's links</h2>
+  <p>This is the grid as the app draws it: each cell is the level one reporter has to another, and a paused pair carries the Paused mark. Today the mark stands alone. The change adds one line under it naming the Admin. Both cells that touch dana-mbp are paused, including its own (hatched) cell. ci-runner-01's own cell is not.</p>
+  <div class="adminv"><div class="panel pm-gridwrap scroll" tabindex="0" role="region" aria-label="Rights between reporters. Each row sends to each column.">
+    <table class="pm-grid"><thead><tr><th scope="col">From, to</th><th scope="col"><span class="mn">dana-mbp</span>macOS 27</th><th scope="col"><span class="mn">ci-runner-01</span>Linux</th></tr></thead><tbody>
+      <tr><th scope="row"><span class="mn">dana-mbp</span><span class="hint">2 live</span></th>
+        <td class="self"><label class="vh" for="g1">dana-mbp to dana-mbp</label><select class="field sm" id="g1"><option>No access</option><option>See</option><option>Ask</option><option selected>Send</option></select><span class="hint cellnote">Between orchestrators on this machine</span><span class="pm-state paused"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg><span>Paused</span></span><span class="hint">by Root, an Admin</span></td>
+        <td><label class="vh" for="g2">dana-mbp to ci-runner-01</label><select class="field sm" id="g2"><option>No access</option><option>See</option><option>Ask</option><option selected>Send</option></select><span class="pm-state paused"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg><span>Paused</span></span><span class="hint">by Root, an Admin</span></td></tr>
+      <tr><th scope="row"><span class="mn">ci-runner-01</span><span class="hint">1 live</span></th>
+        <td><label class="vh" for="g3">ci-runner-01 to dana-mbp</label><select class="field sm" id="g3"><option>No access</option><option selected>See</option><option>Ask</option><option>Send</option></select><span class="pm-state paused"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg><span>Paused</span></span><span class="hint">by Root, an Admin</span></td>
+        <td class="self"><label class="vh" for="g4">ci-runner-01 to ci-runner-01</label><select class="field sm" id="g4"><option>No access</option><option>See</option><option>Ask</option><option selected>Send</option></select><span class="hint cellnote">Between orchestrators on this machine</span></td></tr>
+    </tbody></table>
+  </div></div>
+</section>
+
+<section class="sc" aria-labelledby="s3">
+  <h2 id="s3">3. In the session: one callout per stop, for Dana only</h2>
+  <p>Not new UI. The reporter already shows Chat's Admin notices (a toast and a transcript line in Claude Code, a toast in OpenCode) and never sends them to the model. A bulk pause says it once per session, however many links it touches. A removal has nothing left on the page to show, so these callouts and the Admin log are its record.</p>
+  <div class="callout" role="note"><code>Root (an Admin) paused all messaging links of your reporter dana-mbp.</code><p class="hint">Resume: "…resumed all messaging links of your reporter dana-mbp."</p></div>
+  <div class="callout" role="note" style="margin-top:8px"><code>Root (an Admin) removed the messaging link between your reporters dana-mbp and ci-runner-01.</code><p class="hint">Also written to the Admin log: who, whose reporter and when, never any text.</p></div>
+</section>
+
+</div></div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function press(attr, val) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1280px');
+      st.classList.toggle('narrow', b.dataset.w === 'narrow');
+      press('data-w', b.dataset.w);
+    }
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

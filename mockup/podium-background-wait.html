@@ -5,24 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium background wait</title>
 <!-- Mockup for issue #119. A session that ended its turn but has background work in flight (a shell, a monitor, a background agent, a workflow) or a scheduled wake-up is not waiting on the person. It reads "Waiting for 1 background shell to finish" in the blue of Delegating (#98), not amber, and is not counted in "waiting on you". Tokens are copied from fleet.css (dark is the base). The switcher and the "rules" section are mockup scaffolding, not product UI. -->
-<style>
-:root {
-  --bg: #0d0d0d; --surface: #151514; --raised: #1c1c1a; --border: #2b2b28; --axis: #3a3a36;
-  --ink: #f0efec; --ink2: #c3c2b7; --muted: #8d8c84; --warn: #fab219; --good: #3fb27f; --info: #4c8dff;
-  --deleg: #2fa4e0; --deleg-text: #5cbcf0; --sel: #232321;
-  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --border: #dcdbd5; --axis: #c9c8c1;
-  --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64; --warn: #a96b00; --good: #1c7a54; --info: #1f5fd1;
-  --deleg: #0a7fb8; --deleg-text: #07608c; --sel: #ebeae5; color-scheme: light; } }
-:root[data-theme="light"] {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --border: #dcdbd5; --axis: #c9c8c1;
-  --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64; --warn: #a96b00; --good: #1c7a54; --info: #1f5fd1;
-  --deleg: #0a7fb8; --deleg-text: #07608c; --sel: #ebeae5; color-scheme: light;
-}
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Demo-only values, built from the app tokens. */
+body { --info: var(--sonnet); }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); padding-inline: 16px; padding-block: 20px 40px; max-width: 1100px; margin-inline: auto; }

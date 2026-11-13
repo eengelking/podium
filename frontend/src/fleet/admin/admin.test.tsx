@@ -337,10 +337,13 @@ describe("side menu", () => {
       "Certificates",
       "Data",
       "Stored activity",
+      "About",
       "Usage",
       expect.stringMatching(/^Spend/),
       "People and groups",
       "Sessions",
+      "Tools",
+      "Harness updates",
       "Failures",
       "Admin activity",
       expect.stringMatching(/^Admin log/),
@@ -348,7 +351,7 @@ describe("side menu", () => {
     ]);
     expect(within(nav).getByRole("group", { name: "Server" })).toBeInTheDocument();
     // Reporting is its own group (#484); Activity keeps only the Admin log.
-    expect(within(within(nav).getByRole("group", { name: "Reporting" })).getAllByRole("button")).toHaveLength(6);
+    expect(within(within(nav).getByRole("group", { name: "Reporting" })).getAllByRole("button")).toHaveLength(8);
     expect(within(within(nav).getByRole("group", { name: "Activity" })).getAllByRole("button")).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("People");
     fireEvent.click(within(nav).getByRole("button", { name: /Groups/ }));
@@ -660,6 +663,28 @@ describe("Reporters tab (#142)", () => {
     fireEvent.click(within(screen.getByRole("group", { name: "Filter by state" })).getByRole("button", { name: /All reporters/ }));
     fireEvent.change(screen.getByLabelText("Search reporters"), { target: { value: "studio" } });
     await waitFor(() => expect(state.calls.some((c) => c.includes("q=studio"))).toBe(true));
+  });
+
+  it("sorts by a heading through the server, keeps an arrow slot on every heading and holds the columns until the filter changes (#1144)", async () => {
+    const state = await openReporters();
+    const table = () => screen.getByRole("table");
+    const slots = () => [...table().querySelectorAll("thead .sarrow")].map((s) => s.textContent);
+    // Every sortable heading has its slot from the start, and only the one the list is sorted by (the server's order) holds an arrow.
+    const count = slots().length;
+    expect(count).toBeGreaterThan(1);
+    expect(slots().filter((s) => s !== "")).toHaveLength(1);
+    expect(table().querySelector("colgroup")).toBeNull();
+    fireEvent.click(within(table()).getByRole("button", { name: "Machine" }));
+    await waitFor(() => expect(state.calls.some((c) => c.includes("/reporters") && c.includes("sort=name") && c.includes("dir=1"))).toBe(true));
+    await waitFor(() => expect(slots().filter((s) => s === "↑")).toHaveLength(1));
+    expect(slots()).toHaveLength(count);
+    expect(slots().filter((s) => s !== "")).toHaveLength(1);
+    expect(table().querySelector("colgroup")).not.toBeNull();
+    fireEvent.click(within(table()).getByRole("button", { name: "Machine" }));
+    await waitFor(() => expect(slots().filter((s) => s === "↓")).toHaveLength(1));
+    // Another filter is different content, so the columns are sized to it again.
+    fireEvent.click(within(screen.getByRole("group", { name: "Filter by state" })).getByRole("button", { name: /Silent/ }));
+    await waitFor(() => expect(table().querySelector("colgroup")).toBeNull());
   });
 
   it("opens a reporter with its details and no secret, and goes back to the list", async () => {

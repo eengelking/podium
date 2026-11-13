@@ -2,6 +2,7 @@
 // the Projection, and Spend over time, which is the shared report with the page's Export. Figures are estimated from tokens.
 import type { UseFleetOptions } from "../useFleet";
 import { PageHeader, Panel, Section } from "./Page";
+import { TokenSection } from "./CostSections";
 import { ReportBody, ReportExport, ReportFilters } from "./ReportParts";
 import { SPEND_CONFIG, resultsHeading } from "./ReportPages";
 import type { ReportsClient } from "./reportsApi";
@@ -24,6 +25,7 @@ export function SpendPage(props: { client: ReportsClient; fleetOptions?: UseFlee
           <ReportBody r={r} />
         </Panel>
       </Section>
+      <TokenSection client={client} r={r} onLocked={onLocked} />
     </>
   );
 }

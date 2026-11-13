@@ -1,5 +1,6 @@
 // Harness badge, neutral labels and capability-driven fields (#853). One sequence on one server: a wall of one harness first, then the same
 // new session reported by OpenCode (a report v2 with a harness block) so the wall holds two harnesses. A session never changes harness, so it is a new id.
+const ENDED_AT = 1760000000000; // a fixed moment, so the data is the same on every run (#1056)
 describe('harness badge and neutral labels', () => {
   before(() => cy.resetServer());
 
@@ -93,7 +94,7 @@ describe('harness badge and neutral labels', () => {
   });
 
   it('keeps them in History after the session ends', () => {
-    cy.reportAgain('api', { id: NC, name: 'acme-session', harness: 'acme', ...gpt, status: 'done', endReason: 'prompt_input_exit', endedAt: Date.now() }, undefined, undefined, acme);
+    cy.reportAgain('api', { id: NC, name: 'acme-session', harness: 'acme', ...gpt, status: 'done', endReason: 'prompt_input_exit', endedAt: ENDED_AT }, undefined, undefined, acme);
     cy.visit('/#/history');
     cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((day) => {
       cy.contains('tr', 'acme-session').and('contain.text', 'GPT-5.1');
@@ -125,7 +126,7 @@ describe('harness badge and neutral labels', () => {
     cy.openConsole('#/');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('contain.text', 'invoice-v2');
-    cy.get('#row-e2e-a-port .chip.model').should('have.attr', 'title', longId).and('have.text', longId).then(($chip) => {
+    cy.get('#row-e2e-a-port .chip.model').should('have.attr', 'title', longId).and('have.text', longId).should(($chip) => {
       const chip = $chip[0];
       const label = chip.querySelector(':scope > span');
       expect(label.scrollWidth, 'the label is wider than its box, so it is clipped').to.be.greaterThan(label.clientWidth);
@@ -138,11 +139,25 @@ describe('harness badge and neutral labels', () => {
     });
   });
 
+  // A long model name on a wall card (#1028) keeps the session's name on the card and ends the model chip in an ellipsis inside the card.
+  it('keeps the session name and the model chip inside a wall card with a long model name', () => {
+    const longId = 'lmstudio-community/qwen3-coder-30b-a3b-instruct-mlx';
+    cy.reportAgain('api', { id: CT, name: 'nimble-cactus', harness: 'opencode', model: longId, modelLabel: longId }, undefined, undefined, ocContext);
+    cy.openConsole('#/');
+    ct().find('.nm').should('contain.text', 'nimble-cactus').should(($nm) => expect($nm[0].getBoundingClientRect().width, 'the name has room').to.be.greaterThan(40));
+    ct().find('.mdl .chip.model').should('have.attr', 'title', longId).should(($chip) => {
+      const label = $chip[0].querySelector(':scope > span');
+      expect(label.scrollWidth, 'the label is wider than its box, so it is clipped').to.be.greaterThan(label.clientWidth);
+      expect(getComputedStyle(label).textOverflow).to.eq('ellipsis');
+      expect($chip[0].getBoundingClientRect().right, 'the chip ends inside the card').to.be.at.most($chip.closest('button.card.sc')[0].getBoundingClientRect().right);
+    });
+  });
+
   // The agent tree and the orchestrator panel follow what the session's harness declares (#944): a column it cannot report is absent, not zero.
   // The session is a copy of invoice (which has agents) reported by Acme with context and effort both declared false.
   const TR = 'e2e-s-acme-tree';
   const bare = { harness: { id: 'acme', name: 'Acme', version: '1.0.0', surface: null }, capabilities: { context: false, effort: false } };
-  const noPageScroll = () => cy.document().then((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
+  const noPageScroll = () => cy.document().should((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
   const noContextOrEffort = () => {
     cy.get('.trow.hd').should('not.contain.text', 'Context').and('not.contain.text', 'Effort').and('contain.text', 'Tokens');
     cy.get('#row-e2e-a-port').should('exist');
@@ -182,9 +197,11 @@ describe('harness badge and neutral labels', () => {
   });
 
   it('keeps the tree without Context and Effort in History after the session ends', () => {
-    cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme', status: 'done', endReason: 'prompt_input_exit', endedAt: Date.now() }, undefined, undefined, bare);
+    cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme', status: 'done', endReason: 'prompt_input_exit', endedAt: ENDED_AT }, undefined, undefined, bare);
     cy.visit('/#/history');
     cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((day) => {
+      // The row shows the ended session is in History; opening it before then leaves the page on the day's list (#1137).
+      cy.contains('tr', 'acme-tree');
       cy.visit(`/#/history?day=${day}&page=1&size=50&open=${TR}`);
     });
     cy.get('main h1').should('have.text', 'acme-tree');

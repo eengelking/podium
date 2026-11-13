@@ -338,6 +338,11 @@ describe("podiumctl command construction", () => {
     expect(isNetworkDb("sqlite://x.db")).toBe(false);
     expect(isNetworkDb("x.db")).toBe(false);
     expect(isNetworkDb("postgres://h/d")).toBe(true);
+    // MariaDB (#823) is a database on the network the same way: passed through, labelled by host:port/dbname, its password hidden.
+    expect(isNetworkDb("mariadb://h/d")).toBe(true);
+    expect(dbLabel("mariadb://podium:hunter2@db.lan:3306/podium")).toBe("db.lan:3306/podium");
+    expect(JSON.stringify(maskConfig({ PODIUM_DB: "mariadb://podium:hunter2@db.lan:3306/podium" }))).not.toContain("hunter2");
+    expect(serverEnv(resolveConfig({ PODIUM_TOKEN: "t", PODIUM_DB: "mariadb://u:p@db.lan:3306/podium" }), true)).toMatchObject({ PODIUM_DB: "mariadb://u:p@db.lan:3306/podium", PODIUM_DATA_DIR: "/data" });
     const shown = maskConfig({ PODIUM_DB: "postgres://podium:hunter2@db.lan:5432/podium" }) as Record<string, string>;
     expect(JSON.stringify(shown)).not.toContain("hunter2");
     expect(shown.PODIUM_DB).toContain("db.lan:5432/podium");
@@ -582,8 +587,9 @@ describe("podiumctl CLI", () => {
 
 describe("podiumctl covers every server setting (#157)", () => {
   // Read by the server but not a user setting: podiumctl sets it itself in the container (PODIUM_BUILD comes from the image build, #400).
+  // PODIUM_RUNTIME=container comes from the image (the Containerfile's ENV), so Admin > About can say how the server runs (#862).
   // PODIUM_DATA_DIR (#313) is an own key (standalone) and podiumctl sets it to /data in the container (#822).
-  const SET_BY_PODIUMCTL = ["PODIUM_HOST_HOME", "HOST", "PORT", "PODIUM_BUILD", "PODIUM_TLS_PUBLIC_PORT"];
+  const SET_BY_PODIUMCTL = ["PODIUM_HOST_HOME", "HOST", "PORT", "PODIUM_BUILD", "PODIUM_RUNTIME", "PODIUM_TLS_PUBLIC_PORT"];
   const serverSrc = path.join(__dirname, "..", "server", "src");
   function sources(dir: string): string[] {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

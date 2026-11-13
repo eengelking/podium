@@ -7,13 +7,13 @@ order: 2
 
 # Getting around
 
-Admin has sixteen pages, listed in a menu down the left side:
+Admin has nineteen pages, listed in a menu down the left side:
 
 | Menu group | Pages |
 |---|---|
 | People and access | [People](03-people-page.md), [Groups](04-groups.md), [Reporters](05-reporters.md) |
-| Server | [Settings](06-settings.md), [Model prices](07-model-prices.md), [Security](08-security.md), [Certificates](09-certificates.md), [Data](10-data.md), [Stored activity](11-stored-activity.md) |
-| Reporting | [Usage](12-reporting.md#usage), [Spend](12-reporting.md#spend), [People and groups](12-reporting.md#people-and-groups), [Sessions](12-reporting.md#reporting-sessions), [Failures](12-reporting.md#failures), [Admin activity](12-reporting.md#admin-activity) |
+| Server | [Settings](06-settings.md), [Model prices](07-model-prices.md), [Security](08-security.md), [Certificates](09-certificates.md), [Data](10-data.md), [Stored activity](11-stored-activity.md), [About](14-about.md) |
+| Reporting | [Usage](12-reporting.md#usage), [Spend](12-reporting.md#spend), [People and groups](12-reporting.md#people-and-groups), [Sessions](12-reporting.md#reporting-sessions), [Tools](12-reporting.md#tools), [Harness updates](12-reporting.md#harness-updates), [Failures](12-reporting.md#failures), [Admin activity](12-reporting.md#admin-activity) |
 | Activity | [Admin log](13-admin-log.md) |
 
 - **Lock Admin** is at the bottom of the menu. After you use it, reloading the page asks for your name and token again,

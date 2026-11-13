@@ -13,6 +13,7 @@ import { PersonCertStore } from './personCerts.js';
 import { AsyncLock } from '../lock.js';
 import { SqliteReportQueries } from './reportQueries.js';
 import { asyncLookupOver, peerStoreOver } from './peers.js';
+import { chatStoreOver } from './chat.js';
 import { ActivityConnection } from './activity.js';
 import { activityDbPath, openActivityDb } from './activityDb.js';
 
@@ -88,6 +89,7 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Sqlit
     recordingSettings: wrap(new RecordingSettingsStore(db), lock),
     activityHistorySettings: (authOn) => wrap(new ActivityHistorySettingsStore(db, authOn), lock),
     peers: (opts) => peerStoreOver(db, lock, opts),
+    chat: (opts) => chatStoreOver(db, lock, opts),
     tlsSettings: wrap(new TlsSettingsStore(db), lock),
     personCerts: wrap(new PersonCertStore(db), lock),
     tx: (fn) =>

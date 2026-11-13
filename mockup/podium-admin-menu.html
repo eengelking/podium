@@ -4,24 +4,17 @@
 <title>Admin Menu Sections</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&family=Schibsted+Grotesk:wght@400;500;600;650&display=swap">
-<style>
-/* Layout: a review sheet. Three options, each shown wide and narrow, light and dark, built from Podium's own tokens. */
-:root {
-  --bg: #f9f9f7; --fg: #0b0b0b; --fg2: #52514e; --line: rgba(11,11,11,.12); --card: #fcfcfb;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0d0d0d; --fg: #f0efec; --fg2: #c3c2b7; --line: rgba(255,255,255,.12); --card: #1a1a19; color-scheme: dark; } }
-:root[data-theme="dark"] { --bg: #0d0d0d; --fg: #f0efec; --fg2: #c3c2b7; --line: rgba(255,255,255,.12); --card: #1a1a19; color-scheme: dark; }
-body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); line-height: 1.5; padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>/* Layout: a review sheet. Three options, each shown wide and narrow, light and dark, built from Podium's own tokens. */
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); line-height: 1.5; padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 main { max-width: 1040px; margin: 0 auto; display: grid; gap: 40px; }
 h1 { font-size: 22px; font-weight: 650; letter-spacing: -.01em; margin: 0 0 4px; text-wrap: balance; }
 h2 { font-size: 17px; font-weight: 650; margin: 0 0 4px; }
-p { margin: 0; color: var(--fg2); max-width: 68ch; font-size: 14px; }
-.opt { display: grid; gap: 16px; padding-top: 28px; border-top: 1px solid var(--line); }
+p { margin: 0; color: var(--ink2); max-width: 68ch; font-size: 14px; }
+.opt { display: grid; gap: 16px; padding-top: 28px; border-top: 1px solid var(--border); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-.cap { font-size: 12px; color: var(--fg2); margin-bottom: 6px; }
-.stage { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.cap { font-size: 12px; color: var(--ink2); margin-bottom: 6px; }
+.stage { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .strips { display: grid; gap: 16px; }
 
 /* ---- Podium tokens, scoped per frame ---- */

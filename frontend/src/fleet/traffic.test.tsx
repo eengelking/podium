@@ -110,14 +110,14 @@ const rep = (key: string, machine: string, os: string | null, peers: boolean | n
   live: [],
 });
 
-function peersApi(): PeersApi {
+function peersApi(rights: PeersRead["rights"] = []): PeersApi {
   const read: PeersRead = {
     enabled: true,
     owner: "Ed",
     serverTime: T0,
     serverStartedAt: T0 - 3_600_000,
     reporters: [rep("k1", "ed-mbp", "macOS 26.1"), rep("k2", "ci-runner-01", "Ubuntu 24.04"), rep("k3", "build-pi", null), rep("k4", "win-lab", "Windows 11", false)],
-    rights: [],
+    rights,
     defaults: { trust: false, onRequest: "ask", newSend: "ask", limits: {} },
     limits: { server: { roundTrips: 10, perMinute: 6, maxChars: 20000 }, effective: { roundTrips: 10, perMinute: 6, maxChars: 20000 } },
     requests: [],
@@ -142,7 +142,7 @@ const flush = () =>
     for (let i = 0; i < 12; i++) await Promise.resolve();
   });
 
-function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[] } = {}) {
+function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[]; rights?: PeersRead["rights"] } = {}) {
   const traffic = opts.traffic ?? fakeTraffic();
   const sessions = [
     makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
@@ -150,7 +150,7 @@ function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; 
     ...(opts.more ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
-  const view = render(<FleetView traffic={opts.on ?? true} state={state} respondApi={respondApi(opts.me ?? ED)} peersApi={peersApi()} trafficApi={traffic.api} />);
+  const view = render(<FleetView traffic={opts.on ?? true} state={state} respondApi={respondApi(opts.me ?? ED)} peersApi={peersApi(opts.rights)} trafficApi={traffic.api} />);
   return { traffic, ...view };
 }
 
@@ -178,23 +178,33 @@ describe("the top bar", () => {
     expect(screen.getByText("Traffic", { selector: ".pill" })).toBeInTheDocument();
   });
 
-  it("has Traffic after History on the fleet page, which is not the Traffic page, while messaging is on", async () => {
+  it("says Traffic is retired and points to Chat, whose link replaces Traffic's in the bar (#1034)", async () => {
+    page();
+    await flush();
+    const note = screen.getByTestId("traffic-deprecated");
+    expect(note).toHaveTextContent("Traffic is retired.");
+    expect(within(note).getByRole("link", { name: "Open Chat" })).toHaveAttribute("href", "#/chat");
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("href", "#/chat");
+  });
+
+  it("has Chat after History on the fleet page, in Traffic's place, while messaging is on", async () => {
     page({ on: false });
     await flush();
-    const traffic = screen.getByRole("link", { name: "Traffic" });
-    expect(traffic).toHaveAttribute("href", "#/traffic");
+    const chat = screen.getByRole("link", { name: "Chat" });
+    expect(chat).toHaveAttribute("href", "#/chat");
+    expect(screen.queryByRole("link", { name: "Traffic" })).toBeNull();
     const history = screen.getByRole("link", { name: "History" });
-    expect(history.compareDocumentPosition(traffic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(history.compareDocumentPosition(chat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows the link on the fleet page, not as current, and not at all while messaging is off", async () => {
     page({ on: false });
     await flush();
-    expect(screen.getByRole("link", { name: "Traffic" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current");
     cleanup();
     page({ on: false, peersFlag: false });
     await flush();
-    expect(screen.queryByRole("link", { name: "Traffic" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
   });
 
   it("offers no Wall mode, and the wall's keys do nothing here", async () => {
@@ -366,6 +376,34 @@ describe("the conversation, for its owner", () => {
     expect(p).toHaveTextContent("Held: the link is paused. It goes when the link resumes.");
     expect(p).toHaveTextContent(/Declined at \d\d:\d\d\. It was not delivered\./);
     expect(within(p).getByRole("button", { name: "Resume link" })).toBeInTheDocument();
+  });
+
+  it("says an Admin paused the link, names them, and does not offer a Resume that would be refused (#1077)", async () => {
+    const { traffic } = page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", pausedByAdmin: "Root", setAt: 1 }] });
+    await flush();
+    expect(within(panel()).getByText("Paused by an Admin")).toBeInTheDocument();
+    expect(panel()).toHaveTextContent("Root paused this link. Only an Admin can resume it.");
+    // aria-disabled keeps the button focusable, so the reason is read to a keyboard user, and a press does nothing.
+    const resume = within(panel()).getByRole("button", { name: "Resume link" });
+    expect(resume).toHaveAttribute("aria-disabled", "true");
+    expect(resume).toHaveAccessibleDescription("Ask Root to resume it.");
+    fireEvent.click(resume);
+    await flush();
+    expect(traffic.api.pause).not.toHaveBeenCalled();
+  });
+
+  it("still says an Admin paused the link when the Admin's name is not known (#1077)", async () => {
+    page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "admin", setAt: 1 }] });
+    await flush();
+    expect(panel()).toHaveTextContent("An Admin paused this link. Only an Admin can resume it.");
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toHaveAccessibleDescription("Ask an Admin to resume it.");
+  });
+
+  it("offers Resume when the owner paused the link, and says nothing of an Admin (#1077)", async () => {
+    page({ rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: true, pausedBy: "owner", setAt: 1 }] });
+    await flush();
+    expect(within(panel()).queryByText("Paused by an Admin")).toBeNull();
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("pauses and resumes the link through the owner's route", async () => {

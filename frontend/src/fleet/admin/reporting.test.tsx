@@ -160,10 +160,12 @@ describe("Usage, the shared report page", () => {
     const s = fakeServer({ unlocked: true });
     s.reports.usage = { report: "usage", from: FROM, to: TO, by: "day", tz: "UTC", basedOn: "daily rollups", oldestDay: "2026-03-02", columns: [{ key: "period", label: "Day" }], rows: [], total: null };
     await openPage("Usage", s);
-    expect(await screen.findByText("Nothing was recorded in this period.")).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.queryByText(/Showing/)).toBeNull();
+    // the page's own section: the sections the Usage page adds after it (#722) have their own tables and charts
+    const results = await screen.findByRole("region", { name: "Usage by day" });
+    expect(await within(results).findByText("Nothing was recorded in this period.")).toBeInTheDocument();
+    expect(within(results).queryByRole("table")).toBeNull();
+    expect(within(results).queryByRole("img")).toBeNull();
+    expect(within(results).queryByText(/Showing/)).toBeNull();
   });
 
   it("describes a basis other than rollups in the server's words", async () => {
@@ -177,7 +179,7 @@ describe("Usage, the shared report page", () => {
     const s = fakeServer({ unlocked: true });
     s.reportStatus = 500;
     await openPage("Usage", s);
-    const alert = await screen.findByRole("alert");
+    const alert = await within(await screen.findByRole("region", { name: "Usage by day" })).findByRole("alert");
     expect(alert).toHaveTextContent("Could not load this report. Check that the server is running, then try again.");
     expect(alert.textContent).not.toMatch(/500|HTTP|nope/);
     s.reportStatus = 0;
@@ -189,7 +191,7 @@ describe("Usage, the shared report page", () => {
     const s = fakeServer({ unlocked: true });
     s.reportStatus = 400;
     await openPage("Usage", s);
-    expect(await screen.findByRole("alert")).toHaveTextContent("did not accept that period or filter");
+    expect(await within(await screen.findByRole("region", { name: "Usage by day" })).findByRole("alert")).toHaveTextContent("did not accept that period or filter");
   });
 
   it("goes back to the lock screen when the session has ended", async () => {
@@ -219,6 +221,41 @@ describe("Usage, the shared report page", () => {
     const table = await screen.findByRole("table", { name: "Spend" });
     expect(table.querySelector("img")).toBeNull();
     expect(within(table).getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+  });
+});
+
+describe("Sorting a report table (#1133)", () => {
+  const days = (table: HTMLElement) => within(table).getAllByRole("row").slice(1, -1).map((r) => within(r).getAllByRole("cell")[0]!.textContent);
+
+  it("makes every heading a button, and leaves the table in the order the server sent until one is clicked", async () => {
+    await openPage("Usage");
+    const table = await screen.findByRole("table", { name: "Usage" });
+    for (const name of ["Day", "People", "Reporters", "Sessions", "Most live"]) expect(within(table).getByRole("button", { name })).toBeInTheDocument();
+    expect(days(table)).toEqual(["2026-10-19", "2026-10-12"]);
+    for (const h of within(table).getAllByRole("columnheader")) expect(h).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("sorts a number column largest first, then smallest first, and marks the sorted heading", async () => {
+    await openPage("Usage");
+    const table = await screen.findByRole("table", { name: "Usage" });
+    fireEvent.click(within(table).getByRole("button", { name: "Sessions" }));
+    expect(days(table)).toEqual(["2026-10-12", "2026-10-19"]);
+    expect(within(table).getByRole("columnheader", { name: /Sessions/ })).toHaveAttribute("aria-sort", "descending");
+    expect(within(table).getByRole("columnheader", { name: /People/ })).toHaveAttribute("aria-sort", "none");
+    fireEvent.click(within(table).getByRole("button", { name: /Sessions/ }));
+    expect(days(table)).toEqual(["2026-10-19", "2026-10-12"]);
+    expect(within(table).getByRole("columnheader", { name: /Sessions/ })).toHaveAttribute("aria-sort", "ascending");
+  });
+
+  it("sorts the period oldest first, then newest first, and keeps the Whole period row last", async () => {
+    await openPage("Usage");
+    const table = await screen.findByRole("table", { name: "Usage" });
+    fireEvent.click(within(table).getByRole("button", { name: "Day" }));
+    expect(days(table)).toEqual(["2026-10-12", "2026-10-19"]);
+    fireEvent.click(within(table).getByRole("button", { name: /Day/ }));
+    expect(days(table)).toEqual(["2026-10-19", "2026-10-12"]);
+    const rows = within(table).getAllByRole("row");
+    expect(rows[rows.length - 1]).toHaveTextContent("Whole period");
   });
 });
 

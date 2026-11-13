@@ -27,6 +27,12 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
     return s;
   };
 
+  it('a message from an @ in a channel ends with where to read around it, in the channel it came from (#1034)', () => {
+    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'My group' })).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:group".');
+    expect(framedMessage({ by: 'Ed', text: 'look', channel: 'General' })).toContain('podium_send to "channel:general"');
+    expect(framedMessage({ by: 'Ed', text: 'look' })).not.toContain('podium_chat_read');
+  });
+
   it('shows a permission as its action and resources, never cut for a short one', () => {
     const s = store();
     apply(s, permission(), 2);
@@ -117,6 +123,20 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
     expect(t).toContain('via Podium');
     expect(t.endsWith('hello')).toBe(true);
     expect(framedMessage({ by: 'Ed' }).endsWith('\n\n')).toBe(true);
+  });
+
+  it("ends the owner's own Chat message with where to answer, and no other message (#1034)", () => {
+    const t = framedMessage({ by: 'Ed', text: 'is it green?', chat: true });
+    expect(t).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nis it green?\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
+    expect(framedMessage({ by: 'Ed', text: 'is it green?' })).not.toContain('Chat thread');
+  });
+
+  it("hands the model the Chat hint for a message from the owner's Chat, through the reporter (#1034)", async () => {
+    const { host, calls } = fakeHost();
+    const { r } = rig(host, true, true, podium({ deliveries: [D({ id: 'm1', kind: 'message', text: 'is it green?', chat: true })] }));
+    await r.tick();
+    await r.tick();
+    expect(calls.find((c) => c.startsWith('prompt'))).toContain('To answer in the Chat thread, use podium_send to "person:Ed".');
   });
 });
 

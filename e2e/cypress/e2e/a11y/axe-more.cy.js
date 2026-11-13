@@ -63,6 +63,7 @@ describe('accessibility (axe): orchestrator page, dialogs and Admin', () => {
     });
 
     it('the activity dialog', () => {
+      cy.signIn('Ed');
       cy.openConsole('#/?open=e2e-s-invoice');
       cy.get('#row-e2e-a-port').click();
       cy.get('#podium-side-body').contains('button', 'Expand').click();
@@ -72,7 +73,7 @@ describe('accessibility (axe): orchestrator page, dialogs and Admin', () => {
   });
 
   context('Admin', () => {
-    const PAGES = ['People', 'Groups', 'Reporters', 'Settings', 'Model prices', 'Security', 'Certificates', 'Data', 'Stored activity', 'Usage', 'Spend', 'People and groups', 'Sessions', 'Failures', 'Admin activity', 'Admin log'];
+    const PAGES = ['People', 'Groups', 'Reporters', 'Settings', 'Model prices', 'Security', 'Certificates', 'Data', 'Stored activity', 'About', 'Usage', 'Spend', 'People and groups', 'Sessions', 'Tools', 'Harness updates', 'Failures', 'Admin activity', 'Admin log'];
     for (const page of PAGES) {
       it(`${page}, light, 1440 px`, () => {
         cy.openAdmin(page);
@@ -89,6 +90,26 @@ describe('accessibility (axe): orchestrator page, dialogs and Admin', () => {
         cy.get('main h1').should('have.text', page);
         cy.checkA11y();
       });
+    }
+    // A reporter is "silent" after an hour without a report, which a seeded server never reaches on its own (and a machine that was
+    // asleep can reach by surprise, #1098). So the list is answered with the first reporter silent, and axe always checks that state.
+    for (const mode of ['light', 'dark']) {
+      for (const width of [1440, 400]) {
+        it(`Reporters with a silent reporter, ${mode}, ${width} px`, () => {
+          cy.intercept('GET', '**/reporters?*', (req) =>
+            req.continue((res) => {
+              res.body.rows[0].state = 'silent';
+            }),
+          );
+          cy.atWidth(width);
+          cy.unlockAdmin();
+          cy.visit('/#/admin', { onBeforeLoad: theme(mode) });
+          cy.adminPage('Reporters');
+          cy.get('main h1').should('have.text', 'Reporters');
+          cy.get('.rstate.silent').should('have.length.at.least', 1);
+          cy.checkA11y();
+        });
+      }
     }
     for (const page of ['People', 'Settings', 'Reporters']) {
       it(`${page}, 400 px`, () => {

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import "../chat.css";
+import { adminWho, type AdminRead } from "../chatData";
 import { RespondError } from "../respondApi";
+import { nameKey } from "../respond";
+import { ADMIN } from "../people";
+import { readingKey, replayersLine, replayersRest, replayRecordLine, useDismissed, useReplayReads } from "../replayReads";
+import { ChEye } from "./ChatIcons";
 import { fmtAt, fmtWhen, joinWords, loopNames, mayRecord, openReplay, sizeWords, stoppedWords } from "../recording";
 import type { SessionView } from "../types";
 import { useRespond } from "../useRespond";
@@ -42,6 +48,72 @@ export function recordingFail(e: unknown, what: string): string {
     return `Could not ${what}: ${e.message}. Try again.`;
   }
   return `Could not ${what}. Try again.`;
+}
+
+/**
+ * What an Admin's replay of the person's own recorded session tells the person (#1075, mockup/podium-replay-notice.html): a red notice while an Admin replays,
+ * and a quiet line for each replay after, newest first, three at most. The red notice has no X; each quiet line has one that hides it on this browser; the record and the Admin log stay. Only
+ * the session's owner sees these: an Admin who is not the owner sees nothing, and cannot dismiss another person's. Words only, never any text of the recording.
+ */
+function ReplayNotes({ s }: { s: SessionView }) {
+  const respond = useRespond();
+  const reads = useReplayReads();
+  const dismissed = useDismissed();
+  const me = respond?.me;
+  const owns = !!me?.signedIn && !!me.name && !!s.owner && s.owner !== ADMIN && nameKey(s.owner) === nameKey(me.name);
+  const [records, setRecords] = useState<AdminRead[]>([]);
+  const rev = reads?.rev ?? 0;
+  const api = respond?.api;
+  useEffect(() => {
+    if (!owns || !api?.recordingConsent) {
+      setRecords([]);
+      return;
+    }
+    let live = true;
+    api.recordingConsent(s.id).then(
+      (d) => live && setRecords((d.adminReads ?? []).filter((r) => (r.kind ?? "read") === "read")),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [owns, api, s.id, rev]);
+  if (!owns || !reads) return null;
+  const now = reads.serverNow();
+  // The live red notice has no X and no dismissal: it shows for as long as the replay is live.
+  const readers = reads.readers(s.id);
+  const liveStarts = new Set(reads.readers(s.id).map((r) => readingKey(s.id, r.admin, r.since)));
+  const lines = records
+    .filter((r) => !liveStarts.has(readingKey(s.id, r.admin, r.startedAt)) && !dismissed.has(readingKey(s.id, r.admin, r.startedAt)))
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, 3);
+  if (!readers.length && !lines.length) return null;
+  const close = (label: string, key: string) => (
+    <button type="button" className="x" aria-label={`Close notice: ${label}`} onClick={() => dismissed.dismiss(key)}>
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M2 2l8 8M10 2l-8 8" />
+      </svg>
+    </button>
+  );
+  return (
+    <div className="rec-notes">
+      {readers.length > 0 && (
+        <div className="ch-nav ro crit" role="status" data-testid="replay-reading-notice">
+          <ChEye />
+          <span>
+            <b>{replayersLine(readers)}</b> {replayersRest(readers)}
+          </span>
+        </div>
+      )}
+      {lines.map((r) => (
+        <div key={`${r.admin}|${r.startedAt}`} className="ch-nav ro" role="status" data-testid="replay-record">
+          <ChEye />
+          <span>{replayRecordLine(r, now)}</span>
+          {close(`${adminWho(r.admin)} replayed this recording`, readingKey(s.id, r.admin, r.startedAt))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -123,6 +195,7 @@ export function RecordingLayer({ s, now: shownAt }: { s: SessionView; now: numbe
     );
   }
   return (
+    <>
     <div className={`rec-bar${kept ? " kept" : ""}`} role="status">
       <span className="dot" aria-hidden="true" />
       <div className="tx">
@@ -159,5 +232,7 @@ export function RecordingLayer({ s, now: shownAt }: { s: SessionView; now: numbe
         </ConfirmBox>
       )}
     </div>
+    <ReplayNotes s={s} />
+    </>
   );
 }

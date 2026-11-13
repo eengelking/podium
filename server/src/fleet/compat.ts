@@ -14,8 +14,8 @@ export const DEFAULT_REPORTER = CLAUDE_REPORTER_NAME;
  * release with an entry of its own and never inherits another's range.
  */
 export const REPORTER_SUPPORT: Readonly<Record<string, ReporterSupport>> = {
-  [DEFAULT_REPORTER]: { min: "0.2.0", max: "1.5.0" },
-  [OPENCODE_REPORTER_NAME]: { min: "1.4.0", max: "1.5.0" },
+  [DEFAULT_REPORTER]: { min: "0.2.0", max: "1.6.0" },
+  [OPENCODE_REPORTER_NAME]: { min: "1.4.0", max: "1.6.0" },
 };
 
 /** The name of the reporter that serves each harness (a session stores its harness, not its reporter). */

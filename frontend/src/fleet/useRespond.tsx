@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { respondApi, RespondError, type RespondApi } from "./respondApi";
 import type { RespondMe } from "./types";
+import { usePageVisible } from "./usePageVisible";
 
 export type SignInResult = "ok" | "wrong" | "empty" | "locked";
 
@@ -43,13 +44,14 @@ export function useRespond(): RespondContext | null {
 /** How often the page checks the sign-in is still there, so an ended one is noticed before the next answer. */
 const CHECK_MS = 60_000;
 
-export function RespondProvider(props: { children: ReactNode; api?: RespondApi; flagsOn: boolean; diffOn?: boolean; peersOn?: boolean; historyOn?: boolean; recordingOn?: boolean }) {
+export function RespondProvider(props: { children: ReactNode; api?: RespondApi; flagsOn: boolean; diffOn?: boolean; peersOn?: boolean; historyOn?: boolean; recordingOn?: boolean; myUsageOn?: boolean }) {
   const api = props.api ?? respondApi;
   const [me, setMe] = useState<RespondMe | null>(null);
   const [expired, setExpired] = useState(false);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const signedIn = useRef(false);
+  const visible = usePageVisible();
 
   const refresh = useCallback(async () => {
     try {
@@ -66,14 +68,16 @@ export function RespondProvider(props: { children: ReactNode; api?: RespondApi; 
   // With the Admin's flags off nobody can respond, so the server is not even asked. Orchestrator messaging (#415) also
   // lets a person sign in, for My reporters, even with responding off; so does kept Activity history (#432), to read it.
   useEffect(() => {
-    if (!props.flagsOn && !props.diffOn && !props.peersOn && !props.historyOn && !props.recordingOn) {
+    if (!props.flagsOn && !props.diffOn && !props.peersOn && !props.historyOn && !props.recordingOn && !props.myUsageOn) {
       setMe(null);
       return;
     }
+    // A hidden tab asks nothing; showing it again re-runs this effect, which asks once and starts the timer (#1054).
+    if (!visible) return;
     void refresh();
     const t = setInterval(() => void refresh(), CHECK_MS);
     return () => clearInterval(t);
-  }, [refresh, props.flagsOn, props.diffOn, props.peersOn, props.historyOn, props.recordingOn]);
+  }, [refresh, visible, props.flagsOn, props.diffOn, props.peersOn, props.historyOn, props.recordingOn, props.myUsageOn]);
 
   const signIn = useCallback(
     async (name: string, token: string): Promise<SignInResult> => {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { activityCall, activityText, candidateFrom, classify, evidence, excerpt, LIMITS, parseExitCode, redact, summarizeCall, tailLines, type ClassifyInput, type FailureCandidate } from './failures.ts'
+import { activityCall, activityText, buildFailure, candidateFrom, classify, evidence, excerpt, LIMITS, parseExitCode, redact, reportedFailure, summarizeCall, tailLines, type ClassifyInput, type FailureCandidate } from './failures.ts'
 
 const NOW = 1_000_000
 const cand = (over: Partial<FailureCandidate> = {}): FailureCandidate => ({ at: NOW - 1000, tool: 'Bash', call: 'npm test', exitCode: 1, outputTail: ['FAIL'], denied: false, denyText: null, ...over })
@@ -146,5 +146,19 @@ describe('activity entries, long input', () => {
   test('a secret after a long run of whitespace is still whole when it is redacted', () => {
     expect(activityText(`${' '.repeat(5000)}ghp_${'Z'.repeat(30)} done`)).toBe('[redacted] done')
     expect(activityCall('Bash', { command: `${'\n'.repeat(5000)}echo ghp_${'Z'.repeat(30)}` })).toBe('Bash echo [redacted]')
+  })
+})
+
+describe('reportedFailure (#1021)', () => {
+  const f = buildFailure('Tool error', cand(), [], NOW)
+  test('an agent that ended failed or aborted reports its failure', () => {
+    expect(reportedFailure('failed', f)).toBe(f)
+    expect(reportedFailure('aborted', f)).toBe(f)
+  })
+  test('a running, queued or finished agent reports none, whatever record it holds', () => {
+    for (const status of ['queued', 'running', 'done'] as const) expect(reportedFailure(status, f)).toBeNull()
+  })
+  test('an agent with no record reports none', () => {
+    expect(reportedFailure('failed', null)).toBeNull()
   })
 })

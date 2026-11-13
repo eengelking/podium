@@ -14,7 +14,7 @@ All times are epoch milliseconds. All token counts are integers. Unknown fields 
 interface Report {
   v: 1;
   sentAt: number;
-  reporter: { name: 'podium-reporter' | 'podium-reporter-claudecode'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
+  reporter: { name: 'podium-reporter' | 'podium-reporter-claudecode' | 'podium-reporter-opencode'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
   session: {
     id: string;
     name: string;                       // display name (6.6)
@@ -23,6 +23,7 @@ interface Report {
     waitNote: string | null;            // e.g. "Bash(npm run e2e -- --retries=0)", ≤ 160 chars
     endReason: string | null;           // set with status 'done'
     resumeId: string | null;
+    resumeWindowDays?: number;          // the days the harness lets a person resume a closed session (#1113); absent from an older reporter
     startedAt: number;
     cwd: string;
     projectRoot: string | null;
@@ -56,6 +57,7 @@ interface Report {
       level: 'off' | 'questions' | 'questions-and-plans' | 'everything';   // the `respond` option as set
       accepts: RespondKind[];           // what the session takes now: the level's kinds, empty while `activityFeed` is off or the session is not interactive, less what `limits` removes
       limits: ('no-permission-hooks' | 'not-interactive' | 'no-reply-in-place')[];  // why a kind the level allows is missing: PermissionRequest hooks don't run here (drops plan-approve and permission), a `claude -p` run (drops everything), or the session takes no typed reply in place of a question's answer (drops no kind, #968)
+      // OpenCode takes `/compact` only (it has no `/clear`) and always reports `no-reply-in-place`: a question form is not given up for a typed reply (#968)
     };
     asks?: Ask[];                       // the asks open now, at most 8; sent only while the last reply said `respond: true`, else omitted
     clearedFrom?: string | null;        // the session id this one continues after a /clear (5.8); null or absent otherwise
@@ -65,7 +67,7 @@ interface Report {
   agents: AgentReport[];                // every agent seen this session, running or finished
   events: ActivityEvent[];              // not yet acknowledged
   userName?: string;                    // the person this reporter is set up as (the `userName` option); omitted when empty. The server checks it against the token's owner (7.7)
-  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (on macOS `scutil --get LocalHostName`, else `hostname`, up to the first dot, ≤ 64; the first one read is pinned in `podium-machine-name` beside the id file and reported by every later load, so a name that changes with the network does not show one machine under two names, #715; deleting the file takes the current name) and a random 12-hex id the reporters keep in one file, `~/.podium/machine-id`, made on first use and shared by every load of every reporter on the machine (#856; an id a Claude install already kept in `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`) is copied there, #267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
+  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (on macOS `scutil --get LocalHostName`, else `hostname`, up to the first dot, ≤ 64; the first one read is pinned in the shared `~/.podium/machine-name` (the Claude Code reporter also keeps `podium-machine-name` beside its id file in the Claude config directory, and reads that first, so a name it already reported never changes) and reported by every later load, so a name that changes with the network does not show one machine under two names, #715; deleting the file takes the current name) and a random 12-hex id the reporters keep in one file, `~/.podium/machine-id`, made on first use and shared by every load of every reporter on the machine (#856; an id a Claude install already kept in `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`) is copied there, #267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
 }
 
 interface FilesReport {
@@ -79,9 +81,20 @@ interface FilesReport {
 
 interface Plan {
   title: string | null;
-  source: 'TaskCreate' | 'TodoWrite' | 'podium_plan';
+  source: 'TaskCreate' | 'TodoWrite' | 'podium_plan' | string;   // a harness may send its own: OpenCode sends 'todowrite'
   steps: { id: string; text: string; state: 'pending' | 'active' | 'done' | 'blocked';
            activeText: string | null; ownerAgentId: string | null; ownerLabel: string | null }[];
+}
+
+// What one tool did in one loop (#721): counts only, never an argument, a path, a command or an error's text. A field is left out when it is 0.
+// Every harness's reporter counts these the same way (plugin/core/toolStats.ts), so a figure reads the same whichever harness ran the session.
+interface ToolStat {
+  failed?: number;                      // finished calls that ended in an error. A call refused at its permission prompt did not run: it is counted under `denied`, not here. A call a rule refused with no prompt did not run either and is counted in neither
+  asked?: number;                       // permission prompts the tool raised. A plan's approval and a question are not permission prompts
+  allowed?: number;                     // asks that ended with the call allowed
+  denied?: number;                      // asks that ended with the call refused
+  podium?: number;                      // (Claude Code matches an ask to the call that ends by loop and tool name, so two calls of one tool running at once in one loop can swap their outcomes.) asks answered from Podium, allowed or denied, so it never exceeds allowed + denied. An ask with neither answer is still open or never answered: the report shows it as "no answer"
+  times?: Record<string, number>;       // call lengths: a key is a bucket (0 for 1 ms or less, then one for each 10% longer, up to an hour at 159) and the value is the calls in it
 }
 
 // What an agent entry carries about its own work, for the orchestrator's main loop. Same fields, same meaning,
@@ -91,8 +104,14 @@ interface LoopReport {
   lastTool: string | null;
   toolCalls: number;
   toolCounts: Record<string, number>;   // finished calls per tool name, summing to toolCalls (less when capped, see 7.7)
+  toolStats?: Record<string, ToolStat>; // what each tool did beyond being called (#721), the same names as toolCounts
   steps: { done: number; total: null }; // model requests the main loop has made so far
 }
+
+// On the report itself (#724), beside `session`, `agents` and `events`:
+//   signals?: Record<string, number>;   // what the harness sent this reporter in this session: `hook:<hook>` for each hook that ran and `field:<hook>.<field>` for each field its
+//                                       // event carried that the reporter reads, as counts, at most 64 names. Names and counts only, never a value. Absent from a reporter older than
+//                                       // 1.6.0, which the version comparison leaves out. The server drops a name that is not of that form, and keeps the latest report's counts.
 
 interface AgentReport {
   id: string;                           // the engine's agentId
@@ -109,12 +128,13 @@ interface AgentReport {
   endedAt: number | null;
   context: { tokens: number | null; window: number | null; percent: number | null };
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  costUsdEst: number;
+  costUsdEst: number | null;            // null for a model Podium has no price for (a non-Claude model; 6.5)
   usageByModel?: { model: string; tier: 'std' | 'long'; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number } }[];  // this agent's own loop (#117); absent from a reporter older than 0.12.0
   skills: string[];
   lastTool: string | null;
   toolCalls: number;
   toolCounts: Record<string, number> | null;   // finished calls per tool name, summing to toolCalls; null from a reporter older than 0.2.0
+  toolStats?: Record<string, ToolStat>;        // what each tool did beyond being called (#721); absent from a reporter that does not send it
   blowouts: number;                     // this loop's cumulative blowouts
   steps: { done: number; total: number | null } | null;   // model steps taken so far; total only when known, else null
   promptExcerpt: string;                // first 400 chars of the task prompt
@@ -175,6 +195,8 @@ interface Delivery {
   mode?: 'auto' | 'acceptEdits' | 'default';   // kind 'plan-approve'
   text?: string;                        // 'reply' (a message in place of an answer), 'plan-feedback', 'deny' (the reason, may be empty) and 'message': ≤ 20,000 chars, line breaks kept
   command?: 'clear' | 'compact';        // kind 'command'
+  chat?: true;                          // kind 'message': the owner's own Chat Direct Message to this agent (#1034); the agent may answer in the thread with `podium_send` to `person:<by>`. Older reporters ignore it
+  channel?: string;                     // kind 'message': set on a message from an `@` in a Chat channel (#1034), the channel's name (`General` or `My group`)
 }
 
 // Orchestrator messaging (#347, 7.7). A message or a notice for this session's orchestrator, in the reply to a report.
@@ -183,7 +205,7 @@ interface PeerDelivery {
   id: string;                           // 'dlv_' and 24 hex characters, made by the server
   kind: 'message' | 'notice';
   at: number;                           // when the server took it (server time)
-  from: { name: string; machine: string; owner: string } | null;   // the sending orchestrator, its machine and its owner
+  from: { name: string; machine: string; owner: string; id?: string; person?: boolean } | null;   // the sending orchestrator, its machine and its owner; `id` is its short session id (the `name@machine#id` form); `person` is true when `name` is a person who wrote through Chat, and then `machine` is empty and `owner` is the person who owns this session
   text: string;                         // ≤ 20,000 chars, line breaks kept; redacted on the sending machine
 }
 
@@ -209,7 +231,7 @@ interface Failure {
   exitCode: number | null;
   outputTail: string[];                 // last ≤ 12 lines of output, each ≤ 240 chars
   evidence: string[];                   // short facts the reporter observed, ≤ 5 lines (e.g. "exceeded the window 3 times", "same file read 4 times")
-  explanation: string | null;           // only when explainFailures is on (Phase 5)
+  explanation: string | null;           // only when explainFailures is on
   retriedAs: string | null;             // agent id that took over the step, when known
 }
 
@@ -234,10 +256,13 @@ interface ReportV2 extends Omit<Report, 'v'> {
   harness: { id: string; name: string; version: string; surface: string | null };  // id: 1 to 32 letters, digits, - or _ (the key the server uses)
   capabilities: {                       // each key is a boolean; a key left out is not declared (below)
     effort?: boolean; plan?: boolean; agents?: boolean; cost?: boolean; context?: boolean; git?: boolean; respond?: boolean;
+    adminNotices?: boolean;             // shows the person the Admin callout and frames a person's text (#1051); only an explicit true counts, and a v1 report sends it as a top-level `adminNotices`
     commands?: string[];                // the slash commands Podium may send, at most 64, none empty; left out means none
   };
 }
 ```
+
+`adminNotices` is the one capability the server acts on by itself (#1051): the console sends a person's text to another person's agent only when that agent's last report declared it as an explicit `true`. The key left out, or `false`, means the reporter cannot show its person the callout, and the message is refused up front. A v1 report has no capabilities block (and its absent block means every command Claude Code has), so Claude Code declares the key as a top-level boolean `adminNotices: true`; a value that is not a boolean is a 400 at `$.adminNotices`. The server holds it in memory with the session's other respond state, so it is read again from the next report after a restart.
 
 What changes inside the v1 fields when `v` is 2:
 

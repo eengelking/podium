@@ -1,12 +1,12 @@
 ---
 title: "Introduction"
-description: "What Podium is, what it shows for each Claude Code session, what it will not do, and which page to read next."
+description: "What Podium is, what it shows for each Claude Code or OpenCode session, what it will not do, and which page to read next."
 group: Getting started
 ---
 
 # Introduction
 
-Podium is a live fleet console for Claude Code. Every session on one machine shows up in one browser tab.
+Podium is a live fleet console for Claude Code and OpenCode. Every session on one machine shows up in one browser tab.
 
 For each session it shows the model, effort and plan, the agents it launched, what they cost, how full their context windows are, why anything failed, and which git branch it works in. It is for someone who runs several Claude Code sessions or agents at once and wants to see what they are doing and costing without watching each terminal.
 
@@ -25,7 +25,7 @@ Podium watches. The one thing it can send is an answer to a session that waits o
 Podium has two parts, and you run both yourself:
 
 - The **server** stores what sessions report and serves the console you open in a browser. See [Running the server](SERVER.md).
-- The **reporter mod**, `podium-reporter`, runs inside Claude Code and sends the data. See [Reporter](REPORTER.md).
+- The **reporter**, `podium-reporter`, runs inside Claude Code (as a plugin, the mod) or OpenCode (as a plugin) and sends the data. See [Reporter](REPORTER.md).
 
 ## Where to go
 
@@ -33,7 +33,7 @@ Podium has two parts, and you run both yourself:
 |---|---|
 | Set Podium up and read the console | [User guide](user-guide/README.md) |
 | Run the server for yourself or a team | [Running the server](SERVER.md) |
-| Install and configure the mod | [Reporter](REPORTER.md) |
+| Install and configure the reporter (Claude Code or OpenCode) | [Reporter](REPORTER.md) |
 | Let your own orchestrators message each other | [Messaging](MESSAGING.md) |
 | Record a session and play it back | [Session recording and replay](REPLAY.md) |
 | Show Podium to other people | [Demo](DEMO.md) |

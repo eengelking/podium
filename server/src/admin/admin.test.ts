@@ -5,10 +5,11 @@ import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { LiveFeatureFlags, LiveModelPrices, LiveWallSettings } from '../fleet/liveSettings.js';
 import { createAdminRouter } from './adminRouter.js';
+import type { AdminActs } from '../fleet/adminActs.js';
 
 const SECRET = 'the-admin-secret-0123456789';
 
-async function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: number; onRespondOn?: () => void } = {}) {
+async function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: number; onRespondOn?: () => void; acts?: AdminActs } = {}) {
   const storage = openSqliteStorage(':memory:', 0);
   const people = storage.people;
   const wall = new LiveWallSettings(storage.wallSettings);
@@ -33,6 +34,7 @@ async function setup(over: { secret?: string | null; idleMs?: number; logRetainM
       idleMs: over.idleMs,
       logRetainMs: over.logRetainMs,
       onRespondOn: over.onRespondOn,
+      ...(over.acts ? { adminActs: over.acts } : {}),
       log: (l) => lines.push(l),
     }),
   );
@@ -283,9 +285,21 @@ describe('groups and settings', () => {
           on: false,
         },
         {
+          id: 'chat-everyone',
+          name: 'Address @group and @everyone in Chat',
+          description: expect.stringContaining('Off, a message that uses either is refused'),
+          on: false,
+        },
+        {
           id: 'session-recording',
           name: 'Session recording',
           description: expect.stringContaining('Needs sign-in on the server. Off by default.'),
+          on: false,
+        },
+        {
+          id: 'my-usage',
+          name: 'My usage page',
+          description: expect.stringContaining('Only their own: it never shows another person'),
           on: false,
         },
         {
@@ -324,7 +338,7 @@ describe('groups and settings', () => {
       const { agent, features, people } = await unlocked();
       const res = await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': false } });
       expect(res.status).toBe(200);
-      expect(res.body.features).toEqual([expect.objectContaining({ id: 'activity-feed', on: false }), expect.objectContaining({ id: 'activity-output', on: false }), expect.objectContaining({ id: 'respond', on: false }), expect.objectContaining({ id: 'file-diff', on: false }), expect.objectContaining({ id: 'peer-messaging', on: false }), expect.objectContaining({ id: 'session-recording', on: false }), expect.objectContaining({ id: 'update-check', on: true })]);
+      expect(res.body.features).toEqual([expect.objectContaining({ id: 'activity-feed', on: false }), expect.objectContaining({ id: 'activity-output', on: false }), expect.objectContaining({ id: 'respond', on: false }), expect.objectContaining({ id: 'file-diff', on: false }), expect.objectContaining({ id: 'peer-messaging', on: false }), expect.objectContaining({ id: 'chat-everyone', on: false }), expect.objectContaining({ id: 'session-recording', on: false }), expect.objectContaining({ id: 'my-usage', on: false }), expect.objectContaining({ id: 'update-check', on: true })]);
       expect(features.featureOn('activity-feed')).toBe(false);
       expect((await agent.get('/api/admin/settings').set(H)).body.features[0].on).toBe(false);
       await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': true } });
@@ -479,6 +493,20 @@ describe('reporters (#142)', () => {
     expect((await agent.get('/api/admin/reporters/9f3a1c7d2e40?page=3&pageSize=50').set(H)).body).toMatchObject({ recentPage: 3, recentPageSize: 50 });
     expect((await agent.get('/api/admin/reporters/nope').set(H)).status).toBe(404);
     expect((await agent.get('/api/admin/reporters/' + 'x'.repeat(200)).set(H)).status).toBe(400);
+  });
+
+  it('tells a person once when an Admin removes their reporters, naming one or counting several, and tells no one for the admin secret (#1078)', async () => {
+    const acts = { onSession: vi.fn(async () => {}), onPerson: vi.fn(async () => {}) } as unknown as AdminActs & { onPerson: ReturnType<typeof vi.fn> };
+    const { agent, reporters } = await unlocked({ acts });
+    await reporters.record(seen(), Date.now());
+    await reporters.record(seen({ machineId: '1111aaaa2222', machineName: 'laptop', sessionId: 's2' }), Date.now());
+    await reporters.record(seen({ machineId: '3333bbbb4444', machineName: 'ci', owner: 'Admin', credential: 'admin secret', sessionId: 's3' }), Date.now());
+    expect((await agent.delete('/api/admin/reporters/9f3a1c7d2e40').set(H)).status).toBe(200);
+    expect(acts.onPerson.mock.calls).toEqual([['Admin', 'reporter_removed', 'Dana', 'your reporter studio-m2']]);
+    acts.onPerson.mockClear();
+    const rest = await reporters.list({}, Date.now());
+    expect((await agent.post('/api/admin/reporters/remove').set(H).send({ keys: rest.rows.map((r: { key: string }) => r.key) })).status).toBe(200);
+    expect(acts.onPerson.mock.calls).toEqual([['Admin', 'reporter_removed', 'Dana', 'your reporter laptop']]);
   });
 
   it('removes a reporter, writes it to the admin log, and refuses a write without the Admin header', async () => {

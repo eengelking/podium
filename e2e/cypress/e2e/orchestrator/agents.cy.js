@@ -1,7 +1,10 @@
 // SPEC 8.1 Orchestrator page > agent tree rows, Right panel > Agent detail, Report group, Tools used, Activity section.
+const AT = 4102444800000; // 2100-01-01, a fixed moment: the server drops an entry older than the moment the panel opened, so a past one would never show (#1056)
 describe('agent panel', () => {
   before(() => cy.resetServer());
   beforeEach(() => {
+    // An agent's whole text and live activity are the owner's and the Admin's (#1082): Ed owns invoice-v2. The refusals are in agent-read-gate.cy.js.
+    cy.signIn('Ed');
     cy.openConsole('#/');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
@@ -101,11 +104,44 @@ describe('agent panel', () => {
     row('e2e-a-port').click();
     side().contains('Watching from now. Earlier activity is not kept, and nothing is kept after you close this.');
     side().contains('Nothing yet');
-    cy.reportAgain('invoice', {}, { 'e2e-a-port': { activity: [{ at: Date.now(), kind: 'tool', text: 'Edit src/invoice/totals.ts' }, { at: Date.now() + 1, kind: 'text', text: 'Renamed sum to total.' }] } });
+    cy.reportAgain('invoice', {}, { 'e2e-a-port': { activity: [{ at: AT, kind: 'tool', text: 'Edit src/invoice/totals.ts' }, { at: AT + 1, kind: 'text', text: 'Renamed sum to total.' }] } });
     side().contains('Edit src/invoice/totals.ts', { timeout: 15000 });
     side().contains('Renamed sum to total.');
     side().contains('Last 2 of 2 since you started watching');
     side().contains('Kept only while someone is watching.');
+  });
+
+  it('shows a Bash call sent without done as running after its text, in the panel and in Expand, and ends it in place (#899)', () => {
+    row('e2e-a-port').click();
+    side().contains('Nothing yet');
+    const at = AT + 100; // later than the first test's entries, which the server keeps ordered
+    const text = { at, kind: 'text', text: 'Running the invoice tests now.' };
+    // The reporter sends the call from its start, with no done; the same id comes back with done when it ends.
+    const bash = (over = {}) => ({ at: at + 1, kind: 'tool', text: 'Bash npm test -- invoice', id: `toolu_e2e_running_${at}`, command: 'npm test -- invoice', ...over });
+    cy.reportAgain('invoice', {}, { 'e2e-a-port': { activity: [text, bash()] } });
+    const rows = (scope) => scope.find('.feed li');
+    const bashRow = (scope) => scope.find('.feed li').contains('npm test -- invoice').closest('li');
+    side().contains('Running the invoice tests now.', { timeout: 15000 });
+    rows(side()).should('have.length', 2);
+    bashRow(side()).find('.state').should('have.text', 'running');
+    side().contains('button', 'Expand').click();
+    cy.get('[role=dialog]').within(() => {
+      cy.get('.feed li').should('have.length', 2);
+      cy.get('.feed li').contains('npm test -- invoice').closest('li').find('.state').should('have.text', 'running');
+    });
+    cy.get('body').type('{esc}');
+    cy.get('[role=dialog]').should('not.exist');
+    cy.reportAgain('invoice', {}, { 'e2e-a-port': { activity: [bash({ done: true, exitCode: 0 })] } });
+    // One row, still after the text, now showing its result.
+    bashRow(side()).find('.state .exit.ok', { timeout: 15000 }).should('exist');
+    bashRow(side()).find('.state').should('not.contain.text', 'running');
+    rows(side()).should('have.length', 2);
+    side().find('.feed li').filter(':contains("npm test -- invoice")').should('have.length', 1);
+    side().contains('button', 'Expand').click();
+    cy.get('[role=dialog]').within(() => {
+      cy.get('.feed li').should('have.length', 2);
+      cy.get('.feed li').contains('npm test -- invoice').closest('li').find('.state .exit.ok').should('exist');
+    });
   });
 
   it('says a finished agent has no more updates and offers no dropdown', () => {

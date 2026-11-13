@@ -137,7 +137,8 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .ritem .l2 { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--ink2); font-size: 12px; }
 .podium .ritem .bar { flex: 1; }
 .podium .ritem.enter, .podium .card.enter { animation: podium-enter .9s ease-out; }
-.podium .ritem.leave, .podium .card-slot.leave { animation: podium-leave .6s ease-in forwards; }
+.podium .ritem.leave, .podium .card-slot.leave, .podium .ch-item.leave { animation: podium-leave .6s ease-in forwards; }
+.podium .ch-item.leave { pointer-events: none; }
 @keyframes podium-enter { 0% { background: color-mix(in srgb, var(--good) 28%, transparent); transform: translateY(-4px); opacity: 0; } 30% { opacity: 1; transform: none; } 100% { } }
 @keyframes podium-leave { to { opacity: 0; transform: translateX(-8px); } }
 
@@ -280,7 +281,11 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .card.sc .sd { flex: none; display: inline-flex; color: var(--muted); }
 .podium .card.sc .sd .si { width: 13px; height: 13px; }
 .podium .card.sc .sd .si-running { color: var(--good-text); }
-.podium .card.sc .mdl { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.podium .card.sc .mdl { flex: 0 1 auto; min-width: 0; max-width: 60%; display: inline-flex; align-items: center; gap: 8px; }
+/* A long model name (OpenCode sends provider/model, #1028) shrinks the model chip to an ellipsis instead of pushing the session's name out of the header or the chip past the card's edge. The badge and the meter keep their size. */
+.podium .card.sc .mdl > :not(.chip.model) { flex: none; }
+.podium .card.sc .mdl .chip.model { min-width: 0; overflow: hidden; }
+.podium .card.sc .mdl .chip.model > i { flex: none; }
 .podium .card.sc .path { margin-top: 0; }
 /* The session id: eight characters, copied whole on a click (#322, mockup/podium-session-name.html). On a card it shares the path line. */
 .podium .card.sc .pathrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -335,6 +340,9 @@ body.podium-resizing .podium .cols { transition: none; }
 /* focus view */
 .podium .fh { display: flex; flex-wrap: wrap; align-items: stretch; gap: 14px 24px; padding: 14px 16px; }
 .podium .fh .id { flex: 1; min-width: min(280px, 100%); display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+/* The name and the Chat with Agent button in one row (#1067). It wraps, so the button drops under a long name or a narrow page. */
+.podium .fh .nm-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.podium .fh .nm-row h1 { min-width: 0; }
 .podium .fh h1 { margin: 0; font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; display: flex; gap: 10px; align-items: center; overflow-wrap: anywhere; }
 .podium .fh h1 .sd { flex: none; display: inline-flex; color: var(--muted); }
 .podium .fh h1 .sd .si { width: 20px; height: 20px; }
@@ -842,9 +850,26 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modeseg button[aria-checked="true"] { background: var(--sel); color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
 .podium .modeseg button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
 .podium .banner.has-picker { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; }
-.podium .banner.has-picker .themepick, .podium .banner.has-picker .bannerctl { margin-left: auto; display: inline-flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; }
-.podium .bannerctl .field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.podium .banner.has-picker > span:first-child { flex: 1 1 220px; min-width: 0; }
 .podium .banner.has-picker .sel, .podium .banner.has-picker .modeseg button { padding-block: 3px; }
+/* Wall options (#1129, mockup/podium-wall-options.html): the banner's display controls in one drawer, the same on every page. The
+   drawer keeps one border box shut and open, so opening it where the row has room never moves the page below. The pill keeps the
+   drawer's top-left corner and only the controls wrap, inside their own box, so the pill never sits alone on a line. */
+.podium .wallopts { margin-left: auto; display: inline-flex; align-items: flex-start; gap: 12px; max-width: 100%; padding: 1px; border: 1px solid transparent; border-radius: 8px; }
+.podium .wallopts.open { border-color: var(--border); background: var(--surface); }
+/* The pill is an EdgeTab in the row rather than on an edge. Its tip lines up with the side it is on, so it stays on screen. */
+.podium .edge-tab-opts { position: relative; flex: none; }
+.podium .edge-tab-opts svg { width: 12px; height: 12px; }
+.podium .edge-tab-opts .knob { fill: currentColor; stroke: none; }
+.podium .edge-tab-opts::after { left: auto; right: 0; transform: none; }
+.podium .wallopts.open .edge-tab-opts::after { left: 0; right: auto; }
+.podium .wallopts-body { flex: 1 1 auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; min-width: 0; min-height: 24px; }
+.podium .wallopts-body[hidden] { display: none; }
+.podium .wallopts-body .field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.podium .wallopts-body .themepick { gap: 6px 16px; }
+.podium .wallopts.open .wallopts-body { animation: wallopts-in .15s ease-out; }
+@keyframes wallopts-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .podium .wallopts.open .wallopts-body { animation: none; } }
 
 /* rail footer: credits, license and copyright, pinned to the bottom left of the rail */
 .podium #podium-rail-body:not([hidden]) { min-height: 100%; display: flex; flex-direction: column; }
@@ -1354,6 +1379,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .pm-conv h2 .sep { color: var(--muted); }
 .podium .pm-conv .sub { font-size: 12px; color: var(--muted); display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: center; }
 .podium .pm-conv .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.podium .pm-conv .acts .hint { align-self: center; }
+.podium .pm-conv .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.podium .pm-conv .sub .tag.crit { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; color: var(--crit-text); font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; }
+.podium .pm-conv .sub .tag svg { width: 14px; height: 14px; flex: none; }
 .podium .pm-conv .cap { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
 .podium .pm-conv .feed { height: auto; max-height: 460px; }
 .podium .pm-conv .feed .body { white-space: pre-wrap; color: var(--ink); }
@@ -1370,6 +1399,10 @@ body.modal-open #root { filter: blur(5px); }
 /* ---- Session recording (#353, mockup/podium-recording.html) ----
    The notice is not a wall notice: a band on the card and a layer on the orchestrator page, with no X and no switch, because
    consent cannot be dismissed. The replay is a page of the Activity feed's own rows, oldest first. */
+/* .rec-notes (#1075): what an Admin's replay tells the owner, under the recording layer: the red notice while it is open and a quiet line for each replay
+   after (.ch-nav.ro, chat.css). Placement only: flush with the layer, full width, the X (.x) at the far right. */
+.podium .rec-notes .ch-nav.ro { margin: 0; border-radius: 0; border-width: 1px 0 0; align-items: center; }
+.podium .rec-notes .ch-nav .x { margin-left: auto; margin-block: -4px; }
 /* .band.recording: the card's band in the critical color, a filled dot, the words and who started it. */
 .podium .band.recording { --c: var(--crit); --c-text: var(--crit-text); }
 .podium .band.recording .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); flex: none; }
@@ -1463,3 +1496,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .scrub input[type="range"] { flex: 1 1 200px; min-width: 120px; accent-color: var(--ink); }
 .podium .scrub input[type="range"]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
 .podium .scrub .hint { white-space: nowrap; color: var(--muted); }
+
+/* .read-notes (#1073, #1074): what an Admin's read of the person's own session tells the person, as .ch-nav.ro (chat.css) lines. Placement only:
+   `band` sits flush under the status band of the orchestrator page, full width; `above` sits over the ask in the Respond window. The X (.x) is at the far right. */
+.podium .read-notes .ch-nav .x { margin-left: auto; margin-block: -4px; }
+.podium .read-notes.band .ch-nav.ro { margin: 0; border-radius: 0; border-width: 1px 0 0; align-items: center; }
+.podium .read-notes.above { margin: 0 0 10px; }
+.podium .read-notes.above .ch-nav.ro { margin: 0 0 6px; align-items: center; }

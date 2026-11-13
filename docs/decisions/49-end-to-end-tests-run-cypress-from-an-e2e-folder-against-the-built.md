@@ -10,6 +10,8 @@ order: 49
 
 # 49. End-to-end tests run Cypress from an e2e folder against the built server (#782)
 
+*Extended by 53 and #823: the suite runs on every registered database (`E2E_DB`: sqlite, postgres, mariadb), not only on a SQLite file.*
+
 **Context.** CI ran unit tests (vitest with jsdom) and the build, and nothing exercised the real console in a browser, so a change could pass every check and still break a page (#787 was found that way). jsdom does no layout, so several tests only read `fleet.css`. The maintainer asked for a suite that covers every feature and for a process that keeps it true. #403 and #782 asked for the same platform; #403 was closed in favor of #782.
 
 **Decision.** End-to-end tests are written with Cypress and run in GitHub Actions.
@@ -45,7 +47,7 @@ order: 49
 
 **Cost.**
 
-- The Cypress image, `docker.io/cypress/included:16.2.0` pinned at `sha256:c196ed896aec24c7ea8fc1d4185b210493e311339b6c09d0153f9b8dfc6a6058` (Cypress 16.2.0, Chrome 156, Node 24; a multi-architecture index with amd64 and arm64 variants), is 2.5 GB on disk. It runs natively on Apple silicon under Podman with no emulation, and the same pin runs on the self-hosted runners with Podman and on `ubuntu-latest` with Docker. Changing the version means changing the digest in `scripts/e2e-up.sh` and this line on purpose. An image build of Podium on each run is cached by the engine's layer cache.
+- The Cypress image, `docker.io/cypress/included:16.3.0` pinned at `sha256:3efa8d156a094a6c13ddf3fba616e97f7492706685064b75a39823e1147eca97` (Cypress 16.3.0, Chrome 157, Node 24; a multi-architecture index with amd64 and arm64 variants), is 2.5 GB on disk. It runs natively on Apple silicon under Podman with no emulation, and the same pin runs on the self-hosted runners with Podman and on `ubuntu-latest` with Docker. Changing the version means changing the digest in `scripts/e2e-up.sh` and this line on purpose. An image build of Podium on each run is cached by the engine's layer cache.
 - A CI job of several minutes on every app-touching PR.
 - Every feature change now carries e2e work, which is the point and is also a cost.
 - Cypress 16 removed `Cypress.env()`; the specs read the admin secret with `cy.env()`. Node's version no longer matters to Cypress, because the image carries its own.

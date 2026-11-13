@@ -1,7 +1,7 @@
 // What the logger refuses to carry (#140): tokens, the admin secret, prompt, answer and activity text.
 import { describe, it, expect } from 'vitest';
 import { createLogger } from './logger.js';
-import { cleanFields, scrub } from './redact.js';
+import { cleanFields, scrub, scrubStored } from './redact.js';
 import { newPersonToken } from '../fleet/tokens.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -85,6 +85,76 @@ describe('scrub of common secret shapes (#155)', () => {
     expect(performance.now() - started).toBeLessThan(1000);
     expect(out).not.toContain('hunter2');
     expect(out.length).toBeLessThanOrEqual(500);
+  });
+
+  it('reads text stored whole in linear time: 60,000 characters of dotted words, and a secret in a long text (#1051)', () => {
+    // The old unbounded pattern took about 3.5 s here on a fast machine and several times that on a CI runner; the linear scan takes about 0.15 s on a fast
+    // machine and about 0.5 s on a CI runner. 2 s of CPU time tells the two apart without failing on a slow or busy machine. The routes also refuse such a text by its
+    // length before they scan it.
+    const LIMIT_MS = 2000;
+    // CPU time, not wall time: a busy machine slows the wall clock (2.1 s was seen with 30 other processes running, #1098) and barely moves the CPU's.
+    const cpuMs = (): number => {
+      const u = process.cpuUsage();
+      return (u.user + u.system) / 1000;
+    };
+    const started = cpuMs();
+    const out = scrubStored('a.'.repeat(30_000), [], true);
+    expect(cpuMs() - started).toBeLessThan(LIMIT_MS);
+    expect(out).toHaveLength(60_000);
+    const dashed = cpuMs();
+    scrubStored('a-'.repeat(30_000), [], true);
+    expect(cpuMs() - dashed).toBeLessThan(LIMIT_MS);
+    // Past the window the patterns read, a secret is still found in every window, and a word is not cut.
+    const long = `${'word '.repeat(5000)}password=hunter2 ${'word '.repeat(5000)}token: "tail-secret-value-123"`;
+    const scrubbed = scrubStored(long, [], true);
+    expect(scrubbed).not.toContain('hunter2');
+    expect(scrubbed).toContain('password=[redacted]');
+    expect(scrubbed.split(' word').length).toBe(long.split(' word').length);
+  });
+
+  it('finds a secret assignment that straddles a window cut, at every offset (#1051)', () => {
+    const cases = ['password= hunter2', 'password=hunter2', 'password = hunter2', '"token": "hunter2 and more"', 'api_key=hunter2hunter2'];
+    for (const secret of cases) {
+      for (let d = -30; d <= 30; d++) {
+        // A space near the cut (the old cut point), then the secret across the 8000th character.
+        const spaced = `${'x'.repeat(7960 + d)} ${secret} ${'y'.repeat(3000)}`;
+        expect(scrubStored(spaced, [], true), `${secret} at ${d}`).not.toContain('hunter2');
+        // No whitespace in the last 500 characters of the window: the old cut fell inside a token.
+        const bare = `${'w '.repeat(50)}${','.repeat(7800 + d)}${secret} ${','.repeat(2000)}`;
+        expect(scrubStored(bare, [], true), `${secret} bare at ${d}`).not.toContain('hunter2');
+      }
+    }
+  });
+
+  it('finds a long secret value that runs past any lookahead, and leaves text around it whole (#1051)', () => {
+    const value = 'v'.repeat(30_000);
+    const text = `${'word '.repeat(1500)}secret=${value} end ${'word '.repeat(2000)}`;
+    const out = scrubStored(text, [], true);
+    expect(out).not.toContain('vvvv');
+    expect(out).toContain('secret=[redacted] end ');
+    expect(out.split(' word').length).toBe(text.split(' word').length);
+  });
+
+  it('redacts a long quoted value whose closing quote is past the lookahead, at every offset around a window cut (#1064)', () => {
+    const value = 'h'.repeat(2000);
+    for (const quote of ['"', "'"]) {
+      for (let d = -40; d <= 40; d++) {
+        const text = `${'x'.repeat(7980 + d)} password=${quote}${value}${quote} ${'y'.repeat(3000)}`;
+        const wide = `${'x'.repeat(7980 + d)} "password": ${quote}${value}${quote} ${'y'.repeat(3000)}`;
+        for (const t of [text, wide]) {
+          const out = scrubStored(t, [], true);
+          expect(out.includes('hhhh'), `${quote} at ${d}`).toBe(false);
+          expect(out.includes('[redacted] yyy'), `${quote} at ${d}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('leaves a quote that never closes as one pass would, and stays fast (#1064)', () => {
+    const text = `${'x'.repeat(7990)} password="${'h'.repeat(60000)}`;
+    const t0 = Date.now();
+    expect(scrubStored(text, [], true)).toBe(text);
+    expect(Date.now() - t0).toBeLessThan(5000);
   });
 
   it('is applied to the logger message and event, not only to fields', () => {

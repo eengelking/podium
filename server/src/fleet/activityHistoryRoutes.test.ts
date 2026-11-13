@@ -207,9 +207,11 @@ describe('GET /respond/sessions/:id/activity-history', () => {
 
 describe('the history note on the live activity reply', () => {
   it('is absent under the default policy: the reply is what it always was', async () => {
-    const { app, ed } = await setup();
+    const { app, ed, fleet } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
-    const res = await request(app).get(LIVE);
+    const a = await signedIn(app, 'Ed', ed.token);
+    await fleet.activityHistorySettings.set({ policy: 'default' });
+    const res = await a.get(LIVE);
     expect(res.status).toBe(200);
     expect(Object.keys(res.body).sort()).toEqual(['enabled', 'entries', 'live', 'serverTime', 'since']);
     expect(res.body).not.toHaveProperty('history');
@@ -218,49 +220,49 @@ describe('the history note on the live activity reply', () => {
   it('is absent under a keep policy when the loop has nothing stored', async () => {
     const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report([], entries(2)));
-    const res = await request(app).get(LIVE);
+    const a = await signedIn(app, 'Ed', ed.token);
+    const res = await a.get(LIVE);
     expect(res.status).toBe(200);
     expect(res.body).not.toHaveProperty('history');
-    expect((await request(app).get(`/api/fleet/sessions/${SID}/agents/${AGENT}/activity`)).body.history).toMatchObject({ total: 2 });
+    expect((await a.get(`/api/fleet/sessions/${SID}/agents/${AGENT}/activity`)).body.history).toMatchObject({ total: 2 });
   });
 
-  it('carries counts, the owner and canRead false for anyone not signed in, with no entry text', async () => {
+  it('carries counts, the owner and canRead true for the owner, with no entry text', async () => {
     const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
-    const res = await request(app).get(LIVE);
-    expect(res.body.history).toEqual({ policy: 'all', total: 3, since: T0 - 100_000, keptUntil: null, canRead: false, owner: 'Ed' });
+    const res = await (await signedIn(app, 'Ed', ed.token)).get(LIVE);
+    expect(res.body.history).toEqual({ policy: 'all', total: 3, since: T0 - 100_000, keptUntil: null, canRead: true, owner: 'Ed' });
     expect(JSON.stringify(res.body.history)).not.toContain(TEXT);
   });
 
-  it('keeps answering a request with a dead cookie, as for anyone', async () => {
+  it('refuses a request with no sign-in or a dead cookie (#1082)', async () => {
     const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
-    const res = await request(app).get(LIVE).set('Cookie', 'podium_respond=nope');
-    expect(res.status).toBe(200);
-    expect(res.body.history.canRead).toBe(false);
+    expect((await request(app).get(LIVE)).status).toBe(401);
+    expect((await request(app).get(LIVE).set('Cookie', 'podium_respond=nope')).status).toBe(401);
   });
 
-  it('says canRead for the owner and an Administrator, and not for another person', async () => {
+  it('serves the owner and an Administrator, and refuses another person (#1082)', async () => {
     const { app, ed, alex, boss } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
     expect((await (await signedIn(app, 'Ed', ed.token)).get(LIVE)).body.history.canRead).toBe(true);
     expect((await (await signedIn(app, 'Boss', boss.token)).get(LIVE)).body.history.canRead).toBe(true);
     const other = await (await signedIn(app, 'Alex', alex.token)).get(LIVE);
-    expect(other.status).toBe(200);
-    expect(other.body.history).toMatchObject({ canRead: false, owner: 'Ed' });
+    expect(other.status).toBe(403);
+    expect(other.body).not.toHaveProperty('history');
   });
 
   it('names when the newest entry goes under policy after', async () => {
     const { app, ed, fleet } = await setup();
     await fleet.activityHistorySettings.set({ policy: 'after', n: 2, unit: 'days' });
     await send(app, ed.token, report(entries(3)));
-    const h = (await request(app).get(LIVE)).body.history;
+    const h = (await (await signedIn(app, 'Ed', ed.token)).get(LIVE)).body.history;
     expect(h.policy).toBe('after');
     expect(h.keptUntil).toBe(T0 - 100_000 + 2 + 2 * 86_400_000);
   });
 
-  it('is unchanged for an unknown session', async () => {
-    const { app } = await setup({ policy: 'all' });
-    expect((await request(app).get(LIVE)).status).toBe(404);
+  it('is 404 for an unknown session', async () => {
+    const { app, ed } = await setup({ policy: 'all' });
+    expect((await (await signedIn(app, 'Ed', ed.token)).get(LIVE)).status).toBe(404);
   });
 });

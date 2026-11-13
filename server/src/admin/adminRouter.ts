@@ -5,19 +5,21 @@
 import { randomBytes } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { jsonBody } from '../jsonBody.js';
+import type { AdminActs } from '../fleet/adminActs.js';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
-import type { ActivityHistoryApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
+import type { ActivityHistoryApi, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
 import { serverBuild } from '../fleet/build.js';
 import { serverVersion } from '../fleet/compat.js';
+import { buildAbout } from './about.js';
 import type { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from '../fleet/liveSettings.js';
 import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
-import { messageView, rangeOf } from '../fleet/peerRoutes.js';
+import { CHAT_ONLY, isPersonChat, messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { createReportRouter } from '../fleet/reportRoutes.js';
-import type { ReportDeps } from '../fleet/reports.js';
+import { stoppedFeatureCount, type ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, shortId, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import { ALLOW_HTTP_KEY, type ServingRenewer } from '../tlsRenew.js';
@@ -29,16 +31,19 @@ import { CROSS_DAYS } from '../tlsRotation.js';
 import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '../tlsPeople.js';
 import { sizeText } from '../fleet/sizeText.js';
 import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
-import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
+import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult, type StoredFilter } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
 import type { RecordingState } from '../fleet/protocol.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
+
+/** How long the stopped-features count is kept before the report is read again (#724). */
+const STOPPED_CACHE_MS = 5 * 60_000;
 
 export interface AdminRouterOptions {
   /** The admin secret. null when the server runs without authentication: Admin is then switched off. */
   secret: string | null;
   /** The storage's transaction, for the Admin changes that read, decide and write (revoking the last Administrator, say) as one step. */
-  storage: Pick<Storage, 'tx'>;
+  storage: Pick<Storage, 'tx'> & Partial<Pick<Storage, 'fleet'>>;
   people: PeopleStoreApi;
   /** The wall's notice switches. Without it the Settings tab has nothing to change. */
   wall?: LiveWallSettings;
@@ -50,6 +55,12 @@ export interface AdminRouterOptions {
   reporters?: ReporterStoreApi;
   /** Orchestrator messaging (#347): the limits, a reporter's links, proposals, Pause all links and the conversations. */
   peers?: PeerStoreApi;
+  /** The Chat limits (#1034): kept in the settings table. Without it the Chat settings are not offered. */
+  chat?: ChatSettingsApi;
+  /** Tells a person's live reporter sessions that an Admin paused, resumed or removed their links (#1077). Returns how many sessions were told. */
+  toldLinkStop?: (admin: string, owner: string, what: string) => number;
+  /** Records an Admin's read of a conversation between agents and tells its people, before the text is answered (#1072). False when there is no such conversation. Without it the text is not served. */
+  noteConversationRead?: (viewer: { name: string; actor: string; admin: boolean; personId: number | null }, a: string, b: string) => Promise<boolean>;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistoryApi; settings: LiveActivityHistorySettings };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
@@ -65,6 +76,8 @@ export interface AdminRouterOptions {
   };
   /** Session recording (#353): the store, the Admin's limits and a way to tell open consoles a recording changed. Without it the recording routes answer 404. */
   recordings?: { service: SessionRecordingsApi; settings: LiveRecordingSettings; changed: (sessionId: string) => void };
+  /** Tells a person when an Admin stops or deletes their things (#1078). Without it the acts are only in the Admin log. */
+  adminActs?: AdminActs;
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -122,7 +135,7 @@ function publicPerson(p: PersonRow, groupName: string | null) {
 }
 
 export function createAdminRouter(opts: AdminRouterOptions): Router {
-  const { people, wall, prices, features, reporters, peers, storage } = opts;
+  const { people, wall, prices, features, reporters, peers, chat, storage } = opts;
   const now = opts.now ?? Date.now;
   const idleMs = opts.idleMs ?? ADMIN_IDLE_MS;
   const maxFails = opts.maxFails ?? 5;
@@ -160,6 +173,22 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ enabled: opts.secret !== null, unlocked: opts.secret !== null && await sessionValid(req), version: serverVersion(), build: serverBuild() });
   }));
 
+  // What the console's top bar shows an unlocked Admin (#724): how many features stopped after a harness update. It never counts as Admin activity, so asking for it
+  // every few minutes does not hold off the idle lock, and a locked page learns nothing. The count is kept for a few minutes: the report reads the rollups.
+  let stopped: { at: number; n: number } | null = null;
+  router.get('/notice', asyncHandler(async (req, res) => {
+    if (opts.secret === null || !opts.reports || !(await sessionValid(req, false))) return void res.json({ unlocked: false });
+    if (stopped === null || now() - stopped.at > STOPPED_CACHE_MS) {
+      // A failed read is not kept: the next ask tries again, and the pill shows nothing until one works.
+      try {
+        stopped = { at: now(), n: await stoppedFeatureCount(opts.reports) };
+      } catch {
+        return void res.json({ unlocked: true, stopped: 0 });
+      }
+    }
+    res.json({ unlocked: true, stopped: stopped.n });
+  }));
+
   // Admin is off without a token: the console is open to everyone who can reach it, so there is nothing to gate it with.
   router.use((_req, res, next) => {
     if (opts.secret === null) {
@@ -194,7 +223,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const smallJson = jsonBody({ limit: '8kb' });
   router.use((req, res, next) => (req.path === STORED_DELETE ? next() : smallJson(req, res, next)));
 
-  async function sessionValid(req: Request): Promise<boolean> {
+  /** Whether the request holds an open Admin session. `touch` false reads it without counting as activity, so a page that only asks does not hold off the idle lock. */
+  async function sessionValid(req: Request, touch = true): Promise<boolean> {
     const sid = readCookie(req, COOKIE);
     if (!sid) return false;
     const s = sessions.get(sid);
@@ -206,6 +236,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     }
     // A lock that came in while the person was being read ends this session: do not put it back.
     if (!sessions.has(sid)) return false;
+    if (!touch) return true;
     sessions.delete(sid); // re-insert so the oldest entry is the least recently used, which is the one evicted at the cap
     sessions.set(sid, { last: now(), personId: s.personId });
     return true;
@@ -365,7 +396,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       throw err;
     }
     if (!out) return void res.status(404).json({ ok: false, error: 'unknown person' });
-    if (out.revoked) await audit(req, 'token_revoked', `Revoked the token of ${out.p.name}${out.certsRevoked > 0 ? ' and their certificate' : ''}`, { person_id: id, certificates_revoked: out.certsRevoked });
+    if (out.revoked) {
+      await audit(req, 'token_revoked', `Revoked the token of ${out.p.name}${out.certsRevoked > 0 ? ' and their certificate' : ''}`, { person_id: id, certificates_revoked: out.certsRevoked });
+      await acts?.onPerson(await adminName(req), 'access_revoked', out.p.name);
+    }
     res.json({ ok: true });
   }));
 
@@ -439,7 +473,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       if (err instanceof PeopleError) return fail(res, err);
       throw err;
     }
-    if (out.n > 0 || out.tokenRevoked) await audit(req, 'revoked_all', `Revoked the certificate and the token of ${t.person.name}`, { person_id: t.person.id });
+    if (out.n > 0 || out.tokenRevoked) {
+      await audit(req, 'revoked_all', `Revoked the certificate and the token of ${t.person.name}`, { person_id: t.person.id });
+      await acts?.onPerson(await adminName(req), 'access_revoked', t.person.name);
+    }
     res.json({ ok: true, revoked: out.n, tokenRevoked: out.tokenRevoked });
   }));
 
@@ -466,7 +503,11 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     try {
       const gone = await people.deleteMany(ids as number[]);
       if (gone.length === 0) return void res.status(404).json({ ok: false, error: 'unknown person' });
-      for (const p of gone) await audit(req, 'person_deleted', `Deleted ${p.name}`, { person_id: p.id });
+      const by = await adminName(req);
+      for (const p of gone) {
+        await audit(req, 'person_deleted', `Deleted ${p.name}`, { person_id: p.id });
+        await acts?.onPerson(by, 'person_deleted', p.name);
+      }
       res.json({ ok: true, removed: gone.length });
     } catch (err) {
       fail(res, err);
@@ -523,6 +564,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const reporterKey = (v: string): string | null => (v.length >= 1 && v.length <= 150 ? v : null);
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
+  // What the server and its reporters are running (#862). Read-only, and it carries no token, address or machine name.
+  router.get('/about', asyncHandler(async (_req, res) => {
+    if (!reporters || !storage.fleet) return void res.status(404).json({ ok: false, error: 'not available' });
+    res.json(await buildAbout({ fleet: storage.fleet, reporters, now: now(), env: process.env, uptimeMs: process.uptime() * 1000 }));
+  }));
+
   router.get('/reporters', asyncHandler(async (req, res) => {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
     const dir = Number(req.query.dir);
@@ -534,30 +581,56 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // Bulk removal and ignore rules (issue #167). These come before `/reporters/:key`, which would take "ignores" for a key.
   const MAX_BULK = 500;
+  /** Who owns each of these reporters and what it is called, read before they go. A reporter on the admin secret has no person to tell. */
+  const reporterOwners = async (keys: string[]): Promise<{ who: string; name: string }[]> => {
+    if (!acts) return [];
+    const out: { who: string; name: string }[] = [];
+    for (const k of keys) {
+      const d = await reporters?.get(k, now(), { page: 1, pageSize: 1 });
+      if (d && !d.adminSecret && d.who) out.push({ who: d.who, name: d.name });
+    }
+    return out;
+  };
+  const tellReporterOwners = async (req: Request, owners: { who: string; name: string }[]): Promise<void> => {
+    if (!acts || owners.length === 0) return;
+    const by = await adminName(req);
+    // One record and one callout for each person, however many of their reporters went (#1078).
+    const byWho = new Map<string, string[]>();
+    for (const o of owners) byWho.set(o.who, [...(byWho.get(o.who) ?? []), o.name]);
+    for (const [who, names] of byWho) await acts.onPerson(by, 'reporter_removed', who, names.length === 1 ? `your reporter ${names[0]}` : `${names.length} of your reporters`);
+  };
   const plural = (n: number) => `${n} reporter${n === 1 ? '' : 's'}`;
 
   router.post('/reporters/remove', asyncHandler(async (req, res) => {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
     const { keys, state, match } = (req.body ?? {}) as { keys?: unknown; state?: unknown; match?: unknown };
     let removed: number;
+    let owners: { who: string; name: string }[] = [];
     if (match !== undefined) {
       // Every reporter a filter holds, which can be more than one page: what "select all that match" asks for.
       const m = match as { q?: unknown; state?: unknown; admin?: unknown };
       if (!m || typeof m !== 'object' || Array.isArray(m)) return void res.status(400).json({ ok: false, error: 'match must be a filter' });
       if (m.state !== undefined && m.state !== '' && !REPORTER_STATES.includes(m.state as ReporterState)) return void res.status(400).json({ ok: false, error: 'match.state is not a reporter state' });
       // The filter and the removal are one step, so a reporter that has stopped matching by then is not taken.
-      removed = await storage.tx(async () => reporters.removeMany(await reporters.keys({ q: str(m.q), state: str(m.state), admin: m.admin === true }, now())));
+      removed = await storage.tx(async () => {
+        const found = await reporters.keys({ q: str(m.q), state: str(m.state), admin: m.admin === true }, now());
+        owners = await reporterOwners(found);
+        return reporters.removeMany(found);
+      });
     } else if (Array.isArray(keys)) {
       if (keys.length < 1 || keys.length > MAX_BULK || keys.some((k) => typeof k !== 'string' || reporterKey(k) === null)) {
         return void res.status(400).json({ ok: false, error: `keys must be 1 to ${MAX_BULK} reporter keys` });
       }
+      owners = await reporterOwners(keys as string[]);
       removed = await reporters.removeMany(keys as string[]);
     } else if (typeof state === 'string' && REPORTER_STATES.includes(state as ReporterState)) {
+      owners = await reporterOwners(await reporters.keys({ state }, now()));
       removed = await reporters.removeState(state as ReporterState, now());
     } else {
       return void res.status(400).json({ ok: false, error: 'give keys, a state or a match' });
     }
     await audit(req, 'reporter_removed', `Removed ${plural(removed)} from the list`, { count: removed });
+    await tellReporterOwners(req, owners);
     res.json({ ok: true, removed });
   }));
 
@@ -610,6 +683,19 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const peerFail = (res: Response, out: Refusal) => res.status(out.status).json({ ok: false, error: out.error });
   const withPeerSource = <T>(req: Request, fn: () => T): T => (peers ? peers.withSource(sourceOf(req), fn) : fn());
 
+  // An Admin's stop on a person's links is told to the person in their reporter session (`opts.toldLinkStop`) and written to the Admin log, with who and whose and
+  // never any text (#1077). `what` gives the words after the Admin's name, for the person ("your reporter") or the log ("Ed's reporter"). The stop is already
+  // done, so a failure to tell is logged, not raised, and the Admin log line still records how many sessions were told.
+  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; machine: string }, what: (whose: string) => string, kind: string): Promise<void> => {
+    let told = 0;
+    try {
+      told = ref.owner && opts.toldLinkStop ? opts.toldLinkStop(actor.name, ref.owner, what('your')) : 0;
+    } catch (err) {
+      opts.logger?.warn('admin.link_stop_not_told', `podium: an Admin's link stop could not be told to the person: ${(err as Error).message}`, { reporter: ref.machine });
+    }
+    await audit(req, kind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
+  };
+
   router.get('/reporters/:key/peers', asyncHandler(async (req, res) => {
     const view = peers ? await peers.adminView(req.params.key) : null;
     if (!view) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
@@ -633,16 +719,21 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const paused = (req.body as { paused?: unknown } | undefined)?.paused;
     if (typeof paused !== 'boolean') return void res.status(400).json({ ok: false, error: 'paused must be true or false' });
     const actor = await peerActor(req);
+    const mine = (await peers.adminView(req.params.key))?.reporter;
     const out = await withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
     if (!out.ok) return void peerFail(res, out);
+    // The person is told once for the whole bulk change, in the session and in the Admin log, by the Admin's name (#1077).
+    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'peer_links_paused' : 'peer_links_resumed');
     res.json(out);
   }));
 
   router.delete('/reporters/:key/peers/:other', asyncHandler(async (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
     const actor = await peerActor(req);
+    const [a, b] = [(await peers.adminView(req.params.key))?.reporter, (await peers.adminView(req.params.other))?.reporter];
     const out = await withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
     if (!out.ok) return void peerFail(res, out);
+    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'peer_link_removed');
     res.json(out);
   }));
 
@@ -658,6 +749,15 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
     const rows = await peers.messages.conversation(req.params.a, req.params.b);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
+    // A person's Chat is read in Chat, where it is recorded and its people are told (#1051).
+    if (isPersonChat(rows)) return void res.status(403).json({ ok: false, error: CHAT_ONLY });
+    // The read is recorded before the text is answered, and the owner is told in the console and in podium-reporter (#1072). With no way to record it, nothing is read.
+    if (!opts.noteConversationRead) return void res.status(503).json({ ok: false, error: 'conversations cannot be read here: the read cannot be recorded' });
+    const actor = await peerActor(req);
+    // An Administrator is a person (personId set): reading the conversation of their own agents is not noticed. The admin secret has no person.
+    const sid = readCookie(req, COOKIE);
+    const personId = (sid ? sessions.get(sid)?.personId : null) ?? null;
+    if (!await opts.noteConversationRead({ name: actor.name, actor: actor.name, admin: true, personId }, req.params.a, req.params.b)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
   }));
 
@@ -668,6 +768,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const d = await reporters.get(key, now());
     if (!d || !await reporters.remove(key)) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
     await audit(req, 'reporter_removed', `Removed the reporter ${d.name} from the list`, { reporter: key });
+    await tellReporterOwners(req, [{ who: d.who, name: d.name }]);
     res.json({ ok: true });
   }));
 
@@ -677,6 +778,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const activityState = async (h: NonNullable<typeof history>): Promise<ActivityHistoryState> => ({ settings: h.settings.get(), totals: await h.history.totals(), lastPurge: h.history.lastPurge, authOn: opts.secret !== null });
 
   const rec = opts.recordings;
+  const acts = opts.adminActs;
   const recordingState = async (r: NonNullable<typeof rec>) => ({ settings: r.settings.get(), totals: await r.service.totals(), authOn: opts.secret !== null });
 
   const featureList = () => FEATURES.map(({ defaultOn, ...f }) => ({ ...f, on: features ? features.featureOn(f.id) : defaultOn }));
@@ -692,6 +794,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       modelPrices: prices?.view() ?? { asOf: PRICES_AS_OF, models: [] },
       forgetReporters: (await reporters?.forgetSetting()) ?? { enabled: false, days: 30 },
       ...(peers ? { peerMessaging: await peers.settings.get() } : {}),
+      ...(chat ? { chat: await chat.get() } : {}),
       ...(history ? { activityHistory: await activityState(history) } : {}),
       ...(rec ? { recording: await recordingState(rec) } : {}),
     });
@@ -733,6 +836,15 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       const v = out.settings;
       await audit(req, 'peer_limits_changed', `Orchestrator messaging limits: ${v.roundTrips} round trips, ${v.perMinute} a minute, ${v.maxChars} characters, kept ${v.retainDays} days`, { ...v });
       return void res.json({ ok: true, peerMessaging: v });
+    }
+    if ('chat' in body) {
+      const p = body.chat;
+      if (!chat || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'chat must give retainDays, graceHours, maxChars and/or perMinute' });
+      const out = await chat.set(p);
+      if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
+      const v = out.settings;
+      await audit(req, 'chat_settings_changed', `Chat limits: kept ${v.retainDays} days, hidden conversations kept ${v.graceHours} hours, ${v.maxChars} characters, ${v.perMinute} posts a minute`, { ...v });
+      return void res.json({ ok: true, chat: v });
     }
     if ('activityHistory' in body) {
       const p = body.activityHistory;
@@ -871,6 +983,18 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     return who === null || who === ADMIN_SECRET_ACTOR ? 'Admin' : who;
   };
 
+  /** The sessions a stored-activity delete reaches: the ticked ones, or every session a filter (or everything) holds, a page at a time. */
+  const storedSessionsOf = async (h: NonNullable<typeof history>['history'], body: StoredDeleteBody): Promise<string[]> => {
+    if ('ids' in body) return body.ids;
+    const filter = 'match' in body ? body.match : ({} as StoredFilter);
+    const out: string[] = [];
+    for (let page = 1; ; page++) {
+      const got = await h.list(filter, page, 200);
+      out.push(...got.rows.map((r) => r.sessionId));
+      if (page * 200 >= got.match.sessions) return out;
+    }
+  };
+
   router.post(STORED_DELETE, jsonBody({ limit: '64kb' }), asyncHandler(async (req, res) => {
     const body = parseDeleteBody(req.body);
     if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
@@ -879,6 +1003,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       rec.service.removeFor(body.value).then(async (out) => {
         for (const g of out.each) {
           await recordingDeleted(req, g);
+          await acts?.onSession(await adminName(req), 'recording_deleted', g.sessionId);
           rec.changed(g.sessionId);
         }
         res.json({ entries: out.entries, sessions: out.sessions, bytes: out.bytes, freed: out.freed });
@@ -886,7 +1011,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       return;
     }
     if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
+    // The sessions that lose entries are read before they go, so each owner can be told (#1078).
+    const affected = acts ? await storedSessionsOf(history.history, body.value) : [];
     history.history.deleteBy(body.value).then(async (out) => {
+      for (const sid of affected) await acts?.onSession(await adminName(req), 'activity_deleted', sid);
       await audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
       res.json(out);
     }).catch(storeFailed(res));
@@ -1006,6 +1134,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!out) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     if (out.changed) {
       await audit(req, 'recording_stopped', `Stopped the recording of ${shortId(sid)}`, { session_id: sid });
+      await acts?.onSession(await adminName(req), 'recording_stopped', sid);
       rec.changed(sid);
     }
     res.json({ ok: true, grant: out.grant });
@@ -1016,13 +1145,16 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const sid = req.params.sessionId;
     if (!(await rec.service.has(sid))) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     rec.service.removeMany([sid]).then(async (out) => {
-      for (const g of out.each) await recordingDeleted(req, g);
+      for (const g of out.each) {
+        await recordingDeleted(req, g);
+        await acts?.onSession(await adminName(req), 'recording_deleted', g.sessionId);
+      }
       rec.changed(sid);
       res.json({ ok: true, entries: out.entries, bytes: out.bytes });
     }).catch(storeFailed(res));
   }));
 
-  if (opts.reports) router.use('/reports', createReportRouter(opts.reports));
+  if (opts.reports) router.use('/reports', createReportRouter({ ...opts.reports, platforms: opts.reports.platforms ?? (reporters ? (since) => reporters.platformCounts(since) : undefined) }));
 
   router.get('/log', asyncHandler(async (req, res) => {
     res.json({ ...(await people.listLog(paging(req))), ...(opts.logRetainMs === undefined ? {} : { retainMs: opts.logRetainMs }) });

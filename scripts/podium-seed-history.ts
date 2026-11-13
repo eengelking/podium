@@ -2,7 +2,11 @@
 // Seeds about 45 days of daily rollups into a throwaway Podium database, so a person running the simulator can look at
 // Admin > Reporting, the Spend projection and the long-period reports (#484, #483) without waiting for weeks of history.
 //
-// It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily),
+// It writes the same rows the server's hourly retention writes (usage_daily, sessions_daily, failures_daily, fleet_daily, and the
+// tool counts of #720: tools_daily, tool_sessions_daily, harness_versions_daily, what each tool did (#721): tool_stats_daily, and the session time, agents, people and hours
+// of #722: session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, the answers sent from Podium (#725: answers_daily, from part way through, as a database upgraded
+// then would hold them), and what sessions cost and how they ended (#723): cost_daily, tool_cost_daily,
+// for Claude Code and OpenCode),
 // plus a few people, groups, reporters and Admin log entries, through the server's own migrations. Every random choice
 // comes from a seeded generator, so one seed and one "today" always give the same rows.
 //
@@ -16,6 +20,7 @@ import { openDb } from '../server/src/storage/sqlite/db.ts';
 import { PeopleStore } from '../server/src/storage/sqlite/people.ts';
 import { Pricing } from '../server/src/fleet/pricing.ts';
 import { addDays, localDay } from '../server/src/fleet/rollups.ts';
+import { timeBucket } from '../plugin/core/protocol.ts';
 import { Rng } from './podium-sim.ts';
 
 const HELP = `podium-seed-history: write about 45 days of Admin > Reporting history into a throwaway Podium database.
@@ -80,6 +85,33 @@ const FAILURES: { cls: string; tool: string }[] = [
 /** The reporter version a day runs, as people upgrade: [first day offset from the start as a share of the span, version]. */
 const REPORTER_RELEASES: [number, string][] = [[0, '1.1.0'], [0.35, '1.2.0'], [0.7, '1.2.2']];
 const ENGINE_VERSIONS = ['2.1.288', '2.1.296', '2.1.301'];
+const OPENCODE_VERSIONS = ['1.3.9', '1.4.2'];
+/** The tools a seeded session calls, and how often (a share of its calls); an MCP server's tools carry `mcp__server__tool`. */
+/** For the tool counts of #721: how often a tool fails and asks first, and how long it takes (a usual length in milliseconds and how wide the spread is). */
+const TOOL_BEHAVIOUR: Record<string, { fail: number; ask: number; median: number; spread: number }> = {
+  Bash: { fail: 0.036, ask: 0.108, median: 1800, spread: 1.6 },
+  Edit: { fail: 0.016, ask: 0.08, median: 60, spread: 1.1 },
+  Write: { fail: 0.006, ask: 0.095, median: 50, spread: 1.1 },
+  Read: { fail: 0.004, ask: 0, median: 40, spread: 1 },
+  Grep: { fail: 0.004, ask: 0, median: 120, spread: 1.2 },
+  Agent: { fail: 0.008, ask: 0, median: 38_000, spread: 1.4 },
+  mcp__github__search_code: { fail: 0.011, ask: 0.03, median: 900, spread: 0.9 },
+  mcp__github__get_file: { fail: 0.018, ask: 0.03, median: 800, spread: 0.9 },
+  mcp__playwright__navigate: { fail: 0.034, ask: 0.07, median: 1100, spread: 1.2 },
+  mcp__playwright__click: { fail: 0.038, ask: 0.07, median: 700, spread: 1.2 },
+  default: { fail: 0.008, ask: 0.01, median: 300, spread: 1.2 },
+};
+const TOOLS: [string, number][] = [['Bash', 25], ['Read', 21], ['Edit', 16], ['Grep', 10], ['Write', 5], ['Agent', 3], ['mcp__github__search_code', 6], ['mcp__github__get_file', 3], ['mcp__playwright__navigate', 3], ['mcp__playwright__click', 2], ['WebFetch', 2], ['TodoWrite', 4]];
+
+/** The agent types a seeded session launches, and how often. OpenCode names its own. */
+const AGENT_TYPES: Record<string, [string, number][]> = {
+  'claude-code': [['general-purpose', 46], ['Explore', 34], ['Plan', 10], ['code-reviewer', 6], ['statusline-setup', 4]],
+  opencode: [['general', 60], ['explore', 30], ['build', 10]],
+};
+/** How busy each hour of the day is, as a share of the day's busiest (hours 0 to 23), so the seeded peaks rise at mid-morning and after lunch. */
+const HOUR_CURVE = [0, 0, 0, 0, 0, 0.1, 0.2, 0.45, 0.8, 0.95, 1, 0.9, 0.55, 0.8, 1, 0.85, 0.7, 0.5, 0.3, 0.2, 0.2, 0.1, 0.1, 0];
+/** From this share of the span on, the seeded sessions have their waiting recorded: it is kept only from the upgrade, so the first part has none. */
+const WAIT_FROM = 0.4;
 
 /** Paths the server's real database could live at: seeding any of them is refused. */
 export function protectedFolders(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): { files: string[]; folders: string[] } {
@@ -154,10 +186,32 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       if (!exists) people.createPerson(name, groupIds.get(groupOf(name)) ?? null, startMs(first));
     }
 
-    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
+    for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily']) db.prepare(`DELETE FROM ${t} WHERE day >= ? AND day <= ?`).run(first, addDays(opt.today, -1));
     const putUsage = db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putSessions = db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const putFailure = db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
+    const putTool = db.prepare('INSERT INTO tools_daily (day, harness, tool, calls) VALUES (?, ?, ?, ?)');
+    const putSize = db.prepare('INSERT INTO tool_sessions_daily (day, harness, bucket, sessions) VALUES (?, ?, ?, ?)');
+    const putStat = db.prepare('INSERT INTO tool_stats_daily (day, harness, tool, failed, asked, allowed, denied, podium, times_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const putHarnessVersion = db.prepare('INSERT INTO harness_versions_daily (day, harness, version, reporters) VALUES (?, ?, ?, ?)');
+    const putTime = db.prepare('INSERT INTO session_time_daily (day, harness, sessions, duration_s, max_duration_s, tracked_sessions, tracked_s, permission_s, permission_n, question_s, question_n, plan_s, plan_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const putAgent = db.prepare('INSERT INTO agents_daily (day, harness, type, depth, agents) VALUES (?, ?, ?, ?, ?)');
+    const putPerson = db.prepare('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putCost = db.prepare('INSERT INTO cost_daily (day, harness, model, effort, sessions, priced_sessions, calls, priced_calls, cost_usd, call_cost_usd, tok_in, tok_out, tok_cr, tok_cw, ended_low, ended_mid, ended_high, ended_unknown, compacted, cleared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const putToolCost = db.prepare('INSERT INTO tool_cost_daily (day, harness, tool, sessions, priced_sessions, cost_usd, calls) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const putHour = db.prepare('INSERT INTO hour_peaks_daily (day, harness, hour, peak) VALUES (?, ?, ?, ?)');
+    const putFeature = db.prepare('INSERT INTO feature_versions_daily (day, harness, version, feature, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putSkill = db.prepare('INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?)');
+    const putPlace = db.prepare('INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    // The tool counts draw from their own stream, so adding them moved none of the rows seeded before them. So do the session times (#722).
+    const toolRng = new Rng(opt.seed + 720);
+    // What each tool did (#721) draws from a stream of its own too, so it moved none of the rows seeded before it.
+    const statRng = new Rng(opt.seed + 721);
+    const timeRng = new Rng(opt.seed + 722);
+    const putAnswer = db.prepare('INSERT INTO answers_daily (day, harness, kind, bucket, count) VALUES (?, ?, ?, ?, ?)');
+    // The answers sent from Podium (#725) draw from a stream of their own, and begin 60% of the way in, so the first weeks show a dash.
+    const answerRng = new Rng(opt.seed + 725);
+    const answersFrom = addDays(opt.today, -Math.round(opt.days * 0.6));
     const putFleet = db.prepare('INSERT INTO fleet_daily (day, active_people, active_reporters, sessions_started, peak_live_sessions, reporter_versions_json, engine_versions_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
     // Two agent-heavy days, and the two days Sam works (both in the last two weeks, so the projection's window sees 2 of 14).
@@ -171,6 +225,17 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
       const sess = new Map<string, { outcome: string; model: string; effort: string; plan: string; sessions: number; dur: number; maxDur: number; agents: number; blow: number; ctx: number }>();
       const fail = new Map<string, { owner: string; cls: string; tool: string; n: number }>();
       const active = new Set<string>();
+      const toolCalls = new Map<string, number>();
+      // What sessions cost and how they ended, by harness, model and effort, and by the tools they called (#723).
+      interface CostAcc { harness: string; model: string; effort: string; sessions: number; priced: number; calls: number; pricedCalls: number; usd: number; tokIn: number; tokOut: number; tokCr: number; tokCw: number; low: number; mid: number; high: number; unknown: number; compacted: number; cleared: number }
+      const costRows = new Map<string, CostAcc>();
+      const toolCostRows = new Map<string, { harness: string; tool: string; sessions: number; priced: number; usd: number; calls: number }>();
+      const costRng = new Rng(opt.seed + 723);
+      const sizes = new Map<string, number>();
+      interface Time { sessions: number; dur: number; maxDur: number; tracked: number; trackedS: number; perm: number; permN: number; ask: number; askN: number; plan: number; planN: number }
+      const times = new Map<string, Time>();
+      const agentRows = new Map<string, number>();
+      const personRows = new Map<string, { owner: string; harness: string; n: number }>();
       let started = 0;
       const weekend = isWeekend(day);
       for (const owner of PEOPLE) {
@@ -218,6 +283,89 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
           s.ctx = Math.max(s.ctx, ctx);
           sess.set(sk, s);
 
+          // One in four sessions runs under OpenCode. Calls grow with the agents and the length of the session.
+          const harness = toolRng.next() < 0.25 ? 'opencode' : 'claude-code';
+          const calls = Math.round((5 + toolRng.next() * 90) * (1 + agents / 3) * (toolRng.next() < 0.08 ? 4 : 1));
+          const weightTotal = TOOLS.reduce((s, [, w]) => s + w, 0);
+          const mine = new Map<string, number>();
+          for (let c = 0; c < calls; c++) {
+            let at = toolRng.next() * weightTotal;
+            const [tool] = TOOLS.find(([, w]) => (at -= w) < 0) ?? TOOLS[0]!;
+            // OpenCode has no Agent tool here, and no Playwright server
+            const name = harness === 'opencode' && (tool === 'Agent' || tool.startsWith('mcp__playwright')) ? 'Bash' : tool;
+            toolCalls.set(`${harness}\u0000${name}`, (toolCalls.get(`${harness}\u0000${name}`) ?? 0) + 1);
+            mine.set(name, (mine.get(name) ?? 0) + 1);
+          }
+          const bucket = calls <= 100 ? calls : calls <= 1000 ? Math.ceil(calls / 10) * 10 : Math.ceil(calls / 100) * 100;
+          sizes.set(`${harness}\u0000${bucket}`, (sizes.get(`${harness}\u0000${bucket}`) ?? 0) + 1);
+
+          // What it cost and how it ended (#723). One in six was compacted on its own, one in twenty continued after /clear, and OpenCode reports no effort.
+          const ck = `${harness}\u0000${model}\u0000${harness === 'opencode' ? '' : effort}`;
+          const c = costRows.get(ck) ?? { harness, model, effort: harness === 'opencode' ? '' : effort, sessions: 0, priced: 0, calls: 0, pricedCalls: 0, usd: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0, low: 0, mid: 0, high: 0, unknown: 0, compacted: 0, cleared: 0 };
+          c.sessions += 1;
+          c.calls += calls;
+          if (usd !== null) {
+            c.priced += 1;
+            c.pricedCalls += calls;
+            c.usd += usd;
+          }
+          c.tokIn += tokIn;
+          c.tokOut += tokOut;
+          c.tokCr += tokCr;
+          c.tokCw += tokCw;
+          if (ctx < 50) c.low += 1;
+          else if (ctx <= 80) c.mid += 1;
+          else c.high += 1;
+          if (ctx > 80 && costRng.next() < 0.5) c.compacted += 1;
+          else if (costRng.next() < 1 / 12) c.compacted += 1;
+          if (costRng.next() < 0.05) c.cleared += 1;
+          costRows.set(ck, c);
+          for (const [tool, n] of mine) {
+            const tk = `${harness}\u0000${tool}`;
+            const t = toolCostRows.get(tk) ?? { harness, tool, sessions: 0, priced: 0, usd: 0, calls: 0 };
+            t.sessions += 1;
+            t.calls += n;
+            if (usd !== null) {
+              t.priced += 1;
+              t.usd += usd;
+            }
+            toolCostRows.set(tk, t);
+          }
+
+          // How long it ran and waited on a person (recorded only from the upgrade), the agents it launched and how deep, and who ran it (#722).
+          const t = times.get(harness) ?? { sessions: 0, dur: 0, maxDur: 0, tracked: 0, trackedS: 0, perm: 0, permN: 0, ask: 0, askN: 0, plan: 0, planN: 0 };
+          t.sessions += 1;
+          t.dur += dur;
+          t.maxDur = Math.max(t.maxDur, dur);
+          if (di / Math.max(1, dayList.length - 1) >= WAIT_FROM) {
+            const wait = Math.round(dur * (0.08 + timeRng.next() * 0.3));
+            const perm = Math.round(wait * 0.56);
+            const ask = Math.round(wait * 0.34);
+            t.tracked += 1;
+            t.trackedS += dur;
+            t.perm += perm;
+            t.permN += Math.max(1, Math.round(perm / 175));
+            t.ask += ask;
+            t.askN += ask > 0 ? Math.max(1, Math.round(ask / 360)) : 0;
+            t.plan += wait - perm - ask;
+            t.planN += wait - perm - ask > 0 ? 1 : 0;
+          }
+          times.set(harness, t);
+          const kinds = AGENT_TYPES[harness]!;
+          const kindTotal = kinds.reduce((sum, [, w]) => sum + w, 0);
+          for (let a = 0; a < agents; a++) {
+            let r = timeRng.next() * kindTotal;
+            const [type] = kinds.find(([, w]) => (r -= w) < 0) ?? kinds[0]!;
+            const d = timeRng.next();
+            const depth = d < 0.93 ? 1 : d < 0.99 ? 2 : 3 + (timeRng.next() < 0.2 ? 1 : 0);
+            const ak = `${harness}\u0000${type}\u0000${depth}`;
+            agentRows.set(ak, (agentRows.get(ak) ?? 0) + 1);
+          }
+          const pk = `${owner}\u0000${harness}`;
+          const pr = personRows.get(pk) ?? { owner, harness, n: 0 };
+          pr.n += 1;
+          personRows.set(pk, pr);
+
           if (outcome === 'error' || rng.next() < 0.1) {
             const f = FAILURES[Math.floor(rng.next() * FAILURES.length)]!;
             const fk = `${owner}\u0000${f.cls}\u0000${f.tool}`;
@@ -251,6 +399,110 @@ export function seedHistory(file: string, opt: SeedOptions): SeedResult {
         rv[v] = (rv[v] ?? 0) + 1;
         const e = ENGINE_VERSIONS[Math.min(2, ahead + (r % 2))]!;
         ev[e] = (ev[e] ?? 0) + 1;
+      }
+      for (const [k, n] of toolCalls) {
+        const [harness, tool] = k.split('\u0000') as [string, string];
+        putTool.run(day, harness, tool, n);
+      }
+      for (const [k, n] of toolCalls) {
+        const [harness, tool] = k.split('\u0000') as [string, string];
+        const how = TOOL_BEHAVIOUR[tool] ?? TOOL_BEHAVIOUR.default!;
+        const times = new Map<number, number>();
+        let failed = 0;
+        let asked = 0;
+        let allowed = 0;
+        let denied = 0;
+        let podium = 0;
+        for (let c = 0; c < n; c++) {
+          if (statRng.next() < how.fail) failed += 1;
+          if (statRng.next() < how.ask) {
+            asked += 1;
+            const answer = statRng.next();
+            if (answer < 0.88) allowed += 1;
+            else if (answer < 0.97) denied += 1;
+            if (statRng.next() < 0.2) podium += 1;
+          }
+          // a length from a long-tailed spread around the tool's usual one
+          const ms = how.median * Math.exp(how.spread * (statRng.next() + statRng.next() + statRng.next() - 1.5) * 1.6);
+          const b = timeBucket(ms);
+          times.set(b, (times.get(b) ?? 0) + 1);
+        }
+        const timesJson = JSON.stringify(Object.fromEntries([...times].sort((x, y) => x[0] - y[0]).map(([b, c]) => [String(b), c])));
+        putStat.run(day, harness, tool, failed, asked, allowed, denied, Math.min(podium, allowed + denied), timesJson);
+      }
+      for (const [k, n] of sizes) {
+        const [harness, bucket] = k.split('\u0000') as [string, string];
+        putSize.run(day, harness, Number(bucket), n);
+      }
+      // Claude Code's versions are the engine versions above; one reporter in four runs OpenCode, which moves from 1.3.9 to 1.4.2 two thirds in.
+      const hv = new Map<string, number>();
+      for (const [v, n] of Object.entries(ev)) hv.set(`claude-code\u0000${v}`, n);
+      const opencode = Math.min(reporters, Math.max(active.size > 0 ? 1 : 0, Math.round(reporters / 4)));
+      if (opencode > 0) hv.set(`opencode\u0000${OPENCODE_VERSIONS[share >= 0.66 ? 1 : 0]}`, opencode);
+      for (const [k, n] of hv) {
+        const [harness, version] = k.split('\u0000') as [string, string];
+        putHarnessVersion.run(day, harness, version, n);
+      }
+      // What each version of a harness sent (#724): the newest Claude Code engine no longer runs the tool.check hook, and the newest OpenCode stopped sending a tool, so Harness updates has something to say.
+      for (const [k, n] of hv) {
+        const [harness, version] = k.split('\u0000') as [string, string];
+        const sessions = n * 4;
+        const newest = harness === 'claude-code' ? version === ENGINE_VERSIONS[2] : version === OPENCODE_VERSIONS[1];
+        putFeature.run(day, harness, version, 'signals', sessions);
+        putFeature.run(day, harness, version, 'tools', sessions);
+        for (const f of harness === 'claude-code' ? ['hook:session.start', 'hook:tool.call', 'field:tool.call.tool_use_id', 'hook:tool.check'] : ['hook:session.created', 'hook:session.tool.called']) {
+          putFeature.run(day, harness, version, f, newest && f === 'hook:tool.check' ? 0 : sessions);
+        }
+        putFeature.run(day, harness, version, 'tool:Bash', sessions);
+        if (harness === 'opencode') putFeature.run(day, harness, version, 'tool:WebFetch', newest ? Math.round(sessions * 0.02) : Math.round(sessions * 0.3));
+      }
+      // The skills each person used and where they worked (#724).
+      [...active].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).forEach((owner, i) => {
+        putSkill.run(day, owner, 'claude-code', 'code-review', 1 + (i % 3));
+        if (i % 2 === 0) putSkill.run(day, owner, 'claude-code', 'simplify', 1);
+        if (i % 4 === 0) putSkill.run(day, owner, 'opencode', 'code-review', 1);
+        const project = PROJECTS[i % PROJECTS.length]!;
+        putPlace.run(day, owner, groupOf(owner), 'claude-code', project, di % 3 === 0 ? 'main' : `feature-${(di + i) % 5}`, 1 + (i % 2));
+        if (i % 3 === 0) putPlace.run(day, owner, groupOf(owner), 'opencode', PROJECTS[(i + 1) % PROJECTS.length]!, 'main', 1);
+      });
+      for (const [harness, t] of times) putTime.run(day, harness, t.sessions, t.dur, t.maxDur, t.tracked, t.trackedS, t.perm, t.permN, t.ask, t.askN, t.plan, t.planN);
+      for (const [k, n] of agentRows) {
+        const [harness, type, depth] = k.split('\u0000') as [string, string, string];
+        putAgent.run(day, harness, type, Number(depth), n);
+      }
+      for (const c of costRows.values()) putCost.run(day, c.harness, c.model, c.effort, c.sessions, c.priced, c.calls, c.pricedCalls, Math.round(c.usd * 1e6) / 1e6, Math.round(c.usd * 1e6) / 1e6, c.tokIn, c.tokOut, c.tokCr, c.tokCw, c.low, c.mid, c.high, c.unknown, c.compacted, c.cleared);
+      for (const t of toolCostRows.values()) putToolCost.run(day, t.harness, t.tool, t.sessions, t.priced, Math.round(t.usd * 1e6) / 1e6, t.calls);
+      for (const p of personRows.values()) putPerson.run(day, p.owner, groupOf(p.owner), p.harness, p.n);
+      // The most sessions live at once in each hour: the day's busiest follows its sessions, the hours follow the curve, and OpenCode is a share of it.
+      if (started > 0) {
+        const top = Math.max(1, Math.min(9, Math.round(started / 2 + timeRng.next() * 2)));
+        HOUR_CURVE.forEach((c, hour) => {
+          const all = Math.round(top * c);
+          if (all <= 0) return;
+          putHour.run(day, '', hour, all);
+          const oc = Math.round(all * 0.3);
+          putHour.run(day, 'claude-code', hour, Math.max(1, all - oc));
+          if (oc > 0) putHour.run(day, 'opencode', hour, oc);
+        });
+      }
+      // Answers sent from Podium: per kind, how many and how long each had waited (a permission in seconds, a question or a plan in minutes), and the messages, which have no wait.
+      if (day >= answersFrom) {
+        putAnswer.run(day, '', 'none', -1, 0);
+        const typical = { permission: [1.4, 15_000], question: [0.5, 100_000], plan: [0.2, 180_000] } as const;
+        for (const [harness, t] of times) {
+          for (const kind of ['permission', 'question', 'plan'] as const) {
+            const [per, ms] = typical[kind];
+            const classes = new Map<number, number>();
+            const n = Math.round(t.sessions * per * (0.6 + answerRng.next() * 0.8));
+            for (let i = 0; i < n; i++) {
+              const b = timeBucket(ms * (0.2 + answerRng.next() * answerRng.next() * 5));
+              classes.set(b, (classes.get(b) ?? 0) + 1);
+            }
+            for (const [b, c] of [...classes].sort(([x], [y]) => x - y)) putAnswer.run(day, harness, kind, b, c);
+          }
+          const messages = Math.round(t.sessions * 0.3 * (0.5 + answerRng.next()));
+          if (messages > 0) putAnswer.run(day, harness, 'message', -1, messages);
+        }
       }
       putFleet.run(day, active.size, reporters, started, started === 0 ? 0 : Math.max(1, Math.min(8, Math.round(started / 2 + rng.next() * 2))), JSON.stringify(rv), JSON.stringify(ev));
     });

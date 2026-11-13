@@ -6,12 +6,15 @@ import { ConnectionPill } from "./ConnectionPill";
 import { TopBarSignIn, type MyReportersLink } from "./SignIn";
 import { TopBarTab } from "./TopBarTab";
 import { useRespond } from "../useRespond";
+import { HARNESS_UPDATES_HASH } from "../stoppedFeatures";
 
 export function TopBar(props: {
   page: string;
   phase: Phase;
   reporters: number;
   outdated?: number;
+  /** Features that stopped after a harness update (#724), shown to an unlocked Admin only; 0 or absent shows nothing. */
+  stopped?: number;
   newer?: number;
   collapsed?: boolean;
   onCollapse?: () => void;
@@ -19,12 +22,15 @@ export function TopBar(props: {
   onFleet?: () => void;
   /** The My reporters link (#415), while orchestrator messaging is on and a person is signed in; left off on its own page. */
   myReporters?: MyReportersLink;
-  /** The Traffic link (#417), while orchestrator messaging is on; `current` on the Traffic page, where the link is left off. */
-  traffic?: { current: boolean };
+  /** The Chat link (#1034, it replaces Traffic's #417), while orchestrator messaging is on; `current` on the Chat page, where the link is left off. */
+  chat?: { current: boolean };
 }) {
   const { phase, reporters } = props;
   // Admin is offered only to a signed-in Administrator (#215). The server checks it again; hiding the button is not the gate.
-  const admin = useRespond()?.me?.admin === true;
+  const me = useRespond()?.me;
+  const admin = me?.admin === true;
+  // My usage (#726) is offered to a signed-in person while the Admin's setting is on. The server checks it again; hiding the button is not the gate.
+  const myUsage = me?.signedIn === true && me.myUsage === true ? { current: props.page === "My usage" } : undefined;
   return (
     <header className="top" id="podium-top" hidden={props.collapsed}>
       <BrandLink />
@@ -39,6 +45,12 @@ export function TopBar(props: {
           <span className="dot warn" aria-hidden="true" />
           {props.outdated} reporter{props.outdated === 1 ? "" : "s"} need{props.outdated === 1 ? "s" : ""} an update
         </span>
+      )}
+      {!!props.stopped && (
+        <a className="pill warn" href={HARNESS_UPDATES_HASH} title="Open Admin > Reporting > Harness updates">
+          <span className="dot warn" aria-hidden="true" />
+          {props.stopped} feature{props.stopped === 1 ? "" : "s"} stopped after a harness update
+        </a>
       )}
       {!!props.newer && (
         <span className="pill warn" role="status" title="Upgrade the Podium server">
@@ -73,10 +85,10 @@ export function TopBar(props: {
           History
         </a>
       )}
-      {/* Traffic (#417) shows only while orchestrator messaging is on. Its map and counts are open to every reader. Its own page's pill names it, so the button is left off there (#468). */}
-      {props.traffic && !props.traffic.current && (
-        <a className="btn" href="#/traffic">
-          Traffic
+      {/* Chat (#1034) replaces Traffic and shows only while orchestrator messaging is on. Its own page's pill names it, so the button is left off there (#468). */}
+      {props.chat && !props.chat.current && (
+        <a className="btn" href="#/chat">
+          Chat
         </a>
       )}
       {props.wall}
@@ -87,7 +99,7 @@ export function TopBar(props: {
         </a>
       )}
       {/* Sign in to respond (#206) stays at the far end, after a divider, so nothing before it moves on signing in or out. */}
-      <TopBarSignIn myReporters={props.myReporters} />
+      <TopBarSignIn myReporters={props.myReporters} myUsage={myUsage} />
       {/* Out of the flex row (absolute, at 50% of the bar), so nothing above can collide with it or move it as the pills' text changes (#91, #402). */}
       {props.onCollapse && <TopBarTab collapsed={false} onToggle={props.onCollapse} />}
     </header>

@@ -4,7 +4,7 @@ import { fmtDur, fmtTok } from "../format";
 import { readJson, writeJson } from "../storage";
 import { AdminError, type AdminApi } from "./adminApi";
 
-export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "activity";
+export type ReportId = "usage" | "spend" | "people" | "sessions" | "failures" | "tools" | "sessiontime" | "workload" | "harness" | "activity";
 export type By = "day" | "week" | "month";
 
 export interface ReportColumn {
@@ -32,6 +32,32 @@ export interface ReportReply {
   partial?: boolean;
   /** The Admin activity report only: the log held more entries than the report returns, so these are the newest. */
   truncated?: boolean;
+  /** The Tools report only (#720): every harness the period holds, before the harness filter, in id order. */
+  harnesses?: string[];
+  /** The Tools report, call duration (#721): the whole period for each tool and each MCP server, slowest first, and the harnesses that gave times. */
+  byTool?: { server: string; tool: string; timed: number; p50Ms: number; p95Ms: number }[];
+  timedHarnesses?: string[];
+  /** The Tools report, calls per session: the whole period for each harness. */
+  byHarness?: { harness: string; sessions: number; median: number; p90: number }[];
+  /** The Tools report, versions: how many reporters of each harness run an older version than its newest, in its last period. */
+  behind?: { harness: string; newest: string; behind: number; reporters: number }[];
+  /** The session time report only (#722), length and waiting: each period for every harness together, and the first day any session recorded its waiting (null before one has). */
+  periods?: ReportRow[];
+  waitSince?: string | null;
+  /** The session time report, waiting by reason: each of the three kinds for every harness together. */
+  byReason?: ReportRow[];
+  /** The first day answers sent from Podium were counted (#725), and the kinds of answer with how many and how long they waited. */
+  answersSince?: string | null;
+  kinds?: ReportRow[];
+  /** The costs report only (#723): the tools by what the sessions that called them cost (one row each, every harness together), and the model or effort mix by period. */
+  tools?: ReportRow[];
+  combined?: ReportRow[];
+  /** The costs report, the mix: which of model or effort the shares are of. */
+  mixOf?: string;
+  /** The Tools report, skills (#724): each skill with its sessions and the people across every harness. */
+  bySkill?: ReportRow[];
+  /** The Harness updates report (#724): the display name of each harness it names. */
+  names?: Record<string, string>;
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }
@@ -163,6 +189,8 @@ export interface ReportPrefs {
   person: string;
   group: string;
   model: string;
+  /** The Tools report: a harness id, or "" for every harness. */
+  harness: string;
   kind: string;
   pageSize: number;
 }
@@ -194,6 +222,7 @@ export function readReportPrefs(report: string, defaultBreakdown = ""): ReportPr
     person: str(o.person, ""),
     group: str(o.group, ""),
     model: str(o.model, ""),
+    harness: str(o.harness, ""),
     kind: str(o.kind, ""),
     pageSize: PAGE_SIZES.includes(o.pageSize as number) ? (o.pageSize as number) : PAGE_SIZES[0]!,
   };
@@ -315,4 +344,9 @@ export function saveFile(name: string, type: string, text: string): void {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/** The name a harness goes by on the page; one the page does not know keeps its id. */
+export function harnessName(id: string): string {
+  return id === "claude-code" ? "Claude Code" : id === "opencode" ? "OpenCode" : id;
 }

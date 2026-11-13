@@ -450,6 +450,116 @@ describe('GET /respond/sessions/:id/recording (the replay)', () => {
     expect(JSON.stringify(await logRows(people))).not.toContain(BODY);
   });
 
+  describe('an Admin replaying a person\'s recording tells the person (#1075)', () => {
+    /** The callouts the next report of Ed's session brings back, as the reporter would show them. */
+    const noticesOf = async (app: express.Express, token: string) => {
+      const r = report();
+      r.adminNotices = true;
+      const res = await send(app, token, r);
+      expect(res.status).toBe(200);
+      return (res.body.adminNotices ?? []) as { id: string; text: string }[];
+    };
+
+    it('records the Admin\'s replay and gives the owner a content-free callout in the session, once however far the Admin pages back', async () => {
+      const { app, ed, boss, fleet } = await recorded();
+      expect(await noticesOf(app, ed.token)).toEqual([]);
+      const b = await signedIn(app, 'Boss', boss.token);
+      expect((await b.get(BASE)).status).toBe(200);
+      await b.get(`${BASE}?before=3`);
+      await b.get(`${BASE}?before=3&limit=1`);
+      const notices = await noticesOf(app, ed.token);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]!.text).toMatch(/^Boss \(an Admin\) is replaying your recorded Podium session /);
+      expect(JSON.stringify(notices)).not.toContain(BODY);
+      expect(await fleet.chat.adminReads.list(`replay:${SID}`)).toHaveLength(1);
+      // The same record gives the same id on the next report, so the reporter shows it once.
+      expect((await noticesOf(app, ed.token))[0]!.id).toBe(notices[0]!.id);
+    });
+
+    it('keeps the Admin log line and records nothing when the owner opens their own replay', async () => {
+      const { a, app, ed, people, fleet } = await recorded();
+      await a.get(BASE);
+      expect(await noticesOf(app, ed.token)).toEqual([]);
+      expect(await fleet.chat.adminReads.list(`replay:${SID}`)).toEqual([]);
+      expect((await logRows(people)).filter((r) => r.kind === 'recording_read')).toHaveLength(1);
+    });
+
+    it('keeps the Admin log line for the Admin\'s replay as well', async () => {
+      const { app, boss, people } = await recorded();
+      const b = await signedIn(app, 'Boss', boss.token);
+      await b.get(BASE);
+      expect((await logRows(people)).filter((r) => r.kind === 'recording_read' && r.actor === 'Boss')).toHaveLength(1);
+    });
+
+    it('tells only the owner who is replaying right now, and stops 30 seconds after the Admin\'s last read or ping', async () => {
+      const { a, app, boss, alex, clock } = await recorded();
+      const b = await signedIn(app, 'Boss', boss.token);
+      await b.get(BASE);
+      const live = (await a.get('/api/fleet/respond/recording-reads')).body;
+      expect(live.sessions[SID]).toEqual([expect.objectContaining({ admin: 'Boss' })]);
+      expect(JSON.stringify(live)).not.toContain(BODY);
+      const other = await signedIn(app, 'Alex', alex.token);
+      expect((await other.get('/api/fleet/respond/recording-reads')).body.sessions).toEqual({});
+      expect((await b.get('/api/fleet/respond/recording-reads')).body.sessions).toEqual({}); // an Admin reads only the sessions that are their own
+      expect((await request(app).get('/api/fleet/respond/recording-reads')).status).toBe(401);
+      clock.now += 20_000;
+      expect((await b.post(`${BASE}/reading`).set(H)).status).toBe(200);
+      clock.now += 20_000;
+      expect((await a.get('/api/fleet/respond/recording-reads')).body.sessions[SID]).toHaveLength(1); // the ping kept it live
+      clock.now += 31_000;
+      expect((await a.get('/api/fleet/respond/recording-reads')).body.sessions).toEqual({});
+    });
+
+    it('refuses the ping from the owner and from a person who is not the owner, and tells the stream with a counter only', async () => {
+      const { a, app, alex, boss, fleet } = await recorded();
+      expect((await a.post(`${BASE}/reading`).set(H)).status).toBe(403);
+      const other = await signedIn(app, 'Alex', alex.token);
+      expect((await other.post(`${BASE}/reading`).set(H)).status).toBe(403);
+      const seen: unknown[] = [];
+      const spy = vi.spyOn((fleet as unknown as { hub: { broadcast: (e: string, d: unknown) => void } }).hub, 'broadcast').mockImplementation((e, d) => void seen.push([e, d]));
+      const b = await signedIn(app, 'Boss', boss.token);
+      await b.get(BASE);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(seen.filter((x) => (x as [string, unknown])[0] === 'replay')).toEqual([['replay', { rev: expect.any(Number) }]]);
+      spy.mockRestore();
+    });
+
+    it('refuses an Admin\'s ping for a session that has no recording, and tells nobody', async () => {
+      const { app, boss, ed, fleet } = await setup();
+      expect((await send(app, ed.token, report())).status).toBe(200); // a session that was never recorded
+      const b = await signedIn(app, 'Boss', boss.token);
+      const res = await b.post(`${BASE}/reading`).set(H);
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('this session has no recording');
+      expect(await fleet.chat.adminReads.list(`replay:${SID}`)).toEqual([]);
+      expect(await noticesOf(app, ed.token)).toEqual([]);
+    });
+
+    it('costs a report no stored-session read once it is known that nobody has replayed anything, and asks again after a replay', async () => {
+      const { app, boss, ed, fleet } = await recorded();
+      const spy = vi.spyOn(fleet.db, 'getSession');
+      await fleet.chat.adminReads.noticesFor(SID); // the first call looks, once, for any replay on record
+      spy.mockClear();
+      for (let i = 0; i < 3; i++) expect(await fleet.chat.adminReads.noticesFor(SID)).toEqual([]);
+      expect(spy).not.toHaveBeenCalled();
+      const b = await signedIn(app, 'Boss', boss.token);
+      await b.get(BASE);
+      expect(await fleet.chat.adminReads.noticesFor(SID)).toHaveLength(1);
+      expect(await noticesOf(app, ed.token)).toHaveLength(1);
+    });
+
+    it('lets the owner see who replayed and when, and marks it seen, but shows an Admin nothing of another Admin', async () => {
+      const { a, app, boss } = await recorded();
+      const b = await signedIn(app, 'Boss', boss.token);
+      await b.get(BASE);
+      const seen = await a.get(`${BASE}/consent`);
+      expect(seen.body.adminReads).toEqual([expect.objectContaining({ admin: 'Boss' })]);
+      expect(seen.body.adminReads[0]).not.toHaveProperty('thread');
+      expect(seen.body.adminReading).toEqual([expect.objectContaining({ admin: 'Boss' })]);
+      expect(JSON.stringify(seen.body)).not.toContain(BODY);
+    });
+  });
+
   it('works for a session that has ended and after the flag went off for the owner of nothing else', async () => {
     const { a, fleet } = await recorded();
     (fleet as unknown as { live: Map<string, unknown> }).live.delete(SID);
@@ -471,6 +581,20 @@ describe('POST …/stop and DELETE …', () => {
     const page = (await a.get(BASE)).body;
     expect(page.entries.map((e: { kind: string }) => e.kind)).toEqual(['tool', 'stopped']);
     expect(page.entries[1].by).toBe('Ed');
+  });
+
+  it('tells the owner when an Administrator stops or deletes the recording from the session page, and the owner doing it tells no one (#1078)', async () => {
+    const { a, app, boss, fleet, ed } = await chosen();
+    await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
+    const told = vi.spyOn(fleet.adminActs, 'onSession');
+    const b = await signedIn(app, 'Boss', boss.token);
+    expect((await b.post(`${BASE}/stop`).set(H)).status).toBe(200);
+    expect((await b.delete(BASE).set(H)).status).toBe(200);
+    expect(told.mock.calls.map((c) => [c[0], c[1]])).toEqual([['Boss', 'recording_stopped'], ['Boss', 'recording_deleted']]);
+    // The owner's own stop is passed to the same call and is dropped there, since the Admin and the owner are one name.
+    told.mockClear();
+    await a.post(`${BASE}/stop`).set(H);
+    expect(await fleet.chat.adminReads.unseenFor('Boss')).toEqual([]);
   });
 
   it('stop is 404 when there is no recording', async () => {
@@ -535,7 +659,7 @@ describe('what the server does on its own is logged', () => {
   it('a message Podium delivers to a recorded loop is marked on the mod entry that carries it, and not stored twice', async () => {
     const { fleet, app, ed } = await chosen();
     await fleet.features.setFeature('respond', true);
-    await send(app, ed.token, report(true, { respond: ACCEPTS }));
+    await send(app, ed.token, report(true, { respond: ACCEPTS, activityFeed: true }));
     expect(fleet.respond.message(SID, 'Boss', { text: `${BODY} please also update the guide` }).ok).toBe(true);
     await fleet.flush(); // the Podium entry's write is queued
     expect((await fleet.recordings.page(SID, null, 10, null)).entries).toEqual([]);
@@ -584,7 +708,7 @@ describe('what the server does on its own is logged', () => {
   it('a failing write of such a prompt is logged and does not refuse the message', async () => {
     const { fleet, lines, app, ed } = await chosen();
     await fleet.features.setFeature('respond', true);
-    await send(app, ed.token, report(true, { respond: ACCEPTS }));
+    await send(app, ed.token, report(true, { respond: ACCEPTS, activityFeed: true }));
     vi.spyOn(fleet.recordings, 'notePodiumPrompt').mockImplementation(() => {
       throw new Error('file is locked');
     });

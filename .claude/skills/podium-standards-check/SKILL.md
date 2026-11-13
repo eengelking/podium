@@ -5,9 +5,9 @@ description: Check Podium UI work against the design standards in docs/standards
 
 # Checking Podium UI against its standards
 
-Podium's look is written down in `docs/standards/` (open `index.html`). The pages are generated from the app, so a standard there is what the app really does, not an aspiration. This skill is how you find out whether new or existing UI follows them. It reports. It never edits the code, the mockup or the standards; changing a standard is the `podium-standards-update` skill's job and needs the maintainer's approval.
+Podium's look is written down in `docs/standards/` (open `index.html`). The pages are generated from the app, so a standard there is what the app really does, not an aspiration. This skill is how you find out whether new or existing UI follows them. It reports. It never edits the code, the mockup or the standards; changing a standard is the `/podium-standards-update` skill's job and needs the maintainer's approval.
 
-**Relationship to the global design skills.** `frontend-design`, `dataviz` and the artifact skills say how to design well in general. The standards constrain them: where they disagree, Podium's tokens, components and patterns win. Use the global skills for the parts the standards do not cover, and say when you did.
+**Relationship to the global design skills.** `/frontend-design:frontend-design`, `/dataviz` and the artifact skills say how to design well in general. The standards constrain them: where they disagree, Podium's tokens, components and patterns win. Use the global skills for the parts the standards do not cover, and say when you did.
 
 ## Where the standards are
 
@@ -33,7 +33,7 @@ Pick from the request. If it names a diff, a file, a PR or a mockup, run the cha
 ### Change check
 
 1. **Scope.** Find what changed: `git diff $(git merge-base HEAD development)...HEAD -- frontend mockup docs/standards` for a branch, or the named file for a mockup. Read the files, not only the diff, for anything whose surroundings matter.
-2. **What is already allowed.** A change that is on `development` but not yet in the standards is allowed if the maintainer approved it. Read the `Standards:` lines under `[Unreleased]` in `CHANGELOG.md`. A deviation that one of them names is "allowed, pending release". Anything else that differs from the standards is a deviation.
+2. **What is already allowed.** A change that is on `development` but not yet in the standards is allowed if the maintainer approved it. Read the `standards` fragments in `changelog.d/` and the `Standards:` lines under `[Unreleased]` in `CHANGELOG.md`. A deviation that one of them names is "allowed, pending release". Anything else that differs from the standards is a deviation.
 3. **Check each area, against the page, not from memory:**
    - **Tokens.** Every color is a token from `tokens.css` through `var(--name)`. No hex, rgb or hsl in CSS or TSX (`npm test -w server -- standards-guard` catches these, and also an undefined `var(--x)` and any theme below the contrast targets; run it). A mockup links `tokens.css` and does not carry a `:root` block. Model colors come from the model tokens. Sizes, radii, layers and durations come from the values in use on `scale.html`; a new value needs a reason.
    - **Components.** If a component or class already does the job (`components.html`), use it. A class that is not in `fleet.css` or `admin.css` is new, and a new component or pattern is added to the system in the same change, not invented in one feature.

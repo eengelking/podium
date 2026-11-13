@@ -75,6 +75,8 @@ const GIT: Record<string, string> = {
 /** Everything beneath the plugin: the engine's answers, from memory. */
 /** The context tokens the stubbed host answers `session.usage` with; world() resets it. */
 let hostTokens = 120_000
+/** The cost the stubbed host answers `session.usage` with; world() resets it. */
+let hostCost = 1.25
 
 function world(on: On, store: Record<string, unknown> = {}, files: Record<string, string> = {}): World {
   const posts: Report[] = []
@@ -101,6 +103,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const devBuild: World['devBuild'] = { value: null }
   const hosts: World['hosts'] = { hostname: 'Devs-MBP.local\n', local: null }
   hostTokens = 120_000
+  hostCost = 1.25
   const agents: World['agents'] = { value: null }
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
@@ -119,7 +122,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('session.root', () => ({ value: place.root }))
   on('session.repo', () => ({ value: place.repo }))
   on('session.version', () => ({ value: { version: '2.1.296' } }))
-  on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: hostTokens, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: 1.25 } } }))
+  on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: hostTokens, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: hostCost } } }))
   on('session.surfaces', () => {
     if (surfaces.fail) throw new Error('no roster')
     return { value: surfaces.value }
@@ -176,14 +179,20 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.compact', () => ({ messages: SUMMARY, tokensBefore: 1_000_000, tokensAfter: 300_000 }))
   on('agent.spawn', (_$, e) => ({ model: e.fork ? e.parentModel : e.model === 'haiku' ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', agentId: e.fork ? 'a-fork' : e.description === 'Backfill dry run' ? 'a-fail' : 'a-sub' }))
-  on('tool.call', (_$, e) => {
+  on('tool.call', async (_$, e) => {
     toolUseId = e.tool_use_id
     if (e.tool === 'TaskCreate') return { result: { task: { id: '1', subject: e.subject } } }
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }
     if (e.tool === 'Bash') {
       const hit = Object.keys(bash.results).find((k) => e.command.includes(k))
       if (hit && (bash.results[hit] as { throws?: boolean }).throws) throw new Error('tool blew up')
-      if (hit) return bash.results[hit] as never
+      if (hit) {
+        // A call that is still running: it ends when the test opens the gate.
+        const gate = (bash.results[hit] as { gate?: Promise<void> }).gate
+        if (gate) await gate
+        const { gate: _gate, ...result } = bash.results[hit] as { gate?: Promise<void> }
+        return result as never
+      }
     }
     if (e.tool === 'Bash' && e.command.startsWith('npm test')) return { isError: true, result: 'Exit code 1\nFAIL src/a.test.ts', text: 'Exit code 1\nFAIL src/a.test.ts' }
     return { result: { ok: true }, text: 'ok' }
@@ -555,6 +564,22 @@ describe('podium-reporter end to end', () => {
     expect(info.text).toContain(`Versions: reporter ${VERSION}, server 1.1.0`)
   })
 
+  test('reports which hooks ran and which listed fields their events carried, as counts and never a value (#724)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await $.classic.UserPromptSubmit({ prompt: 'a secret prompt', cwd: CWD })
+    await $.classic.UserPromptSubmit({ prompt: 'again' })
+    await w.clock.advance(1000)
+    const sig = w.posts.at(-1)!.signals!
+    expect(sig['hook:session.start']).toBe(1)
+    expect(sig['hook:classic.UserPromptSubmit']).toBe(2)
+    // both events carried the cwd the reporter reads: a field that vanishes after an update shows as a drop in this count
+    expect(sig['field:classic.UserPromptSubmit.cwd']).toBe(2)
+    // a field the reporter does not read is not counted
+    expect(sig['field:classic.UserPromptSubmit.prompt']).toBeUndefined()
+    expect(JSON.stringify(sig)).not.toContain('secret')
+  })
+
   test("Claude Code's own session name is the display name once a hook carries it (#322)", async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
@@ -722,6 +747,20 @@ describe('podium-reporter end to end', () => {
     await $.classic.SessionStart({ source: 'startup', cwd: '/Users/dev/notes' })
     await w.clock.advance(10_000)
     expect(w.posts.at(-1)!.session).toMatchObject({ name: 'notes', cwd: '/Users/dev/notes', projectRoot: '/Users/dev/notes', repoName: 'notes', git: null })
+  })
+
+  test('announces the session at launch, before any prompt, as one that has done nothing (#1112)', async ($, on) => {
+    const w = world(on)
+    // A session nobody has prompted: the host knows no cost and no context yet.
+    hostTokens = 0
+    hostCost = 0
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await $.classic.SessionStart({ source: 'startup', cwd: CWD })
+    await w.clock.advance(1000)
+    // The chat lists a reported session at once; the wall's server keeps one with no cost, tokens, agents or plan off it, so this report must be that shape.
+    expect(w.posts).toHaveLength(1)
+    expect(w.posts[0]!.session).toMatchObject({ status: 'waiting', costUsd: 0, plan: null, tokens: { input: 0, output: 0 }, context: { tokens: 0 } })
+    expect(w.posts[0]!.agents).toEqual([])
   })
 
   test('reports whether any client is attached, from the roster', async ($, on) => {
@@ -1106,6 +1145,24 @@ describe('podium-reporter end to end', () => {
       expect(sent(w)).not.toContain(SECRET)
     })
 
+    test('a foreground call still running is in the report from its start, without done, and settles in place (#899)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['@orchestrator'], null)
+      let open!: () => void
+      w.bash.results['longrun'] = { result: { stdout: 'ok', stderr: '', interrupted: false }, gate: new Promise<void>((r) => (open = r)) }
+      const call = $.tool.call({ tool: 'Bash', command: 'longrun --build' })
+      await w.clock.advance(6000)
+      const running = (last(w).session.activity ?? []).filter((e) => e.kind === 'tool')
+      expect(running).toHaveLength(1)
+      expect(running[0]).toMatchObject({ command: 'longrun --build' })
+      expect(running[0]!.done).toBeUndefined()
+      open()
+      await call
+      await w.clock.advance(6000)
+      const settled = (last(w).session.activity ?? []).filter((e) => e.kind === 'tool')
+      expect(settled).toHaveLength(1)
+      expect(settled[0]).toMatchObject({ id: running[0]!.id, at: running[0]!.at, done: true })
+    })
+
     test('a password in a connection URL is out of the row summary, the command and everything sent (#895)', { options: { activityFeed: true } }, async ($, on) => {
       const w = await started($, on, ['a-sub'], null)
       await $.tool.call(inAgent({ tool: 'Bash', command: 'PODIUM_TEST_PG=postgres://postgres:s3cr3tpw@localhost:5432/db echo hi' }))
@@ -1335,6 +1392,7 @@ describe('podium-reporter end to end', () => {
       await w.clock.advance(1000)
     }
     const sent = (w: World) => JSON.stringify(w.posts)
+    const last = (w: World) => w.posts.at(-1)!
 
     test('off (default): nothing is captured or sent, even for a loop the server says is watched', async ($, on) => {
       const w = await started($, on, ['a-sub', MAIN_LOOP])
@@ -1385,6 +1443,63 @@ describe('podium-reporter end to end', () => {
       const got = w.posts.at(-1)!.agents[0]!.activity!
       expect(got).toHaveLength(20)
       expect(got[0]!.text).toBe('Read /f5')
+    })
+
+    test('a call that starts while its step is still streaming sits after the step\'s text, which keeps the step\'s start time (#899)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, [MAIN_LOOP])
+      let open!: () => void
+      w.bash.results['longrun'] = { result: { stdout: 'ok', stderr: '', interrupted: false }, gate: new Promise<void>((r) => (open = r)) }
+      w.chunks.value = [text('Running it now. '), text('First the build.')]
+      const s = $.turn.step({ turnId: 'tb', index: 0, model: 'claude-sonnet-5-5', messageCount: 2 })
+      const first = await s.next()
+      expect(first.done).toBe(false)
+      // The call starts before the step's result is in: the tool block was complete while the model was still writing.
+      await w.clock.advance(1000)
+      const call = $.tool.call({ tool: 'Bash', command: 'longrun --build' })
+      await w.clock.advance(1000)
+      let r = await s.next()
+      while (!r.done) r = await s.next()
+      await w.clock.advance(6000)
+      const feed = last(w).session.activity!
+      expect(feed.map((e) => e.kind)).toEqual(['text', 'tool'])
+      expect(feed[0]!.text).toBe('Running it now. First the build.')
+      expect(feed[1]).toMatchObject({ command: 'longrun --build' })
+      expect(feed[1]!.done).toBeUndefined()
+      expect(feed[0]!.at).toBeLessThanOrEqual(feed[1]!.at)
+      open()
+      await call
+      await w.clock.advance(6000)
+      const settled = last(w).session.activity!
+      expect(settled.map((e) => e.kind)).toEqual(['text', 'tool'])
+      expect(settled[1]).toMatchObject({ id: feed[1]!.id, at: feed[1]!.at, done: true })
+    })
+
+    test('a call that ends before its step does keeps its place and its result (#899)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, [MAIN_LOOP])
+      w.bash.results['quick'] = { result: { stdout: 'ok', stderr: '', interrupted: false } }
+      w.chunks.value = [text('Checking. '), text('Now.')]
+      const s = $.turn.step({ turnId: 'tc', index: 0, model: 'claude-sonnet-5-5', messageCount: 2 })
+      await s.next()
+      await $.tool.call({ tool: 'Bash', command: 'quick' })
+      let r = await s.next()
+      while (!r.done) r = await s.next()
+      await w.clock.advance(6000)
+      const feed = last(w).session.activity!
+      expect(feed.map((e) => e.kind)).toEqual(['text', 'tool'])
+      expect(feed[1]).toMatchObject({ command: 'quick', done: true })
+    })
+
+    test('a step that fails still lists the call that started during it (#899)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, [MAIN_LOOP])
+      w.bash.results['longrun'] = { result: { stdout: 'ok', stderr: '', interrupted: false }, gate: new Promise<void>(() => {}) }
+      w.chunks.value = [text('Go. ')]
+      const s = $.turn.step({ turnId: 'td', index: 0, model: 'claude-sonnet-5-5', messageCount: 2 })
+      await s.next()
+      void $.tool.call({ tool: 'Bash', command: 'longrun' })
+      await w.clock.advance(1000)
+      await s.return(undefined as never)
+      await w.clock.advance(6000)
+      expect((last(w).session.activity ?? []).map((e) => e.kind)).toContain('tool')
     })
 
     test('a watched step passes every chunk on unchanged, in order, and its result', { options: { activityFeed: true } }, async ($, on) => {

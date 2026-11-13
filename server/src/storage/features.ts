@@ -48,6 +48,12 @@ export const UPDATE_CHECK = 'update-check';
 /** Session recording (#353): a session's owner, or an Admin, records what an orchestrator and its agents do. Off until the Admin turns it on, and never on without a token. */
 export const SESSION_RECORDING = 'session-recording';
 
+/** Addressing @group and @everyone in Chat (#1034): off until an Admin turns it on, and a message that uses either is refused while it is off. */
+export const CHAT_EVERYONE = 'chat-everyone';
+
+/** My usage (#726): each signed-in person sees their own spend, sessions, failures and tool calls. Off until the Admin turns it on. */
+export const MY_USAGE = 'my-usage';
+
 export const FEATURES: readonly FeatureDef[] = [
   {
     id: ACTIVITY_FEED,
@@ -84,10 +90,24 @@ export const FEATURES: readonly FeatureDef[] = [
     defaultOn: false,
   },
   {
+    id: CHAT_EVERYONE,
+    name: 'Address @group and @everyone in Chat',
+    description:
+      'Lets a message in Chat address @group (every orchestrator in the sender\'s group) or @everyone (everyone signed in). Off, a message that uses either is refused and nothing is sent. Addressing one agent as name@location is always allowed. Needs Orchestrator messaging on.',
+    defaultOn: false,
+  },
+  {
     id: SESSION_RECORDING,
     name: 'Session recording',
     description:
       "Lets a session's owner, or an Admin, record everything an orchestrator and its agents do, so a run can be replayed to see what happened and why. Needs sign-in on the server. Off by default.",
+    defaultOn: false,
+  },
+  {
+    id: MY_USAGE,
+    name: 'My usage page',
+    description:
+      'Gives each signed-in person a My usage page in the top bar with their own spend, sessions, failures and tool calls. Only their own: it never shows another person, and an Administrator sees their own figures there too. Needs sign-in on the server. Off by default.',
     defaultOn: false,
   },
   {

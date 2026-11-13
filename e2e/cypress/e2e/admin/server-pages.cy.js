@@ -4,18 +4,19 @@ describe('admin: server pages', () => {
   before(() => cy.resetServer({ seedArgs: '--recording' }));
 
   context('Security', () => {
+    // The banner's Wall options drawer holds a Shortcuts switch too (#1129), so the page's own switch is read inside Admin's main.
     beforeEach(() => cy.openAdmin('Security'));
     it('has the switch that lets reporters use the admin secret, and says what protects the tokens', () => {
       cy.get('h2#admin-leg-h').should('have.text', 'Reporting with the admin secret');
-      cy.get('[role=switch]').should('have.attr', 'aria-checked', 'true');
+      cy.get('main[aria-label=Admin] [role=switch]').should('have.attr', 'aria-checked', 'true');
       cy.contains('Tokens are stored hashed. Podium cannot show one again.');
       cy.contains('Wrong guesses at the admin secret are limited and logged in the Admin log.');
     });
     it('turns the admin-secret path off and on', () => {
-      cy.get('[role=switch]').click().should('have.attr', 'aria-checked', 'false');
+      cy.get('main[aria-label=Admin] [role=switch]').click().should('have.attr', 'aria-checked', 'false');
       cy.reload();
       cy.adminPage('Security');
-      cy.get('[role=switch]').should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
+      cy.get('main[aria-label=Admin] [role=switch]').should('have.attr', 'aria-checked', 'false').click().should('have.attr', 'aria-checked', 'true');
     });
   });
 
@@ -36,14 +37,17 @@ describe('admin: server pages', () => {
       cy.contains('Activity history').should('exist');
     });
     it('offers the four activity-history policies, with a warning bar once one that keeps is chosen', () => {
-      cy.get('select[aria-labelledby="ah-policy-n"]').find('option').then(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Not stored (default)', 'Purge after a set time', 'Purge when the session ends', 'Keep everything']));
+      cy.get('select[aria-labelledby="ah-policy-n"]').find('option').should(($o) => expect([...$o].map((o) => o.textContent)).to.deep.eq(['Not stored (default)', 'Purge after a set time', 'Purge when the session ends', 'Keep everything']));
       cy.get('select[aria-labelledby="ah-policy-n"]').select('Keep everything');
       cy.get('[role=note]').should('contain.text', 'Podium will ask every reporter to send the activity of each running loop');
       cy.contains('button', 'Cancel').click();
     });
     it('saves a keep policy, and writes it to the Admin log', () => {
       cy.get('select[aria-labelledby="ah-policy-n"]').select('Keep everything');
+      // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+      cy.intercept('PUT', '**/api/admin/settings').as('saveSettings');
       cy.contains('button', 'Save').click();
+      cy.wait('@saveSettings');
       cy.reload();
       cy.adminPage('Data');
       cy.get('select[aria-labelledby="ah-policy-n"]').find(':selected').should('have.text', 'Keep everything');

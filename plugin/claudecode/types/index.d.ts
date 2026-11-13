@@ -6,6 +6,7 @@ export type HeldConfig = { path: string; context: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    'podium-reporter': { identity: HeldIdentity | null; chosenConfig: HeldConfig | null }
+    /** `configRev` (#1001): bumped by each save in the `/podium config` pane, so it is drawn again with the new value. */
+    'podium-reporter': { identity: HeldIdentity | null; chosenConfig: HeldConfig | null; configRev: Shaped<number> }
   }
 }

@@ -7,7 +7,7 @@ import { checkReporter } from '../../fleet/compat.js';
 import { clampPage, likeTerm } from './people.js';
 import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-import { keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -94,7 +94,7 @@ export class ReporterStore {
   private accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): string {
     const own = ReporterStore.keyOf(s);
     if (!s.machineId) return own;
-    const apart = `${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`;
+    const apart = apartKeyOf(s);
     const has = (key: string) => this.stmt('SELECT owner FROM reporters WHERE key = ?').get(key) as { owner: string | null } | undefined;
     if (has(apart)) return apart;
     const bare = has(own);
@@ -126,7 +126,7 @@ export class ReporterStore {
     const account = this.accountKey({ ...s, owner: s.owner ?? null });
     // The machine id comes first, so a rule on it covers every account on the machine (#221).
     // The per-account form is always included, so a rule on `<machine id>#<owner>` still turns that account away when its row is keyed on the bare machine id.
-    const apart = s.machineId ? [`${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`] : [];
+    const apart = s.machineId ? [apartKeyOf(s)] : [];
     // A rule on the bare machine id also covers a reporter other than the Claude Code one on that machine (#849).
     const machine = s.machineId ? [s.machineId] : [];
     return [...new Set([own, account, ...machine, ...apart, ...(known ? [known] : [])])];
@@ -153,7 +153,7 @@ export class ReporterStore {
       canonicalReporterName(s.reporterName),
       s.machineId,
       s.machineName?.slice(0, 64) ?? null,
-      s.source?.slice(0, 120) ?? null,
+      s.source?.slice(0, SOURCE_MAX) ?? null,
       s.owner,
       s.credential,
       s.version.slice(0, 64),
@@ -358,6 +358,22 @@ export class ReporterStore {
     return n;
   }
 
+  versionCounts(since: number): ReporterVersionCount[] {
+    const rows = this.stmt(
+      `SELECT reporter_name AS name, reporter_version AS version, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version ORDER BY reporter_name, reporter_version`,
+    ).all({ since }) as { name: string; version: string; machines: number }[];
+    return rows.map((r) => ({ reporterName: r.name, version: r.version, machines: Number(r.machines) }));
+  }
+
+  platformCounts(since: number): ReporterPlatformCount[] {
+    const rows = this.stmt(
+      `SELECT reporter_name AS name, reporter_version AS version, os, COUNT(DISTINCT COALESCE(machine_id, key)) AS machines
+       FROM reporters WHERE kind = 'mod' AND last_seen_at >= :since GROUP BY reporter_name, reporter_version, os ORDER BY reporter_name, reporter_version, COALESCE('a' || os, '')`,
+    ).all({ since }) as { name: string; version: string; os: string | null; machines: number }[];
+    return rows.map((r) => ({ reporterName: r.name, version: r.version, os: r.os, machines: Number(r.machines) }));
+  }
+
   /** Removes every reporter in one state ("Not since restart", say). Returns how many went. */
   removeState(state: ReporterState, now: number): number {
     return Number(
@@ -417,6 +433,7 @@ export class ReporterStore {
     if (!IGNORE_KINDS.includes(kind)) throw new Error('kind must be key, address or version');
     if (/^\*+$/.test(p)) throw new Error('pattern must name something besides *');
     if (p.length < 1 || p.length > MAX_PATTERN) throw new Error(`pattern must be 1 to ${MAX_PATTERN} characters`);
+    checkTime(now, 'A rule time');
     this.stmt('INSERT OR IGNORE INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?)').run(kind, p, now);
     const rule = ReporterStore.ruleOf(this.stmt('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?').get(kind, p) as never);
     // order-insensitive: every row is tested against the rule, in whatever order.

@@ -18,8 +18,9 @@ concurrency:
   group: sonar-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # Split from scan so the adapter's tests (#822) can have a PostgreSQL service: scan's self-hosted runner is a container on a shared
-  # Podman host, where a service's published port is not reachable as localhost. This job holds no secret; it hands scan the lcov files.
+  # Split from scan so the adapters' tests (#822, #823) can have a PostgreSQL and a MariaDB service: scan's self-hosted runner is a container
+  # on a shared Podman host, where a service's published port is not reachable as localhost. This job holds no secret; it hands scan the lcov
+  # files. Coverage needs every adapter's tests in one run, so both services are here, each on the one version tested (PostgreSQL 17, MariaDB 11.4).
   coverage:
     permissions:
       contents: read # checkout only; this job holds no secret
@@ -41,8 +42,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1" # the same: a throwaway service for one job; no password
+          MARIADB_DATABASE: podium_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
     env:
       PODIUM_TEST_PG: postgres://postgres@localhost:5432/postgres
+      PODIUM_TEST_MARIADB: mariadb://root@127.0.0.1:3306/podium_test
     steps:
       - uses: actions/checkout@v7
 
@@ -108,6 +122,6 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts
 
-      - uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+      - uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

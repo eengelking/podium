@@ -18,6 +18,7 @@ import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, 
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
+import { isPersonId } from './chatTypes.js';
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -69,7 +70,7 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
   const sources = new AsyncLocalStorage<string>();
   const withSource = <T>(src: string, fn: () => T): T => sources.run(src, fn);
   const actorName = (a: Actor): string => (a.name === ADMIN_OWNER ? ADMIN_SECRET_ACTOR : a.name);
-  const pair = (m: MessageRow): string => `${m.fromName} on ${m.fromMachine} to ${m.toName} on ${m.toMachine}, ${m.owner}'s`;
+  const pair = (m: MessageRow): string => `${m.author === 'person' ? `${m.fromName} (a person)` : `${m.fromName} on ${m.fromMachine}`} to ${m.toSession.startsWith('person:') ? `${m.toName} (a person)` : `${m.toName} on ${m.toMachine}`}, ${m.owner}'s`;
   const short = (id: string): string => id.slice(0, 12);
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
     // Called from the peer service's synchronous events: the entry is queued now, in order, and the server-log line follows it.
@@ -80,6 +81,12 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
   };
 
   fleet.peers.onMessage = (t: MessageTrail) => {
+    // Chat moves the mention a person wrote to another person's agent, and signals both sides (#1034). It never stops the log below.
+    try {
+      fleet.chat.peerTrail(t);
+    } catch (err) {
+      logger.warn('chat.failed', `podium: Chat could not follow a message: ${(err as Error).message}`, { reason: (err as Error).message });
+    }
     const m = t.message;
     const fields = { owner: m.owner, from_session: m.fromSession, to_session: m.toSession, message_id: short(m.id) };
     if (t.kind === 'sent') {
@@ -100,6 +107,9 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
     switch (t.kind) {
       case 'set':
         row('peer_right_set', `${machine(t.right.from)} to ${machine(t.right.to)}, ${t.right.owner}'s: ${LEVEL_WORDS[t.right.level]}`, actorName(t.actor), { owner: t.right.owner, from_key: t.right.from, to_key: t.right.to, level: t.right.level, admin: t.actor.admin });
+        break;
+      case 'person-link':
+        row(`peer_person_link_${t.op === 'allow' ? 'opened' : t.op === 'pause' ? 'paused' : t.op === 'resume' ? 'resumed' : 'removed'}`, `Link between ${t.person.slice('person:'.length)} (a person) and ${machine(t.toKey)}, ${t.owner}'s: ${t.op === 'allow' ? 'opened' : t.op === 'pause' ? 'paused' : t.op === 'resume' ? 'resumed' : 'removed'}`, actorName(t.actor), { owner: t.owner, person: t.person, to_key: t.toKey, admin: t.actor.admin });
         break;
       case 'paused':
       case 'resumed':
@@ -217,6 +227,15 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!m) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
+    // The session that sent or asked, and the one a message went to, may not answer: an agent that approves its own request
+    // (or one that was written to, approving the writer) is no check by the owner (#1051). A third session of the owner may.
+    const open = (await fleet.peers.rights.openRequests(m.o.owner)).find((r) => r.id === req.params.requestId);
+    if (open) {
+      const msg = open.messageId ? await fleet.peers.messages.message(open.messageId) : null;
+      if (open.fromSession === m.row.id || msg?.fromSession === m.row.id || msg?.toSession === m.row.id) {
+        return void refuse(req, res, 403, 'the session this request is about cannot answer it: answer it in the console, or in another of your sessions');
+      }
+    }
     const { out, paused } = await withSource(sourceOf(req), () => fleet.peers.answerPaused(req.params.requestId!, m.o.owner, answer as PeerAnswer, { name: m.person.name, admin: false }));
     if (!out.ok) return void refuse(req, res, out.status, out.error);
     // The level the right now has, which raise() can make higher than the request's, so /podium allow names it (#414).
@@ -235,12 +254,16 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     res.json({ ok: true });
   }));
 
-  /** Traffic's open read (8.1): which orchestrators talk, and how much, for anyone who can read the console. Never the text. */
+  /**
+   * Traffic's open read (8.1): which orchestrators talk, and how much, for anyone who can read the console. Never the text. A conversation with a person at
+   * one end is that person's Chat, which is not for anyone who can read the console, so it is left out (#1051).
+   */
   router.get('/peers/traffic', asyncHandler(async (req, res) => {
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
     if (!enabled()) return void res.json({ enabled: false, conversations: [] });
-    res.json({ enabled: true, conversations: await fleet.peers.messages.conversations(range), retainDays: (await fleet.peers.settings.get()).retainDays, serverTime: now() });
+    const conversations = (await fleet.peers.messages.conversations(range)).filter((c) => !isPersonId(c.a.sessionId) && !isPersonId(c.b.sessionId));
+    res.json({ enabled: true, conversations, retainDays: (await fleet.peers.settings.get()).retainDays, serverTime: now() });
   }));
 }
 
@@ -378,9 +401,25 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!v) return void refuse(req, res, 403, 'sign in to read a conversation');
     const rows = await fleet.peers.messages.conversation(req.params.a!, req.params.b!);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
-    if (!v.admin && nameKey(rows[0]!.owner) !== nameKey(v.name)) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
+    const owns = v.personId !== null && nameKey(rows[0]!.owner) === nameKey(v.name);
+    if (!v.admin && !owns) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
+    // An Admin reads a person's Chat only in Chat, where the read is recorded and the people in it are told (#1051). This route does neither.
+    if (!owns && isPersonChat(rows)) return void refuse(req, res, 403, CHAT_ONLY);
+    // An Admin who is not its owner is recorded before the text is answered, and the owner is told in the console and in podium-reporter (#1072).
+    if (!owns && !await fleet.chat.noteConversationRead(v, req.params.a!, req.params.b!)) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
   }));
+}
+
+/** Why an Admin is turned away from a person's Chat on a route that does not tell the person. */
+export const CHAT_ONLY = "this conversation is a person's Chat. An Admin reads it in Chat, where the people in it are told";
+
+/**
+ * Whether stored messages are a person's Chat: a person is at one end, or a person wrote one. Its text is read through Chat only, which records an Admin's
+ * read, shows the people a notice and tells their reporter (#1051). Every route that returns a conversation's text checks it before answering an Admin.
+ */
+export function isPersonChat(rows: MessageRow[]): boolean {
+  return rows.some((m) => m.author === 'person' || isPersonId(m.fromSession) || isPersonId(m.toSession));
 }
 
 /** A message as a conversation shows it: who, to whom, when, where it is, and its text drawn as text by the page. */

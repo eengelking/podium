@@ -1,24 +1,25 @@
 ---
-title: "7.2 Database (SQLite)"
-description: "The SQLite databases: path, pragmas, migrations and tables."
+title: "7.2 Database"
+description: "The databases (SQLite, PostgreSQL and MariaDB): path, pragmas, migrations and tables."
 group: "Reference"
 section: "7.2"
 order: 2
 ---
 
-# 7.2 Database (SQLite)
+# 7.2 Database
 
 Path: `PODIUM_DB` env, default `<repo>/data/podium.sqlite` (add `data/` to `.gitignore`). Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`. Migrations are a numbered list applied in order and recorded in `schema_migrations`.
 
-The server reaches the database through async storage interfaces, and SQLite is the only adapter and the default (#313, [DECISIONS 48](../../decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md)). A plain `PODIUM_DB` path or `:memory:` means a SQLite file; `kind://target` is reserved for choosing another registered kind, and an unknown kind stops the server at start. What the server keeps beside the database, today the TLS CA, lives in `PODIUM_DATA_DIR`, which is the folder of the SQLite file when it is not set. [How it is built](../../architecture/02-components/19-storage.md).
+The server reaches the database through async storage interfaces, and SQLite is the default adapter (#313, [DECISIONS 48](../../decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md)); PostgreSQL and MariaDB are the others, [below](#postgresql-822). A plain `PODIUM_DB` path or `:memory:` means a SQLite file; `kind://target` chooses another registered kind, and an unknown kind stops the server at start. What the server keeps beside the database, today the TLS CA, lives in `PODIUM_DATA_DIR`, which is the folder of the SQLite file when it is not set. [How it is built](../../architecture/02-components/19-storage.md).
 
 The Activity history (#432) is a second file, `activity.sqlite`, in the same folder (`:memory:` when the main
 database is). It has its own schema version in `PRAGMA user_version`, WAL, `synchronous=NORMAL` and incremental
-auto-vacuum, and holds only these tables, which nothing in the main database references:
+auto-vacuum (schema version 5), and holds these tables and the recording tables `rec_sessions` and `rec_entries` (below), which nothing in the main database references:
 
 ```sql
 CREATE TABLE entries (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, loop TEXT NOT NULL, seq INTEGER NOT NULL,
-  at INTEGER NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, "by" TEXT, note TEXT, ref TEXT);
+  at INTEGER NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, "by" TEXT, note TEXT, ref TEXT,
+  command TEXT, command_cut INTEGER);  -- command and command_cut hold a Bash row's command and whether it was cut (schema version 5, #431)
   -- unique (session_id, loop, seq); indexes on t and on (session_id, ref); `at` is the entry's own time, `t` the same
   -- instant on the server's clock; "by", note and ref are set only for an entry sent from Podium
 CREATE TABLE stored_sessions (session_id TEXT PRIMARY KEY, name TEXT NOT NULL, project TEXT, owner TEXT,
@@ -111,7 +112,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off, #206, #319, #347, #353, #431); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output` and `my-usage`, which are off, #206, #319, #347, #353, #431, #726, #1034); wall_card_title_machine and wall_update_dismissed (#1129 and the release check's close); tls.* (`tls.serving.*`, `tls.reporter.lifetimeDays`, `tls.header.countdown`, `tls.allowReportersOverHttp`); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here; chat_scope, `chat.*` and `chat.flag.*`: Chat's server scope, limits and channel flags ([What Chat keeps](#what-chat-keeps-and-where-1034), #1034)
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -141,6 +142,133 @@ CREATE TABLE fleet_daily (      -- one row per day for the fleet as a whole
 );
 ```
 
+Migration 37 (#720; PostgreSQL and MariaDB main step 13) adds the tool counts of every harness to the rollups, under the same rule: names and
+counts, never a tool's input, a path or a command. A session counts on the day it was last seen, under the harness stored on it.
+
+```sql
+CREATE TABLE tools_daily (          -- one row per day, harness and tool; an MCP tool keeps its `mcp__<server>__<tool>` name
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+CREATE TABLE tool_sessions_daily (  -- how many sessions made about `bucket` calls; a session with no tool counts is left out, not counted as zero calls
+  day TEXT NOT NULL, harness TEXT NOT NULL, bucket INTEGER NOT NULL, sessions INTEGER NOT NULL,   -- bucket: the calls up to 100, then the next ten up to 1,000, then the next hundred
+  PRIMARY KEY (day, harness, bucket)
+);
+CREATE TABLE harness_versions_daily ( -- how many reporters ran a version of a harness that day
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, reporters INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version)
+);
+```
+
+The three tables fill from the rows still stored on each run, so a database upgraded to this migration holds tool counts only for the days its
+sessions are still kept (30), and the Tools report says "Podium has no history before ..." for the earlier days rather than showing zeros.
+
+Migration 38 (#721; PostgreSQL and MariaDB main step 14) adds what each tool did, under the same rule. `agents.tool_stats_json` is the agent's `toolStats`
+as JSON (NULL from a reporter that does not send it); the main loop's own are in `sessions.loop_json`. The same migration makes the tool
+counts above include the main loop's own calls, which `tools_daily` read from the agents only until then.
+
+```sql
+CREATE TABLE tool_stats_daily (      -- one row per day, harness and tool that has any of it
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  failed INTEGER NOT NULL, asked INTEGER NOT NULL, allowed INTEGER NOT NULL, denied INTEGER NOT NULL, podium INTEGER NOT NULL,
+  times_json TEXT NOT NULL,          -- JSON of call length bucket to calls: a bucket is a step of 10%, so a median and a 95th percentile survive being added across days
+  PRIMARY KEY (day, harness, tool)
+);
+```
+
+Migration 39 (#722; PostgreSQL and MariaDB main step 15) adds how long sessions ran and waited on a person, which agents they launched and how deep the chains went, who ran
+sessions on a day, and the peak of live sessions in each hour. Names, counts and times only: never a question, a plan, a tool's input, a note or a path. They are
+kept per harness, and a session counts on the day it was last seen, as in migration 22.
+
+```sql
+CREATE TABLE session_waits (        -- what one session has waited on its person for, added up as its reports arrive; goes with its session
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  permission_ms INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_ms INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_ms INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  tracked_since INTEGER NOT NULL,   -- the first report stored after the upgrade: a session older than this has no row, which is not the same as a session that never waited
+  open_kind TEXT, open_since INTEGER  -- the wait in progress, closed by the first report that no longer shows it
+);
+CREATE TABLE session_time_daily (   -- one row per day and harness
+  day TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL,
+  tracked_sessions INTEGER NOT NULL, tracked_s INTEGER NOT NULL,   -- the sessions that have a session_waits row, and how long they ran since it began
+  permission_s INTEGER NOT NULL, permission_n INTEGER NOT NULL, question_s INTEGER NOT NULL, question_n INTEGER NOT NULL, plan_s INTEGER NOT NULL, plan_n INTEGER NOT NULL,
+  PRIMARY KEY (day, harness)
+);
+CREATE TABLE agents_daily (         -- agents launched; depth 1 is launched by the session itself, capped at 10
+  day TEXT NOT NULL, harness TEXT NOT NULL, type TEXT NOT NULL, depth INTEGER NOT NULL, agents INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, type, depth)
+);
+CREATE TABLE person_sessions_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness)
+);
+CREATE TABLE hour_peaks_daily (     -- harness '' is every harness together: the peak of the whole is not the sum of the parts
+  day TEXT NOT NULL, harness TEXT NOT NULL, hour INTEGER NOT NULL, peak INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, hour)
+);
+```
+
+The four daily tables fill from the rows still stored on each run, except `hour_peaks_daily`, which is upserted so an hour's stored peak never goes down once the
+samples that made it (kept 24 hours) are gone. A database upgraded to this migration holds waiting only from the upgrade on, so the Sessions page shows a dash for
+the days before it and says when waiting began, rather than showing zeros. Agent types, depths and people per day fill for the days the sessions are still kept (30).
+
+Migration 40 (#723; PostgreSQL and MariaDB main step 16) adds what sessions cost and how they ended, kept per harness: counts, tokens and names only, never a prompt, a tool's input or a path.
+
+```sql
+CREATE TABLE cost_daily (           -- one row per day, harness, model and effort; a session counts on the day it was last seen
+  day TEXT NOT NULL, harness TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, calls INTEGER NOT NULL, priced_calls INTEGER NOT NULL, cost_usd REAL NOT NULL, call_cost_usd REAL NOT NULL,   -- cost_usd is the priced sessions' only; priced_calls and call_cost_usd are those of the priced sessions that have tool counts, so a cost per call is not inflated by one that has none
+  tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL,
+  ended_low INTEGER NOT NULL, ended_mid INTEGER NOT NULL, ended_high INTEGER NOT NULL, ended_unknown INTEGER NOT NULL,   -- context window used at the end: under 50%, 50% to 80%, above 80%, not reported
+  compacted INTEGER NOT NULL, cleared INTEGER NOT NULL,   -- sessions that compacted on their own, and that continue after a /clear
+  PRIMARY KEY (day, harness, model, effort)
+);
+CREATE TABLE tool_cost_daily (      -- the sessions that called one tool on a day: a tool has no cost of its own, so this is what those sessions cost
+  day TEXT NOT NULL, harness TEXT NOT NULL, tool TEXT NOT NULL,
+  sessions INTEGER NOT NULL, priced_sessions INTEGER NOT NULL, cost_usd REAL NOT NULL, calls INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, tool)
+);
+```
+
+Both fill from the rows still stored on each run, like the other rebuilt tables. Compactions are counted from the stored `compact` events, which are kept 30 days, and a day older than
+that is not rebuilt. A database upgraded to this migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...".
+
+Migration 41 (#724; PostgreSQL and MariaDB main step 17) adds what each version of a harness sent, the skills each person used and where each person worked: names and counts only, never a prompt, a tool's input, a command's text or a path.
+
+```sql
+ALTER TABLE sessions ADD COLUMN signals_json TEXT;   -- what the harness sent the reporter in this session: signal name (`hook:...`, `field:...`) to count; NULL from a reporter that does not send it
+CREATE TABLE feature_versions_daily (  -- sessions on one version of a harness that sent a feature on a day: `hook:...`, `field:...`, `tool:...`; and the reserved names `signals` and `tools`, the sessions to compare against
+  day TEXT NOT NULL, harness TEXT NOT NULL, version TEXT NOT NULL, feature TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, version, feature)
+);
+CREATE TABLE skills_daily (            -- sessions of one person that used one skill on a harness on a day
+  day TEXT NOT NULL, owner TEXT NOT NULL, harness TEXT NOT NULL, skill TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, skill)
+);
+CREATE TABLE person_places_daily (     -- sessions of one person in one project (the repository's name) on one git branch on a harness on a day; no path
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, sessions INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, harness, project, branch)
+);
+```
+
+The three tables fill from the rows still stored on each run, like the other rebuilt tables, and are kept 395 days. `sessions.signals_json` is replaced by each report that carries signals and kept by one that carries none. A database upgraded to this
+migration has these tables only from the first run after the upgrade, so a period before it says "Podium has no history before ...". The branch names are the ones the wall already shows, so the rollups keep them for as long as the other rollups.
+
+Migration 42 (#725; PostgreSQL and MariaDB main step 18) adds the answers sent from Podium, behind Admin > Reporting > Sessions. Kinds, days, harnesses and wait classes only: never what was said, who said it or which session.
+
+```sql
+CREATE TABLE answers_daily (        -- one row per day, harness, kind of answer and wait class
+  day TEXT NOT NULL, harness TEXT NOT NULL,
+  kind TEXT NOT NULL,               -- permission, question, plan or message; 'none' is a marker row (harness '', count 0) that the hourly run leaves for each day it ran
+  bucket INTEGER NOT NULL,          -- timeBucket of the milliseconds between the ask being first seen and the answer being taken (10% classes, up to an hour); -1 for no wait
+  count INTEGER NOT NULL,
+  PRIMARY KEY (day, harness, kind, bucket)
+);
+```
+
+Unlike the other daily tables it is not rebuilt from the stored sessions, because nothing else keeps an answer: each answer taken from the console adds one to its row as it is
+taken (an upsert that adds one), today included. It is kept 395 days like the others. The marker rows say when counting began, so the Sessions page can show a dash for the days
+before it and a zero for a quiet day after it.
+
 Migration 15 (#206) links a session to the one it continues after a `/clear` (5.8):
 
 ```sql
@@ -148,14 +276,36 @@ ALTER TABLE sessions ADD COLUMN cleared_from TEXT;                        -- Rep
 CREATE INDEX sessions_cleared_from ON sessions(cleared_from);             -- finds clearedInto for History
 ```
 
-Migration 28 (#851; PostgreSQL main step 4) records the harness a session runs under and who worked out its cost (6.5):
+Migrations 14, 19, 21, 23, 24 and 26 change the tables above without a block of their own (14, 19, 21, 23 and 24 are in the PostgreSQL and MariaDB baseline, main step 1; 26 is main step 2):
+
+```sql
+-- 14 (#172): the built-in Administrators group, and who made each Admin change
+INSERT OR IGNORE INTO groups (name, name_lower, created_at) VALUES ('Administrators', 'administrators', <now>);
+ALTER TABLE admin_log ADD COLUMN actor TEXT;                   -- NULL for rows from before it existed
+-- 19 (#400): the commit of a dev build of the mod; NULL for a release, a hooks-only session and an older mod
+ALTER TABLE sessions ADD COLUMN reporter_build TEXT;
+-- 21 (#465): the last plan a session reported, kept while a report carries none, so the finish order survives the gap
+ALTER TABLE sessions ADD COLUMN plan_kept_json TEXT;
+-- 23 (#583): the client certificate each person's reporter authenticates with, found by SHA-256 fingerprint; a revoked row stays
+CREATE TABLE person_certificates (fingerprint_sha256 TEXT PRIMARY KEY, serial TEXT NOT NULL, issuer_fingerprint TEXT NOT NULL,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE, cert_pem TEXT NOT NULL,
+  not_before INTEGER NOT NULL, not_after INTEGER NOT NULL, issued_at INTEGER NOT NULL, revoked_at INTEGER, reason TEXT);
+CREATE INDEX person_certificates_person ON person_certificates(person_id);
+-- 24 (#838): the `peers` option each session last reported; a reporter takes part while any of its live sessions does
+ALTER TABLE reporter_sessions ADD COLUMN peers INTEGER;
+-- 26 (#890): open requests are listed oldest first, with an insertion number as peer messages have (migration 25)
+ALTER TABLE peer_requests ADD COLUMN seq INTEGER;              -- existing rows numbered by time, then id
+CREATE INDEX peer_requests_seq ON peer_requests(created_at, seq);
+```
+
+Migration 28 (#851; PostgreSQL and MariaDB main step 4) records the harness a session runs under and who worked out its cost (6.5):
 
 ```sql
 ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';  -- Report.session.harness; every earlier row is a Claude Code session
 ALTER TABLE sessions ADD COLUMN cost_source TEXT;                              -- 'harness' when cost_usd is the harness's own figure; NULL when Podium priced it
 ```
 
-Migration 29 (#940; PostgreSQL main step 5) stores what a harness declares. NULL in each means no report has declared it, which is what every earlier row and every v1 session is:
+Migration 29 (#940; PostgreSQL and MariaDB main step 5) stores what a harness declares. NULL in each means no report has declared it, which is what every earlier row and every v1 session is:
 
 ```sql
 ALTER TABLE sessions ADD COLUMN capabilities_json TEXT;  -- Report.capabilities as sent: a JSON Capabilities; a key left out was not declared
@@ -163,7 +313,7 @@ ALTER TABLE sessions ADD COLUMN model_label TEXT;        -- Report.session.model
 ALTER TABLE sessions ADD COLUMN model_provider TEXT;     -- Report.session.modelProvider
 ```
 
-Migration 30 (#945; PostgreSQL main step 6) gives an agent the same two fields. NULL means no report gave one, which is every agent stored before this. A report that sends neither keeps what the agent has, unless it names a different `model` (6.2):
+Migration 30 (#945; PostgreSQL and MariaDB main step 6) gives an agent the same two fields. NULL means no report gave one, which is every agent stored before this. A report that sends neither keeps what the agent has, unless it names a different `model` (6.2):
 
 ```sql
 ALTER TABLE agents ADD COLUMN model_label TEXT;     -- Report.agents[].modelLabel
@@ -206,9 +356,118 @@ CREATE TABLE peer_messages (id TEXT PRIMARY KEY, owner TEXT, link TEXT, from_key
   notices; the messages, rights and requests survive it.
 - A message's text is never in the state, the stream, the Admin log or the server log.
 
+## What Chat keeps, and where (#1034)
+
+Chat has three tables, one for each audience, so that a missed filter can never send one audience's text to another. A
+conversation between agents, or between a person and one agent, is `peer_messages` above. The group channel is
+`group_messages` and General is `public_messages`. **`peer_messages` is never copied into, merged with or returned together with the
+other two**: each has its own read and write path in the storage interface, and a test holds the server's code to it.
+
+Migration 31 (PostgreSQL and MariaDB main step 7; migration 32 is PostgreSQL and MariaDB main step 8) adds the following. Every adapter carries the same
+columns, indexes and rows.
+
+```sql
+ALTER TABLE peer_messages ADD COLUMN author TEXT NOT NULL DEFAULT 'agent';  -- 'agent' (an orchestrator, over podium_send) or 'person' (the owner, from Chat). Every earlier row is an agent's
+ALTER TABLE peer_messages ADD COLUMN hidden_at INTEGER;                    -- when every agent session in the conversation had left the live set; NULL while it shows
+CREATE INDEX peer_messages_hidden ON peer_messages(hidden_at);
+CREATE TABLE group_messages (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, group_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+CREATE TABLE public_messages (   -- the same row as group_messages, without owner and group_id: the table is the audience
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
+  mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
+);
+CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
+CREATE TABLE chat_read_state (   -- one person's counts in one thread, kept on the server so the stream can carry counts and no text
+  person TEXT NOT NULL, thread TEXT NOT NULL, last_read TEXT, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL, PRIMARY KEY (person, thread)
+);
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
+```
+
+Migration 32 (#1034) records who paused a link between a person and another person's agent, so only they (or an Admin) can
+resume it: `ALTER TABLE peer_rights ADD COLUMN paused_by TEXT;` (`sender`, `owner` or `admin`; NULL when the link is not
+paused, and for a pause made before it was kept, which either owner may resume).
+
+Migrations 33 and 34 (#1034; PostgreSQL and MariaDB main steps 9 and 10) keep what an Admin does in a person's conversation, so the people in it can always
+see it (7.7). Migration 33 names the Admin who paused a link and adds one table; migration 34 adds what a record says:
+
+```sql
+ALTER TABLE peer_rights ADD COLUMN paused_by_admin TEXT;   -- the Admin's name while paused_by is 'admin'; NULL otherwise
+CREATE TABLE chat_admin_reads (   -- one row per Admin and thread and reading session; never any text
+  thread TEXT NOT NULL,           -- 'dm:<a>|<b>' for a conversation, 'group:<person>' for a group, 'public' for General (only an Admin's stops, never a reading), 'ask:<session>', 'activity:<session>:<loop>', 'text:<session>:<agent>' and 'live:<session>:<loop>' for an Admin's read of a person's waiting ask, stored Activity, an agent's whole prompt and answer, or its live Activity (#1073, #1074, #1082)
+  admin_key TEXT NOT NULL,        -- the Admin's name, folded
+  admin TEXT NOT NULL,            -- the name as shown ("Admin secret" for the admin secret)
+  started_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
+ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', or (#1078, on an `act:<name>` thread, no migration) 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted' or 'reporter_removed'
+```
+
+Migration 35 (#1051; PostgreSQL and MariaDB main step 11) keeps a record until each person it names has seen it:
+
+```sql
+ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';   -- the people the record is owed to: a JSON list of folded names
+ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';     -- the ones of those who have seen it: a JSON list of folded names
+```
+
+A row made before migration 35 owes nobody, so retention treats it as before. General's rows owe nobody either.
+
+Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
+
+```sql
+ALTER TABLE sessions ADD COLUMN resume_window_days INTEGER;   -- the days the harness lets a person resume a closed session; NULL when no report has said (30 days apply)
+```
+
+It is read from the report's `resumeWindowDays` ([6.2](../06-reporter-protocol/06-02-the-report.md)) and decides how long a hidden Direct Message is kept ([7.5](07-05-lifecycle-timers.md)).
+
+A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds
+are one row for each stop (an Admin's remove all messages, pause or resume), never a session. A look at a person's list of conversations is a reading of the
+thread `list:<person>`. A row is protected until every person in `people` is in `seen`; after that it goes by retention. A person has seen a row when Podium sent it to their console: they loaded the
+group or conversation it is about, or, for a look at their list, their own overview. The row of a conversation they can no longer open is not seen on a thread,
+so their own overview lists it (`goneReads`: the newest 20, with the Admin, the time, what it was and the other party's name, never any text) and marks it seen
+when it loads, after which it goes by retention. Until then neither the hourly retention (which removes rows last seen before the channels' retention days, and those of a conversation that no
+longer exists), the purge of a hidden conversation, nor Delete conversation removes it; once it is seen, they do. Remove all messages never removes
+any. An Admin's stop is recorded before it happens, so a stop that cannot be recorded does not happen. Deleting a person removes their group, read counts,
+Direct Messages (the ones they own and the ones with their `person:<name>` end), links, requests and owner defaults, and the Admin records owed only to them (they
+can never be seen); a record owed to others as well stays for them, without the deleted person. A record that names nobody is not theirs. Sessions, spend, the
+Admin log and General keep their name as text.
+
+- **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
+  the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
+  unchanged later. A direct message keeps its `dlv_` style id.
+- **Author.** `author_kind` is `person`, `orchestrator`, `subagent` or `reporter`; `author_ref` is the person's name, the session id
+  or the reporter key. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
+  column: the table is the audience. `peer_messages.author` is how a person is a peer in a direct message: a person's message
+  has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<name, folded>` in
+  `from_session` or `to_session`, and in `from_key` or `to_key` for the link. An agent's answer to such a person is an `agent` message with `to_session`
+  and `to_key` `person:<key>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
+  `person:` end as a missing session, so neither a person's message nor an answer to one is dropped as an orphan.
+- **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt }` ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
+- **Order.** A page orders by `created_at, seq` in every adapter (`seq` is the insertion number, so a tie is decided the same
+  way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
+- **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md). How long it is kept follows the harness's resume window, which `sessions.resume_window_days` holds (NULL when no report has said).
+- **Settings rows**, all in `settings`: `chat.retainDays` (days a channel keeps its messages, default 30, 1 to 365),
+  `chat.graceHours` (hours a hidden conversation is kept when none of its agents has a resume window, default 24, 1 to 720), `chat.maxChars` (the longest channel message, message to another person's agent,
+  or message to one's own agent from Chat, default 4,000, 1 to 20,000) and `chat.perMinute` (posts or messages a minute for one author, default 6, 1
+  to 600). A value outside its range is ignored on read and refused on write. `chat.flag.<scope>` holds a channel's flags as
+  letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<name>`
+  (General, one person's agents) or `group:<owner>`. A scope with neither flag has no row. The flag `feature.chat-everyone`
+  is '0' or '1' like the other features, and is off by default.
+- A message's text is never in the state, the stream, the Admin log or the server log.
+
 ## What responding keeps, and where (#206)
 
-Only two things reach the database: the `cleared_from` link above and the Admin's `feature.respond` setting.
+Only two things reach the database: the `cleared_from` link above and the Admin's `feature.respond` setting. A message a person
+writes to an agent from Chat is the exception, and is not responding's: it is stored as Chat's, in `peer_messages` (above),
+because the person is a peer in a Direct Message and can read the conversation afterwards. Responding's own answers and commands
+are still kept nowhere.
 Each answer is also written to `admin_log` ([7.7](07-07-hardening.md)) with who sent it, the session and the kind of
 answer, never its text.
 
@@ -250,6 +509,9 @@ The sweeper runs this hourly:
 - Sessions ended more than 30 days ago are deleted with their rows.
 - Admin log rows older than 90 days are deleted, except that the newest 100 rows are always kept, so a quiet
   server keeps some history (#303).
+- Chat (#1034): a channel message older than the Admin's `retainDays` (30 days unless the Admin sets another) is deleted from
+  General and every group, and the messages of a Direct Message hidden for longer than the longest resume window of its agents (#1113, 30 days unless
+  the harness says another) are deleted, or longer than `graceHours` (24 unless set) when neither agent has a window ([7.5](07-05-lifecycle-timers.md)). A Direct Message with a live agent is still removed by the messaging rule below.
 - Orchestrator messages on a link whose newest message is older than the Admin's period (30 days unless the Admin
   sets another) are deleted, as are the messages of a session the server no longer holds and closed requests past the
   same period. Rights and requests about a reporter that has been removed go too. Deleting a session deletes its
@@ -261,13 +523,14 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily` and `fleet_daily` from the rows still stored (a day that began before the session retention is
+  `failures_daily`, `fleet_daily`, `tools_daily`, `tool_sessions_daily`, `harness_versions_daily`, `tool_stats_daily`, `session_time_daily`, `agents_daily`, `person_sessions_daily`, `hour_peaks_daily`, `cost_daily`, `tool_cost_daily`, `feature_versions_daily`, `skills_daily` and `person_places_daily` from the rows still stored (a day that began before the session retention is
   skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
   has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
   partly built), in one transaction, so a run twice gives the
   same rows. A day whose raw rows are already gone is left as it is. Rollup rows older than 395 days are deleted.
   `peak_live_sessions` is the highest count of sessions live at one second, read from the day's samples while
-  they last and never lowered once written (a day's figure only grows).
+  they last and never lowered once written (a day's figure only grows). `answers_daily` (#725) is the one rollup the run does not rebuild: it is written as answers are
+  taken, the run only leaves its marker row for the day and deletes rows older than 395 days.
 - A rollup holds no session content (see the schema). Admin > Server > Data lists each table, its row
   count, its oldest day and how long it is kept.
 - The Activity history (#432) is purged by its own run every 5 minutes, not by this hourly one, because the
@@ -287,7 +550,9 @@ The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `R
 ## PostgreSQL (#822)
 
 `PODIUM_DB=postgres://user:password@host:5432/dbname` (or `postgresql://`) makes PostgreSQL the database
-([DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)). The
+([DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)).
+The supported databases are SQLite (built in), PostgreSQL 17 and MariaDB 11.x (tested on 11.4). PostgreSQL 17 is the one
+version tested; other versions are untested. The
 database must exist and be empty or made by Podium; the server creates its schemas and tables and migrates them at start. The
 tables above, and every rule that comes with them, hold on PostgreSQL as written, with these differences in how they are kept:
 
@@ -309,6 +574,38 @@ tables above, and every rule that comes with them, hold on PostgreSQL as written
 - **Limits.** One server process for each database: the server holds a session advisory lock, and a second server on the same
   database stops at start. Podium does not move data from a SQLite file into PostgreSQL, and it supports no read replica or high
   availability. The password is never logged or returned by `/health`, which show `host:port/dbname`.
+
+## MariaDB (#823)
+
+`PODIUM_DB=mariadb://user:password@host:3306/dbname` makes MariaDB the database (the addition to
+[DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)).
+Podium supports MariaDB 11.x and tests one version, 11.4; other versions are untested, and MySQL is not supported. The database
+must exist and be empty or made by Podium; the server creates its tables and migrates them at start. The only URL parameter is
+`ssl=true` or `ssl=false`; any other, or a URL with no database name, stops the server at start. The tables above, and every rule
+that comes with them, hold on MariaDB as written, with these differences in how they are kept:
+
+- **One database, two sets of tables.** The main tables and the Activity history (`entries`, `stored_sessions`, `loops`) and
+  recordings (`rec_sessions`, `rec_entries`) share the database under their plain names, on connections of their own, as they are
+  in `activity.sqlite`. The main steps are recorded in `schema_migrations` and the Activity steps in `activity_schema_migrations`
+  (`version`, `applied_at`).
+- **The same steps as PostgreSQL.** Main step 1 creates the end state of the SQLite migrations (migration 25 included), and each
+  later step has PostgreSQL's number and change. MariaDB commits each `CREATE` and `ALTER` on its own, so each statement in a step
+  can be run again and the step is recorded after its last statement: a step stopped part way through is run again whole.
+- **Types.** Times are `BIGINT` milliseconds, reals are `DOUBLE`, ids that were `INTEGER PRIMARY KEY` are `BIGINT AUTO_INCREMENT`,
+  and flags stay 0/1 integers. A number the server reads is a JavaScript number; a whole number above `Number.MAX_SAFE_INTEGER` is
+  an error. A fraction sent straight to an integer column is rounded by MariaDB, where SQLite keeps it and PostgreSQL refuses it;
+  the routes refuse such a number first.
+- **Text compares as bytes.** Every text column, the database and each connection are `utf8mb4` under `utf8mb4_nopad_bin`, so a
+  trailing space counts and emoji are kept. The case-folding the SQLite tables do with `lower()` folds ASCII letters only here too.
+  A text column that is a key or in an index has a length in characters (an id 255, a reporter key 383, `peer_messages.link` 760,
+  the key parts of the daily summaries 32 to 255); a longer value is an error, never cut. The others are `LONGTEXT`.
+- **Order.** As on PostgreSQL. MariaDB has no `NULLS FIRST` or `NULLS LAST`, so where the place of a NULL matters the order says it
+  with an `x IS NULL` term.
+- **No pragmas, no OPTIMIZE.** InnoDB reuses the space of removed rows, and the Activity history's compaction does nothing.
+- **Limits.** One server process for each database: the server holds a named lock (`GET_LOCK`) on a connection of its own, and a
+  second server on the same database stops at start. Podium does not move data from a SQLite file or a PostgreSQL database into
+  MariaDB, it supports no replica, cluster or high availability, and MySQL is not supported. The password is never logged or
+  returned by `/health`, which show `host:port/dbname`.
 
 <!-- nav:start -->
 ---

@@ -21,7 +21,7 @@ This page shows how the reporter mod, the server and the UI connect, for a contr
 
 ## The mod
 
-`plugin/claudecode/` runs in each Claude Code process, installed from the built folder `dist/claudecode/` (DECISIONS 56). The code every reporter shares is in `plugin/core/`.
+`plugin/claudecode/` runs in each Claude Code process (`plugin/opencode/` is the OpenCode reporter, over the same `plugin/core/`; this page follows the Claude Code one), installed from the built folder `dist/claudecode/` (DECISIONS 56). `dist/` is a build of `plugin/` and is left out of CodeQL and SonarCloud analysis, because the source is scanned (DECISIONS 60). The code every reporter shares is in `plugin/core/`.
 
 - Hooks only update an in-memory model through pure reducers (`state.ts`, `plan.ts`, `failures.ts`). They never
   wait on the network.
@@ -42,8 +42,8 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 - `sweeper.ts` runs every second: a session is stale at 15 s and dropped 60 s later, ended sessions linger 8 s,
   and quiet seconds get carry-forward samples. It ticks KPIs every 2 s and prunes hourly.
 - `derive.ts` turns rows into views and is pure.
-- `server/src/storage/` is the only way the server reaches its database: async interfaces with SQLite as the one adapter
-  (see [Storage](02-components/19-storage.md)).
+- `server/src/storage/` is the only way the server reaches its database: async interfaces with SQLite as the default adapter
+  and PostgreSQL 17 and MariaDB 11.x (tested on 11.4) beside it (see [Storage](02-components/19-storage.md)).
 
 ## The UI
 
@@ -76,7 +76,7 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
   `admin.css` fixes has no in-place rule under `.s-sample` in `docs/standards/standards.css` (a hand-written file the pages
   link). The rule for the row Actions menu arrives with the release's standards update (#700).
 
-Two project skills and an agent keep it honest: `podium-standards-check`, `podium-standards-update` and
+Two project skills and an agent keep it honest: `/podium-standards-check`, `/podium-standards-update` and
 `podium-ui-auditor` (`.claude/`).
 
 ## The docs site (#688)
@@ -96,7 +96,7 @@ lockfile, outside the npm workspaces, so the server and UI builds never install 
   footer, banner (older versions) and page title, and holds the version menu. The header carries Starlight's theme switch, and a page that shows a static page in a frame gives that page the site's theme. `site/src/pages/index.astro` is the homepage.
 - `.github/workflows/docs-site.yml` builds every version on a PR into `main`, and on a PR into `development` that changes `docs/`, `site/`, the tokens or the workflow, and deploys to GitHub Pages on a push to `main`.
 - The address is `podium.engelking.dev`, a DNS-only `CNAME` to `eengelking.github.io` set in the repository's Pages settings. `site/public/CNAME` keeps the domain in every build. DECISIONS 44 has the reasons and `docs/COMMUNITY.md` lists the record and the renewal notes.
-  `scripts/site-lib.test.ts` tests the preparation and the version choice. The `podium-docs-site` skill is the procedure.
+  `scripts/site-lib.test.ts` tests the preparation and the version choice. The `/podium-docs-site` skill is the procedure.
 
 <!-- nav:start -->
 ---

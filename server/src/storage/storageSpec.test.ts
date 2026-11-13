@@ -36,7 +36,7 @@ describe('which storage PODIUM_DB names', () => {
   });
 
   it('refuses a kind nobody registered, naming the ones that exist', () => {
-    expect(() => storageSpec({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, postgres)');
+    expect(() => storageSpec({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, postgres, mariadb)');
     expect(() => openStorage({ PODIUM_DB: 'mysql://h/db' })).toThrow(/unknown storage kind "mysql"/);
   });
 
@@ -74,6 +74,33 @@ describe('the PostgreSQL kind', () => {
     expect(() => dataDir({ PODIUM_DB: 'postgres://h/db' })).toThrow('PODIUM_DATA_DIR is required when PODIUM_DB is postgres://...');
   });
 
+});
+
+describe('the MariaDB kind (#823)', () => {
+  it('is picked by mariadb://, with the rest as the target', () => {
+    expect(storageSpec({ PODIUM_DB: 'mariadb://u:pw@db.example:3307/podium' })).toEqual({ kind: 'mariadb', target: 'u:pw@db.example:3307/podium', label: 'db.example:3307/podium' });
+    expect(storageSpec({ PODIUM_DB: 'mariadb://root@h/d' })).toEqual({ kind: 'mariadb', target: 'root@h/d', label: 'h/d' });
+  });
+
+  it('labels a target with the host, port and database only, never the user or the password', () => {
+    for (const v of ['mariadb://admin:s3cret@h:3306/podium', 'mariadb://admin:s3cret@h:3306/podium?ssl=true', 'mariadb://admin:s3cret@h/podium']) {
+      const { label } = storageSpec({ PODIUM_DB: v });
+      expect(label).not.toContain('s3cret');
+      expect(label).not.toContain('admin');
+    }
+    expect(storageSpec({ PODIUM_DB: 'mariadb://admin:s3cret@h:3306/podium' }).label).toBe('h:3306/podium');
+  });
+
+  it('labels a target that does not parse without echoing it', () => {
+    expect(storageSpec({ PODIUM_DB: 'mariadb://u:s3cret@ho st/db' }).label).toBe('mariadb://<unparseable>');
+  });
+
+  it('has no default target and needs a data directory', () => {
+    expect(() => dataDir({ PODIUM_DB: 'mariadb://h/db' })).toThrow('PODIUM_DATA_DIR is required when PODIUM_DB is mariadb://...');
+  });
+});
+
+describe('labels', () => {
   it('labels a SQLite target as it was given', () => {
     expect(storageSpec({ PODIUM_DB: '/data/podium.sqlite' }).label).toBe('/data/podium.sqlite');
     expect(storageSpec({ PODIUM_DB: ':memory:' }).label).toBe(':memory:');
@@ -120,7 +147,7 @@ describe('loading an adapter only when its kind is chosen', () => {
     let loaded = 0;
     const off = registerStorageKind('lazydb', { fileBased: false, load: async () => { loaded++; return () => openSqliteStorage(':memory:'); } });
     try {
-      expect(() => openStorage({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, postgres, lazydb)');
+      expect(() => openStorage({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, postgres, mariadb, lazydb)');
       expect(loaded).toBe(0);
     } finally { off(); }
   });

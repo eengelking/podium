@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium settings window: /podium config</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<!-- Mockup for issue #1001, approved 2026-11-08; the three open questions were decided the same day. Colors are tokens from frontend/src/fleet/tokens.css; this page has no :root block of its own. A terminal frame uses the viewer's tokens as a stand-in for the terminal's own palette, which a harness decides. Frames are drawn from the real captures of the spike (Claude Code 2.1.319, OpenCode 2.2.5), with the copy changed where the spike's wording was a prototype. -->
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding: 32px 16px 72px; }
+.page { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+.page > section { min-width: 0; }
+h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 20px; line-height: 1.25; margin: 0 0 6px; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0 0 10px; max-width: 70ch; color: var(--ink2); }
+.lede { font-size: 16.5px; color: var(--ink); max-width: 66ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+a { color: var(--deleg-text); }
+:focus-visible { outline: 2px solid var(--deleg); outline-offset: 2px; }
+
+/* theme switch: sets data-theme on the page root, the way the app does */
+.switch { display: inline-flex; gap: 0; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; margin-top: 14px; }
+.switch button { font: 13px var(--font-ui); color: var(--ink2); background: var(--surface); border: 0; padding: 7px 14px; cursor: pointer; }
+.switch button + button { border-left: 1px solid var(--axis); }
+.switch button[aria-pressed="true"] { background: var(--sel); color: var(--ink); font-weight: 600; }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
+.cap { font: 12.5px var(--font-mono); color: var(--muted); margin: 0 0 8px; }
+.note { border-left: 3px solid var(--deleg); background: var(--surface); padding: 10px 14px; border-radius: 0 6px 6px 0; max-width: 78ch; color: var(--ink2); margin: 12px 0; }
+.note.warn { border-left-color: var(--warn); }
+
+/* ---- the terminal stand-in ---- */
+.term { background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 8px; font: 13px/1.5 var(--font-mono); padding: 12px 14px; overflow-x: auto; min-width: 0; }
+.term.narrow { max-width: 50ch; }
+.term .row { white-space: pre; }
+.dim { color: var(--muted); }
+.on { color: var(--good-text); }
+.off { color: var(--muted); }
+.warnt { color: var(--warn); }
+.bad { color: var(--crit-text); }
+.sel { background: var(--sel); }
+.acc { color: var(--deleg-text); }
+.box { border: 1px solid var(--deleg); border-radius: 4px; padding: 6px 10px; margin: 6px 0; }
+.box .row.title { font-weight: 600; display: flex; justify-content: space-between; white-space: normal; }
+.box .row.title span:last-child { color: var(--muted); font-weight: 400; }
+.sec { color: var(--ink2); font-weight: 600; margin-top: 6px; }
+
+/* ---- facts tables ---- */
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--grid); }
+th { color: var(--ink2); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+.tag { display: inline-block; font: 12px var(--font-mono); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--axis); color: var(--ink2); }
+.tag.ok { color: var(--good-text); border-color: var(--good); }
+.tag.no { color: var(--crit-text); border-color: var(--crit); }
+.tag.un { color: var(--warn); border-color: var(--warn); }
+ul.tight { margin: 0; padding-left: 20px; color: var(--ink2); max-width: 78ch; }
+ul.tight li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<section>
+  <h1>Podium settings window: <code>/podium config</code></h1>
+  <p class="lede">One command, the same settings in every harness. Each harness draws it with what its own interface allows, so the layout is the same where it can be, and the differences below are named, not hidden.</p>
+  <p>Issue #1001. Drawn from the spike's real captures of Claude Code 2.1.319 and OpenCode 2.2.5. A terminal frame uses Podium's tokens as a stand-in; the real colors are the person's terminal theme. The desktop apps were not checked and are tracked in #1122.</p>
+  <div class="switch" role="group" aria-label="Theme">
+    <button type="button" data-set="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-set="light" aria-pressed="false">Light</button>
+  </div>
+</section>
+
+<section>
+  <h2>What every harness shows</h2>
+  <p>The same four groups, in the same order, with the same words. A row says what it is, its value, and when a change takes effect.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Group</th><th>Settings</th><th>Takes effect</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Consent (yours)</th><td>Respond from Podium (<code>respond</code>), Message my other orchestrators (<code>peers</code>), Share the activity feed (<code>activityFeed</code>)</td><td>Next start</td></tr>
+      <tr><th scope="row">Connection</th><td>Server, your name. The token is never shown or set here.</td><td>Next start</td></tr>
+      <tr><th scope="row">Timing</th><td>Report interval, heartbeat, idle time</td><td>Next start</td></tr>
+      <tr><th scope="row">Context</th><td>Which Podium context this session uses (list, use)</td><td>Next start</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">A consent option is the person's own choice. A change is made only from this window, in the person's own session, and a project's files are never read for one. A setting that something else already decides is marked and cannot be changed here: <span class="mono">set by PODIUM_RESPOND</span> in OpenCode, <span class="mono">set by managed settings</span> in Claude Code (which ignores PODIUM_* variables).</div>
+</section>
+
+<section id="claude">
+  <h2>Claude Code <span class="tag ok">run in the spike</span></h2>
+  <p>A pane opened by <code>/podium config</code>, drawn with <code>Select</code>, <code>Input</code> and <code>Text</code>. Each control saves on its own. Esc closes it.</p>
+  <div class="grid2">
+    <div>
+      <p class="cap">Wide, resting</p>
+<div class="term" role="img" aria-label="Claude Code settings pane, wide, resting">
+<div class="row"><span class="acc">❯</span> /podium config</div>
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>Esc closes</span></div>
+<div class="row sec">Consent <span class="dim">(your choice)</span></div>
+<div class="row sel">  Respond from Podium        everything ▾   <span class="dim">next start</span></div>
+<div class="row">  Message my other orchestrators   on ▾   <span class="dim">next start</span></div>
+<div class="row sec">Connection</div>
+<div class="row">  Server     <span class="dim">https://podium.local:4317</span></div>
+<div class="row">  Your name  <span class="dim">dana</span></div>
+<div class="row dim">  Token and server: /plugin configure podium-reporter</div>
+<div class="row sec">Timing</div>
+<div class="row">  Report interval (ms)       1000   <span class="dim">next start</span></div>
+</div>
+</div>
+    </div>
+    <div>
+      <p class="cap">Wide, a list open</p>
+<div class="term" role="img" aria-label="Claude Code settings pane, a list open">
+<div class="row"><span class="acc">❯</span> /podium config</div>
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>Esc closes</span></div>
+<div class="row sec">Consent <span class="dim">(your choice)</span></div>
+<div class="row">  Respond from Podium        everything ▴</div>
+<div class="row">    off</div>
+<div class="row">    questions</div>
+<div class="row">    questions-and-plans</div>
+<div class="row sel">  ● everything</div>
+<div class="row">  Message my other orchestrators   on ▾</div>
+<div class="row dim">  Up/Down moves, Enter picks, Esc closes.</div>
+</div>
+</div>
+      <p class="dim" style="margin-top:8px">Size the pane to its content, so an open list is not clipped (the spike's fixed 14 rows cut it).</p>
+    </div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div>
+      <p class="cap">Narrow (50 columns): the real pane is cut at about 14 rows and does not scroll</p>
+<div class="term narrow" role="img" aria-label="Claude Code settings pane, narrow">
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>Esc</span></div>
+<div class="row sec">Consent <span class="dim">(yours)</span></div>
+<div class="row">  Respond   everything ▾</div>
+<div class="row">  Peers     on ▾</div>
+<div class="row sec">Timing</div>
+<div class="row">  Interval (ms)   1000</div>
+<div class="row dim">  Takes effect at the next start.</div>
+</div>
+</div>
+    </div>
+    <div>
+      <p class="cap">A setting an environment variable decides</p>
+<div class="term" role="img" aria-label="Claude Code settings pane, a locked row">
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>Esc closes</span></div>
+<div class="row sec">Consent <span class="dim">(your choice)</span></div>
+<div class="row">  Respond from Podium   everything   <span class="warnt">▲ set by managed settings</span></div>
+<div class="row dim">  Change it where it is set. This window cannot.</div>
+</div>
+</div>
+    </div>
+  </div>
+  <div class="note warn"><strong>Known limit.</strong> In the spike the pane took the keyboard only after a mouse click. A person with no pointer would have to use <code>/plugin configure podium-reporter</code>. Fixing this is an open question for the build.</div>
+</section>
+
+<section id="opencode">
+  <h2>OpenCode <span class="tag ok">run in the spike</span></h2>
+  <p>A stack of dialogs, one per step: the menu, then a list or a value. A dialog is modal and shows one line per row, so a long description is cut at narrow widths. It writes <code>~/.podium/config.env</code>.</p>
+  <div class="grid2">
+    <div>
+      <p class="cap">1. The menu</p>
+<div class="term" role="img" aria-label="OpenCode settings menu">
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>esc</span></div>
+<div class="row dim">Enter changes a setting. Esc closes.</div>
+<div class="row sec">Consent <span class="dim">(yours)</span></div>
+<div class="row sel">Respond from Podium: everything</div>
+<div class="row">Message my other orchestrators: on</div>
+<div class="row sec">Timing</div>
+<div class="row">Idle seconds: 60</div>
+<div class="row dim">Changes take effect at the next start.</div>
+</div>
+</div>
+    </div>
+    <div>
+      <p class="cap">2. A list</p>
+<div class="term" role="img" aria-label="OpenCode list dialog">
+<div class="box">
+<div class="row title"><span>Respond from Podium</span><span>esc</span></div>
+<div class="row dim">Search</div>
+<div class="row">off</div>
+<div class="row">questions</div>
+<div class="row">questions-and-plans</div>
+<div class="row sel"><span class="acc">●</span> everything</div>
+</div>
+</div>
+      <p class="cap" style="margin-top:14px">3. A value</p>
+<div class="term" role="img" aria-label="OpenCode value dialog">
+<div class="box">
+<div class="row title"><span>Idle seconds</span><span>esc</span></div>
+<div class="row">60<span class="acc">▌</span></div>
+<div class="row dim">at least 5 · submit enter</div>
+</div>
+</div>
+    </div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div>
+      <p class="cap">Narrow (50 columns): the real pane is cut at about 14 rows and does not scroll</p>
+<div class="term narrow" role="img" aria-label="OpenCode settings menu, narrow">
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>esc</span></div>
+<div class="row sec">Consent <span class="dim">(yours)</span></div>
+<div class="row sel">Respond: everything</div>
+<div class="row">Peers: on</div>
+<div class="row sec">Timing</div>
+<div class="row">Idle seconds: 60</div>
+</div>
+</div>
+      <p class="dim" style="margin-top:8px">Short labels at this width. The spike's full labels were cut to "everything off, que".</p>
+    </div>
+    <div>
+      <p class="cap">A setting an environment variable decides</p>
+<div class="term" role="img" aria-label="OpenCode locked row">
+<div class="box">
+<div class="row title"><span>Podium settings</span><span>esc</span></div>
+<div class="row sel">Respond from Podium: everything <span class="warnt">▲ set by PODIUM_RESPOND</span></div>
+</div>
+<div class="row dim">Enter shows where to change it.</div>
+</div>
+      <p class="dim" style="margin-top:8px">The spike saved a value to the file while the environment kept the old one, so the window must show the value that is live and say what overrides it.</p>
+    </div>
+  </div>
+</section>
+
+<section id="nowindow">
+  <h2>A harness with no window to open <span class="tag ok">run in the spike</span></h2>
+  <p>OpenCode started with <code>opencode run</code> has no terminal UI, and the command is not run there: the text goes to the model. Where the command does run with no UI, and in any harness that cannot host a page, it says where the settings are and takes the closest step the harness allows.</p>
+  <div class="grid2">
+    <div>
+      <p class="cap">/podium config, no terminal UI</p>
+<div class="term" role="img" aria-label="Fallback message">
+<div class="row">The settings window needs the terminal UI.</div>
+<div class="row">Your settings are in ~/.podium/config.env.</div>
+<div class="row">Edit it, or set the PODIUM_* variables.</div>
+<div class="row dim">They are read at the next start.</div>
+</div>
+    </div>
+    <div>
+      <p class="cap">Claude Code with no pane (<code>-p</code>)</p>
+<div class="term" role="img" aria-label="Claude Code fallback message">
+<div class="row">No settings window in this mode.</div>
+<div class="row">Run /plugin configure podium-reporter.</div>
+</div>
+      <p class="dim" style="margin-top:8px">Wording not run for Claude Code.</p>
+    </div>
+  </div>
+</section>
+
+<section id="desktop">
+  <h2>Desktop and web apps <span class="tag un">not checked</span></h2>
+  <p>The types suggest the Claude desktop app and VS Code can draw the same pane (<code>Input</code> and <code>Select</code> exist for them), and OpenCode's desktop and web apps have a separate GUI part. Nobody has run either. They are not drawn here; #1122 tracks the check, and a mockup follows if one can host the window.</p>
+</section>
+
+<section>
+  <h2>What differs, and why</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Difference</th><th>Claude Code</th><th>OpenCode</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Shape</th><td>One pane, all rows visible</td><td>A stack of modal dialogs</td></tr>
+      <tr><th scope="row">Saved to</th><td><code>~/.claude/settings.json</code>, by the person's press</td><td><code>~/.podium/config.env</code> (0600), through an allow-list</td></tr>
+      <tr><th scope="row">Takes effect</th><td>Next start. A reload was seen for the report interval only, so it is not promised yet.</td><td>At the next start</td></tr>
+      <tr><th scope="row">Token, server, name</th><td>Not editable here: the token is never listed</td><td>Not drawn: the spike's allow-list did not include them</td></tr>
+      <tr><th scope="row">Keyboard</th><td>Needed a mouse click to focus the pane</td><td>Works from the keyboard</td></tr>
+      <tr><th scope="row">Narrow</th><td>Wraps</td><td>Cuts a long line</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Decided</h2>
+  <ul class="tight">
+    <li>Server and your name are read-only, with a pointer to <code>/plugin configure podium-reporter</code> in Claude Code. The token is never shown.</li>
+    <li>Claude Code focus: a keyboard route is tried first. If there is none, the limit is documented and <code>/plugin configure</code> stays the way in.</li>
+    <li>Every setting says "next start" in both harnesses until a reload is shown to apply a consent option live.</li>
+  </ul>
+</section>
+
+</div>
+<script>
+document.querySelectorAll('.switch button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.documentElement.setAttribute('data-theme', b.dataset.set);
+    document.querySelectorAll('.switch button').forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+  });
+});
+</script>
+</body>
+</html>

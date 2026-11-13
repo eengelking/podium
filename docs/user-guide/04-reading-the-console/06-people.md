@@ -22,7 +22,7 @@ The row with the filters then gains a **People** group:
 ## Who you are
 
 Podium knows who you are from your sign-in (the **Sign in** button in the top bar, the same one you use to respond).
-Signing in needs the Admin to have turned on responding.
+Signing in is offered when a feature that needs it is on: responding, File diff, My usage, orchestrator messaging, session recording or stored activity.
 
 - Signed in as a person, your band is marked "you" (your group's band "your group") and comes first under Needs
   attention, and **Me** is offered.

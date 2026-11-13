@@ -231,6 +231,14 @@ describe('POST /api/fleet/hook', () => {
     expect((await fleet.view('hk-1'))!.background ?? null).toBeNull();
   });
 
+  it.each(['person:alex', '..', 'a|b', 'a+b', 'a/b'])('refuses the session id %s with a 400 (#1051)', async (session_id) => {
+    const { app, fleet } = await setup();
+    const r = await request(app).post('/api/fleet/hook').send({ ...P.start, session_id });
+    expect(r.status).toBe(400);
+    expect(r.body.path).toBe('$.session_id');
+    expect(await fleet.view(session_id)).toBeFalsy();
+  });
+
   it('a Stop that lists only a finished task is still a wait on the person', async () => {
     const { app, fleet, tick } = await setup();
     for (const p of [P.start, P.prompt, { ...P.stop, background_tasks: [{ id: 'b1', type: 'shell', status: 'completed', description: 'done' }] }]) {

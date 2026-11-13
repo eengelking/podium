@@ -159,9 +159,9 @@ export interface MyReportersLink {
 
 /**
  * The far right of the top bar, after a divider: Sign in, or who is signed in and Sign out (mockup section 6). With
- * orchestrator messaging on, My reporters and its count sit between the name and Sign out (mockup/podium-my-reporters.html).
+ * orchestrator messaging on, My reporters and its count sit between the name and Sign out (mockup/podium-my-reporters.html); My usage, when it is on, sits before them (mockup/podium-my-usage.html).
  */
-export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink }) {
+export function TopBarSignIn({ myReporters, myUsage }: { myReporters?: MyReportersLink; myUsage?: { current: boolean } }) {
   const ctx = useRespond();
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
@@ -194,6 +194,12 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
             </svg>
             Signed in as <b>{ctx.me.name}</b>
           </span>
+          {/* My usage (#726): on every page while the Admin's setting is on and a person is signed in; left off on its own page, as My reporters is. */}
+          {myUsage && !myUsage.current && (
+            <a className="btn" href="#/me/usage">
+              My usage
+            </a>
+          )}
           {myReporters && !myReporters.current && (
             <a className="btn" href="#/me/reporters">
               {/* The count only while something waits: plain "My reporters" at 0 and before the first read (#415). */}

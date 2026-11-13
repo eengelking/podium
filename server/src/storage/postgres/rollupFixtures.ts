@@ -37,7 +37,7 @@ export function agent(sessionId: string, id: string, over: Partial<AgentRow> = {
     session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look around', model: 'claude-haiku-4-5',
     effort: null, effort_source: null, status: 'done', started_at: at(0, 9), ended_at: at(0, 10), context_tokens: null, context_window: null,
     context_percent: null, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, cost_usd_est: 0, skills_json: null, last_tool: null, tool_calls: 0,
-    tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
+    tool_counts_json: null, tool_stats_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -59,7 +59,7 @@ export interface World {
 }
 
 /** The tables the fixtures fill, emptied by `world`. The built-in Administrators group stays. */
-const TABLES = 'sessions, agents, agent_texts, events, blowouts, samples, people, reporters, reporter_sessions, admin_log, usage_daily, sessions_daily, failures_daily, fleet_daily';
+const TABLES = 'sessions, agents, agent_texts, events, blowouts, samples, people, reporters, reporter_sessions, admin_log, usage_daily, sessions_daily, failures_daily, fleet_daily, tools_daily, tool_sessions_daily, harness_versions_daily, tool_stats_daily, session_waits, session_time_daily, agents_daily, person_sessions_daily, hour_peaks_daily, cost_daily, tool_cost_daily, feature_versions_daily, skills_daily, person_places_daily, answers_daily';
 
 /** An empty database with the clock at NOW, the default prices and the default retention. */
 export async function world(db: PgDb): Promise<World> {

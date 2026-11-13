@@ -20,4 +20,4 @@ order: 52
 
 - Ignore `peers` from a session that is not interactive. This leans on the report carrying that signal for every case, and the mod's `interactive` logic is a separate issue (#833).
 
-**Conflict with the spec.** SPEC 5.9 says `peers` is "set once per machine", while the report sends it per session. This decision reads the stored machine value as derived from its sessions. The spec text is not reworded here; the maintainer decides whether it should be.
+**Conflict with the spec.** SPEC 5.9 says `peers` is "set once per machine", while the report sends it per session. This decision reads the stored machine value as derived from its sessions. SPEC 5.9 has since been reworded to say that the option is the machine's, that the report sends it for each session, and that the server reads the machine's value from its live sessions.

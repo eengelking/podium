@@ -16,6 +16,7 @@ import { reportCases } from './contractReports.js';
 import { txCases } from './contractTx.js';
 import { activityCases } from './contractActivity.js';
 import { peerCases } from './contractPeers.js';
+import { chatCases } from './contractChat.js';
 import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
 import type { StoredSessionRow } from '../fleet/activityHistoryTypes.js';
 import type { AgentRow, BlowoutRow, EventRow, GroupListRow, PersonListRow, PersonRow, ReporterRow, ReporterSeen, SampleRow, SessionRow } from './rows.js';
@@ -75,13 +76,13 @@ const SESSION_SHAPE: Shape<SessionRow> = {
   plan_json: 'text?', plan_kept_json: 'text?', reporter_version: 'text?', reporter_build: 'text?', engine_version: 'text?',
   loop_json: 'text?', files_json: 'text?', background_json: 'text?', usage_json: 'text?', attached: 'int?', detached_at: 'int?',
   owner: 'text?', machine_json: 'text?', cleared_from: 'text?', harness: 'text', cost_source: 'text?',
-  capabilities_json: 'text?', model_label: 'text?', model_provider: 'text?',
+  capabilities_json: 'text?', model_label: 'text?', model_provider: 'text?', resume_window_days: 'int?', signals_json: 'text?',
 };
 const AGENT_SHAPE: Shape<AgentRow> = {
   session_id: 'text', id: 'text', parent_id: 'text?', kind: 'text', type: 'text', name: 'text?', description: 'text', model: 'text?',
   effort: 'text?', effort_source: 'text?', status: 'text', started_at: 'int', ended_at: 'int?', context_tokens: 'int?',
   context_window: 'int?', context_percent: 'real?', tok_in: 'int', tok_out: 'int', tok_cr: 'int', tok_cw: 'int', cost_usd_est: 'real?',
-  skills_json: 'text?', last_tool: 'text?', tool_calls: 'int', tool_counts_json: 'text?', usage_json: 'text?', blowouts: 'int',
+  skills_json: 'text?', last_tool: 'text?', tool_calls: 'int', tool_counts_json: 'text?', tool_stats_json: 'text?', usage_json: 'text?', blowouts: 'int',
   steps_done: 'int?', steps_total: 'int?', prompt_excerpt: 'text?', answer_excerpt: 'text?', failure_json: 'text?', model_label: 'text?', model_provider: 'text?',
   prompt_chars: 'int?', answer_chars: 'int?',
 };
@@ -97,7 +98,7 @@ const REPORTER_SHAPE: Shape<ReporterRow> = {
 };
 const MESSAGE_SHAPE: Shape<MessageRow> = {
   id: 'text', owner: 'text', link: 'text', fromKey: 'text', toKey: 'text', fromSession: 'text', toSession: 'text', fromName: 'text', fromMachine: 'text',
-  toName: 'text', toMachine: 'text', text: 'text', sentAt: 'int', state: 'text', stateAt: 'int', why: 'text?', approved: 'bool',
+  toName: 'text', toMachine: 'text', text: 'text', sentAt: 'int', state: 'text', stateAt: 'int', why: 'text?', approved: 'bool', author: 'text',
 };
 const RECORDING_SHAPE: Shape<RecordingAdminRow> = {
   sessionId: 'text', name: 'text', owner: 'text?', startedBy: 'text?', state: 'text', limit: 'text?', loops: 'int', label: 'text', bytes: 'int', keptUntil: 'int?',
@@ -118,6 +119,7 @@ export function runStorageContract(adapters: ContractAdapter[]): void {
     peopleCases(against);
     reporterCases(against);
     peerCases(against);
+    chatCases(against);
     activityCases(against);
     reportCases(against);
     txCases(against);
@@ -155,7 +157,7 @@ function ownCases(adapter: ContractAdapter): void {
       const agent = (id: string, over: Partial<AgentRow> = {}): AgentRow => ({
         session_id: 'bare', id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
         status: 'running', started_at: T0, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
-        cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
+        cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, tool_stats_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
         prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null, ...over,
       });
       await f.upsertAgent(agent('a1'));
@@ -268,7 +270,7 @@ function ownCases(adapter: ContractAdapter): void {
       const agent = (id: string, started: number): AgentRow => ({
         session_id: 's1', id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: '', model: null, effort: null, effort_source: null, status: 'done',
         started_at: started, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, cost_usd_est: null,
-        skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null,
+        skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, tool_stats_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null,
         answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
       });
       for (const [id, at] of [['b', 20], ['a', 20], ['A', 20], ['z', 10], ['y', 30]] as const) await f.upsertAgent(agent(id, at));
@@ -353,6 +355,23 @@ function ownCases(adapter: ContractAdapter): void {
       expect(await store.reporters.record(noId({ sessionId: 'sc', source: 'host-b', reporterName: 'podium-reporter-claudecode' }), T0 + 2)).toBe(claude);
       expect(await store.reporters.record(noId({ sessionId: 'so', source: 'host-b', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 3)).toBe(oc);
       expect((await store.reporters.list({}, T0 + 10)).rows).toHaveLength(2);
+      await store.close();
+    });
+
+    it('files a reporter with a very long source address under a key clipped to the stored address, on every adapter', async () => {
+      const store = await open();
+      const long = 'x'.repeat(1000);
+      const noId = (over: Partial<ReporterSeen>) => mkSeen('x', 'box', { machineId: null, ...over });
+      const addr = await store.reporters.record(noId({ source: long, sessionId: 'l1' }), T0);
+      const hooks = await store.reporters.record(noId({ kind: 'hooks', source: long, sessionId: 'l2' }), T0 + 1);
+      expect(addr).toBe(`addr:${'x'.repeat(120)}`);
+      expect(hooks).toBe(`hooks:${'x'.repeat(120)}`);
+      expect(await store.reporters.record(noId({ source: long, sessionId: 'l1' }), T0 + 2)).toBe(addr);
+      expect((await store.reporters.get(addr, T0 + 3))!.source).toBe('x'.repeat(120));
+      // A second account on one machine with a very long owner name is keyed the same way on every adapter.
+      await store.reporters.record(mkSeen('mach', 'box', { owner: 'a' }), T0 + 4);
+      const apart = await store.reporters.record(mkSeen('mach', 'box', { owner: 'o'.repeat(1000) }), T0 + 5);
+      expect(apart.length).toBeLessThanOrEqual(383);
       await store.close();
     });
 

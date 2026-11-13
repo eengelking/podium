@@ -31,6 +31,8 @@ It also needs podium-reporter 0.14.0 or later and a server started with a token.
 | `questions-and-plans` | The above, plus approving or rejecting a plan |
 | `everything` | The above, plus allowing or denying a tool (allow once only), and `/clear`, `/compact` |
 
+OpenCode answers too: set `PODIUM_RESPOND` (the same four levels) and `PODIUM_ACTIVITY_FEED=true` in `~/.podium/config.env`. It cannot approve a plan, has no `/clear`, and takes `/compact` as its only command ([OpenCode settings](../../REPORTER.md#opencode-settings)).
+
 ## Sign in
 
 To answer, sign in with your name and token, the same ones as the mod's `userName` and `token` options. An Admin can use
@@ -38,6 +40,13 @@ the name **Admin** with the admin secret. Sign in from the modal or from **Sign 
 
 Only the session's owner, or an Admin, can respond. On anyone else's card **Respond** is dimmed with their name. A
 sign-in ends after 12 hours without use, on **Sign out**, when the server restarts, and when your token changes.
+
+An Admin never reads in silence. When an Admin opens a waiting plan, question or tool request in one of your sessions,
+you are told: a red notice on that session's page and above the ask while the Admin has it open, a plain line there
+afterward (who and when, never what the ask said), and one line in the session itself, such as "Root (an Admin) is
+reading your waiting plan, question or tool request on history-paging." The line in the session is shown to you only and
+is never sent to the model. The red notice has no X, because it is shown while the Admin has the ask open. The **X** on the plain line hides it in this browser. It does not clear the record. Opening your
+own ask tells no one.
 
 ## What you can send
 

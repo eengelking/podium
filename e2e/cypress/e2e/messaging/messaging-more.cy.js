@@ -1,47 +1,5 @@
-// More of Traffic and My reporters: who may act on a link, what a failed save says, declining a request, limits the server refuses, and the Board view's Move to.
-// Order: the tests below run in order on one server, and a later one reads what an earlier one left (named where it matters); the file resets the server once, in `before`.
-describe('traffic: who may act on a link', () => {
-  before(() => cy.resetServer({ seedArgs: '--talk' }));
-
-  it('lets another signed-in person see the map but not read the text or act on Ed\'s link', () => {
-    cy.signIn('Alex');
-    cy.openConsole('#/traffic');
-    cy.contains('4 messages');
-    cy.contains('Please run the unit tests').should('not.exist');
-    cy.contains('button', 'Pause link').should('not.exist');
-  });
-
-  it('lets the Admin read a conversation but not pause or remove it: that is the owner\'s', () => {
-    cy.signIn('Admin');
-    cy.openConsole('#/traffic');
-    cy.contains('Please run the unit tests on this branch.');
-    cy.contains('button', 'Pause link').should('not.exist');
-    cy.contains("Only Ed can pause or remove it.");
-  });
-
-  it('says so, and changes nothing, when Pause fails', () => {
-    cy.signIn('Ed');
-    cy.intercept('PUT', '**/peers/links*', { statusCode: 500, body: { ok: false } });
-    cy.openConsole('#/traffic');
-    cy.contains('button', 'Pause link').click();
-    cy.get('[role=alert]').invoke('text').should('match', /^Could not pause the link: .+\. The link is still active\. Try again\.$/);
-    cy.contains('button', 'Pause link').should('be.visible');
-    cy.contains('button', 'Resume link').should('not.exist');
-  });
-
-  it('says so, and keeps the link, when Remove fails', () => {
-    cy.signIn('Ed');
-    cy.intercept({ method: /PUT|DELETE|POST/, url: '**/peers/**' }, (req) => {
-      if (/links|rights/.test(req.url)) req.reply({ statusCode: 500, body: { ok: false } });
-    });
-    cy.openConsole('#/traffic');
-    cy.contains('button', 'Remove link…').click();
-    cy.get('[role=group][aria-label="Remove the link"]').contains('button', /^Remove link$/).click();
-    cy.get('[role=alert]').invoke('text').should('match', /^Could not remove the link: .+\. Nothing changed\. Try again\.$/);
-    cy.contains('Please run the unit tests on this branch.');
-  });
-});
-
+// More of My reporters: what a failed save says, declining a request, limits the server refuses, and the Board view's Move to. (Traffic's checks of who may act on a link moved to
+// chat/chat-direct.cy.js when Chat replaced Traffic, #1034.)
 describe('my reporters: answers, limits and failed saves', () => {
   before(() => cy.resetServer({ seedArgs: '--talk' }));
   beforeEach(() => {
@@ -72,6 +30,7 @@ describe('my reporters: answers, limits and failed saves', () => {
 
   it('puts the control back and says nothing changed when a rights change cannot be saved', () => {
     cy.intercept('PUT', '**/peers/rights*', { statusCode: 500, body: { ok: false } });
+    // Read once on purpose: the grid is drawn from one load of the rights, so the selected level is the saved one when the select exists (#1137).
     cy.get('select[id="g-e2e0000ci001-e2e0000mbp01"]').find(':selected').invoke('text').then((was) => {
       cy.get('select[id="g-e2e0000ci001-e2e0000mbp01"]').select('Can see');
       cy.contains('Could not save the change');

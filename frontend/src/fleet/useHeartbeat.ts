@@ -9,6 +9,8 @@ export const BEAT_MS = 450;
  * forever steps at its own phase, so a page with many of them changes on almost every display refresh.
  * One shared beat changes them all at once, a few times a second. It is set on the element directly, so
  * a beat never re-renders React. It stays still under prefers-reduced-motion.
+ * It runs while the tab is hidden on purpose (#1054): it is not a poll, it makes no request and only sets an attribute,
+ * and a browser already slows a hidden tab's timers to about one a second.
  */
 export function useHeartbeat(ref: RefObject<HTMLElement | null>, enabled: boolean): void {
   useEffect(() => {

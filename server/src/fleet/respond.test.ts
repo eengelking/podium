@@ -5,12 +5,12 @@ import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter } from './routes.js';
-import { createLogger, type Logger } from '../logging/logger.js';
+import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
 import { CLOSED_KEEP_MS, RespondStore, commandOf, parseAnswer, questionSummary } from './respond.js';
-import { DELIVERY_RESULTS, MAIN_LOOP, RESPOND_LIMITS, type Ask, type Report, type RespondKind } from './protocol.js';
+import { DELIVERY_RESULTS, MAIN_LOOP, RESPOND_LIMITS, timeBucket, type Ask, type Report, type RespondKind } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
 const closers: (() => void)[] = [];
@@ -58,6 +58,27 @@ describe('RespondStore', () => {
     expect(s.announce(sid, QUESTION)).toBe('ok');
     expect(s.summaries(sid)).toEqual([{ id: 'toolu_q', kind: 'question', agentId: null, openedAt: T0, count: 2, state: 'open' }]);
     expect(s.detail(sid, 'toolu_q', 'Ed', 5)).toMatchObject({ ask: QUESTION, state: 'open', delivery: null, closed: null, lastSeenAt: 5 });
+  });
+
+  it('keeps the adminNotices declaration across a report that does not carry it, and drops it only for an explicit false (#1051)', () => {
+    const { s, sid } = store(ALL, (r) => {
+      r.adminNotices = true;
+    });
+    expect(s.adminNotices(sid)).toBe(true);
+    const lighter = fixtureReport();
+    lighter.session.respond = { level: 'everything', accepts: ALL, limits: [] };
+    delete lighter.adminNotices;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(true);
+    lighter.adminNotices = false;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(false);
+    delete lighter.adminNotices;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(false);
+    lighter.adminNotices = true;
+    s.noteReport(lighter, true);
+    expect(s.adminNotices(sid)).toBe(true);
   });
 
   it('takes the first answer only, and refuses a later one with who answered and when', () => {
@@ -401,10 +422,10 @@ async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn
   return { app, fleet, people, ed, alex };
 }
 
-/** A report from a reporter that responds at every level, carrying `asks`. */
+/** A report from a reporter that responds at every level, carrying `asks`. A reporter that responds has its activityFeed option on (it takes nothing from Podium without it), and Podium's entries in the feed need it (#1051). */
 function report(userName: string, id = 'sess-ed', asks: Ask[] = []): Report {
   const r = fixtureReport();
-  r.session = { ...r.session, id, status: 'waiting', respond: { level: 'everything', accepts: ALL, limits: [] }, asks };
+  r.session = { ...r.session, id, status: 'waiting', activityFeed: true, respond: { level: 'everything', accepts: ALL, limits: [] }, asks };
   r.userName = userName;
   return r;
 }
@@ -429,7 +450,7 @@ describe('the plain-HTTP note on sign-in (#306)', () => {
 describe('the switches', () => {
   it('is off with authentication off, and with either Admin flag off: the routes refuse and the reply says so', async () => {
     const off = await setup({ secret: null });
-    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false });
+    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false, myUsage: false });
     expect((await request(off.app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: off.ed.token })).status).toBe(403);
     const r = await request(off.app).post('/api/fleet/report').send(report('Ed'));
     expect(r.body).toMatchObject({ respond: false, deliveries: [] });
@@ -457,9 +478,9 @@ describe('signing in', () => {
   it('takes a person’s name (any case) with their token, and the name Admin with the admin secret', async () => {
     const { app, ed, people } = await setup();
     const agent = await signedIn(app, 'ed', ed.token);
-    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false });
+    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false, myUsage: false });
     const admin = await signedIn(app, 'Admin', SECRET);
-    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true });
+    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true, myUsage: false });
     expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
   });
 
@@ -853,6 +874,57 @@ describe('answering, end to end', () => {
   });
 });
 
+describe('answers sent from Podium are counted for the reports (#725)', () => {
+  const counted = async (fleet: Fleet) => (await fleet.db.rollupRows('answers_daily', '0000-01-01', '9999-12-31')).map((r) => `${String(r.harness)}/${String(r.kind)}/${Number(r.bucket) >= 0 ? 'waited' : 'no wait'}=${String(r.count)}`);
+
+  it('counts an answer to each kind of ask with the time it waited, and a message with none, and nothing else', async () => {
+    const { app, fleet, ed } = await setup();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [QUESTION, PLAN, TOOL]));
+    const b = await signedIn(app, 'Ed', ed.token);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_q/answer').set(H).send({ kind: 'question', answers: [{ options: [0] }, { options: [1] }] })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_p/answer').set(H).send({ kind: 'plan-approve', mode: 'default' })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'Start on issue #205.' })).status).toBe(202);
+    // a command is not an answer, and an answer that is refused is not counted
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: '/clear' })).status).toBe(202);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' })).status).toBe(409);
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/nope/answer').set(H).send({ kind: 'deny' })).status).toBe(404);
+    expect(await counted(fleet)).toEqual(['claude-code/message/no wait=1', 'claude-code/permission/waited=1', 'claude-code/plan/waited=1', 'claude-code/question/waited=1']);
+  });
+
+  it('counts an answer under the harness of the session, and keeps no text, name or session', async () => {
+    const { app, fleet, ed } = await setup();
+    const r = report('Ed', 'sess-oc', [TOOL]);
+    r.session = { ...r.session, harness: 'opencode' };
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(r);
+    const b = await signedIn(app, 'Ed', ed.token);
+    expect((await b.post('/api/fleet/respond/sessions/sess-oc/asks/toolu_t/answer').set(H).send({ kind: 'deny', text: 'SECRET-WORDS-TO-THE-AGENT' })).status).toBe(202);
+    expect(await counted(fleet)).toEqual(['opencode/permission/waited=1']);
+    expect(JSON.stringify(await fleet.db.rollupRows('answers_daily', '0000-01-01', '9999-12-31'))).not.toMatch(/SECRET-WORDS|Ed|sess-oc/);
+  });
+
+  it('times the wait from when the server first heard of the ask, on its own clock', async () => {
+    const { app, fleet, ed } = await setup();
+    const t = Date.now();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
+    const b = await signedIn(app, 'Ed', ed.token);
+    await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
+    // the ask says it opened at T0, long ago, but the person answered at once: the wait is not read from the reporter's clock
+    const [row] = await fleet.db.rollupRows('answers_daily', '0000-01-01', '9999-12-31');
+    expect(Number(row!.bucket)).toBeLessThan(timeBucket(Date.now() - t + 5000));
+  });
+
+  it('still takes the answer when the count cannot be written, and says so in the server log', async () => {
+    const lines: string[] = [];
+    const { app, fleet, ed } = await setup({ logger: loggerFromLine((l) => lines.push(l)) });
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
+    const b = await signedIn(app, 'Ed', ed.token);
+    vi.spyOn(fleet.db, 'addAnswer').mockRejectedValue(new Error('disk full'));
+    expect((await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' })).status).toBe(202);
+    expect(lines.join('\n')).toContain('could not count an answer sent from Podium');
+  });
+});
+
 describe('opening Admin from a sign-in to respond (#215)', () => {
   const AH = { 'X-Podium-Admin': '1' };
 
@@ -976,5 +1048,91 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
     expect((await agent.post('/api/admin/unlock/from-respond')).status).toBe(403);
     await people.setGroup(priya.person.id, null);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
+  });
+});
+
+describe('an Admin opening a waiting ask (#1073)', () => {
+  const askUrl = '/api/fleet/respond/sessions/sess-ed/asks/toolu_q';
+
+  async function withAsk() {
+    const s = await setup();
+    await request(s.app).post('/api/fleet/report').set('X-Podium-Token', s.ed.token).send(report('Ed'));
+    expect((await request(s.app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').set('X-Podium-Token', s.ed.token).send(QUESTION)).status).toBe(200);
+    const boss = await s.people.createPerson('Boss');
+    await s.people.setGroup(boss.person.id, await s.people.administratorsGroupId());
+    return { ...s, boss };
+  }
+
+  it('records the read before sending the ask, logs it without the text, and tells the owner in the reporter reply and on the console', async () => {
+    const { app, fleet, people, ed, boss } = await withAsk();
+    const changed = vi.spyOn(fleet, 'sessionReadsChanged');
+    const b = await signedIn(app, 'Boss', boss.token);
+    const e = await signedIn(app, 'Ed', ed.token);
+    const got = await b.get(askUrl);
+    expect(got.status).toBe(200);
+    expect(got.body).toMatchObject({ ask: QUESTION });
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toMatchObject([{ admin: 'Boss', kind: 'read' }]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.actor).toBe('Boss');
+    expect(rows[0]!.detail).toContain('Ed');
+    expect(rows[0]!.detail).toContain('toolu_q');
+    expect(JSON.stringify(rows)).not.toContain('Page size');
+    // the owner's reporter hears of it on its next report, by words that name the Admin and the session, never the question
+    const reply = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
+    const texts = (reply.body.adminNotices ?? []).map((n: { text: string }) => n.text);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatch(/^Boss \(an Admin\) is reading your waiting plan, question or tool request on /);
+    expect(texts[0]).not.toContain('Page size');
+    expect((await e.get('/api/fleet/respond/session-reads')).body.readers.ask['sess-ed']).toHaveLength(1);
+    // opening it again in the same reading session is not a new record or a new log line
+    await b.get(askUrl);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read')).toHaveLength(1);
+  });
+
+  it('writes the one Admin log line when a ping began the reading first (#1166)', async () => {
+    const { app, fleet, people, boss } = await withAsk();
+    const changed = vi.spyOn(fleet, 'sessionReadsChanged');
+    const b = await signedIn(app, 'Boss', boss.token);
+    const ping = () => b.post('/api/fleet/respond/sessions/sess-ed/admin-reads/ask/reading').set({ 'X-Podium-Respond': '1' }).send({});
+    expect((await ping()).status).toBe(200);
+    const logged = async () => (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read');
+    expect(await logged()).toHaveLength(0);
+    expect((await b.get(askUrl)).status).toBe(200);
+    expect((await b.get(askUrl)).status).toBe(200);
+    expect((await ping()).status).toBe(200);
+    expect((await b.get(askUrl)).status).toBe(200);
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toHaveLength(1);
+    const rows = await logged();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.detail).toContain('toolu_q');
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not notice the owner\'s own open, an unknown ask, or an ask of a session the shared Admin name owns', async () => {
+    const { app, fleet, people, ed } = await withAsk();
+    const e = await signedIn(app, 'Ed', ed.token);
+    expect((await e.get(askUrl)).status).toBe(200);
+    expect((await e.get(askUrl.replace('toolu_q', 'nope'))).status).toBe(404);
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toEqual([]);
+    const admin = await signedIn(app, 'Admin', SECRET);
+    expect((await admin.get(askUrl.replace('toolu_q', 'nope'))).status).toBe(404);
+    expect(await fleet.chat.adminReads.list('ask:sess-ed')).toEqual([]);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...report('Admin', 'sess-admin'), userName: 'Admin' });
+    expect((await request(app).put('/api/fleet/sessions/sess-admin/asks/toolu_q').set('X-Podium-Token', SECRET).send(QUESTION)).status).toBe(200);
+    expect((await admin.get('/api/fleet/respond/sessions/sess-admin/asks/toolu_q')).status).toBe(200);
+    expect(await fleet.chat.adminReads.list('ask:sess-admin')).toEqual([]);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'ask_read')).toEqual([]);
+  });
+
+  it('sends nothing when the read cannot be recorded', async () => {
+    const { app, fleet, boss } = await withAsk();
+    const b = await signedIn(app, 'Boss', boss.token);
+    vi.spyOn(fleet.chat.adminReads, 'noteSession').mockRejectedValue(new Error('disk full'));
+    const got = await b.get(askUrl);
+    expect(got.status).toBe(500);
+    expect(JSON.stringify(got.body)).not.toContain('Page size');
   });
 });

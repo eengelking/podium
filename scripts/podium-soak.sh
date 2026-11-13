@@ -18,7 +18,7 @@ and how many messages each SSE client received in the first and last 30 s.
                 the same database; check sessions come back stale, then running
   -h, --help    Show this help
 
-PODIUM_DB: a postgres:// URL makes the server use a new database on that PostgreSQL server (dropped at the end) instead of a
+PODIUM_DB: a postgres:// or mariadb:// URL makes the server use a new database on that server (dropped at the end) instead of a
 SQLite file. Any other value is ignored.
 
 Everything it starts is stopped at the end, and its temp files are removed.
@@ -50,7 +50,7 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/podium-soak.XXXXXX")"
 PIDS=()
 FAILED=0
 DB="$TMP/podium.sqlite"
-DB_MADE=0   # 1 once a PostgreSQL database exists that cleanup must drop
+DB_MADE=0   # 1 once a database on a server exists that cleanup must drop
 drop_db() { (( DB_MADE )) || return 0; node "$ROOT/scripts/throwaway-db.mjs" drop "$DB" >/dev/null 2>&1; }
 
 cleanup() {
@@ -64,10 +64,10 @@ cleanup() {
 trap 'cleanup; exit $FAILED' EXIT
 trap 'FAILED=1; exit 1' INT TERM
 
-# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
-# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
-if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
-  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-soak)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; FAILED=2; exit 2; }
+# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL or MariaDB server, a database of its own on that server
+# (dropped at the end; what is already on the server is never touched). Only a server URL (postgres://, mariadb://) is read; a SQLite path is ignored.
+if node "$ROOT/scripts/throwaway-db.mjs" is-server "${PODIUM_DB:-}"; then
+  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-soak)" || { echo "could not make a database on the database server in PODIUM_DB" >&2; FAILED=2; exit 2; }
   DB_MADE=1
   echo "podium-soak: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
 fi

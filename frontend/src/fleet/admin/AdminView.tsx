@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import "../fleet.css";
 import "./admin.css";
 import { StreamTopBar } from "../components/StreamTopBar";
-import { ThemePicker } from "../components/ThemePicker";
+import { WallOptions } from "../components/WallOptions";
 import { useTheme } from "../useTheme";
+import { useShortcuts } from "../useShortcuts";
 import type { UseFleetOptions } from "../useFleet";
 import type { PeersApi, RespondApi } from "../respondApi";
 import { useHeartbeat } from "../useHeartbeat";
@@ -24,14 +25,19 @@ import { OnceBox, type Created } from "./OnceBox";
 import { ReportersTab, type ReporterPaging } from "./ReportersTab";
 import { DataPage } from "./DataPage";
 import { REPORT_CONFIGS, ReportPage, SPEND_CONFIG } from "./ReportPages";
+import { SessionsPage, UsagePage } from "./TimePages";
+import { HarnessPage } from "./HarnessPage";
+import { PeoplePage } from "./ReportingExtras";
+import { ToolsPage } from "./ToolsPage";
 import { ReportingTab } from "./ReportingTab";
 import { makeReportsClient } from "./reportsApi";
 import { SettingsTab } from "./SettingsTab";
 import { SpendPage } from "./SpendPage";
 import { StoredActivityTab } from "./StoredActivityTab";
+import { AboutTab } from "./AboutTab";
 
 type Status = "checking" | "locked" | "open" | "disabled";
-type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept" | "stored";
+type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "tools" | "harness" | "activity" | "kept" | "stored" | "about";
 const PAGES: Record<TabId, { name: string; lead: string }> = {
   people: { name: "People", lead: "Each person gets a token that only works with their own name. A report is accepted when the two match." },
   groups: { name: "Groups", lead: "Arrange people into groups. The fleet wall shows a band per group." },
@@ -46,19 +52,24 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
   rpeople: { name: REPORT_CONFIGS.people.title, lead: REPORT_CONFIGS.people.lead },
   sessions: { name: REPORT_CONFIGS.sessions.title, lead: REPORT_CONFIGS.sessions.lead },
   failures: { name: REPORT_CONFIGS.failures.title, lead: REPORT_CONFIGS.failures.lead },
+  tools: { name: REPORT_CONFIGS.tools.title, lead: REPORT_CONFIGS.tools.lead },
+  harness: { name: REPORT_CONFIGS.harness.title, lead: REPORT_CONFIGS.harness.lead },
   activity: { name: REPORT_CONFIGS.activity.title, lead: REPORT_CONFIGS.activity.lead },
   kept: { name: "Data", lead: "What Podium stores, for how long, and what you can remove. Reports read this, never the live stream alone." },
   stored: { name: "Stored activity", lead: "The Activity history Podium has kept, by session. Delete what you no longer need, in bulk." },
+  about: { name: "About", lead: "What software this server and its reporters are running." },
 };
 /** The side menu: pages in groups, in the order they are listed. */
 const NAV: { name: string; icon: GroupIconName; ids: TabId[] }[] = [
   { name: "People and access", icon: "access", ids: ["people", "groups", "reporters"] },
-  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "certs", "kept", "stored"] },
-  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "failures", "activity"] },
+  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "certs", "kept", "stored", "about"] },
+  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "tools", "harness", "failures", "activity"] },
   { name: "Activity", icon: "activity", ids: ["log"] },
 ];
 /** Reporting pages draw their own header, which carries Export (#484). */
-const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "failures", "activity"]);
+const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "tools", "harness", "failures", "activity"]);
+/** Pages that draw their own header, because it carries an action: the reports' Export (#484) and About's Copy details (#862). */
+const OWN_HEADER: ReadonlySet<TabId> = new Set([...REPORT_TABS, "about"]);
 
 type GroupIconName = "access" | "server" | "reporting" | "activity";
 /** Outline glyphs that lead a menu group's heading; on the narrow strip they stand in for the heading. */
@@ -81,13 +92,15 @@ const GROUP_ICON: Record<GroupIconName, ReactNode> = {
   activity: <path d="M1.5 8h3l2-5 3 10 2-5h3" />,
 };
 
-/** The pages a link elsewhere in the console can open: `#/admin/settings` and `#/admin/certificates`. */
+/** The pages a link elsewhere in the console can open: `#/admin/settings`, `#/admin/certificates` and `#/admin/harness`. */
 function tabForHash(hash: string): TabId | null {
-  return hash === "#/admin/settings" ? "settings" : hash === "#/admin/certificates" ? "certs" : null;
+  return hash === "#/admin/settings" ? "settings" : hash === "#/admin/certificates" ? "certs" : hash === "#/admin/harness" ? "harness" : null;
 }
 
 export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peersApi }: { base?: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi }) {
   const theme = useTheme();
+  // Admin has no single-key shortcuts yet, but the drawer shows and saves the one setting every page shares (#1129).
+  const [shortcuts, setShortcuts] = useShortcuts();
   // The reporters pill's dot pulses on the fleet page's shared beat, which this root carries as data-beat.
   const root = useRef<HTMLDivElement>(null);
   useHeartbeat(root, usePageVisible());
@@ -207,7 +220,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
           <span>
             <b>Admin.</b> Tokens, groups, reporters and settings for this server.
           </span>
-          <ThemePicker theme={theme} />
+          <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} />
         </div>
         <main className="adminv" aria-label="Admin">
           {status === "checking" && (
@@ -267,7 +280,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
               <div className="apage" ref={pageRef}>
                 <div className="apage-in">
                   {created && <OnceBox c={created} onDone={() => setCreated(null)} />}
-                  {!REPORT_TABS.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
+                  {!OWN_HEADER.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
                   {tab === "people" && <PeopleTab api={api} base={base} {...paging.people} onPaging={onPeoplePaging} onCreated={setCreated} onCount={onCountPeople} onLocked={onLocked} />}
                   {tab === "groups" && <GroupsTab api={api} {...paging.groups} onPaging={onGroupPaging} onCount={onCountGroups} onLocked={onLocked} />}
                   {tab === "reporters" && <ReportersTab api={api} paging={paging.reporters} onPaging={onReportersPaging} onCount={onCountReporters} onLocked={onLocked} fleetOptions={fleetOptions} />}
@@ -276,13 +289,16 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "certs" && <CertificatesTab api={api} onLocked={onLocked} />}
                   {tab === "prices" && <ModelPricesTab api={api} onLocked={onLocked} />}
                   {tab === "spend" && <SpendPage client={client} fleetOptions={fleetOptions} onCount={onCountSpend} onLocked={onLocked} />}
-                  {tab === "usage" && <ReportPage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}
-                  {tab === "rpeople" && <ReportPage cfg={REPORT_CONFIGS.people} client={client} onLocked={onLocked} />}
-                  {tab === "sessions" && <ReportPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
+                  {tab === "usage" && <UsagePage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}
+                  {tab === "rpeople" && <PeoplePage cfg={REPORT_CONFIGS.people} client={client} onLocked={onLocked} />}
+                  {tab === "sessions" && <SessionsPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
                   {tab === "failures" && <ReportPage cfg={REPORT_CONFIGS.failures} client={client} onLocked={onLocked} />}
+                  {tab === "tools" && <ToolsPage cfg={REPORT_CONFIGS.tools} client={client} onLocked={onLocked} />}
+                  {tab === "harness" && <HarnessPage cfg={REPORT_CONFIGS.harness} client={client} onLocked={onLocked} />}
                   {tab === "activity" && <ReportPage cfg={REPORT_CONFIGS.activity} client={client} onLocked={onLocked} />}
                   {tab === "kept" && <DataPage api={api} onLocked={onLocked} onGo={setTab} onCountStored={onCountStored} />}
                   {tab === "stored" && <StoredActivityTab api={api} onGo={setTab} onCount={onCountStored} onLocked={onLocked} />}
+                  {tab === "about" && <AboutTab api={api} onLocked={onLocked} />}
                   {tab === "log" && <LogTab api={api} {...paging.log} onPaging={onLogPaging} onCount={onCountLog} onLocked={onLocked} />}
                 </div>
                 <AdminFoot version={version} build={build} className="afoot-narrow" />

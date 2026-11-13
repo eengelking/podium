@@ -8,8 +8,8 @@ order: 11
 # Stored activity
 
 The Activity history Podium holds, by session. Set **Source** to Recordings to list session recordings instead
-([Session recording](../04-reading-the-console/13-session-recording.md)). At the top are the totals (entries, size on disk and sessions). Filter
-by session, loop, project, owner, age, or a range of dates (**Entries from** and **to**), tick sessions and delete:
+([Session recording](../04-reading-the-console/13-session-recording.md)). Filter
+by session, loop, project, owner, age, or a range of dates (**Entries from** and **to**). A row of totals under the filters shows the entries, the size on disk and the sessions that match. Tick sessions and delete:
 
 - **Delete N…** removes the ticked sessions' history.
 - **Delete all N that match…** removes everything the filter matches (it needs a filter).
@@ -20,6 +20,10 @@ policy keeps history. After a delete, the file is compacted so the space comes b
 freed. Each delete is written to the Admin log with who did it and how much went, and never the text. A delete changes
 the database only; copies of the database you made earlier are not changed. To remove something private that leaked,
 delete the session's history, or use the date range to remove just the minutes concerned across sessions.
+
+Reading it is not quiet. When you page through another person's stored Activity (on their session's page), the person
+is told in the console and in their session, and the Admin log records `activity_admin_read` once per reading session
+with who, whose and when, and never an entry. This list shows counts only, so it tells no one.
 
 <!-- nav:start -->
 ---

@@ -32,6 +32,7 @@ describe('wall: the Comp pill', () => {
   });
 
   it('is blue, the delegation color, and not the warning amber of the blowout badge', () => {
+    // Read once on purpose: a computed color is final once the pill exists (#1137).
     pill('comp').then(($p) => {
       const color = getComputedStyle($p[0]).color;
       const probe = document.createElement('span');

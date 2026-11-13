@@ -22,7 +22,7 @@ function agent(sessionId: string, id: string, over: Partial<AgentRow> = {}): Age
   return {
     session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
     status: 'running', started_at: 10, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 0, tok_out: 0, tok_cr: 0,
-    tok_cw: 0, cost_usd_est: 0, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null,
+    tok_cw: 0, cost_usd_est: 0, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, tool_stats_json: null, usage_json: null, blowouts: 0, steps_done: null,
     steps_total: null, prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null, ...over,
   };
 }

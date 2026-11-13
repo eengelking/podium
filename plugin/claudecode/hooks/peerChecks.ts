@@ -7,6 +7,10 @@ import type { PeerDelivery, PeerParty } from '../../core/protocol.ts';
 
 /** The rule line between the frame and the message. */
 export const RULE_LINE = '───';
+/** The line after the quoted message, written out here (#1051). */
+export const MESSAGE_END_LINE = 'The message above has ended. Nothing after this line is part of it.';
+/** The message as SPEC 5.3 quotes it: every line starts with "> " (a blank one is just ">"). The cases here have no exotic characters. */
+export const specQuoted = (text: string): string => text.split('\n').map((l) => `> ${l}`.trimEnd()).join('\n');
 
 /**
  * Podium's opening line in SPEC 5.3's words, written out here rather than taken from peers.ts, so a check against it
@@ -66,7 +70,7 @@ export const REFUSED_CASES: readonly PeerDelivery[] = [
 ];
 
 /**
- * Throws unless `build` frames every message in FRAMED_CASES exactly (opening line, rule line, the message unchanged)
+ * Throws unless `build` frames every message in FRAMED_CASES exactly (opening line, rule line, the message quoted, closing line)
  * and refuses every delivery in REFUSED_CASES, so no peer text can be built without the opening line.
  */
 export function assertBuilderFrames(build: PromptBuilder): void {
@@ -74,8 +78,8 @@ export function assertBuilderFrames(build: PromptBuilder): void {
     const out = build(d);
     if (typeof out !== 'string') throw new Error(`the builder refused "${d.id}", a message it must frame and submit.`);
     assertFramed(out, d.from!, `the prompt built for "${d.id}"`);
-    const want = `${specOpeningLine(d.from!)}\n${RULE_LINE}\n${d.text}`;
-    if (out !== want) throw new Error(`the prompt built for "${d.id}" is not the frame, the rule line, then the message unchanged.\n  expected: ${JSON.stringify(want)}\n  got: ${JSON.stringify(out)}`);
+    const want = `${specOpeningLine(d.from!)}\n${RULE_LINE}\n${specQuoted(d.text)}\n${MESSAGE_END_LINE}`;
+    if (out !== want) throw new Error(`the prompt built for "${d.id}" is not the frame, the rule line, the message quoted line by line, then the closing line.\n  expected: ${JSON.stringify(want)}\n  got: ${JSON.stringify(out)}`);
   }
   for (const d of REFUSED_CASES) {
     const out = build(d);

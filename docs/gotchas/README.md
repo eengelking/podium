@@ -75,7 +75,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [On macOS the first podiumctl start takes a while](first-start-on-macos-takes-a-while.md): Podman starts its VM and builds the image on the first start; wait, and later starts are quick.
 - [podiumctl uses Podman, but I want Docker (or the other way round)](podiumctl-uses-podman-but-i-want-docker.md): Container mode prefers Podman and remembers the first engine; remove the container and start again with --engine.
 - [podiumctl disable stopped my standalone server](podiumctl-disable-stopped-my-server.md): Removing the launchd or systemd service stops the standalone server it ran; start it again with podiumctl start.
-- [A restart shows every session as stale](restart-shows-every-session-as-stale.md): Sessions come back from SQLite as stale and recover when their reporters next send, within about five seconds.
+- [A restart shows every session as stale](restart-shows-every-session-as-stale.md): Sessions come back from the database (SQLite, PostgreSQL or MariaDB) as stale and recover when their reporters next send, within about five seconds.
 - [podman inspect podium shows the token](podman-inspect-shows-the-token.md): The token is part of the container's environment and inspect prints it; treat the account that runs the engine as trusted.
 - [Anyone on localhost can read the console](anyone-on-localhost-can-read-the-console.md): Reads are open on localhost by design; keep the default bind unless you want others to see the console.
 - [A name set with the shared secret, or with no token, shows no person](name-without-a-person-token-shows-no-person.md): The people view follows the token, not the name; give each person a token in Admin and put it in their reporter with their name.

@@ -4,8 +4,10 @@
 // the UI and the reporters share; this file re-exports them so the server's imports stay as they were.
 
 import { parseBuild } from './parseBuild.js';
+import { stripFormat } from '../storage/peerText.js';
+import { resumeWindowDays } from '../../../plugin/core/resumeWindow.js';
 import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
-import { CAPABILITY_KEYS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
+import { CAPABILITY_KEYS, ToolStat, TIME_BUCKETS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
 
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
@@ -238,6 +240,8 @@ export interface RespondMe {
   name: string | null;
   /** The admin secret, or a person in Administrators. */
   admin: boolean;
+  /** The Admin's My usage setting is on (#726), so the top bar offers the page. Absent from an older server, which means off. */
+  myUsage?: boolean;
 }
 
 /** One stored activity event as the UI shows it: the event plus who it is about. */
@@ -383,6 +387,10 @@ export const LIMITS = {
   planSteps: 100,
   skills: 50,
   toolNames: 100,
+  /** The names of what a harness sent a reporter in one session (#724). */
+  signalNames: 64,
+  /** Distinct call length buckets one tool may name: all of them. */
+  toolTimeBuckets: TIME_BUCKETS,
   usageModels: 40,
   backgroundTasks: 20,
   backgroundDescription: 120,
@@ -419,6 +427,9 @@ class Invalid extends Error {
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000a-\u001f\u007f]/g;
 
+/** The line separators besides `\n` that a terminal or browser breaks at. */
+const LINE_SEPARATORS = /[\u2028\u2029\u0085]/g;
+
 // The full prompt and answer keep their line breaks: only the other control characters go.
 // eslint-disable-next-line no-control-regex
 const CONTROL_KEEP_NEWLINE = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
@@ -429,7 +440,8 @@ function clampText(v: string, max: number): string {
 }
 
 function clampStr(v: string, max: number): string {
-  const clean = v.replace(CONTROL, ' ');
+  // Format characters draw nothing and U+2028, U+2029 and U+0085 break a line, so none of them stays in a name or a short string (#1051).
+  const clean = stripFormat(v).replace(LINE_SEPARATORS, ' ').replace(CONTROL, ' ');
   return clean.length > max ? clean.slice(0, max) : clean;
 }
 
@@ -531,6 +543,63 @@ function countsOrNull(v: unknown, path: string, max: number): Record<string, num
   }
   const top = [...merged].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, max);
   return Object.fromEntries(top);
+}
+
+/** A signal name a reporter may send (#724): `hook:<hook>` or `field:<hook>.<field>`. */
+const SIGNAL_NAME = /^(hook|field):[A-Za-z0-9_.:-]{1,100}$/;
+
+/**
+ * What the harness sent the reporter in this session (#724): counts by signal name. A name that is not of the form `hook:...` or `field:...` is dropped
+ * rather than refused, and so is a count that is not a whole number from 0, so a newer reporter that sends something else does not lose its report; and the most seen `max` names are kept.
+ * Absent stays absent: an older reporter does not send it.
+ */
+function signalsOrUndefined(v: unknown, path: string, max: number): Record<string, number> | undefined {
+  if (v === null || v === undefined) return undefined;
+  const kept: Record<string, number> = {};
+  for (const [k, n] of Object.entries(obj(v, path))) if (SIGNAL_NAME.test(k) && typeof n === 'number' && Number.isInteger(n) && n >= 0) kept[k] = n;
+  return countsOrNull(kept, path, max) ?? undefined;
+}
+
+/**
+ * What each tool did beyond being called (#721): counts of failures, permission asks and call lengths, by tool name. Names are clipped like
+ * `toolCounts`, names that clip alike are added up, counts are rounded and a zero is dropped, and the busiest `max` names are kept. A bucket
+ * must be one of the call lengths there are. Absent stays absent: an older reporter does not send it.
+ */
+function statsOrUndefined(v: unknown, path: string, max: number): Record<string, ToolStat> | undefined {
+  if (v === null || v === undefined) return undefined;
+  const merged = new Map<string, Required<Omit<ToolStat, 'times'>> & { times: Map<number, number> }>();
+  for (const [k, raw] of Object.entries(obj(v, path))) {
+    const at = `${path}.${k}`;
+    const o = obj(raw, at);
+    const name = clampStr(k, LIMITS.short);
+    const m = merged.get(name) ?? { failed: 0, asked: 0, allowed: 0, denied: 0, podium: 0, times: new Map<number, number>() };
+    for (const f of ['failed', 'asked', 'allowed', 'denied', 'podium'] as const) if (o[f] !== undefined) m[f] += int(o[f], `${at}.${f}`);
+    if (o.times !== undefined) {
+      for (const [b, n] of Object.entries(obj(o.times, `${at}.times`))) {
+        const bucket = Number(b);
+        if (!Number.isInteger(bucket) || bucket < 0 || bucket >= LIMITS.toolTimeBuckets) throw new Invalid(`${at}.times.${b}`, 'expected a call length bucket');
+        m.times.set(bucket, (m.times.get(bucket) ?? 0) + int(n, `${at}.times.${b}`));
+      }
+    }
+    merged.set(name, m);
+  }
+  const weight = (m: { failed: number; asked: number; times: Map<number, number> }): number => m.failed + m.asked + [...m.times.values()].reduce((a, b) => a + b, 0);
+  const top = [...merged].sort((a, b) => weight(b[1]) - weight(a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, max);
+  const out: Record<string, ToolStat> = {};
+  for (const [name, m] of top) {
+    const stat: ToolStat = {};
+    for (const f of ['failed', 'asked', 'allowed', 'denied', 'podium'] as const) if (m[f] > 0) stat[f] = m[f];
+    const times = [...m.times].filter(([, n]) => n > 0).sort((a, b) => a[0] - b[0]);
+    if (times.length) stat.times = Object.fromEntries(times.map(([b, n]) => [String(b), n]));
+    if (Object.keys(stat).length) out[name] = stat;
+  }
+  return out;
+}
+
+/** The `toolStats` of an agent or of the main loop, as a spread that leaves the key out when the reporter sent none. */
+function stats(o: Record<string, unknown>, path: string): { toolStats?: Record<string, ToolStat> } {
+  const t = statsOrUndefined(o.toolStats, `${path}.toolStats`, LIMITS.toolNames);
+  return t === undefined ? {} : { toolStats: t };
 }
 
 function arr(v: unknown, path: string, max: number): unknown[] {
@@ -706,6 +775,7 @@ function agent(v: unknown, path: string, version: ReportVersion): AgentReport {
     lastTool: strOrNull(o.lastTool, `${path}.lastTool`, LIMITS.short),
     toolCalls: int(o.toolCalls, `${path}.toolCalls`),
     toolCounts: countsOrNull(o.toolCounts, `${path}.toolCounts`, LIMITS.toolNames),
+    ...stats(o, path),
     blowouts: int(o.blowouts, `${path}.blowouts`),
     steps,
     promptExcerpt: str(o.promptExcerpt, `${path}.promptExcerpt`, LIMITS.excerpt),
@@ -747,6 +817,7 @@ function loop(v: unknown, path: string): LoopReport | null {
     lastTool: strOrNull(o.lastTool, `${path}.lastTool`, LIMITS.short),
     toolCalls: int(o.toolCalls, `${path}.toolCalls`),
     toolCounts: countsOrNull(o.toolCounts, `${path}.toolCounts`, LIMITS.toolNames) ?? {},
+    ...stats(o, path),
     steps: { done: int(steps.done, `${path}.steps.done`), total: null },
   };
 }
@@ -840,10 +911,24 @@ function modelFields(o: Record<string, unknown>, path: string, version: ReportVe
   return out;
 }
 
+/**
+ * Why a session id cannot be taken, or null when it can (#1051). Chat names a person's end `person:<name>` and joins
+ * two ends with `|` or `+`, and a dot-only id vanishes from a URL path, so a reporter must not be able to make an id
+ * that reads as any of those. Real ids (a UUID, `ses_...`) have none of them.
+ */
+export function badSessionId(id: string): string | null {
+  if (/^person:/i.test(id)) return 'must not start with "person:"';
+  if (/^\.+$/.test(id)) return 'must not be only dots';
+  if (/[|+/]/.test(id)) return 'must not contain "|", "+" or "/"';
+  return null;
+}
+
 function session(v: unknown, path: string, version: ReportVersion, harnessId: string | null): SessionReport {
   const o = obj(v, path);
   const id = str(o.id, `${path}.id`, LIMITS.id);
   if (!id) throw new Invalid(`${path}.id`, 'must not be empty');
+  const badId = badSessionId(id);
+  if (badId) throw new Invalid(`${path}.id`, badId);
   const bg = background(o.background, `${path}.background`);
   return {
     id,
@@ -853,6 +938,8 @@ function session(v: unknown, path: string, version: ReportVersion, harnessId: st
     waitNote: strOrNull(o.waitNote, `${path}.waitNote`, LIMITS.waitNote),
     endReason: strOrNull(o.endReason, `${path}.endReason`, LIMITS.short),
     resumeId: strOrNull(o.resumeId, `${path}.resumeId`, LIMITS.id),
+    // A window is clamped, never refused: an odd number must not drop the whole report (#1113). Absent from a reporter too old to send it.
+    ...(o.resumeWindowDays === undefined || o.resumeWindowDays === null ? {} : { resumeWindowDays: resumeWindowDays(o.resumeWindowDays) }),
     startedAt: whole(o.startedAt, `${path}.startedAt`),
     cwd: str(o.cwd, `${path}.cwd`, LIMITS.path),
     projectRoot: strOrNull(o.projectRoot, `${path}.projectRoot`, LIMITS.path),
@@ -1148,12 +1235,17 @@ export function validateReport(body: unknown): ValidateResult {
     };
     if (harness) report.harness = harness;
     if (capabilities) report.capabilities = capabilities;
+    // Declared by v2 in its capabilities and by v1 on its own, and only an explicit boolean counts (#1051).
+    const adminNotices = version === 2 ? capabilities?.adminNotices : o.adminNotices === undefined ? undefined : bool(o.adminNotices, '$.adminNotices');
+    if (adminNotices !== undefined) report.adminNotices = adminNotices;
     const build = parseBuild(r.build);
     if (build !== null) report.reporter.build = build;
     const userName = strOrNull(o.userName, '$.userName', LIMITS.name);
     if (userName !== null) report.userName = userName;
     const m = machine(o.machine, '$.machine');
     if (m !== null) report.machine = m;
+    const signals = signalsOrUndefined(o.signals, '$.signals', LIMITS.signalNames);
+    if (signals !== undefined) report.signals = signals;
     withinActivityBudget(report);
     return { ok: true, report };
   } catch (err) {

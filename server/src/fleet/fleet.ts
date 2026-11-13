@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -19,6 +19,9 @@ import { ActivityStore } from './activity.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
+import { ChatService } from './chat.js';
+import { AdminActs } from './adminActs.js';
+import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
 import { silentLogger, type Logger } from '../logging/logger.js';
@@ -151,6 +154,10 @@ export class Fleet {
   readonly respond: RespondStore;
   /** Orchestrator messaging (#347, #412): rights, requests and messages, in the database. */
   readonly peers: PeerStoreApi;
+  /** Chat (#1034): the channels, the direct messages a person adds to, and their counts. */
+  readonly chat: ChatService;
+  /** Tells a person when an Admin stops or deletes their recording, stored activity, session, access or reporter (#1078). */
+  readonly adminActs: AdminActs;
   /** The daily check for a newer Podium release (#499); the wall's update notice reads its answer. */
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
@@ -251,14 +258,16 @@ export class Fleet {
         // The live feed is updated first and cannot fail. The history write is best effort: a full disk or a locked file is
         // logged and never reaches the answer, ask or message that caused it.
         add: (sid, loop, ref, e, delivery) => {
+          // The feed, the history and the recordings are the reporter's activityFeed option's to fill (#1051): a reporter that has it off, or has not said, gets no Podium entry.
+          if (this.activity.feedOn(sid) !== true) return;
           this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e);
           this.historySafely('add', sid, async () => {
             const meta = await this.historyMeta(sid);
             if (meta) await this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
           });
           // A message's prompt entry, when it arrives from the mod, gets the sender as its marker (#353), when its text matches exactly. An answer, an
-          // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them.
-          if (delivery.kind === 'message') this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e, ref));
+          // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them. A Chat message has no text here to match.
+          if (delivery.kind === 'message' && !delivery.chat && !delivery.channel) this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e, ref));
         },
         update: (sid, ref, note) => {
           this.activity.updatePodium(sid, ref, note);
@@ -272,6 +281,31 @@ export class Fleet {
       },
     );
     this.peers = storage.peers({ now, flagOn: () => this.features.featureOn(PEER_MESSAGING), startedAt: this.startedAt });
+    const host: ChatHost = {
+      now,
+      peers: this.peers,
+      respond: this.respond,
+      respondFlagsOn: () => this.respondFlagsOn(),
+      featureOn: (id) => this.features.featureOn(id),
+      isLive: (id) => this.live.has(id),
+      sessionOf: async (id) => {
+        const row = await this.db.getSession(id);
+        return row ? { name: row.name, owner: row.owner } : null;
+      },
+      liveIds: () => [...this.live.keys()],
+      secrets: () => (history.secret ? [history.secret] : []),
+      // The stream goes to every open console, so it carries a change counter and a coarse scope only: no name, count or id (#1034).
+      signal: (s: ChatSignal & { rev: number }) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
+      warn: (what, err) => this.logger.warn('chat.failed', `podium: ${what}: ${(err as Error).message}`, { reason: (err as Error).message }),
+    };
+    this.chat = new ChatService(host, storage.chat({ now }));
+    const reads = this.chat.adminReads;
+    this.adminActs = new AdminActs({
+      mark: (thread, admin, kind, people) => reads.record(thread, admin, kind, people),
+      tell: (sessionId, text) => reads.tell(sessionId, text),
+      sessionsOf: (owner) => reads.sessionsOf(owner),
+      sessionOf: (id) => host.sessionOf(id),
+    });
     this.wall = new LiveWallSettings(storage.wallSettings, () => {
       this.settingsEpoch++;
       void this.broadcastWall();
@@ -784,6 +818,26 @@ export class Fleet {
     if (this.live.has(sessionId)) this.scheduleSession(sessionId);
   }
 
+  private sessionReadsRev = 0;
+
+  /**
+   * An Admin opened, paged or left content of someone's session (#1073, #1074): open consoles are told with a counter and nothing else, so the owner's console
+   * reads who is reading and nobody else's learns anything. The stream never names the Admin, the person or the session.
+   */
+  sessionReadsChanged(): void {
+    void this.emit(() => ['reads', { rev: ++this.sessionReadsRev }]);
+  }
+
+  private replayRev = 0;
+
+  /**
+   * An Admin opened, paged or left a replay of someone's recorded session (#1075): open consoles are told, with a counter and nothing else, so the owner's
+   * console reads who is replaying and nobody else's learns anything. The stream never names the Admin or the session.
+   */
+  replayChanged(): void {
+    void this.emit(() => ['replay', { rev: ++this.replayRev }]);
+  }
+
   /** The Admin changed the Activity history setting: open consoles learn whether a sign-in is now offered. */
   activityHistoryChanged(): Promise<void> {
     this.settingsEpoch++;
@@ -825,15 +879,43 @@ export class Fleet {
       const row = await this.db.getSession(sessionId);
       if (!row || (row.status === 'done' && report.session.status !== 'done')) return;
       await this.peers.note(sessionId, reporterKey, owner, report);
+      await this.chatSafely('a session reported', () => this.chat.sessionSeen(sessionId, owner));
     });
+  }
+
+  /** Chat follows the live set, but a failure in it never stops a report, a sweep or a delete. */
+  private async chatSafely(what: string, job: () => Promise<void>): Promise<void> {
+    try {
+      await job();
+    } catch (err) {
+      this.logger.warn('chat.failed', `podium: Chat could not follow ${what}: ${(err as Error).message}`, { reason: (err as Error).message });
+    }
   }
 
   /** Deletes a session after any report for it that was already taken in; a report taken in later stores it again, as ever. */
   deleteSession(id: string): Promise<boolean> {
-    return this.serial.run(id, () => this.deleteNow(id));
+    return this.serial.run(id, async () => (await this.deleteNow(id, null)) === 'deleted');
   }
 
-  private async deleteNow(id: string): Promise<boolean> {
+  /**
+   * The Delete route (#1051): looks the session up first, so an id that is no session (a `person:` id included) changes
+   * nothing, and lets only the session's owner delete it. `asOwner` is the caller's name, or undefined for the admin
+   * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's.
+   */
+  deleteSessionAs(id: string, asOwner: string | undefined, byAdmin?: string): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    return this.serial.run(id, () => this.deleteNow(id, { asOwner, byAdmin }));
+  }
+
+  /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwner` must own it. */
+  private async deleteNow(id: string, check: { asOwner: string | undefined; byAdmin?: string } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    const row = await this.db.getSession(id);
+    if (check) {
+      if (!row) return 'unknown';
+      if (check.asOwner !== undefined && row.owner && nameKey(row.owner) !== nameKey(check.asOwner)) return 'forbidden';
+    }
+    const owner = row?.owner ?? null;
+    // An Admin deleting a person's session tells the person first, so a failure to record it stops the delete (#1078).
+    if (check?.byAdmin !== undefined) await this.adminActs.onSession(check.byAdmin, 'session_deleted', id);
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);
@@ -844,14 +926,16 @@ export class Fleet {
     this.recordings.removeSession(id).catch((err: Error) => this.logger.error('recording.delete_failed', `podium: could not remove the recording of session ${id}: ${err.message}`, { session_id: id, reason: err.message }));
     this.diffs.drop(id);
     this.respond.dropSession(id);
-    await this.peers.deleted([id]);
+    // `person:<name>` is how Chat names a person's end, never a session; deleting by it would wipe that person's conversations (#1051).
+    if (!isPersonId(id.toLowerCase())) await this.peers.deleted([id]);
+    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
     const existed = await this.db.deleteSession(id);
     if (wasLive) await this.emit(() => ['removed', { sessionId: id, reason: 'deleted' satisfies RemovedReason }]);
     if (existed) this.logger.info('session.deleted', `podium: session ${id} deleted`, { session_id: id, live: wasLive });
-    return existed;
+    return existed ? 'deleted' : 'unknown';
   }
 
   /**
@@ -890,6 +974,7 @@ export class Fleet {
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
     await this.peers.ended(row.id);
+    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner));
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);
@@ -1016,6 +1101,7 @@ export class Fleet {
       this.logger.error('retention.recording_failed', `podium: could not remove the recordings of expired sessions: ${err.message}`, { reason: err.message });
     });
     const peers = await this.peers.retain();
+    await this.chatSafely('retention', () => this.chat.maintain());
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
   }
 

@@ -96,6 +96,64 @@ afterEach(() => {
 const feed = (c: HTMLElement) => c.querySelector<HTMLOListElement>("ol.feed")!;
 const lis = (c: HTMLElement) => [...feed(c).querySelectorAll<HTMLElement>(":scope > li")];
 
+describe("an Admin's open replay of someone else's session (#1075)", () => {
+  const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
+
+  it("pings the server every 15 seconds so the owner's notice stays, and stops when the page closes", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const api = fakeApi({ me: vi.fn(async () => ADMIN), recordingReading });
+    const { unmount } = await replay(api);
+    expect(recordingReading).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_100);
+    });
+    expect(recordingReading).toHaveBeenCalledTimes(1);
+    expect(recordingReading).toHaveBeenCalledWith("s1");
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(recordingReading).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("sends nothing while the page is hidden, and pings again once it is shown", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const api = fakeApi({ me: vi.fn(async () => ADMIN), recordingReading });
+    await replay(api);
+    recordingReading.mockClear();
+    // The sign-in check itself pauses while hidden (#1054), so the page is hidden only after it has answered.
+    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(recordingReading).not.toHaveBeenCalled();
+    vis.mockReturnValue("visible");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_100);
+    });
+    expect(recordingReading).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("sends nothing for the owner's own replay or for a person who is not an Admin", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    for (const me of [{ ...ADMIN, name: "Ed" }, ME]) {
+      const api = fakeApi({ me: vi.fn(async () => me), recordingReading });
+      const { unmount } = await replay(api);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      unmount();
+    }
+    expect(recordingReading).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
 describe("the replay page", () => {
   it("names the session and says how it was recorded, and that thinking text is not available", async () => {
     const { container } = await replay();

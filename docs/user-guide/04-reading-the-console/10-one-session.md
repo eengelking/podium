@@ -21,13 +21,17 @@ Click a card or a rail item. The page has a summary, a plan, an agent tree and a
 | Fact | What it shows |
 |---|---|
 | Agents | The orchestrator counts as one. A red "N failed" button opens the first failure |
-| Est. cost | Estimated cost for the whole session |
+| Est. cost | Estimated cost for the whole session. It reads **Cost** when the harness reports the cost itself |
 | Tokens | The context held now |
-| Running time | How long the session has run |
-| Agent time | The orchestrator's time plus every agent's. It is longer than running time when agents run at once |
-| Machine | The machine the session runs on, as its reporter named it. "Not reported" when the session has no user name, so no machine. Hover or tab to the cell for why |
-| System | The machine's operating system and version, such as `macOS 15.4`, with the same icon as My reporters. "Not reported" when the reporter did not send it: update podium-reporter, or set `userName` when the Machine is also not reported |
+| Running for | How long the session has run |
+| Agent time | The orchestrator's time plus every agent's. It is longer than running for when agents run at once |
+| Blowouts | "none" when clear, otherwise the count; click it to see each affected loop |
+| Machine \| System | One cell: the machine the session runs on, as its reporter named it, then its operating system and version, such as `macOS 15.4`, with the same icon as My reporters. "Not reported" for a part the report did not send: no machine means no user name; no system means an older podium-reporter. Hover or tab to the cell for why |
 | Reporter | The version of the podium-reporter mod the session runs, or "Settings hooks" when it has no mod. The version shows in amber with "update" or "upgrade server" when the server says it is outside the supported range |
+| Session | The first eight characters of the session id. Click it to copy the whole id |
+| Resume | Copies the command that continues this same session in a new terminal. Run it once the session has ended. "Not available" for a harness with no such command |
+| Fork | Copies the command that starts a copy of the conversation in a new session and leaves this one alone. Use it to ask a stuck agent "why did you do that?" without changing the session you are investigating. A fork works in the same directory, so its file edits are real, and it does not carry over permissions you allowed or flags such as `--mcp-config`. Hover a cell to read what its command does |
+| Recording | Whether the session is being recorded; the owner and an Admin can start it here (see [Session recording](13-session-recording.md)) |
 
 ## The plan and Files
 
@@ -46,19 +50,17 @@ and removed (a binary file shows the word "binary"), 20 to a page. The column ge
 
 - The list comes from `git diff` against the commit the session began on, so two sessions in the same checkout see the
   same changes. Use a worktree to keep them apart.
-- It needs podium-reporter 0.6.0 or later, and says so when the reporter is older.
+- It needs podium-reporter 0.6.0 or later, and says so when the reporter is older. The list shows at most 200 files ("Listing the first N of M files").
+- Click a file to open its diff in a window, with Next and Previous buttons. It needs the Admin's **File diff** flag, the machine's `fileDiff` option and you signed in as the session's owner (Admin > Settings > Feature flags).
 - An archived session on the History page shows no diffs. The machine that could read them is gone, and Podium does not keep them yet.
 
 ## The agent tree
 
 On the right is the agent tree: every subagent and fork with its task, type, model, effort, context bar (amber from 75%
-full, red from 80%), tokens, cost, time and status.
+full, red from 80%), tokens, cost, time and status. A harness that cannot report effort or context, such as OpenCode, has no Effort or Context column.
 
 - Click a column header to sort. Each agent's own agents stay under it, sorted among themselves. Click the header again
   to reverse, and **Launch order** to go back.
-- The **Session** cell copies the session id.
-- The **Resume** cell copies the command that continues this same session in a new terminal. Run it once the session has ended.
-- The **Fork** cell copies the command that starts a copy of the conversation in a new session and leaves this one alone. Use it to ask a stuck agent "why did you do that?" without changing the session you are investigating. A fork works in the same directory, so its file edits are real, and it does not carry over permissions you allowed or flags such as `--mcp-config`. Hover a cell to read what its command does.
 
 A subagent or a fork can launch agents of its own, and those can too.
 
@@ -102,8 +104,7 @@ it launched are counted in those agents' panels, not here.
   links). Esc, the X or a click outside closes it, and **Copy** copies the raw text.
 - A button is dimmed until there is something to show. The answer stays dimmed while the agent runs.
 - By default Podium only has the first 400 characters of each, and the window says so. To see the whole text, turn on the
-  mod's `fullPrompts` option (podium-reporter 0.10.0 or later). The full text then goes to the server, and everyone who
-  can open the console can read it.
+  mod's `fullPrompts` option (podium-reporter 0.10.0 or later). The full text then goes to the server, and only the session's owner, signed in, and an Admin can read it (anyone else sees the first 400 characters).
 
 ## The agent activity feed
 
@@ -120,8 +121,7 @@ orchestrator's Activity section works the same way, for its own calls and text.
   choose to keep more: see [Stored history](#stored-history) below.
 
 It needs podium-reporter 0.13.0 or later with the mod's `activityFeed` option on, and the server's **Agent activity
-feed** flag on in Admin > Settings > Feature flags. Everyone who can open the console can watch, which is why the option
-is off by default. The option is per machine, like the rest of the mod's options, so each person who wants the feed for
+feed** flag on in Admin > Settings > Feature flags. Only the session's owner, signed in, and an Admin can watch, and an Admin's read is told to the owner. It is off by default because the feed holds what the agent ran. The option is per machine, like the rest of the mod's options, so each person who wants the feed for
 their own sessions turns it on for themselves.
 
 ### Stored history
@@ -135,6 +135,11 @@ whether or not anyone is watching, until the Admin's period ends.
 - It also works for a session that has ended, until its entries are purged.
 - Only the session's owner and the Admin can read stored history. Anyone else sees a line saying so, and no entries. You
   need to be signed in (the same sign-in as responding and file diffs).
+- When an Admin pages through your stored history, you are told. Your page shows a red notice under the status band
+  while the Admin reads, naming the Admin, and a quiet line with the time after. Your session shows a callout too. The red
+  notice has no X and stays while the Admin reads. Close the quiet line with its X; that hides it on your screen only,
+  and the record and the Admin log stay. Reading your own history
+  tells no one.
 - It is a record of what the reporter sent, not a complete one: the mod keeps 20 entries per loop between reports, so a
   busy session can miss some. Secrets are removed on your machine before anything is sent, and the Admin can delete
   stored history at any time ([Stored activity](../05-admin/11-stored-activity.md)).
@@ -147,6 +152,7 @@ whether or not anyone is watching, until the Admin's period ends.
    **Plugins** > **Podium-Reporter** > **Settings** and turn it on there. The same setting is in the `/config` menu, or you
    can set `activityFeed` to `true` under `pluginConfigs` in `~/.claude/settings.json`
    ([REPORTER.md](../../REPORTER.md#install-the-mod) lists where).
+   In OpenCode, add `PODIUM_ACTIVITY_FEED=true` to `~/.podium/config.env` and restart OpenCode's service.
 3. A changed setting reloads the mod, so a session that is already running should pick it up. If the panel still says the
    option is off, run `/reload-plugins` in that session.
 4. Open the agent's panel. The feed starts empty and fills from that moment, because nothing is sent for an agent nobody

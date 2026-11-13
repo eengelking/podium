@@ -46,7 +46,10 @@ describe('admin: people and groups', () => {
     });
 
     it('assigns a group from the select under the name', () => {
+      // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+      cy.intercept('PUT', '**/api/admin/people/*/group').as('setGroup');
       cy.contains('tr', 'Priya').find('select').select('Platform');
+      cy.wait('@setGroup');
       cy.contains('tr', 'Priya').find('select').find(':selected').should('have.text', 'Platform');
       cy.reload();
       cy.adminPage('People');
@@ -186,7 +189,10 @@ describe('admin: a person leaving a group', () => {
   before(() => cy.resetServer());
   beforeEach(() => cy.openAdmin());
   it('moves a person out of a group: the wall puts them under Unassigned', () => {
+    // The write is waited for, so the reload cannot cut it off or read the old value (#1137).
+    cy.intercept('PUT', '**/api/admin/people/*/group').as('setGroup');
     cy.contains('tr', 'Alex').find('select').select('No group');
+    cy.wait('@setGroup');
     cy.contains('tr', 'Alex').find('select').find(':selected').should('have.text', 'No group');
     cy.visit('/#/');
     cy.get('[aria-label="Group by"]').contains('button', 'Group').click();

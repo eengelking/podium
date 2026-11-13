@@ -8,34 +8,32 @@ order: 9
 
 # 5.9 Mod configuration (userConfig)
 
-Declare the options in `plugin.json`. **Assumption:** confirm the exact `userConfig` field syntax with
-`claude plugin validate`. The reference says a field may list `options` and `default`, and secret fields are
-supported.
+Declare the options in `plugin.json`. The syntax is checked with `claude plugin validate`. A field may list `options` and `default`, and a secret field is marked `"sensitive": true`.
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `serverUrl` | string | `http://127.0.0.1:4317` | Where to POST. |
-| `token` | string (secret if supported) | empty | Sent as `X-Podium-Token` when non-empty: a person's token from Admin ([7.7](../07-server/07-07-hardening.md)), or the admin secret. |
+| `token` | string (secret, `"sensitive": true`) | empty | Sent as `X-Podium-Token` when non-empty: a person's token from Admin ([7.7](../07-server/07-07-hardening.md)), or the admin secret. |
 | `userName` | string | empty | The person's name as the server owner entered it (see below). |
 | `flushIntervalMs` | number | `1000` | Minimum time between reports while something changes. |
 | `heartbeatMs` | number | `5000` | Report at least this often even when nothing changed. |
 | `sessionName` | string | empty | Override display name for this machine's sessions (rare). |
 | `showStatus` | boolean | `true` | Show the status line (`podium v<version> ● N live` and its offline and refused states). |
-| `explainFailures` | boolean | `false` | Phase 5 only. When true, ask a small model to explain a failure (costs tokens). |
+| `explainFailures` | boolean | `false` | When true, ask a small model (`haiku`) to explain a failure (costs tokens). OpenCode: `PODIUM_EXPLAIN_FAILURES`. |
 | `fullPrompts` | boolean | `false` | When true, send each agent's whole task prompt and final answer as `promptText` and `answerText` ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)). Off by default: only the 400-character excerpts are sent. |
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
 | `activityOutput` | boolean | `false` | When true, the mod sends a Bash command's output with its activity entry, only for a loop a viewer has the feed open on (see below). Title "Send a Bash command's output". Needs `activityFeed` on. |
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `fileDiffPreload` | boolean | `true` | Needs `fileDiff`. When true, the console may ask for every changed file's diff while the owner has the session's page open (#631, see below). Title "Read every changed file's diff while its page is open". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
-| `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. The server takes it in the report (`session.peers`, #412). Read from `register`'s options (#414); the report sends `session.peers` true only with the option on and an interactive session. |
+| `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". The option is the machine's, and the server cannot change it. The report sends it for each session (`session.peers`, #412), true only with the option on and an interactive session, and the server treats a machine as taking part while any of its live sessions last reported true ([DECISIONS 52](../../decisions/52-a-machine-takes-part-in-messaging-while-any-live-session-does.md), #838), so a `claude -p` run does not switch it off. Read from `register`'s options (#414). |
 | `sessionRecording` | boolean | `false` | When true, this machine's sessions may be recorded whole when someone with the right chooses to ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)). Title "Allow session recording". Set once per machine; the server cannot change it. The report sends `session.sessionRecording`. |
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
 
 A boolean option holds `true` or `false`. A value of another type, such as the text `"true"`, is not read as true: the mod uses the option's default, so a consent option is never turned on by a stray value, and `/podium` prints an `Option problem:` line that names the option and what it got, with any text other than `true` or `false` shown only as "a text" (#825).
 
-## Notes on six options
+## Notes on seven options
 
 **`userName`**
 - Sent as `Report.userName`, with `Report.machine`. The server accepts a report made with a person's token
@@ -212,8 +210,8 @@ the file, and the mod sends its requests to it over a Unix socket with `$.http.f
 - It is started as `node helper.mjs <config path> <socket path> <server url>` and prints `ready` on its stdout
   when it is listening. The mod waits for that line, not for the socket file.
 - It forces `rejectUnauthorized: true` and starts with `NODE_TLS_REJECT_UNAUTHORIZED` and `NODE_OPTIONS` cleared.
-- It uses one socket per session, in a directory with mode 0700, and the socket is `chmod 0600`. A socket path is
-  104 bytes at most on macOS and 108 on Linux.
+- On macOS and Linux it uses one socket per session, in a directory with mode 0700, and the socket is `chmod 0600`. A socket path is
+  104 bytes at most on macOS and 108 on Linux. On Windows the mod and the helper talk through a folder, not a socket (DECISIONS 51).
 - It exits when its parent dies and removes only its own socket. A `session.end` with reason `clear` does not stop
   it.
 - A failure comes back as an `X-Podium-Helper-Error` header (`CERT_HAS_EXPIRED`, `ALTNAME`, `ECONNREFUSED`,
@@ -228,14 +226,14 @@ the file, and the mod sends its requests to it over a Unix socket with `$.http.f
   `CERT_EXPIRED` and sends nothing upstream. The reporter treats that as any failed send: it keeps its reports and
   retries with a back-off of at most 10 seconds, and `/podium` shows `offline, retrying` beside the reason.
 
-**Platforms.** macOS and Linux are in scope. Windows is out of scope and unsupported. The mod runs on the command
-line only: `$.process` is provided only there per the engine types, so the desktop app and VS Code are not covered.
+**Platforms.** macOS, Linux and Windows 11 are in scope for the reporter. On Windows it runs in Claude Code and in the Claude desktop app, installed from the archive
+([REPORTER.md](../../REPORTER.md#install-in-the-claude-desktop-app-on-windows-11), #834); the server runs on macOS and Linux. VS Code is not covered.
 
 **How the reporter finds `node`.** The helper needs `node`, and a Claude Code started from a desktop launcher
 often has no `nvm` or Homebrew `PATH` (measured: the spawn fails with `ENOENT`). The reporter uses the file named
 by `PODIUM_NODE` if that is set. Otherwise it runs `node` on the `PATH` Claude Code started with, then looks in
-Homebrew's and `/usr/local`'s `bin`, `~/.volta/bin`, `~/.local/bin` and the newest version under `~/.nvm`. A missing
-`node` is reported plainly (below).
+Homebrew's and `/usr/local`'s `bin`, `/usr/bin`, `/opt/local/bin`, `/snap/bin`, `~/.volta/bin`, `~/.local/bin` and the newest version under `~/.nvm`, and on Windows `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin` (DECISIONS 51). A missing
+`node` is reported plainly.
 
 <!-- nav:start -->
 ---

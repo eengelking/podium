@@ -15,7 +15,7 @@ import {
   type ReportReply,
 } from './reports.js';
 
-function csv(res: Response, reply: ReportReply): void {
+export function sendReport(res: Response, reply: ReportReply): void {
   const file = `podium-${reply.report.replaceAll('/', '-')}-${reply.from}-${reply.to}.csv`;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${file}"`);
@@ -29,7 +29,7 @@ export function createReportRouter(deps: ReportDeps): Router {
     try {
       if (format !== undefined && format !== 'csv' && format !== 'json') throw new ReportError('format must be json or csv');
       const reply = await make();
-      if (format === 'csv') csv(res, reply);
+      if (format === 'csv') sendReport(res, reply);
       else res.json(reply);
     } catch (err) {
       if (!(err instanceof ReportError)) throw err;

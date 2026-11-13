@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import { ReportDocs } from "./ReportDocs";
+import { ReportDocs, refusedNote } from "./ReportDocs";
+import { RespondError } from "../respondApi";
 import { makeAgent, makeSession } from "../fixtures";
 import type { AgentView } from "../types";
 
@@ -180,5 +181,32 @@ describe("Report modal", () => {
     await waitFor(() => expect(d).toHaveTextContent("<script>alert(1)</script>"));
     expect(d.querySelector("script")).toBeNull();
     expect(d.querySelector("img")).toBeNull();
+  });
+});
+
+describe("Report modal when the server refuses the full text (#1082)", () => {
+  it("says to sign in on a 401 and keeps the excerpt", async () => {
+    show({ promptChars: 20, promptExcerpt: "Find every call site." }, new RespondError(401, { ok: false }), { owner: "Ed" });
+    fireEvent.click(screen.getByRole("button", { name: /Task prompt/ }));
+    const d = screen.getByRole("dialog");
+    await waitFor(() => expect(d.querySelector(".mnote")?.textContent).toBe("Sign in as Ed or an Admin to open the full text. Showing the first 400 characters."));
+    expect(d).toHaveTextContent("Find every call site.");
+  });
+
+  it("says who can open it on a 403", async () => {
+    show({ promptChars: 20, promptExcerpt: "x" }, new RespondError(403, { ok: false }), { owner: "Ed" });
+    fireEvent.click(screen.getByRole("button", { name: /Task prompt/ }));
+    await waitFor(() => expect(screen.getByRole("dialog").querySelector(".mnote")?.textContent).toBe("Only Ed and the Admin can open the full text. Showing the first 400 characters."));
+  });
+
+  it("names an Admin only for a session the shared Admin owns", () => {
+    expect(refusedNote(401, "Admin")).toBe("Sign in as an Admin to open the full text. Showing the first 400 characters.");
+    expect(refusedNote(403, null)).toBe("Only an Admin can open the full text. Showing the first 400 characters.");
+  });
+
+  it("keeps the old note for any other failure", async () => {
+    show({ promptChars: 20, promptExcerpt: "x" }, new Error("HTTP 500"));
+    fireEvent.click(screen.getByRole("button", { name: /Task prompt/ }));
+    await waitFor(() => expect(screen.getByRole("dialog").querySelector(".mnote")?.textContent).toBe("Could not load the full text. Showing the first 400 characters."));
   });
 });

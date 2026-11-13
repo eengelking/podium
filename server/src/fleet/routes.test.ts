@@ -10,6 +10,8 @@ import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter, HISTORY_PAGE_SIZES } from './routes.js';
 import { MAIN_LOOP, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
+import { Lockout } from './lockout.js';
+import { createRespondBridge } from './respondBridge.js';
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -22,9 +24,22 @@ async function setup(token: string | null = null, cfg: Partial<typeof DEFAULT_CO
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:', ...cfg });
   await fleet.init();
   const app = express();
-  app.use('/api/fleet', createFleetRouter(fleet, { token, log: (l) => logs.push(l) }));
+  app.use('/api/fleet', createFleetRouter(fleet, { token, people: storage.people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: (l) => logs.push(l) }));
   closers.push(() => fleet.close());
   return { app, fleet, logs, storage };
+}
+
+const TOK = 'admin-secret';
+
+/** A server with a viewer signed in as the Admin: an agent's text and live feed need a sign-in (#1082). */
+async function setupSignedIn(cfg: Partial<typeof DEFAULT_CONFIG> = {}) {
+  const s = await setup(TOK, cfg);
+  await s.fleet.features.setFeature('peer-messaging', true); // a browser can sign in only while a feature that needs it is on
+  const viewer = request.agent(s.app);
+  expect((await viewer.post('/api/fleet/respond/sign-in').set('X-Podium-Respond', '1').send({ name: 'Admin', token: TOK })).status).toBe(200);
+  await s.fleet.features.setFeature('peer-messaging', false); // the sign-in stays, and the flags are what the tests below expect
+  const post = (r: Report) => request(s.app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
+  return { ...s, viewer, post };
 }
 
 describe('POST /api/fleet/report', () => {
@@ -126,16 +141,18 @@ describe('reads', () => {
     expect((await request(app).get('/api/fleet/sessions/nope')).status).toBe(404);
   });
 
-  it('GET /sessions/:id/agents/:agentId/text serves the full text, 404 when there is none', async () => {
-    const { app } = await setup();
+  it('GET /sessions/:id/agents/:agentId/text serves the full text to a signed-in Admin, 404 when there is none, 401 with no sign-in (#1082)', async () => {
+    const { app, viewer, post } = await setupSignedIn();
     const r = fixtureReport();
     r.agents[0]!.promptText = '# Task\n\nDo it.';
-    await request(app).post('/api/fleet/report').send(r);
-    const ok = await request(app).get(`/api/fleet/sessions/${r.session.id}/agents/${r.agents[0]!.id}/text`);
+    await post(r);
+    const url = (agent: string) => `/api/fleet/sessions/${r.session.id}/agents/${agent}/text`;
+    expect((await request(app).get(url(r.agents[0]!.id))).status).toBe(401);
+    const ok = await viewer.get(url(r.agents[0]!.id));
     expect(ok.status).toBe(200);
     expect(ok.body).toEqual({ prompt: '# Task\n\nDo it.', answer: null });
-    expect((await request(app).get(`/api/fleet/sessions/${r.session.id}/agents/${r.agents[1]!.id}/text`)).status).toBe(404);
-    expect((await request(app).get('/api/fleet/sessions/nope/agents/x/text')).status).toBe(404);
+    expect((await viewer.get(url(r.agents[1]!.id))).status).toBe(404);
+    expect((await viewer.get('/api/fleet/sessions/nope/agents/x/text')).status).toBe(404);
   });
 
   it('the session view carries the text lengths, never the text', async () => {
@@ -297,42 +314,43 @@ describe('the activity feed (#118)', () => {
   const url = (r: Report, loop: string, every = '') => `/api/fleet/sessions/${encodeURIComponent(r.session.id)}/agents/${encodeURIComponent(loop)}/activity${every}`;
 
   it('the report reply lists no loop while nobody watches, and the agent once a viewer fetches', async () => {
-    const { app } = await setup();
+    const { app, viewer } = await setupSignedIn();
     const r = live();
-    const first = await request(app).post('/api/fleet/report').send(r);
+    const first = await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
     expect(first.body.watch).toEqual([]);
-    const got = await request(app).get(url(r, r.agents[0]!.id, '?every=10'));
+    const got = await viewer.get(url(r, r.agents[0]!.id, '?every=10'));
     expect(got.status).toBe(200);
     expect(got.body).toMatchObject({ entries: [], live: true });
     expect(typeof got.body.since).toBe('number');
-    const second = await request(app).post('/api/fleet/report').send(live());
+    const second = await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(live());
     expect(second.body.watch).toEqual([r.agents[0]!.id]);
   });
 
   it('serves what the reporter sent for a watched loop, numbered, and the orchestrator under @orchestrator', async () => {
-    const { app } = await setup();
+    const { app, viewer } = await setupSignedIn();
     const r = live();
-    await request(app).post('/api/fleet/report').send(r);
-    await request(app).get(url(r, r.agents[0]!.id));
-    await request(app).get(url(r, MAIN_LOOP));
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
+    await viewer.get(url(r, r.agents[0]!.id));
+    await viewer.get(url(r, MAIN_LOOP));
     const at = Date.now() + 5;
     const second = await request(app)
       .post('/api/fleet/report')
+      .set('X-Podium-Token', TOK)
       .send(live([{ at, kind: 'tool', text: 'Bash npm test' }, { at: at + 1, kind: 'text', text: 'Two failures.' }], [{ at, kind: 'tool', text: 'Agent Map call sites' }]));
     expect(second.body.watch.sort()).toEqual([MAIN_LOOP, r.agents[0]!.id].sort());
-    const agent = await request(app).get(url(r, r.agents[0]!.id));
+    const agent = await viewer.get(url(r, r.agents[0]!.id));
     expect(agent.body.entries).toEqual([
       { seq: 1, at, kind: 'tool', text: 'Bash npm test' },
       { seq: 2, at: at + 1, kind: 'text', text: 'Two failures.' },
     ]);
-    const main = await request(app).get(url(r, MAIN_LOOP));
+    const main = await viewer.get(url(r, MAIN_LOOP));
     expect(main.body.entries.map((e: { text: string }) => e.text)).toEqual(['Agent Map call sites']);
   });
 
   it('keeps nothing for a loop nobody watches, and never puts entries in the session view', async () => {
-    const { app, fleet } = await setup();
+    const { app, fleet, viewer } = await setupSignedIn();
     const r = live([{ at: Date.now(), kind: 'tool', text: 'Read a' }]);
-    await request(app).post('/api/fleet/report').send(r);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
     expect(fleet.activity.size).toBe(0);
     const view = (await request(app).get(`/api/fleet/sessions/${r.session.id}`)).body;
     expect(view.activityFeed).toBe(true);
@@ -341,76 +359,80 @@ describe('the activity feed (#118)', () => {
 
   it('404 for an unknown session or agent; a session that has left the live set answers live: false and takes no lease', async () => {
     let t = Date.now();
-    const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => t);
+    const storage = openSqliteStorage(':memory:');
+    const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => t);
     await fleet.init();
     closers.push(() => fleet.close());
     const app = express();
-    app.use('/api/fleet', createFleetRouter(fleet, { log: () => {} }));
+    app.use('/api/fleet', createFleetRouter(fleet, { token: TOK, people: storage.people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
+    await fleet.features.setFeature('peer-messaging', true);
+    const viewer = request.agent(app);
+    expect((await viewer.post('/api/fleet/respond/sign-in').set('X-Podium-Respond', '1').send({ name: 'Admin', token: TOK })).status).toBe(200);
     const r = live();
-    expect((await request(app).get(url(r, 'x'))).status).toBe(404);
-    await request(app).post('/api/fleet/report').send(r);
-    expect((await request(app).get(url(r, 'no-such-agent'))).status).toBe(404);
-    await request(app).get(url(r, r.agents[0]!.id));
+    expect((await viewer.get(url(r, 'x'))).status).toBe(404);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
+    expect((await viewer.get(url(r, 'no-such-agent'))).status).toBe(404);
+    await viewer.get(url(r, r.agents[0]!.id));
     const done = live();
     done.session.status = 'done';
     done.session.endReason = 'prompt_input_exit';
-    await request(app).post('/api/fleet/report').send(done);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(done);
     t += DEFAULT_CONFIG.lingerMs + 1;
     await fleet.sweep();
     expect(fleet.isLive(r.session.id)).toBe(false);
     expect(fleet.activity.size).toBe(0);
-    const got = await request(app).get(url(r, r.agents[0]!.id));
+    const got = await viewer.get(url(r, r.agents[0]!.id));
     expect(got.status).toBe(200);
     expect(got.body).toMatchObject({ entries: [], live: false, since: null });
     expect(fleet.activity.size).toBe(0);
   });
 
   it('says enabled: true while the Admin flag is on', async () => {
-    const { app } = await setup();
+    const { app, viewer } = await setupSignedIn();
     const r = live();
-    await request(app).post('/api/fleet/report').send(r);
-    expect((await request(app).get(url(r, r.agents[0]!.id))).body).toMatchObject({ enabled: true, live: true });
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'session-recording': false, 'update-check': true, 'activity-history': false });
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
+    expect((await viewer.get(url(r, r.agents[0]!.id))).body).toMatchObject({ enabled: true, live: true });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true, 'activity-history': false });
   });
 
   it('with the Admin flag off: no lease, enabled: false, nothing watched, nothing kept; back on resumes', async () => {
-    const { app, fleet } = await setup();
+    const { app, fleet, viewer } = await setupSignedIn();
     const r = live();
     const aid = r.agents[0]!.id;
-    await request(app).post('/api/fleet/report').send(r);
-    await request(app).get(url(r, aid, '?every=60'));
-    await request(app).get(url(r, MAIN_LOOP, '?every=60'));
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
+    await viewer.get(url(r, aid, '?every=60'));
+    await viewer.get(url(r, MAIN_LOOP, '?every=60'));
     const at = Date.now() + 5;
-    await request(app).post('/api/fleet/report').send(live([{ at, kind: 'tool', text: 'Bash npm test' }]));
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(live([{ at, kind: 'tool', text: 'Bash npm test' }]));
     expect(fleet.activity.size).toBe(2);
 
     // Turning it off drops every lease and entry at once.
     await fleet.features.setFeature('activity-feed', false);
     expect(fleet.activity.size).toBe(0);
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'session-recording': false, 'update-check': true, 'activity-history': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true, 'activity-history': false });
 
-    const off = await request(app).get(url(r, aid));
+    const off = await viewer.get(url(r, aid));
     expect(off.status).toBe(200);
     expect(off.body).toMatchObject({ entries: [], since: null, live: true, enabled: false });
     expect(typeof off.body.serverTime).toBe('number');
     expect(fleet.activity.size).toBe(0);
     // The mod is told nothing is watched, and what it sends anyway is not kept.
-    const reply = await request(app).post('/api/fleet/report').send(live([{ at: at + 10, kind: 'tool', text: 'Read secret-ish' }]));
+    const reply = await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(live([{ at: at + 10, kind: 'tool', text: 'Read secret-ish' }]));
     expect(reply.body.watch).toEqual([]);
     expect(fleet.activity.size).toBe(0);
     // An unknown agent is still a 404 while off.
-    expect((await request(app).get(url(r, 'no-such-agent'))).status).toBe(404);
+    expect((await viewer.get(url(r, 'no-such-agent'))).status).toBe(404);
 
     // Back on: the next fetch takes a lease as usual and starts empty.
     await fleet.features.setFeature('activity-feed', true);
-    const on = await request(app).get(url(r, aid));
+    const on = await viewer.get(url(r, aid));
     expect(on.body).toMatchObject({ entries: [], live: true, enabled: true });
     expect(typeof on.body.since).toBe('number');
-    expect((await request(app).post('/api/fleet/report').send(live())).body.watch).toEqual([aid]);
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(live())).body.watch).toEqual([aid]);
   });
 
   it('a flag change reaches open browsers as a fresh snapshot carrying the flags', async () => {
-    const { fleet } = await setup();
+    const { fleet } = await setupSignedIn();
     const seen: string[] = [];
     fleet.hub.add({ write: (c: string) => void seen.push(c), end: () => {} });
     seen.length = 0;
@@ -418,14 +440,14 @@ describe('the activity feed (#118)', () => {
     await fleet.flush();
     const all = seen.join('');
     expect(all).toContain('event: snapshot');
-    expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"session-recording":false,"update-check":true,"activity-history":false}');
+    expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"chat-everyone":false,"session-recording":false,"my-usage":false,"update-check":true,"activity-history":false}');
   });
 
   it('a session that is deleted takes its feed with it', async () => {
-    const { app, fleet } = await setup();
+    const { app, fleet, viewer } = await setupSignedIn();
     const r = live();
-    await request(app).post('/api/fleet/report').send(r);
-    await request(app).get(url(r, r.agents[0]!.id));
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
+    await viewer.get(url(r, r.agents[0]!.id));
     expect(fleet.activity.size).toBe(1);
     await fleet.deleteSession(r.session.id);
     expect(fleet.activity.size).toBe(0);

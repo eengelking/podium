@@ -10,6 +10,8 @@ order: 25
 
 # 25. The Admin can switch the activity feed off for the whole server
 
+*Amended by 62 (#1076): an agent's live activity feed now needs a sign-in as the session's owner or an Admin, and an Admin's read is told to the person. The text below says anyone who can open the console can read it, which was true then.*
+
 **Decision.** On top of the reporter's `activityFeed` option (24), Admin > Settings > Feature flags has an
 **Agent activity feed** switch (`activity-feed`). It is on by default, kept in the `settings` table with the
 other Admin settings, and written to the admin log. The feed needs both.
