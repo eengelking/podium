@@ -17,7 +17,7 @@ import type { PeersApi, RespondApi } from "../respondApi";
 import type { RespondMe } from "../types";
 import type { Screen } from "./screens";
 
-const T0 = new Date(2026, 9, 12, 14, 30).getTime();
+const T0 = Date.UTC(2026, 9, 12, 14, 30);
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
 const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", admin: true };
 const flush = () => act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
