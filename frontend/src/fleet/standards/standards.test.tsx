@@ -220,3 +220,18 @@ describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match th
     for (const g of NAV) for (const p of g.pages) expect(Object.keys(pages), p.file).toContain(p.file);
   }, BUILD_MS);
 });
+
+// #1154: a sample's clock is built in UTC. `new Date(2026, 9, 12, 14, 30)` reads the machine's zone when the file loads, before the parity
+// pass fixes the zone to UTC, so the pages came out one way on a Mac in Pacific time and another on the CI runner in UTC.
+describe("the screens do not read the machine's time zone", () => {
+  it("builds no date from local-time parts", () => {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const bad: string[] = [];
+    for (const f of readdirSync(dir).filter((n) => /^screens.*\.tsx?$/.test(n))) {
+      readFileSync(join(dir, f), "utf8").split("\n").forEach((line, i) => {
+        if (/new Date\(\s*\d{4}\s*,/.test(line)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(bad, "use Date.UTC(...) so the sample reads the same in every zone").toEqual([]);
+  });
+});
