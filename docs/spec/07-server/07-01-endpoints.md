@@ -35,6 +35,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 
 **`GET /api/fleet/state`**
 - Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, build, reporterSupport }, wall, features }`.
+- Gzipped (`Content-Encoding: gzip`, `Vary: Accept-Encoding`) when the request sends `Accept-Encoding: gzip`, the body is at least 1 KB and `PODIUM_COMPRESSION` is not `off`; plain JSON otherwise, so a client that sends no `Accept-Encoding` (the health check, `podiumctl`, the scripts) is unaffected (#745).
 - `wall` is the wall's notice and background-sessions settings ([8.1](../08-ui/08-01-what-the-ui-must-do.md)).
 - `features` maps each Admin feature flag's id to whether it is on ([8.1](../08-ui/08-01-what-the-ui-must-do.md)). It also carries one
   derived entry, `activity-history` (#432), true when the Admin keeps the Activity history, a token is set and the

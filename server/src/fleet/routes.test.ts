@@ -131,6 +131,30 @@ describe('reads', () => {
     expect(res.body.clearedToday).toBe(0);
   });
 
+  it('GET /state is gzipped for a client that accepts it, and plain otherwise (#745)', async () => {
+    const { app } = await setup();
+    await request(app).post('/api/fleet/report').send(fixtureReport());
+    const plain = await request(app).get('/api/fleet/state').set('Accept-Encoding', 'identity');
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    const packed = await request(app).get('/api/fleet/state').set('Accept-Encoding', 'gzip');
+    expect(packed.headers['content-encoding']).toBe('gzip');
+    expect(packed.headers['vary']).toMatch(/Accept-Encoding/i);
+    expect(packed.body.sessions).toEqual(plain.body.sessions); // supertest inflates it, so the same sessions arrive (serverTime moves between two calls)
+  });
+
+  it('GET /state stays plain when the router is built with compression off (#745)', async () => {
+    const storage = openSqliteStorage(':memory:');
+    const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    await fleet.init();
+    closers.push(() => fleet.close());
+    const app = express();
+    app.use('/api/fleet', createFleetRouter(fleet, { people: storage.people, compression: false }));
+    await request(app).post('/api/fleet/report').send(fixtureReport());
+    const res = await request(app).get('/api/fleet/state').set('Accept-Encoding', 'gzip');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-encoding']).toBeUndefined();
+  });
+
   it('GET /sessions/:id returns a view, 404 when unknown', async () => {
     const { app } = await setup();
     const r = fixtureReport();
@@ -494,7 +518,7 @@ describe('GET /stream', () => {
     const { port } = server.address() as AddressInfo;
     const received: string[] = [];
     const { headers, done } = await new Promise<{ headers: http.IncomingHttpHeaders; done: Promise<void> }>((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/api/fleet/stream' }, (res) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/api/fleet/stream', headers: { 'Accept-Encoding': 'gzip' } }, (res) => {
         res.setEncoding('utf8');
         const done = new Promise<void>((fin) => {
           res.on('data', (c: string) => {
@@ -512,6 +536,7 @@ describe('GET /stream', () => {
     });
     expect(headers['content-type']).toMatch(/^text\/event-stream/);
     expect(headers['cache-control']).toMatch(/no-cache/);
+    expect(headers['content-encoding']).toBeUndefined(); // the stream is never compressed, whatever the client accepts (#745, SPEC 7.6)
     // wait for the snapshot, then report
     while (!received.join('').includes('event: snapshot')) await new Promise((r) => setTimeout(r, 10));
     expect(fleet.hub.size).toBe(1);

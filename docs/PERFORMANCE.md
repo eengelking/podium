@@ -37,7 +37,7 @@ stops everything it started. None of them touches a server you use. Build first 
 
 | Script | Measures |
 |---|---|
-| `scripts/podium-perf.mjs` | Server CPU and resident memory, event-loop delay, SSE bytes and messages per second by event type (raw and gzipped), the size of the full state. Idle, small, medium and large fleets, two runs each, and whether the two runs agree within a margin |
+| `scripts/podium-perf.mjs` | Server CPU and resident memory, event-loop delay, SSE bytes and messages per second by event type (raw and gzipped), the size of the full state (and what `/api/fleet/state` costs on the wire with and without gzip, #745). Idle, small, medium and large fleets, two runs each, and whether the two runs agree within a margin |
 | `scripts/podium-perf-browser.sh` | An open tab in headless Chrome: DOM nodes, JavaScript heap, long tasks, frames per second, bytes transferred |
 | `scripts/podium-perf-storage.mjs` | The report and snapshot paths on one database, SQLite, PostgreSQL or MariaDB, on the same machine or behind a delay proxy with a stated round-trip time: latency percentiles, throughput, and on PostgreSQL the queries per report and per snapshot and which statements they are |
 | `scripts/podium-perf-mod.mjs` | The reporter mod's own code: what one tool call adds to a session's state, and what building and serializing one report costs, by number of agents |
@@ -198,7 +198,7 @@ touches a design standard.
 
 | # | Finding | Impact | Risk | Where | Issue |
 |---|---|---|---|---|---|
-| 1 | The event stream and `/api/fleet/state` are not compressed. Gzip takes the large stream from 1.15 MB/s to about 136 KB/s and the state from 1.39 MB to 171 KB. The reporter never reads the stream or the state, so SPEC 6.8 does not apply (SPEC 7.6 covers the stream), and a client that sends no `Accept-Encoding`, such as the health check, `podiumctl` and the scripts, would still get plain JSON | High | Low | `server/src/fleet/routes.ts` | #745 |
+| 1 | The event stream and `/api/fleet/state` are not compressed. Gzip takes the large stream from 1.15 MB/s to about 136 KB/s and the state from 1.39 MB to 171 KB. The reporter never reads the stream or the state, so SPEC 6.8 does not apply (SPEC 7.6 covers the stream), and a client that sends no `Accept-Encoding`, such as the health check, `podiumctl` and the scripts, would still get plain JSON. **Done for `/state` only (#745):** it is gzipped, and `PODIUM_COMPRESSION=off` turns that off. The stream was built and measured with gzip and left uncompressed: at 100 clients it took the server from 25% to 104% CPU and 210 MB to 525 MB, with p99 83 to 92 ms | High | Low | `server/src/fleet/routes.ts`, `server/src/compress.ts` | #745 |
 | 2 | Every `session` event carries the whole session view, rebuilt from about six queries and every agent. It is 98% of the stream. Slimming the card view or sending only what changed needs a frontend change and a change to SPEC 7.6 | High | Medium | `server/src/fleet/fleet.ts`, `derive.ts` | #746 |
 | 3 | The built page is served with no compression and no cache headers: 622 KB of script where 183 KB would do, and every visit fetches it again | High on a slow link | Low | `server/src/spa.ts` | #747 |
 | 4 | No backpressure on the stream. `res.write`'s return value is ignored, so a client that stops reading makes the server buffer every message for it without limit, at about 70 MB a minute at the large size | Medium | Medium | `server/src/fleet/sse.ts`, `routes.ts` | #748 |
