@@ -176,6 +176,8 @@ export class Fleet {
   private readonly startedAt: number;
   private readonly clockSkew = new Map<string, number>();
   private costMinuteCache: { at: number; rows: { m: number; v: number }[] } | null = null;
+  /** Today's spend as the two-second tick last read it, reused for 5 s (#749). A snapshot or `/api/fleet/state` always reads it fresh. */
+  private spendCache: { at: number; day: number; epoch: number; spend: { total: number; byOwner: { owner: string | null; group: string | null; costUsd: number }[] } } | null = null;
   /** When each reporter (owner, machine, kind) last reported, for `reporter.connected` (#140). */
   private readonly reporters = new Map<string, number>();
 
@@ -681,7 +683,8 @@ export class Fleet {
     });
   }
 
-  async kpis(views?: readonly SessionView[]): Promise<Kpis> {
+  /** `cached` lets today's spend be up to 5 s old (the tick); without it the spend is read now (a snapshot, a state read). */
+  async kpis(views?: readonly SessionView[], cached = false): Promise<Kpis> {
     const live = views ?? (await this.liveViews());
     const now = this.now();
     const nowSec = Math.floor(now / 1000);
@@ -694,7 +697,17 @@ export class Fleet {
       // A price change while this was reading cleared the cache; these rows used the old prices, so they serve this call only.
       if (epoch === this.priceEpoch) this.costMinuteCache = cache;
     }
-    const spend = await this.db.spendTotals(startOfDay(now), cost);
+    const day = startOfDay(now);
+    let spend: Awaited<ReturnType<typeof this.db.spendTotals>>;
+    const held = this.spendCache;
+    if (cached && held && held.day === day && held.epoch === this.priceEpoch && now >= held.at && now - held.at <= 5000) {
+      spend = held.spend;
+    } else {
+      const epoch = this.priceEpoch;
+      spend = await this.db.spendTotals(day, cost);
+      // A price change while this was reading made `spend` use the old prices, so it serves this call only.
+      if (epoch === this.priceEpoch) this.spendCache = { at: now, day, epoch, spend };
+    }
     return computeKpis(
       {
         views: live,
@@ -1073,7 +1086,9 @@ export class Fleet {
 
   /** Every 2 s: KPIs to every client; doubles as the keepalive. */
   tick(): Promise<void> {
-    return this.emit(async () => ['tick', { serverTime: this.now(), kpis: await this.kpis() }]);
+    // With nobody connected the message would be dropped by the hub, so the KPIs are not computed (#749). The check runs
+    // inside the queued step, so a client that attached just before this tick is counted.
+    return this.emit(async () => (this.hub.size === 0 ? null : ['tick', { serverTime: this.now(), kpis: await this.kpis(undefined, true) }]));
   }
 
   /** Hourly: retention. It runs alone, so no report is half stored while the old rows go. */

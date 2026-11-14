@@ -100,6 +100,23 @@ describe('Fleet broadcasts', () => {
     fleet.close();
   });
 
+  it('a tick with no client connected does not compute the KPIs, and one that follows a connect does (#749)', async () => {
+    vi.useFakeTimers();
+    const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/', dbPath: ':memory:' }, () => 1_791_648_000_000);
+    await fleet.init();
+    await fleet.ingest(fixtureReport());
+    const kpis = vi.spyOn(fleet, 'kpis');
+    await fleet.tick();
+    expect(kpis).not.toHaveBeenCalled();
+    const s = sink();
+    await fleet.attach(s);
+    kpis.mockClear();
+    await fleet.tick();
+    expect(kpis).toHaveBeenCalledTimes(1);
+    expect(events(s.chunks)).toEqual(['snapshot', 'tick']);
+    fleet.close();
+  });
+
   it('activity messages arrive oldest first and carry the session name', async () => {
     vi.useFakeTimers();
     const { fleet, s } = await fleetWith();
