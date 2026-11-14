@@ -153,6 +153,13 @@ describe('serveSpa', () => {
       expect(again.status).toBe(304);
     });
 
+    it('answers 304 to a repeat request for the page', async () => {
+      const app = withCompression(true);
+      const first = await request(app).get('/').set('Accept-Encoding', 'gzip');
+      const again = await request(app).get('/').set('Accept-Encoding', 'gzip').set('If-None-Match', first.headers.etag as string);
+      expect(again.status).toBe(304);
+    });
+
     it('serves a rebuilt file, not the old cached bytes', async () => {
       const app = withCompression(true);
       await request(app).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
