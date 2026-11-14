@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import express from 'express';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
@@ -510,6 +510,38 @@ describe('POST /sessions/:id/drop', () => {
 });
 
 describe('GET /stream', () => {
+  it('ends a client that stops reading and keeps one that reads, over a real socket (#748)', async () => {
+    const { app, fleet } = await setup();
+    (fleet.hub as unknown as { maxQueuedBytes: number }).maxQueuedBytes = 1024 * 1024;
+    const reasons: string[] = [];
+    fleet.hub.onSlowClient = (r) => reasons.push(r);
+    const server = app.listen(0, '127.0.0.1');
+    closers.push(() => server.close());
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const { port } = server.address() as AddressInfo;
+    // A reader, and a socket that sends the request and never reads.
+    let readBytes = 0;
+    const reader = http.get({ host: '127.0.0.1', port, path: '/api/fleet/stream' }, (res) => res.on('data', (c: Buffer) => (readBytes += c.length)));
+    const stalled = net.connect(port, '127.0.0.1', () => stalled.write('GET /api/fleet/stream HTTP/1.1\r\nHost: x\r\n\r\n'));
+    stalled.pause();
+    stalled.on('error', () => {});
+    closers.push(() => { reader.destroy(); stalled.destroy(); });
+    for (let i = 0; i < 500 && fleet.hub.size < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(fleet.hub.size).toBe(2);
+    const pad = 'x'.repeat(256 * 1024);
+    for (let i = 0; i < 200 && fleet.hub.size === 2; i++) {
+      fleet.hub.broadcast('tick', { pad });
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(fleet.hub.size).toBe(1);
+    expect(reasons).toHaveLength(1);
+    const before = readBytes;
+    fleet.hub.broadcast('tick', { pad: 'y' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(readBytes).toBeGreaterThan(before);
+    expect(fleet.hub.size).toBe(1);
+  });
+
   it('streams a snapshot, then session and activity messages, with SSE headers', async () => {
     const { app, fleet } = await setup();
     const server = app.listen(0, '127.0.0.1');

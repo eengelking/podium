@@ -393,7 +393,9 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         if (res.writableEnded || res.destroyed) throw new Error('closed');
         res.write(chunk);
       },
-      end: () => res.end(),
+      // destroy, not end: `end` waits for a client that is not reading, and the queue is what is being dropped (#748).
+      end: () => res.destroy(),
+      queued: () => res.writableLength,
     });
     // null: the hub filled while this connect waited its turn (the check above ran before the wait), or the client vanished while being added.
     if (id === null) {
