@@ -1,4 +1,4 @@
-// The console's files and its fallback to index.html (#392). Nothing covered a direct load of a deep link before, and the fallback is
+// The console's files and its fallback to index.html (#392), compressed and cacheable (#747). Nothing covered a direct load of a deep link before, and the fallback is
 // the one route in the server that Express 5 spells differently from Express 4.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
@@ -82,6 +82,108 @@ describe('serveSpa', () => {
       expect([url, res.status]).toEqual([url, 200]);
       expect(res.text).toContain('<title>console</title>');
     }
+  });
+
+  // #747: the page files go out compressed and cacheable.
+  describe('compression and caching', () => {
+    const big = `console.log("${'x'.repeat(4000)}");`;
+    beforeEach(() => {
+      fs.writeFileSync(path.join(dist, 'assets', 'index-abc123.js'), big);
+      fs.writeFileSync(path.join(dist, 'assets', 'index-abc123.css'), `body{margin:0}${'/*pad*/'.repeat(500)}`);
+      fs.writeFileSync(path.join(dist, 'index.html'), `<!doctype html><title>console</title>${'<!--pad-->'.repeat(300)}`);
+    });
+    const withCompression = (enabled: boolean) => {
+      const app = express();
+      serveSpa(app, dist, {}, enabled);
+      return app;
+    };
+
+    it('gzips the script for a client that accepts gzip, and the body is the same script', async () => {
+      const res = await request(withCompression(true)).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      expect(res.headers['content-encoding']).toBe('gzip');
+      expect(res.headers.vary).toMatch(/Accept-Encoding/i);
+      expect(res.headers['content-type']).toMatch(/javascript/);
+      expect(res.text).toBe(big);
+      expect(Number(res.headers['content-length'])).toBeLessThan(big.length / 4);
+    });
+
+    it('gzips the stylesheet and the page', async () => {
+      const css = await request(withCompression(true)).get('/assets/index-abc123.css').set('Accept-Encoding', 'gzip');
+      expect(css.headers['content-encoding']).toBe('gzip');
+      expect(css.headers['content-type']).toMatch(/css/);
+      const html = await request(withCompression(true)).get('/').set('Accept-Encoding', 'gzip');
+      expect(html.headers['content-encoding']).toBe('gzip');
+      expect(html.text).toContain('<title>console</title>');
+    });
+
+    it('sends plain bytes to a client that does not accept gzip', async () => {
+      const res = await request(withCompression(true)).get('/assets/index-abc123.js').set('Accept-Encoding', 'identity');
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.headers.vary).toMatch(/Accept-Encoding/i);
+      expect(res.text).toBe(big);
+    });
+
+    it('sends plain bytes when PODIUM_COMPRESSION is off', async () => {
+      const res = await request(withCompression(false)).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.text).toBe(big);
+    });
+
+    it('sends a file under the size floor plain', async () => {
+      const res = await request(withCompression(true)).get('/assets/app.js').set('Accept-Encoding', 'gzip');
+      expect(res.headers['content-encoding']).toBeUndefined();
+      expect(res.text).toBe('console.log("app");');
+    });
+
+    it.each([true, false])('gives a hashed file a year and immutable (compression %s)', async (enabled) => {
+      const res = await request(withCompression(enabled)).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    });
+
+    it.each(['/', '/index.html', '/admin', '/a/b/c'])('revalidates the page at %s on every visit', async (url) => {
+      const res = await request(withCompression(true)).get(url).set('Accept-Encoding', 'gzip');
+      expect(res.headers['cache-control']).toBe('no-cache');
+    });
+
+    it('answers 304 to a repeat request for the gzipped script', async () => {
+      const app = withCompression(true);
+      const first = await request(app).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      expect(first.headers.etag).toBeTruthy();
+      const again = await request(app).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip').set('If-None-Match', first.headers.etag as string);
+      expect(again.status).toBe(304);
+    });
+
+    it('serves a rebuilt file, not the old cached bytes', async () => {
+      const app = withCompression(true);
+      await request(app).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      const next = `console.log("${'y'.repeat(4000)}");`;
+      const file = path.join(dist, 'assets', 'index-abc123.js');
+      fs.writeFileSync(file, next);
+      const bump = new Date(Date.now() + 5000);
+      fs.utimesSync(file, bump, bump);
+      const res = await request(app).get('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      expect(res.text).toBe(next);
+    });
+
+    it('does not read outside the build folder', async () => {
+      const res = await request(withCompression(true)).get('/assets/..%2f..%2fetc%2fpasswd').set('Accept-Encoding', 'gzip');
+      expect(res.text).not.toContain('root:');
+      expect(res.text).toContain('<title>console</title>'); // the page, as for any unknown path
+    });
+
+    it('does not gzip a dotfile the plain path would not serve', async () => {
+      fs.mkdirSync(path.join(dist, '.hidden'), { recursive: true });
+      fs.writeFileSync(path.join(dist, '.hidden', 'secret.json'), `{"k":"${'s'.repeat(2000)}"}`);
+      const res = await request(withCompression(true)).get('/.hidden/secret.json').set('Accept-Encoding', 'gzip');
+      expect(res.text).not.toContain('sssss');
+      expect(res.text).toContain('<title>console</title>');
+    });
+
+    it('answers HEAD with the encoding and no body', async () => {
+      const res = await request(withCompression(true)).head('/assets/index-abc123.js').set('Accept-Encoding', 'gzip');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-encoding']).toBe('gzip');
+    });
   });
 
   it('answers 404 for a path when the build has no index.html', async () => {
