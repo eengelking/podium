@@ -195,6 +195,7 @@ export class Fleet {
     history: { authOn?: boolean; secret?: string | null } = {},
   ) {
     this.startedAt = now();
+    this.hub.onSlowClient = (reason) => this.logger.warn('stream.slow_client_ended', `podium: ended a stream client that was not reading: ${reason}`, { reason });
     this.features = new LiveFeatureFlags(storage.featureFlags, (id, on) => {
       this.settingsEpoch++;
       if (id === ACTIVITY_FEED && !on) this.activity.clear();
