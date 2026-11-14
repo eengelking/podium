@@ -6,7 +6,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import net from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, rmSync, openSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,13 +60,13 @@ if (!existsSync(path.join(ROOT, 'server/dist/index.js'))) throw new Error('serve
 const dir = mkdtempSync(path.join(tmpdir(), 'podium-stalled-'));
 const token = randomBytes(24).toString('hex');
 const port = await freePort();
-const logFile = path.join(dir, 'server.log');
-const out = openSync(logFile, 'w');
+let serverLog = ''; // the server's output, kept in memory
 const server = spawn(process.execPath, [path.join(ROOT, 'server/dist/index.js')], {
   cwd: ROOT,
   env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(port), HOST: '127.0.0.1', PODIUM_DB: path.join(dir, 'podium.sqlite'), PODIUM_DATA_DIR: dir, PODIUM_TOKEN: token, PODIUM_LOG_LEVEL: 'info' },
-  stdio: ['ignore', out, out],
+  stdio: ['ignore', 'pipe', 'pipe'],
 });
+for (const stream of [server.stdout, server.stderr]) stream.on('data', (c) => (serverLog += c));
 let sim = null;
 const sockets = [];
 const stop = async () => {
@@ -128,8 +128,8 @@ try {
   const end = rssMb(server.pid);
   log(`peak ${peak.toFixed(0)} MB, end ${end.toFixed(0)} MB, baseline ${baseline.toFixed(0)} MB`);
   log(`stalled clients closed at (s): ${closedAt.join(', ') || 'none'}; healthy client ended: ${healthyEnded}, ticks ${ticks}`);
-  const lines = readFileSync(logFile, 'utf8').split('\n').filter((l) => /slow_client_ended|not reading/.test(l));
-  log(`server log tail: ${readFileSync(logFile, 'utf8').split('\n').slice(-6).join(' | ').slice(0, 600)}`);
+  const lines = serverLog.split('\n').filter((l) => /slow_client_ended|not reading/.test(l));
+  log(`server log tail: ${serverLog.split('\n').slice(-6).join(' | ').slice(0, 600)}`);
   log(`server log, ${lines.length} slow_client_ended line(s)${lines[0] ? `, first: ${lines[0].slice(0, 200)}` : ''}`);
   clearInterval(poll);
   log(`stalled clients gone from the hub after ${droppedAt ?? 'never (within the run)'} s`);
