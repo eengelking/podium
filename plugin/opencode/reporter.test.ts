@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Runner } from '../core/git.ts';
 import type { Report } from '../core/protocol.ts';
-import type { FetchLike } from '../core/transport.ts';
+import { REPORT_TIMEOUT_MS, type FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
@@ -473,6 +473,29 @@ describe('Reporter', () => {
     const started = Date.now();
     await r.close(30);
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('gives up on a report the server never answers, backs off, and sends the next one (#757)', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const { r, t } = reporter(() => (++calls === 1 ? new Promise(() => undefined) : Promise.resolve(okReply)));
+      r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+      const first = r.tick();
+      await vi.advanceTimersByTimeAsync(REPORT_TIMEOUT_MS + 1);
+      await first;
+      expect(calls).toBe(1);
+      const transport = [...r.transports.values()][0]!;
+      expect(transport.inFlight).toBe(false);
+      expect(transport.failures).toBe(1);
+      expect(transport.lastError).toContain('timed out');
+      t.now += 1000; // the first backoff step
+      await r.tick();
+      expect(calls).toBe(2);
+      expect(transport.online).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('skips the final send for a root that is backing off', async () => {

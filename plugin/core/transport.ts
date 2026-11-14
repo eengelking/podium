@@ -8,6 +8,13 @@ import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent,
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
 export const EVENTS_PER_REPORT = 100;
+/**
+ * How long one report POST may wait for the server's answer (#757) before it counts as a failed send and the backoff applies.
+ * Longer than the connection helper's own waits (30 s upstream, 45 s through the mailbox), so a helper that answers still
+ * answers first and says why; this only ends a request nothing else ends, such as a plain fetch (`$.http.fetch`, OpenCode's
+ * `plainFetch`) to a server that accepts the connection and goes quiet.
+ */
+export const REPORT_TIMEOUT_MS = 60_000;
 /** How long to wait after the server refuses the token or name: it will not change until the settings do. */
 export const REFUSED_RETRY_MS = 60_000;
 /** More watched loops than a report can carry agents is not a list the mod takes whole. */
@@ -109,6 +116,8 @@ export interface TransportConfig {
   version: string;
   /** The commit of a dev build of this reporter (#400); absent or null for a release. */
   build?: string | null;
+  /** How long a report POST waits for an answer; `REPORT_TIMEOUT_MS` when absent. Tests set it small. */
+  timeoutMs?: number;
 }
 
 /** The oldest and newest reporter the server reads correctly (SPEC 6.8). */
@@ -235,7 +244,7 @@ export class Transport {
       this.rejectReason = null;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.cfg.token) headers['X-Podium-Token'] = this.cfg.token;
-      const res = await this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(report) });
+      const res = await this.withTimeout(this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(report) }));
       if (res.ok) {
         let acked = events.length;
         try {
@@ -352,6 +361,18 @@ export class Transport {
       this.inFlight = false;
       this.current = null;
     }
+  }
+
+  /** Settles with `request`, or fails once the timeout passes (#757). The request is left to finish or fail on its own; its late answer is ignored. */
+  private withTimeout(request: Promise<HttpResult>): Promise<HttpResult> {
+    const ms = this.cfg.timeoutMs ?? REPORT_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`the server did not answer within ${Math.round(ms / 1000)} s (timed out)`)), ms);
+    });
+    // A request abandoned at the timeout may still fail later: that must not become an unhandled rejection.
+    request.catch(() => undefined);
+    return Promise.race([request, late]).finally(() => clearTimeout(timer));
   }
 
   /** Removes the first `n` of `sent` from the queue (events queued meanwhile stay). */
