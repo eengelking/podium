@@ -129,7 +129,7 @@ app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, report
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
-serveSpa(app, frontendDist);
+serveSpa(app, frontendDist, {}, parseCompression(process.env.PODIUM_COMPRESSION));
 
 // http.createServer(app).listen is what Express 4's app.listen did. Express 5's also hands a listen error to the callback, which would
 // log "listening" for a port that is taken and leave the process running; here the error stays uncaught and stops the process (#392).
