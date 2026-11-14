@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "node ../node_modules/typescript/bin/tsc -p tsconfig.json && node build-entry.mjs",
+    "build": "node ../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit && node ../node_modules/typescript/bin/tsc -p tsconfig.build.json && node build-entry.mjs",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --testTimeout=20000"
