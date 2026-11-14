@@ -92,7 +92,7 @@ describe("podiumctl container engine", () => {
     // podiumctl's own healthy() (used by `health`, `status` and the start wait) calls the same light route.
     const src = fs.readFileSync(path.join(__dirname, "..", "bin", "podiumctl"), "utf8");
     const healthy = src.slice(src.indexOf("async function healthy("), src.indexOf("async function waitHealthy("));
-    expect(healthy).toContain("${dashUrl(cfg)}/api/health");
+    expect(healthy).toContain("}/api/health");
     expect(healthy).not.toContain("/api/fleet/state");
   });
 

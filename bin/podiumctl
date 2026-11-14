@@ -398,9 +398,12 @@ const dashUrl = (cfg) => `http://${callHost(cfg.bind)}:${cfg.port}`;
 
 async function healthy(cfg, timeoutMs = 2000) {
   try {
-    // Only the address the server was told to bind: a wildcard is called on 127.0.0.1, and a bind that is neither an IP address nor a plain host name is refused (CodeQL js/file-access-to-http).
-    if (!net.isIP(cfg.bind.replace(/^\[|\]$/g, '')) && !/^[A-Za-z0-9.-]+$/.test(cfg.bind)) return false;
-    const r = await fetch(`${dashUrl(cfg)}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    // Only the address the server was told to bind: a wildcard is called on 127.0.0.1, and a host that is neither a bracketed or plain IP address nor a plain host name is refused. The value checked is the value the URL is built from (CodeQL js/file-access-to-http).
+    const host = callHost(cfg.bind);
+    if (!/^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)$/.test(host)) return false;
+    const port = Number(cfg.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    const r = await fetch(`http://${host}:${port}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
     return r.ok;
   } catch { return false; }
 }
