@@ -1071,6 +1071,15 @@ export class FleetDb {
       | undefined;
   }
 
+  /** `latestSample` for many sessions (#750). */
+  latestSamplesOf(sessionIds: string[]): Map<string, SampleRow> {
+    const out = new Map<string, SampleRow>();
+    for (const part of pieces([...new Set(sessionIds)])) {
+      for (const r of this.many(`SELECT s.* FROM samples s JOIN (SELECT session_id, MAX(t) AS t FROM samples WHERE session_id IN (${marks(part.length)}) GROUP BY session_id) m ON s.session_id = m.session_id AND s.t = m.t ORDER BY s.session_id`, [...part]) as unknown as SampleRow[]) out.set(r.session_id, r);
+    }
+    return out;
+  }
+
   /** Writes the sample for second `t`, replacing one already there (at most one per second). */
   upsertSample(row: SampleRow): void {
     this.stmt(

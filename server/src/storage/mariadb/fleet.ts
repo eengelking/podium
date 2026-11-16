@@ -467,6 +467,15 @@ export class MariaFleetStore implements FleetStoreApi {
     return this.db.get<SampleRow>('SELECT * FROM samples WHERE session_id = ? ORDER BY t DESC LIMIT 1', [sessionId]);
   }
 
+  /** `latestSample` for many sessions in one statement per thousand (#750). */
+  async latestSamplesOf(sessionIds: string[]): Promise<Map<string, SampleRow>> {
+    const out = new Map<string, SampleRow>();
+    for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
+      for (const r of await this.db.all<SampleRow>(`SELECT s.* FROM samples s JOIN (SELECT session_id, MAX(t) AS t FROM samples WHERE session_id IN (${marks(part.length)}) GROUP BY session_id) m ON s.session_id = m.session_id AND s.t = m.t ORDER BY s.session_id`, [...part])) out.set(r.session_id, r);
+    }
+    return out;
+  }
+
   /** Writes the sample for second `t`, replacing one already there (at most one per second). */
   async upsertSample(row: SampleRow): Promise<void> {
     await this.db.run(

@@ -161,9 +161,10 @@ export function fleetCases(o: Openers): void {
       const blowouts = await rec('blowouts', f.getBlowoutsOf(ids));
       const compactions = await rec('auto compactions', f.countAutoCompactionsOf(ids));
       const samples = await rec('samples', f.samplesSinceOf(ids, 95));
+      const latest = await rec('latest samples', f.latestSamplesOf(ids));
       const owners: (string | null)[] = ['solo', null, 'Ann', 'ghost'];
       const groups = await rec('groups', f.groupsOfOwners(owners));
-      await rec('nothing asked', [await f.getSessions([]), await f.getAgentsOf([]), await f.samplesSinceOf([], 0), await f.groupsOfOwners([])]);
+      await rec('nothing asked', [await f.getSessions([]), await f.getAgentsOf([]), await f.samplesSinceOf([], 0), await f.latestSamplesOf([]), await f.groupsOfOwners([])]);
       // the batch answers what the one-at-a-time methods answer, in the order the ids were given
       const rows: unknown[] = [];
       for (const id of ids) {
@@ -176,6 +177,7 @@ export function fleetCases(o: Openers): void {
         expect(blowouts.get(id)).toEqual(await f.getBlowouts(id));
         expect(compactions.get(id)).toBe(await f.countAutoCompactions(id));
         expect(samples.get(id)).toEqual(await f.samplesSince(id, 95));
+        expect(latest.get(id)).toEqual(await f.latestSample(id)); // #750: the latest sample, or no entry for a session with none
       }
       expect([...agents.keys()]).toEqual(ids);
       for (const owner of owners) expect(groups.get(owner)).toBe(await f.groupOfOwner(owner));

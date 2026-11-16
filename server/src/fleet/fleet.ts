@@ -1023,8 +1023,34 @@ export class Fleet {
     this.respond.expire();
     const nowSec = Math.floor(now / 1000);
     const removed = { done: [] as string[], dropped: [] as string[] };
-    for (const [id, entry] of [...this.live]) {
-      const row = await this.db.getSession(id);
+    // One read for every live session's row and one for the latest sample of those that get a copy, then the copies are
+    // written in one transaction: a statement or a commit per session each second was the sweep's whole cost (#750).
+    const ids = [...this.live.keys()];
+    const rows = new Map((await this.db.getSessions(ids)).map((r) => [r.id, r]));
+    const statuses = new Map<string, ReturnType<typeof sessionStatus>>();
+    for (const [id, entry] of this.live) {
+      const row = rows.get(id);
+      if (row && row.status !== 'done') statuses.set(id, sessionStatus(row, entry.heard, now, staleAfterFor(row, this.derive)));
+    }
+    const live = ids.filter((id) => statuses.has(id) && statuses.get(id) !== 'stale');
+    const latest = await this.db.latestSamplesOf(live);
+    const copies: SampleRow[] = [];
+    for (const id of live) {
+      const last = latest.get(id);
+      if (last && last.t < nowSec) {
+        // The copy repeats the usage as "same as before", except at the start of a minute, which needs it in full (#270).
+        const usage = last.usage_json == null ? null : Math.floor(last.t / 60) === Math.floor(nowSec / 60) ? SAME_USAGE : rows.get(id)!.usage_json;
+        copies.push({ ...last, t: nowSec, tokens_delta: 0, usage_json: usage });
+      }
+    }
+    // A live session that reports less often than once a second still gets one sample per
+    // second, so its charts do not fall to zero between heartbeats.
+    if (copies.length > 0) await this.storage.tx(async () => { for (const c of copies) await this.db.insertSampleIfAbsent(c); });
+    // Only the sessions read above. A report cannot land during a sweep (they run apart), but a session with no row here is never dropped from the live set for it.
+    for (const id of ids) {
+      const entry = this.live.get(id);
+      if (!entry) continue;
+      const row = rows.get(id);
       if (!row) {
         this.live.delete(id);
         continue;
@@ -1036,22 +1062,11 @@ export class Fleet {
         }
         continue;
       }
-      const status = sessionStatus(row, entry.heard, now, staleAfterFor(row, this.derive));
-      if (status === 'stale') {
-        if (now >= (this.dropAtFor(row, entry.heard, now) ?? Infinity)) {
-          await this.leave(row, 'dropped', 'heartbeat lost');
-          removed.dropped.push(id);
-          continue;
-        }
-      } else {
-        // A live session that reports less often than once a second still gets one sample per
-        // second, so its charts do not fall to zero between heartbeats.
-        const last = await this.db.latestSample(id);
-        if (last && last.t < nowSec) {
-          // The copy repeats the usage as "same as before", except at the start of a minute, which needs it in full (#270).
-          const usage = last.usage_json == null ? null : Math.floor(last.t / 60) === Math.floor(nowSec / 60) ? SAME_USAGE : row.usage_json;
-          await this.db.insertSampleIfAbsent({ ...last, t: nowSec, tokens_delta: 0, usage_json: usage });
-        }
+      const status = statuses.get(id)!;
+      if (status === 'stale' && now >= (this.dropAtFor(row, entry.heard, now) ?? Infinity)) {
+        await this.leave(row, 'dropped', 'heartbeat lost');
+        removed.dropped.push(id);
+        continue;
       }
       if (entry.status !== null && entry.status !== status) {
         if (status === 'stale') {

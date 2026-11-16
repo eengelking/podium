@@ -90,7 +90,7 @@ Inside the adapter, `portableSql.test.ts` fails when a non-test file in `storage
 differently. A compact event's trigger is read in code (`countAutoCompactions`), and the Activity history's bulk delete binds its ids in batches of 200.
 
 Reads that run for every live session are batched (#906). `getSessions`, `getAgentsOf`, `getBlowoutsOf`, `countAutoCompactionsOf`,
-`samplesSinceOf`, `groupsOfOwners` and the Activity store's `recordings.viewMany` answer for many ids in one statement each, with a key
+`samplesSinceOf`, `latestSamplesOf` (#750; a session with no sample has no key), `groupsOfOwners` and the Activity store's `recordings.viewMany` answer for many ids in one statement each, with a key
 for every id asked and each list in the order its one-session method gives; `upsertAgents` and `upsertAgentTextsMany` write a report's
 agents in one statement each. PostgreSQL and MariaDB do it with an `IN (...)` list or a multi-row `INSERT` cut into pieces under the driver's limit
 on bound values. SQLite runs the same `IN (...)` reads, and the order-parity check (`scripts/storage-order-parity.mjs`) holds every adapter to the same `ORDER BY`. A path that would otherwise grow
