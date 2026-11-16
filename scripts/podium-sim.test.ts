@@ -58,6 +58,9 @@ describe('podium-sim', () => {
     });
     expect(parseArgs(['--reporter-version', '0.1.0'])).toMatchObject({ reporterVersion: '0.1.0' });
     expect(() => parseArgs(['--sessions', 'many'])).toThrow();
+    // Up to 200 sessions, so the browser can be measured at a large fleet (#758).
+    expect(parseArgs(['--sessions', '200'])).toMatchObject({ sessions: 200 });
+    expect(() => parseArgs(['--sessions', '201'])).toThrow();
     expect(() => parseArgs(['--bogus'])).toThrow();
   });
 
