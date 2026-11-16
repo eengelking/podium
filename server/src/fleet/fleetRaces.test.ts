@@ -249,6 +249,36 @@ describe('messages', () => {
   });
 });
 
+describe('the tick (#749)', () => {
+  it('reads the day\'s spend once in 5 s, a snapshot always reads it fresh, and a price change drops it', async () => {
+    const { fleet, storage, clock } = await setup();
+    await fleet.ingest(report('s1', { status: 'running' }), 'ed');
+    let reads = 0;
+    const real = storage.fleet.spendTotals.bind(storage.fleet);
+    storage.fleet.spendTotals = async (...a) => {
+      reads++;
+      return real(...a);
+    };
+    await fleet.tick();
+    clock.t += 2000;
+    await fleet.tick();
+    expect(reads).toBe(1);
+    await fleet.kpis(); // a snapshot or state read is never served from the tick's copy
+    expect(reads).toBe(2);
+    clock.t += 6000;
+    await fleet.tick();
+    expect(reads).toBe(3);
+    clock.t += 1000;
+    const before = reads;
+    await fleet.prices.set('sonnet-5-5', { std: { input: 33, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 } });
+    await fleet.flush();
+    expect(reads).toBeGreaterThan(before); // the change's own snapshot read it on the new prices
+    const after = reads;
+    await fleet.tick();
+    expect(reads).toBe(after); // and the tick reuses that read, which is on the new prices
+  });
+});
+
 describe('start up', () => {
   it('reads the sessions that were live and does it once however often it is asked', async () => {
     const { fleet, storage, clock } = await setup();
