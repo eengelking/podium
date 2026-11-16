@@ -1,7 +1,7 @@
 // The Podium fleet console: top bar, the orchestrator rail, the wall or one orchestrator's page, and
 // the activity / agent panel. Data comes from useFleet; everything here is presentation state.
 import { SessionReadsProvider } from "./sessionReads";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./fleet.css";
 import { mixedHarnesses } from "./harness";
 import { idleOnBackground } from "./waiting";
@@ -46,8 +46,8 @@ import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
 import { MyUsagePage } from "./MyUsage";
 import type { ReportsClient } from "./admin/reportsApi";
+import { LazyBoundary } from "../LazyBoundary";
 import { chatWith, fleetHash, openIn, replayIn } from "../route";
-import { ReplayPage } from "./components/ReplayPage";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
 import { ChatPage } from "./Chat";
@@ -57,6 +57,8 @@ import { ActivityOutputFlag } from "./components/BashRow";
 import type { SessionView } from "./types";
 import { useStoppedFeatures } from "./stoppedFeatures";
 
+// The replay page is a separate script, fetched the first time a recording is opened (#754): most viewers never open one.
+const ReplayPage = lazy(() => import("./components/ReplayPage").then((m) => ({ default: m.ReplayPage })));
 
 const ENTER_MS = 1000;
 
@@ -593,7 +595,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                 ) : board ? (
                   <Board sessions={peopleShown} narrowed={peopleShown.length < sorted.length} kpis={state.kpis} me={me} onOpen={selectSession} />
                 ) : replaying && sel ? (
-                  <ReplayPage key={sel} id={sel} session={selSession} now={now} />
+                  <LazyBoundary key={sel}>
+                    <Suspense fallback={<div className="none" role="status">Loading…</div>}>
+                      <ReplayPage id={sel} session={selSession} now={now} />
+                    </Suspense>
+                  </LazyBoundary>
                 ) : selected ? (
                   <FocusView
                     s={selected}
