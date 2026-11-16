@@ -22,8 +22,9 @@ fixed.
 4. **Plan owner matching is literal.** A step "Count .ts files under server" and an agent "Count .ts
    files in server" do not match (6.3's normalized contains rule); run 3 showed it. Steps then show no
    owner.
-5. **Elapsed times and the stale countdown pause in a background tab.** Browsers throttle timers in
-   hidden tabs; the numbers catch up when the tab is visible. The console also adds a `paused` class
+5. **Elapsed times and the stale countdown pause in a background tab.** The clock (`useNow`) and the
+   held state (`useHeldState`) stop their intervals while the tab is hidden and show the newest value
+   as soon as it is shown again (#751); the stream stays open. The console also adds a `paused` class
    while the tab is hidden (`usePageVisible`), which pauses every CSS animation, and the heartbeat
    (`useHeartbeat`, which drives the running-dot pulse and the blinks through `data-beat`) stops too.
 6. **Memory grows slowly under load.** The 5-minute soak (10 sessions x 20 extra agents, 3 SSE clients)
