@@ -335,3 +335,34 @@ describe('per-session bookkeeping', () => {
     expect(skew().size).toBe(0);
   });
 });
+
+describe('the sample sweep is one read and one transaction (#750)', () => {
+  it('writes a carry-forward sample for every live session in one transaction, and reads their rows and samples in one statement each', async () => {
+    const fleet = await makeFleet();
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const r = fixtureReport();
+      r.session.id = `sweep-${i}`;
+      await fleet.ingest(r);
+      ids.push(r.session.id);
+    }
+    await fleet.flush();
+    const lastBefore = new Map<string, number>();
+    for (const id of ids) lastBefore.set(id, (await db.fleet.latestSample(id))!.t);
+    clock += 3000;
+    const tx = vi.spyOn(db, 'tx');
+    const one = vi.spyOn(db.fleet, 'getSession');
+    const oneSample = vi.spyOn(db.fleet, 'latestSample');
+    const many = vi.spyOn(db.fleet, 'latestSamplesOf');
+    await fleet.sweep();
+    expect(tx).toHaveBeenCalledTimes(1);
+    expect(many).toHaveBeenCalledTimes(1);
+    expect(one).not.toHaveBeenCalled();
+    expect(oneSample).not.toHaveBeenCalled();
+    for (const id of ids) expect((await db.fleet.latestSample(id))!.t).toBe(Math.floor(clock / 1000));
+    // a second sweep in the same second writes nothing and opens no transaction
+    tx.mockClear();
+    await fleet.sweep();
+    expect(tx).not.toHaveBeenCalled();
+  });
+});

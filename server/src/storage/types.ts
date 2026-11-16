@@ -94,6 +94,8 @@ export interface FleetStoreApi {
   /** The latest sample strictly before second `t`. */
   sampleBefore(sessionId: string, t: number): Promise<SampleRow | undefined>;
   latestSample(sessionId: string): Promise<SampleRow | undefined>;
+  /** `latestSample` for many sessions at once (#750). A session with no sample has no entry. */
+  latestSamplesOf(sessionIds: string[]): Promise<Map<string, SampleRow>>;
   /** Writes the sample for second `t`, replacing one already there (at most one per second). */
   upsertSample(row: SampleRow): Promise<void>;
   /** Writes a sample only if that second has none yet. */
