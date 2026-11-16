@@ -589,7 +589,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     const report = buildReport(snapshot, evs, metaOf(r, now));
     sentTexts = Object.fromEntries(report.agents.map((a) => [a.id, { promptText: a.promptText, answerText: a.answerText }]));
     return report;
-  }, now);
+  }, now, force);
   if (outcome === 'failed') {
     r.state = { ...r.state, dirty: true };
     toastOnce($, r, false);
@@ -613,7 +613,8 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     messagesLine($, r);
     takeRecording($, r.transport.recording);
   }
-  else if (outcome === 'busy') r.state = { ...r.state, dirty: true };
+  // A report held back for being a large one that only counted (#752) is still owed: the next flush builds it again.
+  else if (outcome === 'busy' || outcome === 'held') r.state = { ...r.state, dirty: true };
   toastVersionOnce($, r);
   toastPlainHttpOnce($, r);
   showStatus($, r);

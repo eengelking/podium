@@ -2,7 +2,9 @@
 // acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { withBuild } from './build.ts';
+import { reportBody } from './feed.ts';
 import { trimTrailingSlashes } from './machine.ts';
+import { attentionKey, HOLD_FROM_BYTES, holdMs } from './pacing.ts';
 import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent, type AdminNotice, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
@@ -132,7 +134,8 @@ function minorOf(v: string): [number, number] | null {
   return m ? [Number(m[1]), Number(m[2])] : null;
 }
 
-export type SendOutcome = 'ok' | 'rejected' | 'refused' | 'failed' | 'busy';
+/** `held` (#752): the report was built and not sent, because a large one that only counted is not due yet. Its events stay queued and the session is still changed. */
+export type SendOutcome = 'ok' | 'rejected' | 'refused' | 'failed' | 'busy' | 'held';
 
 export class Transport {
   queue: ActivityEvent[] = [];
@@ -145,6 +148,9 @@ export class Transport {
   failures = 0;
   lastError: string | null = null;
   lastSentAt = 0;
+  /** The size in characters (close enough to bytes for pacing) and the `attentionKey` of the last report the server took (#752); what a later one is held against. */
+  private lastBytes = 0;
+  private lastKey: string | null = null;
   nextAttemptAt = 0;
   liveSessions: number | null = null;
   /** Where the server places this reporter's version; null until a reply says (an older server never does). */
@@ -221,14 +227,21 @@ export class Transport {
   /**
    * Posts one report built from the oldest queued events (at most 100). 200 acks them; 400 or 413 drops
    * that report and its events (it would never be accepted) and backs off before the next attempt;
-   * anything else keeps them and backs off.
+   * anything else keeps them and backs off. A large report that differs from the last one only in counters is `held` until
+   * `holdMs` has passed since the last one (#752) unless `force` is set; nothing is posted and the events stay queued.
    */
-  send(build: (events: ActivityEvent[]) => Report, now: number): Promise<SendOutcome> {
+  send(build: (events: ActivityEvent[]) => Report, now: number, force = false): Promise<SendOutcome> {
     if (this.inFlight) return Promise.resolve('busy');
     this.inFlight = true;
-    const p = this.post(build, now);
+    const p = this.post(build, now, force);
     this.current = p;
     return p;
+  }
+
+  /** Whether a report with this `attentionKey` waits: it is the last accepted one but for counters, it is not yet the hold after that one, and the queue is not a full batch (#752). */
+  private holds(now: number, key: string): boolean {
+    if (this.lastKey !== key || this.lastSentAt === 0 || this.queue.length >= EVENTS_PER_REPORT) return false;
+    return now - this.lastSentAt < holdMs(this.lastBytes, this.cfg.heartbeatMs);
   }
 
   /** Resolves when no POST is in flight (at once when none is). */
@@ -236,15 +249,26 @@ export class Transport {
     if (this.current) await this.current.catch(() => undefined);
   }
 
-  private async post(build: (events: ActivityEvent[]) => Report, now: number): Promise<SendOutcome> {
+  private async post(build: (events: ActivityEvent[]) => Report, now: number, force: boolean): Promise<SendOutcome> {
     const events = this.queue.slice(0, EVENTS_PER_REPORT);
     try {
       const report = build(events);
+      const body = reportBody(report);
+      // Pacing never fails a send: a report whose key cannot be read is sent at once. The key is only read when a large report is involved.
+      let key: string | null = null;
+      if (body.length > HOLD_FROM_BYTES || this.lastBytes > HOLD_FROM_BYTES) {
+        try {
+          key = attentionKey(report);
+        } catch {
+          key = null;
+        }
+      }
+      if (!force && key !== null && this.holds(now, key)) return 'held';
       // A refusal only stands until the next attempt: a 401, an outage or a success must not leave an old reason showing.
       this.rejectReason = null;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.cfg.token) headers['X-Podium-Token'] = this.cfg.token;
-      const res = await this.withTimeout(this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(report) }));
+      const res = await this.withTimeout(this.fetch(this.url, { method: 'POST', headers, body }));
       if (res.ok) {
         let acked = events.length;
         try {
@@ -275,6 +299,8 @@ export class Transport {
         this.rejectStreak = 0;
         this.nextAttemptAt = 0;
         this.lastSentAt = now;
+        this.lastBytes = body.length;
+        this.lastKey = key;
         this.lastError = null;
         this.rejectReason = null;
         this.sent++;
@@ -293,6 +319,7 @@ export class Transport {
         this.rejectStreak++;
         this.nextAttemptAt = now + Transport.backoff(this.rejectStreak);
         this.lastSentAt = now;
+        this.lastKey = null;
         this.lastError = `server rejected a report (${res.status})`;
         this.rejectReason = rejectReasonOf(res.status, res.text, report.v);
         // The server read the credential and answered about the report, so an earlier 401 no longer stands.
@@ -327,6 +354,7 @@ export class Transport {
         // The events stay queued: they go out once the mod and the helper agree.
         this.nextAttemptAt = now + REFUSED_RETRY_MS;
         this.lastSentAt = now;
+        this.lastKey = null;
         this.lastError = 'the connection helper does not carry this route (403)';
         if (!this.loggedReject) {
           this.loggedReject = true;
@@ -342,6 +370,7 @@ export class Transport {
         this.online = false;
         this.nextAttemptAt = now + REFUSED_RETRY_MS;
         this.lastSentAt = now;
+        this.lastKey = null;
         this.lastError = 'server refused the token or name (401)';
         if (!this.loggedRefusal) {
           this.loggedRefusal = true;
@@ -354,6 +383,7 @@ export class Transport {
       this.failures++;
       this.failed++;
       this.online = false;
+      this.lastKey = null;
       this.lastError = (err as Error)?.message ?? 'network error';
       this.nextAttemptAt = now + Transport.backoff(this.failures);
       return 'failed';

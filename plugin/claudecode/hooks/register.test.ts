@@ -174,7 +174,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('turn.complete', () => ({ text: '' }))
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.compact', () => ({ messages: SUMMARY, tokensBefore: 1_000_000, tokensAfter: 300_000 }))
-  on('agent.spawn', (_$, e) => ({ model: e.fork ? e.parentModel : e.model === 'haiku' ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', agentId: e.fork ? 'a-fork' : e.description === 'Backfill dry run' ? 'a-fail' : 'a-sub' }))
+  on('agent.spawn', (_$, e) => ({ model: e.fork ? e.parentModel : e.model === 'haiku' ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', agentId: e.fork ? 'a-fork' : e.description.startsWith('many-') ? e.description : e.description === 'Backfill dry run' ? 'a-fail' : 'a-sub' }))
   on('tool.call', async (_$, e) => {
     toolUseId = e.tool_use_id
     if (e.tool === 'TaskCreate') return { result: { task: { id: '1', subject: e.subject } } }
@@ -238,6 +238,36 @@ const spawnInput = (over: Partial<AgentSpawnInput> & { tool_use_id: string }): A
 const podium = (args: string): CommandRunInput => ({ command: 'podium', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
 
 describe('podium-reporter end to end', () => {
+  test('a large session that only counted is held until the hold, a permission prompt is not, and the close is never held (#752)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    for (let i = 0; i < 60; i++) await $.agent.spawn(spawnInput({ tool_use_id: `tu-${i}`, description: `many-${i}`, prompt: 'x'.repeat(2000) }))
+    await w.clock.advance(1000)
+    const first = w.posts.length
+    expect(JSON.stringify(w.posts.at(-1)).length).toBeGreaterThan(32 * 1024)
+
+    // a step moves counters only: the next flush builds the report and holds it
+    await stepOnce($, { turnId: 'tc', index: 0, model: 'claude-sonnet-5-5', messageCount: 2, agentId: 'many-3' })
+    await w.clock.advance(1000)
+    expect(w.posts.length).toBe(first)
+    // ...and it is still owed: it goes once the hold has passed
+    await w.clock.advance(4000)
+    expect(w.posts.length).toBe(first + 1)
+    expect(w.posts.at(-1)!.agents.find((a) => a.id === 'many-3')!.steps?.done).toBeGreaterThan(0)
+
+    // a permission prompt is not a counter
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf dist' } })
+    await w.clock.advance(1000)
+    expect(w.posts.length).toBe(first + 2)
+    expect(w.posts.at(-1)!.session.status).toBe('waiting')
+
+    // the report of a session that ends goes at once even when only counters moved since the last one
+    await stepOnce($, { turnId: 'td', index: 0, model: 'claude-sonnet-5-5', messageCount: 3, agentId: 'many-4' })
+    await $.session.end({ reason: 'exit', sessionId: SID })
+    expect(w.posts.length).toBe(first + 3)
+    expect(w.posts.at(-1)!.session.status).toBe('done')
+  })
+
   test('raises every hooked event and posts agents, plan, failure, blowouts and skills', async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
