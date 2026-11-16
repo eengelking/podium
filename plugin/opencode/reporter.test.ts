@@ -416,8 +416,7 @@ describe('Reporter', () => {
           dirs.push(cwd);
           const cmd = argv.join(' ');
           await new Promise((res) => setTimeout(res, 5));
-          if (cmd.includes('--abbrev-ref')) return { exitCode: 0, stdout: 'feature/x\n' };
-          if (cmd.includes('--git-dir') || cmd.includes('--git-common-dir')) return { exitCode: 0, stdout: '.git\n' };
+          if (cmd.includes('--abbrev-ref')) return { exitCode: 0, stdout: `.git\n.git\n/work/project\n${'d'.repeat(40)}\nfeature/x\n` };
           if (cmd.includes('--show-toplevel')) return { exitCode: 0, stdout: '/work/project\n' };
           if (cmd.includes('status')) return { exitCode: 0, stdout: '## feature/x...origin/feature/x [ahead 2]\n M a.ts\n' };
           return { exitCode: 1, stdout: '' };

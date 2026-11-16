@@ -13,12 +13,11 @@ const CWD = '/Users/dev/app/.claude/worktrees/feat-x'
 /** A pre-warmed spare of the desktop app, and the project it is moved to (#382). */
 const SPARE = '/Users/dev/.claude/spares/spare-eB3Cs1'
 const PROJECT = '/Users/dev/web/podium'
+/** One rev-parse answers the git dir, common dir, top level, HEAD commit and branch (#753). */
+const REV = 'rev-parse --git-dir --git-common-dir --show-toplevel HEAD --abbrev-ref HEAD'
 const PROJECT_GIT: Record<string, string> = {
-  'rev-parse --abbrev-ref HEAD': 'main',
-  'rev-parse --git-dir': '.git',
-  'rev-parse --git-common-dir': '.git',
+  [REV]: `.git\n.git\n${PROJECT}\n${'d'.repeat(40)}\nmain`,
   'rev-parse --path-format=absolute --git-common-dir': `${PROJECT}/.git`,
-  'rev-parse --show-toplevel': PROJECT,
   'status --porcelain=v1 -b': '## main...origin/main\n',
   'config --get remote.origin.url': 'git@github.com:acme/podium.git',
 }
@@ -65,10 +64,7 @@ interface World {
 }
 
 const GIT: Record<string, string> = {
-  'rev-parse --abbrev-ref HEAD': 'feat/x',
-  'rev-parse --git-dir': '/Users/dev/app/.git/worktrees/feat-x',
-  'rev-parse --git-common-dir': '/Users/dev/app/.git',
-  'rev-parse --show-toplevel': CWD,
+  [REV]: `/Users/dev/app/.git/worktrees/feat-x\n/Users/dev/app/.git\n${CWD}\n${'d'.repeat(40)}\nfeat/x`,
   'status --porcelain=v1 -b': '## feat/x...origin/feat/x [ahead 2]\n M src/a.ts\n',
 }
 
