@@ -2,7 +2,7 @@
 // and returns at once; only `tick` and `close` talk to the server, so the event loop never waits on the network. Each
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
 import { excerpt, explainPrompt } from '../core/failures.ts';
-import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
+import { lastSegment, readChanges, readGitState, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
 import { isLaunchId, LAUNCH_ENDED, launchId, launchName } from '../core/launch.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
@@ -464,8 +464,11 @@ export class Reporter {
     this.gitAt.set(root.id, now);
     const cwd = root.cwd;
     const run = this.deps.runIn(cwd);
-    const branch: Promise<void> = readGit(run, cwd).then(
-      (g) => {
+    // One branch read, and the file read waits for it to reuse its top level and HEAD: two git processes fewer (#753).
+    const state = readGitState(run, cwd);
+    const branch: Promise<void> = state.then(
+      (s) => {
+        const g = s?.info ?? null;
         if (JSON.stringify(g) !== JSON.stringify(root.git)) {
           root.git = g;
           root.dirty = true;
@@ -474,7 +477,7 @@ export class Reporter {
       () => undefined,
     );
     // Tried even when the branch read gave null: a repository with no commits yet fails that but has files to list. A failed read keeps the last list.
-    const files: Promise<void> = readChanges(run, cwd, root.gitBase).then(
+    const files: Promise<void> = state.then((s) => readChanges(run, cwd, root.gitBase, s ?? undefined)).then(
       (c) => {
         if (!c) return;
         root.gitBase = c.base;

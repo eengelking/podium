@@ -9,7 +9,7 @@
 // register, which resets them, and session.start rebuilds the state from the engine).
 import { modBuild } from '../../core/build.ts';
 import type { EngineInterface, Register } from 'claude-code';
-import { lastSegment, readChanges, readGit } from '../../core/git.ts';
+import { lastSegment, readChanges, readGitState } from '../../core/git.ts';
 import { readAppTitle } from './agentName.ts';
 import { readFileDiff } from '../../core/fileDiff.ts';
 import { follow } from './place.ts';
@@ -708,12 +708,13 @@ async function pollGit($: Engine, r: Runtime): Promise<void> {
       const res = await $.process.run(argv, { cwd, timeoutMs: 5000 });
       return { exitCode: res.exitCode, stdout: res.stdout };
     };
-    const git = await readGit(run, cwd);
+    const gs = await readGitState(run, cwd);
+    const git = gs?.info ?? null;
     r.state = setGit(r.state, git);
     const id = r.state.id;
     let base = r.state.gitBase ?? (await loadBase($, id));
     // Tried even when readGit gave null: a repository with no commits yet fails that (no HEAD) but has files to list.
-    const changes = await readChanges(run, cwd, base);
+    const changes = await readChanges(run, cwd, base, gs ?? undefined);
     if (!changes) {
       if (!git) r.state = setFiles(r.state, NO_FILES, r.state.gitBase);
       return;

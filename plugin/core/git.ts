@@ -45,31 +45,59 @@ export function lastSegment(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p;
 }
 
-/** Reads branch, worktree and status; null when `cwd` is not in a repository or a query fails. */
-export async function readGit(run: Runner, cwd: string): Promise<GitInfo | null> {
+export interface GitState {
+  info: GitInfo;
+  /** The repository's top level, for the file read to reuse. */
+  top: string;
+  /** The HEAD commit, or null before the first commit. */
+  head: string | null;
+}
+
+/**
+ * Reads branch, worktree and status in two git processes (#753); null when `cwd` is not in a repository or a query fails.
+ * One `rev-parse` answers the git dir, the common dir, the top level, the HEAD commit and the branch, in that order (an option
+ * applies to the arguments after it, so HEAD before `--abbrev-ref` is the full commit). The top level and the commit come back so
+ * `readChanges` does not ask for them again.
+ */
+export async function readGitState(run: Runner, cwd: string): Promise<GitState | null> {
   const ok = async (argv: string[]) => {
     const r = await run(argv);
     if (r.exitCode !== 0) throw new Error(`${argv.join(' ')} exited ${r.exitCode}`);
     return r.stdout.trim();
   };
+  const lines = (v: string, n: number) => {
+    const l = v.split('\n');
+    if (l.length !== n) throw new Error('unexpected rev-parse output');
+    return l;
+  };
   try {
-    const [abbrev, gitDir, commonDir, top, status] = await Promise.all([
-      // A repository with no commits has no HEAD to abbreviate, so ask for the branch it will be born on (#1013).
-      // Outside a repository both fail and the read is null.
-      ok(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).catch(() => ok(['git', 'symbolic-ref', '--short', 'HEAD'])),
-      ok(['git', 'rev-parse', '--git-dir']),
-      ok(['git', 'rev-parse', '--git-common-dir']),
-      ok(['git', 'rev-parse', '--show-toplevel']),
-      run(['git', 'status', '--porcelain=v1', '-b']),
-    ]);
+    const statusP = run(['git', 'status', '--porcelain=v1', '-b']);
+    // Started with the rev-parse so the two overlap. If the rev-parse throws first nothing awaits it, and a rejection nobody observes is an unhandled one.
+    statusP.catch(() => undefined);
+    let gitDir: string, commonDir: string, top: string, head: string | null, abbrev: string;
+    try {
+      [gitDir, commonDir, top, head, abbrev] = lines(await ok(['git', 'rev-parse', '--git-dir', '--git-common-dir', '--show-toplevel', 'HEAD', '--abbrev-ref', 'HEAD']), 5) as [string, string, string, string, string];
+    } catch {
+      // A repository with no commits has no HEAD to resolve, so ask again without it and name the branch it will be born on (#1013).
+      // Outside a repository this fails too and the read is null.
+      [gitDir, commonDir, top] = lines(await ok(['git', 'rev-parse', '--git-dir', '--git-common-dir', '--show-toplevel']), 3) as [string, string, string];
+      head = null;
+      abbrev = await ok(['git', 'symbolic-ref', '--short', 'HEAD']);
+    }
     const detached = abbrev === 'HEAD';
     const branch = detached ? await ok(['git', 'rev-parse', '--short', 'HEAD']).catch(() => null) : abbrev;
     const isWorktree = resolvePath(cwd, gitDir) !== resolvePath(cwd, commonDir);
+    const status = await statusP;
     const st = status.exitCode === 0 ? parseStatus(status.stdout) : { ahead: 0, behind: 0, dirty: 0 };
-    return { branch, detached, isWorktree, worktreePath: isWorktree ? top : null, ...st };
+    return { info: { branch, detached, isWorktree, worktreePath: isWorktree ? top : null, ...st }, top, head };
   } catch {
     return null;
   }
+}
+
+/** Reads branch, worktree and status; null when `cwd` is not in a repository or a query fails. */
+export async function readGit(run: Runner, cwd: string): Promise<GitInfo | null> {
+  return (await readGitState(run, cwd))?.info ?? null;
 }
 
 /** The empty tree: the base for a repository with no commits yet. */
@@ -151,19 +179,22 @@ export interface Changes {
 /**
  * The files changed since the session started (SPEC 5.7). `base` is the commit HEAD was at when the
  * session began, or null on the first read, which takes HEAD (or the empty tree before the first
- * commit). Returns null when a query fails, so the caller keeps what it had.
+ * commit). Returns null when a query fails, so the caller keeps what it had. `known` is the top level and HEAD that `readGitState`
+ * just read, which saves two git processes; without it they are asked for here.
  */
-export async function readChanges(run: Runner, cwd: string, base: string | null): Promise<Changes | null> {
+export async function readChanges(run: Runner, cwd: string, base: string | null, known?: { top: string; head: string | null }): Promise<Changes | null> {
   try {
-    const top = (await run(['git', 'rev-parse', '--show-toplevel'])).stdout.trim() || cwd;
+    const top = known?.top || (await run(['git', 'rev-parse', '--show-toplevel'])).stdout.trim() || cwd;
     const git = (...args: string[]) => ['git', '-C', top, ...args];
     const out = async (argv: string[], okCodes: number[] = [0]) => {
       const r = await run(argv);
       if (!okCodes.includes(r.exitCode)) throw new Error(`${argv.join(' ')} exited ${r.exitCode}`);
       return r.stdout;
     };
-    const headRes = await run(git('rev-parse', 'HEAD'));
-    const head = headRes.exitCode === 0 ? headRes.stdout.trim() : null;
+    const head = known ? known.head : await (async () => {
+      const res = await run(git('rev-parse', 'HEAD'));
+      return res.exitCode === 0 ? res.stdout.trim() : null;
+    })();
     const start = base ?? head ?? EMPTY_TREE;
     const { ref, since } = await resolveRef(run, top, start, head);
     const [names, nums, others] = await Promise.all([
