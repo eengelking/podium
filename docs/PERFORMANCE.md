@@ -17,6 +17,7 @@ Contents:
 - [Baselines](#baselines)
 - [Storage latency: SQLite, PostgreSQL and MariaDB](#storage-latency-sqlite-postgresql-and-mariadb)
 - [Findings, ranked](#findings-ranked)
+- [Browser GPU load (#280)](#browser-gpu-load-280)
 - [Looked at and left alone](#looked-at-and-left-alone)
 - [What is still open](#what-is-still-open)
 
@@ -219,8 +220,47 @@ touches a design standard.
 | 14 | `SessionCard` is not memoized, so each redraw renders every card. **Measured, no change needed (#758):** at 200 sessions with 10 agents each the tab held 19,711 DOM nodes (3.6 times the 52-session 5,452, for 3.8 times the sessions) and 45 to 56 MB of heap, drew 59.7 frames a second and had no long task (none over 50 ms) in 30 seconds, against 60 frames a second and no long task at 52. React's commit time was not read directly; no long task means no commit or paint took 50 ms, which is the bound this finding rests on. `SessionCard` was not memoized and the wall was not windowed, so there is no before and after and no cost in responsiveness. Revisit if a fleet beyond 200 sessions, or a slower machine, shows a long task | Low | Medium | `frontend/src/fleet/components/Wall.tsx`, `SessionCard.tsx` | #758 |
 | 15 | The container health check fetches the whole fleet state every 30 seconds (1.39 MB and a new Node process at the large fleet), and `podiumctl` does the same. `/api/health` exists. The deeper check may be intended, so this is a decision, not a defect. **Done (#767):** one `/api/fleet/state` call costs about 4 ms and 372 KB at the medium fleet (20 sessions, 10 agents) and about 13 ms and 1.28 MB at the large (50 sessions, 20 agents), against under 1 ms and 15 bytes for `/api/health`. At 2,880 checks a day the container check alone was about 3.7 GB over loopback and about 40 s of server CPU at the large fleet, plus a Node process each time. The container check and `podiumctl`'s `healthy()` now call `/api/health`, so a check says the server answers, not that the fleet can build its state; no restart policy acts on the check, so nothing depended on the deeper answer | Low | Low | `bin/podiumctl` | #767 |
 
-The browser GPU work stays in #280. The audit adds one number to it: the console redraws once every two seconds by default, not once a
-second, because `useHeldState` and `useNow` share the "Refresh every" interval.
+## Browser GPU load (#280)
+
+Measured on one Mac with an Apple GPU and one Chrome tab, on a throwaway server (`scripts/podium-throwaway-fleet.sh`, which keeps a server and the
+simulator up for a headed tab) and `scripts/gpu-sample.sh`, which reads the whole GPU. Each figure is the average of 38 to 48 one-second readings
+after the first 10 s of a run. Two runs of the same live 10-session wall on separate servers read 20.7% and 20.6%, and the other runs of one
+setup differed by up to about 3 points, so a difference under 3 points is not a finding. The redraw interval was the default of 2 s.
+
+| Setup | GPU |
+|---|---|
+| A blank tab (the floor) | 9.7% |
+| 10 sessions of 10 agents, frozen (the simulator stopped) | 12.2% |
+| 10 sessions of 10 agents, live | 20.7%, 20.6% |
+| 10 sessions of 10 agents, live, activity panel hidden (`display: none`) | 14.7% |
+| 10 sessions of 10 agents, live, sparkline charts (`svg.sp`) hidden | 23.1% (within the spread: the charts cost nothing measurable) |
+| 10 sessions of 10 agents, live, entry animations of the feed, the event rows and the cards off | 15.9% |
+| 10 sessions of 10 agents, live, only the `.ev li.new .evb` animation off | 16.3% |
+| 10 sessions of 10 agents, frozen, with the modal's blur (`body.modal-open #root { filter: blur(5px) }`) | 12.2% |
+| 10 sessions of 10 agents, live, with the modal's blur | **52.9%** |
+| 200 sessions of 10 agents, frozen | 23.4% |
+| 200 sessions of 10 agents, live | 55.2% |
+| 200 sessions of 10 agents, live, activity panel hidden | 58.4% (the panel is not the cost at this size) |
+
+What the numbers say:
+
+- **Incoming updates are the cost.** A frozen wall sits 2.5 points above a blank tab at 10 sessions and 14 above it at 200. Live data adds 8.5
+  points at 10 sessions and 32 at 200.
+- **An open modal on a live wall is the largest single cost found.** The blur on `#root` costs nothing while the data is frozen and
+  more than doubles the GPU load when it is live (20.7% to 52.9% at 10 sessions), because the blurred copy of the whole wall is redrawn with every
+  update. The maintainer chose to keep the blur (it is part of the modal in `docs/standards/`), so this is recorded here and not changed.
+  Closing the modal returns the load to the live figure.
+- **The activity panel is about 6 points at 10 sessions, and the new-row animation is most of that.** `.ev li.new .evb` runs `podium-enter`, which
+  animates `background`, so each new row is repainted for 1.2 s. Turning only that animation off read 16.3% against 20.6%. A version that
+  animated opacity and transform only, with the green flash as a faded `::before` layer, read 26.2%, worse than the original, and without the
+  flash it read 19.1%, no better. Both were reverted, so no change is made: the only setup that was clearly cheaper is no entry animation at all,
+  which removes the cue that a row is new, and that is a product choice for the maintainer.
+- **The charts do not show.** Hiding every sparkline changed nothing beyond the spread.
+- **`will-change` is not in the code.** #83 and #84 removed it when the pulse and blinks moved onto the shared `data-beat` clock, so there is no
+  with and without to compare, and the infinite animations it was added for no longer exist.
+- **The `paused` rule reaches the portaled modal's wrapper only through its own `.podium` class** (the modal renders `.podium.podium-modal` into `body`, with no
+  `paused` class and no `data-beat`). The modal has no infinite animation, so a hidden tab with a modal open has nothing running that the rule would stop.
+- Not measured: a tab in the background (#751), a wall at the 1 s redraw interval, and a machine other than this one.
 
 ## Looked at and left alone
 
@@ -251,8 +291,7 @@ second, because `useHeldState` and `useNow` share the "Refresh every" interval.
   code only. The git and process cost in finding 9 is counted from the code, not measured. The maintainer chose to leave this as a gap.
 - **The container's CPU and memory (`podman stats`) are not measured.** The image size is read from an existing image; a new build would
   re-tag the maintainer's `localhost/podium`.
-- **The browser's own CPU and the GPU are not measured here.** The tab's JavaScript cost is (no long tasks), but the process CPU and the GPU
-  load belong with #280, which has the sampling script.
+- **The browser's own process CPU is not measured here.** The tab's JavaScript cost is (no long tasks). The GPU is measured in "Browser GPU load" above (#280).
 - **The soak is one hour at 20 sessions with 10 agents each, not several hours, and it has no heap profile.** Memory climbed for the first half
   hour and then held, which is what a cache filling looks like, but a slow leak under 1 MB an hour would not show. A longer run with
   `--heap-prof` (or heap snapshots at the start and the end) would settle it. Nobody has filed this as an issue yet, because there is no
