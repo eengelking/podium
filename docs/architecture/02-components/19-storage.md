@@ -105,6 +105,8 @@ standalone). The TLS folder is `tls/` inside it. A kind whose target is not a fi
 stops at start unless `PODIUM_DATA_DIR` is set (`podiumctl` sets it for `postgres` and `mariadb`). The Activity history file is the SQLite adapter's own business and sits beside
 the SQLite file; on PostgreSQL the Activity history is a schema in the same database, and on MariaDB it is tables of its own in the same database.
 
+An id a store takes is at most `ID_MAX` (255) characters (`rows.ts`, #1177): MariaDB holds a session, agent, event or reporter-session id in a `K(255)` key column, and SQLite and PostgreSQL would hold any length, so 255 is the longest the three agree on. None reaches one over the wire, because a report and a hook cut an id to `LIMITS.id` (200) first. The contract has a case at the limit, and the differential test draws ids no longer than it.
+
 ## The lock and the transaction
 
 This section is about SQLite; [PostgreSQL](#the-postgresql-adapter) and [MariaDB](#the-mariadb-adapter) do the same differently.

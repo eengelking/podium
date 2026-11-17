@@ -8,7 +8,7 @@
 // letters whose case or sort order differs between databases. A method added to `types.ts` is not ignored: `contractMethods.ts` lists every
 // method, and the guard in `adapters.test.ts` fails for one that no case or target calls.
 import { describe, expect, it } from 'vitest';
-import { PeopleError } from './rows.js';
+import { ID_MAX, PeopleError } from './rows.js';
 import { session } from './contract.js';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
 import type { Storage } from './types.js';
@@ -43,7 +43,8 @@ const int = (r: Rand): number => (r() < 0.5 ? pick(r, [0, 1, 2, 3, 100, -1]) : M
 const str = (r: Rand): string => (r() < 0.6 ? pick(r, EDGE_STRINGS) : `s${Math.floor(r() * 6)}`);
 const key = (r: Rand): string => `k${Math.floor(r() * 4)}`;
 const ID = ['s1', 's2', 's3', 'S1'] as const;
-const id = (r: Rand): string => (r() < 0.2 ? str(r) : pick(r, ID));
+// An id is at most ID_MAX characters, the longest every store takes (#1177); the wire cuts one to 200 before a store sees it.
+const id = (r: Rand): string => (r() < 0.2 ? str(r).slice(0, ID_MAX) : pick(r, ID));
 
 export interface Target {
   name: string;
