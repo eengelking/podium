@@ -217,8 +217,14 @@ export function withoutPerson(r: { people: string; seen: string }, key: string):
   return { people: keyText(rest), seen: keyText(keyList(r.seen).filter((p) => p !== key)) };
 }
 
-/** Whether an Admin record is still owed to someone: a person it names has not seen it (#1051). */
-export const stillOwed = (r: { people: string; seen: string }): boolean => {
+/** The people an Admin record is owed to and who have not seen it, from the two lists the record kept before `chat_admin_owed` (#1061). */
+export const owedKeys = (r: { people: string; seen: string }): string[] => {
   const seen = new Set(keyList(r.seen));
-  return keyList(r.people).some((p) => !seen.has(p));
+  return keyList(r.people).filter((p) => !seen.has(p));
 };
+
+/** A person who never loads Chat is owed an Admin record for this long after its last read (#1061, 90 days); then the record is no longer owed to them. */
+export const OWED_CAP_MS = 90 * 86_400_000;
+
+/** The `settings` key that says the `chat_admin_owed` table has been filled from the records that were there before it (#1061). */
+export const OWED_FILLED_KEY = 'chat_admin_owed_filled';

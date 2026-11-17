@@ -57,8 +57,16 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
     if (adminReads.length > 0) {
       // The Admin read records come from step 9; step 10 gave them a kind, so the rows go in at the schema before it.
       await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.filter((s) => s.version <= 9));
-      for (const x of adminReads) {
+      for (const x of adminReads.filter((r) => !r.lists)) {
         await old.run('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?)', [x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt]);
+      }
+      if (adminReads.some((r) => r.lists)) {
+        // Records that kept who they are owed to (step 11) and came before the owed table (step 20).
+        await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.filter((s) => s.version <= 19));
+        for (const x of adminReads) {
+          if (!x.lists) continue;
+          await old.run('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt, x.lists.kind, JSON.stringify(x.lists.people), JSON.stringify(x.lists.seen)]);
+        }
       }
     }
   } finally {

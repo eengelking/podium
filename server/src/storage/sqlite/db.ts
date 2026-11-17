@@ -560,6 +560,19 @@ CREATE TABLE IF NOT EXISTS answers_daily (
     // PostgreSQL step 19 and MariaDB step 19.
     sql: 'CREATE INDEX IF NOT EXISTS samples_t ON samples(t);',
   },
+  {
+    version: 44,
+    // Who an Admin record is still owed to (#1061): one row per person and record, there while the person has not seen it, so a person's unseen records are
+    // read by the person (the key's first column) and not found by parsing the `people` and `seen` lists of every record. A row goes when the person sees the
+    // record, when the person is deleted, or 90 days after the record's last read. The records already there are filled from their lists by the store, once,
+    // because the lists are JSON text and SQL cannot split them the same way on every database. `chat_admin_reads.seen` is no longer written.
+    sql: `
+CREATE TABLE IF NOT EXISTS chat_admin_owed (
+  person_key TEXT NOT NULL, thread TEXT NOT NULL, admin_key TEXT NOT NULL, started_at INTEGER NOT NULL,
+  PRIMARY KEY (person_key, thread, admin_key, started_at)
+);
+CREATE INDEX IF NOT EXISTS chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

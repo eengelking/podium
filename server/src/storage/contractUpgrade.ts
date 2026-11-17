@@ -51,6 +51,8 @@ export interface LegacyAdminRead {
   admin: string;
   startedAt: number;
   lastSeenAt: number;
+  /** Set when the record was made after it was kept who it is owed to (#1051) and before `chat_admin_owed` (#1061): the two lists, as the record kept them. */
+  lists?: { kind: string; people: string[]; seen: string[] };
 }
 
 /** A session as an older database stores it, before a session named its harness (#851). */
@@ -289,6 +291,34 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await reads.purge(T0 - 70 * MIN)).toBe(1);
       expect(await reads.forget('group:ed')).toBe(2);
       expect(await reads.list('dm:a|b')).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
+  it('owes a person the records an older database kept in its lists, and not the ones the person had seen, when the database is upgraded (#1061)', async () => {
+    const MIN = 60_000;
+    const list = (adminKey: string, thread: string, startedAt: number, people: string[], seen: string[]): LegacyAdminRead => ({
+      thread, adminKey, admin: adminKey, startedAt, lastSeenAt: startedAt, lists: { kind: 'read', people, seen },
+    });
+    const s = await o.openUpgraded([], [], [], [], [], [
+      list('root', 'dm:a|b', T0, ['ed', 'eve'], ['eve']),
+      list('zoe', 'dm:a|b', T0 + MIN, ['ed'], []),
+      list('root', 'group:eve', T0 + 2 * MIN, ['eve'], ['eve']),
+      list('root', 'dm:none', T0 + 3 * MIN, [], []),
+    ]);
+    try {
+      const reads = s.chat({ now: () => T0 + 10 * MIN }).adminReads;
+      const brief = (l: { thread: string; admin: string }[]) => l.map((r) => `${r.thread}:${r.admin}`);
+      expect(brief(await reads.unseenFor('Ed'))).toEqual(['dm:a|b:zoe', 'dm:a|b:root']);
+      expect(brief(await reads.unseenFor('eve'))).toEqual([]);
+      expect(brief(await reads.unseenFor('nobody'))).toEqual([]);
+      // It is filled once: a second look, and a record made now, add to it and do not repeat it.
+      await reads.mark('dm:a|b', 'Root', 'paused', ['ed']);
+      expect(await s.chat({ now: () => T0 + 11 * MIN }).adminReads.unseenFor('ed')).toHaveLength(3);
+      expect(await reads.seen('dm:a|b', 'ed')).toBe(3);
+      // Nobody is owed the first two now; the one that names nobody goes by retention alone.
+      expect(await reads.forget('dm:a|b')).toBe(3);
+      expect(await reads.purge(T0 + 4 * MIN)).toBe(2);
     } finally {
       await s.close();
     }
