@@ -12,7 +12,7 @@ const css = readFileSync(resolve(process.cwd(), "src/fleet/fleet.css"), "utf8");
 const rule = (selector: string) => css.match(new RegExp(`^${selector.replace(/[.\[\]]/g, "\\$&")}\\s*\\{([^}]*)\\}`, "m"))?.[1] ?? "";
 
 const T0 = 1_000_000;
-const fetchActivity = async (): Promise<ActivityReply> => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0 });
+const fetchActivity = async (): Promise<ActivityReply> => ({ entries: [], background: [], since: T0, live: true, enabled: true, serverTime: T0 });
 
 describe("the Activity header row lines up (#147)", () => {
   it("puts the label, Expand and the refresh control in one flex row, centred on each other", () => {

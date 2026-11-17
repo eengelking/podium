@@ -1489,6 +1489,20 @@ body.modal-open #root { filter: blur(5px); }
 .podium .exit { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
 .podium .exit.ok { color: var(--good-text); }
 .podium .exit.bad { color: var(--crit-text); }
+
+/* The Background tab of the Activity modal (#897, mockup/podium-background-items.html). Its rows are the feed's own (.feed li, .tgl, .xp); only the state, the
+   quiet line and the line under the command are new. .bgs: an item's state as a shape (the row's second column, .k), a word and a color, never color alone.
+   .bgq: the warning line under "Running" once nothing has printed for 5 minutes. */
+.podium .feed li .k.run, .podium .feed li .bgs.run { color: var(--deleg-text); }
+.podium .feed li .k.ok, .podium .feed li .bgs.ok { color: var(--good-text); }
+.podium .feed li .k.bad, .podium .feed li .bgs.bad { color: var(--crit-text); }
+.podium .feed li .k.end, .podium .feed li .bgs.end { color: var(--ink2); }
+.podium .feed li .bgs { font-weight: 600; }
+.podium .feed li .bgline { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: 11.5px; color: var(--muted); }
+.podium .feed li .bgline .mono { color: var(--ink2); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.podium .feed li .bgq { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; color: var(--warn-text, var(--warn)); }
+.podium .feed li .bgq svg { display: inline-block; vertical-align: -2px; margin-right: 3px; }
+.podium .bgnote { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); align-self: stretch; box-sizing: border-box; }
 .podium .exit svg { flex: none; }
 @media (prefers-reduced-motion: reduce) { .podium .feed li .tgl .chev { transition: none; } }
 /* .scrub: the replay's position slider, a labelled range input in the ink color. */

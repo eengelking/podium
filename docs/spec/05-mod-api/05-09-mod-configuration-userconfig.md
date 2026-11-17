@@ -23,6 +23,7 @@ Declare the options in `plugin.json`. The syntax is checked with `claude plugin 
 | `fullPrompts` | boolean | `false` | When true, send each agent's whole task prompt and final answer as `promptText` and `answerText` ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)). Off by default: only the 400-character excerpts are sent. |
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
 | `activityOutput` | boolean | `false` | When true, the mod sends a Bash command's output with its activity entry, only for a loop a viewer has the feed open on (see below). Title "Send a Bash command's output". Needs `activityFeed` on. |
+| `backgroundOutput` | boolean | `false` | When true, the mod sends a background shell's or monitor's whole command and its newest output, only for a loop a viewer has the Background tab open on (see below). Title "Send a background shell's command and output". Needs `activityFeed` on as well. |
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `fileDiffPreload` | boolean | `true` | Needs `fileDiff`. When true, the console may ask for every changed file's diff while the owner has the session's page open (#631, see below). Title "Read every changed file's diff while its page is open". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
@@ -51,6 +52,12 @@ A boolean option holds `true` or `false`. A value of another type, such as the t
   lists every running loop of the session as watched, so these entries are captured and stored on the server
   whether or not anyone watches, until the Admin's period ends. The option description in the mod's
   `plugin.json` says so.
+
+**`backgroundOutput`** (#897)
+- Off by default. With it on and `activityFeed` on, the mod reads the output file of each background shell and monitor of a loop the reply lists in
+  `watchBackground`, redacts it with `redactBounded` like every other free text, and sends the whole command and the newest 20,000 characters in
+  `session.backgroundItems` / `agents[].backgroundItems`, and sends `session.backgroundOutput`. Without it the Background tab lists each item's label, state and times only.
+- It needs the Admin's `background-output` flag (off by default). Nothing is stored; an Admin's read is recorded and the person is told.
 
 **`activityOutput`** (#431)
 - When true, the mod adds what a Bash call printed (stdout then stderr), and how it exited, to that call's activity

@@ -61,15 +61,15 @@ describe("podium-peers-seed.mjs", () => {
     expect(r.out).toContain("name=Ed");
   });
 
-  it("turns on the Admin flag of each of --activity-output, --session-recording and --file-diff", async () => {
-    const r = await seed("--activity-output", "--session-recording", "--file-diff");
+  it("turns on the Admin flag of each of --activity-output, --background-output, --session-recording and --file-diff", async () => {
+    const r = await seed("--activity-output", "--background-output", "--session-recording", "--file-diff");
     expect(r.code, r.out).toBe(0);
-    expect(r.features).toEqual({ "peer-messaging": true, respond: true, "activity-feed": true, "activity-output": true, "session-recording": true, "file-diff": true });
+    expect(r.features).toEqual({ "peer-messaging": true, respond: true, "activity-feed": true, "activity-output": true, "background-output": true, "session-recording": true, "file-diff": true });
     expect((await seed("--file-diff")).features).toEqual({ "peer-messaging": true, respond: true, "activity-feed": true, "file-diff": true });
   });
 
   it("lists the three options in its help", async () => {
     const r = await seed("--help");
-    for (const f of ["--activity-output", "--session-recording", "--file-diff"]) expect(r.out).toContain(f);
+    for (const f of ["--activity-output", "--background-output", "--session-recording", "--file-diff"]) expect(r.out).toContain(f);
   });
 });

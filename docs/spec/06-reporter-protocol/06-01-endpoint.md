@@ -19,7 +19,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
   { "ok": true, "serverTime": <epoch ms>, "ackedEvents": <n>, "sessionId": "…", "liveSessions": <n>,
     "serverVersion": "…", "serverBuild": "…" | null, "reporterSupport": { "min": "…", "max": "…" } | null,
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
-    "watch": ["<agentId>" | "@orchestrator", …], "watchOutput": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
+    "watch": ["<agentId>" | "@orchestrator", …], "watchOutput": ["<agentId>" | "@orchestrator", …], "watchBackground": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
     "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[],
     "adminNotices": AdminNotice[], "recording": RecordingGrant }
   ```
@@ -29,6 +29,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
   | `serverVersion`, `serverBuild`, `reporterSupport`, `reporterCompat` | Explained in [6.8](06-08-version-compatibility.md). |
   | `watch` | The loops a viewer is watching right now, the orchestrator's main loop as `@orchestrator`, so the mod knows whose activity to send ([6.4](06-04-failure-and-excerpt-rules.md)). While the Admin keeps the Activity history (#432) and the session's reporter has the `activityFeed` option on, it also lists the orchestrator and every running agent, watched or not. Always empty while the Admin has the activity feed turned off. |
   | `watchOutput` | The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is on (#431). A subset of `watch`: the loops the Activity history lists without a viewer are never here, so the mod captures a Bash call's output only while someone is looking. Empty while the flag is off or nobody watches; an older server sends no field, which the mod reads as empty. |
+  | `watchBackground` | The loops of `watch` that a viewer has the Background tab open on right now (a live lease), when the Admin's `background-output` flag is on (#897). The mod sends a background item's whole command and its output only for these loops, and only with its `backgroundOutput` option on. Absent from a server older than the release that adds it, which asks for none. |
   | `respond` | Whether the server takes answers for this session now ([7.7](../07-server/07-07-hardening.md): authentication on, the Admin's `respond` and `activity-feed` flags on, and the session has an owner). The mod announces asks only while it is true. |
   | `diffs` | The file diffs the session's signed-in owner is waiting for now (`{ id, path }`, #319, [6.4](06-04-failure-and-excerpt-rules.md)), at most 4. Always empty while the Admin's `file-diff` flag is off or the session has no owner. |
   | `deliveries` | The messages and commands sent from Podium for this session that the mod has not yet given a result for ([6.2](06-02-the-report.md), [7.1](../07-server/07-01-endpoints.md)), in the order they were sent, at most 20, and always empty while `respond` is false. An answer to an ask never comes here, only through the held request. |

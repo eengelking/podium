@@ -70,7 +70,8 @@ describe('respond: answering', () => {
     dialog().contains('label.opt', 'The page number').click();
     dialog().contains('button', 'Next').click();
     dialog().contains('Submitting sends all three at once, as Claude Code does.');
-    dialog().contains('button', 'Back').click();
+    // Exact: the Activity modal's Background tab (#897) also contains the word.
+    dialog().contains('button', /^Back$/).click();
     dialog().contains('What should Back restore?');
     dialog().contains('button', 'Next').click();
     dialog().contains('button', 'Submit answers').click();

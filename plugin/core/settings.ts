@@ -23,6 +23,7 @@ export const CONSENT_VARS = {
   fullPrompts: 'PODIUM_FULL_PROMPTS',
   activityFeed: 'PODIUM_ACTIVITY_FEED',
   activityOutput: 'PODIUM_ACTIVITY_OUTPUT',
+  backgroundOutput: 'PODIUM_BACKGROUND_OUTPUT',
   fileDiff: 'PODIUM_FILE_DIFF',
   explainFailures: 'PODIUM_EXPLAIN_FAILURES',
 } as const;

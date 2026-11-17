@@ -292,7 +292,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...(await adminNoticesOf(fleet, out.sessionId)), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), watchBackground: fleet.activity.watchedBackground(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...(await adminNoticesOf(fleet, out.sessionId)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof HarnessConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
@@ -438,8 +438,8 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (!respondAccess || !(await respondAccess.agentRead(req, res, 'live', id, agentId))) return;
     // With the Admin's flag off (Admin > Settings > Feature flags) no lease is taken; the panel keeps asking and says so.
     let body: ActivityReply;
-    if (!fleet.activity.on) body = { entries: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };
-    else if (!fleet.isLive(id)) body = { entries: [], since: null, live: false, enabled: true, serverTime: fleet.now() };
+    if (!fleet.activity.on) body = { entries: [], background: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };
+    else if (!fleet.isLive(id)) body = { entries: [], background: [], since: null, live: false, enabled: true, serverTime: fleet.now() };
     else body = { ...fleet.activity.watch(id, agentId, everyOf(req.query.every)), live: true, enabled: true, serverTime: fleet.now() };
     // What is stored for this loop, as counts. Present only under a keep policy and when the loop has entries, so under the
     // default policy the reply is exactly what it was. `canRead` is the viewer's own sign-in; it never refuses the request.

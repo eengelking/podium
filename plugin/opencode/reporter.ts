@@ -1,6 +1,9 @@
 // The OpenCode reporter's runtime (#855): one Reporter per location, many root sessions in it. `handle` folds an event
 // and returns at once; only `tick` and `close` talk to the server, so the event loop never waits on the network. Each
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
+import path from 'node:path';
+import { outputTimes, readTail } from '../core/background.ts';
+import { nodeOutputFs } from './outputFs.ts';
 import { excerpt, explainPrompt } from '../core/failures.ts';
 import { lastSegment, readChanges, readGitState, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
@@ -15,7 +18,7 @@ import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
+import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedBackground, setWatchedOutput, sweep, setBackground, loopKey, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -39,6 +42,8 @@ export interface ReporterOptions {
   activityFeed?: boolean;
   /** The activity output consent (`PODIUM_ACTIVITY_OUTPUT`): a shell call's output may go out, for a loop a viewer has open. Needs `activityFeed`. */
   activityOutput?: boolean;
+  /** The background output consent (`PODIUM_BACKGROUND_OUTPUT`): a background shell's whole command and output may go out, for a loop a viewer has the Background tab open on. Needs `activityFeed`. */
+  backgroundOutput?: boolean;
   /** The full prompts consent (`PODIUM_FULL_PROMPTS`): send each agent's whole prompt and answer, once. */
   fullPrompts?: boolean;
   /** The explain failures consent (`PODIUM_EXPLAIN_FAILURES`): a small model is asked to explain each new failure, from its redacted record only. Off when absent. */
@@ -334,7 +339,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached?.() ? { attached: true } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached?.() ? { attached: true } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, backgroundOutput: o.activityFeed === true && o.backgroundOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
@@ -373,6 +378,7 @@ export class Reporter {
     // With the option off nothing is ever watched (#118). A loop is given output only while it is also watched.
     setWatched(root, o.activityFeed ? t.watch : []);
     setWatchedOutput(root, o.activityFeed && o.activityOutput ? t.watchOutput.filter((id) => root.watched.includes(id)) : []);
+    setWatchedBackground(root, o.activityFeed && o.backgroundOutput ? t.watchBackground.filter((id) => root.watched.includes(id)) : []);
     this.takeRecording(root, t.recording);
     this.takeAdminNotices(t);
   }
@@ -536,6 +542,52 @@ export class Reporter {
   }
 
   /**
+   * Reads, for each watched loop, when its shells last printed and, with the output switches on for the loop, the tail of what they printed (#897).
+   * Only the file OpenCode itself reported in `shell.created` (`info.file`) is read: it must be a `.out` file, a regular file and not a link, in the
+   * folder it names. A finished shell is read once more after it exits and then left alone. A file that is gone or unreadable is no output, never an error.
+   */
+  private async refreshShells(root: Root): Promise<void> {
+    const o = this.opts;
+    if (o.activityFeed !== true || !root.watched.length) return;
+    for (const s of root.sessions.values()) {
+      const loop = loopKey(root, s);
+      if (!root.watched.includes(loop)) continue;
+      const detail = o.backgroundOutput === true && root.watchedBackground.includes(loop);
+      for (const sh of s.shells.values()) {
+        if (!sh.file || !path.isAbsolute(sh.file) || !sh.file.endsWith('.out') || (sh.exited && sh.settled && (!detail || sh.output !== null))) continue;
+        const dir = path.dirname(sh.file);
+        if (detail) {
+          // A file that has not changed since it was read has nothing new: it is not read, redacted and cut again every tick.
+          const seen = await outputTimes(nodeOutputFs, sh.file, dir);
+          if (seen.ok && sh.output !== null && sh.lastOutputAt !== null && Math.round(seen.mtimeMs) === sh.lastOutputAt) {
+            sh.settled = sh.exited;
+            continue;
+          }
+          const r = await readTail(nodeOutputFs, sh.file, dir);
+          if (!r.ok) {
+            sh.settled = sh.exited;
+            continue;
+          }
+          if (sh.output !== r.text || sh.lastOutputAt !== Math.round(r.mtimeMs)) root.dirty = true;
+          sh.output = r.text;
+          sh.outputCutAtStart = r.cutAtStart;
+          sh.lastOutputAt = r.size > 0 ? Math.round(r.mtimeMs) : null;
+        } else {
+          const r = await outputTimes(nodeOutputFs, sh.file, dir);
+          if (!r.ok) {
+            sh.settled = sh.exited;
+            continue;
+          }
+          const at = r.size > 0 ? Math.round(r.mtimeMs) : null;
+          if (at !== sh.lastOutputAt) root.dirty = true;
+          sh.lastOutputAt = at;
+        }
+        sh.settled = sh.exited;
+      }
+    }
+  }
+
+  /**
    * One pass of the flush timer: finish quiet roots, then send what is due. Resolves when this pass's sends have
    * settled, which only the timer's caller waits on, never `handle`.
    */
@@ -543,6 +595,8 @@ export class Reporter {
     if (this.closed) return;
     const now = this.deps.now();
     sweep(this.store, now, this.opts.idleMs, this.deps.attached?.() ?? false);
+    // What a watched loop's shells have printed, read from the files OpenCode reported, before the reports are built (#897).
+    await Promise.all([...this.store.roots.values()].map((root) => this.refreshShells(root)));
     const sends: Promise<void>[] = [];
     for (const root of [...this.store.roots.values()]) {
       this.queue(root);

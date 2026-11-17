@@ -138,6 +138,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 |---|---|---|
 | Address, header, charts, the twelve facts, copy and popups, status band, Plan and Files tabs, fold, agent tree sort | SPEC 8.1 Orchestrator page | `e2e/cypress/e2e/orchestrator/page.cy.js` |
 | Agent panel, failure and blowout boxes, Report dialogs, activity feed, expand, a Bash call shown running and ended in place (#899), the event list | SPEC 8.1 Right panel | `e2e/cypress/e2e/orchestrator/agents.cy.js` |
+| The Activity modal's Background tab (#897, DECISIONS 68): the Output tab open first; an older reporter (no `backgroundOutput`) says "This reporter does not send background items."; an empty list says "No background shells or monitors"; each item's row with its state (Running, Finished exit 0, Failed exit N, Ended without an exit code), run time, "last output N ago", a Monitor's "Quiet for N min" warning, the tab's count; a row opened to its whole command and Output with Copy command, Copy output and Collapse, and the empty "The command printed nothing.". Not reached: the orchestrator's own modal (the Respond window, with its message box) and an OpenCode session's note, which the component tests cover; the 5-minute quiet limit is read against a fixed old time, never a clock | SPEC 6.2 The report, Right panel | `e2e/cypress/e2e/orchestrator/background-items.cy.js` |
 | Who may open an agent's whole text and live activity (#1082): 401 not signed in, 403 anyone but the owner, 200 for the owner and an Admin, on both routes; the Report dialog's note under the 400-character excerpt and the feed's wording, footer "Not shown", for a signed-out visitor and for another person; no refusal for the owner | SPEC 8.1 Right panel; DECISIONS 62 | `e2e/cypress/e2e/orchestrator/agent-read-gate.cy.js` |
 | Plan order (#454) and paging, plan complete, Files paging, nested agents, Tools used and Show all, the event list's 12 more | SPEC 8.1 Plan section, Tools used | `e2e/cypress/e2e/orchestrator/plan-and-files.cy.js` |
 | File diff dialog: sides, stepping and its last file, binary, withheld, too large, cut, renamed (R mark and old name) and deleted files, wrap, preload (every file asked for before a click, none when off), one column when narrow, 504 and 429 (asked again on reopening), who may open it | SPEC 8.1 Files | `e2e/cypress/e2e/orchestrator/file-diff.cy.js` |
@@ -194,10 +195,11 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 
 | Flag | Covered by |
 |---|---|
-| All nine: the defaults of a fresh server (seven off, `activity-feed` and `update-check` on), with nothing enabled | `e2e/cypress/e2e/flags/defaults.cy.js` |
-| All nine: each off, kept over a reload, and on again, in Admin > Settings and in `/api/fleet/state` | `e2e/cypress/e2e/admin/settings.cy.js` |
+| All ten: the defaults of a fresh server (eight off, `activity-feed` and `update-check` on), with nothing enabled | `e2e/cypress/e2e/flags/defaults.cy.js` |
+| All ten: each off, kept over a reload, and on again, in Admin > Settings and in `/api/fleet/state` | `e2e/cypress/e2e/admin/settings.cy.js` |
 | `activity-feed` on, off, and on with the reporter's `activityFeed` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
 | `activity-output` on, off, and on with `activityOutput` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
+| `background-output` (#897): off by default and its switch row in Admin > Settings with its warning bar only while on, kept over a reload (`settings.cy.js`); off, the Background tab lists state and times and an opened row says "Output is off."; on with the reporter's `backgroundOutput` option off, the row names the option; on, a row opens to its whole command and output | `e2e/cypress/e2e/orchestrator/background-items.cy.js` and `e2e/cypress/e2e/admin/settings.cy.js` |
 | `respond` on and off, and a reporter that cannot answer | `e2e/cypress/e2e/respond/respond.cy.js` |
 | `file-diff` on, off, and on with `fileDiff` off | `e2e/cypress/e2e/orchestrator/file-diff.cy.js` |
 | `peer-messaging` on (Chat in the bar), off (Chat says so and its read is refused), and on with a machine's `peers` off, with both Claude Code routes to turn it on named in the hover note on "Off on the machine" (#857) | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |

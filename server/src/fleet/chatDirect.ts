@@ -220,11 +220,15 @@ export class DirectChat {
   /**
    * The person's conversations that have left the list because every agent in them ended (#1051). The overview shows one only while an Admin is reading it, so
    * a person can see who is reading a conversation they cannot open. `asAdmin` is an Admin browsing the person. Never any text.
+   *
+   * The live readings are found first and only the hidden conversations they name are loaded (#1063): with no reading live, no conversation is read.
    */
   async hiddenOf(viewer: ChatViewer, owner: string, asAdmin: boolean): Promise<DirectInfo[]> {
     if (viewer.personId === null && !asAdmin) return [];
-    const mine = (await this.peers.ownerConversations(owner, { includeHidden: true })).filter((c) => c.hiddenAt !== null);
-    return Promise.all(mine.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));
+    // A Direct Message thread is `dm:<id>|<id>`, the pair `ownerConversations` groups by, so the store keeps only the conversations being read, and reads none when no reading is live.
+    const pairs = (await this.reads.liveDmThreads()).map((t) => t.slice('dm:'.length));
+    const found = (await this.peers.ownerConversations(owner, { includeHidden: true, pairs })).filter((c) => c.hiddenAt !== null);
+    return Promise.all(found.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));
   }
 
   /** How many conversations each of the people takes part in, hidden ones left out, in one read for all of them (#1046). */

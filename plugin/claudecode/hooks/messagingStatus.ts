@@ -22,7 +22,7 @@ export interface MessagingFacts {
 }
 
 /** The options that are switches. A value of another type for one of these is a mistake `/podium` names. */
-const BOOLEAN_OPTIONS = ['showStatus', 'explainFailures', 'fullPrompts', 'activityFeed', 'activityOutput', 'fileDiff', 'fileDiffPreload', 'peers', 'sessionRecording'];
+const BOOLEAN_OPTIONS = ['showStatus', 'explainFailures', 'fullPrompts', 'activityFeed', 'activityOutput', 'backgroundOutput', 'fileDiff', 'fileDiffPreload', 'peers', 'sessionRecording'];
 
 /**
  * The cause of messaging being off, in the order the mod can know it, in plain words; null when it is on. The server's

@@ -54,6 +54,7 @@ import { ChatPage } from "./Chat";
 import { chatApi, type ChatApi } from "./chatData";
 import { RespondModal } from "./components/Respond";
 import { ActivityOutputFlag } from "./components/BashRow";
+import { BackgroundOutputFlag } from "./components/BackgroundList";
 import type { SessionView } from "./types";
 import { useStoppedFeatures } from "./stoppedFeatures";
 
@@ -149,6 +150,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
     <ActivityOutputFlag.Provider value={props.state.features["activity-output"] === true}>
+    <BackgroundOutputFlag.Provider value={props.state.features["background-output"] === true}>
       <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} myUsageOn={props.state.features["my-usage"] === true} api={props.respondApi}>
         <SessionReadsProvider rev={props.state.readsRev}>
         <ReplayReadsProvider rev={props.state.replayRev}>
@@ -169,6 +171,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
         </ReplayReadsProvider>
         </SessionReadsProvider>
       </RespondProvider>
+    </BackgroundOutputFlag.Provider>
     </ActivityOutputFlag.Provider>
   );
 });

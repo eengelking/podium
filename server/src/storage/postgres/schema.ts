@@ -376,6 +376,18 @@ CREATE TABLE answers_daily (
     // An index on the sample time (#755), as SQLite migration 43 keeps it: the fleet-wide token and cost queries and the retention delete read by time alone.
     sql: 'CREATE INDEX samples_t ON samples(t);',
   },
+  {
+    version: 20,
+    // Who an Admin record is still owed to (#1061), as SQLite migration 44 keeps it: one row per person and record while the person has not seen it, so a person's
+    // unseen records are read by the person and not found by parsing the lists of every record. The store fills it once from the records already there.
+    sql: typed(`
+CREATE TABLE chat_admin_owed (
+  person_key TXT NOT NULL, thread TXT NOT NULL, admin_key TXT NOT NULL, started_at INT NOT NULL,
+  PRIMARY KEY (person_key, thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

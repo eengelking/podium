@@ -419,6 +419,19 @@ ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';     -- 
 
 A row made before migration 35 owes nobody, so retention treats it as before. General's rows owe nobody either.
 
+Migration 44 (#1061; PostgreSQL and MariaDB main step 20) finds a person's unseen records without reading every record. `chat_admin_owed` holds one row for each person a record is owed to and has not seen it, and it is the only place that says so: `chat_admin_reads.seen` is no longer written, and `people` stays as the list the record was made with.
+
+```sql
+CREATE TABLE chat_admin_owed (
+  person_key TEXT NOT NULL,       -- the person, folded
+  thread TEXT NOT NULL, admin_key TEXT NOT NULL, started_at INTEGER NOT NULL,   -- the record (chat_admin_reads' key)
+  PRIMARY KEY (person_key, thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
+```
+
+A person's overview reads their rows by the key's first column. A row is added when a record is written for the person, and removed when the person sees the thread, when the person is deleted, and 90 days after the record was last read (the record is then no longer owed to anyone who had not seen it, and retention removes it). The records an older database holds are filled into the table once, by the store, from `people` and `seen`, because a JSON list cannot be split the same way on every database.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql

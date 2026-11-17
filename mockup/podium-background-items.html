@@ -1,0 +1,284 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Background tab in the Activity modal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #897. No :root block and no color of its own: every color is a token from tokens.css, reached through
+   fleet.css. The shell is the Activity modal as it is on development (Respond.tsx): .modal.modal-feed.modal-respond,
+   with the .tabs / [role=tab] control Board.tsx and PlanPanel.tsx already use. The Admin read notice is the existing
+   .ch-nav.ro.crit line (SessionReadNotes.tsx).
+   Proposed for the standards, each named in a comment below:
+     .bgs           an item's state as a shape, a word and a color (running, finished, failed, ended without a code)
+     .bgq           the "quiet" line under Running: last output older than the limit
+   The demo chrome (.demo, .stage, .frame, .notes, .decisions) belongs to this review page only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+[hidden] { display: none !important; }
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 880px; max-width: 100%; background: var(--bg); transform: translateZ(0); position: relative; }
+.frame.wide { width: 1000px; }
+.frame.narrow { width: 400px; }
+.frame > .podium { height: 100%; overflow: auto; }
+.frame .scrim { position: absolute; }
+/* The real modal is min(78vh, 760px) tall (fleet.css .modal-feed). The frame is not a viewport, so the 760px cap is used; both tabs share this one modal, so the height cannot differ. */
+.frame .modal.modal-feed { height: 760px; }
+.notes { min-width: 0; max-width: 1000px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.notes .tw3 { overflow-x: auto; }
+.decisions { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+.decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* The list is the Activity feed's own markup: .feedwrap > ol.feed > li (a time, a shape, a body), the #431 row (.tgl, .xp,
+   .xh, .code) and the feed's footer lines. Only the state colors below are new.
+   PROPOSED .bgs: state as a shape (in the row's second column), a word and a color. Running is a ring, finished a check,
+   failed a cross, ended with no code a dash in a ring. Never color alone. */
+.podium .feed li .k.run, .podium .feed li .bgs.run { color: var(--deleg-text); }
+.podium .feed li .k.ok, .podium .feed li .bgs.ok { color: var(--good-text); }
+.podium .feed li .k.bad, .podium .feed li .bgs.bad { color: var(--crit-text); }
+.podium .feed li .k.end, .podium .feed li .bgs.end { color: var(--ink2); }
+.podium .feed li .bgs { font-weight: 600; }
+.podium .feed li .bgline { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: 11.5px; color: var(--muted); }
+.podium .feed li .bgline .mono { color: var(--ink2); }
+/* PROPOSED .bgq: the line under "Running" when the last output is older than the limit (5 minutes, stated in the footer). Shape plus words, in the warning color. */
+.podium .feed li .bgq { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; color: var(--warn-text, var(--warn)); }
+.podium .feed li .bgq svg { display: inline-block; vertical-align: -2px; margin-right: 3px; }
+.podium .feed li .tgl .bgcmd { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium .bgmsg { padding: 22px 16px; display: grid; gap: 6px; max-width: 62ch; color: var(--ink2); }
+.podium .bgmsg b { color: var(--ink); font-size: 13px; }
+.podium .bgnote { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.podium .modal-feed .mb.feedmb .ch-nav.ro { margin: 0; border-radius: 0; border-width: 0 0 1px; align-items: center; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Background tab (#897)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-s="list" aria-pressed="true">Orchestrator</button>
+    <button type="button" data-s="open" aria-pressed="false">Items open</button>
+    <button type="button" data-s="many" aria-pressed="false">23 items</button>
+    <button type="button" data-s="out" aria-pressed="false">Output tab</button>
+    <button type="button" data-s="sub" aria-pressed="false">Subagent</button>
+    <button type="button" data-s="oc" aria-pressed="false">OpenCode</button>
+    <button type="button" data-s="admin" aria-pressed="false">Admin reading</button>
+    <button type="button" data-s="empty" aria-pressed="false">Nothing running</button>
+    <button type="button" data-s="off" aria-pressed="false">Output switched off</button>
+    <button type="button" data-s="old" aria-pressed="false">Older reporter</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+  <div class="podium">
+    <div class="scrim">
+      <div class="modal modal-feed modal-respond" role="dialog" aria-modal="true" aria-labelledby="bt">
+        <div class="mh"><div class="ttl"><h2 id="bt">Activity</h2><div class="sub2" id="sub">Silverbolt · orchestrator · Opus 5.5</div></div><span class="live"><label for="ev-b" class="sub">Refresh every</label><select id="ev-b" aria-label="Refresh interval"><option selected>5s</option><option>10s</option><option>20s</option><option>30s</option><option>60s</option></select></span><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+        <div class="tabs" role="tablist" aria-label="Activity">
+          <button type="button" role="tab" aria-selected="false" id="t-act" data-tab="out">Output</button>
+          <button type="button" role="tab" aria-selected="true" id="t-bg" data-tab="bg">Background <span class="ct" id="ct">4</span></button>
+        </div>
+        <div class="mb feedmb" id="body" role="tabpanel" aria-labelledby="t-bg"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>What is proposed</h2>
+  <ul>
+    <li><b>A second tab in the Activity modal</b>, Output | Background. The existing feed becomes the Output tab, unchanged. The count on Background is the items the reporter holds for this agent. Both tabs sit in the one modal: same size (it is the modal's own height, 760 px at most), same Refresh every select, same message box under the list in an orchestrator's modal, same footer lines. The "Output tab" and "Background" screens switch between them.</li>
+    <li><b>The list behaves as the feed does.</b> It is oldest first and newest last, scrolls inside its box, follows the newest item, and shows "Jump to latest" when you scroll up (the "23 items" screen). When there are few items the box stays full height and the rest is empty, as the feed's box does. Below it are the same status line ("Showing the newest N of N", "updated"), the same fixed line, and the same arrangement.</li>
+    <li><b>What differs, and why:</b> there is no "Show older". The feed's older entries are stored history. Background items and their output are held in memory only, so there is nothing older to fetch. The reporter keeps every running item and the 20 latest finished ones for this agent, and the footer says so once the list is longer than that. Say if you want a different number.</li>
+    <li><b>One agent at a time.</b> The modal is opened for one orchestrator, subagent or fork, and Background lists only what that agent started, as the feed lists only its own activity. There is no owner line and no filter. Open a subagent's modal (the "Subagent" screen) to see its shells.</li>
+    <li><b>Rows are the feed's rows</b> (time, shape, body, the #431 open and close). The time is when the shell started, the command is cut to one line, and under it come the state, the run time and the last output. A shell with no output for 5 minutes or more gets a warning line under its state.</li>
+    <li><b>Opening a row</b> shows the whole command and its Output, each with Copy. Output follows its own reporter option and Admin flag, both off by default.</li>
+    <li><b>Live:</b> state, run time, last-output age and output update on the stream while a viewer has the modal open. This page does not tick.</li>
+  </ul>
+  <h2>What a harness cannot say, and the console says it</h2>
+  <div class="tw3"><table class="decisions">
+    <tr><th>Fact</th><th>Claude Code</th><th>OpenCode</th></tr>
+    <tr><td>Start time</td><td>The time is when the reporter first saw the shell, because Claude Code reports no start time. The footer says so.</td><td>The start OpenCode reports</td></tr>
+    <tr><td>Monitors</td><td>Listed as Monitor, with the lines it emitted</td><td>The tab says in words that this harness has no monitors</td></tr>
+    <tr><td>Exit</td><td>"Finished, exit 0" / "Failed, exit 2"</td><td>The same. A shell signalled from outside reads "Ended without an exit code", never "killed"</td></tr>
+  </table></div>
+  <h2>Admin reading someone's items</h2>
+  <ul>
+    <li>A command and its output are the person's own content, so an Admin's view of them shows the existing red notice (<code>.ch-nav.ro.crit</code>) at the top of the tab, naming the Admin. The person gets the same notice in the console and a callout in <code>podium-reporter</code>. The record line never holds text. See the "Admin reading" screen.</li>
+  </ul>
+  <h2>Decisions for the maintainer</h2>
+  <div class="tw3"><table class="decisions">
+    <tr><th>Question</th><th>This mockup</th></tr>
+    <tr><td>Scope</td><td>Per agent, as the feed is. This changes the issue's "every owner" requirement, so the issue body is edited to match once you accept.</td></tr>
+    <tr><td>Quiet limit</td><td>5 minutes, fixed, stated in the footer. Say if it should be a setting.</td></tr>
+    <tr><td>Does the list (no output) ride the Activity option?</td><td>Yes: the list needs "Activity feed" on, and only the command and output need the new option. With the feed off, the tab says why.</td></tr>
+    <tr><td>Finished items</td><td>Kept with every running item, the 20 latest finished per agent, oldest first and newest last as the feed is, so an exit code can be read afterward. No "Show older", because nothing is stored.</td></tr>
+    <tr><td>Standards</td><td>Reuses the feed row and the #431 open view. Proposes only the state colors (<code>.bgs</code>) and the quiet line (<code>.bgq</code>). If approved, a <code>standards</code> fragment follows.</td></tr>
+  </table></div>
+</div>
+</div>
+
+<script>
+const I = {
+  run: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 4.5V8l2.2 1.4"/></svg>',
+  ok: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
+  bad: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  end: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M5.5 8h5"/></svg>',
+  chev: '<svg class="chev" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 1.5L6.5 5L3 8.5"/></svg>',
+  eye: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
+};
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const word = { run: 'Running', ok: 'Finished, exit 0', bad: 'Failed, exit 2', end: 'Ended without an exit code' };
+const ic = { run: I.run, ok: I.ok, bad: I.bad, end: I.end };
+const warn = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 2l6.5 11.5h-13zM8 6.5v3M8 11.6v.1"/></svg>';
+const fin = (id, t, cmd, s, ran, last) => ({ id, kind: 'Shell', cmd, s, t, ran, last });
+const all = {
+  // Oldest first, newest last, as the feed is.
+  a: [
+    fin(4, '16:32', 'npm ci --ignore-scripts', 'ok', '0:41', 'last output 33 min ago'),
+    fin(3, '16:40', 'sleep 600 && echo done', 'end', '4:02', 'no output'),
+    { id: 2, kind: 'Monitor', cmd: 'tail -f logs/server.log | grep --line-buffered ERROR', s: 'run', t: '16:58', ran: '8:30', last: 'last output 4 s ago' },
+    { id: 1, kind: 'Shell', cmd: 'npm run test:e2e -- --spec "e2e/checkout/**"', s: 'run', t: '17:01', ran: '5:12', last: 'quiet', min: 12 },
+  ],
+  b: [
+    fin(6, '16:50', './scripts/seed.sh --rows 50000', 'bad', '1:48', 'last output 6 min ago'),
+    fin(5, '17:03', 'cargo build --release', 'run', '3:05', 'last output 1 s ago'),
+  ],
+};
+// 20 finished and 3 running, for the long list.
+all.many = [];
+for (let i = 0; i < 20; i++) all.many.push(fin(100 + i, '15:' + String(10 + i * 2).padStart(2, '0'), 'npm run build:pkg-' + (i + 1), i % 7 === 3 ? 'bad' : 'ok', '0:' + String(20 + i), 'last output ' + (60 - i) + ' min ago'));
+all.many.push(all.a[3], all.a[2], { ...all.b[1], id: 200, t: '17:03' });
+all.many.sort((x, y) => x.t.localeCompare(y.t));
+const outText = {
+  1: 'Running: checkout/cart.cy.ts\n  ✓ adds an item (812ms)\n  ✓ removes an item (640ms)\n  ✓ applies a code (1204ms)\n<span class="mark">[cut off: older output dropped, newest 8 KB shown]</span>\nRunning: checkout/pay.cy.ts\n  ✓ pays with a saved card (2210ms)',
+  2: '[17:04:09] ERROR upstream timed out: /api/invoices\n[17:04:11] ERROR upstream timed out: /api/invoices\n[17:06:25] ERROR token=[redacted] rejected',
+  5: 'Compiling serde v1.0.210\nCompiling tokio v1.40.0\nCompiling invoice-api v0.4.1',
+  6: 'seeding rows 1-10000 ... ok\nseeding rows 10001-20000 ... ok\nERROR: duplicate key value violates unique constraint "invoice_pkey"\n[exited with code 2]',
+};
+let openIds = new Set();
+let cmdOnly = false;
+let ocStart = false;
+const exitChip = (it) => it.s === 'ok' ? '<span class="exit ok" title="Succeeded">' + I.ok + '<span class="sr-only">Succeeded, exit 0</span></span>'
+  : it.s === 'bad' ? '<span class="exit bad">' + I.bad + 'Exit 2, failed</span>' : '';
+function row(it) {
+  const o = openIds.has(it.id);
+  const cmd = cmdOnly ? it.cmd.split(' ')[0] + ' …' : it.cmd;
+  const out = cmdOnly ? undefined : outText[it.id];
+  const sub = it.last === 'quiet' ? '' : '<span class="bgline">' + it.last + '</span>';
+  const q = it.last === 'quiet' ? '<span class="bgq" title="No output for 5 minutes or more">' + warn + 'Quiet for ' + it.min + ' min</span>' : '';
+  const first = ocStart ? '' : ', first seen ' + it.t + ' (Claude Code does not report a start time)';
+  let outBox;
+  if (cmdOnly) outBox = '<div class="feedoff"><b>Output is off.</b><div class="ghost">The person can turn output on in podium-reporter, and an Admin must allow it in Admin &gt; Settings.</div></div>';
+  else if (out === undefined) outBox = '<div class="feedoff"><b>Nothing printed yet.</b></div>';
+  else outBox = '<pre class="code xout" aria-label="Output">' + out + '</pre>';
+  return '<li data-id="' + it.id + '" class="tool can' + (o ? ' open' : '') + '"><span class="at"' + (ocStart ? '' : ' title="First seen ' + it.t + '"') + '>' + it.t + '</span><span class="k ' + it.s + '" role="img" aria-label="' + word[it.s] + '" title="' + word[it.s] + '">' + ic[it.s] + '</span><span class="body">' +
+    '<button type="button" class="tgl" aria-expanded="' + o + '">' + I.chev + '<span class="name">' + it.kind + '</span> <span class="arg">' + esc(cmd) + '</span>' +
+    '<span class="bgline"><span class="bgs ' + it.s + '">' + word[it.s] + '</span> · <span class="mono">' + it.ran + '</span></span>' + q + sub + '</button>' +
+    (o ? '<div class="xp"><div><div class="xh"><span>Command' + first + '</span><button type="button" class="btn">Copy command</button></div><pre class="code xcmd" aria-label="Whole command">' + esc(cmd) + '</pre></div>' +
+      '<div><div class="xh"><span>Output</span>' + exitChip(it) + (out ? '<button type="button" class="btn">Copy output</button>' : '') + '</div>' + outBox + '</div>' +
+      '<div class="foot"><button type="button" class="btn" data-collapse>Collapse</button></div></div>' : '') + '</span></li>';
+}
+const fixed = '<div class="feedfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span></div>';
+const status = (n) => '<div class="feedfoot stat"><span class="count">Showing the newest ' + n + ' of ' + n + '</span><span class="when">Updated 1s ago</span></div>';
+const cap = '<div class="feedfoot"><span>Only the running items and the 20 latest finished ones are kept.</span></div>';
+const list = (arr, extra) => '<div class="feedwrap"><ol class="feed" id="thefeed" aria-label="Background items, newest last" tabindex="0">' + arr.map(row).join('') + '</ol><button type="button" class="jump" id="jump" hidden>Jump to latest</button></div>' + status(arr.length) + fixed + (extra || '');
+const compose = '<div class="compose"><div class="crow"><textarea rows="1" placeholder="Message Silverbolt, or type / for a command" aria-label="Message to Silverbolt"></textarea><button class="btn pri" type="button" disabled>Send</button></div><div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div></div>';
+const adminNote = '<div class="ch-nav ro crit" role="status">' + I.eye + '<span><b>Admin Maya is reading Silverbolt’s background shells and their output.</b> It is recorded without the text, and Silverbolt’s person has been told.</span></div>';
+const msg = (b, t) => '<div class="bgmsg"><b>' + b + '</b><span>' + t + '</span></div>';
+const note = (t) => '<p class="bgnote">' + t + '</p>';
+const ev = (t, kind, arg) => '<li class="tool"><span class="at">' + t + '</span><span class="k">' + I.ok + '</span><div class="body"><span class="name">' + kind + '</span> <span class="arg">' + esc(arg) + '</span></div></li>';
+const outFeed = () => '<div class="feedwrap"><ol class="feed hours" aria-label="Recent activity, newest last" tabindex="0">' +
+  ev('17:01:52', 'Bash', 'npm run test:e2e -- --spec "e2e/checkout/**"') + ev('17:02:10', 'Read', 'e2e/checkout/pay.cy.ts') + ev('17:02:31', 'Edit', 'e2e/checkout/pay.cy.ts') +
+  ev('17:03:05', 'Bash', 'cargo build --release') + ev('17:03:40', 'Grep', 'invoice_pkey') + ev('17:04:12', 'Bash', './scripts/seed.sh --rows 50000') + '</ol></div>' +
+  '<div class="feedfoot stat older"><span class="count">Showing the newest 23</span><button type="button" class="btn sm">Show older</button></div>' +
+  '<div class="feedfoot stat"><span class="count">113 stored entries since 2026-11-17</span><span class="when">Updated 1s ago</span></div>' +
+  '<div class="feedfoot"><span>Kept until the session ends, then removed. Only the owner and the Admin can open it. Secrets are removed before they leave the session.</span></div>';
+const ORCH = 'Silverbolt · orchestrator · Opus 5.5', SUB = 'general-purpose · Port invoice endpoints';
+// compose: the message box sits under both tabs in the orchestrator's modal, as it does in the real one (Respond.tsx)
+const screens = {
+  list: () => ({ ct: 4, sub: ORCH, orch: true, html: list(all.a) }),
+  open: () => { openIds = new Set([1, 2]); return { ct: 4, sub: ORCH, orch: true, html: list(all.a) }; },
+  many: () => ({ ct: 23, sub: ORCH, orch: true, scrollTop: true, html: list(all.many, cap) }),
+  out: () => ({ ct: 4, sub: ORCH, orch: true, tab: 'out', html: outFeed() }),
+  sub: () => ({ ct: 2, sub: SUB, orch: false, html: list(all.b) }),
+  oc: () => { ocStart = true; return { ct: 2, sub: 'Cedric · orchestrator · OpenCode', orch: true, html: note('OpenCode has no monitors, so none are listed.') + list([{ ...all.b[1], t: '17:03' }, { ...all.a[1], t: '16:40' }]) }; },
+  admin: () => ({ ct: 4, sub: ORCH, orch: true, html: adminNote + list(all.a) }),
+  empty: () => ({ ct: 0, sub: ORCH, orch: true, html: msg('No background shells or monitors', 'When Silverbolt starts a shell in the background, or a monitor, it is listed here with its output.') + fixed }),
+  off: () => { cmdOnly = true; return { ct: 4, sub: ORCH, orch: true, html: note('Output is off. This list shows each item’s state and times only. The person can turn output on in podium-reporter, and an Admin must allow it in Admin &gt; Settings.') + list(all.a) }; },
+  old: () => ({ ct: '', sub: ORCH, orch: true, html: msg('This reporter does not send background items', 'Update podium-reporter to 1.7 or later to see shells and monitors here. The Output tab works as before.') }),
+};
+let cur = 'list';
+function show(k) {
+  cur = k; openIds = new Set(); cmdOnly = false; ocStart = false;
+  const r = screens[k]();
+  const body = document.getElementById('body');
+  body.className = 'mb feedmb' + (r.orch ? ' respondmb' : '');
+  body.innerHTML = r.html + (r.orch ? compose : '');
+  document.getElementById('ct').textContent = r.ct;
+  document.getElementById('sub').textContent = r.sub;
+  setTab(r.tab || 'bg');
+  document.querySelectorAll('[data-s]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.s === k)));
+  wire(r.scrollTop);
+}
+function setTab(t) {
+  document.getElementById('t-act').setAttribute('aria-selected', String(t === 'out'));
+  document.getElementById('t-bg').setAttribute('aria-selected', String(t === 'bg'));
+}
+function wire(top) {
+  const f = document.getElementById('thefeed'), j = document.getElementById('jump');
+  if (!f) return;
+  const upd = () => { j.hidden = f.scrollTop + f.clientHeight >= f.scrollHeight - 6; };
+  f.addEventListener('scroll', upd);
+  j.addEventListener('click', () => { f.scrollTop = f.scrollHeight; });
+  f.scrollTop = top ? 0 : f.scrollHeight;
+  upd();
+}
+document.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => show(b.dataset.s)));
+document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.tab === 'out') show('out'); else if (cur === 'out') show('list');
+}));
+document.getElementById('body').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-id]');
+  if (!li || (e.target.closest('.xp') && !e.target.closest('[data-collapse]'))) return;
+  const id = Number(li.dataset.id);
+  openIds.has(id) ? openIds.delete(id) : openIds.add(id);
+  const it = [...all.a, ...all.b, ...all.many].find((i) => i.id === id);
+  const tmp = document.createElement('div');
+  tmp.innerHTML = row(it);
+  li.replaceWith(tmp.firstChild);
+});
+document.querySelectorAll('[data-th]').forEach((b) => b.addEventListener('click', () => {
+  document.documentElement.dataset.theme = b.dataset.th;
+  document.querySelectorAll('[data-th]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+}));
+document.querySelectorAll('[data-w]').forEach((b) => b.addEventListener('click', () => {
+  document.getElementById('frame').className = 'frame ' + b.dataset.w;
+  document.querySelectorAll('[data-w]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+}));
+document.documentElement.dataset.theme = 'dark';
+show('list');
+</script>

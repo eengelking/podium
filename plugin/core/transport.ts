@@ -164,6 +164,8 @@ export class Transport {
   watch: string[] = [];
   /** The loops of `watch` a viewer has the feed open on (#431); empty from a server that predates it, which asks for no output. */
   watchOutput: string[] = [];
+  /** The loops of `watch` a viewer has the Background tab open on (#897); empty from a server that predates it, which asks for no background output. */
+  watchBackground: string[] = [];
   /** Whether the last accepted report's reply said the server takes answers for this session (#206); false from an older server. */
   respond = false;
   /** Messages and commands from Podium the last reply handed over (#206). */
@@ -272,7 +274,7 @@ export class Transport {
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; adminNotices?: unknown; recording?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; watchBackground?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; adminNotices?: unknown; recording?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
@@ -282,6 +284,7 @@ export class Transport {
           this.support = sup && typeof sup.min === 'string' && typeof sup.max === 'string' ? { min: sup.min, max: sup.max } : null;
           this.watch = Array.isArray(body.watch) ? body.watch.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
           this.watchOutput = Array.isArray(body.watchOutput) ? body.watchOutput.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
+          this.watchBackground = Array.isArray(body.watchBackground) ? body.watchBackground.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
           this.respond = body.respond === true;
           this.deliveries = this.respond && Array.isArray(body.deliveries) ? body.deliveries.filter(isDelivery).slice(0, MAX_DELIVERIES) : [];
           this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, MAX_DIFF_REQUESTS) : [];

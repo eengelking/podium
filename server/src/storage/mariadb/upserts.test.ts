@@ -52,7 +52,7 @@ describe('the upsert and insert-ignore sites', () => {
     const found = sites().map((s) => `${s.file}:${s.table}:${s.kind}`).sort();
     expect(found).toEqual([
       'activityHistory.ts:loops:update', 'activityHistory.ts:stored_sessions:update', 'activityHistorySettings.ts:settings:update',
-      'chat.ts:chat_read_state:update', 'chat.ts:chat_read_state:update', 'chat.ts:settings:update', 'chat.ts:settings:update',
+      'chat.ts:chat_admin_owed:update', 'chat.ts:chat_read_state:update', 'chat.ts:chat_read_state:update', 'chat.ts:settings:update', 'chat.ts:settings:update', 'chat.ts:settings:update',
       'featureFlags.ts:settings:update',
       'fleet.ts:agent_texts:update', 'fleet.ts:agent_texts:update', 'fleet.ts:agents:update', 'fleet.ts:agents:update', 'fleet.ts:blowouts:update', 'fleet.ts:events:skip',
       'fleet.ts:samples:update', 'fleet.ts:samples:update', 'fleet.ts:session_waits:update', 'fleet.ts:sessions:update',

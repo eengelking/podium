@@ -38,6 +38,7 @@ sleep 4; tmux capture-pane -p -t live:planner | grep -E 'fleet console|Home fold
 | C2, C3 | Prompt `Use the Bash tool to run exactly: touch allow-me.txt`. Files are in `$LIVE/proj-planner`. A deny with no text shows `Denied from Podium` on the screen. |
 | C4 | `Use the AskUserQuestion tool to ask me one question: "Favorite color?" with options Red and Blue. Then tell me which I chose.` |
 | C5 | The screen shows `Sent from Podium by <name>` then `PONG-FROM-PODIUM`. |
+| C24 | Prompt `Use the Bash tool with run_in_background set to true to run exactly: for i in 1 2 3 4 5 6; do echo tick $i TOKEN=sk-live-LIVETEST1234567890; sleep 5; done` then `Wait for it and tell me when it finished.` For a monitor: `Use the Monitor tool on: tail -f ticks.log` after `touch ticks.log`. For a subagent's shell: `Use one subagent to run that same background shell and wait for it.` Add `--background-output` to `up` (the Admin flag and `backgroundOutput` in the settings file). `classic.Stop` and `classic.SubagentStop` carry `scratchpad_dir` (settled on 2.1.326), so the item has `lastOutputAt`, `output` (without the file's trailing `[exited with code N]` line) and the exit code from the file, from the session's first Stop on. Assert them; if a Claude Code update drops the field, the list shows with none of those and the opened row reads `Output was not collected.`: report that as a finding. |
 | C6 | Result is `queued`, then `took` when the turn ends. |
 | C7 | The status-line meter goes back to about `100%` but it is Claude Code's own. The event is `kind:"compact"` with `data:{tokensBefore,tokensAfter}` and no `trigger` key. `context.tokens` falls only after the next prompt. |
 | C8 | Set `"respond":"questions"` in a copy of the settings file and start a second window the way the answering-off window below does. `accepts` is `[question, message]`. |
@@ -76,6 +77,8 @@ None of the core is excluded on Claude Code: it is the harness the core was writ
 | Question with more than 4 options | Not offered by design, on every harness (`tooManyOptions` in `plugin/core/protocol.ts`, #1012) | The ask is absent from `asks[]`. |
 | Headless (`claude -p`) | `not-interactive` | `respond.limits` has `not-interactive`, `accepts` is empty, messaging is off. |
 | No PermissionRequest hooks (managed setups) | `no-permission-hooks` limit | Not reproducible with `up`; skip and say so. |
+| Background item times (#897) | Claude Code reports no start time for a background shell | `startedKnown` is `false` and `startedAt` is when the reporter first saw it; the console says `first seen`. |
+| A killed background shell (#897) | Claude Code's file ends with `[exited with code N]` for a signalled shell (143 for SIGTERM on the child, 144 on the wrapper), so the item has an `exitCode`, unlike OpenCode | Kill the shell from outside (`kill <pid>`): assert `state:"exited"` with an `exitCode` of 128 plus the signal, and that the console reads `Failed, exit N`. |
 
 ## Shut down
 

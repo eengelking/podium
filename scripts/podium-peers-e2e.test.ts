@@ -32,7 +32,7 @@ describe("podium-peers-e2e.sh", () => {
       expect(r.stdout).toContain("C-m");
       expect(r.stdout).toContain("--model NAME");
       expect(r.stdout).toContain("--no-build");
-      for (const word of ["--harness LIST", "--opencode-model", "--opencode-config", "--activity-output", "--session-recording", "--file-diff", "tmux -L", "opencode --standalone"]) expect(r.stdout, word).toContain(word);
+      for (const word of ["--harness LIST", "--opencode-model", "--opencode-config", "--activity-output", "--background-output", "--session-recording", "--file-diff", "tmux -L", "opencode --standalone"]) expect(r.stdout, word).toContain(word);
     }
   });
 
@@ -235,10 +235,10 @@ describe("podium-peers-e2e.sh", () => {
     });
 
     it("turns on the Admin flags and the reporter options through flags, for both harnesses", () => {
-      const r = dry("--harness", "claudecode,opencode", "--opencode-model", "p/m", "--activity-output", "--session-recording", "--file-diff");
+      const r = dry("--harness", "claudecode,opencode", "--opencode-model", "p/m", "--activity-output", "--background-output", "--session-recording", "--file-diff");
       expect(r.status).toBe(0);
-      expect(r.stdout).toContain("podium-peers-seed.mjs --talk --activity-output --session-recording --file-diff");
-      expect(r.stdout).toContain('"activityOutput": true, "sessionRecording": true, "fileDiff": true');
+      expect(r.stdout).toContain("podium-peers-seed.mjs --talk --activity-output --background-output --session-recording --file-diff");
+      expect(r.stdout).toContain('"activityOutput": true, "backgroundOutput": true, "sessionRecording": true, "fileDiff": true');
     });
 
     it("writes an OpenCode window's files and takes the caller's provider block, with ask permissions that win", () => {

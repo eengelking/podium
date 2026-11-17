@@ -303,6 +303,11 @@ export function peerCases(o: Openers): void {
       await rec('hide again', m.hideConversation('ed', 'sa', 'sb'));
       await rec('owner conversations (hidden left out)', m.ownerConversations('ed'));
       await rec('owner conversations (hidden included)', m.ownerConversations('ed', { includeHidden: true }));
+      await rec('owner conversations (hidden, that pair)', m.ownerConversations('ed', { includeHidden: true, pairs: ['sa|sb'] }));
+      await rec('owner conversations (hidden, another pair)', m.ownerConversations('ed', { includeHidden: true, pairs: ['sa|sc'] }));
+      expect(await m.ownerConversations('ed', { includeHidden: true, pairs: [] })).toEqual([]);
+      expect((await m.ownerConversations('ed', { includeHidden: true, pairs: ['sa|sb'] })).map((c) => c.hiddenAt)).toEqual([expect.any(Number)]);
+      expect(await m.ownerConversations('ed', { includeHidden: true, pairs: ['sa|sc'] })).toEqual([]);
       await rec('counts (hidden left out)', m.conversationCounts(['ed', 'eve']));
       await rec('conversation of the pair (hidden)', m.conversationOf('sa', 'sb'));
       await rec('page (hidden, still readable)', m.page('ed', 'sa', 'sb', { limit: 1 }));
