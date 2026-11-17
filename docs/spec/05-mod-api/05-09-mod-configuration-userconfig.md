@@ -15,7 +15,7 @@ Declare the options in `plugin.json`. The syntax is checked with `claude plugin 
 | `serverUrl` | string | `http://127.0.0.1:4317` | Where to POST. |
 | `token` | string (secret, `"sensitive": true`) | empty | Sent as `X-Podium-Token` when non-empty: a person's token from Admin ([7.7](../07-server/07-07-hardening.md)), or the admin secret. |
 | `userName` | string | empty | The person's name as the server owner entered it (see below). |
-| `flushIntervalMs` | number | `1000` | Minimum time between reports while something changes. |
+| `flushIntervalMs` | number | `1000` | Minimum time between reports while something changes. A report over 32 KB that only counted waits longer, up to `heartbeatMs` ([6.7](../06-reporter-protocol/06-07-reporting-cadence.md)). |
 | `heartbeatMs` | number | `5000` | Report at least this often even when nothing changed. |
 | `sessionName` | string | empty | Override display name for this machine's sessions (rare). |
 | `showStatus` | boolean | `true` | Show the status line (`podium v<version> ● N live` and its offline and refused states). |

@@ -1287,6 +1287,38 @@ describe('report: the resume window (#1113)', () => {
   })
 })
 
+describe('Reporter: a large session that only counted is held (#752)', () => {
+  it('holds counters-only reports until the hold, sends a status change at once, and never holds the last report', async () => {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    for (let i = 0; i < 60; i++) r.handle(ev('session.created', { sessionID: `ses_kid${i}`, parentID: ROOT, title: `child ${i} ${'x'.repeat(600)}`, agent: 'general' }, 10_000));
+    await r.tick();
+    expect(JSON.stringify(bodies.at(-1)).length).toBeGreaterThan(32 * 1024);
+    // the launch placeholder (#1112) reports on its own and ends; only the real session's reports are counted
+    const mine = () => bodies.filter((b) => b.session.id === ROOT).length;
+    const first = mine();
+
+    // counters only: the tick builds the report and holds it, and it is still owed
+    r.handle(usage(ROOT, 0.5, 5000, t.now + 1));
+    t.now += 1000;
+    await r.tick();
+    expect(mine()).toBe(first);
+    t.now += 4000;
+    await r.tick();
+    expect(mine()).toBe(first + 1);
+
+    // the session ending is not a counter, and a close sends the last report whatever the hold
+    r.handle(usage(ROOT, 0.9, 9000, t.now + 1));
+    t.now += 1000;
+    await r.tick();
+    expect(mine()).toBe(first + 1);
+    await r.close();
+    expect(mine()).toBe(first + 2);
+  });
+});
+
 describe('Reporter: the launch announce (#1112)', () => {
   const bodies = (): { list: Report[]; fetch: FetchLike } => {
     const list: Report[] = [];

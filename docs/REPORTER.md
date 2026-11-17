@@ -274,7 +274,7 @@ pane (see [The settings window](#the-settings-window)).
 | `serverUrl` | `http://127.0.0.1:4317` | Where reports go |
 | `token` | empty | Sent as `X-Podium-Token`: a per-person token from Admin, or the admin secret (`PODIUM_TOKEN`) on a one-person setup |
 | `userName` | empty | The name your token was made for. The server accepts a report only when the token and this name match. Leave empty when you report with the admin secret. Nothing that names you or your machine is sent until you set it. With it set, reports also carry this machine's name (see [What leaves the session](#what-leaves-the-session)) |
-| `flushIntervalMs` | `1000` | Minimum time between reports while something changes |
+| `flushIntervalMs` | `1000` | Minimum time between reports while something changes. A report over 32 KB that only counted (tokens, cost, context, call counts) waits up to `heartbeatMs` (SPEC 6.7) |
 | `heartbeatMs` | `5000` | Report at least this often |
 | `sessionName` | empty | Display name override (below `/podium name` and the name set in Claude Code) |
 | `showStatus` | `true` | Show the status line entry |

@@ -344,7 +344,7 @@ export class Reporter {
     return { info: this.answering.info(), asks: this.answering.asks(root, t) };
   }
 
-  private send(root: Root, t: Transport, now: number): Promise<void> {
+  private send(root: Root, t: Transport, now: number, force = false): Promise<void> {
     root.dirty = false;
     // The full texts this report carries, by agent, so only those are marked sent when it is accepted.
     let texts: Record<string, { promptText?: string; answerText?: string }> = {};
@@ -353,9 +353,9 @@ export class Reporter {
       texts = Object.fromEntries(report.agents.map((a) => [a.id, { promptText: a.promptText, answerText: a.answerText }]));
       return report;
     };
-    return t.send(build, now).then((outcome) => {
-      // A report that did not get through must go again.
-      if (outcome === 'failed' || outcome === 'refused' || outcome === 'rejected') root.dirty = true;
+    return t.send(build, now, force).then((outcome) => {
+      // A report that did not get through must go again, and so must one held back for being a large one that only counted (#752).
+      if (outcome === 'failed' || outcome === 'refused' || outcome === 'rejected' || outcome === 'held') root.dirty = true;
       if (outcome === 'ok') this.accepted(root, t, texts);
     });
   }
@@ -686,7 +686,8 @@ export class Reporter {
       for (const root of this.store.roots.values()) {
         this.queue(root);
         const t = this.transportOf(root);
-        if (root.dirty && now >= t.nextAttemptAt) sends.push(this.send(root, t, now));
+        // The last report of a closing plugin is never held back (#752).
+        if (root.dirty && now >= t.nextAttemptAt) sends.push(this.send(root, t, now, true));
       }
       await Promise.all(sends);
       await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));
