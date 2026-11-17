@@ -553,6 +553,13 @@ export interface PurgeRecordingsResult {
 
 export type StoredState = Exclude<RecordingState, 'off'>;
 
+/**
+ * The longest id (a session, an agent, an event, a reporter's session) a store takes (#1177). One database holds an id in a 255-character key column and
+ * the others hold any length, so an id above this is outside what the stores agree on. None reaches one over the wire: a report and a hook
+ * cut an id to `LIMITS.id` (200) first, so a longer one is never stored. A caller that skips the wire keeps to this.
+ */
+export const ID_MAX = 255;
+
 /** The longest source address stored, and so the longest one a key holds: a key column can be bounded in one adapter and not another, so the cut is made here, once, for all (#1153). */
 export const SOURCE_MAX = 120;
 

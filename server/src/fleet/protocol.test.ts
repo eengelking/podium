@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { validateReport, shortId, harnessOf, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
 import { bareFixture, loadFixture } from './testing.js';
 import { checkReporter } from './compat.js';
+import { ID_MAX } from '../storage/rows.js';
 
 describe('protocol', () => {
   it('shortens a session id to its first eight characters after any prefix, keeping the prefix (#853)', () => {
@@ -193,6 +194,15 @@ describe('protocol', () => {
     const f = loadFixture() as { session: Record<string, unknown> };
     f.session.id = id;
     expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.id' });
+  });
+
+  it('cuts a session id of 70,000 characters to LIMITS.id, so no store is given an id longer than ID_MAX (#1177)', () => {
+    const f = loadFixture() as { session: Record<string, unknown> };
+    f.session.id = 'y'.repeat(70_000);
+    const r = validateReport(f);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.report.session.id).toBe('y'.repeat(LIMITS.id));
+    expect(LIMITS.id).toBeLessThanOrEqual(ID_MAX);
   });
 
   it('removes format characters and line separators from a session name, a user name and a machine name (#1051)', () => {

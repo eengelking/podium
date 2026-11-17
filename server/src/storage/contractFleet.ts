@@ -7,7 +7,7 @@ import { session } from './contract.js';
 import { validateReport, MAX_REPORT_NUMBER } from '../fleet/protocol.js';
 import { ingestReport } from '../fleet/ingest.js';
 import { loadFixture } from '../fleet/testing.js';
-import type { AgentRow, CostOf, ReporterSeen, SampleRow } from './rows.js';
+import { ID_MAX, type AgentRow, type CostOf, type ReporterSeen, type SampleRow } from './rows.js';
 
 const T0 = 1_800_000_000_000;
 const DAY = 86_400_000;
@@ -307,6 +307,43 @@ export function fleetCases(o: Openers): void {
     for (const q of ['Émile', 'émile', 'ÉMILE']) expect(t.get(`search ${JSON.stringify(q)}`), q).toEqual(['émile', 'Émile Zola']);
     expect(t.get('search "日本"')).toEqual(['日本語 テスト']);
     expect(t.get('search "\\\\"')).toEqual(["it's \"quoted\" \\ back; --"]);
+  });
+
+  it('stores a session, agent, event and reporter session id of the longest length the stores take, the same on every adapter (#1177)', async () => {
+    // one database holds an id in a 255-character key column and the other two hold any length, so ID_MAX is the rule the stores agree on. The report validator and
+    // the hook cut an id to 200 before a store is called, so a longer one is not reachable over HTTP (protocol.test.ts and hookIngest.test.ts hold that).
+    const long = 'i'.repeat(ID_MAX);
+    const t = await sameOnAll(o, async (s, rec) => {
+      const f = s.fleet;
+      await f.upsertSession(session({ id: long, started_at: T0, last_seen_at: T0 }));
+      await f.upsertAgent(agent(long, long));
+      await f.insertEvent({ id: long, session_id: long, agent_id: long, t: T0, kind: 'note', text: 't', data_json: null });
+      await s.reporters.record({ kind: 'hooks', machineId: 'k3', machineName: 'box', source: '127.0.0.1', owner: null, credential: 'person', version: '1', engineVersion: null, sessionId: long }, T0);
+      await rec('session', f.getSession(long));
+      await rec('agents', f.getAgents(long));
+      await rec('events', f.listEvents({ limit: 10 }));
+    });
+    expect((t.get('session') as { id: string }).id).toBe(long);
+    expect((t.get('agents') as { id: string }[])[0]!.id).toBe(long);
+    expect((t.get('events') as { id: string }[])[0]!.id).toBe(long);
+  });
+
+  it('gives the same answer on every adapter for a 70,000-character name, key, source, owner, machine name and version (#1177)', async () => {
+    // The sweep behind the id rule: every column that is a bounded key in one database and takes text a person or a reporter can send, written with a
+    // value far past its length. A difference here is a store that throws on one database and not another; the answer is one rule for all.
+    const long = 'y'.repeat(70_000);
+    const t = await sameOnAll(o, async (s, rec) => {
+      await rec('group', s.people.createGroup(long, T0));
+      await rec('person', s.people.createPerson(long, null, T0).then((r) => r.person.name.length));
+      await rec('person by name', s.people.findByName(long).then((p) => p?.name.length ?? null));
+      await rec('feature', s.featureFlags.setFeature(long, true));
+      await rec('feature read', s.featureFlags.featureOn(long));
+      await rec('group of owner', s.fleet.groupOfOwner(long));
+      await rec('reporter', s.reporters.record({ kind: 'mod', machineId: 'k1', machineName: long, source: long, owner: long, credential: 'person', version: long, engineVersion: null, sessionId: 's1' }, T0));
+      await rec('reporter on its own', s.reporters.record({ kind: 'hooks', machineId: null, machineName: long, source: long, owner: long, credential: 'person', version: long, engineVersion: null, sessionId: 's2' }, T0));
+      await rec('reporter list', s.reporters.list({}, T0).then((l) => l.counts.all));
+    });
+    expect(Object.fromEntries(t)).toBeTruthy();
   });
 
   it('stores a NUL in a string without it and a NaN as NULL, the same on every adapter (#1007)', async () => {
