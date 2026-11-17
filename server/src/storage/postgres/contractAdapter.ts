@@ -5,6 +5,7 @@ import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
 import type { Storage } from '../types.js';
 import { openPostgresStorage } from './index.js';
 import { openUpgradedPostgres } from './upgradeTesting.js';
+import { postgresSamplesPerf } from './samplesPerf.js';
 import { TEST_PG, createTestDatabase, type TestDatabase } from './testing.js';
 
 const target = (td: TestDatabase): string => td.url.replace(/^postgres:\/\//, '');
@@ -59,6 +60,7 @@ export function postgresContractAdapter(): ContractAdapter {
         await td.drop();
       }
     },
+    samplesPerf: postgresSamplesPerf,
     known: [
       // Accepted by the maintainer (#1007): no typed validation layer is built. A NaN is not in this list: both adapters store it as NULL.
       { id: 'non-integer number', issue: '#1007', why: 'a fraction, an infinity or a number of 1e21 or more is sent to an integer column or compared with one: PostgreSQL throws and SQLite accepts it (the report validator and the query-number check refuse it before any store is called, so this is not reachable over HTTP)', input: (x) => typeof x === 'number' && !Number.isNaN(x) && !Number.isSafeInteger(x) },

@@ -23,6 +23,24 @@ export interface KnownDefect {
   input?: (value: unknown) => boolean;
 }
 
+/**
+ * A throwaway database of one adapter with the `samples` table to measure (#755), for `scripts/podium-perf-samples-index.ts`. The SQL that seeds the table, drops
+ * and creates the index and reads its size is the adapter's own, so nothing outside the adapter folders writes SQL or imports a driver.
+ */
+export interface SamplesPerf {
+  /** The value of PODIUM_DB that opens this database as a Storage. */
+  podiumDb: string;
+  /** Fills `samples` with `sessions` sessions of one sample a second for `seconds` seconds, the newest at second `endSec`. */
+  seed(sessions: number, seconds: number, endSec: number): Promise<void>;
+  dropIndex(): Promise<void>;
+  createIndex(): Promise<void>;
+  /** Bytes the `samples_t` index takes as the database reports them, or null when it cannot say. */
+  indexBytes(): Promise<number | null>;
+  rows(): Promise<number>;
+  /** Closes the connection and removes the database. */
+  close(): Promise<void>;
+}
+
 export interface ContractAdapter {
   /** The registry name of the kind. Failures name it. */
   name: string;
@@ -36,6 +54,8 @@ export interface ContractAdapter {
   openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[]): Promise<Storage>;
   /** The names of the tables, columns and indexes of a freshly opened database, both the main and the Activity one. Read from the database itself, not from the code that makes it. */
   schema(): Promise<SchemaNames>;
+  /** A throwaway database with the `samples` table to measure (#755). Optional: only the measurement script asks for it. */
+  samplesPerf?(): Promise<SamplesPerf>;
   /** Defects of this adapter that another issue owns. Empty when there are none. */
   known: KnownDefect[];
   /** Removes anything a failed test left behind. Called once after the adapter's suites. */
