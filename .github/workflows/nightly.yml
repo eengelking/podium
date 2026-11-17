@@ -25,7 +25,40 @@ env:
 jobs:
   test:
     # No fork path applies: a schedule only runs on this repo (see ci.yml).
-    runs-on: [self-hosted, Linux, X64]
+    # A GitHub-hosted runner with a service container for each adapter's test server (#1178), the way sonar.yml's coverage job has them: the
+    # self-hosted runners are containers on a shared Podman host, where a service's published port is not reachable as localhost. `npm test`
+    # fails when an adapter's test server is not configured and PODIUM_TEST_ONLY is not set here on purpose: a nightly runs every adapter
+    # (scripts/db-adapters.test.ts holds this file to scripts/db-adapters.mjs, so the next adapter fails `npm test` until it is added here).
+    # The services have no password: they live for one job and only the runner reaches them.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1"
+          MARIADB_DATABASE: podium_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
+    env:
+      PODIUM_TEST_PG: postgres://postgres@localhost:5432/postgres
+      PODIUM_TEST_MARIADB: mariadb://root@127.0.0.1:3306/podium_test
     outputs:
       sha: ${{ steps.tip.outputs.sha }}
       skip: ${{ steps.tip.outputs.skip }}
