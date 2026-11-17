@@ -160,6 +160,23 @@ jobs:
           done
           exit "$fail"
 
+      # The weights that split the suite into shards (e2e/spec-times.json) are refreshed from the logs of a whole run (#1174). The run's logs
+      # stay on the runner, so this makes the new file from them and uploads only that file (spec names and seconds, nothing else), for
+      # a person to commit when the shards finish far apart.
+      - name: Record the spec times of this run
+        if: success()
+        run: |
+          mapfile -t logs < <(find "$RUNNER_TEMP/e2e-results" -name '*.log' ! -name build.log | sort)
+          node scripts/e2e-shards.mjs --record "${logs[@]}"
+
+      - name: Upload the recorded spec times
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-spec-times
+          path: e2e/spec-times.json
+          retention-days: 7
+
       # Seven days, because the repo is public and artifacts are world-readable: screenshots and the server log only, never video. The server
       # log has the admin secret scrubbed by scripts/e2e-up.sh; this step checks every file (screenshots included, as bytes) and deletes the
       # whole folder if the secret is anywhere in it, so nothing with a secret is uploaded.
