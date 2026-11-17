@@ -72,6 +72,16 @@ describe("the database table", () => {
     expect(coverage).not.toMatch(/PODIUM_TEST_ONLY/);
   });
 
+  it("gives the Nightly's test job every test server at the tested version, and leaves no adapter out (#1178)", () => {
+    const test = jobs(workflow("nightly.yml")).test ?? "";
+    for (const a of servers) {
+      expect(test, `nightly.yml's test job must set ${a.testVar}`).toContain(`${a.testVar}:`);
+      expect(test, `nightly.yml's test job must run ${a.kind} ${tag(a.test!.image)}`).toContain(`image: ${a.kind}:${tag(a.test!.image)}\n`);
+    }
+    expect(test, "a nightly that leaves an adapter out publishes a snapshot that was not fully tested").not.toMatch(/PODIUM_TEST_ONLY:/);
+    expect(test, "the self-hosted runners cannot reach a service container as localhost").toMatch(/^\s*runs-on: ubuntu-latest$/m);
+  });
+
   it("is the list scripts/e2e-up.sh accepts and names in its help", () => {
     const help = spawnSync("bash", [join(REPO, "scripts", "e2e-up.sh"), "--help"], { encoding: "utf8" });
     expect(help.stdout).toContain(`One of: ${kinds("e2e").join(", ")} (default sqlite`);

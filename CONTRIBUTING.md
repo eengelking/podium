@@ -140,7 +140,8 @@ Which checks a change runs depends on where it sits. A change to `plugin/core/` 
 ### The nightly
 
 `.github/workflows/nightly.yml` publishes a snapshot of `development` every day at 06:00 UTC (and on demand, from the Actions
-tab, with Run workflow). It checks out `development`, runs `npm test` and `npm run build`, and only if both pass creates the tag
+tab, with Run workflow). It checks out `development`, runs `npm test` on a GitHub-hosted runner with a PostgreSQL 17 and a MariaDB 11.4
+service container, so every adapter's tests run (#1178), and `npm run build`, and only if both pass creates the tag
 `nightly-YYYY-MM-DD` and a GitHub **prerelease** with a source tarball of that commit. Then it deletes every earlier `nightly-*`
 release and tag, so one nightly exists at a time. A day with no new commit on `development`, or a red `development`, publishes
 and deletes nothing. A nightly is unreleased and may be broken. It is never marked latest, so `releases/latest` and the in-app
