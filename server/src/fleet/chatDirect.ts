@@ -225,7 +225,7 @@ export class DirectChat {
    */
   async hiddenOf(viewer: ChatViewer, owner: string, asAdmin: boolean): Promise<DirectInfo[]> {
     if (viewer.personId === null && !asAdmin) return [];
-    // A Direct Message thread is `dm:<id>|<id>`, the pair `ownerConversations` groups by, so the store narrows to the conversations being read.
+    // A Direct Message thread is `dm:<id>|<id>`, the pair `ownerConversations` groups by, so the store keeps only the conversations being read, and reads none when no reading is live.
     const pairs = (await this.reads.liveDmThreads()).map((t) => t.slice('dm:'.length));
     const found = (await this.peers.ownerConversations(owner, { includeHidden: true, pairs })).filter((c) => c.hiddenAt !== null);
     return Promise.all(found.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));

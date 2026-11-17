@@ -698,11 +698,11 @@ export class MariaPeerMessages {
   }
 
   async ownerConversations(owner: string, opts: { includeHidden?: boolean; pairs?: string[] } = {}): Promise<OwnerConversation[]> {
+    if (opts.pairs && opts.pairs.length === 0) return [];
     const all = await this.db.all<DbMessage>(
       `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, hidden_at
        FROM peer_messages ORDER BY sent_at, seq`,
     );
-    if (opts.pairs && opts.pairs.length === 0) return [];
     const only = opts.pairs ? new Set(opts.pairs) : null;
     const key = nameKey(owner);
     // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<key>` is one of its two ends.
