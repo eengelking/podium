@@ -530,14 +530,15 @@ function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
   const sid = id ? store.shellOf.get(id) : undefined;
   const rid = sid ? store.rootOf.get(sid) : undefined;
   const root = rid ? store.roots.get(rid) : undefined;
-  const sh = sid ? root?.sessions.get(sid)?.shells.get(id!) : undefined;
-  if (!root || !sh) return null;
+  const owner = sid ? root?.sessions.get(sid) : undefined;
+  const sh = owner && id ? owner.shells.get(id) : undefined;
+  if (!root || !owner || !sh) return null;
   sh.exited = true;
   sh.endedAt = whole(typeof ev.created === 'number' && Number.isFinite(ev.created) ? ev.created : at);
   // OpenCode names no code for a shell that was signalled; it is not called killed, because OpenCode does not say so.
   sh.exitCode = typeof info.exit === 'number' && Number.isInteger(info.exit) ? info.exit : null;
   sh.settled = false;
-  pruneShells(store, root.sessions.get(sid)!);
+  pruneShells(store, owner);
   root.dirty = true;
   return root;
 }

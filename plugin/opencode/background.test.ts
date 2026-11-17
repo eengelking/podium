@@ -262,11 +262,14 @@ describe('Reporter: the shells follow the server, the person and the file', () =
 
   it('sends a shell’s exit, and reads its output once more after it, then leaves it alone', async () => {
     const file = out('d.out', 'first\n');
+    utimesSync(file, 5, 5);
     const { r, posts } = wired({ PODIUM_ACTIVITY_FEED: 'true', PODIUM_BACKGROUND_OUTPUT: 'true' }, { watch: [MAIN_LOOP], watchBackground: [MAIN_LOOP] });
     run(r, ev('session.created', { sessionID: ROOT }, 1000), created(ROOT, 'sh1', 'make', file, 1001));
     await r.tick();
     await r.tick();
+    // a file that changed has a new time: set it, so two writes in one millisecond cannot look unchanged
     writeFileSync(file, 'first\nlast\n');
+    utimesSync(file, 6, 6);
     run(r, exited('sh1', 2000, 0));
     await r.tick();
     const item = posts[posts.length - 1]!.session.backgroundItems![0]!;
