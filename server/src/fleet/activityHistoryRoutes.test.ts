@@ -213,7 +213,7 @@ describe('the history note on the live activity reply', () => {
     await fleet.activityHistorySettings.set({ policy: 'default' });
     const res = await a.get(LIVE);
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body).sort()).toEqual(['enabled', 'entries', 'live', 'serverTime', 'since']);
+    expect(Object.keys(res.body).sort()).toEqual(['background', 'enabled', 'entries', 'live', 'serverTime', 'since']);
     expect(res.body).not.toHaveProperty('history');
   });
 

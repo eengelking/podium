@@ -73,13 +73,6 @@ export const FEATURES: readonly FeatureDef[] = [
     defaultOn: false,
   },
   {
-    id: BACKGROUND_OUTPUT,
-    name: 'Background shell output in the activity modal',
-    description:
-      "Lets a person open a background shell or monitor in the Activity modal's Background tab to see its whole command and what it printed. Needs the Agent activity feed on, and the reporter's backgroundOutput option on the machine as well. Output is held in memory while the tab is open and is never stored, so an Admin who reads it is recorded and the person is told. Off, the tab still lists each item's state and times.",
-    defaultOn: false,
-  },
-  {
     id: RESPOND,
     name: 'Respond from Podium',
     description: 'Lets people answer and message the sessions they own. Each answer is written to the admin log with who sent it.',
@@ -118,6 +111,13 @@ export const FEATURES: readonly FeatureDef[] = [
     name: 'My usage page',
     description:
       'Gives each signed-in person a My usage page in the top bar with their own spend, sessions, failures and tool calls. Only their own: it never shows another person, and an Administrator sees their own figures there too. Needs sign-in on the server. Off by default.',
+    defaultOn: false,
+  },
+  {
+    id: BACKGROUND_OUTPUT,
+    name: 'Background shell output in the activity modal',
+    description:
+      "Lets a person open a background shell or monitor in the Activity modal's Background tab to see its whole command and what it printed. Needs the Agent activity feed on, and the reporter's backgroundOutput option on the machine as well. Output is held in memory while the tab is open and is never stored, so an Admin who reads it is recorded and the person is told. Off, the tab still lists each item's state and times.",
     defaultOn: false,
   },
   {
