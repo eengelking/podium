@@ -4,6 +4,7 @@ export type {
   ActivityEntry,
   ActivityView,
   AgentView,
+  BackgroundItem,
   BackgroundTask,
   BackgroundWait,
   BlowoutLogEntry,

@@ -35,6 +35,8 @@ export function Modal(props: {
     closeBtn.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       const inField = e.target instanceof Element && dialog.current?.contains(e.target) && e.target.closest(FIELD) !== null;
+      // A tab list keeps the arrow keys that move between its tabs (#897); every other key is the modal's, as before.
+      if (e.target instanceof Element && (e.key === "ArrowLeft" || e.key === "ArrowRight") && dialog.current?.contains(e.target) && e.target.closest('[role="tablist"]') !== null) return;
       // A field that offers a choice with Tab (the message box's command list) says so with data-keeps-tab.
       if (inField && e.key !== "Escape" && (e.key !== "Tab" || (e.target as Element).hasAttribute("data-keeps-tab"))) return;
       e.stopImmediatePropagation();

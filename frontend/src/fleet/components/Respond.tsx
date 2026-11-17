@@ -7,6 +7,8 @@ import { useReadingPing } from "../sessionReads";
 import type { AskDetail, SessionView } from "../types";
 import { readEvery, useActivityFeed, writeEvery } from "../useActivityFeed";
 import { useRespond } from "../useRespond";
+import { BackgroundPane } from "./BackgroundList";
+import { ActivityTabs, type ActivityTab } from "./ActivityTabs";
 import { ACTIVITY_REPORTER_MINOR, AdminOffNote, EverySelect, FeedList, FeedStatus, feedEmpty, feedNote, footer, OlderRow } from "./ActivityFeed";
 import { Compose, OffNote } from "./Compose";
 import { Modal } from "./Modal";
@@ -105,6 +107,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
 
   // The feed, as the Activity modal shows it today.
   const [every, setEvery] = useState(readEvery);
+  const [activityTab, setActivityTab] = useState<ActivityTab>("output");
   const [nudge, setNudge] = useState(0);
   const feedOn = s.reporter === "mod" && !reporterBelow(s, ACTIVITY_REPORTER_MINOR) && s.activityFeed !== false;
   const active = s.status !== "done";
@@ -386,8 +389,11 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
       }}
       actions={active && !adminOff ? <EverySelect id="every-respond" every={every} onChange={(n) => (setEvery(n), writeEvery(n))} /> : undefined}
     >
-      <div className="mb feedmb respondmb">
-        {adminOff ? (
+      <ActivityTabs tab={activityTab} onTab={setActivityTab} count={s.backgroundOutput == null ? null : feed.background.length} idPrefix="respond" />
+      <div className="mb feedmb respondmb" role="tabpanel" id="respond-panel" aria-labelledby={`respond-tab-${activityTab}`}>
+        {activityTab === "background" ? (
+          <BackgroundPane s={s} items={feed.background} now={Date.now()} when={when} adminOff={adminOff} refused={feed.refused ? "The live activity is open to its owner and an Admin." : null} />
+        ) : adminOff ? (
           <AdminOffNote />
         ) : (
           <>
