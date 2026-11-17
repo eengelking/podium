@@ -10,10 +10,6 @@ name: E2E
 on:
   pull_request:
     branches: [main]
-  # TEMPORARY (#1174): runs the workflow on the issue branch's own pushes so the sharded run can be tried before the PR. Remove this
-  # trigger (the push: block) in the commit before the PR is opened for review.
-  push:
-    branches: [issue/1174-e2e-shards]
   workflow_dispatch:
     inputs:
       repeat:
@@ -135,7 +131,8 @@ jobs:
           # so the next increase in shards or databases at once is a measured one. The peaks and the whole table go in the log below.
           bash scripts/e2e-host-sample.sh sample 10 > "$RUNNER_TEMP/host-sample.csv" 2>/dev/null &
           sampler=$!
-          trap 'kill "$sampler" 2>/dev/null' EXIT
+          # The step runs under bash -e, so a kill of a sampler that has already been stopped must not fail the step.
+          trap 'kill "$sampler" 2>/dev/null || true' EXIT
           # The databases go in groups of AT_ONCE, a group at a time. scripts/e2e-all.sh runs a group's databases, each in SHARDS runs, all at
           # once, builds the image once, and checks that every spec file ran exactly once on each database.
           for ((start = 0; start < ${#dbs[@]}; start += AT_ONCE)); do
@@ -196,6 +193,12 @@ jobs:
       - name: Check the uploaded files hold no secret
         if: failure()
         run: |
+          # scripts/e2e-all.sh keeps each run's own log (<database>.<shard>.log, build.log) in the results folder, and those logs are the
+          # script's output, which the server-log scrub does not reach. Scrub the secret from them, so the check below passes on them and
+          # the screenshots and the server logs are still uploaded (#1174).
+          if [ -d "$RUNNER_TEMP/e2e-results" ]; then
+            find "$RUNNER_TEMP/e2e-results" -mindepth 2 -maxdepth 2 -name '*.log' -exec sed -i "s/$E2E_SECRET/***/g" {} +
+          fi
           if [ -d "$RUNNER_TEMP/e2e-results" ] && grep -rlaF -- "$E2E_SECRET" "$RUNNER_TEMP/e2e-results"; then
             echo "::error::a file in the results still holds the admin secret; not uploading"
             rm -rf "$RUNNER_TEMP/e2e-results"
