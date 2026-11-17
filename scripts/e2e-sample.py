@@ -67,7 +67,7 @@ while True:
     now = time.time()
     ts = time.strftime('%H:%M:%S')
     load = re.findall(r'[\d.]+', run(['uptime']).split('load average')[1])[:3]
-    idle = re.search(r'([\d.]+)% idle', run(['top', '-l', '1', '-n', '0']))
+    idle = re.search(r'\b(\d{1,3}(?:\.\d{1,3})?)% idle', run(['top', '-l', '1', '-n', '0']))
     row(ts, 'host', 'mac', round(100 - float(idle[1]), 1) if idle else '', '', '', *load)
     stats = run(['podman', 'stats', '--no-stream', '--format', 'json'])
     for d in (json.loads(stats) if stats.strip() else []):

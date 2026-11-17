@@ -165,7 +165,7 @@ export function durationSeconds(text) {
     const n = trimmed.slice(0, -2).trim();
     if (/^\d+$/.test(n)) return Number(n) / 1000;
   }
-  const parts = [...text.matchAll(/(\d+) (hour|minute|second)s?\b/g)];
+  const parts = [...text.matchAll(/\b(\d{1,6}) (hour|minute|second)s?\b/g)];
   if (!parts.length) return null;
   return parts.reduce((sum, [, n, unit]) => sum + Number(n) * UNIT[unit], 0);
 }
