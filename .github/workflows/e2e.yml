@@ -29,9 +29,9 @@ on:
         type: number
         default: 3
       databases_at_once:
-        description: "How many of the databases run side by side (1 = one after another). The first trial is 1; raise it only after a measured run (docs/e2e/COVERAGE.md)."
+        description: "How many of the databases run side by side (1 = one after another). The default is all three: 9 runs at once measured about 18 of the 24 cores on the self-hosted host (#1174). Lower it if a trial shows the host struggling (docs/e2e/COVERAGE.md)."
         type: number
-        default: 1
+        default: 3
 
 permissions:
   contents: read
@@ -76,11 +76,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
-    # One database with 3 shards takes about 8 to 10 minutes (#1174; it was about 22 serial), so a whole run of three databases one after
-    # another is about 30 minutes, and five repeats (the most the issue asks for) with a cold image build fit inside this. A GitHub
+    # Three databases at once, 3 shards each, take about 10 to 15 minutes (#1174; it was about 67 serial), and five repeats (the most the
+    # issue asks for) with a cold image build fit inside this. A GitHub
     # expression has no arithmetic, so the limit cannot scale with `repeat`. A shard that hangs is caught by this limit, so it is not far
     # above the longest run that is expected.
-    timeout-minutes: 180
+    timeout-minutes: 120
     # The self-hosted runners share one Podman host, and `scripts/e2e-up.sh down` (the last step) removes every e2e container, network and
     # volume on it, whichever run made them. One e2e job at a time keeps it from tearing down another run's server.
     concurrency:
@@ -116,7 +116,7 @@ jobs:
           # Parallel runs per database, and how many databases go side by side (#1174). The repository variables E2E_SHARDS and
           # E2E_DATABASES_AT_ONCE set the value for the release PR, which has no inputs; change them after a measured trial, not in code.
           SHARDS: ${{ inputs.shards || vars.E2E_SHARDS || 3 }}
-          AT_ONCE: ${{ inputs.databases_at_once || vars.E2E_DATABASES_AT_ONCE || 1 }}
+          AT_ONCE: ${{ inputs.databases_at_once || vars.E2E_DATABASES_AT_ONCE || 3 }}
           # The runner's /tmp is not the host's /tmp, and the engine resolves a bind mount on the host, so the script's temp folder goes in
           # the runner's temp folder, which is the same path on both. (The runner context is not available in a job-level env.)
           TMPDIR: ${{ runner.temp }}
