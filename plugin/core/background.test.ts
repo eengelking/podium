@@ -76,6 +76,11 @@ describe('an item as a report carries it (#897)', () => {
     expect(backgroundItem(raw({ output: '' }), true).output).toBe('')
   })
 
+  test('carries the time it ended only on an item that exited', () => {
+    expect(backgroundItem(raw({ state: 'exited', endedAt: T0 + 50 }), false).endedAt).toBe(T0 + 50)
+    expect(backgroundItem(raw({ state: 'running', endedAt: T0 + 50 }), false)).not.toHaveProperty('endedAt')
+  })
+
   test('carries an exit code only on an item that exited, and none for one that ended without one', () => {
     expect(backgroundItem(raw({ state: 'exited', exitCode: 2 }), false).exitCode).toBe(2)
     expect(backgroundItem(raw({ state: 'running', exitCode: 2 }), false)).not.toHaveProperty('exitCode')

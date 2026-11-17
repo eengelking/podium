@@ -1202,6 +1202,7 @@ function backgroundItems(v: unknown, path: string): { backgroundItems?: Backgrou
       };
       if (o.exitCode !== undefined && o.exitCode !== null) item.exitCode = whole(o.exitCode, `${p}.exitCode`);
       if (o.lastOutputAt !== undefined && o.lastOutputAt !== null) item.lastOutputAt = whole(o.lastOutputAt, `${p}.lastOutputAt`);
+      if (o.endedAt !== undefined && o.endedAt !== null) item.endedAt = whole(o.endedAt, `${p}.endedAt`);
       if (o.command !== undefined && o.command !== null) item.command = text(o.command, `${p}.command`, LIMITS.activityDetail);
       if (o.output !== undefined && o.output !== null) item.output = text(o.output, `${p}.output`, LIMITS.activityDetail);
       if (o.commandCut !== undefined && o.commandCut !== null && bool(o.commandCut, `${p}.commandCut`)) item.commandCut = true;

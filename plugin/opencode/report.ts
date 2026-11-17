@@ -103,6 +103,7 @@ function backgroundOf(root: Root, s: Sess, meta: ReportMeta): { backgroundItems?
       command: sh.command,
     };
     if (sh.exited && sh.exitCode !== null) raw.exitCode = sh.exitCode;
+    if (sh.exited && sh.endedAt !== null) raw.endedAt = sh.endedAt;
     if (sh.lastOutputAt !== null) raw.lastOutputAt = sh.lastOutputAt;
     if (detail && sh.output !== null) {
       raw.output = sh.output;

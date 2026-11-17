@@ -36,6 +36,8 @@ export interface RawBackgroundItem {
   /** False when `startedAt` is the time the reporter first saw the item, because the harness reports no start time. */
   startedKnown: boolean;
   lastOutputAt?: number;
+  /** When the item ended, as the reporter learned it; only meaningful for an exited item. */
+  endedAt?: number;
   /** The whole command as the harness has it. */
   command?: string;
   /** The text of the output file's tail, and whether the file held more before it. Present only when the output was read. */
@@ -77,6 +79,7 @@ export function backgroundItem(raw: RawBackgroundItem, withDetail: boolean): Bac
   };
   if (raw.state === 'exited' && typeof raw.exitCode === 'number' && Number.isInteger(raw.exitCode)) item.exitCode = raw.exitCode;
   if (typeof raw.lastOutputAt === 'number') item.lastOutputAt = Math.round(raw.lastOutputAt);
+  if (raw.state === 'exited' && typeof raw.endedAt === 'number') item.endedAt = Math.round(raw.endedAt);
   if (!withDetail) return item;
   if (raw.command !== undefined) {
     const c = commandText(raw.command);

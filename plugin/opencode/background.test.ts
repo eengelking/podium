@@ -133,7 +133,7 @@ describe('what a report carries', () => {
     apply(s, exited('sh3', 901), 901);
     setWatched(root, [MAIN_LOOP]);
     const items = buildReport(root, [], META).session.backgroundItems!;
-    expect(items.find((i) => i.id === 'sh1')).toMatchObject({ state: 'exited', exitCode: 2 });
+    expect(items.find((i) => i.id === 'sh1')).toMatchObject({ state: 'exited', exitCode: 2, endedAt: 900 });
     expect(items.find((i) => i.id === 'sh3')).toMatchObject({ state: 'exited' });
     expect(items.find((i) => i.id === 'sh3')).not.toHaveProperty('exitCode');
   });

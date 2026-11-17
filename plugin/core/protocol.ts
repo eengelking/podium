@@ -397,6 +397,8 @@ export interface BackgroundItem {
   startedKnown: boolean;
   /** When the item last printed (epoch ms); absent when it has printed nothing or the harness does not say. */
   lastOutputAt?: number;
+  /** When the item ended, as the reporter learned it (OpenCode's event time; Claude Code: when the reporter first saw it ended). Absent while it runs, so the run time of a finished item is `endedAt - startedAt`. */
+  endedAt?: number;
   /** The command's first word, redacted and cut: what the list shows with the output switches off. */
   label: string;
   /** The whole command, redacted, cut with a visible marker. Needs the `backgroundOutput` option and the loop in `watchBackground`. */

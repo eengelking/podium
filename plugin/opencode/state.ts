@@ -57,6 +57,8 @@ export interface Shell {
   /** When OpenCode started it: its own time (`info.time.started`), else the event's. */
   startedAt: number;
   exited: boolean;
+  /** When `shell.exited` arrived (its own time, else the reporter's); null while the shell runs. */
+  endedAt: number | null;
   /** The exit code `shell.exited` carried; null for a shell still running and for one that ended without a code (a signal). */
   exitCode: number | null;
   /** When the output file last changed, as the reporter last read it; null before the first read or when there is no file. */
@@ -501,6 +503,7 @@ function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
       file: str(info.file),
       startedAt: started,
       exited: false,
+      endedAt: null,
       exitCode: null,
       lastOutputAt: null,
       output: null,
@@ -519,6 +522,7 @@ function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
   const sh = sid ? root?.sessions.get(sid)?.shells.get(id!) : undefined;
   if (!root || !sh) return null;
   sh.exited = true;
+  sh.endedAt = whole(typeof ev.created === 'number' && Number.isFinite(ev.created) ? ev.created : at);
   // OpenCode names no code for a shell that was signalled; it is not called killed, because OpenCode does not say so.
   sh.exitCode = typeof info.exit === 'number' && Number.isInteger(info.exit) ? info.exit : null;
   sh.settled = false;

@@ -179,6 +179,8 @@ export interface BgTask {
   /** When the reporter first saw it: Claude Code reports no start time. */
   startedAt: number;
   exited: boolean;
+  /** When the reporter first saw it had ended; null while it runs. */
+  endedAt: number | null;
   /** From the `[exited with code N]` line its output file ends with; null while it runs and for one that ended without one. */
   exitCode: number | null;
   /** The output file's last change, as last read; null before the first read or while it has printed nothing. */

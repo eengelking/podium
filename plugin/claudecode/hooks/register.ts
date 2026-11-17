@@ -469,7 +469,7 @@ async function refreshBackground($: Engine, r: Runtime): Promise<void> {
       }
       const code = exitCodeOf(got.text);
       const patch: BgFilePatch = { lastOutputAt: got.size > 0 ? Math.round(got.mtimeMs) : null, settled: t.exited || code !== null };
-      if (code !== null) Object.assign(patch, { exited: true, exitCode: code });
+      if (code !== null) Object.assign(patch, { exited: true, exitCode: code, ...(t.exited ? {} : { endedAt: nowMs() }) });
       if (detail) Object.assign(patch, { output: got.text, outputCutAtStart: got.cutAtStart });
       r.state = bgFile(r.state, t.id, patch);
     }

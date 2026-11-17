@@ -29,7 +29,7 @@ export function bgStarted(s: SessionState, i: { id: string; kind: 'shell' | 'mon
     if (existing.kind === i.kind && existing.agentId === agentId && (existing.command !== '' || i.command === '')) return s;
     return { ...s, bg: s.bg.map((t) => (t.id === i.id ? { ...t, kind: i.kind, agentId, command: t.command || i.command } : t)), dirty: true };
   }
-  const task: BgTask = { id: i.id, kind: i.kind, agentId: i.agentId ?? null, command: i.command, startedAt: i.now, exited: false, exitCode: null, lastOutputAt: null, output: null, outputCutAtStart: false, settled: false };
+  const task: BgTask = { id: i.id, kind: i.kind, agentId: i.agentId ?? null, command: i.command, startedAt: i.now, exited: false, endedAt: null, exitCode: null, lastOutputAt: null, output: null, outputCutAtStart: false, settled: false };
   return { ...s, bg: trimTasks([...s.bg, task]), dirty: true };
 }
 
@@ -63,17 +63,17 @@ export function bgListed(s: SessionState, tasks: readonly ListedTask[], owner: s
     const held = bg.find((t) => t.id === l.id);
     if (!held) {
       const kind: BgTask['kind'] = type === 'monitor' ? 'monitor' : 'shell';
-      bg = trimTasks([...bg, { id: l.id, kind, agentId: owner, command: l.command ?? '', startedAt: now, exited: done, exitCode: null, lastOutputAt: null, output: null, outputCutAtStart: false, settled: false }]);
+      bg = trimTasks([...bg, { id: l.id, kind, agentId: owner, command: l.command ?? '', startedAt: now, exited: done, endedAt: done ? now : null, exitCode: null, lastOutputAt: null, output: null, outputCutAtStart: false, settled: false }]);
     } else {
-      if (done && !held.exited) change(l.id, (t) => ({ ...t, exited: true, settled: false }));
+      if (done && !held.exited) change(l.id, (t) => ({ ...t, exited: true, endedAt: now, settled: false }));
       if (!held.command && l.command) change(l.id, (t) => ({ ...t, command: l.command ?? '' }));
     }
   }
-  if (sessionWide) for (const t of s.bg) if (!t.exited && !seen.has(t.id)) change(t.id, (x) => ({ ...x, exited: true, settled: false }));
+  if (sessionWide) for (const t of s.bg) if (!t.exited && !seen.has(t.id)) change(t.id, (x) => ({ ...x, exited: true, endedAt: now, settled: false }));
   return bg === s.bg ? s : { ...s, bg, dirty: true };
 }
 
-export type BgFilePatch = Partial<Pick<BgTask, 'exited' | 'exitCode' | 'lastOutputAt' | 'output' | 'outputCutAtStart' | 'settled'>>;
+export type BgFilePatch = Partial<Pick<BgTask, 'exited' | 'endedAt' | 'exitCode' | 'lastOutputAt' | 'output' | 'outputCutAtStart' | 'settled'>>;
 
 /** What reading a task's output file found. Nothing changes, and the session is not dirtied, when it is what is already held. */
 export function bgFile(s: SessionState, id: string, patch: BgFilePatch): SessionState {
@@ -123,6 +123,7 @@ export function bgItems(s: SessionState, loop: string, detail: boolean): Backgro
         command: t.command,
       };
       if (t.exited && t.exitCode !== null) raw.exitCode = t.exitCode;
+      if (t.exited && t.endedAt !== null) raw.endedAt = t.endedAt;
       if (t.lastOutputAt !== null) raw.lastOutputAt = t.lastOutputAt;
       if (detail && t.output !== null) {
         raw.output = t.output;

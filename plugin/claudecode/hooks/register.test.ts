@@ -1217,6 +1217,7 @@ describe('podium-reporter end to end', () => {
       await stop($, [{ id: 'old2', type: 'shell', status: 'running', description: 'y' }])
       await w.clock.advance(1000)
       expect(mainItems(w)![0]).toMatchObject({ id: 'old1', state: 'exited' })
+      expect(mainItems(w)![0]!.endedAt).toBeGreaterThan(mainItems(w)![0]!.startedAt - 1)
       expect(mainItems(w)![0]).not.toHaveProperty('exitCode')
       expect(subItems(w)![0]).toMatchObject({ id: 'old2', state: 'running' })
     })
