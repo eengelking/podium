@@ -1,7 +1,7 @@
 // A session's background shells and monitors in the Claude Code reporter (#897). Pure: each function takes a SessionState and returns the next one. The
 // register module finds the tasks (a Bash call with `run_in_background`, a Monitor call, the Stop and SubagentStop hooks' `background_tasks`) and reads
 // their output files through `$.fs`; this file holds what it learned and turns it into the items a report carries.
-import { backgroundItem, keepBackground, type RawBackgroundItem } from '../../core/background.ts';
+import { backgroundItem, exitCodeOf, keepBackground, outputTimes, readTail, withoutExitLine, type OutputFs, type RawBackgroundItem } from '../../core/background.ts';
 import { MAIN_LOOP, type BackgroundItem } from '../../core/protocol.ts';
 import { ARTIFACT_WATCHER, TASK_DONE, type BgTask, type SessionState } from './state.ts';
 
@@ -135,3 +135,55 @@ export function bgItems(s: SessionState, loop: string, detail: boolean): Backgro
 }
 
 export const bgLoopOf = loopOf;
+
+/** A background task's id as Claude Code names it: a short token, never a path. */
+export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The task a Bash call with `run_in_background` or a Monitor call started, from what its result carries; null for any other call. */
+export function backgroundStartOf(tool: string, input: Record<string, unknown>, call: Record<string, unknown>): { id: string; kind: 'shell' | 'monitor'; command: string } | null {
+  // The tool's own result record is under `result`, as the Bash output is for `finishedCall`.
+  const res = typeof call.result === 'object' && call.result !== null ? (call.result as Record<string, unknown>) : call;
+  if (tool === 'Bash' && input.run_in_background === true && typeof res.backgroundTaskId === 'string' && TASK_ID.test(res.backgroundTaskId)) {
+    return { id: res.backgroundTaskId, kind: 'shell', command: typeof input.command === 'string' ? input.command : '' };
+  }
+  if (tool === 'Monitor' && typeof res.taskId === 'string' && TASK_ID.test(res.taskId)) {
+    return { id: res.taskId, kind: 'monitor', command: typeof input.command === 'string' ? input.command : '' };
+  }
+  return null;
+}
+
+/**
+ * For each background task of a watched loop, reads the output file Claude Code writes in the folder a hook named (#897): when it last printed, the exit code
+ * its last line states and, with the option and a viewer on the Background tab, its newest output. It returns what it found and changes nothing: the caller
+ * keeps it. Locally only: what is read stays in this process until a report carries it, and a report carries output only for a loop in `watchBackground`. No
+ * folder known, no file, a link or a refusal is no output. A file that has not changed since it was read is not read again.
+ */
+export async function readBackground(fs: OutputFs, s: SessionState, backgroundOutput: boolean, now: number): Promise<{ id: string; patch: BgFilePatch }[]> {
+  const out: { id: string; patch: BgFilePatch }[] = [];
+  const dir = s.tasksDir;
+  if (!dir) return out;
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+  for (const t of s.bg) {
+    const loop = loopOf(t);
+    if (!TASK_ID.test(t.id) || !s.watched.includes(loop)) continue;
+    const detail = backgroundOutput && s.watchedBackground.includes(loop);
+    if (t.settled && (!detail || t.output !== null)) continue;
+    const file = `${dir}${sep}${t.id}.output`;
+    const seen = await outputTimes(fs, file, dir);
+    if (seen.ok && t.lastOutputAt !== null && Math.round(seen.mtimeMs) === t.lastOutputAt && (!detail || t.output !== null)) {
+      if (t.exited && !t.settled) out.push({ id: t.id, patch: { settled: true } });
+      continue;
+    }
+    const got = await readTail(fs, file, dir);
+    if (!got.ok) {
+      if (t.exited) out.push({ id: t.id, patch: { settled: true } });
+      continue;
+    }
+    const code = exitCodeOf(got.text);
+    const patch: BgFilePatch = { lastOutputAt: got.size > 0 ? Math.round(got.mtimeMs) : null, settled: t.exited || code !== null };
+    if (code !== null) Object.assign(patch, { exited: true, exitCode: code, ...(t.exited ? {} : { endedAt: now }) });
+    if (detail) Object.assign(patch, { output: withoutExitLine(got.text), outputCutAtStart: got.cutAtStart });
+    out.push({ id: t.id, patch });
+  }
+  return out;
+}

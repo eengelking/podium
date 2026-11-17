@@ -8,8 +8,8 @@
 // a top-level function taking `$`, and the runtime lives in module variables (a hot reload re-runs
 // register, which resets them, and session.start rebuilds the state from the engine).
 import { modBuild } from '../../core/build.ts';
-import { exitCodeOf, outputTimes, readTail, withoutExitLine, type OutputFs, type OutputStat } from '../../core/background.ts';
-import { bgFile, bgListed, bgLoopOf, bgStarted, setTasksDir, setWatchedBackground, tasksDirOf, type BgFilePatch } from './background.ts';
+import type { OutputFs, OutputStat } from '../../core/background.ts';
+import { backgroundStartOf, bgFile, bgListed, bgStarted, readBackground, setTasksDir, setWatchedBackground, tasksDirOf } from './background.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGitState } from '../../core/git.ts';
 import { readAppTitle } from './agentName.ts';
@@ -422,63 +422,18 @@ function seen(hook: string, event: unknown): void {
 const BACKGROUND_POLL_MS = 3000;
 let backgroundBusy = false;
 
-/** A background task's id as Claude Code names it: a short token, never a path. */
-const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-/** The task a Bash call with `run_in_background` or a Monitor call started, from what its result carries; null for any other call. */
-function backgroundStartOf(tool: string, input: Record<string, unknown>, call: Record<string, unknown>): { id: string; kind: 'shell' | 'monitor'; command: string } | null {
-  // The tool's own result record is under `result`, as the Bash output is for `finishedCall`.
-  const res = typeof call.result === 'object' && call.result !== null ? (call.result as Record<string, unknown>) : call;
-  if (tool === 'Bash' && input.run_in_background === true && typeof res.backgroundTaskId === 'string' && TASK_ID.test(res.backgroundTaskId)) {
-    return { id: res.backgroundTaskId, kind: 'shell', command: typeof input.command === 'string' ? input.command : '' };
-  }
-  if (tool === 'Monitor' && typeof res.taskId === 'string' && TASK_ID.test(res.taskId)) {
-    return { id: res.taskId, kind: 'monitor', command: typeof input.command === 'string' ? input.command : '' };
-  }
-  return null;
-}
-
 /** The host's file system as core's `readTail` takes it. */
 const hostFs = ($: Engine): OutputFs => ({
   stat: async (path, options) => (await $.fs.stat(path, options?.resolve ? { resolve: true } : undefined)) as OutputStat,
   read: async (path) => (await $.fs.read(path)) as string,
 });
 
-/**
- * For each background task of a watched loop, reads the output file Claude Code writes in the folder a hook named (#897): when it last printed, the exit
- * code its last line states and, with the option and a viewer on the Background tab, its newest output. Locally only: what is read stays in this process
- * until a report carries it, and a report carries output only for a loop in `watchBackground`. No folder known, no file, a link or a refusal is no output.
- */
+/** Reads the output files of a watched loop's background tasks and keeps what it found (#897); the reading is `readBackground`, in background.ts. */
 async function refreshBackground($: Engine, r: Runtime): Promise<void> {
   if (backgroundBusy || !opts.activityFeed || !r.state.tasksDir || !r.state.bg.length) return;
   backgroundBusy = true;
   try {
-    const fs = hostFs($);
-    const dir = r.state.tasksDir;
-    const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
-    for (const t of [...r.state.bg]) {
-      const loop = bgLoopOf(t);
-      if (!TASK_ID.test(t.id) || !r.state.watched.includes(loop)) continue;
-      const detail = opts.backgroundOutput && r.state.watchedBackground.includes(loop);
-      if (t.settled && (!detail || t.output !== null)) continue;
-      const file = `${dir}${sep}${t.id}.output`;
-      // A file that has not changed since it was read has nothing new: it is not read, redacted and cut again every tick.
-      const seen = await outputTimes(fs, file, dir);
-      if (seen.ok && t.lastOutputAt !== null && Math.round(seen.mtimeMs) === t.lastOutputAt && (!detail || t.output !== null)) {
-        if (t.exited && !t.settled) r.state = bgFile(r.state, t.id, { settled: true });
-        continue;
-      }
-      const got = await readTail(fs, file, dir);
-      if (!got.ok) {
-        if (t.exited) r.state = bgFile(r.state, t.id, { settled: true });
-        continue;
-      }
-      const code = exitCodeOf(got.text);
-      const patch: BgFilePatch = { lastOutputAt: got.size > 0 ? Math.round(got.mtimeMs) : null, settled: t.exited || code !== null };
-      if (code !== null) Object.assign(patch, { exited: true, exitCode: code, ...(t.exited ? {} : { endedAt: nowMs() }) });
-      if (detail) Object.assign(patch, { output: withoutExitLine(got.text), outputCutAtStart: got.cutAtStart });
-      r.state = bgFile(r.state, t.id, patch);
-    }
+    for (const { id, patch } of await readBackground(hostFs($), r.state, opts.backgroundOutput, nowMs())) r.state = bgFile(r.state, id, patch);
   } finally {
     backgroundBusy = false;
   }
