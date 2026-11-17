@@ -8,6 +8,8 @@
 // a top-level function taking `$`, and the runtime lives in module variables (a hot reload re-runs
 // register, which resets them, and session.start rebuilds the state from the engine).
 import { modBuild } from '../../core/build.ts';
+import { exitCodeOf, readTail, type OutputFs, type OutputStat } from '../../core/background.ts';
+import { bgFile, bgListed, bgLoopOf, bgStarted, setTasksDir, setWatchedBackground, tasksDirOf, type BgFilePatch } from './background.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGitState } from '../../core/git.ts';
 import { readAppTitle } from './agentName.ts';
@@ -157,6 +159,8 @@ interface Options {
   activityFeed: boolean;
   /** A Bash call's output may go out with its entry, for a loop a viewer has the feed open on (#431). Needs `activityFeed`. */
   activityOutput: boolean;
+  /** A background shell's whole command and output may go out, for a loop a viewer has the Background tab open on (#897). Needs `activityFeed`. */
+  backgroundOutput: boolean;
   /** Answer requests for one file's diff (#319). */
   fileDiff: boolean;
   /** Tell the console it may read every changed file's diff while its page is open (#631). On unless set to false. */
@@ -242,6 +246,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     fullPrompts: o.fullPrompts === true,
     activityFeed: o.activityFeed === true,
     activityOutput: o.activityOutput === true,
+    backgroundOutput: o.backgroundOutput === true,
     fileDiff: o.fileDiff === true,
     fileDiffPreload: o.fileDiffPreload !== false,
     respond: respondLevel(o.respond),
@@ -414,6 +419,63 @@ function seen(hook: string, event: unknown): void {
 }
 
 /** Runs reporter logic for a hook: any throw is remembered, never raised. Timed for /podium. */
+/** How often the output files of a watched loop's background tasks are looked at (#897): a finished shell must not look alive for a whole turn. */
+const BACKGROUND_POLL_MS = 3000;
+let backgroundBusy = false;
+
+/** A background task's id as Claude Code names it: a short token, never a path. */
+const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The task a Bash call with `run_in_background` or a Monitor call started, from what its result carries; null for any other call. */
+function backgroundStartOf(tool: string, input: Record<string, unknown>, res: Record<string, unknown>): { id: string; kind: 'shell' | 'monitor'; command: string } | null {
+  if (tool === 'Bash' && input.run_in_background === true && typeof res.backgroundTaskId === 'string' && TASK_ID.test(res.backgroundTaskId)) {
+    return { id: res.backgroundTaskId, kind: 'shell', command: typeof input.command === 'string' ? input.command : '' };
+  }
+  if (tool === 'Monitor' && typeof res.taskId === 'string' && TASK_ID.test(res.taskId)) {
+    return { id: res.taskId, kind: 'monitor', command: typeof input.command === 'string' ? input.command : '' };
+  }
+  return null;
+}
+
+/** The host's file system as core's `readTail` takes it. */
+const hostFs = ($: Engine): OutputFs => ({
+  stat: async (path, options) => (await $.fs.stat(path, options?.resolve ? { resolve: true } : undefined)) as OutputStat,
+  read: async (path) => (await $.fs.read(path)) as string,
+});
+
+/**
+ * For each background task of a watched loop, reads the output file Claude Code writes in the folder a hook named (#897): when it last printed, the exit
+ * code its last line states and, with the option and a viewer on the Background tab, its newest output. Locally only: what is read stays in this process
+ * until a report carries it, and a report carries output only for a loop in `watchBackground`. No folder known, no file, a link or a refusal is no output.
+ */
+async function refreshBackground($: Engine, r: Runtime): Promise<void> {
+  if (backgroundBusy || !opts.activityFeed || !r.state.tasksDir || !r.state.bg.length) return;
+  backgroundBusy = true;
+  try {
+    const fs = hostFs($);
+    const dir = r.state.tasksDir;
+    const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+    for (const t of [...r.state.bg]) {
+      const loop = bgLoopOf(t);
+      if (!TASK_ID.test(t.id) || !r.state.watched.includes(loop)) continue;
+      const detail = opts.backgroundOutput && r.state.watchedBackground.includes(loop);
+      if (t.settled && (!detail || t.output !== null)) continue;
+      const got = await readTail(fs, `${dir}${sep}${t.id}.output`, dir);
+      if (!got.ok) {
+        if (t.exited) r.state = bgFile(r.state, t.id, { settled: true });
+        continue;
+      }
+      const code = exitCodeOf(got.text);
+      const patch: BgFilePatch = { lastOutputAt: got.size > 0 ? Math.round(got.mtimeMs) : null, settled: t.exited || code !== null };
+      if (code !== null) Object.assign(patch, { exited: true, exitCode: code });
+      if (detail) Object.assign(patch, { output: got.text, outputCutAtStart: got.cutAtStart });
+      r.state = bgFile(r.state, t.id, patch);
+    }
+  } finally {
+    backgroundBusy = false;
+  }
+}
+
 function safe(where: string, fn: (r: Runtime) => void): void {
   const t0 = perf();
   try {
@@ -496,6 +558,7 @@ function metaOf(r: Runtime, now: number) {
     fullText: opts.fullPrompts,
     activity: opts.activityFeed,
     activityOutput: opts.activityOutput,
+    backgroundOutput: opts.activityFeed && opts.backgroundOutput,
     fileDiff: opts.fileDiff,
     fileDiffPreload: opts.fileDiffPreload,
     sessionRecording: opts.sessionRecording,
@@ -604,6 +667,8 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     r.state = setWatched(r.state, opts.activityFeed ? r.transport.watch : []);
     // A loop a viewer has the feed open on gets its Bash output read, with both options on (#431). Never a loop that is only in the history's list.
     r.state = setWatchedOutput(r.state, opts.activityFeed && opts.activityOutput ? r.transport.watchOutput.filter((id) => r.state.watched.includes(id)) : []);
+    // The same for the Background tab (#897): its whole command and output are read for a loop a viewer has that tab open on, with both options on.
+    r.state = setWatchedBackground(r.state, opts.activityFeed && opts.backgroundOutput ? r.transport.watchBackground.filter((id) => r.state.watched.includes(id)) : []);
     r.toastedRefusal = null; // accepted again: a later refusal is news again
     toastOnce($, r, true);
     handleDeliveries($, r);
@@ -1928,6 +1993,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   }
   r.timers.push($.clock.every(opts.flushIntervalMs, () => void flush($)));
   r.timers.push($.clock.every(GIT_POLL_MS, () => void pollGit($, r)));
+  r.timers.push($.clock.every(BACKGROUND_POLL_MS, () => void refreshBackground($, r)));
   void pollGit($, r);
   showStatus($, r);
 }
@@ -2405,6 +2471,11 @@ export const register: Register = (on, rawOptions) => {
         if (held) Object.assign(held, patch);
         else r.state = finishActivity(r.state, e.agentId, e.tool_use_id, patch);
       }
+      // A shell started in the background, or a monitor, belongs to the loop whose call it was (#897). Only with the feed on.
+      if (opts.activityFeed) {
+        const started = backgroundStartOf(tool, input, (res ?? {}) as Record<string, unknown>);
+        if (started) r.state = bgStarted(r.state, { ...started, agentId: e.agentId, now: nowMs() });
+      }
       recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
       if (e.tool_use_id) callSeqs.delete(e.tool_use_id);
     });
@@ -2514,6 +2585,22 @@ export const register: Register = (on, rawOptions) => {
       const now = nowMs();
       const crons = (e.session_crons ?? []).map((c) => ({ ...c, nextAt: nextCronAt(c.schedule, now) }));
       r.state = setBackground(r.state, { tasks: e.background_tasks ?? [], crons }, now);
+      // The same list holds the session's shells and monitors, whoever started them (#897).
+      if (opts.activityFeed) {
+        r.state = setTasksDir(r.state, tasksDirOf((e as { scratchpad_dir?: unknown }).scratchpad_dir));
+        r.state = bgListed(r.state, e.background_tasks ?? [], null, true, now);
+      }
+    });
+    return next(e);
+  }).catch(($, e, next) => next(e));
+
+  // A subagent's Stop lists the same session-wide tasks; one it started that was not seen starting belongs to it (#897).
+  on('classic.SubagentStop', async ($, e, next) => {
+    seen('classic.SubagentStop', e);
+    safe('classic.SubagentStop', (r) => {
+      if (!opts.activityFeed) return;
+      r.state = setTasksDir(r.state, tasksDirOf((e as { scratchpad_dir?: unknown }).scratchpad_dir));
+      r.state = bgListed(r.state, e.background_tasks ?? [], e.agent_id ?? null, false, nowMs());
     });
     return next(e);
   }).catch(($, e, next) => next(e));

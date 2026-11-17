@@ -168,6 +168,28 @@ export interface PendingSpawn {
   at: number;
 }
 
+/** One background shell or monitor a loop started (#897). Pure data: the file it prints to is read by the register module, which patches what it found back with `bgFile`. */
+export interface BgTask {
+  id: string;
+  kind: 'shell' | 'monitor';
+  /** The agent that started it; null for the orchestrator. */
+  agentId: string | null;
+  /** The whole command as Claude Code gave it (a Monitor's command, for a monitor). */
+  command: string;
+  /** When the reporter first saw it: Claude Code reports no start time. */
+  startedAt: number;
+  exited: boolean;
+  /** From the `[exited with code N]` line its output file ends with; null while it runs and for one that ended without one. */
+  exitCode: number | null;
+  /** The output file's last change, as last read; null before the first read or while it has printed nothing. */
+  lastOutputAt: number | null;
+  /** The newest output, only while the loop's output switches are on; null otherwise. */
+  output: string | null;
+  outputCutAtStart: boolean;
+  /** Read after it exited, so a finished task is not read again. */
+  settled: boolean;
+}
+
 export interface SessionState {
   id: string;
   startedAt: number;
@@ -208,6 +230,12 @@ export interface SessionState {
   watched: string[];
   /** The loops of `watched` the server's reply says a viewer has the feed open on (#431); a Bash call's output is read only for these. Empty with the activityOutput option off. */
   watchedOutput: string[];
+  /** The loops of `watched` a viewer has the Background tab open on (#897); a task's whole command and output go out only for these, with the backgroundOutput option on. */
+  watchedBackground: string[];
+  /** The background shells and monitors this session's loops started (#897), at most 200, oldest first. */
+  bg: BgTask[];
+  /** The folder Claude Code writes task output files in, from a hook payload's `scratchpad_dir`; null until one carried it (the output is then unavailable). */
+  tasksDir: string | null;
 }
 
 export function emptyLoop(model: string | null = null): LoopStats {
@@ -268,6 +296,9 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
     dirty: true,
     watched: [],
     watchedOutput: [],
+    watchedBackground: [],
+    bg: [],
+    tasksDir: null,
   };
 }
 
@@ -415,10 +446,10 @@ export interface BackgroundInput {
   crons: { id?: string; schedule?: string; recurring?: boolean; prompt?: string; nextAt?: number | null }[];
 }
 
-const TASK_DONE = /^(completed|complete|done|failed|killed|stopped|cancelled|canceled|error)$/i;
+export const TASK_DONE = /^(completed|complete|done|failed|killed|stopped|cancelled|canceled|error)$/i;
 const TASK_KINDS: Record<string, BackgroundKind> = { shell: 'shell', bash: 'shell', subagent: 'agent', agent: 'agent', monitor: 'monitor', workflow: 'workflow' };
 /** Claude Code's artifact live-update watchers (#128): they run as long as the session does, so they are not work it waits on. */
-const ARTIFACT_WATCHER = /^live updates for artifact /i;
+export const ARTIFACT_WATCHER = /^live updates for artifact /i;
 const MAX_BACKGROUND_TASKS = 20;
 const BACKGROUND_DESC = 120;
 
