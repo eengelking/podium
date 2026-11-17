@@ -279,6 +279,10 @@ export interface PeerStoreApi {
     page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
     deleteConversation(owner: string, a: string, b: string): Promise<number>;
+    /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
+    conversationOf(a: string, b: string): Promise<ConversationSummary | null>;
+    /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). One grouped read for all of them; the same number as `ownerConversations(owner).length`. */
+    conversationCounts(owners: string[]): Promise<Record<string, number>>;
     /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. */
     ownerConversations(owner: string, opts?: { includeHidden?: boolean }): Promise<OwnerConversation[]>;
     /** Hides the owner's conversation and keeps its messages for the grace period. Returns how many rows it marked; 0 when already hidden. */
@@ -381,6 +385,8 @@ export interface ChannelStoreApi<A extends unknown[]> {
   page(...args: [...A, { before?: string | null; limit: number }]): Promise<ChannelPage>;
   /** Sets the delivery state of one mention (by its place in `mentions`) and the message's `updatedAt`. Null when there is no such message in this channel or no such mention. */
   setMention(...args: [...A, string, number, { state: MentionState; why?: string | null }]): Promise<ChannelMessage | null>;
+  /** The messages that hold a mention still in the `held` state, oldest first (time, then insertion number), each with all its mentions (#1046). With `sessionId`, only those with a held mention of that session. Reads only the rows that can hold one, never a page of the whole channel. */
+  heldMentions(...args: [...A, { sessionId?: string }]): Promise<ChannelMessage[]>;
   /** Deletes every message of the channel. Returns how many. */
   clear(...args: A): Promise<number>;
   count(...args: A): Promise<number>;

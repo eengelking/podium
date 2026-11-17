@@ -2,7 +2,7 @@
 // access, and the messages, answers, retention and views built on them. Each runs one scenario over every adapter
 // (`sameOnAll`). Ids of messages and requests are generated, so they are scrubbed from what is compared and used as they come.
 import { it, expect } from 'vitest';
-import { sameOnAll, type Openers } from './contractSame.js';
+import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
 import type { Report } from '../fleet/protocol.js';
 import type { Actor } from '../fleet/peerTypes.js';
 import type { ReporterSeen } from './rows.js';
@@ -289,6 +289,10 @@ export function peerCases(o: Openers): void {
       await rec('deliveries to beta', m.conversation('sb', 'sa'));
       await rec('owner conversations', m.ownerConversations('ed'));
       await rec('owner conversations (another owner)', m.ownerConversations('eve'));
+      await rec('conversation of the pair', m.conversationOf('sa', 'sb'));
+      await rec('conversation of the pair (the other way)', m.conversationOf('sb', 'sa'));
+      await rec('conversation of a pair with no messages', m.conversationOf('sa', 'sc'));
+      await rec('counts', m.conversationCounts(['ed', 'Eve', 'nobody']));
       // The agents leave: the conversation is hidden and kept, not deleted.
       await peers.ended('sa');
       await peers.ended('sb');
@@ -299,6 +303,8 @@ export function peerCases(o: Openers): void {
       await rec('hide again', m.hideConversation('ed', 'sa', 'sb'));
       await rec('owner conversations (hidden left out)', m.ownerConversations('ed'));
       await rec('owner conversations (hidden included)', m.ownerConversations('ed', { includeHidden: true }));
+      await rec('counts (hidden left out)', m.conversationCounts(['ed', 'eve']));
+      await rec('conversation of the pair (hidden)', m.conversationOf('sa', 'sb'));
       await rec('page (hidden, still readable)', m.page('ed', 'sa', 'sb', { limit: 1 }));
       await rec('purge (not yet old enough)', m.purgeHidden(clock.now, 10));
       await rec('show', m.showConversation('ed', 'sa', 'sb'));
@@ -327,6 +333,12 @@ export function peerCases(o: Openers): void {
     expect(t.get('person adds to it')).toMatchObject({ author: 'person', fromName: 'Ed', toSession: 'sb', fromSession: 'sa', state: 'ready', approved: false });
     expect(t.get('person to one agent')).toMatchObject({ author: 'person', fromName: 'Ed', toSession: 'sb', fromSession: 'person:ed' });
     expect((t.get('owner conversations') as unknown[]).length).toBe(2);
+    expect(t.get('conversation of the pair')).toEqual(t.get('conversation of the pair (the other way)'));
+    expect(t.get('conversation of the pair')).toMatchObject({ a: { sessionId: 'sa' }, b: { sessionId: 'sb' }, owner: 'ed', messages: 4 });
+    expect(t.get('conversation of a pair with no messages')).toBeNull();
+    expect(t.get('counts')).toEqual({ ed: 2, Eve: 0, nobody: 0 });
+    expect(t.get('counts (hidden left out)')).toEqual({ ed: 1, eve: 0 });
+    expect((t.get('conversation of the pair (hidden)') as { a: { sessionId: string } }).a.sessionId).toBe('sa');
     expect(t.get('owner conversations (another owner)')).toEqual([]);
     expect(t.get('hide (another owner)')).toBe(0);
     expect(t.get('hide')).toBe(4);
@@ -741,4 +753,38 @@ export function peerCases(o: Openers): void {
     expect(t.get('reply after the conversation was deleted')).toMatchObject({ ok: false, status: 404 });
     expect(t.get('after the agent ended')).toMatchObject({ ok: false });
   });
+
+  // The Chat reads that used to scan every message (#1046): the cost of one pair, or of one person's count, does not grow with the history of the others.
+  onEachAdapter(o, 'reads one conversation and the conversation counts without reading the rest of a large history (#1046)', async (s) => {
+    const clock = { now: T0 };
+    const { peers } = await setUp(s, clock);
+    const m = peers.messages;
+    const fill = async (to: string, n: number): Promise<void> => {
+      for (let i = 0; i < n; i++) await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: to, text: `m ${i}` });
+    };
+    // The slowest of three rounds of 20 calls is noise; the fastest is the cost.
+    const cost = async (): Promise<number> => {
+      let best = Infinity;
+      for (let r = 0; r < 3; r++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 20; i++) {
+          await m.conversationOf('person:ed', 'sa');
+          await m.conversationCounts(['ed', 'eve']);
+        }
+        best = Math.min(best, performance.now() - t0);
+      }
+      return best;
+    };
+    await fill('sa', 100);
+    const small = await cost();
+    await fill('sb', 1500);
+    await fill('sc', 1400);
+    const large = await cost();
+    const one = await m.conversationOf('sa', 'person:ed');
+    expect(one).toMatchObject({ messages: 100, owner: 'ed' });
+    expect(await m.conversationCounts(['ed', 'eve'])).toEqual({ ed: 3, eve: 0 });
+    expect((await m.ownerConversations('ed')).length).toBe(3);
+    // 30 times the history in other conversations. Reading every message would cost about as many times more; five times is the margin for a slow runner.
+    expect(large).toBeLessThan(Math.max(small * 5, 250));
+  }, 300_000);
 }

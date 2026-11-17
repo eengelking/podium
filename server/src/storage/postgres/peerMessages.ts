@@ -37,6 +37,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
+import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
 import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
@@ -682,6 +683,18 @@ export class PgPeerMessages {
     if (!(await this.ownsPair(owner, a, b))) return 0;
     for (const m of await this.rows(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, [a, b, b, a])) await this.rights.closeMessageRequest(m.id, 'dropped');
     return this.db.run(`DELETE FROM peer_messages WHERE ${PAIR_WHERE}`, [a, b, b, a]);
+  }
+
+  async conversationOf(a: string, b: string): Promise<ConversationSummary | null> {
+    // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
+    const rows = await this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
+    return rows.length > 0 ? this.summary(rows) : null;
+  }
+
+  async conversationCounts(owners: string[]): Promise<Record<string, number>> {
+    return countConversations(await this.db.all<ConversationGroupRow>(
+        'SELECT owner, from_session, to_session, MIN(CASE WHEN hidden_at IS NULL THEN 0 ELSE 1 END) AS all_hidden FROM peer_messages GROUP BY owner, from_session, to_session ORDER BY owner, from_session, to_session',
+      ), owners);
   }
 
   async ownerConversations(owner: string, opts: { includeHidden?: boolean } = {}): Promise<OwnerConversation[]> {

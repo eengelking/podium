@@ -227,9 +227,9 @@ export class DirectChat {
     return Promise.all(mine.map(async (c) => ({ ...this.info(c, new Map()), cross: await this.crossOf(c, viewer) })));
   }
 
-  /** How many conversations a person takes part in, hidden ones left out. */
-  async countOf(owner: string): Promise<number> {
-    return (await this.peers.ownerConversations(owner)).length;
+  /** How many conversations each of the people takes part in, hidden ones left out, in one read for all of them (#1046). */
+  async countsOf(owners: string[]): Promise<Record<string, number>> {
+    return this.peers.conversationCounts(owners);
   }
 
   /** `me` is the viewer's own place in a conversation with one agent. */
@@ -241,7 +241,8 @@ export class DirectChat {
   /** The stored conversation between two ids, from its summaries (no text). */
   private async find(a: string, b: string): Promise<ConversationSummary | null> {
     const [x, y] = a <= b ? [a, b] : [b, a];
-    return (await this.peers.conversations({})).find((c) => c.a.sessionId === x && c.b.sessionId === y) ?? null;
+    const c = await this.peers.conversationOf(x, y);
+    return c && c.a.sessionId === x && c.b.sessionId === y ? c : null;
   }
 
   /** A live agent the viewer can start a conversation with (no message yet): their own, or another person's whose reporter takes part in messaging (#1034). */
@@ -312,7 +313,9 @@ export class DirectChat {
 
   /** What the callout of a thread says, from its conversation: for the reporter sessions of its people. Null when there is no such conversation. */
   async subjectOf(thread: string): Promise<ReadSubject | null> {
-    const c = (await this.peers.conversations({})).find((x) => dmThread(x.a.sessionId, x.b.sessionId) === thread);
+    const ids = thread.startsWith('dm:') ? thread.slice('dm:'.length).split('|') : [];
+    const [x, y] = ids;
+    const c = ids.length === 2 && x !== undefined && y !== undefined && dmThread(x, y) === thread ? await this.find(x, y) : null;
     return c ? this.subject(c) : null;
   }
 

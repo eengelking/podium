@@ -480,6 +480,10 @@ export interface PeerMessagesApi {
   sendAcross(input: AcrossInput): MessageRow | Refusal;
   /** Deletes the owner's messages of one conversation. Returns how many. */
   deleteConversation(owner: string, a: string, b: string): number;
+  /** The summary of the one conversation between two sessions (either order), or null when they have no messages (#1046). */
+  conversationOf(a: string, b: string): ConversationSummary | null;
+  /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). */
+  conversationCounts(owners: string[]): Record<string, number>;
   /** The conversations `owner` owns, newest first, hidden ones only when `includeHidden`; and those `owner` took part in as the person who wrote to another person's agent (#1034). Never another person's other conversations. */
   ownerConversations(owner: string, opts?: { includeHidden?: boolean }): OwnerConversation[];
   /** Hides the owner's conversation (every agent in it has left), keeping its messages. Returns how many it marked; 0 when it is hidden already. */

@@ -131,6 +131,7 @@ export class ChannelChat {
         post: (i: ChannelPostInput) => st.group.post(g, i),
         page: (o: { before?: string | null; limit: number }) => st.group.page(g, o),
         setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null }) => st.group.setMention(g, id, index, patch),
+        heldMentions: (f: { sessionId?: string }) => st.group.heldMentions(g, f),
         clear: () => st.group.clear(g),
         count: () => st.group.count(g),
       };
@@ -139,6 +140,7 @@ export class ChannelChat {
       post: (i: ChannelPostInput) => st.public.post(i),
       page: (o: { before?: string | null; limit: number }) => st.public.page(o),
       setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null }) => st.public.setMention(id, index, patch),
+      heldMentions: (f: { sessionId?: string }) => st.public.heldMentions(f),
       clear: () => st.public.clear(),
       count: () => st.public.count(),
     };
@@ -533,19 +535,10 @@ export class ChannelChat {
 
   // ---- The stop buttons ------------------------------------------------------------------------------------------------
 
-  /** Every held mention of a channel, oldest first. */
-  private async held(channel: ChannelId, owner: string | null): Promise<{ message: ChannelMessage; index: number }[]> {
-    const h = this.handle(channel, owner);
-    const found: { message: ChannelMessage; index: number }[] = [];
-    let before: string | null = null;
-    for (let i = 0; i < HELD_PAGES; i++) {
-      const page: ChannelPage = await h.page({ before, limit: HELD_PAGE });
-      // Pages come newest first and each page is oldest first, so an older page goes in front.
-      found.unshift(...page.messages.flatMap((message) => message.mentions.flatMap((m, index) => (m.state === 'held' ? [{ message, index }] : []))));
-      if (!page.older) break;
-      before = page.older;
-    }
-    return found;
+  /** Every held mention of a channel, oldest first; with `sessionId`, only those of that session. One query for the held ones, not a read of the channel's pages (#1046). */
+  private async held(channel: ChannelId, owner: string | null, sessionId?: string): Promise<{ message: ChannelMessage; index: number }[]> {
+    const messages = await this.handle(channel, owner).heldMentions(sessionId === undefined ? {} : { sessionId });
+    return messages.flatMap((message) => message.mentions.flatMap((m, index) => (m.state === 'held' && (sessionId === undefined || m.sessionId === sessionId) ? [{ message, index }] : [])));
   }
 
   /** The live session a stored mention reaches: the one it named, else the one live session with the same peer key and name. */
@@ -599,9 +592,9 @@ export class ChannelChat {
     for (const channel of ['group', 'general'] as const) {
       const scope = channel === 'group' ? key : null;
       const h = this.handle(channel, scope);
-      for (const { message, index } of await this.held(channel, scope)) {
+      for (const { message, index } of await this.held(channel, scope, sessionId)) {
         const m = message.mentions[index]!;
-        if (m.sessionId !== sessionId || this.retarget(m)) continue;
+        if (this.retarget(m)) continue;
         await h.setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
         this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: scope });
       }
