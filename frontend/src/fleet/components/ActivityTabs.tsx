@@ -17,7 +17,10 @@ export function ActivityTabs(props: { tab: ActivityTab; onTab: (t: ActivityTab) 
         // Arrow keys move between the two tabs, as a tab list does.
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           e.preventDefault();
-          props.onTab(t === "output" ? "background" : "output");
+          const next: ActivityTab = t === "output" ? "background" : "output";
+          props.onTab(next);
+          // Focus follows the selection: the tab that is selected is the one in the tab order.
+          document.getElementById(`${props.idPrefix}-tab-${next}`)?.focus();
         }
       }}
     >

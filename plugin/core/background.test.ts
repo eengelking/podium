@@ -14,6 +14,7 @@ import {
   readTail,
   WHOLE_FILE_MAX_BYTES,
   withinBackgroundBudget,
+  withoutExitLine,
   type OutputFs,
   type OutputStat,
   type RawBackgroundItem,
@@ -33,6 +34,11 @@ describe('the label (#897)', () => {
     expect(labelOf('  npm run test', 'shell')).toBe('npm')
     expect(labelOf(undefined, 'monitor')).toBe('monitor')
     expect(labelOf('FOO=1', 'shell')).toBe('shell')
+  })
+
+  test('takes a quoted assignment value, spaces and all, off the front so no part of it is the label', () => {
+    expect(labelOf('TOKEN="abc def" ./run.sh --x', 'shell')).toBe('run.sh')
+    expect(labelOf("A=1 B='x y' npm test", 'shell')).toBe('npm')
   })
 
   test('is redacted and cut', () => {
@@ -211,6 +217,15 @@ describe('reading an output file (#897)', () => {
     expect(await outputTimes(fakeFs(files), `${dir}/a.output`, dir)).toEqual({ ok: true, mtimeMs: 7000, size: 12 })
     expect(await outputTimes(fakeFs(files), '/tmp/s/outside.txt', dir)).toEqual({ ok: false, reason: 'outside' })
     expect(await outputTimes(fakeFs(files), `${dir}/gone.output`, dir)).toEqual({ ok: false, reason: 'missing' })
+  })
+})
+
+describe('the output without the exit line (#897)', () => {
+  test('drops the trailing exit line and keeps what the shell printed, with its final line break', () => {
+    expect(withoutExitLine('tick 1\ntick 2\n\n[exited with code 0]\n')).toBe('tick 1\ntick 2\n')
+    expect(withoutExitLine('[exited with code 143]')).toBe('')
+    expect(withoutExitLine('still printing\n')).toBe('still printing\n')
+    expect(withoutExitLine('[exited with code 1]\nmore')).toBe('[exited with code 1]\nmore')
   })
 })
 

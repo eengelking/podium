@@ -557,6 +557,12 @@ export class Reporter {
         if (!sh.file || !path.isAbsolute(sh.file) || !sh.file.endsWith('.out') || (sh.exited && sh.settled && (!detail || sh.output !== null))) continue;
         const dir = path.dirname(sh.file);
         if (detail) {
+          // A file that has not changed since it was read has nothing new: it is not read, redacted and cut again every tick.
+          const seen = await outputTimes(nodeOutputFs, sh.file, dir);
+          if (seen.ok && sh.output !== null && sh.lastOutputAt !== null && Math.round(seen.mtimeMs) === sh.lastOutputAt) {
+            sh.settled = sh.exited;
+            continue;
+          }
           const r = await readTail(nodeOutputFs, sh.file, dir);
           if (!r.ok) {
             sh.settled = sh.exited;

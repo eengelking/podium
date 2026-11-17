@@ -159,8 +159,9 @@ evaluates to the result)
   (`backgroundTaskId`, `taskId`), under the loop whose call it was (`agentId`; none for the orchestrator). The Stop and SubagentStop hooks' `background_tasks`
   add a task not seen starting, and end one a Stop no longer lists.
 - Output files: Claude Code writes each task's output to `<folder>/tasks/<id>.output`, the `tasks` folder beside a hook's `scratchpad_dir`. The mod
-  reads a file only there: a regular file, not a link, inside that folder, by an id that is a short token (never a path). A hook that carries no
-  `scratchpad_dir` leaves the folder unknown, and then the item has no time of last output, no exit code of its own and no output. A file the host cannot
+  reads a file only there: a regular file, not a link, inside that folder, by an id that is a short token (never a path). `classic.Stop` and `classic.SubagentStop` carry `scratchpad_dir` (confirmed live on 2.1.326, though the typed hook input does not list it), so the folder is
+  learned at the session's first Stop. A hook that carries no
+  `scratchpad_dir`, or a session before its first Stop, leaves the folder unknown, and then the item has no time of last output, no exit code of its own and no output. A file the host cannot
   read whole (over 4 MiB) is not read.
 - A timer reads the files of a watched loop's tasks every 3 seconds, so a shell that finished during a long turn does not stay `running` until the next Stop.
   The last line `[exited with code N]` gives the exit code; the file's modification time gives the last output.

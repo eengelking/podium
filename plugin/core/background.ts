@@ -232,6 +232,11 @@ export async function outputTimes(fs: OutputFs, file: string, dir: string): Prom
 }
 
 /** The exit code a Claude Code output file ends with (`[exited with code N]`); null when the file does not end that way. */
+/** The output without the `[exited with code N]` line Claude Code's file ends with: the exit is shown as a status, not as part of what the shell printed. */
+export function withoutExitLine(text: string): string {
+  return text.replace(/\n*\[exited with code -?\d+\]\s*$/, text.endsWith('\n') ? '\n' : '');
+}
+
 export function exitCodeOf(text: string): number | null {
   const m = /\[exited with code (-?\d+)\]\s*$/.exec(text);
   return m ? Number(m[1]) : null;

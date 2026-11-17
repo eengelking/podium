@@ -92,6 +92,11 @@ describe("the list", () => {
     expect(b!.querySelector(".bgline .mono")).toBeNull();
   });
 
+  it("says the last output only for an item that runs: a finished one's would only count up", () => {
+    const { container } = list([item({ state: "exited", exitCode: 0, lastOutputAt: T0, endedAt: T0 + 1000 })]);
+    expect(container.querySelector(".feed li")!.textContent).not.toContain("last output");
+  });
+
   it("opens a row to the whole command and its output, each with Copy, and Collapse closes it", () => {
     const { container } = list([item({ command: "npm run dev", output: "ready\n[redacted]\n", state: "exited", exitCode: 2 })]);
     const row = container.querySelector(".feed li") as HTMLElement;
@@ -250,12 +255,13 @@ describe("the tabs of the Activity modal", () => {
     expect(dialog.querySelector(".feed li")!.textContent).toContain("Read a.ts");
   });
 
-  it("moves between the tabs with the arrow keys", async () => {
+  it("moves between the tabs with the arrow keys, and focus goes with the selection", async () => {
     show([]);
     await open();
     const dialog = screen.getByRole("dialog");
     fireEvent.keyDown(within(dialog).getByRole("tab", { name: "Output" }), { key: "ArrowRight" });
     expect(within(dialog).getByRole("tab", { name: /Background/ })).toHaveAttribute("aria-selected", "true");
+    expect(within(dialog).getByRole("tab", { name: /Background/ })).toHaveFocus();
   });
 
   it("keeps the modal one size and its Refresh every select on both tabs", async () => {

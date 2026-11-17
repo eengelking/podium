@@ -203,7 +203,7 @@ function Row(props: {
               {WARN}Quiet for {Math.floor((now - i.lastOutputAt!) / 60_000)} min
             </span>
           )}
-          {!quiet && i.lastOutputAt !== undefined && <span className="bgline">last output {agoOf(now - i.lastOutputAt)}</span>}
+          {!quiet && phase === "run" && i.lastOutputAt !== undefined && <span className="bgline">last output {agoOf(now - i.lastOutputAt)}</span>}
         </button>
         {open && (
           <div className="xp" ref={xp}>

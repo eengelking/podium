@@ -3,6 +3,7 @@
 // sessions it launched are one Root and one report; a child is an agent in that report.
 import { isLaunchId } from '../core/launch.ts';
 import { activityText, clip, whole, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
+import { BACKGROUND_KEPT_FINISHED } from '../core/background.ts';
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
@@ -484,6 +485,15 @@ function ask(root: Root, a: Ask): void {
  * the second only the shell's id, its status and its exit code (absent for a shell signalled from outside). A shell of a session this
  * reporter does not know is ignored: it must not invent a root. Returns the root it changed, or null.
  */
+/** A session keeps its running shells and the latest finished ones; an older finished shell, and its id in the store, are forgotten (#897). */
+function pruneShells(store: Store, s: Sess): void {
+  const done = [...s.shells.values()].filter((x) => x.exited);
+  for (const x of done.slice(0, Math.max(0, done.length - BACKGROUND_KEPT_FINISHED))) {
+    s.shells.delete(x.id);
+    store.shellOf.delete(x.id);
+  }
+}
+
 function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
   const d = ev.data ?? {};
   if (ev.type === 'shell.created') {
@@ -511,6 +521,7 @@ function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
       settled: false,
     });
     store.shellOf.set(id, sid);
+    pruneShells(store, s);
     root.dirty = true;
     return root;
   }
@@ -526,6 +537,7 @@ function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
   // OpenCode names no code for a shell that was signalled; it is not called killed, because OpenCode does not say so.
   sh.exitCode = typeof info.exit === 'number' && Number.isInteger(info.exit) ? info.exit : null;
   sh.settled = false;
+  pruneShells(store, root.sessions.get(sid)!);
   root.dirty = true;
   return root;
 }

@@ -59,11 +59,17 @@ the footer lines, the scroll that follows the newest row and its "Jump to latest
 
 **Cost.**
 
-- On Claude Code the output folder comes from a hook's `scratchpad_dir`, which the mod's typed hook input does not list. Where a hook does not carry it,
-  the list shows with no time of last output, no exit code of its own and no output, and the row says the output was not collected. A file over 4 MiB is not
-  read there, because the host reads a file whole.
-- Claude Code reports no start time, so its times are "first seen" and a shell started before the reporter loaded shows the time it was first seen.
-- A killed shell is not probed on Claude Code; it ends without an exit code, as on OpenCode.
+- On Claude Code the output folder comes from a hook's `scratchpad_dir`. The live test (Claude Code 2.1.326) showed that `classic.Stop` and `classic.SubagentStop`
+  carry it, though the mod's typed hook input does not list it, and that the file is `<tmp>/<project>/<session>/tasks/<id>.output`, beside the hook's `<session>/scratchpad`.
+  Only those two hooks carry it, so the folder is learned at the session's first Stop: before it, a shell's output and last-output time are not read. Where a hook
+  does not carry it, the list shows with no time of last output, no exit code of its own and no output, and the row says the output was not collected. A file over
+  4 MiB is not read there, because the host reads a file whole.
+- Claude Code reports no start time, so its times are "first seen", and a shell started before the reporter loaded shows the time it was first seen.
+- A shell signalled from outside differs by harness. Claude Code writes `[exited with code 143]` (or 144 for the wrapper shell) to its file, so the item reads
+  "Failed, exit 143". OpenCode sends no code, so it reads "Ended without an exit code". Neither is called killed.
+- Claude Code's file ends with its own `[exited with code N]` line; the reporter reads the code from it and takes the line off the output it sends, as OpenCode's
+  output has none.
+- A monitor on Claude Code is listed by its Monitor call (the Stop hook calls it a shell), and its output is read on the 3 second timer once the folder is known.
 
 <!-- nav:start -->
 ---

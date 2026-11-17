@@ -8,7 +8,7 @@
 // a top-level function taking `$`, and the runtime lives in module variables (a hot reload re-runs
 // register, which resets them, and session.start rebuilds the state from the engine).
 import { modBuild } from '../../core/build.ts';
-import { exitCodeOf, readTail, type OutputFs, type OutputStat } from '../../core/background.ts';
+import { exitCodeOf, outputTimes, readTail, withoutExitLine, type OutputFs, type OutputStat } from '../../core/background.ts';
 import { bgFile, bgListed, bgLoopOf, bgStarted, setTasksDir, setWatchedBackground, tasksDirOf, type BgFilePatch } from './background.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGitState } from '../../core/git.ts';
@@ -461,7 +461,14 @@ async function refreshBackground($: Engine, r: Runtime): Promise<void> {
       if (!TASK_ID.test(t.id) || !r.state.watched.includes(loop)) continue;
       const detail = opts.backgroundOutput && r.state.watchedBackground.includes(loop);
       if (t.settled && (!detail || t.output !== null)) continue;
-      const got = await readTail(fs, `${dir}${sep}${t.id}.output`, dir);
+      const file = `${dir}${sep}${t.id}.output`;
+      // A file that has not changed since it was read has nothing new: it is not read, redacted and cut again every tick.
+      const seen = await outputTimes(fs, file, dir);
+      if (seen.ok && t.lastOutputAt !== null && Math.round(seen.mtimeMs) === t.lastOutputAt && (!detail || t.output !== null)) {
+        if (t.exited && !t.settled) r.state = bgFile(r.state, t.id, { settled: true });
+        continue;
+      }
+      const got = await readTail(fs, file, dir);
       if (!got.ok) {
         if (t.exited) r.state = bgFile(r.state, t.id, { settled: true });
         continue;
@@ -469,7 +476,7 @@ async function refreshBackground($: Engine, r: Runtime): Promise<void> {
       const code = exitCodeOf(got.text);
       const patch: BgFilePatch = { lastOutputAt: got.size > 0 ? Math.round(got.mtimeMs) : null, settled: t.exited || code !== null };
       if (code !== null) Object.assign(patch, { exited: true, exitCode: code, ...(t.exited ? {} : { endedAt: nowMs() }) });
-      if (detail) Object.assign(patch, { output: got.text, outputCutAtStart: got.cutAtStart });
+      if (detail) Object.assign(patch, { output: withoutExitLine(got.text), outputCutAtStart: got.cutAtStart });
       r.state = bgFile(r.state, t.id, patch);
     }
   } finally {

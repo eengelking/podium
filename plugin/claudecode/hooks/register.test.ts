@@ -39,6 +39,8 @@ interface World {
   watchOutput: { value: string[] | null }
   /** The modification time of a kept file, by path (#897); a path not listed is old. */
   mtimes: Record<string, number>
+  /** Every path `$.fs.read` was asked for, in order (#897). */
+  reads: string[]
   /** The loops the reply says a viewer has the Background tab open on (#897); null leaves the field out, as an older server does. */
   watchBackground: { value: string[] | null }
   /** What a Bash call returns, by a word in its command (#431); the default is the plain mock. */
@@ -89,7 +91,9 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   mock.store(on, store)
   const kept: World['files'] = { text: { ...files }, broken: false }
   const mtimes: Record<string, number> = {}
+  const reads: string[] = []
   on('fs.read', (_$, e) => {
+    reads.push(e.path)
     if (kept.broken || !(e.path in kept.text)) throw new Error('ENOENT')
     return { value: kept.text[e.path]! }
   })
@@ -225,7 +229,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, watchBackground, mtimes, bash, chunks, files: kept, place, gitAt, devBuild, hosts, agents, statuses, serverBuild, fetched, toasts }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, watchBackground, mtimes, reads, bash, chunks, files: kept, place, gitAt, devBuild, hosts, agents, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -1236,6 +1240,7 @@ describe('podium-reporter end to end', () => {
       expect(JSON.stringify(w.posts)).not.toContain(SECRET)
       // the shell ends: its output file says how
       w.files.text[`${TASKS}/bg1.output`] += '[exited with code 2]\n'
+      w.mtimes[`${TASKS}/bg1.output`] = 1_800_000_000_900
       await w.clock.advance(3000)
       await w.clock.advance(1000)
       expect(mainItems(w)![0]).toMatchObject({ state: 'exited', exitCode: 2 })
@@ -1282,6 +1287,37 @@ describe('podium-reporter end to end', () => {
       await w.clock.advance(1000)
       for (const i of mainItems(w)!) expect(i).not.toHaveProperty('output')
       expect(JSON.stringify(w.posts)).not.toContain(SECRET)
+    })
+
+    test('a Stop with no list of tasks does not end the shells it never listed', FEED, async ($, on) => {
+      const w = await begun($, on)
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'running' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      await $.classic.Stop({ stop_hook_active: false } as never)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ id: 'bg1', state: 'running' })
+    })
+
+    test('leaves a file alone while it has not changed, and takes the exit line off the output it sends', FULL, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP], [MAIN_LOOP])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'running' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      const file = `${TASKS}/bg1.output`
+      w.files.text[file] = 'tick 1\n'
+      w.mtimes[file] = 1_800_000_000_100
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'make' }], { scratchpad_dir: SCRATCH })
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      const first = w.reads.filter((p) => p === file).length
+      expect(first).toBeGreaterThan(0)
+      await w.clock.advance(3000)
+      await w.clock.advance(3000)
+      expect(w.reads.filter((p) => p === file).length).toBe(first)
+      w.files.text[file] = 'tick 1\n\n[exited with code 0]\n'
+      w.mtimes[file] = 1_800_000_000_900
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ state: 'exited', exitCode: 0, output: 'tick 1\n' })
     })
 
     test('a loop that leaves watchBackground forgets the output it held', FULL, async ($, on) => {

@@ -74,6 +74,24 @@ describe('what the shell events do to the state', () => {
   });
 });
 
+describe('what the state keeps', () => {
+  it('keeps every running shell and the 20 latest finished ones, and forgets the id of an older one', () => {
+    const s = begin();
+    apply(s, created(ROOT, 'run', 'tail -f x', null, 1), 1);
+    for (let i = 0; i < 25; i++) {
+      apply(s, created(ROOT, `d${i}`, 'x', null, 10 + i), 10 + i);
+      apply(s, exited(`d${i}`, 100 + i, 0), 100 + i);
+    }
+    const kept = shells(s).map((x) => x.id);
+    expect(kept).toHaveLength(21);
+    expect(kept).toContain('run');
+    expect(kept).not.toContain('d4');
+    expect(kept).toContain('d5');
+    expect(s.shellOf.has('d4')).toBe(false);
+    expect(s.shellOf.has('d5')).toBe(true);
+  });
+});
+
 describe('what a report carries', () => {
   const setup = () => {
     const s = begin();
@@ -219,6 +237,27 @@ describe('Reporter: the shells follow the server, the person and the file', () =
     expect(items).toHaveLength(5);
     for (const i of items) expect(i).not.toHaveProperty('output');
     expect(JSON.stringify(posts)).not.toContain(SECRET);
+  });
+
+  it('does not read a file again while it has not changed', async () => {
+    const file = out('e.out', 'first\n');
+    utimesSync(file, 7, 7);
+    const { r, posts } = wired({ PODIUM_ACTIVITY_FEED: 'true', PODIUM_BACKGROUND_OUTPUT: 'true' }, { watch: [MAIN_LOOP], watchBackground: [MAIN_LOOP] });
+    run(r, ev('session.created', { sessionID: ROOT }, 1000), created(ROOT, 'sh1', 'make', file, 1001));
+    await r.tick();
+    await r.tick();
+    expect(posts[posts.length - 1]!.session.backgroundItems![0]!.output).toBe('first\n');
+    // the text changes but its time does not: nothing new to read
+    writeFileSync(file, 'second\n');
+    utimesSync(file, 7, 7);
+    await r.tick();
+    await r.tick();
+    expect(posts[posts.length - 1]!.session.backgroundItems![0]!.output).toBe('first\n');
+    // the time moves: it is read again
+    utimesSync(file, 8, 8);
+    await r.tick();
+    await r.tick();
+    expect(posts[posts.length - 1]!.session.backgroundItems![0]!.output).toBe('second\n');
   });
 
   it('sends a shell’s exit, and reads its output once more after it, then leaves it alone', async () => {
