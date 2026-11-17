@@ -327,6 +327,12 @@ export class AdminReads {
     return out;
   }
 
+  /** The Direct Message threads an Admin is reading now (#1063): a small read of the records, so the caller loads only those conversations. */
+  async liveDmThreads(): Promise<string[]> {
+    const now = this.core.host.now();
+    return [...new Set((await this.store.recent(now - LIVE_MS)).map((r) => r.thread).filter((t) => t.startsWith('dm:')))];
+  }
+
   /**
    * `person` has loaded the thread's records (their own thread, or their overview for a look at their list): what is owed to them there is seen. The
    * smallest meaning of "seen" that is true: Podium sent the record to that person's console. Records of a conversation they can no longer open are
