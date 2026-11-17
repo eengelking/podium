@@ -42,6 +42,7 @@ interface SessionView {
   cwd: string;
   waitReason: 'permission' | 'input' | null;
   activityOutput: boolean | null;       // the reporter's activityOutput option (#431); null as for activityFeed
+  backgroundOutput: boolean | null;     // the reporter's backgroundOutput option (#897); null as for activityFeed (an older reporter sends no background items)
   fileDiff: boolean | null;             // the reporter's fileDiff option (#319); null as for activityFeed
   fileDiffPreload: boolean | null;      // the reporter's fileDiffPreload option (#631); null as for fileDiff
   activityFeed: boolean | null;         // the reporter's activityFeed option (6.4); null for a reporter older than 0.13.0, a settings-hooks session, or no report since the server started (held in memory)
