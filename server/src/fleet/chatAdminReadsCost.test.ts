@@ -1,7 +1,7 @@
 // What a reporter's report costs the store when an Admin is reading (#1062): `noticesFor` runs on every report of every session, so the readings on record are
 // read once per short window, not once per report, and a thread with no conversation is looked up once per window, not once per report.
 import { describe, expect, it } from 'vitest';
-import { AdminReads } from './chatAdminReads.js';
+import { AdminReads, NO_SUBJECT_MS } from './chatAdminReads.js';
 import type { ChatCore } from './chatCore.js';
 import type { AdminReadRow, ChatAdminReadsApi } from '../storage/types.js';
 import { NOTICE_TTL_MS } from './chatAdminNotices.js';
@@ -65,7 +65,7 @@ async function readings(reads: AdminReads, deleted: number): Promise<void> {
   const admin = { actor: 'Boss', name: 'Boss', admin: true } as never;
   for (let i = 0; i < READINGS; i++) {
     // the last `deleted` readings are of conversations that are gone
-    const n = i < READINGS - deleted ? i : 1000 + i;
+    const n = i < READINGS - deleted ? i : 100_000 + i;
     await reads.note(admin, { scope: 'dm', thread: `dm:s${n}|s${n + 1}`, owners: [`person${i % SESSIONS}`], phrase: 'is reading your Podium conversation' });
   }
 }
@@ -95,7 +95,8 @@ describe('what a report costs the store while Admins read (#1062)', () => {
     big.counts.resolve = 0;
     await minute(big.reads, big.clock);
 
-    expect(few).toBeLessThanOrEqual(READINGS); // each thread once
+    // each deleted thread once per 10 seconds of its window, the others once: bounded by the threads, never by the reports or the conversations
+    expect(few).toBeLessThanOrEqual(READINGS + 10 * 6);
     expect(big.counts.resolve).toBe(few);
   });
 
@@ -116,5 +117,40 @@ describe('what a report costs the store while Admins read (#1062)', () => {
     clock.now += 1_000;
     const told = await reads.noticesFor('s3');
     expect(told.map((n) => n.text)).toEqual(['Boss (an Admin) is reading your Podium conversation.']);
+  });
+
+  it('does not keep a read of the store that a note began during, so the reading just noted is told', async () => {
+    const { reads, clock, counts } = setup(READINGS);
+    const core = (reads as unknown as { core: { store: { adminReads: { recent: (s: number) => Promise<unknown[]> } } } }).core;
+    const real = core.store.adminReads.recent;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    core.store.adminReads.recent = async (since) => {
+      const rows = await real(since); // the rows as they were before the note
+      await gate;
+      return rows;
+    };
+    const first = reads.noticesFor('s3'); // starts the read, which is held
+    await Promise.resolve();
+    core.store.adminReads.recent = real;
+    await readings(reads, 0); // an Admin reads while it is held
+    release();
+    await first;
+    clock.now += 100;
+    expect((await reads.noticesFor('s3')).map((n) => n.text)).toEqual(['Boss (an Admin) is reading your Podium conversation.']);
+    expect(counts.recent).toBeGreaterThan(1);
+  });
+
+  it('looks a thread with no subject up again after a short time, so a conversation that appears later is still told', async () => {
+    const { reads, clock, counts } = setup(READINGS);
+    await readings(reads, 1);
+    (reads as unknown as { known: Map<string, unknown> }).known.clear();
+    await reads.noticesFor('s1');
+    const once = counts.resolve;
+    await reads.noticesFor('s2');
+    expect(counts.resolve).toBe(once); // remembered
+    clock.now += NO_SUBJECT_MS + 1;
+    await reads.noticesFor('s2');
+    expect(counts.resolve).toBeGreaterThan(once);
   });
 });

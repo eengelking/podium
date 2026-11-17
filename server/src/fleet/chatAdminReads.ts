@@ -14,6 +14,8 @@ export const SESSION_GAP_MS = 30 * 60_000;
 export const LIVE_MS = 30_000;
 /** The readings on record are read from the store at most this often for the reports of every session (#1062); a note or a stop drops them at once. */
 export const RECENT_CACHE_MS = 2_000;
+/** A thread with no subject (a deleted conversation) is remembered this long, so it is looked up once per window and not on every report; short, so a conversation or session that appears after is still told (#1062). */
+export const NO_SUBJECT_MS = 10_000;
 
 export type AdminReadRecord = AdminReadRow;
 
@@ -68,6 +70,8 @@ export class AdminReads {
   private readonly known = new Map<string, { subject: ReadSubject | ReplaySubject | null; at: number }>();
   /** The readings of the last few minutes as the store gave them, and when: what every session's report reads, so a report costs no store read (#1062). Dropped by every write. */
   private recentCache: { at: number; rows: (AdminReadRow & { thread: string })[] } | null = null;
+  /** Counts the writes, so a read of the store that began before one is not kept (#1062). */
+  private writes = 0;
   /** Replaced by the Chat service: what a direct-message thread's callout says, from the conversation. Null when there is none. */
   resolve: (thread: string) => Promise<ReadSubject | null> = async () => null;
 
@@ -92,14 +96,16 @@ export class AdminReads {
     const since = now - NOTICE_TTL_MS;
     const c = this.recentCache;
     if (c && now >= c.at && now - c.at < RECENT_CACHE_MS) return c.rows.filter((r) => r.lastSeenAt > since);
+    const writes = this.writes;
     const rows = await this.store.recent(since);
-    this.recentCache = { at: now, rows };
+    if (writes === this.writes) this.recentCache = { at: now, rows };
     for (const [thread, k] of this.known) if (now - k.at >= NOTICE_TTL_MS) this.known.delete(thread);
     return rows;
   }
 
   /** The records changed: the next report reads them again. */
   private changed(): void {
+    this.writes++;
     this.recentCache = null;
   }
 
@@ -162,7 +168,7 @@ export class AdminReads {
   private async subjectOf(thread: string): Promise<ReadSubject | ReplaySubject | null> {
     const now = this.core.host.now();
     const hit = this.known.get(thread);
-    if (hit && now - hit.at < NOTICE_TTL_MS) return hit.subject; // a thread with no subject is remembered too, so a deleted conversation is not looked up on every report (#1062)
+    if (hit && now - hit.at < (hit.subject ? NOTICE_TTL_MS : NO_SUBJECT_MS)) return hit.subject;
     let subject: ReadSubject | ReplaySubject | null = null;
     if (thread.startsWith('group:')) subject = { scope: 'group', thread, owners: [thread.slice('group:'.length)], phrase: 'is reading your Podium group' };
     else if (thread.startsWith('list:')) subject = { scope: 'list', thread, owners: [thread.slice('list:'.length)], phrase: LIST_PHRASE };
