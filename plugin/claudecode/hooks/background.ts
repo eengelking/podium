@@ -98,7 +98,10 @@ export function setWatchedBackground(s: SessionState, ids: readonly string[]): S
 /** The folder a hook's `scratchpad_dir` names the task output files in: the `tasks` folder beside it. */
 export function tasksDirOf(scratchpadDir: unknown): string | null {
   if (typeof scratchpadDir !== 'string' || scratchpadDir === '') return null;
-  const trimmed = scratchpadDir.replace(/[\\/]+$/, '');
+  // A loop, not a regex, so a long run of separators at the end cannot make it slow.
+  let end = scratchpadDir.length;
+  while (end > 0 && (scratchpadDir[end - 1] === '/' || scratchpadDir[end - 1] === '\\')) end--;
+  const trimmed = scratchpadDir.slice(0, end);
   const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
   return cut <= 0 ? null : `${trimmed.slice(0, cut)}${trimmed[cut]}tasks`;
 }

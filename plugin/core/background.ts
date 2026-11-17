@@ -170,7 +170,12 @@ export type TailRead =
 /** The most a host without partial reads is asked to read whole: Claude Code's `$.fs.read` rejects over 4 MiB. */
 export const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
 
-const trimEnd = (p: string): string => p.replace(/[\\/]+$/, '');
+/** `p` without the path separators at its end. A loop, not a regex, so a long run of separators cannot make it slow. */
+function trimEnd(p: string): string {
+  let end = p.length;
+  while (end > 0 && (p[end - 1] === '/' || p[end - 1] === '\\')) end--;
+  return p.slice(0, end);
+}
 const sepOf = (p: string): string => (p.includes('\\') && !p.includes('/') ? '\\' : '/');
 
 type Checked = { ok: true; real: string; stat: OutputStat } | { ok: false; reason: NotRead };
@@ -231,12 +236,25 @@ export async function outputTimes(fs: OutputFs, file: string, dir: string): Prom
   return c.ok ? { ok: true, mtimeMs: c.stat.mtimeMs, size: c.stat.size } : c;
 }
 
-/** The exit code a Claude Code output file ends with (`[exited with code N]`); null when the file does not end that way. */
 /** The output without the `[exited with code N]` line Claude Code's file ends with: the exit is shown as a status, not as part of what the shell printed. */
 export function withoutExitLine(text: string): string {
-  return text.replace(/\n*\[exited with code -?\d+\]\s*$/, text.endsWith('\n') ? '\n' : '');
+  // Walks back from the end in one pass each (whitespace, `]`, digits, `-`, the marker, line breaks), so no input can make it slow.
+  const marker = '[exited with code ';
+  let end = text.length;
+  while (end > 0 && /\s/.test(text.charAt(end - 1))) end--;
+  if (text.charAt(end - 1) !== ']') return text;
+  let at = end - 1;
+  const digitsEnd = at;
+  while (at > 0 && text.charAt(at - 1) >= '0' && text.charAt(at - 1) <= '9') at--;
+  if (at === digitsEnd) return text;
+  if (text.charAt(at - 1) === '-') at--;
+  if (at < marker.length || text.slice(at - marker.length, at) !== marker) return text;
+  at -= marker.length;
+  while (at > 0 && text.charAt(at - 1) === '\n') at--;
+  return text.slice(0, at) + (text.endsWith('\n') ? '\n' : '');
 }
 
+/** The exit code a Claude Code output file ends with (`[exited with code N]`); null when the file does not end that way. */
 export function exitCodeOf(text: string): number | null {
   const m = /\[exited with code (-?\d+)\]\s*$/.exec(text);
   return m ? Number(m[1]) : null;

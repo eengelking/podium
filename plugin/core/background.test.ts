@@ -220,6 +220,80 @@ describe('reading an output file (#897)', () => {
   })
 })
 
+describe('the folder a file must be in, when the host names it with trailing separators (#897)', () => {
+  // Answers a file's real path as `file` and the folder's real path as `folder`, so only the trailing separators differ between cases.
+  const fsWith = (folder: string, file: string): OutputFs => ({
+    stat: async (p) => (p === 'f' ? { kind: 'file', size: 1, mtimeMs: 5, isLink: false, realPath: file } : { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: folder }),
+    read: async () => 'x',
+  })
+  const ok = { ok: true, mtimeMs: 5, size: 1 }
+  const outside = { ok: false, reason: 'outside' }
+
+  test('takes a folder with no separator, one, many, or a mix of both kinds at the end', async () => {
+    for (const tail of ['', '/', '///', '/\\/', '//\\\\']) expect(await outputTimes(fsWith(`/tmp/s/tasks${tail}`, '/tmp/s/tasks/a.output'), 'f', 'd')).toEqual(ok)
+  })
+
+  test('takes a Windows folder the same way', async () => {
+    for (const tail of ['', '\\', '\\\\\\']) expect(await outputTimes(fsWith(`C:\\s\\tasks${tail}`, 'C:\\s\\tasks\\a.output'), 'f', 'd')).toEqual(ok)
+  })
+
+  test('a folder that is only separators is the root, and an empty one is not a place', async () => {
+    expect(await outputTimes(fsWith('///', '/a.output'), 'f', 'd')).toEqual(ok)
+    expect(await outputTimes(fsWith('', '/a.output'), 'f', 'd')).toEqual(outside)
+  })
+
+  test('still refuses a file beside the folder, and a separator in the middle is kept', async () => {
+    expect(await outputTimes(fsWith('/tmp/s/tasks//', '/tmp/s/tasks2/a.output'), 'f', 'd')).toEqual(outside)
+    expect(await outputTimes(fsWith('/tmp/s//tasks/', '/tmp/s/tasks/a.output'), 'f', 'd')).toEqual(outside)
+  })
+})
+
+describe('the output without the exit line, edge cases (#897)', () => {
+  test('keeps text with no marker, drops a marker alone, and keeps a negative code out of the text', () => {
+    expect(withoutExitLine('')).toBe('')
+    expect(withoutExitLine('plain\n\n  ')).toBe('plain\n\n  ')
+    expect(withoutExitLine('[exited with code 0]')).toBe('')
+    expect(withoutExitLine('[exited with code -9]\n')).toBe('\n')
+    expect(withoutExitLine('out\n[exited with code -1]')).toBe('out')
+  })
+
+  test('drops the blank lines before the marker and the whitespace after it, and keeps a final line break only when the text ends in one', () => {
+    expect(withoutExitLine('a\n\n\n\n[exited with code 2]  \t \n')).toBe('a\n')
+    expect(withoutExitLine('a\n\n[exited with code 2]  \t ')).toBe('a')
+    expect(withoutExitLine('a  \n[exited with code 2]\r\n')).toBe('a  \n')
+    expect(withoutExitLine('\n\n[exited with code 2]')).toBe('')
+  })
+
+  test('keeps a marker in the middle, a malformed marker, and text after a marker', () => {
+    expect(withoutExitLine('x\n[exited with code 1]\ny\n')).toBe('x\n[exited with code 1]\ny\n')
+    expect(withoutExitLine('[exited with code ]')).toBe('[exited with code ]')
+    expect(withoutExitLine('[exited with code --1]')).toBe('[exited with code --1]')
+    expect(withoutExitLine('[exited with code 1')).toBe('[exited with code 1')
+    expect(withoutExitLine('[exited with code 1] x')).toBe('[exited with code 1] x')
+  })
+
+  test('drops only the last of two markers', () => {
+    expect(withoutExitLine('[exited with code 1]\n[exited with code 2]\n')).toBe('[exited with code 1]\n')
+  })
+
+  test('returns a long run of line breaks or spaces that does not end in a marker unchanged, and fast', () => {
+    for (const unit of ['\n', ' ', '\n ']) {
+      const text = unit.repeat(100_000 / unit.length)
+      const start = performance.now()
+      expect(withoutExitLine(text)).toBe(text)
+      expect(performance.now() - start).toBeLessThan(50)
+      const tailless = text + '[exited with code 1'
+      expect(withoutExitLine(tailless)).toBe(tailless)
+    }
+  })
+
+  test('still drops the marker after a long run of line breaks, and fast', () => {
+    const start = performance.now()
+    expect(withoutExitLine('\n'.repeat(100_000) + '[exited with code 3]' + ' '.repeat(100_000))).toBe('')
+    expect(performance.now() - start).toBeLessThan(50)
+  })
+})
+
 describe('the output without the exit line (#897)', () => {
   test('drops the trailing exit line and keeps what the shell printed, with its final line break', () => {
     expect(withoutExitLine('tick 1\ntick 2\n\n[exited with code 0]\n')).toBe('tick 1\ntick 2\n')
