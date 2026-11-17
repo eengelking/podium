@@ -53,7 +53,7 @@ const fetch = async (_url, init) => {
   bytes += Buffer.byteLength(init.body ?? '');
   return { status: 200, ok: true, text: '{}' };
 };
-const transport = new Transport(fetch, { serverUrl: 'http://x', token: '', heartbeatMs: 5000, version: '0.0.0' });
+const transport = new Transport(fetch, { serverUrl: 'https://podium.test', token: '', heartbeatMs: 5000, version: '0.0.0' });
 const meta = (now) => ({ version: '0.0.0', engineVersion: '2.1.296', hostSurface: 'terminal', now, storedName: null, claudeName: null, optionName: null });
 
 let dirty = true;
