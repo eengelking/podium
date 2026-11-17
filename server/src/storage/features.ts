@@ -33,6 +33,9 @@ export const ACTIVITY_FEED = 'activity-feed';
 /** A Bash command's output in the Activity feed (#431): off until the Admin turns it on. Needs `activity-feed` on as well. */
 export const ACTIVITY_OUTPUT = 'activity-output';
 
+/** A background shell's whole command and output in the Activity modal's Background tab (#897): off until the Admin turns it on. Needs `activity-feed` on as well. */
+export const BACKGROUND_OUTPUT = 'background-output';
+
 /** Respond from Podium (#206): off until the Admin turns it on. */
 export const RESPOND = 'respond';
 
@@ -67,6 +70,13 @@ export const FEATURES: readonly FeatureDef[] = [
     name: 'Bash output in the activity feed',
     description:
       "Lets a person open a Bash row in the Activity feed to see what the command printed and how it exited. Needs the Agent activity feed on, and the reporter's activityOutput option on the machine as well. Output is held in memory while the panel is open and is never stored. Off, no output is captured or sent.",
+    defaultOn: false,
+  },
+  {
+    id: BACKGROUND_OUTPUT,
+    name: 'Background shell output in the activity modal',
+    description:
+      "Lets a person open a background shell or monitor in the Activity modal's Background tab to see its whole command and what it printed. Needs the Agent activity feed on, and the reporter's backgroundOutput option on the machine as well. Output is held in memory while the tab is open and is never stored, so an Admin who reads it is recorded and the person is told. Off, the tab still lists each item's state and times.",
     defaultOn: false,
   },
   {

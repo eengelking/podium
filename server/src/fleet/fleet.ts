@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, BACKGROUND_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -202,6 +202,8 @@ export class Fleet {
       if (id === FILE_DIFF && !on) this.diffs.clear();
       // Output going off drops every output held on a lease (#431). The commands, the leases and the history are untouched.
       if (id === ACTIVITY_OUTPUT && !on) this.activity.dropOutput();
+      // The same for a background item's command and output (#897): its list, its state and its times stay.
+      if (id === BACKGROUND_OUTPUT && !on) this.activity.dropBackgroundDetail();
       // Responding needs both flags: either going off drops every ask and answer the server holds.
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
       // Messaging going off drops every message still waiting; the rights stay.
@@ -251,6 +253,7 @@ export class Fleet {
       () => this.features.featureOn(ACTIVITY_FEED),
       () => [],
       () => this.features.featureOn(ACTIVITY_OUTPUT),
+      () => this.features.featureOn(BACKGROUND_OUTPUT),
     );
     this.respond = new RespondStore(
       now,
@@ -629,6 +632,7 @@ export class Fleet {
         pricing: this.prices.pricing(),
         activityFeed: this.activity.feedOn(row.id),
         activityOutput: this.activity.outputOptionOn(row.id),
+        backgroundOutput: this.activity.backgroundOptionOn(row.id),
         fileDiff: this.diffs.optionOn(row.id),
         fileDiffPreload: this.diffs.preloadOn(row.id),
         respond: this.respond.info(row.id),

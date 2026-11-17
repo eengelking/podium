@@ -16,9 +16,14 @@
 // with the lease, the session and a flag turned off, and is never written to a database or logged. `watchedOutput()` is the
 // reply's `watchOutput`: the loops under a live lease, never a loop the history lists with no viewer.
 //
+// The loop's background shells and monitors (#897) ride the same lease: the Background tab of the same modal. The list (state, times,
+// the command's first word) is held while the feature is on; the whole command and the output need the Admin's `background-output`
+// flag and the session's `backgroundOutput` option, and are held here and nowhere else. `watchedBackground()` is the reply's
+// `watchBackground`: the loops under a live lease.
+//
 // The Admin can turn the whole feature off (Admin > Settings > Feature flags, `activity-feed`). While it is off no lease
 // is granted, nothing is listed as watched and nothing a mod sends is kept; the fleet calls `clear()` when it goes off.
-import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
+import { LIMITS, MAIN_LOOP, type ActivityEntry, type BackgroundItem, type Report } from './protocol.js';
 import type { ActivityHistoryNote } from './activityHistoryTypes.js';
 
 /** The refresh intervals the panel offers, in seconds. The first is the default. */
@@ -65,6 +70,8 @@ interface HeldEntry extends ActivityEntryView {
  */
 export interface ActivityReply {
   entries: ActivityEntryView[];
+  /** The loop's background shells and monitors (#897), oldest first, as the lease holds them. In memory only. */
+  background: BackgroundItem[];
   since: number | null;
   live: boolean;
   enabled: boolean;
@@ -78,6 +85,8 @@ interface Lease {
   until: number;
   seq: number;
   entries: HeldEntry[];
+  /** The loop's background items as the last report that carried them left them (#897). */
+  background: BackgroundItem[];
 }
 
 /** The interval a request asked for, in seconds: one of ACTIVITY_EVERY_SECONDS, 5 for anything else. */
@@ -93,6 +102,8 @@ export class ActivityStore {
   private readonly feed = new Map<string, boolean>();
   /** Session id -> whether its reporter has the activityOutput option on, from the last report that said (#431). */
   private readonly outputOpt = new Map<string, boolean>();
+  /** Session id -> whether its reporter has the backgroundOutput option on, from the last report that said (#897). */
+  private readonly backgroundOpt = new Map<string, boolean>();
 
   constructor(
     private readonly now: () => number,
@@ -105,11 +116,18 @@ export class ActivityStore {
     private readonly historyLoops: (sessionId: string) => string[] = () => [],
     /** Whether the Admin has `activity-output` on (#431). Off, no output is taken, held or served. */
     private readonly outputFlag: () => boolean = () => false,
+    /** Whether the Admin has `background-output` on (#897). Off, no background command or output is taken, held or served. */
+    private readonly backgroundFlag: () => boolean = () => false,
   ) {}
 
   /** Whether output may be taken and served now: the Admin's `activity-feed` and `activity-output` flags are both on. */
   private get outputOn(): boolean {
     return this.isOn() && this.outputFlag();
+  }
+
+  /** Whether a background item's command and output may be taken and served now: `activity-feed` and `background-output` are both on. */
+  private get backgroundOn(): boolean {
+    return this.isOn() && this.backgroundFlag();
   }
 
   /** Whether the feature is on for this server. The route grants no lease while it is off. */
@@ -125,7 +143,7 @@ export class ActivityStore {
   }
 
   /** Takes or renews a viewer's lease on one loop and returns what it holds. */
-  watch(sessionId: string, loop: string, everySeconds: number): { entries: ActivityEntryView[]; since: number } {
+  watch(sessionId: string, loop: string, everySeconds: number): { entries: ActivityEntryView[]; background: BackgroundItem[]; since: number } {
     const now = this.now();
     this.expireSession(sessionId, now);
     let loops = this.leases.get(sessionId);
@@ -135,13 +153,18 @@ export class ActivityStore {
     }
     let lease = loops.get(loop);
     if (!lease) {
-      lease = { since: now, until: now, seq: 0, entries: [] };
+      lease = { since: now, until: now, seq: 0, entries: [], background: [] };
       loops.set(loop, lease);
     }
     lease.until = Math.max(lease.until, now + everySeconds * 1000 + ACTIVITY_LEASE_SLACK_MS);
     // Output is served only while the flag is on, whatever the lease still holds.
     const showOutput = this.outputOn;
-    return { entries: lease.entries.map(({ ref: _ref, ...e }) => (showOutput ? e : withoutOutput(e))), since: lease.since };
+    const showDetail = this.backgroundOn;
+    return {
+      entries: lease.entries.map(({ ref: _ref, ...e }) => (showOutput ? e : withoutOutput(e))),
+      background: lease.background.map((i) => (showDetail ? i : withoutBackgroundDetail(i))),
+      since: lease.since,
+    };
   }
 
   /**
@@ -167,6 +190,18 @@ export class ActivityStore {
     return [...(this.leases.get(sessionId)?.keys() ?? [])];
   }
 
+  /** The loops of `watched()` a viewer has open right now, when `background-output` is on: the report reply's `watchBackground` (#897). */
+  watchedBackground(sessionId: string): string[] {
+    if (!this.backgroundOn) return [];
+    this.expireSession(sessionId, this.now());
+    return [...(this.leases.get(sessionId)?.keys() ?? [])];
+  }
+
+  /** Whether the session's reporter has the `backgroundOutput` option on (#897); null when no report has said (an older reporter, or since a restart). */
+  backgroundOptionOn(sessionId: string): boolean | null {
+    return this.backgroundOpt.get(sessionId) ?? null;
+  }
+
   /** Whether the session's reporter has the option on; null when no report has said (an older reporter, or since a restart). */
   feedOn(sessionId: string): boolean | null {
     return this.feed.get(sessionId) ?? null;
@@ -188,8 +223,13 @@ export class ActivityStore {
       this.outputOpt.set(sid, report.session.activityOutput);
       if (!report.session.activityOutput) this.dropSessionOutput(sid);
     }
+    if (typeof report.session.backgroundOutput === 'boolean') {
+      this.backgroundOpt.set(sid, report.session.backgroundOutput);
+      if (!report.session.backgroundOutput) this.dropSessionBackgroundDetail(sid);
+    }
     if (!this.isOn()) return;
     const keepOutput = this.outputOn && report.session.activityOutput === true;
+    const keepDetail = this.backgroundOn && report.session.backgroundOutput === true;
     const loops = this.leases.get(sid);
     if (!loops) return;
     this.expireSession(sid, this.now());
@@ -199,6 +239,13 @@ export class ActivityStore {
     };
     take(MAIN_LOOP, report.session.activity);
     for (const a of report.agents) take(a.id, a.activity);
+    // A loop's background list is a snapshot: the newest report that carries one replaces the held list (an empty list is none).
+    const items = (loop: string, list: BackgroundItem[] | undefined) => {
+      const lease = loops.get(loop);
+      if (lease && list) lease.background = list.map((i) => (keepDetail ? i : withoutBackgroundDetail(i)));
+    };
+    items(MAIN_LOOP, report.session.backgroundItems);
+    for (const a of report.agents) items(a.id, a.backgroundItems);
   }
 
   /**
@@ -258,6 +305,15 @@ export class ActivityStore {
     for (const loops of this.leases.values()) for (const lease of loops.values()) lease.entries = lease.entries.map(withoutOutput);
   }
 
+  /** The Admin turned `background-output` off: every held background command and output goes, in every session. The lists stay. */
+  dropBackgroundDetail(): void {
+    for (const loops of this.leases.values()) for (const lease of loops.values()) lease.background = lease.background.map(withoutBackgroundDetail);
+  }
+
+  private dropSessionBackgroundDetail(sessionId: string): void {
+    for (const lease of this.leases.get(sessionId)?.values() ?? []) lease.background = lease.background.map(withoutBackgroundDetail);
+  }
+
   private dropSessionOutput(sessionId: string): void {
     for (const lease of this.leases.get(sessionId)?.values() ?? []) lease.entries = lease.entries.map(withoutOutput);
   }
@@ -272,6 +328,7 @@ export class ActivityStore {
     this.leases.delete(sessionId);
     this.feed.delete(sessionId);
     this.outputOpt.delete(sessionId);
+    this.backgroundOpt.delete(sessionId);
   }
 
   private expireSession(sessionId: string, now: number): void {
@@ -311,4 +368,10 @@ function withoutOutput<T extends HeldEntry>(e: T): T {
   const out = { ...e };
   for (const k of OUTPUT_KEYS) delete out[k];
   return out;
+}
+
+/** A background item without its whole command and its output: what the list holds with the switches off (#897). */
+function withoutBackgroundDetail(i: BackgroundItem): BackgroundItem {
+  const { command: _c, commandCut: _cc, output: _o, outputCut: _oc, ...rest } = i;
+  return rest;
 }

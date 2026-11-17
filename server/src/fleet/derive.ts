@@ -236,6 +236,8 @@ export interface SessionInput {
   activityFeed?: boolean | null;
   /** Whether the reporter has the activityOutput option on (#431), held in memory; null when unknown. */
   activityOutput?: boolean | null;
+  /** Whether the reporter has the backgroundOutput option on (#897), held in memory; null when unknown. */
+  backgroundOutput?: boolean | null;
   /** Whether the reporter has the fileDiff option on (#319), held in memory; null when unknown. */
   fileDiff?: boolean | null;
   /** Whether the reporter allows reading every changed file's diff ahead (#631); null when unknown. */
@@ -314,6 +316,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     machine: parse<MachineInfo | null>(row.machine_json, null),
     activityFeed: input.activityFeed ?? null,
     activityOutput: input.activityOutput ?? null,
+    backgroundOutput: input.backgroundOutput ?? null,
     fileDiff: input.fileDiff ?? null,
     fileDiffPreload: input.fileDiffPreload ?? null,
     respond: input.respond ?? null,

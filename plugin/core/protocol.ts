@@ -345,6 +345,8 @@ export interface AgentReport {
   answerText?: string;
   /** The agent's last 20 activity entries, oldest first: only while someone watches it, with the `activityFeed` option on (0.13.0 and later). */
   activity?: ActivityEntry[];
+  /** The background shells and monitors this agent started (#897): only while someone watches it, with the `activityFeed` option on. Absent from a reporter older than the release that adds it. */
+  backgroundItems?: BackgroundItem[];
   failure: Failure | null;
 }
 
@@ -371,6 +373,38 @@ export interface BackgroundWait {
   tasks: BackgroundTask[];
   /** When the next scheduled wake-up fires (epoch ms); null when there is none or its time is unknown. */
   wakeAt: number | null;
+}
+
+/** What a loop started in the background that the Background tab of the Activity modal lists (#897). Monitors exist on Claude Code only. */
+export type BackgroundItemKind = 'shell' | 'monitor';
+
+/**
+ * One background shell or monitor of a loop (#897): its state, its times and, with the output switches on, its whole command and
+ * its newest output. It belongs to the loop that started it: the orchestrator, or the agent or fork whose id the report carries
+ * it under. Sent with the `activityFeed` option on and only for a loop the reply lists in `watch`; `command` and `output` also
+ * need the `backgroundOutput` option and the loop in `watchBackground`. The server holds all of it in memory and never stores it.
+ */
+export interface BackgroundItem {
+  /** The harness's own id for the task, stable for its life. */
+  id: string;
+  kind: BackgroundItemKind;
+  state: 'running' | 'exited';
+  /** The exit code, when the harness knows it. An `exited` item with none ended without one (a signal, for example); it is not called killed. */
+  exitCode?: number;
+  /** When the item started (epoch ms): the harness's own time, or the time the reporter first saw it (`startedKnown` false). */
+  startedAt: number;
+  /** True when `startedAt` is the harness's own time; false when it is the time the reporter first saw the item. */
+  startedKnown: boolean;
+  /** When the item last printed (epoch ms); absent when it has printed nothing or the harness does not say. */
+  lastOutputAt?: number;
+  /** The command's first word, redacted and cut: what the list shows with the output switches off. */
+  label: string;
+  /** The whole command, redacted, cut with a visible marker. Needs the `backgroundOutput` option and the loop in `watchBackground`. */
+  command?: string;
+  commandCut?: boolean;
+  /** The newest output, redacted, cut with a visible marker. Same switches as `command`. An empty string is an item that printed nothing. */
+  output?: string;
+  outputCut?: boolean;
 }
 
 export interface SessionReport {
@@ -418,6 +452,10 @@ export interface SessionReport {
   activityFeed?: boolean;
   /** Whether the reporter's `activityOutput` option is on (#431): a Bash command's output may go out, only while a viewer has the feed open. Absent from a reporter older than the release that adds it. */
   activityOutput?: boolean;
+  /** Whether the reporter's `backgroundOutput` option is on (#897): a background shell's whole command and output may go out, only while a viewer has the Background tab open. Absent from a reporter older than the release that adds it, which sends no background items. */
+  backgroundOutput?: boolean;
+  /** The background shells and monitors the orchestrator started (#897); see `backgroundItems` on an agent. */
+  backgroundItems?: BackgroundItem[];
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
   /** Whether the reporter's `fileDiffPreload` option is on (#631): the console may ask for every changed file's diff while its page is open. Absent from a reporter older than the release that adds it. */
@@ -737,6 +775,11 @@ export interface ReportReply {
    * release that adds it, which asks for none.
    */
   watchOutput?: string[];
+  /**
+   * The loops of `watch` that a viewer has open right now (a live lease), when the Admin's `background-output` flag is on (#897). The mod sends a
+   * background item's whole command and output only for these loops, and only with its `backgroundOutput` option on. Absent from a server older than the release that adds it.
+   */
+  watchBackground?: string[];
   /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
   respond: boolean;
   /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
