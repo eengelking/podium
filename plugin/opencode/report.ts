@@ -2,6 +2,7 @@
 // everything shared (the report types, redaction, the plan) comes from core.
 import { pct } from '../core/contextFill.ts';
 import { cap, clip, excerpt, whole, LIMITS, reportedFailure } from '../core/failures.ts';
+import { backgroundItem, keepBackground, withinBackgroundBudget, type RawBackgroundItem } from '../core/background.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
 import { DEFAULT_RESUME_WINDOW_DAYS } from '../core/resumeWindow.ts';
@@ -9,7 +10,7 @@ import { reportStats } from '../core/toolStats.ts';
 import { reportSignals } from '../core/signals.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
-import type { Root, Sess } from './state.ts';
+import { loopKey, type Root, type Sess } from './state.ts';
 
 export const HARNESS_ID = 'opencode';
 const MAX_AGENTS = 200;
@@ -41,6 +42,8 @@ export interface ReportMeta {
   activity?: boolean;
   /** The `PODIUM_ACTIVITY_OUTPUT` consent: a shell call's output goes out with its entry, for a loop the server says a viewer has open (#431). */
   activityOutput?: boolean;
+  /** The `PODIUM_BACKGROUND_OUTPUT` consent: a background shell's whole command and output go out, for a loop a viewer has the Background tab open on (#897). */
+  backgroundOutput?: boolean;
   /** The `PODIUM_FULL_PROMPTS` consent: each agent's whole prompt and answer go out, once. */
   fullText?: boolean;
   /** The `PODIUM_SESSION_RECORDING` consent, which the report states (#353). */
@@ -81,7 +84,37 @@ function agentStatus(s: Sess): AgentStatus {
   return s.end;
 }
 
-function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
+/**
+ * A loop's background shells as the report carries them (#897): only for a loop the server says is watched, and only with the activity feed on.
+ * The label, state and times go for every watched loop; the whole command and the output only for one a viewer has the Background tab open on,
+ * and only with the `backgroundOutput` option. OpenCode reports each shell's start time, so `startedKnown` is true.
+ */
+function backgroundOf(root: Root, s: Sess, meta: ReportMeta): { backgroundItems?: ReturnType<typeof keepBackground> } {
+  const loop = loopKey(root, s);
+  if (meta.activity !== true || !root.watched.includes(loop)) return {};
+  const detail = meta.backgroundOutput === true && root.watchedBackground.includes(loop);
+  const items = [...s.shells.values()].map((sh) => {
+    const raw: RawBackgroundItem = {
+      id: sh.id,
+      kind: 'shell',
+      state: sh.exited ? 'exited' : 'running',
+      startedAt: sh.startedAt,
+      startedKnown: true,
+      command: sh.command,
+    };
+    if (sh.exited && sh.exitCode !== null) raw.exitCode = sh.exitCode;
+    if (sh.exited && sh.endedAt !== null) raw.endedAt = sh.endedAt;
+    if (sh.lastOutputAt !== null) raw.lastOutputAt = sh.lastOutputAt;
+    if (detail && sh.output !== null) {
+      raw.output = sh.output;
+      raw.outputCutAtStart = sh.outputCutAtStart;
+    }
+    return backgroundItem(raw, detail);
+  });
+  return { backgroundItems: keepBackground(items) };
+}
+
+function agentReport(s: Sess, rootId: string, meta: ReportMeta, root: Root): AgentReport {
   return {
     id: s.id,
     // An agent the orchestrator launched has no parent, as in a Claude Code report.
@@ -113,6 +146,7 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     ...(meta.fullText && s.promptText && !s.promptSent ? { promptText: s.promptText } : {}),
     ...(meta.fullText && s.answerText && !s.answerSent ? { answerText: s.answerText } : {}),
     ...(meta.activity && s.activity.length ? { activity: feedOf(s.activity, meta.activityOutput === true) } : {}),
+    ...backgroundOf(root, s, meta),
     failure: reportedFailure(agentStatus(s), s.failure),
   };
 }
@@ -176,17 +210,19 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,
       activityFeed: meta.activity === true,
       activityOutput: meta.activityOutput === true,
+      backgroundOutput: meta.backgroundOutput === true,
       sessionRecording: meta.sessionRecording === true,
       peers: meta.peers === true,
       ...(meta.activity && main.activity.length ? { activity: feedOf(main.activity, meta.activityOutput === true) } : {}),
+      ...backgroundOf(root, main, meta),
       ...(st.status === 'waiting' && root.background ? { background: root.background } : {}),
       attached: meta.attached ?? null,
       ...(meta.respond ? { respond: meta.respond.info, asks: meta.respond.asks } : {}),
     },
-    agents: withinTextBudget(agents.map((s) => agentReport(s, root.id, meta))),
+    agents: withinTextBudget(agents.map((s) => agentReport(s, root.id, meta, root))),
     events: events.slice(0, MAX_EVENTS).map((e) => ({ ...e, text: clip(e.text, 240) })),
   };
-  withinDetailBudget(withinActivityBudget(report));
+  withinBackgroundBudget(withinDetailBudget(withinActivityBudget(report)));
   withinSize(report);
   return report;
 }

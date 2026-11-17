@@ -94,7 +94,7 @@ describe("the notice under the status band", () => {
 
 describe("the ping of an Admin's open stored Activity", () => {
   const note: ActivityHistoryNote = { policy: "all", total: 3, since: NOW - 100_000, keptUntil: null, canRead: true, owner: "Dana" };
-  const reply: ActivityReply = { entries: [], since: NOW, live: true, enabled: true, serverTime: NOW, history: note };
+  const reply: ActivityReply = { entries: [], background: [], since: NOW, live: true, enabled: true, serverTime: NOW, history: note };
   const page: ActivityHistoryPage = { entries: [{ seq: 1, at: NOW - 1000, kind: "tool", text: "Edit a" }], olderBefore: null, total: 3, since: NOW - 100_000, keptUntil: null };
 
   async function feed(me: RespondMe, owner: string, canRead = true) {

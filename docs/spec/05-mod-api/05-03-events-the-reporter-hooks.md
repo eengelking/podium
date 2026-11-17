@@ -143,10 +143,28 @@ evaluates to the result)
 - A monitor whose description starts with `live updates for artifact ` is Claude Code's artifact watcher. It
   lives as long as the session and is not counted (#128).
 - A new turn clears it.
-- A shell's command is never kept: a task with no description is named by the command's first word.
+- What the card and the waiting state keep of a shell is still its first word: a task with no description is named by the command's first word. The
+  whole command is kept only for the Background tab (#897, DECISIONS 68), under the same consent as the shell's output: the `backgroundOutput`
+  option, the Admin's `background-output` flag and a viewer on that tab. The two uses never share a field.
 
-**`classic.SubagentStart`, `classic.SubagentStop`**
+**`classic.SubagentStart`**
 - Not hooked. Would be reconciliation only. `agent.spawn` and `turn.complete` are primary.
+
+**`classic.SubagentStop`** (#897)
+- Hooked with the activity feed on, for its `background_tasks` only: a shell or monitor not seen starting is listed under the agent whose hook it is.
+  `agent_id` names that agent. Nothing else of the event is read.
+
+**Background shells and monitors** (#897)
+- With the `activityFeed` option on, a `Bash` call with `run_in_background` and a `Monitor` call are recorded when their result carries the task's id
+  (`backgroundTaskId`, `taskId`), under the loop whose call it was (`agentId`; none for the orchestrator). The Stop and SubagentStop hooks' `background_tasks`
+  add a task not seen starting, and end one a Stop no longer lists.
+- Output files: Claude Code writes each task's output to `<folder>/tasks/<id>.output`, the `tasks` folder beside a hook's `scratchpad_dir`. The mod
+  reads a file only there: a regular file, not a link, inside that folder, by an id that is a short token (never a path). `classic.Stop` and `classic.SubagentStop` carry `scratchpad_dir` (confirmed live on 2.1.326, though the typed hook input does not list it), so the folder is
+  learned at the session's first Stop. A hook that carries no
+  `scratchpad_dir`, or a session before its first Stop, leaves the folder unknown, and then the item has no time of last output, no exit code of its own and no output. A file the host cannot
+  read whole (over 4 MiB) is not read.
+- A timer reads the files of a watched loop's tasks every 3 seconds, so a shell that finished during a long turn does not stay `running` until the next Stop.
+  The last line `[exited with code N]` gives the exit code; the file's modification time gives the last output.
 
 **`classic.PreCompact`, `classic.PostCompact`**
 - Not needed if `session.compact` works. Fallback.

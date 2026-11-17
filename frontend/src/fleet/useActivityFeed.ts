@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVITY_HISTORY_PAGE } from "../../../server/src/fleet/activityHistoryTypes";
 import { respondApi, RespondError } from "./respondApi";
 import { readJson, writeJson } from "./storage";
-import type { ActivityEntryView, ActivityHistoryNote, ActivityHistoryPage, ActivityReply } from "./types";
+import type { ActivityEntryView, ActivityHistoryNote, ActivityHistoryPage, ActivityReply, BackgroundItem } from "./types";
 import { usePageVisible } from "./usePageVisible";
 
 // The agent activity feed's fetching (#118). The server keeps a loop's entries only while a viewer holds a lease on
@@ -82,12 +82,14 @@ export interface FeedState {
   live: boolean;
   /** The last reply said the Admin has turned the feed off for this server. */
   adminOff: boolean;
+  /** The loop's background shells and monitors as the last answer held them (#897), oldest first. A snapshot, not an increment: the newest answer replaces it. */
+  background: BackgroundItem[];
   /** The server refused the live feed: 401 when nobody is signed in, 403 for a person who is not the owner or an Admin (#1082). Null otherwise. */
   refused: 401 | 403 | null;
 }
 
 type Live = Omit<FeedState, "stored" | "loadOlder">;
-const EMPTY: Live = { entries: [], seen: 0, fetchedAt: null, failed: false, live: true, adminOff: false, refused: null };
+const EMPTY: Live = { entries: [], background: [], seen: 0, fetchedAt: null, failed: false, live: true, adminOff: false, refused: null };
 const NO_OLDER = async () => {};
 
 /** What a stored page holds, keyed apart from the live feed. */
@@ -234,7 +236,7 @@ export function useActivityFeed(opts: {
         // happened before this viewer was watching, so it is skipped rather than backfilled.
         if (!c || c.since !== r.since) {
           cursor.current = { since: r.since, seq: top };
-          setState((st) => ({ ...st, fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false, refused: null }));
+          setState((st) => ({ ...st, background: r.background ?? [], fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false, refused: null }));
           return;
         }
         const fresh = r.entries.filter((e) => e.seq > c.seq);
@@ -248,6 +250,7 @@ export function useActivityFeed(opts: {
         setState((st) => ({
           // With stored history the cap is far wider: what is trimmed is still stored, and stays one page away.
           entries: [...synced(st.entries), ...fresh].slice(-(loaded.current === "done" ? LIVE_KEPT : FEED_KEPT)),
+          background: r.background ?? [],
           seen: st.seen + fresh.length,
           fetchedAt: Date.now(),
           failed: false,

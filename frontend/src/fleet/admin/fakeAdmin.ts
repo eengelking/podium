@@ -809,7 +809,9 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const features = Object.entries(state.features).map(([id, on]) =>
         id === "peer-messaging"
           ? { id, name: "Orchestrator messaging", description: "Lets a person's orchestrators find and message each other, on the machines they choose, through this server.", on }
-          : id === "activity-output"
+          : id === "background-output"
+            ? { id, name: "Background shell output in the activity modal", description: "Lets a person open a background shell or monitor in the Activity modal to see its whole command and what it printed.", on }
+            : id === "activity-output"
             ? { id, name: "Bash output in the activity feed", description: "Lets a person open a Bash row in the Activity feed to see what the command printed and how it exited.", on }
             : id === "session-recording"
             ? { id, name: "Session recording", description: "Lets a session's owner, or an Admin, record everything an orchestrator and its agents do, so a run can be replayed to see what happened and why.", on }

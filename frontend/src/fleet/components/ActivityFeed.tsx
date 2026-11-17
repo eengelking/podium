@@ -3,6 +3,8 @@ import { fmtCount, fmtDay } from "../format";
 import { isShellTool } from "../harness";
 import { useHarness } from "../harnessContext";
 import { reporterBelow } from "../logic";
+import { BackgroundPane } from "./BackgroundList";
+import { ActivityTabs, type ActivityTab } from "./ActivityTabs";
 import type { ActivityEntryView, SessionView } from "../types";
 import { EVERY_CHOICES, readEvery, useActivityFeed, writeEvery, type FeedEntry, type FeedState, type FetchActivity, type FetchHistory } from "../useActivityFeed";
 import { ActivityOutputFlag, BashRow, LINE_CUT, missingOutput, Redacted, useRowAnchor, type RowAnchor } from "./BashRow";
@@ -307,6 +309,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
   const enabled = s.reporter === "mod" && !old && s.activityFeed !== false;
   const [every, setEvery] = useState(readEvery);
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<ActivityTab>("output");
   const opener = useRef<HTMLButtonElement>(null);
   const feed = useActivityFeed({ sessionId: s.id, loop: props.loop, enabled, active, every, adminOn: props.adminOn, fetchActivity: props.fetchActivity, fetchHistory: props.fetchHistory });
   const respond = useRespond();
@@ -408,8 +411,11 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
       )}
       {open && (
         <Modal titleId="activityTitle" title="Activity" sub={props.title} onClose={close} className="modal-feed" actions={active && !adminOff ? <EverySelect id={`every-m-${props.loop}`} every={every} onChange={pick} /> : undefined}>
-          <div className="mb feedmb">
-            {adminOff ? (
+          <ActivityTabs tab={tab} onTab={setTab} count={s.backgroundOutput == null ? null : feed.background.length} idPrefix={`act-${props.loop}`} />
+          <div className="mb feedmb" role="tabpanel" id={`act-${props.loop}-panel`} aria-labelledby={`act-${props.loop}-tab-${tab}`}>
+            {tab === "background" ? (
+              <BackgroundPane s={s} items={feed.background} now={Date.now()} when={when} adminOff={adminOff} refused={feed.refused ? refusedEmpty(feed.refused, s.owner) : null} />
+            ) : adminOff ? (
               <AdminOffNote />
             ) : (
               <>

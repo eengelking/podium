@@ -48,6 +48,8 @@ interface Report {
     fileDiffPreload?: boolean;          // whether the reporter's fileDiffPreload option is on, with fileDiff (#631, 5.9); absent from a reporter older than the release that adds it
     activityFeed?: boolean;             // whether the reporter's activityFeed option is on (5.9); absent from a reporter older than 0.13.0
     activityOutput?: boolean;           // whether the reporter's activityOutput option is on (#431); absent from a reporter older than the release that adds it
+    backgroundOutput?: boolean;         // whether the reporter's backgroundOutput option is on (#897); absent from a reporter older than the release that adds it, which sends no background items
+    backgroundItems?: BackgroundItem[]; // the orchestrator's background shells and monitors (#897): only for a loop in the reply's `watch`, with activityFeed on; see below
     activity?: ActivityEntry[];         // the main loop's activity feed, sent only while the reply's `watch` lists `@orchestrator` (6.4)
     background?: {                      // what an idle session waits on (#119), with waitReason null; absent from a reporter older than 0.11.0 and when there is none
       tasks: { type: 'shell' | 'agent' | 'monitor' | 'workflow' | 'wakeup' | 'other'; description: string; status: string }[];  // at most 20; description ≤ 120 chars, never a whole shell command
@@ -277,6 +279,37 @@ What changes inside the v1 fields when `v` is 2:
 
 - A v2 report to a server that only knows v1 gets that server's `400` at `$.v`. The reporter turns it into a notice that the server only reads version 1 and needs an update, instead of showing the bare 400.
 - A session id is kept by the harness that first reported it. A report that names another harness (the block, or `session.harness`) for that id is `409` at `$.harness.id`. A v1 report that names none leaves the stored harness as it is (#851).
+
+### Background items (#897)
+
+A loop's background shells and monitors, in `session.backgroundItems` (the orchestrator's) and `agents[].backgroundItems` (an agent's or fork's). A list is a
+snapshot: the newest report that carries one replaces the server's held list, and an empty array is a loop with none. A report omits the field for a loop the
+reply does not list in `watch`. The server holds the list in memory with the loop's activity lease and never stores it.
+
+```
+BackgroundItem {
+  id: string;                  // the harness's own id for the task
+  kind: "shell" | "monitor";   // monitors exist on Claude Code only
+  state: "running" | "exited";
+  exitCode?: number;           // only with "exited", and only when the harness knows it; an item that ended without one was signalled, and is never called "killed"
+  startedAt: number;           // epoch ms
+  startedKnown: boolean;       // true: the harness's own start time (OpenCode); false: when the reporter first saw it (Claude Code reports none)
+  lastOutputAt?: number;       // epoch ms, from the output file's modification time
+  endedAt?: number;            // epoch ms, when the reporter learned it ended; only with "exited"
+  label: string;               // the command's first word, redacted, at most 80 characters
+  command?: string;            // the whole command, redacted, line breaks kept, cut at 20,000 characters with a marker. Only with the backgroundOutput option and the loop in `watchBackground`
+  commandCut?: boolean;
+  output?: string;             // the newest 20,000 characters of what it printed, redacted; a cut at the start begins with a marker. Same switches as `command`. "" is an item that printed nothing
+  outputCut?: boolean;
+}
+```
+
+- At most 60 items a loop: every running item and the 20 latest finished ones, oldest first. A report keeps `command` and `output` within 200,000 characters
+  (`LIMITS.backgroundDetailChars`), the orchestrator's items first and each loop from its newest item back; an item that does not fit loses its output, then its command.
+- The server drops `command`, `commandCut`, `output` and `outputCut` unless the session says `backgroundOutput: true`, and holds them only while the Admin's
+  `background-output` flag is on; turning the flag or the option off drops what is held.
+- A viewer's Background tab reads the list from the same activity route as the feed, so an Admin's read of it is recorded and the person is told, in the
+  console and in `podium-reporter`, as for any read of the person's own activity (#1082).
 
 <!-- nav:start -->
 ---

@@ -303,6 +303,12 @@ describe('groups and settings', () => {
           on: false,
         },
         {
+          id: 'background-output',
+          name: 'Background shell output in the activity modal',
+          description: expect.stringContaining('Output is held in memory while the tab is open and is never stored'),
+          on: false,
+        },
+        {
           id: 'update-check',
           name: 'Release check',
           description: expect.stringContaining('Off, this server makes no request to GitHub.'),
@@ -338,7 +344,7 @@ describe('groups and settings', () => {
       const { agent, features, people } = await unlocked();
       const res = await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': false } });
       expect(res.status).toBe(200);
-      expect(res.body.features).toEqual([expect.objectContaining({ id: 'activity-feed', on: false }), expect.objectContaining({ id: 'activity-output', on: false }), expect.objectContaining({ id: 'respond', on: false }), expect.objectContaining({ id: 'file-diff', on: false }), expect.objectContaining({ id: 'peer-messaging', on: false }), expect.objectContaining({ id: 'chat-everyone', on: false }), expect.objectContaining({ id: 'session-recording', on: false }), expect.objectContaining({ id: 'my-usage', on: false }), expect.objectContaining({ id: 'update-check', on: true })]);
+      expect(res.body.features).toEqual([expect.objectContaining({ id: 'activity-feed', on: false }), expect.objectContaining({ id: 'activity-output', on: false }), expect.objectContaining({ id: 'respond', on: false }), expect.objectContaining({ id: 'file-diff', on: false }), expect.objectContaining({ id: 'peer-messaging', on: false }), expect.objectContaining({ id: 'chat-everyone', on: false }), expect.objectContaining({ id: 'session-recording', on: false }), expect.objectContaining({ id: 'my-usage', on: false }), expect.objectContaining({ id: 'background-output', on: false }), expect.objectContaining({ id: 'update-check', on: true })]);
       expect(features.featureOn('activity-feed')).toBe(false);
       expect((await agent.get('/api/admin/settings').set(H)).body.features[0].on).toBe(false);
       await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': true } });

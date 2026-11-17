@@ -74,6 +74,12 @@
       "description": "Needs 'Send an agent's recent activity' on too. While someone has a Bash command's row open in Podium, send what the command printed (stdout then stderr, up to 20,000 characters, ANSI codes removed) and whether it failed. Output is only sent while the Podium server's Admin has turned this on and someone is looking at that agent's feed, and the server holds it in memory and never stores it. Secrets that look like secrets are replaced with [redacted], but command output can hold what the redactor does not recognize: file contents, environment dumps, tokens of an unfamiliar shape. Off by default.",
       "default": false
     },
+    "backgroundOutput": {
+      "type": "boolean",
+      "title": "Send a background shell's command and output",
+      "description": "Needs 'Send an agent's recent activity' on too. While someone has the Background tab of an agent's Activity open in Podium, send each background shell's or monitor's whole command (up to 20,000 characters) and what it printed (the newest 20,000 characters, ANSI codes removed). Secrets that look like secrets are replaced with [redacted], but output can hold what the redactor does not recognize. Only sent while the Podium server's Admin has turned this on and someone is looking at that tab; the server holds it in memory and never stores it, and an Admin who reads it is recorded and you are told. Without this, the tab lists each item's state and times only. Off by default.",
+      "default": false
+    },
     "fileDiff": {
       "type": "boolean",
       "title": "Send a file's diff on request",

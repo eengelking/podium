@@ -66,6 +66,44 @@ async function signedIn(app: express.Express, name: string, token: string) {
   return agent;
 }
 
+describe('a background shell\'s command and output ride the same guarded route (#897)', () => {
+  const BG_SECRET = 'UNIQUE-BACKGROUND-OUTPUT-7733';
+  const withItems = (): Report => {
+    const r = report(SID, 'Ed');
+    r.session.backgroundOutput = true;
+    r.agents[0]!.backgroundItems = [{ id: 'b1', kind: 'shell', state: 'running', startedAt: T0 + 1, startedKnown: false, label: 'make', command: 'make all', output: `built ${BG_SECRET}` }];
+    return r;
+  };
+
+  it('reaches a person only through the sign-in, and an Admin\'s read of it is recorded and told with no text', async () => {
+    const s = await setup();
+    await s.fleet.features.setFeature('background-output', true);
+    const ed = await signedIn(s.app, 'Ed', s.ed.token);
+    // the owner's own fetch takes the lease; the next report carries the items
+    expect((await ed.get(s.live())).status).toBe(200);
+    expect((await s.send(s.ed.token, withItems())).status).toBe(200);
+    const none = await request(s.app).get(s.live());
+    expect(none.status).toBe(401);
+    expect(JSON.stringify(none.body)).not.toContain(BG_SECRET);
+    const alex = await signedIn(s.app, 'Alex', s.alex.token);
+    const other = await alex.get(s.live());
+    expect(other.status).toBe(403);
+    expect(JSON.stringify(other.body)).not.toContain(BG_SECRET);
+    expect(await s.reads('live')).toHaveLength(0);
+    const boss = await signedIn(s.app, 'Boss', s.boss.token);
+    const read = await boss.get(s.live());
+    expect(read.status).toBe(200);
+    expect(read.body.background[0]).toMatchObject({ id: 'b1', command: 'make all', output: `built ${BG_SECRET}` });
+    expect(await s.reads('live')).toHaveLength(1);
+    const rows = await s.logRows('live_admin_read');
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toContain(BG_SECRET);
+    const told = await s.notices();
+    expect(told).toHaveLength(1);
+    expect(JSON.stringify(told)).not.toContain(BG_SECRET);
+  });
+});
+
 describe.each([
   { kind: 'text' as const, log: 'text_admin_read', words: (n: string) => `is reading the whole prompt and answer of an agent in ${n}` },
   { kind: 'live' as const, log: 'live_admin_read', words: (n: string) => `is watching the live activity of an agent in ${n}` },
