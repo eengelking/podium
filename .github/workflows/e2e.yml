@@ -131,6 +131,11 @@ jobs:
           for n in "$SHARDS" "$AT_ONCE" "$REPEAT"; do
             [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shards, databases_at_once and repeat must be whole numbers of 1 or more, not \"$n\""; exit 1; }
           done
+          # The host's load, CPU, I/O and memory pressure, and its container and network counts, every 10 seconds while the suite runs (#1174),
+          # so the next increase in shards or databases at once is a measured one. The peaks and the whole table go in the log below.
+          bash scripts/e2e-host-sample.sh sample 10 > "$RUNNER_TEMP/host-sample.csv" 2>/dev/null &
+          sampler=$!
+          trap 'kill "$sampler" 2>/dev/null' EXIT
           # The databases go in groups of AT_ONCE, a group at a time. scripts/e2e-all.sh runs a group's databases, each in SHARDS runs, all at
           # once, builds the image once, and checks that every spec file ran exactly once on each database.
           for ((start = 0; start < ${#dbs[@]}; start += AT_ONCE)); do
@@ -154,6 +159,11 @@ jobs:
             done
             printf '%s\n' $group >> "$RUNNER_TEMP/e2e-passed"
           done
+          kill "$sampler" 2>/dev/null
+          echo "::group::Host while the suite ran (peaks, then every sample)"
+          bash scripts/e2e-host-sample.sh summary "$RUNNER_TEMP/host-sample.csv"
+          cat "$RUNNER_TEMP/host-sample.csv"
+          echo "::endgroup::"
           # A database whose run is missing fails the run, so a skipped or dropped database cannot pass the release gate (#1008).
           for db in "${dbs[@]}"; do
             grep -qx "$db" "$RUNNER_TEMP/e2e-passed" 2>/dev/null || { echo "::error::no passing run of the suite on $db"; fail=1; }
