@@ -156,7 +156,7 @@ jobs:
             done
             printf '%s\n' $group >> "$RUNNER_TEMP/e2e-passed"
           done
-          kill "$sampler" 2>/dev/null
+          kill "$sampler" 2>/dev/null || true
           echo "::group::Host while the suite ran (peaks, then every sample)"
           bash scripts/e2e-host-sample.sh summary "$RUNNER_TEMP/host-sample.csv"
           cat "$RUNNER_TEMP/host-sample.csv"

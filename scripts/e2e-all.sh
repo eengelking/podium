@@ -154,12 +154,17 @@ done
 HB="${E2E_HEARTBEAT:-60}"
 if [[ "$HB" =~ ^[1-9][0-9]*$ ]]; then
   (
-    trap 'kill "$sp" 2>/dev/null; exit 0' TERM
+    sp=""
+    trap '[[ -z "$sp" ]] || kill "$sp" 2>/dev/null; exit 0' TERM
     while :; do
       sleep "$HB" & sp=$!
       wait "$sp"
       running=""
-      for i in "${!PIDS[@]}"; do kill -0 "${PIDS[$i]}" 2>/dev/null && running+=" ${NAMES[$i]}"; done
+      # A run that has ended stays a zombie (and answers kill -0) until the main loop waits on it, so it is not counted as running.
+      for i in "${!PIDS[@]}"; do
+        kill -0 "${PIDS[$i]}" 2>/dev/null || continue
+        [[ "$(ps -o stat= -p "${PIDS[$i]}" 2>/dev/null)" == Z* ]] || running+=" ${NAMES[$i]}"
+      done
       [[ -n "$running" ]] || exit 0
       echo "e2e-all: still running after $((SECONDS / 60))m$((SECONDS % 60))s:$running"
     done
