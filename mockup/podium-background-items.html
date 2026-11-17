@@ -13,9 +13,8 @@
    with the .tabs / [role=tab] control Board.tsx and PlanPanel.tsx already use. The Admin read notice is the existing
    .ch-nav.ro.crit line (SessionReadNotes.tsx).
    Proposed for the standards, each named in a comment below:
-     .bgl / .bgi    the list of background items and one item (a row that opens, as .feed li .tgl does in #431)
      .bgs           an item's state as a shape, a word and a color (running, finished, failed, ended without a code)
-     .bgq           the "quiet" signal: last output older than the limit
+     .bgq           the "quiet" line under Running: last output older than the limit
    The demo chrome (.demo, .stage, .frame, .notes, .decisions) belongs to this review page only. */
 html, body { height: auto; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
@@ -43,49 +42,25 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-/* PROPOSED .bgl: the Background tab's body. A toolbar (owner filter, count), the list, a footer line. */
-.podium .bgtools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; }
-.podium .bgtools select { font: inherit; font-size: 12px; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
-.podium .bgtools .count { margin-left: auto; }
-.podium .bgl { width: 100%; box-sizing: border-box; align-self: stretch; margin: 0; padding: 0; list-style: none; overflow: auto; flex: 1; min-height: 0; }
-/* PROPOSED .bgi: one item. The whole row opens and closes, as a #431 row does. Line 1: kind, command, state. Line 2:
-   owner, started, run time, last output. Nothing needs the row opened to tell a stuck shell from a busy one. */
-.podium .bgi { border-bottom: 1px solid var(--grid); }
-.podium .bgi > .tgl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; width: 100%; margin: 0; padding: 9px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.podium .bgi > .tgl:hover { background: var(--hover); }
-.podium .bgi > .tgl:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
-.podium .bgi.open > .tgl { background: var(--raised); }
-.podium .bgi .bgc { font-family: var(--font-mono); font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.podium .bgi .chev { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; color: var(--muted); transition: transform 0.12s ease-out; }
-.podium .bgi.open .chev { transform: rotate(90deg); }
-.podium .bgi .kind { margin-right: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; font-family: var(--font-ui); font-size: 11px; color: var(--ink2); }
-.podium .bgi .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 11.5px; color: var(--muted); }
-.podium .bgi .meta b { color: var(--ink2); font-weight: 600; }
-.podium .bgi .meta .gone { color: var(--ink2); }
-/* PROPOSED .bgs: state as a shape, a word and a color. Running is a ring, finished a check, failed a cross, ended with no
-   code a dash in a ring. Never color alone. */
-.podium .bgs { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.podium .bgs svg { flex: none; }
-.podium .bgs.run { color: var(--deleg-text); }
-.podium .bgs.ok { color: var(--good-text); }
-.podium .bgs.bad { color: var(--crit-text); }
-.podium .bgs.end { color: var(--ink2); }
-/* PROPOSED .bgq: last output older than the limit (5 minutes, stated in the footer). Shape plus words, in the warning color. */
-.podium .bgq { color: var(--warn-text, var(--warn)); font-weight: 600; }
-.podium .bgq svg { vertical-align: -2px; margin-right: 3px; }
-/* The opened part: the whole command, then the output, as #431's .xp does. */
-.podium .bgi .xp { padding: 2px 12px 12px; display: grid; gap: 8px; min-width: 0; background: var(--raised); }
-.podium .bgi .xp .xh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 3px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
-.podium .bgi .xp .xh .btn { padding: 2px 8px; font-size: 11.5px; }
-.podium .bgi .xp .code { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; margin: 0; }
-.podium .bgi .xp .code .mark { color: var(--muted); }
-.podium .bgfoot { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11.5px; display: grid; gap: 2px; }
-/* An unavailable or empty state: words, one reason, and where to change it. No illustration. */
+/* The list is the Activity feed's own markup: .feedwrap > ol.feed > li (a time, a shape, a body), the #431 row (.tgl, .xp,
+   .xh, .code) and the feed's footer lines. Only the state colors below are new.
+   PROPOSED .bgs: state as a shape (in the row's second column), a word and a color. Running is a ring, finished a check,
+   failed a cross, ended with no code a dash in a ring. Never color alone. */
+.podium .feed li .k.run, .podium .feed li .bgs.run { color: var(--deleg-text); }
+.podium .feed li .k.ok, .podium .feed li .bgs.ok { color: var(--good-text); }
+.podium .feed li .k.bad, .podium .feed li .bgs.bad { color: var(--crit-text); }
+.podium .feed li .k.end, .podium .feed li .bgs.end { color: var(--ink2); }
+.podium .feed li .bgs { font-weight: 600; }
+.podium .feed li .bgline { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: 11.5px; color: var(--muted); }
+.podium .feed li .bgline .mono { color: var(--ink2); }
+/* PROPOSED .bgq: the line under "Running" when the last output is older than the limit (5 minutes, stated in the footer). Shape plus words, in the warning color. */
+.podium .feed li .bgq { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; color: var(--warn-text, var(--warn)); }
+.podium .feed li .bgq svg { display: inline-block; vertical-align: -2px; margin-right: 3px; }
+.podium .feed li .tgl .bgcmd { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .bgmsg { padding: 22px 16px; display: grid; gap: 6px; max-width: 62ch; color: var(--ink2); }
 .podium .bgmsg b { color: var(--ink); font-size: 13px; }
 .podium .bgnote { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
-.podium .modal-feed .mb.bgmb { display: flex; flex-direction: column; padding: 0; min-height: 0; }
-.podium .modal-feed .bgmb .ch-nav.ro { margin: 0; border-radius: 0; border-width: 0 0 1px; align-items: center; }
+.podium .modal-feed .mb.feedmb .ch-nav.ro { margin: 0; border-radius: 0; border-width: 0 0 1px; align-items: center; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 @media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
 </style>
@@ -93,9 +68,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 <div class="demo">
   <b>Background tab (#897)</b>
   <span class="grp" role="group" aria-label="Screen">Screen
-    <button type="button" data-s="list" aria-pressed="true">Claude Code list</button>
-    <button type="button" data-s="open" aria-pressed="false">One item open</button>
-    <button type="button" data-s="owner" aria-pressed="false">Filtered to an owner</button>
+    <button type="button" data-s="list" aria-pressed="true">Orchestrator</button>
+    <button type="button" data-s="open" aria-pressed="false">Items open</button>
+    <button type="button" data-s="sub" aria-pressed="false">Subagent</button>
     <button type="button" data-s="oc" aria-pressed="false">OpenCode</button>
     <button type="button" data-s="admin" aria-pressed="false">Admin reading</button>
     <button type="button" data-s="empty" aria-pressed="false">Nothing running</button>
@@ -119,10 +94,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       <div class="modal modal-feed modal-respond" role="dialog" aria-modal="true" aria-labelledby="bt">
         <div class="mh"><div class="ttl"><h2 id="bt">Activity</h2><div class="sub2" id="sub">Silverbolt · orchestrator · Opus 5.5</div></div><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
         <div class="tabs" role="tablist" aria-label="Activity">
-          <button type="button" role="tab" aria-selected="false" id="t-act">Activity</button>
+          <button type="button" role="tab" aria-selected="false" id="t-act">Output</button>
           <button type="button" role="tab" aria-selected="true" id="t-bg">Background <span class="ct" id="ct">4</span></button>
         </div>
-        <div class="mb bgmb" id="body" role="tabpanel" aria-labelledby="t-bg"></div>
+        <div class="mb feedmb" id="body" role="tabpanel" aria-labelledby="t-bg"></div>
       </div>
     </div>
   </div>
@@ -131,32 +106,31 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 <div class="notes">
   <h2>What is proposed</h2>
   <ul>
-    <li><b>A second tab in the Activity modal</b>, beside Activity, built from the tab control the Board and the Plan / Files fold already use. Its count is the items still running plus finished ones the reporter still holds. The Activity tab does not change.</li>
-    <li><b>Each item says, without opening it:</b> what it is (Shell, Monitor), its command cut to one line, its state (shape, word, color), who owns it, when it started, how long it has run, and how long ago it last printed. A shell quiet for 5 minutes or more reads "Quiet for 12 min", in the warning color with an icon.</li>
-    <li><b>Opening an item</b> shows the whole command (redacted, cut at the stated limit) and the newest output, each with Copy, as #431's rows do. Output follows its own reporter option and Admin flag, both off by default.</li>
-    <li><b>Owner</b> is named on every item with the name the console already uses for that agent. A filter above the list narrows to one owner. If the owner has finished and the item has not, the item says "Owner finished, still running".</li>
-    <li><b>Live:</b> state, run time, last-output age and output update on the stream while a viewer has the modal open. The preview shows them ticking only in this note, not in the page.</li>
+    <li><b>A second tab in the Activity modal</b>, Output | Background. The existing feed becomes the Output tab, unchanged. The count on Background is the items the reporter holds for this agent.</li>
+    <li><b>One agent at a time.</b> The modal is opened for one orchestrator, subagent or fork, and Background lists only what that agent started, as the feed lists only its own activity. There is no owner line and no filter. Open a subagent's modal (the "Subagent" screen) to see its shells.</li>
+    <li><b>Rows are the feed's rows</b> (time, shape, body, the #431 open and close). The time is when the shell started, the command is cut to one line, and under it come the state, the run time and the last output. A shell with no output for 5 minutes or more gets a warning line under its state.</li>
+    <li><b>Opening a row</b> shows the whole command and its Output, each with Copy. Output follows its own reporter option and Admin flag, both off by default.</li>
+    <li><b>Live:</b> state, run time, last-output age and output update on the stream while a viewer has the modal open. This page does not tick.</li>
   </ul>
   <h2>What a harness cannot say, and the console says it</h2>
   <div class="tw3"><table class="decisions">
     <tr><th>Fact</th><th>Claude Code</th><th>OpenCode</th></tr>
-    <tr><td>Start time</td><td>"first seen 17:01", because Claude Code reports no start time</td><td>"started 17:01"</td></tr>
-    <tr><td>Monitors</td><td>Listed as Monitor, with the lines it emitted</td><td>The tab says in words that this harness has no monitors. No empty Monitors group.</td></tr>
-    <tr><td>Exit</td><td>"finished, exit 0" / "failed, exit 2"</td><td>The same. A shell signalled from outside reads "ended without an exit code", never "killed"</td></tr>
+    <tr><td>Start time</td><td>The time is when the reporter first saw the shell, because Claude Code reports no start time. The footer says so.</td><td>The start OpenCode reports</td></tr>
+    <tr><td>Monitors</td><td>Listed as Monitor, with the lines it emitted</td><td>The tab says in words that this harness has no monitors</td></tr>
+    <tr><td>Exit</td><td>"Finished, exit 0" / "Failed, exit 2"</td><td>The same. A shell signalled from outside reads "Ended without an exit code", never "killed"</td></tr>
   </table></div>
   <h2>Admin reading someone's items</h2>
   <ul>
-    <li>A command and its output are the person's own content, so an Admin's view of them shows the existing red notice (<code>.ch-nav.ro.crit</code>) at the top of the tab, naming the Admin, and the person gets the same notice in the console and a callout in <code>podium-reporter</code>. The record line never holds text. See the "Admin reading" screen.</li>
+    <li>A command and its output are the person's own content, so an Admin's view of them shows the existing red notice (<code>.ch-nav.ro.crit</code>) at the top of the tab, naming the Admin. The person gets the same notice in the console and a callout in <code>podium-reporter</code>. The record line never holds text. See the "Admin reading" screen.</li>
   </ul>
   <h2>Decisions for the maintainer</h2>
   <div class="tw3"><table class="decisions">
     <tr><th>Question</th><th>This mockup</th></tr>
-    <tr><td>Tab or section</td><td>A tab, so the Activity feed keeps its whole height.</td></tr>
-    <tr><td>Group or filter by owner</td><td>A filter, with the owner named on every row. Grouping would split a short list into many one-row groups.</td></tr>
+    <tr><td>Scope</td><td>Per agent, as the feed is. This changes the issue's "every owner" requirement, so the issue body is edited to match once you accept.</td></tr>
     <tr><td>Quiet limit</td><td>5 minutes, fixed, stated in the footer. Say if it should be a setting.</td></tr>
     <tr><td>Does the list (no output) ride the Activity option?</td><td>Yes: the list needs "Activity feed" on, and only the command and output need the new option. With the feed off, the tab says why.</td></tr>
-    <tr><td>Finished items</td><td>Kept in the list, newest first, up to 20 per session, so an exit code can be read after the fact.</td></tr>
-    <tr><td>Standards</td><td>Proposes <code>.bgi</code>, <code>.bgs</code> and <code>.bgq</code>. Each reuses an existing pattern (the #431 row, status as shape plus word plus color). If approved, a <code>standards</code> fragment follows.</td></tr>
+    <tr><td>Finished items</td><td>Kept, newest first, up to 20 per agent, so an exit code can be read afterward.</td></tr>
+    <tr><td>Standards</td><td>Reuses the feed row and the #431 open view. Proposes only the state colors (<code>.bgs</code>) and the quiet line (<code>.bgq</code>). If approved, a <code>standards</code> fragment follows.</td></tr>
   </table></div>
 </div>
 </div>
@@ -171,67 +145,77 @@ const I = {
   eye: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
 };
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const st = {
-  run: '<span class="bgs run">' + I.run + 'Running</span>',
-  ok: '<span class="bgs ok">' + I.ok + 'Finished, exit 0</span>',
-  bad: '<span class="bgs bad">' + I.bad + 'Failed, exit 2</span>',
-  end: '<span class="bgs end">' + I.end + 'Ended without an exit code</span>',
+const word = { run: 'Running', ok: 'Finished, exit 0', bad: 'Failed, exit 2', end: 'Ended without an exit code' };
+const ic = { run: I.run, ok: I.ok, bad: I.bad, end: I.end };
+const warn = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 2l6.5 11.5h-13zM8 6.5v3M8 11.6v.1"/></svg>';
+const all = {
+  a: [
+    { id: 1, kind: 'Shell', cmd: 'npm run test:e2e -- --spec "e2e/checkout/**"', s: 'run', t: '17:01', ran: '5:12', last: 'quiet', min: 12 },
+    { id: 2, kind: 'Monitor', cmd: 'tail -f logs/server.log | grep --line-buffered ERROR', s: 'run', t: '16:58', ran: '8:30', last: 'last output 4 s ago' },
+    { id: 3, kind: 'Shell', cmd: 'sleep 600 && echo done', s: 'end', t: '16:40', ran: '4:02', last: 'no output' },
+    { id: 4, kind: 'Shell', cmd: 'npm ci --ignore-scripts', s: 'ok', t: '16:32', ran: '0:41', last: 'last output 33 min ago' },
+  ],
+  b: [
+    { id: 5, kind: 'Shell', cmd: 'cargo build --release', s: 'run', t: '17:03', ran: '3:05', last: 'last output 1 s ago' },
+    { id: 6, kind: 'Shell', cmd: './scripts/seed.sh --rows 50000', s: 'bad', t: '16:50', ran: '1:48', last: 'last output 6 min ago' },
+  ],
 };
-const quiet = (m) => '<span class="bgq"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 2l6.5 11.5h-13zM8 6.5v3M8 11.6v.1"/></svg>Quiet for ' + m + ' min</span>';
-const items = [
-  { id: 1, kind: 'Shell', cmd: 'npm run test:e2e -- --spec "e2e/checkout/**"', s: 'run', owner: 'Silverbolt', start: 'first seen 17:01', ran: '5:12', last: quiet(12), open: false },
-  { id: 2, kind: 'Monitor', cmd: 'tail -f logs/server.log | grep --line-buffered ERROR', s: 'run', owner: 'Silverbolt', start: 'first seen 16:58', ran: '8:30', last: 'last output 4 s ago' },
-  { id: 3, kind: 'Shell', cmd: 'cargo build --release', s: 'run', owner: 'general-purpose · Port invoice endpoints', start: 'first seen 17:03', ran: '3:05', last: 'last output 1 s ago', gone: 'Owner finished, still running' },
-  { id: 4, kind: 'Shell', cmd: './scripts/seed.sh --rows 50000', s: 'bad', owner: 'Explore · Check the seed script', start: 'first seen 16:50', ran: '1:48', last: 'last output 6 min ago' },
-  { id: 5, kind: 'Shell', cmd: 'sleep 600 && echo done', s: 'end', owner: 'Silverbolt', start: 'first seen 16:40', ran: '4:02', last: 'last output none' },
-  { id: 6, kind: 'Shell', cmd: 'npm ci --ignore-scripts', s: 'ok', owner: 'Silverbolt', start: 'first seen 16:32', ran: '0:41', last: 'last output 33 min ago' },
-];
 const outText = {
-  1: 'Running: checkout/cart.cy.ts\n  ✓ adds an item (812ms)\n  ✓ removes an item (640ms)\n  ✓ applies a code (1204ms)\n<span class="mark">…cut: older output dropped, newest 8 KB shown</span>\nRunning: checkout/pay.cy.ts\n  ✓ pays with a saved card (2210ms)\n',
-  2: '[17:04:09] ERROR upstream timed out: /api/invoices\n[17:04:11] ERROR upstream timed out: /api/invoices\n[17:06:25] ERROR token=[redacted] rejected\n',
-  4: 'seeding rows 1-10000 ... ok\nseeding rows 10001-20000 ... ok\nERROR: duplicate key value violates unique constraint "invoice_pkey"\n[exited with code 2]\n',
+  1: 'Running: checkout/cart.cy.ts\n  ✓ adds an item (812ms)\n  ✓ removes an item (640ms)\n  ✓ applies a code (1204ms)\n<span class="mark">[cut off: older output dropped, newest 8 KB shown]</span>\nRunning: checkout/pay.cy.ts\n  ✓ pays with a saved card (2210ms)',
+  2: '[17:04:09] ERROR upstream timed out: /api/invoices\n[17:04:11] ERROR upstream timed out: /api/invoices\n[17:06:25] ERROR token=[redacted] rejected',
+  5: 'Compiling serde v1.0.210\nCompiling tokio v1.40.0\nCompiling invoice-api v0.4.1',
+  6: 'seeding rows 1-10000 ... ok\nseeding rows 10001-20000 ... ok\nERROR: duplicate key value violates unique constraint "invoice_pkey"\n[exited with code 2]',
 };
-function row(it, open) {
-  const out = outText[it.id] || '';
-  return '<li data-id="' + it.id + '" class="bgi' + (open ? ' open' : '') + '"><button type="button" class="tgl" aria-expanded="' + !!open + '">' +
-    '<span class="bgc">' + I.chev + '<span class="kind">' + it.kind + '</span>' + esc(it.cmd) + '</span>' + st[it.s] +
-    '<span class="meta"><span>Owner <b>' + esc(it.owner) + '</b></span><span>' + it.start + '</span><span>Run time <b class="mono">' + it.ran + '</b></span><span>' + it.last + '</span>' + (it.gone ? '<span class="gone">' + it.gone + '</span>' : '') + '</span></button>' +
-    (open ? '<div class="xp"><div><div class="xh"><span>Command</span><button type="button" class="btn">Copy</button></div><pre class="code xcmd">' + esc(it.cmd) + '</pre></div>' +
-      '<div><div class="xh"><span>Output, newest last</span><button type="button" class="btn">Copy</button></div><pre class="code xout">' + (out || 'Nothing printed yet.') + '</pre></div></div>' : '') + '</li>';
+let openIds = new Set();
+let cmdOnly = false;
+function row(it) {
+  const o = openIds.has(it.id);
+  const cmd = cmdOnly ? it.cmd.split(' ')[0] + ' …' : it.cmd;
+  const out = cmdOnly ? '' : (outText[it.id] || '');
+  const sub = it.last === 'quiet' ? '' : '<span class="bgline">' + it.last + '</span>';
+  const q = it.last === 'quiet' ? '<span class="bgq">' + warn + 'Quiet for ' + it.min + ' min</span>' : '';
+  return '<li data-id="' + it.id + '" class="tool can' + (o ? ' open' : '') + '"><span class="at">' + it.t + '</span><span class="k ' + it.s + '">' + ic[it.s] + '</span><div class="body">' +
+    '<button type="button" class="tgl" aria-expanded="' + o + '"><span class="bgcmd">' + I.chev + esc(cmd) + '</span>' +
+    '<span class="bgline">' + it.kind + ' · <span class="bgs ' + it.s + '">' + word[it.s] + '</span> · <span class="mono">' + it.ran + '</span></span>' + q + sub + '</button>' +
+    (o ? '<div class="xp"><div><div class="xh"><span>Command</span><button type="button" class="btn">Copy</button></div><pre class="code xcmd">' + esc(cmd) + '</pre></div>' +
+      (cmdOnly ? '' : '<div><div class="xh"><span>Output</span><button type="button" class="btn">Copy</button></div><pre class="code xout">' + (out || 'Nothing printed yet.') + '</pre></div>') + '</div>' : '') + '</div></li>';
 }
-const foot = '<div class="bgfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span><span>Quiet means no output for 5 minutes. Run time counts from when the reporter first saw the shell, because Claude Code does not report a start time.</span></div>';
-const tools = (n, sel) => '<div class="bgtools"><label for="ow">Owner</label><select id="ow" aria-label="Filter by owner"><option' + (sel ? '' : ' selected') + '>All owners (4)</option><option>Silverbolt</option><option>general-purpose · Port invoice endpoints</option><option' + (sel ? ' selected' : '') + '>Explore · Check the seed script</option></select><span class="count">Showing ' + n + ' of 6</span></div>';
+const foot = (n, ocnote) => '<div class="feedfoot stat"><span class="count">Showing ' + n + ' of ' + n + '</span><span class="when">updated 17:04:12</span></div>' +
+  '<div class="feedfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span></div>' +
+  '<div class="feedfoot"><span>' + (ocnote || 'The time is when the reporter first saw the shell, because Claude Code does not report a start time.') + ' Quiet means no output for 5 minutes.</span></div>';
+const list = (arr, ocnote) => '<div class="feedwrap"><ol class="feed" aria-label="Background items">' + arr.map(row).join('') + '</ol></div>' + foot(arr.length, ocnote);
 const adminNote = '<div class="ch-nav ro crit" role="status">' + I.eye + '<span><b>Admin Maya is reading Silverbolt’s background shells and their output.</b> It is recorded without the text, and Silverbolt’s person has been told.</span></div>';
 const msg = (b, t) => '<div class="bgmsg"><b>' + b + '</b><span>' + t + '</span></div>';
 const screens = {
-  list: () => ({ ct: 6, html: tools(6) + '<ol class="bgl" aria-label="Background items">' + items.map((i) => row(i, false)).join('') + '</ol>' + foot }),
-  open: () => ({ ct: 6, html: tools(6) + '<ol class="bgl" aria-label="Background items">' + items.map((i, n) => row(i, n === 0 || n === 1)).join('') + '</ol>' + foot }),
-  owner: () => ({ ct: 1, html: tools(1, true) + '<ol class="bgl" aria-label="Background items">' + row(items[3], true) + '</ol>' + foot }),
-  oc: () => ({ ct: 2, html: '<p class="bgnote">OpenCode has no monitors, so none are listed. Start times are reported by OpenCode.</p>' + tools(2) + '<ol class="bgl" aria-label="Background items">' +
-    row({ ...items[2], start: 'started 17:03', gone: '', owner: 'Silverbolt' }, false) + row({ ...items[4], start: 'started 16:40' }, false) + '</ol>' + foot.replace(/Run time counts[^<]*/, 'Run time counts from the start OpenCode reports.') }),
-  admin: () => ({ ct: 6, html: adminNote + tools(6) + '<ol class="bgl" aria-label="Background items">' + items.map((i) => row(i, false)).join('') + '</ol>' + foot }),
-  empty: () => ({ ct: 0, html: msg('No background shells or monitors', 'When this session or one of its agents starts a shell in the background, or a monitor, it is listed here with its output.') }),
-  off: () => ({ ct: 6, html: '<p class="bgnote">Command output is off. The list shows each item’s state, owner and times only. The person can turn output on in podium-reporter, and an Admin must allow it in Admin &gt; Settings.</p>' + tools(6) + '<ol class="bgl" aria-label="Background items">' +
-    items.map((i) => row({ ...i, cmd: i.cmd.split(' ')[0] + ' …' }, false)).join('') + '</ol>' + foot }),
-  old: () => ({ ct: '', html: msg('This reporter does not send background items', 'Update podium-reporter to 1.7 or later to see shells and monitors here. The Activity tab works as before.') }),
+  list: () => ({ ct: 4, sub: 'Silverbolt · orchestrator · Opus 5.5', html: list(all.a) }),
+  open: () => { openIds = new Set([1, 2]); return { ct: 4, sub: 'Silverbolt · orchestrator · Opus 5.5', html: list(all.a) }; },
+  sub: () => ({ ct: 2, sub: 'general-purpose · Port invoice endpoints', html: list(all.b) }),
+  oc: () => ({ ct: 2, sub: 'Cedric · orchestrator · OpenCode', html: '<p class="bgnote">OpenCode has no monitors, so none are listed.</p>' +
+    list([{ ...all.b[0], t: '17:03' }, { ...all.a[2], t: '16:40' }], 'The time is the start OpenCode reports.') }),
+  admin: () => ({ ct: 4, sub: 'Silverbolt · orchestrator · Opus 5.5', html: adminNote + list(all.a) }),
+  empty: () => ({ ct: 0, sub: 'Silverbolt · orchestrator · Opus 5.5', html: msg('No background shells or monitors', 'When Silverbolt starts a shell in the background, or a monitor, it is listed here with its output.') }),
+  off: () => { cmdOnly = true; return { ct: 4, sub: 'Silverbolt · orchestrator · Opus 5.5', html: '<p class="bgnote">Output is off. This list shows each item’s state and times only. The person can turn output on in podium-reporter, and an Admin must allow it in Admin &gt; Settings.</p>' + list(all.a) }; },
+  old: () => ({ ct: '', sub: 'Silverbolt · orchestrator · Opus 5.5', html: msg('This reporter does not send background items', 'Update podium-reporter to 1.7 or later to see shells and monitors here. The Output tab works as before.') }),
 };
 let cur = 'list';
 function show(k) {
-  cur = k;
+  cur = k; openIds = new Set(); cmdOnly = false;
   const r = screens[k]();
   document.getElementById('body').innerHTML = r.html;
   document.getElementById('ct').textContent = r.ct;
+  document.getElementById('sub').textContent = r.sub;
   document.querySelectorAll('[data-s]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.s === k)));
-  document.getElementById('sub').textContent = k === 'oc' ? 'Cedric · orchestrator · GPT-class model' : 'Silverbolt · orchestrator · Opus 5.5';
 }
 document.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => show(b.dataset.s)));
 document.getElementById('body').addEventListener('click', (e) => {
-  const t = e.target.closest('.tgl');
-  if (!t) return;
-  const li = t.parentElement, o = !li.classList.contains('open');
-  const it = items.find((i) => String(i.id) === li.dataset.id);
-  const keep = li.querySelector('.bgc').textContent;
-  li.outerHTML = row(cur === 'off' ? { ...it, cmd: it.cmd.split(' ')[0] + ' …' } : it, o);
+  const li = e.target.closest('li[data-id]');
+  if (!li || e.target.closest('.xp')) return;
+  const id = Number(li.dataset.id);
+  openIds.has(id) ? openIds.delete(id) : openIds.add(id);
+  const it = [...all.a, ...all.b].find((i) => i.id === id);
+  const tmp = document.createElement('div');
+  tmp.innerHTML = row(it);
+  li.replaceWith(tmp.firstChild);
 });
 document.querySelectorAll('[data-th]').forEach((b) => b.addEventListener('click', () => {
   document.documentElement.dataset.theme = b.dataset.th;
