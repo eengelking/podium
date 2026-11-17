@@ -96,7 +96,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <div class="podium">
     <div class="scrim">
       <div class="modal modal-feed modal-respond" role="dialog" aria-modal="true" aria-labelledby="bt">
-        <div class="mh"><div class="ttl"><h2 id="bt">Activity</h2><div class="sub2" id="sub">Silverbolt · orchestrator · Opus 5.5</div></div><span class="live"><label for="ev-b" class="sub">Refresh every</label><select id="ev-b" aria-label="Refresh interval"><option>5s</option><option>10s</option><option selected>20s</option><option>30s</option><option>60s</option></select></span><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+        <div class="mh"><div class="ttl"><h2 id="bt">Activity</h2><div class="sub2" id="sub">Silverbolt · orchestrator · Opus 5.5</div></div><span class="live"><label for="ev-b" class="sub">Refresh every</label><select id="ev-b" aria-label="Refresh interval"><option selected>5s</option><option>10s</option><option>20s</option><option>30s</option><option>60s</option></select></span><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
         <div class="tabs" role="tablist" aria-label="Activity">
           <button type="button" role="tab" aria-selected="false" id="t-act" data-tab="out">Output</button>
           <button type="button" role="tab" aria-selected="true" id="t-bg" data-tab="bg">Background <span class="ct" id="ct">4</span></button>
@@ -182,21 +182,28 @@ const outText = {
 let openIds = new Set();
 let cmdOnly = false;
 let ocStart = false;
+const exitChip = (it) => it.s === 'ok' ? '<span class="exit ok" title="Succeeded">' + I.ok + '<span class="sr-only">Succeeded, exit 0</span></span>'
+  : it.s === 'bad' ? '<span class="exit bad">' + I.bad + 'Exit 2, failed</span>' : '';
 function row(it) {
   const o = openIds.has(it.id);
   const cmd = cmdOnly ? it.cmd.split(' ')[0] + ' …' : it.cmd;
-  const out = cmdOnly ? '' : (outText[it.id] || '');
+  const out = cmdOnly ? undefined : outText[it.id];
   const sub = it.last === 'quiet' ? '' : '<span class="bgline">' + it.last + '</span>';
   const q = it.last === 'quiet' ? '<span class="bgq" title="No output for 5 minutes or more">' + warn + 'Quiet for ' + it.min + ' min</span>' : '';
-  const first = ocStart ? '' : '<div class="xh"><span>First seen ' + it.t + '. Claude Code does not report a start time.</span></div>';
-  return '<li data-id="' + it.id + '" class="tool can' + (o ? ' open' : '') + '"><span class="at"' + (ocStart ? '' : ' title="First seen ' + it.t + '"') + '>' + it.t + '</span><span class="k ' + it.s + '">' + ic[it.s] + '</span><div class="body">' +
-    '<button type="button" class="tgl" aria-expanded="' + o + '"><span class="bgcmd">' + I.chev + esc(cmd) + '</span>' +
-    '<span class="bgline">' + it.kind + ' · <span class="bgs ' + it.s + '">' + word[it.s] + '</span> · <span class="mono">' + it.ran + '</span></span>' + q + sub + '</button>' +
-    (o ? '<div class="xp">' + first + '<div><div class="xh"><span>Command</span><button type="button" class="btn">Copy</button></div><pre class="code xcmd">' + esc(cmd) + '</pre></div>' +
-      (cmdOnly ? '' : '<div><div class="xh"><span>Output</span><button type="button" class="btn">Copy</button></div><pre class="code xout">' + (out || 'Nothing printed yet.') + '</pre></div>') + '</div>' : '') + '</div></li>';
+  const first = ocStart ? '' : ', first seen ' + it.t + ' (Claude Code does not report a start time)';
+  let outBox;
+  if (cmdOnly) outBox = '<div class="feedoff"><b>Output is off.</b><div class="ghost">The person can turn output on in podium-reporter, and an Admin must allow it in Admin &gt; Settings.</div></div>';
+  else if (out === undefined) outBox = '<div class="feedoff"><b>Nothing printed yet.</b></div>';
+  else outBox = '<pre class="code xout" aria-label="Output">' + out + '</pre>';
+  return '<li data-id="' + it.id + '" class="tool can' + (o ? ' open' : '') + '"><span class="at"' + (ocStart ? '' : ' title="First seen ' + it.t + '"') + '>' + it.t + '</span><span class="k ' + it.s + '" role="img" aria-label="' + word[it.s] + '" title="' + word[it.s] + '">' + ic[it.s] + '</span><span class="body">' +
+    '<button type="button" class="tgl" aria-expanded="' + o + '">' + I.chev + '<span class="name">' + it.kind + '</span> <span class="arg">' + esc(cmd) + '</span>' +
+    '<span class="bgline"><span class="bgs ' + it.s + '">' + word[it.s] + '</span> · <span class="mono">' + it.ran + '</span></span>' + q + sub + '</button>' +
+    (o ? '<div class="xp"><div><div class="xh"><span>Command' + first + '</span><button type="button" class="btn">Copy command</button></div><pre class="code xcmd" aria-label="Whole command">' + esc(cmd) + '</pre></div>' +
+      '<div><div class="xh"><span>Output</span>' + exitChip(it) + (out ? '<button type="button" class="btn">Copy output</button>' : '') + '</div>' + outBox + '</div>' +
+      '<div class="foot"><button type="button" class="btn" data-collapse>Collapse</button></div></div>' : '') + '</span></li>';
 }
 const fixed = '<div class="feedfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span></div>';
-const status = (n) => '<div class="feedfoot stat"><span class="count">Showing the newest ' + n + ' of ' + n + '</span><span class="when">updated 17:04:12</span></div>';
+const status = (n) => '<div class="feedfoot stat"><span class="count">Showing the newest ' + n + ' of ' + n + '</span><span class="when">Updated 1s ago</span></div>';
 const cap = '<div class="feedfoot"><span>Only the running items and the 20 latest finished ones are kept.</span></div>';
 const list = (arr, extra) => '<div class="feedwrap"><ol class="feed" id="thefeed" aria-label="Background items, newest last" tabindex="0">' + arr.map(row).join('') + '</ol><button type="button" class="jump" id="jump" hidden>Jump to latest</button></div>' + status(arr.length) + fixed + (extra || '');
 const compose = '<div class="compose"><div class="crow"><textarea rows="1" placeholder="Message Silverbolt, or type / for a command" aria-label="Message to Silverbolt"></textarea><button class="btn pri" type="button" disabled>Send</button></div><div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div></div>';
@@ -207,8 +214,9 @@ const ev = (t, kind, arg) => '<li class="tool"><span class="at">' + t + '</span>
 const outFeed = () => '<div class="feedwrap"><ol class="feed hours" aria-label="Recent activity, newest last" tabindex="0">' +
   ev('17:01:52', 'Bash', 'npm run test:e2e -- --spec "e2e/checkout/**"') + ev('17:02:10', 'Read', 'e2e/checkout/pay.cy.ts') + ev('17:02:31', 'Edit', 'e2e/checkout/pay.cy.ts') +
   ev('17:03:05', 'Bash', 'cargo build --release') + ev('17:03:40', 'Grep', 'invoice_pkey') + ev('17:04:12', 'Bash', './scripts/seed.sh --rows 50000') + '</ol></div>' +
-  '<div class="feedfoot stat older"><span class="count">Showing the newest 40</span><button type="button" class="btn sm">Show older</button></div>' +
-  '<div class="feedfoot stat"><span class="count">Showing the newest 40</span><span class="when">updated 17:04:12</span></div>' + fixed;
+  '<div class="feedfoot stat older"><span class="count">Showing the newest 23</span><button type="button" class="btn sm">Show older</button></div>' +
+  '<div class="feedfoot stat"><span class="count">113 stored entries since 2026-11-17</span><span class="when">Updated 1s ago</span></div>' +
+  '<div class="feedfoot"><span>Kept until the session ends, then removed. Only the owner and the Admin can open it. Secrets are removed before they leave the session.</span></div>';
 const ORCH = 'Silverbolt · orchestrator · Opus 5.5', SUB = 'general-purpose · Port invoice endpoints';
 // compose: the message box sits under both tabs in the orchestrator's modal, as it does in the real one (Respond.tsx)
 const screens = {
@@ -255,7 +263,7 @@ document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click
 }));
 document.getElementById('body').addEventListener('click', (e) => {
   const li = e.target.closest('li[data-id]');
-  if (!li || e.target.closest('.xp')) return;
+  if (!li || (e.target.closest('.xp') && !e.target.closest('[data-collapse]'))) return;
   const id = Number(li.dataset.id);
   openIds.has(id) ? openIds.delete(id) : openIds.add(id);
   const it = [...all.a, ...all.b, ...all.many].find((i) => i.id === id);
