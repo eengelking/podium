@@ -12,6 +12,10 @@ import type { AdminReading, ChatViewer } from './chatTypes.js';
 export const SESSION_GAP_MS = 30 * 60_000;
 /** A reading is live this long after the Admin's last read. The Admin's open thread pings every 15 seconds to keep it so. */
 export const LIVE_MS = 30_000;
+/** The readings on record are read from the store at most this often for the reports of every session (#1062); a note or a stop drops them at once. */
+export const RECENT_CACHE_MS = 2_000;
+/** A thread with no subject (a deleted conversation) is remembered this long, so it is looked up once per window and not on every report; short, so a conversation or session that appears after is still told (#1062). */
+export const NO_SUBJECT_MS = 10_000;
 
 export type AdminReadRecord = AdminReadRow;
 
@@ -63,7 +67,11 @@ const isSessionRead = (thread: string): boolean => thread.startsWith('replay:') 
 
 export class AdminReads {
   /** What a thread's callout says, from the last time it was noted or looked up, so a report costs no scan of the conversations. */
-  private readonly known = new Map<string, { subject: ReadSubject | ReplaySubject; at: number }>();
+  private readonly known = new Map<string, { subject: ReadSubject | ReplaySubject | null; at: number }>();
+  /** The readings of the last few minutes as the store gave them, and when: what every session's report reads, so a report costs no store read (#1062). Dropped by every write. */
+  private recentCache: { at: number; rows: (AdminReadRow & { thread: string })[] } | null = null;
+  /** Counts the writes, so a read of the store that began before one is not kept (#1062). */
+  private writes = 0;
   /** Replaced by the Chat service: what a direct-message thread's callout says, from the conversation. Null when there is none. */
   resolve: (thread: string) => Promise<ReadSubject | null> = async () => null;
 
@@ -80,6 +88,28 @@ export class AdminReads {
   }
 
   /**
+   * The readings last read in the last `NOTICE_TTL_MS`, from memory for `RECENT_CACHE_MS`, and the threads and subjects not touched in that long are forgotten
+   * with it. Every write this class makes calls `changed`, so a reading it notes is never missed.
+   */
+  private async recentRows(): Promise<(AdminReadRow & { thread: string })[]> {
+    const now = this.core.host.now();
+    const since = now - NOTICE_TTL_MS;
+    const c = this.recentCache;
+    if (c && now >= c.at && now - c.at < RECENT_CACHE_MS) return c.rows.filter((r) => r.lastSeenAt > since);
+    const writes = this.writes;
+    const rows = await this.store.recent(since);
+    if (writes === this.writes) this.recentCache = { at: now, rows };
+    for (const [thread, k] of this.known) if (now - k.at >= NOTICE_TTL_MS) this.known.delete(thread);
+    return rows;
+  }
+
+  /** The records changed: the next report reads them again. */
+  private changed(): void {
+    this.writes++;
+    this.recentCache = null;
+  }
+
+  /**
    * `viewer`, an Admin, read (or pinged) a thread that is not theirs. Records it first (a failure stops the read, so nothing is read without a record), writes
    * `chat_admin_read` to the Admin log once per session, and tells the people in it on the stream when a reading starts or comes back, and at every ping (`ping`),
    * so their console keeps the Admin on screen for as long as the Admin reads. A plain read after the start does not signal: the Admin's own console reads again
@@ -89,6 +119,7 @@ export class AdminReads {
   async note(viewer: ChatViewer, s: ReadSubject, ping = false): Promise<void> {
     if (s.scope === 'session') throw new Error('a session read is noted with noteSession');
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, s.owners);
+    this.changed();
     this.known.set(s.thread, { subject: s, at: this.core.host.now() });
     if (got.started) {
       if (s.scope === 'list') this.core.onEvent({ kind: 'admin_browse', by: viewer.actor, person: s.person ?? s.owners[0] ?? '' });
@@ -107,6 +138,7 @@ export class AdminReads {
     if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return false;
     const subject: ReplaySubject = { scope: 'replay', thread: replayThread(session.id), owners: [nameKey(session.owner)], phrase: replayPhrase(session.name) };
     await this.store.touch(subject.thread, viewer.actor, SESSION_GAP_MS, subject.owners);
+    this.changed();
     this.known.set(subject.thread, { subject, at: this.core.host.now() });
     this.replayAt = this.core.host.now();
     return true;
@@ -136,7 +168,7 @@ export class AdminReads {
   private async subjectOf(thread: string): Promise<ReadSubject | ReplaySubject | null> {
     const now = this.core.host.now();
     const hit = this.known.get(thread);
-    if (hit && now - hit.at < NOTICE_TTL_MS) return hit.subject;
+    if (hit && now - hit.at < (hit.subject ? NOTICE_TTL_MS : NO_SUBJECT_MS)) return hit.subject;
     let subject: ReadSubject | ReplaySubject | null = null;
     if (thread.startsWith('group:')) subject = { scope: 'group', thread, owners: [thread.slice('group:'.length)], phrase: 'is reading your Podium group' };
     else if (thread.startsWith('list:')) subject = { scope: 'list', thread, owners: [thread.slice('list:'.length)], phrase: LIST_PHRASE };
@@ -150,8 +182,7 @@ export class AdminReads {
       const row = parsed ? await this.core.host.sessionOf(parsed.sessionId) : null;
       if (parsed && row && row.owner !== null && row.owner !== ADMIN_OWNER) subject = { scope: 'session', thread, owners: [nameKey(row.owner)], phrase: sessionPhrase(parsed.kind, row.name) };
     }
-    if (subject) this.known.set(thread, { subject, at: now });
-    else this.known.delete(thread);
+    this.known.set(thread, { subject, at: now });
     return subject;
   }
 
@@ -171,7 +202,7 @@ export class AdminReads {
     if (owner === null) return held;
     const person = nameKey(owner);
     const out: AdminNotice[] = [];
-    const recent = await this.store.recent(this.core.host.now() - NOTICE_TTL_MS);
+    const recent = await this.recentRows();
     for (const r of recent) if (isSessionRead(r.thread)) this.replayAt = Math.max(this.replayAt, r.lastSeenAt);
     this.replayScanned = true;
     for (const r of recent) {
@@ -197,6 +228,7 @@ export class AdminReads {
     if (readNeedsLoop(kind) && !(loop && LOOP_ID.test(loop))) throw new Error(`a ${kind} read needs a loop id`);
     const s = sessionSubject(kind, { id: session.id, name: session.name, owner: session.owner }, loop);
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, [s.owner]);
+    this.changed();
     this.replayAt = this.core.host.now();
     this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], phrase: s.phrase }, at: this.core.host.now() });
     // a read that lapsed (no ping for LIVE_MS) and resumes is live again, which no console holds an end for, so it wakes them like a start
@@ -296,13 +328,16 @@ export class AdminReads {
    */
   async stopped(viewer: ChatViewer, thread: string, kind: Exclude<AdminReadKind, 'read'>, tells: Told[], people: string[]): Promise<void> {
     await this.store.mark(thread, viewer.actor, kind, people);
+    this.changed();
     const verb = kind === 'cleared' ? 'removed all messages in' : kind;
     for (const t of tells) this.tell(t.sessionId, `${this.who(viewer)} ${verb} ${t.about}.`);
   }
 
   /** Records an Admin's act on a person's things (#1078) on `thread`, owed to `people` until they have seen it. */
-  record(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[]): Promise<AdminReadRow> {
-    return this.store.mark(thread, admin, kind, people);
+  async record(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[]): Promise<AdminReadRow> {
+    const row = await this.store.mark(thread, admin, kind, people);
+    this.changed();
+    return row;
   }
 
   /** The records `person` is owed and has not seen, of every thread, newest first. */
@@ -346,8 +381,11 @@ export class AdminReads {
    * The thread's conversation is deleted: the records nobody is still owed a look at go with it. One that a person has not seen stays, so a writer deleting a
    * conversation cannot erase what its owner was never shown (#1051). Remove all messages does not call this, because it must not erase the evidence.
    */
-  forget(thread: string): Promise<number> {
-    return this.store.forget(thread);
+  async forget(thread: string): Promise<number> {
+    const n = await this.store.forget(thread);
+    this.changed();
+    this.known.delete(thread);
+    return n;
   }
 
   /**
@@ -357,6 +395,7 @@ export class AdminReads {
   async maintain(olderThan: number, dmThreads: Set<string>): Promise<number> {
     let removed = await this.store.purge(olderThan);
     for (const t of await this.store.threads('dm:')) if (!dmThreads.has(t)) removed += await this.store.forget(t);
+    this.changed();
     return removed;
   }
 }
