@@ -427,7 +427,9 @@ let backgroundBusy = false;
 const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The task a Bash call with `run_in_background` or a Monitor call started, from what its result carries; null for any other call. */
-function backgroundStartOf(tool: string, input: Record<string, unknown>, res: Record<string, unknown>): { id: string; kind: 'shell' | 'monitor'; command: string } | null {
+function backgroundStartOf(tool: string, input: Record<string, unknown>, call: Record<string, unknown>): { id: string; kind: 'shell' | 'monitor'; command: string } | null {
+  // The tool's own result record is under `result`, as the Bash output is for `finishedCall`.
+  const res = typeof call.result === 'object' && call.result !== null ? (call.result as Record<string, unknown>) : call;
   if (tool === 'Bash' && input.run_in_background === true && typeof res.backgroundTaskId === 'string' && TASK_ID.test(res.backgroundTaskId)) {
     return { id: res.backgroundTaskId, kind: 'shell', command: typeof input.command === 'string' ? input.command : '' };
   }
