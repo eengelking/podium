@@ -139,6 +139,22 @@ export type TailRead =
   | { ok: true; text: string; cutAtStart: boolean; mtimeMs: number; size: number }
   | { ok: false; reason: 'missing' | 'outside' | 'not-a-file' | 'unreadable' };
 
+type Checked = { ok: true; real: string } | { ok: false; reason: 'missing' | 'outside' | 'not-a-file' | 'unreadable' };
+
+/** The real path of `file`, but only when it is a regular file (not a link) inside `dir`; otherwise why not. */
+async function checked(file: string, dir: string): Promise<Checked> {
+  try {
+    const link = await lstat(file);
+    if (link.isSymbolicLink() || !link.isFile()) return { ok: false, reason: 'not-a-file' };
+    const [real, root] = await Promise.all([realpath(file), realpath(dir)]);
+    const rel = path.relative(root, real);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return { ok: false, reason: 'outside' };
+    return { ok: true, real };
+  } catch (err) {
+    return { ok: false, reason: (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable' };
+  }
+}
+
 /**
  * Reads the last BACKGROUND_TAIL_BYTES of `file`, but only when it is a regular file inside `dir`, the folder the harness reports its output
  * files in. A path is never taken from message text: a caller passes the path the harness itself reported (OpenCode's `info.file`, Claude
@@ -146,13 +162,10 @@ export type TailRead =
  * subagent's `.output` links to its transcript, not to shell output. A missing, moved or unreadable file is a result, never a throw.
  */
 export async function readTail(file: string, dir: string): Promise<TailRead> {
+  const c = await checked(file, dir);
+  if (!c.ok) return c;
   try {
-    const link = await lstat(file);
-    if (link.isSymbolicLink() || !link.isFile()) return { ok: false, reason: 'not-a-file' };
-    const [real, root] = await Promise.all([realpath(file), realpath(dir)]);
-    const rel = path.relative(root, real);
-    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return { ok: false, reason: 'outside' };
-    const handle = await open(real, 'r');
+    const handle = await open(c.real, 'r');
     try {
       const { size, mtimeMs } = await handle.stat();
       const length = Math.min(size, BACKGROUND_TAIL_BYTES);
@@ -160,13 +173,28 @@ export async function readTail(file: string, dir: string): Promise<TailRead> {
       if (length > 0) await handle.read(buf, 0, length, size - length);
       let text = buf.toString('utf8');
       // The read may start inside a multi-byte character; that one broken character is not text.
-      if (size > length) text = text.replace(/^�+/, '');
+      if (size > length) text = text.replace(/^\uFFFD+/, '');
       return { ok: true, text, cutAtStart: size > length, mtimeMs, size };
     } finally {
       await handle.close();
     }
   } catch (err) {
     return { ok: false, reason: (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable' };
+  }
+}
+
+/**
+ * When the output file last changed, and how big it is, under the same rules as `readTail` but without reading a byte of it: what the list
+ * shows ("last output 4 s ago") needs only this, so it needs no consent for the output itself.
+ */
+export async function outputTimes(file: string, dir: string): Promise<{ ok: true; mtimeMs: number; size: number } | { ok: false; reason: 'missing' | 'outside' | 'not-a-file' | 'unreadable' }> {
+  const c = await checked(file, dir);
+  if (!c.ok) return c;
+  try {
+    const st = await lstat(c.real);
+    return { ok: true, mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return { ok: false, reason: 'unreadable' };
   }
 }
 

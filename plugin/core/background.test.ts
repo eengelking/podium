@@ -13,6 +13,7 @@ import {
   exitCodeOf,
   keepBackground,
   labelOf,
+  outputTimes,
   readTail,
   withinBackgroundBudget,
   type RawBackgroundItem,
@@ -162,6 +163,13 @@ describe('reading an output file (#897)', () => {
   test('says a missing file is missing, and does not throw for a folder that is gone', async () => {
     expect(await readTail(path.join(tasks, 'gone.output'), tasks)).toEqual({ ok: false, reason: 'missing' })
     expect(await readTail(path.join(tasks, 'gone.output'), path.join(dir, 'no-such-folder'))).toEqual({ ok: false, reason: 'missing' })
+  })
+
+  test('reports an output file’s time and size without reading it, under the same rules', async () => {
+    const f = write('times.output', 'abc')
+    expect(await outputTimes(f, tasks)).toMatchObject({ ok: true, size: 3 })
+    expect(await outputTimes(path.join(tasks, '..', 'outside.txt'), tasks)).toEqual({ ok: false, reason: 'outside' })
+    expect(await outputTimes(path.join(tasks, 'gone.output'), tasks)).toEqual({ ok: false, reason: 'missing' })
   })
 
   test('cleans up', () => {
