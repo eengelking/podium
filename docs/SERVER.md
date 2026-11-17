@@ -512,6 +512,7 @@ sends to the browser, and the browser draws it, so the work grows with the amoun
 As one example, Chrome on an M5 MacBook Pro used about 24% GPU with ten simulated sessions and a hundred
 agents on screen, against about 15% for a plain page (#81). That is one machine and one browser, not a
 promise. To measure your own, open a tab and run `scripts/gpu-sample.sh` (macOS; `--help` lists its options).
+In the #280 measurements the same ten-session wall read 20.7% live and 12.2% with the data frozen, and a live wall of 200 sessions read 55.2%. An open modal blurs the wall behind it, which more than doubles the load on a live wall (52.9% at ten sessions), so close a modal you are not using. The figures are in [Performance](PERFORMANCE.md#browser-gpu-load-280). `scripts/podium-throwaway-fleet.sh` keeps a throwaway server and the simulator up so a real tab can be measured.
 
 To lower it:
 
