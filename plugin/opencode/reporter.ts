@@ -3,6 +3,7 @@
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
 import path from 'node:path';
 import { outputTimes, readTail } from '../core/background.ts';
+import { nodeOutputFs } from './outputFs.ts';
 import { excerpt, explainPrompt } from '../core/failures.ts';
 import { lastSegment, readChanges, readGitState, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
@@ -556,7 +557,7 @@ export class Reporter {
         if (!sh.file || !path.isAbsolute(sh.file) || !sh.file.endsWith('.out') || (sh.exited && sh.settled && (!detail || sh.output !== null))) continue;
         const dir = path.dirname(sh.file);
         if (detail) {
-          const r = await readTail(sh.file, dir);
+          const r = await readTail(nodeOutputFs, sh.file, dir);
           if (!r.ok) {
             sh.settled = sh.exited;
             continue;
@@ -566,7 +567,7 @@ export class Reporter {
           sh.outputCutAtStart = r.cutAtStart;
           sh.lastOutputAt = r.size > 0 ? Math.round(r.mtimeMs) : null;
         } else {
-          const r = await outputTimes(sh.file, dir);
+          const r = await outputTimes(nodeOutputFs, sh.file, dir);
           if (!r.ok) {
             sh.settled = sh.exited;
             continue;

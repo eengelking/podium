@@ -1,8 +1,6 @@
 // A loop's background shells and monitors as a report carries them (#897). Pure apart from `readTail`, and the same for every harness: the Claude
 // Code and the OpenCode reporter each find their own items and their output files, and send them through here, so the limits, the redaction, the
 // wording of a cut and the rule for which files may be read cannot differ between them. See docs/decisions/ (the entry for #897).
-import { open, lstat, realpath } from 'node:fs/promises';
-import path from 'node:path';
 import { redactBounded } from './diffRedact.ts';
 import { stripControl } from './feed.ts';
 import { cap, clip } from './failures.ts';
@@ -134,24 +132,58 @@ export function withinBackgroundBudget(r: Report): Report {
 
 // ---- reading an output file ------------------------------------------------------------------------------------------------------
 
+/** What a host's file system says about a path (the shape of Claude Code's `$.fs.stat`, which OpenCode's Node adapter matches). */
+export interface OutputStat {
+  /** What the path leads to: a link is followed. */
+  kind: 'file' | 'dir' | 'other';
+  size: number;
+  mtimeMs: number;
+  /** The path itself is a symbolic link. */
+  isLink: boolean;
+  /** Where the path lands, when asked with `resolve`. */
+  realPath?: string;
+}
+
+/** The file system a harness gives `readTail`. Every call may reject (a missing file, a refusal); core turns that into a result. */
+export interface OutputFs {
+  /** Rejects when the path is missing. With `resolve`, answers `realPath` as well. */
+  stat(path: string, options?: { resolve?: boolean }): Promise<OutputStat>;
+  /** The whole file as text; rejects over the host's own limit (Claude Code: 4 MiB). */
+  read(path: string): Promise<string>;
+  /** The last `bytes` of a file as text, for a host that can read part of a file (Node can; Claude Code's sandbox cannot). */
+  tail?(path: string, bytes: number): Promise<string>;
+}
+
+/** Why an output file was not read. `too-large` is a file past what the host reads whole and cannot be read in part. */
+export type NotRead = 'missing' | 'outside' | 'not-a-file' | 'too-large' | 'unreadable';
+
 /** The result of reading the tail of an output file the harness named. */
 export type TailRead =
   | { ok: true; text: string; cutAtStart: boolean; mtimeMs: number; size: number }
-  | { ok: false; reason: 'missing' | 'outside' | 'not-a-file' | 'unreadable' };
+  | { ok: false; reason: NotRead };
 
-type Checked = { ok: true; real: string } | { ok: false; reason: 'missing' | 'outside' | 'not-a-file' | 'unreadable' };
+/** The most a host without partial reads is asked to read whole: Claude Code's `$.fs.read` rejects over 4 MiB. */
+export const WHOLE_FILE_MAX_BYTES = 4 * 1024 * 1024;
+
+const trimEnd = (p: string): string => p.replace(/[\\/]+$/, '');
+const sepOf = (p: string): string => (p.includes('\\') && !p.includes('/') ? '\\' : '/');
+
+type Checked = { ok: true; real: string; stat: OutputStat } | { ok: false; reason: NotRead };
+
+const missing = (err: unknown): boolean => /ENOENT|not found|no such file|missing/i.test(String((err as { code?: unknown; message?: unknown })?.code ?? '') + String((err as { message?: unknown })?.message ?? ''));
 
 /** The real path of `file`, but only when it is a regular file (not a link) inside `dir`; otherwise why not. */
-async function checked(file: string, dir: string): Promise<Checked> {
+async function checked(fs: OutputFs, file: string, dir: string): Promise<Checked> {
   try {
-    const link = await lstat(file);
-    if (link.isSymbolicLink() || !link.isFile()) return { ok: false, reason: 'not-a-file' };
-    const [real, root] = await Promise.all([realpath(file), realpath(dir)]);
-    const rel = path.relative(root, real);
-    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return { ok: false, reason: 'outside' };
-    return { ok: true, real };
+    const own = await fs.stat(file, { resolve: true });
+    if (own.isLink || own.kind !== 'file' || !own.realPath) return { ok: false, reason: 'not-a-file' };
+    const folder = await fs.stat(dir, { resolve: true });
+    if (folder.kind !== 'dir' || !folder.realPath) return { ok: false, reason: 'outside' };
+    const root = trimEnd(folder.realPath);
+    if (!own.realPath.startsWith(root + sepOf(root)) || own.realPath.slice(root.length + 1).split(/[\\/]/).includes('..')) return { ok: false, reason: 'outside' };
+    return { ok: true, real: own.realPath, stat: own };
   } catch (err) {
-    return { ok: false, reason: (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable' };
+    return { ok: false, reason: missing(err) ? 'missing' : 'unreadable' };
   }
 }
 
@@ -161,25 +193,27 @@ async function checked(file: string, dir: string): Promise<Checked> {
  * Code's `tasks/<id>.output` beside its scratchpad). A link is refused whether it points out of the folder or not, because a Claude Code
  * subagent's `.output` links to its transcript, not to shell output. A missing, moved or unreadable file is a result, never a throw.
  */
-export async function readTail(file: string, dir: string): Promise<TailRead> {
-  const c = await checked(file, dir);
+export async function readTail(fs: OutputFs, file: string, dir: string): Promise<TailRead> {
+  const c = await checked(fs, file, dir);
   if (!c.ok) return c;
+  const { size, mtimeMs } = c.stat;
   try {
-    const handle = await open(c.real, 'r');
-    try {
-      const { size, mtimeMs } = await handle.stat();
-      const length = Math.min(size, BACKGROUND_TAIL_BYTES);
-      const buf = Buffer.alloc(length);
-      if (length > 0) await handle.read(buf, 0, length, size - length);
-      let text = buf.toString('utf8');
-      // The read may start inside a multi-byte character; that one broken character is not text.
-      if (size > length) text = text.replace(/^\uFFFD+/, '');
-      return { ok: true, text, cutAtStart: size > length, mtimeMs, size };
-    } finally {
-      await handle.close();
+    let text: string;
+    let cutAtStart = false;
+    if (fs.tail) {
+      text = size > 0 ? await fs.tail(c.real, BACKGROUND_TAIL_BYTES) : '';
+      cutAtStart = size > BACKGROUND_TAIL_BYTES;
+    } else {
+      if (size > WHOLE_FILE_MAX_BYTES) return { ok: false, reason: 'too-large' };
+      const whole = size > 0 ? await fs.read(c.real) : '';
+      cutAtStart = whole.length > BACKGROUND_TAIL_BYTES;
+      text = cutAtStart ? whole.slice(whole.length - BACKGROUND_TAIL_BYTES) : whole;
     }
+    // A read that starts inside a multi-byte character begins with a broken one; that is not text.
+    if (cutAtStart) text = text.replace(/^\uFFFD+/, '');
+    return { ok: true, text, cutAtStart, mtimeMs, size };
   } catch (err) {
-    return { ok: false, reason: (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable' };
+    return { ok: false, reason: missing(err) ? 'missing' : 'unreadable' };
   }
 }
 
@@ -187,15 +221,9 @@ export async function readTail(file: string, dir: string): Promise<TailRead> {
  * When the output file last changed, and how big it is, under the same rules as `readTail` but without reading a byte of it: what the list
  * shows ("last output 4 s ago") needs only this, so it needs no consent for the output itself.
  */
-export async function outputTimes(file: string, dir: string): Promise<{ ok: true; mtimeMs: number; size: number } | { ok: false; reason: 'missing' | 'outside' | 'not-a-file' | 'unreadable' }> {
-  const c = await checked(file, dir);
-  if (!c.ok) return c;
-  try {
-    const st = await lstat(c.real);
-    return { ok: true, mtimeMs: st.mtimeMs, size: st.size };
-  } catch {
-    return { ok: false, reason: 'unreadable' };
-  }
+export async function outputTimes(fs: OutputFs, file: string, dir: string): Promise<{ ok: true; mtimeMs: number; size: number } | { ok: false; reason: NotRead }> {
+  const c = await checked(fs, file, dir);
+  return c.ok ? { ok: true, mtimeMs: c.stat.mtimeMs, size: c.stat.size } : c;
 }
 
 /** The exit code a Claude Code output file ends with (`[exited with code N]`); null when the file does not end that way. */

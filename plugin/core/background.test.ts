@@ -1,7 +1,4 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import {
   BACKGROUND_CUT_MARKER,
   BACKGROUND_DETAIL_CHARS_PER_REPORT,
@@ -15,7 +12,10 @@ import {
   labelOf,
   outputTimes,
   readTail,
+  WHOLE_FILE_MAX_BYTES,
   withinBackgroundBudget,
+  type OutputFs,
+  type OutputStat,
   type RawBackgroundItem,
 } from './background.ts'
 import type { BackgroundItem, Report } from './protocol.ts'
@@ -115,66 +115,97 @@ describe('the report budget (#897)', () => {
   })
 })
 
-describe('reading an output file (#897)', () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-bg-'))
-  const tasks = path.join(dir, 'tasks')
-  mkdirSync(tasks)
-  const write = (name: string, text: string | Buffer) => {
-    const file = path.join(tasks, name)
-    writeFileSync(file, text)
-    return file
-  }
+type Entry = { kind: 'file' | 'dir' | 'other'; text?: string; size?: number; mtimeMs?: number; link?: string }
 
-  test('reads a small file whole', async () => {
-    const r = await readTail(write('a.output', 'hello\nworld\n'), tasks)
-    expect(r).toMatchObject({ ok: true, text: 'hello\nworld\n', cutAtStart: false, size: 12 })
+/** A file system in memory with the shape of the host's: a path may be a link, and `realPath` is where it lands. */
+function fakeFs(files: Record<string, Entry>, tail = false): OutputFs {
+  const norm = (p: string): string => {
+    const out: string[] = []
+    for (const part of p.split('/')) {
+      if (part === '..') out.pop()
+      else if (part !== '' && part !== '.') out.push(part)
+    }
+    return '/' + out.join('/')
+  }
+  const stat = async (p: string, options?: { resolve?: boolean }): Promise<OutputStat> => {
+    const path = norm(p)
+    const e = files[path]
+    if (!e) throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+    const target = e.link ? files[norm(e.link)] : e
+    return {
+      kind: target?.kind ?? 'other',
+      size: target?.size ?? target?.text?.length ?? 0,
+      mtimeMs: target?.mtimeMs ?? 0,
+      isLink: !!e.link,
+      ...(options?.resolve && target ? { realPath: e.link ? norm(e.link) : path } : {}),
+    }
+  }
+  const text = (p: string) => files[norm(p)]?.text ?? ''
+  return {
+    stat,
+    read: async (p) => text(p),
+    ...(tail ? { tail: async (p: string, bytes: number) => text(p).slice(-bytes) } : {}),
+  }
+}
+
+describe('reading an output file (#897)', () => {
+  const files: Record<string, Entry> = {
+    '/tmp/s/tasks': { kind: 'dir' },
+    '/tmp/s/tasks/a.output': { kind: 'file', text: 'hello\nworld\n', mtimeMs: 7000 },
+    '/tmp/s/tasks/empty.output': { kind: 'file', text: '', mtimeMs: 1 },
+    '/tmp/s/tasks/in-link.output': { kind: 'other', link: '/tmp/s/tasks/a.output' },
+    '/tmp/s/tasks/out-link.output': { kind: 'other', link: '/tmp/s/transcript.jsonl' },
+    '/tmp/s/tasks/sub': { kind: 'dir' },
+    '/tmp/s/transcript.jsonl': { kind: 'file', text: 'secret' },
+    '/tmp/s/outside.txt': { kind: 'file', text: 'secret' },
+    '/tmp/s/tasks/big.output': { kind: 'file', text: 'é'.repeat(BACKGROUND_TAIL_BYTES + 10), mtimeMs: 9 },
+    '/tmp/s/tasks/huge.output': { kind: 'file', text: 'x', size: WHOLE_FILE_MAX_BYTES + 1, mtimeMs: 9 },
+  }
+  const dir = '/tmp/s/tasks'
+
+  test('reads a small file whole, with its time and size', async () => {
+    expect(await readTail(fakeFs(files), `${dir}/a.output`, dir)).toEqual({ ok: true, text: 'hello\nworld\n', cutAtStart: false, mtimeMs: 7000, size: 12 })
   })
 
   test('reads an empty file as an empty text', async () => {
-    expect(await readTail(write('empty.output', ''), tasks)).toMatchObject({ ok: true, text: '', cutAtStart: false, size: 0 })
+    expect(await readTail(fakeFs(files), `${dir}/empty.output`, dir)).toMatchObject({ ok: true, text: '', cutAtStart: false, size: 0 })
   })
 
-  test('reads only the tail of a large file and says it cut the front, never starting inside a character', async () => {
-    const r = await readTail(write('big.output', Buffer.from('é'.repeat(BACKGROUND_TAIL_BYTES))), tasks)
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
-    expect(r.cutAtStart).toBe(true)
-    expect(Buffer.byteLength(r.text)).toBeLessThanOrEqual(BACKGROUND_TAIL_BYTES)
-    expect(r.text.startsWith('é')).toBe(true)
+  test('reads only the tail of a large file and says it cut the front, with or without a host that reads part of a file', async () => {
+    for (const tail of [false, true]) {
+      const r = await readTail(fakeFs(files, tail), `${dir}/big.output`, dir)
+      expect(r.ok).toBe(true)
+      if (!r.ok) continue
+      expect(r.cutAtStart).toBe(true)
+      expect(r.text.length).toBeLessThanOrEqual(BACKGROUND_TAIL_BYTES)
+    }
   })
 
   test('refuses a path outside the folder, including one that climbs out with ..', async () => {
-    const outside = path.join(dir, 'outside.txt')
-    writeFileSync(outside, 'secret')
-    expect(await readTail(outside, tasks)).toEqual({ ok: false, reason: 'outside' })
-    expect(await readTail(path.join(tasks, '..', 'outside.txt'), tasks)).toEqual({ ok: false, reason: 'outside' })
+    expect(await readTail(fakeFs(files), '/tmp/s/outside.txt', dir)).toEqual({ ok: false, reason: 'outside' })
+    expect(await readTail(fakeFs(files), `${dir}/../outside.txt`, dir)).toEqual({ ok: false, reason: 'outside' })
   })
 
   test('refuses a link, whether it points out of the folder or into it, and a folder', async () => {
-    const target = write('real.output', 'real')
-    symlinkSync(path.join(dir, 'outside.txt'), path.join(tasks, 'out-link.output'))
-    symlinkSync(target, path.join(tasks, 'in-link.output'))
-    mkdirSync(path.join(tasks, 'sub'))
-    expect(await readTail(path.join(tasks, 'out-link.output'), tasks)).toEqual({ ok: false, reason: 'not-a-file' })
-    expect(await readTail(path.join(tasks, 'in-link.output'), tasks)).toEqual({ ok: false, reason: 'not-a-file' })
-    expect(await readTail(path.join(tasks, 'sub'), tasks)).toEqual({ ok: false, reason: 'not-a-file' })
+    for (const name of ['in-link.output', 'out-link.output', 'sub']) expect(await readTail(fakeFs(files), `${dir}/${name}`, dir)).toEqual({ ok: false, reason: 'not-a-file' })
   })
 
-  test('says a missing file is missing, and does not throw for a folder that is gone', async () => {
-    expect(await readTail(path.join(tasks, 'gone.output'), tasks)).toEqual({ ok: false, reason: 'missing' })
-    expect(await readTail(path.join(tasks, 'gone.output'), path.join(dir, 'no-such-folder'))).toEqual({ ok: false, reason: 'missing' })
+  test('says a missing file is missing and a folder that is gone is not a place to read from, and never throws', async () => {
+    expect(await readTail(fakeFs(files), `${dir}/gone.output`, dir)).toEqual({ ok: false, reason: 'missing' })
+    expect(await readTail(fakeFs(files), `${dir}/a.output`, '/tmp/s/no-such-folder')).toEqual({ ok: false, reason: 'missing' })
+    const broken: OutputFs = { stat: async () => { throw new Error('EACCES') }, read: async () => '' }
+    expect(await readTail(broken, `${dir}/a.output`, dir)).toEqual({ ok: false, reason: 'unreadable' })
   })
 
-  test('reports an output file’s time and size without reading it, under the same rules', async () => {
-    const f = write('times.output', 'abc')
-    expect(await outputTimes(f, tasks)).toMatchObject({ ok: true, size: 3 })
-    expect(await outputTimes(path.join(tasks, '..', 'outside.txt'), tasks)).toEqual({ ok: false, reason: 'outside' })
-    expect(await outputTimes(path.join(tasks, 'gone.output'), tasks)).toEqual({ ok: false, reason: 'missing' })
+  test('says a file too large for a host that cannot read part of a file is too large, and reads it where it can', async () => {
+    expect(await readTail(fakeFs(files), `${dir}/huge.output`, dir)).toEqual({ ok: false, reason: 'too-large' })
+    expect(await readTail(fakeFs(files, true), `${dir}/huge.output`, dir)).toMatchObject({ ok: true, cutAtStart: true })
   })
 
-  test('cleans up', () => {
-    rmSync(dir, { recursive: true, force: true })
-    expect(true).toBe(true)
+  test('reports a file’s time and size without reading it, under the same rules', async () => {
+    expect(await outputTimes(fakeFs(files), `${dir}/a.output`, dir)).toEqual({ ok: true, mtimeMs: 7000, size: 12 })
+    expect(await outputTimes(fakeFs(files), '/tmp/s/outside.txt', dir)).toEqual({ ok: false, reason: 'outside' })
+    expect(await outputTimes(fakeFs(files), `${dir}/gone.output`, dir)).toEqual({ ok: false, reason: 'missing' })
   })
 })
 
