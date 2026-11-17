@@ -6,7 +6,7 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, keyList, keyText, mentionsOf, newChannelId, newServerScope, stillOwed, toChannelMessage, withMentionState, type DbChannelRow,
+  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, stillOwed, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 
@@ -94,6 +94,13 @@ class Channel {
     if (!next) return null;
     this.stmt(`UPDATE ${this.table} SET mentions_json = ?, updated_at = ? WHERE id = ?`).run(JSON.stringify(next), at, id);
     return toChannelMessage(this.byId(id, scope) as DbChannelRow);
+  }
+
+  heldMentions(scope: GroupScope | null, filter: { sessionId?: string }): ChannelMessage[] {
+    const w = this.where(scope);
+    const likes = heldLikes(filter.sessionId);
+    const rows = this.stmt(`SELECT ${this.cols} FROM ${this.table} WHERE ${w.sql} AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`).all(...w.args, ...likes) as unknown as DbChannelRow[];
+    return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
   }
 
   clear(scope: GroupScope | null): number {
@@ -334,6 +341,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     post: (s, input) => step(() => group.post(s, input)),
     page: (s, o) => step(() => group.page(s, o)),
     setMention: (s, id, index, patch) => step(() => group.setMention(s, id, index, patch)),
+    heldMentions: (s, filter) => step(() => group.heldMentions(s, filter)),
     clear: (s) => step(() => group.clear(s)),
     count: (s) => step(() => group.count(s)),
     purge: (olderThan) => step(() => group.purge(olderThan)),
@@ -342,6 +350,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     post: (input) => step(() => pub.post(null, input)),
     page: (o) => step(() => pub.page(null, o)),
     setMention: (id, index, patch) => step(() => pub.setMention(null, id, index, patch)),
+    heldMentions: (filter) => step(() => pub.heldMentions(null, filter)),
     clear: () => step(() => pub.clear(null)),
     count: () => step(() => pub.count(null)),
     purge: (olderThan) => step(() => pub.purge(olderThan)),

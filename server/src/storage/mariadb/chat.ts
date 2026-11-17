@@ -5,7 +5,7 @@
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, keyList, keyText, mentionsOf, newChannelId, newServerScope, stillOwed, toChannelMessage, withMentionState, type DbChannelRow,
+  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, stillOwed, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 import type { MariaDbConn } from './conn.js';
@@ -88,6 +88,16 @@ class MariaChannel {
       await this.db.run(`UPDATE ${this.table} SET mentions_json = ?, updated_at = ? WHERE id = ?`, [JSON.stringify(next), at, id]);
       return toChannelMessage((await this.byId(id, scope)) as DbChannelRow);
     });
+  }
+
+  async heldMentions(scope: GroupScope | null, filter: { sessionId?: string }): Promise<ChannelMessage[]> {
+    const w = this.where(scope);
+    const likes = heldLikes(filter.sessionId);
+    const rows = await this.db.all<DbChannelRow>(
+      `SELECT ${this.cols} FROM ${this.table} WHERE ${w.sql} AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`,
+      [...w.args, ...likes],
+    );
+    return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
   }
 
   clear(scope: GroupScope | null): Promise<number> {
@@ -316,6 +326,7 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     post: (s, input) => group.post(s, input),
     page: (s, o) => group.page(s, o),
     setMention: (s, id, index, patch) => group.setMention(s, id, index, patch),
+    heldMentions: (s, filter) => group.heldMentions(s, filter),
     clear: (s) => group.clear(s),
     count: (s) => group.count(s),
     purge: (olderThan) => group.purge(olderThan),
@@ -324,6 +335,7 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     post: (input) => pub.post(null, input),
     page: (o) => pub.page(null, o),
     setMention: (id, index, patch) => pub.setMention(null, id, index, patch),
+    heldMentions: (filter) => pub.heldMentions(null, filter),
     clear: () => pub.clear(null),
     count: () => pub.count(null),
     purge: (olderThan) => pub.purge(olderThan),

@@ -127,6 +127,69 @@ export function chatCases(o: Openers): void {
     expect(t.get('count (cleared)')).toBe(0);
   });
 
+  it('agrees on every adapter for the held mentions of a channel (#1046): oldest first, only the held ones, narrowed to one session, scoped to the group', async () => {
+    const held = (sessionId: string | null, state?: 'held' | 'working'): ChannelPostInput['mentions'] => [{ sessionId, peerKey: 'k', typed: 'x@box', ...(state ? { state } : {}) }];
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      const g = chat.group;
+      const pub = chat.public;
+      await g.post(G, input('plain'));
+      const a = await g.post(G, input('held for sa', { mentions: held('sa', 'held') }));
+      await g.post(G, input('working for sa', { mentions: held('sa', 'working') }));
+      clock.now += 3;
+      // Two at one moment: the insertion number decides the order. The second holds a mention for sa and another for sb.
+      await g.post(G, input('held for sb', { mentions: held('sb', 'held') }));
+      await g.post(G, input('held for both', { mentions: [...held('sa', 'held')!, ...held('sb', 'held')!] }));
+      await g.post({ owner: 'ed', groupId: 'g2' }, input('another group', { mentions: held('sa', 'held') }));
+      await g.post({ owner: 'eve', groupId: 'g1' }, input('another owner', { mentions: held('sa', 'held') }));
+      await pub.post(input('general held', { mentions: held('sa', 'held') }));
+      await pub.post(input('general held for sc', { mentions: held('sc', 'held') }));
+      await rec('group: every held', g.heldMentions(G, {}));
+      await rec('group: held for sa', g.heldMentions(G, { sessionId: 'sa' }));
+      await rec('group: held for nobody', g.heldMentions(G, { sessionId: 'nobody' }));
+      await rec('group: another group', g.heldMentions({ owner: 'ed', groupId: 'g2' }, {}));
+      await rec('general: every held', pub.heldMentions({}));
+      await rec('general: held for sc', pub.heldMentions({ sessionId: 'sc' }));
+      clock.now += 1;
+      await g.setMention(G, a.id, 0, { state: 'done' });
+      await rec('group: held for sa (one taken)', g.heldMentions(G, { sessionId: 'sa' }));
+    });
+    expect(texts({ messages: t.get('group: every held') as ChannelMessage[], older: null })).toEqual(['held for sa', 'held for sb', 'held for both']);
+    expect(texts({ messages: t.get('group: held for sa') as ChannelMessage[], older: null })).toEqual(['held for sa', 'held for both']);
+    expect(t.get('group: held for nobody')).toEqual([]);
+    expect(texts({ messages: t.get('group: another group') as ChannelMessage[], older: null })).toEqual(['another group']);
+    expect(texts({ messages: t.get('general: every held') as ChannelMessage[], older: null })).toEqual(['general held', 'general held for sc']);
+    expect(texts({ messages: t.get('general: held for sc') as ChannelMessage[], older: null })).toEqual(['general held for sc']);
+    expect(texts({ messages: t.get('group: held for sa (one taken)') as ChannelMessage[], older: null })).toEqual(['held for both']);
+  });
+
+  onEachAdapter(o, 'finds the held mentions of a channel without reading the pages of a large history (#1046)', async (s) => {
+    const clock = { now: T0 };
+    const pub = s.chat({ now: () => clock.now }).public;
+    const held = (sessionId: string): ChannelPostInput['mentions'] => [{ sessionId, peerKey: 'k', typed: `${sessionId}@box`, state: 'held' }];
+    const cost = async (): Promise<number> => {
+      let best = Infinity;
+      for (let r = 0; r < 3; r++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 20; i++) await pub.heldMentions({ sessionId: 'sa' });
+        best = Math.min(best, performance.now() - t0);
+      }
+      return best;
+    };
+    for (let i = 0; i < 100; i++) await pub.post(input(`old ${i}`));
+    await pub.post(input('held early', { mentions: held('sa') }));
+    const small = await cost();
+    for (let i = 0; i < 3000; i++) await pub.post(input(`later ${i}`));
+    await pub.post(input('held late', { mentions: held('sa') }));
+    await pub.post(input('held for another', { mentions: held('sb') }));
+    const large = await cost();
+    // The early one is further back than the 1,000 messages the pages used to reach: it is found now.
+    expect((await pub.heldMentions({ sessionId: 'sa' })).map((x) => x.text)).toEqual(['held early', 'held late']);
+    expect((await pub.heldMentions({})).length).toBe(3);
+    expect(large).toBeLessThan(Math.max(small * 5, 250));
+  }, 300_000);
+
   it('agrees on every adapter for the unread and mention counts and the last-read cursor of one person in one thread', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };

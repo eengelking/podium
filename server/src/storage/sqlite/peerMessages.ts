@@ -38,6 +38,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
+import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
 import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
@@ -659,6 +660,18 @@ export class PeerMessages implements PeerMessagesApi {
     if (!this.ownsPair(owner, a, b)) return 0;
     for (const m of this.rows(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, a, b, b, a)) this.rights.closeMessageRequest(m.id, 'dropped');
     return Number(this.stmt(`DELETE FROM peer_messages WHERE ${PAIR_WHERE}`).run(a, b, b, a).changes);
+  }
+
+  conversationOf(a: string, b: string): ConversationSummary | null {
+    // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
+    const rows = this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, a, b, b, a);
+    return rows.length > 0 ? this.summary(rows) : null;
+  }
+
+  conversationCounts(owners: string[]): Record<string, number> {
+    return countConversations(this.stmt(
+        'SELECT owner, from_session, to_session, MIN(CASE WHEN hidden_at IS NULL THEN 0 ELSE 1 END) AS all_hidden FROM peer_messages GROUP BY owner, from_session, to_session ORDER BY owner, from_session, to_session',
+      ).all() as unknown as ConversationGroupRow[], owners);
   }
 
   ownerConversations(owner: string, opts: { includeHidden?: boolean } = {}): OwnerConversation[] {

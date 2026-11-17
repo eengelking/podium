@@ -58,6 +58,19 @@ export function mentionsOf(input: ChannelPostInput, at: number): ChannelMention[
   });
 }
 
+/** The `LIKE` patterns that cut a channel's rows down to the ones that can hold a held mention (for `session`, when given). They are a filter and `holdsHeld` decides: a match is only a candidate. */
+export function heldLikes(sessionId?: string): string[] {
+  const likes = ['%"state":"held"%'];
+  // An id with a character `LIKE` reads as its own would only widen the candidates, but a backslash or a quote changes the pattern's meaning: leave those to `holdsHeld`.
+  if (sessionId !== undefined && /^[\w.:@-]+$/.test(sessionId)) likes.push(`%"sessionId":"${sessionId}"%`);
+  return likes;
+}
+
+/** Whether the message has a mention in the `held` state (of `sessionId`, when given). */
+export function holdsHeld(m: ChannelMessage, sessionId?: string): boolean {
+  return m.mentions.some((x) => x.state === 'held' && (sessionId === undefined || x.sessionId === sessionId));
+}
+
 export function parseMentions(json: string): ChannelMention[] {
   return JSON.parse(json) as ChannelMention[];
 }

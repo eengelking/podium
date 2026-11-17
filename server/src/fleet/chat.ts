@@ -157,6 +157,13 @@ export class ChatService {
     return this.overview(viewer, subject.name);
   }
 
+  /** Everyone the Admin's picker lists, each with their conversation count from one read for all of them (#1046). */
+  private async peopleWithCounts(): Promise<{ name: string; you: boolean; directs: number }[]> {
+    const persons = await this.core.persons();
+    const counts = await this.direct.countsOf(persons.map((p) => p.name));
+    return persons.map((p) => ({ name: p.name, you: false, directs: counts[p.name] ?? 0 }));
+  }
+
   async overview(viewer: ChatViewer, browsing?: string): Promise<Overview> {
     const person = viewer.personId !== null;
     const host = this.core.host;
@@ -215,7 +222,7 @@ export class ChatService {
       directs,
       agents: agents.sort((a, b) => a.address.localeCompare(b.address)),
       people: browsing
-        ? await Promise.all((await this.core.persons()).map(async (p) => ({ name: p.name, you: false, directs: await this.direct.countOf(p.name) })))
+        ? await this.peopleWithCounts()
         : (await this.core.persons()).map((p) => ({ name: p.name, you: p.key === nameKey(viewer.name) })),
       approvals: person && !browsing ? await this.direct.approvalsFor(viewer.name) : 0,
       listReading,
