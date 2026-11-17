@@ -4,6 +4,7 @@ import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
 import type { Storage } from '../types.js';
 import { openMariaDbStorage } from './index.js';
 import { openUpgradedMariaDb } from './upgradeTesting.js';
+import { mariadbSamplesPerf } from './samplesPerf.js';
 import { ACTIVITY_MIGRATIONS, CONSTRAINT_INDEX, MAIN_MIGRATIONS } from './schema.js';
 import { TEST_MARIADB, createTestDatabase, withConnection, type TestDatabase } from './testing.js';
 
@@ -66,6 +67,7 @@ export function mariadbContractAdapter(): ContractAdapter {
         await td.drop();
       }
     },
+    samplesPerf: mariadbSamplesPerf,
     known: [
       // As on PostgreSQL (#1007), no typed validation layer is built. What MariaDB does with such a number (#823): a fraction sent to an
       // integer column is rounded half away from zero and stored with no error (1.5 is stored as 2, -2.5 as -3), a number of 1e21 or more

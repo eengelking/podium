@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { contractAdapterFor, registerStorageKind, testedStorageKinds } from './index.js';
+import { contractAdapterFor, openStorage, registerStorageKind, testedStorageKinds } from './index.js';
 import type { ContractAdapter } from './contractAdapter.js';
 import { runStorageContract } from './contract.js';
 import { differentialCases } from './contractDifferential.js';
@@ -55,6 +55,32 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
       const b = names(other);
       expect(a.filter((n) => !b.includes(n)), `in ${first!.name} and not in ${other.name}`).toEqual([]);
       expect(b.filter((n) => !a.includes(n)), `in ${other.name} and not in ${first!.name}`).toEqual([]);
+    }
+  });
+
+  // The measurement helper of each adapter (#755): its SQL is the adapter's own, so a seeded table and an index it can drop and create are checked here.
+  it('seeds samples and drops and creates the samples_t index in every adapter', async () => {
+    for (const a of running) {
+      const perf = await a.samplesPerf!();
+      try {
+        await perf.seed(2, 90, 1_800_000_000);
+        expect(await perf.rows(), `${a.name} rows`).toBe(180);
+        const withIndex = await perf.indexBytes();
+        await perf.dropIndex();
+        await perf.createIndex();
+        const rebuilt = await perf.indexBytes();
+        // The size is a number where the database can report one; SQLite without dbstat says null.
+        if (withIndex !== null) expect(rebuilt, `${a.name} index size`).toBeGreaterThan(0);
+        // A storage opens the same database, and the newest sample the seed wrote is at the end second.
+        const storage = await openStorage({ PODIUM_DB: perf.podiumDb } as NodeJS.ProcessEnv);
+        try {
+          expect((await storage.fleet.latestSample('perf-000'))?.t, `${a.name} newest sample`).toBe(1_800_000_000);
+        } finally {
+          await storage.close();
+        }
+      } finally {
+        await perf.close();
+      }
     }
   });
 

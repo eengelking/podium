@@ -4,6 +4,7 @@ import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { openSqliteStorage } from './index.js';
 import { openUpgradedSqlite } from './upgradeTesting.js';
+import { sqliteSamplesPerf } from './samplesPerf.js';
 
 /** Tables the database keeps for itself, not part of the schema the app uses. */
 const INTERNAL = /^(sqlite_|schema_migrations$)/;
@@ -41,6 +42,7 @@ export function sqliteContractAdapter(): ContractAdapter {
       out.indexes.sort((a, b) => a.localeCompare(b));
       return out;
     },
+    samplesPerf: async () => sqliteSamplesPerf(),
     known: [],
     dispose: async () => {
       for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
