@@ -2482,6 +2482,27 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
   });
 
+  it('loads no hidden conversation for an overview while no Admin reads one, and builds only the one that is read (#1063)', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await tester(w, { status: 'done', waitReason: null });
+    await dev(w, { status: 'done', waitReason: null });
+    w.tick(10_000);
+    await w.fleet.sweep();
+    const messages = w.fleet.peers.messages;
+    const all = vi.spyOn(messages, 'ownerConversations');
+    const hiddenAsked = () => all.mock.calls.filter((c) => c[1]?.includeHidden).map((c) => c[1]?.pairs);
+    // No reading is live: the overview asks for no hidden conversation at all (an empty pair list reads none).
+    expect((await w.edB.get(CH)).body.directs).toEqual([]);
+    expect(hiddenAsked()).toEqual([[]]);
+    // One live reading on the hidden conversation: exactly that pair is asked for, and it comes back.
+    expect((await admin.get(`${AB}/messages`)).status).toBe(200);
+    all.mockClear();
+    expect(((await w.edB.get(CH)).body.directs as { thread: string }[]).map((d) => d.thread)).toEqual(['dm:sess-dev|sess-tester']);
+    expect(hiddenAsked()).toEqual([['sess-dev|sess-tester']]);
+  });
+
   it('tells the owner, in their other sessions and on their overview once, when the admin secret deletes a session or an Admin removes a reporter of theirs (#1078)', async () => {
     const w = await world();
     expect(await noticesOf(w, 'dev')).toEqual([]);

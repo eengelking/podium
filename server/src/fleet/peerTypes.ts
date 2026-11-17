@@ -485,7 +485,7 @@ export interface PeerMessagesApi {
   /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). */
   conversationCounts(owners: string[]): Record<string, number>;
   /** The conversations `owner` owns, newest first, hidden ones only when `includeHidden`; and those `owner` took part in as the person who wrote to another person's agent (#1034). Never another person's other conversations. */
-  ownerConversations(owner: string, opts?: { includeHidden?: boolean }): OwnerConversation[];
+  ownerConversations(owner: string, opts?: { includeHidden?: boolean; pairs?: string[] }): OwnerConversation[];
   /** Hides the owner's conversation (every agent in it has left), keeping its messages. Returns how many it marked; 0 when it is hidden already. */
   hideConversation(owner: string, a: string, b: string): number;
   /** Shows a hidden conversation again (the same peers are back). Returns how many it cleared. */

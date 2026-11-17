@@ -283,8 +283,8 @@ export interface PeerStoreApi {
     conversationOf(a: string, b: string): Promise<ConversationSummary | null>;
     /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). One grouped read for all of them; the same number as `ownerConversations(owner).length`. */
     conversationCounts(owners: string[]): Promise<Record<string, number>>;
-    /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. */
-    ownerConversations(owner: string, opts?: { includeHidden?: boolean }): Promise<OwnerConversation[]>;
+    /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. `pairs` limits it to those pairs, each `<session id>|<session id>` in id order, as in a Direct Message thread's name (#1063); an empty list gives none. */
+    ownerConversations(owner: string, opts?: { includeHidden?: boolean; pairs?: string[] }): Promise<OwnerConversation[]>;
     /** Hides the owner's conversation and keeps its messages for the grace period. Returns how many rows it marked; 0 when already hidden. */
     hideConversation(owner: string, a: string, b: string): Promise<number>;
     /** Shows a hidden conversation again: the same peers are back, and the history with them. Returns how many rows it cleared. */
