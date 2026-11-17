@@ -371,6 +371,11 @@ CREATE TABLE answers_daily (
 );
 `),
   },
+  {
+    version: 19,
+    // An index on the sample time (#755), as SQLite migration 43 keeps it: the fleet-wide token and cost queries and the retention delete read by time alone.
+    sql: 'CREATE INDEX samples_t ON samples(t);',
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

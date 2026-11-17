@@ -553,6 +553,13 @@ CREATE TABLE IF NOT EXISTS answers_daily (
   PRIMARY KEY (day, harness, kind, bucket)
 );`,
   },
+  {
+    version: 43,
+    // The fleet-wide token and cost queries (`WHERE t >= ?`, every tick and every five seconds) and the hourly retention delete (`WHERE t < ?`)
+    // read `samples` by time alone, and its key starts with the session, so they scanned the whole table (#755). The same step is
+    // PostgreSQL step 19 and MariaDB step 19.
+    sql: 'CREATE INDEX IF NOT EXISTS samples_t ON samples(t);',
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
