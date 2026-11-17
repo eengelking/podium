@@ -4,6 +4,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 import { stripFormat } from '../peerText.js';
 import { withoutPerson } from '../chatRows.js';
+import { fillOwed } from './chat.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 
 /** How long a machine stays in a person's list without reporting, and how many are kept (#379). */
@@ -191,8 +192,13 @@ export class PeopleStore {
     this.db.prepare('DELETE FROM group_messages WHERE owner = ?').run(key);
     this.db.prepare('DELETE FROM chat_read_state WHERE person = ?').run(key);
     // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
-    const reads = this.db.prepare('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads ORDER BY thread, started_at, admin_key').all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[];
-    for (const r of reads) {
+    // The records still owed to this person are found by the person (#1061); one they have already seen is not owed and stays by retention.
+    fillOwed(this.db);
+    const owed = this.db
+      .prepare('SELECT r.thread, r.admin_key, r.started_at, r.people, r.seen FROM chat_admin_owed o JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at WHERE o.person_key = ? ORDER BY r.thread, r.started_at, r.admin_key')
+      .all(key) as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[];
+    this.db.prepare('DELETE FROM chat_admin_owed WHERE person_key = ?').run(key);
+    for (const r of owed) {
       const out = withoutPerson(r, key);
       if (out === 'none') continue;
       if (out === 'drop') this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at);

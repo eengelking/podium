@@ -46,8 +46,15 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     // The Admin read records come from migration 33; migration 34 gave them a kind, so the rows go in at the schema before it.
     const mid = openDb(file, 33);
     const insertRead = mid.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at) VALUES (?, ?, ?, ?, ?)');
-    for (const x of adminReads) insertRead.run(x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt);
+    for (const x of adminReads.filter((r) => !r.lists)) insertRead.run(x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt);
     mid.close();
+    if (adminReads.some((r) => r.lists)) {
+      // Records that kept who they are owed to (migration 35) and came before the owed table (migration 44).
+      const late = openDb(file, 43);
+      const insertListed = late.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const x of adminReads) if (x.lists) insertListed.run(x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt, x.lists.kind, JSON.stringify(x.lists.people), JSON.stringify(x.lists.seen));
+      late.close();
+    }
   }
   return { storage: openSqliteStorage(file, 0), dir };
 }

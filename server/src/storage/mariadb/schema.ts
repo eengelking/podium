@@ -396,6 +396,18 @@ CREATE TABLE IF NOT EXISTS answers_daily (
     // An index on the sample time (#755), as SQLite migration 43 keeps it: the fleet-wide token and cost queries and the retention delete read by time alone.
     statements: ['CREATE INDEX IF NOT EXISTS samples_t ON samples(t)'],
   },
+  {
+    version: 20,
+    // Who an Admin record is still owed to (#1061), as SQLite migration 44 keeps it. The key is 3,072 bytes, the most InnoDB takes: a person (128 characters, as
+    // `owner` elsewhere), a thread (255), an Admin's key (383) and the time.
+    statements: steps(`
+CREATE TABLE IF NOT EXISTS chat_admin_owed (
+  person_key K(128) NOT NULL, thread K(255) NOT NULL, admin_key ${REPORTER_KEY} NOT NULL, started_at INT NOT NULL,
+  PRIMARY KEY (person_key, thread, admin_key, started_at)
+) TABLE_OPTIONS;
+CREATE INDEX IF NOT EXISTS chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

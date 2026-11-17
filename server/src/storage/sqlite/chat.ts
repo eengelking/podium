@@ -6,7 +6,7 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, stillOwed, toChannelMessage, withMentionState, type DbChannelRow,
+  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, withMentionState, type DbChannelRow,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
 
@@ -189,19 +189,33 @@ interface DbOwed {
   seen: string;
 }
 
-interface DbOwedLists {
-  people: string;
-  seen: string;
-}
-
 const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
+
+/** One person owed one Admin record (#1061). */
+const owe = (db: DatabaseSync, thread: string, adminKey: string, startedAt: number, people: string[]): void => {
+  for (const p of people) db.prepare('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING').run(p, thread, adminKey, startedAt);
+};
+
+/** Once, fills `chat_admin_owed` from the lists of the records made before it (#1061); the key is set last, so an interrupted fill runs again and adds nothing twice. */
+export function fillOwed(db: DatabaseSync): void {
+  if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
+  const rows = db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as DbOwed[];
+  for (const r of rows) owe(db, r.thread, r.admin_key, r.started_at, owedKeys(r));
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(OWED_FILLED_KEY, '1');
+}
 
 /** The records of an Admin reading a thread that is not theirs (`chat_admin_reads`): who, which thread and when. Never any text. */
 class AdminReads {
   constructor(
     private readonly db: DatabaseSync,
     private readonly now: () => number,
-  ) {}
+  ) {
+    fillOwed(db);
+  }
+
+  private owe(thread: string, adminKey: string, startedAt: number, people: string[]): void {
+    owe(this.db, thread, adminKey, startedAt, people);
+  }
 
   touch(thread: string, admin: string, gapMs: number, people: string[] = []): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
     const now = this.now();
@@ -225,6 +239,7 @@ class AdminReads {
     let t = at;
     while (this.db.prepare('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').get(thread, key, t)) t++;
     this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, keyText(people), '[]');
+    this.owe(thread, key, t, keyList(keyText(people)));
     return { admin, startedAt: t, lastSeenAt: t, kind };
   }
 
@@ -253,40 +268,35 @@ class AdminReads {
   }
 
   seen(thread: string, person: string): number {
-    const who = nameKey(person);
-    let n = 0;
-    const rows = this.db.prepare('SELECT admin_key, started_at, people, seen FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key').all(thread) as unknown as DbOwed[];
-    for (const r of rows) {
-      const seen = keyList(r.seen);
-      if (!keyList(r.people).includes(who) || seen.includes(who)) continue;
-      this.db.prepare('UPDATE chat_admin_reads SET seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(keyText([...seen, who]), thread, r.admin_key, r.started_at);
-      n++;
-    }
-    return n;
+    return Number(this.db.prepare('DELETE FROM chat_admin_owed WHERE person_key = ? AND thread = ?').run(nameKey(person), thread).changes);
   }
 
   unseenFor(person: string): (AdminReadRow & { thread: string })[] {
-    const who = nameKey(person);
-    const rows = this.db.prepare('SELECT thread, admin, started_at, last_seen_at, kind, people, seen FROM chat_admin_reads ORDER BY started_at DESC, thread, admin_key, kind').all() as unknown as (DbAdminRead & DbOwedLists)[];
-    return rows.filter((r) => keyList(r.people).includes(who) && !keyList(r.seen).includes(who)).map((r) => ({ thread: r.thread, ...toRead(r) }));
+    const rows = this.db
+      .prepare(
+        `SELECT r.thread, r.admin, r.started_at, r.last_seen_at, r.kind FROM chat_admin_owed o
+         JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at
+         WHERE o.person_key = ? ORDER BY r.started_at DESC, r.thread, r.admin_key, r.kind`,
+      )
+      .all(nameKey(person)) as unknown as DbAdminRead[];
+    return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
 
-  /** Deletes the rows of `rows` that nobody is still owed a look at. */
-  private drop(rows: DbOwed[]): number {
-    let n = 0;
-    for (const r of rows) {
-      if (stillOwed(r)) continue;
-      n += Number(this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at).changes);
-    }
-    return n;
+  /** Deletes the records matched by `where` that nobody is still owed a look at. */
+  private drop(where: string, ...values: (string | number)[]): number {
+    const sql = `DELETE FROM chat_admin_reads WHERE ${where} AND NOT EXISTS (SELECT 1 FROM chat_admin_owed o WHERE o.thread = chat_admin_reads.thread AND o.admin_key = chat_admin_reads.admin_key AND o.started_at = chat_admin_reads.started_at)`;
+    return Number(this.db.prepare(sql).run(...values).changes);
   }
 
   forget(thread: string): number {
-    return this.drop(this.db.prepare('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key').all(thread) as unknown as DbOwed[]);
+    return this.drop('thread = ?', thread);
   }
 
+  /** A record last read 90 days ago or more stops being owed to the people who have not seen it, then goes with the rest that are past `olderThan`. */
   purge(olderThan: number): number {
-    return this.drop(this.db.prepare('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE last_seen_at < ? ORDER BY thread, started_at, admin_key').all(olderThan) as unknown as DbOwed[]);
+    const capped = this.db.prepare('SELECT thread, admin_key, started_at FROM chat_admin_reads WHERE last_seen_at < ? ORDER BY thread, started_at, admin_key').all(this.now() - OWED_CAP_MS) as unknown as DbOwed[];
+    for (const r of capped) this.db.prepare('DELETE FROM chat_admin_owed WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at);
+    return this.drop('last_seen_at < ?', olderThan);
   }
 }
 

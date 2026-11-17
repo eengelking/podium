@@ -487,6 +487,62 @@ export function chatCases(o: Openers): void {
     expect(t.get('Eve after Ed saw it')).toEqual(['dm:a|b:Root:read:0']);
   });
 
+  it('finds each person\'s unseen records among 10,000 owed to 50 people, and clears them for that person alone (#1061)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      // Record i is owed to person i mod 50, and every fifth one to the next person as well.
+      for (let i = 0; i < 10_000; i++) {
+        clock.now += 1;
+        const people = [`p${String(i % 50).padStart(2, '0')}`, ...(i % 5 === 0 ? [`p${String((i + 1) % 50).padStart(2, '0')}`] : [])];
+        await reads.mark(`dm:t${String(i).padStart(5, '0')}`, 'Root', 'cleared', people);
+      }
+      const mine = await reads.unseenFor('P07');
+      await rec('count (p07)', mine.length);
+      await rec('newest three (p07)', mine.slice(0, 3).map((r) => r.thread));
+      await rec('count (p06, owed the shared ones too)', reads.unseenFor('p06').then((l) => l.length));
+      await rec('count (nobody)', reads.unseenFor('p99').then((l) => l.length));
+      await rec('seen (p06, a conversation shared with p05)', reads.seen('dm:t00005', 'p06'));
+      await rec('count (p06, after)', reads.unseenFor('p06').then((l) => l.length));
+      await rec('count (p05, after p06 saw it)', reads.unseenFor('p05').then((l) => l.length));
+      await rec('count (p07, after)', reads.unseenFor('p07').then((l) => l.length));
+    });
+    expect(t.get('count (p07)')).toBe(200);
+    expect(t.get('newest three (p07)')).toEqual(['dm:t09957', 'dm:t09907', 'dm:t09857']);
+    expect(t.get('count (p06, owed the shared ones too)')).toBe(400);
+    expect(t.get('count (nobody)')).toBe(0);
+    expect(t.get('seen (p06, a conversation shared with p05)')).toBe(1);
+    expect(t.get('count (p06, after)')).toBe(399);
+    expect(t.get('count (p05, after p06 saw it)')).toBe(200);
+    expect(t.get('count (p07, after)')).toBe(200);
+  }, 300_000);
+
+  it('stops owing a record to a person who has not seen it in 90 days, and lets retention purge it then (#1061)', async () => {
+    const DAYS = 86_400_000;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const reads = s.chat({ now: () => clock.now }).adminReads;
+      await reads.touch('group:ed', 'Root', 30 * 60_000, ['ed', 'eve']);
+      await reads.touch('group:zed', 'Root', 30 * 60_000, ['zed']);
+      await rec('Eve sees hers', reads.seen('group:ed', 'eve'));
+      clock.now = T0 + 89 * DAYS;
+      await rec('purge (89 days, retention passed)', reads.purge(clock.now));
+      await rec('Ed (89 days)', reads.unseenFor('ed').then((l) => l.length));
+      clock.now = T0 + 91 * DAYS;
+      await rec('purge (91 days)', reads.purge(clock.now));
+      await rec('Ed (91 days)', reads.unseenFor('ed').then((l) => l.length));
+      await rec('Zed (91 days)', reads.unseenFor('zed').then((l) => l.length));
+      await rec('threads', reads.threads(''));
+    });
+    expect(t.get('Eve sees hers')).toBe(1);
+    expect(t.get('purge (89 days, retention passed)')).toBe(0);
+    expect(t.get('Ed (89 days)')).toBe(1);
+    expect(t.get('purge (91 days)')).toBe(2);
+    expect(t.get('Ed (91 days)')).toBe(0);
+    expect(t.get('Zed (91 days)')).toBe(0);
+    expect(t.get('threads')).toEqual([]);
+  });
+
   it('leaves a record owed to the owner for an Admin\'s read of a conversation between two agents, and none for the owner\'s own (#1072)', async () => {
     const MIN = 60_000;
     const GAP = 30 * MIN;
