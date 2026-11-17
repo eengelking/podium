@@ -47,7 +47,9 @@ export interface RawBackgroundItem {
 
 /** The first word of a command that is not a NAME=value assignment, so an inline secret (API_KEY=...) is never the label. Redacted and cut. */
 export function labelOf(command: string | undefined, kind: BackgroundItemKind): string {
-  const word = (command ?? '').trim().split(/\s+/).find((w) => w !== '' && !w.includes('='))?.split('/').pop() ?? '';
+  // Leading NAME=value assignments go whole, a quoted value with spaces included, so no part of an inline secret is left to be the label.
+  const rest = (command ?? '').trim().replace(/^(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)\s+)+/, '');
+  const word = rest.split(/\s+/).find((w) => w !== '' && !w.includes('='))?.split('/').pop() ?? '';
   return clip(redactBounded(stripControl(word)).text, BACKGROUND_LABEL) || kind;
 }
 

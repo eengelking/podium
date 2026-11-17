@@ -134,9 +134,4 @@ export function bgItems(s: SessionState, loop: string, detail: boolean): Backgro
   return keepBackground(items);
 }
 
-/** Whether the tasks of this loop may be read for output now: a viewer has the tab open, the option is on and a folder is known. */
-export function bgReadable(s: SessionState, loop: string): boolean {
-  return s.tasksDir !== null && s.watched.includes(loop);
-}
-
 export const bgLoopOf = loopOf;

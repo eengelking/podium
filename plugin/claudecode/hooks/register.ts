@@ -418,7 +418,6 @@ function seen(hook: string, event: unknown): void {
   }
 }
 
-/** Runs reporter logic for a hook: any throw is remembered, never raised. Timed for /podium. */
 /** How often the output files of a watched loop's background tasks are looked at (#897): a finished shell must not look alive for a whole turn. */
 const BACKGROUND_POLL_MS = 3000;
 let backgroundBusy = false;
@@ -478,6 +477,7 @@ async function refreshBackground($: Engine, r: Runtime): Promise<void> {
   }
 }
 
+/** Runs reporter logic for a hook: any throw is remembered, never raised. Timed for /podium. */
 function safe(where: string, fn: (r: Runtime) => void): void {
   const t0 = perf();
   try {
@@ -2590,7 +2590,8 @@ export const register: Register = (on, rawOptions) => {
       // The same list holds the session's shells and monitors, whoever started them (#897).
       if (opts.activityFeed) {
         r.state = setTasksDir(r.state, tasksDirOf((e as { scratchpad_dir?: unknown }).scratchpad_dir));
-        r.state = bgListed(r.state, e.background_tasks ?? [], null, true, now);
+        // A Stop with no list at all says nothing about the tasks; only a list that omits a task means it ended.
+        r.state = bgListed(r.state, e.background_tasks ?? [], null, Array.isArray(e.background_tasks), now);
       }
     });
     return next(e);
