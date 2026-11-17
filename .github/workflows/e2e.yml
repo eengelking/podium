@@ -163,14 +163,17 @@ jobs:
       # The weights that split the suite into shards (e2e/spec-times.json) are refreshed from the logs of a whole run (#1174). The run's logs
       # stay on the runner, so this makes the new file from them and uploads only that file (spec names and seconds, nothing else), for
       # a person to commit when the shards finish far apart.
+      # Neither of the two steps may fail the run: they are bookkeeping, and the suite already passed.
       - name: Record the spec times of this run
         if: success()
+        continue-on-error: true
         run: |
-          mapfile -t logs < <(find "$RUNNER_TEMP/e2e-results" -name '*.log' ! -name build.log | sort)
+          mapfile -t logs < <(find "$RUNNER_TEMP/e2e-results" -mindepth 2 -maxdepth 2 -name '*.log' ! -name build.log | sort)
           node scripts/e2e-shards.mjs --record "${logs[@]}"
 
       - name: Upload the recorded spec times
         if: success()
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-spec-times
