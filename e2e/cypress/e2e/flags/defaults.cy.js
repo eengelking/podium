@@ -1,11 +1,11 @@
-// SPEC 8.1 Feature flags: the defaults of a fresh server. This file does not enable anything: seven flags are off, the activity feed and the release check are on.
+// SPEC 8.1 Feature flags: the defaults of a fresh server. This file does not enable anything: eight flags are off, the activity feed and the release check are on.
 describe('flags: defaults on a fresh server', () => {
   before(() => cy.resetServer({ seedArgs: '--flags defaults' }));
 
-  const OFF = ['activity-output', 'respond', 'file-diff', 'peer-messaging', 'chat-everyone', 'session-recording', 'my-usage'];
+  const OFF = ['activity-output', 'respond', 'file-diff', 'peer-messaging', 'chat-everyone', 'session-recording', 'my-usage', 'background-output'];
   const ON = ['activity-feed', 'update-check'];
 
-  it('starts with the seven off-by-default flags off and the other two on, in Admin > Settings', () => {
+  it('starts with the eight off-by-default flags off and the other two on, in Admin > Settings', () => {
     cy.openAdmin('Settings');
     for (const id of OFF) cy.settingSwitch(`feature-${id}`).should('have.attr', 'aria-checked', 'false');
     for (const id of ON) cy.settingSwitch(`feature-${id}`).should('have.attr', 'aria-checked', 'true');
