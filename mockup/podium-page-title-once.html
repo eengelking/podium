@@ -1,0 +1,326 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium: each page's name and description shown once (#1209)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #1209. Colors and fonts come from tokens.css through fleet.css; this file declares no custom properties and no color of its own.
+   Today: the name shows up to three times (the chip in the top bar, the bold name in the banner, the h1 in the page body) and the
+   description up to twice (banner and the body's lead, in different words).
+   Proposed: the chip names the page and the banner holds the page's one description with no name in front of it, on EVERY page
+   (Admin, Fleet, Board, History included). The banner is always ONE line and its text never passes the middle of the banner (the right half
+   belongs to the Wall options drawer, which opens over the banner and never makes it taller). The text is cut only between sentences:
+   the banner shows as many whole sentences as fit, and when any are left out a (i) appears. Hover or focus shows the standard tip, a click opens
+   the console's standard modal (.scrim, .modal) with the full description. A page's description is one string, written so its first
+   sentence is short enough for 400 px, and the banner and the modal both read it. Where a page also had a body title and description that only repeated the chip and banner
+   (Chat, My reporters, My usage, Traffic), the body starts at its content. Admin pages keep their own body title and description.
+   The banner's right end is the real Wall options drawer (WallOptions.tsx, #1129): the same EdgeTab pill, the same
+   markup and classes, and the same open and close behavior, so it can be tried here.
+   Reused as they are: header.top, .pill, .banner.has-picker, .wallopts, .edge-tab-opts, .page-h, button.info, .asec, .panel, .btn.
+   New and for the maintainer to decide: .po-tools, the right-aligned row that carries a page's own actions (Export on My usage) now
+   that the body header is gone. Classes that start with po- belong to this mockup only (demo bar, stage and placeholder body). */
+html { scrollbar-gutter: stable; }
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.po-demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.po-demo b { color: var(--ink); }
+.po-demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.po-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.po-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.po-demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.po-stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); background: var(--bg); min-height: 70vh; }
+.po-stage .podium .adminv .apage { overflow: visible; }
+.po-stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+.po-note { margin: 0; padding: 8px 16px; font-size: 12px; color: var(--ink2); border-bottom: 1px solid var(--grid); background: var(--surface); }
+.po-note b { color: var(--ink); }
+.po-frame + .po-frame { margin-top: 16px; border-top: 1px solid var(--border); }
+.po-ph { border: 1px dashed var(--axis); border-radius: 8px; padding: 28px 16px; color: var(--muted); text-align: center; background: var(--surface); }
+
+.page-h .ttl-row { display: flex; align-items: center; gap: 8px; }
+.podium .page-h button.info, .podium .banner button.info { display: inline-flex; order: 0; margin-left: 0; cursor: pointer; vertical-align: middle; }
+.podium .banner button.info { margin-left: 6px; }
+.podium .page-h button.info .tip, .podium .banner button.info .tip { right: auto; left: 0; }
+.podium .banner button.info:focus-visible, .podium .page-h button.info:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+
+/* The proposed banner: one line, text at most to the middle, whole sentences only, the drawer opens over it. Not applied to Today. */
+.po-stage[data-ver="new"] .podium .banner.has-picker { flex-wrap: nowrap; position: relative; }
+.po-stage[data-ver="new"] .podium .banner.has-picker > .bt-wrap { flex: 0 1 auto; min-width: 0; max-width: max(260px, min(50%, calc(100% - 690px))); display: flex; align-items: center; gap: 6px; }
+.po-stage[data-ver="new"] .podium .banner.has-picker > .bt-wrap.full, .po-stage.narrow[data-ver="new"] .banner .bt-wrap { max-width: calc(100% - 40px); }
+.po-stage[data-ver="new"] .banner .bt { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.po-stage[data-ver="new"] .banner .bt-wrap button.info { margin-left: 0; flex: none; }
+.po-stage[data-ver="new"] .banner .bt-wrap button.info[hidden] { display: none; }
+.po-stage[data-ver="new"] .banner .wallopts { margin-left: auto; }
+.po-stage[data-ver="new"] .banner .wallopts.open { position: absolute; right: 16px; top: 3px; z-index: 6; max-width: calc(100% - 32px); box-shadow: 0 6px 20px var(--grid); }
+.po-stage[data-ver="new"] .banner .wallopts.open .wallopts-body { padding: 2px 6px 2px 0; }
+
+.po-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.po-table th, .po-table td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--grid); }
+.po-table th { color: var(--muted); font-weight: 600; border-top: 0; }
+.po-table td.first { white-space: nowrap; }
+.po-table .was { color: var(--muted); }
+.po-table .flag { color: var(--warn-text); }
+
+/* The (i)'s modal: the standard modal (.scrim, .modal, .mh, .mb) placed under the (i) that opened it, not in the middle of the page, and as wide as
+   its text needs. Padding is even: the gap above the text equals the gap to its left and below it (18px, the header's own left padding). */
+.podium .scrim.anchor { display: block; }
+.podium .modal.anchor { position: absolute; width: min(440px, calc(100% - 32px)); max-height: min(78vh, 760px); }
+.podium .modal.anchor .mb { padding: 18px; }
+.podium .modal.anchor .mb > :last-child { margin-bottom: 0; }
+.podium .modal.anchor .mb p { max-width: none; margin: 0 0 12px; }
+.podium .modal.anchor .mb h3 { margin: 16px 0 4px; }
+.podium .modal.anchor .mb h3:first-child { margin-top: 0; }
+.po-tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
+</style>
+
+<div class="po-demo" role="toolbar" aria-label="Mockup controls">
+  <b>Page name and description once (#1209)</b>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-page="chat" aria-pressed="true">Chat</button>
+    <button type="button" data-page="rep" aria-pressed="false">My reporters</button>
+    <button type="button" data-page="use" aria-pressed="false">My usage</button>
+    <button type="button" data-page="trf" aria-pressed="false">Traffic</button>
+    <button type="button" data-page="adm" aria-pressed="false">Admin &gt; People</button>
+    <button type="button" data-page="oth" aria-pressed="false">Fleet, Board, Orchestrator, History</button>
+    <button type="button" data-page="all" aria-pressed="false">All descriptions</button>
+  </span>
+  <span class="grp" role="group" aria-label="Version">Version
+    <button type="button" data-ver="today" aria-pressed="false">Today</button>
+    <button type="button" data-ver="new" aria-pressed="true">Proposed</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="mid" aria-pressed="false">760 px</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="po-stage" id="stage"><div class="podium" id="app"></div></div>
+
+<template id="wo">
+  <div class="wallopts">
+    <button type="button" class="edge-tab edge-tab-opts" aria-expanded="false"></button>
+    <div class="wallopts-body" hidden>
+      <label class="field"><span>Refresh every</span><select class="sel" data-k="every" title="How often the console redraws from new data"><option value="2">2s</option><option value="5">5s</option><option value="10">10s</option><option value="20">20s</option><option value="30">30s</option><option value="60">60s</option></select></label>
+      <span class="field"><span data-n>Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="false" data-k="shortcuts" title="Press \ for the top bar, [ and ] for the side panes, and w for wall mode. Esc leaves wall mode."></button><span data-s>Off</span></span></span>
+      <div class="themepick">
+        <label class="field"><span>Theme</span><select class="sel" data-k="theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+        <div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" data-m="light">Light</button><button type="button" role="radio" data-m="dark">Dark</button><button type="button" role="radio" data-m="system">System</button></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+(function () {
+  var root = document.documentElement, stage = document.getElementById('stage'), app = document.getElementById('app');
+  var S = { page: 'chat', ver: 'new' };
+  var SLIDERS = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3.5h9M1.5 8.5h9"/><circle class="knob" cx="4" cy="3.5" r="1.7"/><circle class="knob" cx="8" cy="8.5" r="1.7"/></svg>';
+  var CHEVRON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 1.5 7 5 3.5 8.5"/></svg>';
+  var INFO = '<button type="button" class="info" aria-haspopup="dialog" aria-label="Chat privacy and controls"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg><span class="tip" aria-hidden="true">Click to learn about chat privacy and controls</span></button>';
+  var store = { every: '2', shortcuts: false, theme: 'podium', mode: 'dark' };
+  var drawers = [], nid = 0;
+
+  function top(chip) {
+    return '<header class="top"><a class="logo" href="#/">Podium</a><span class="pill">' + chip + '</span><span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>3 reporters live</span><span class="spacer"></span><a class="btn" href="#/board">Board</a><a class="btn" href="#/history">History</a><a class="btn" href="#/chat">Chat</a></header>';
+  }
+  // The banner: its text, then the Wall options drawer (mounted after the markup is in the page).
+  function banner(html) { return '<div class="banner has-picker" role="region" aria-label="Display settings"><span>' + html + '</span><div data-wo></div></div>'; }
+  function body(h1, content, tools) { return '<div class="adminv"><div class="apage"><div class="apage-in">' + h1 + (tools || '') + content + '</div></div></div>'; }
+  function ph(t) { return '<div class="po-ph">' + t + '</div>'; }
+  function head(title, lead, extra) { return '<div class="page-h"><div><h1>' + title + '</h1><p class="lead">' + lead + '</p></div>' + (extra || '') + '</div>'; }
+  function frame(chip, bannerHtml, bodyHtml) { return '<div class="po-frame">' + top(chip) + banner(bannerHtml) + (bodyHtml || '') + '</div>'; }
+  function note(t) { return '<p class="po-note">' + t + '</p>'; }
+
+  var VH = function (t) { return '<h1 class="vh">' + t + '</h1>'; };
+
+  // One string per page. Its first sentence is the banner's text at 400 px; the rest is read in the (i) modal.
+  var D = {
+    chat: ['Chat', 'Talk with orchestrators and agents. Read what they say to each other, and join in.'],
+    rep: ['My reporters', 'Your reporters and who may message. This is which of your machines report to this server, and which of them may message each other. Only your own are here. A person using Chat who wants to message one of your agents asks you below first.'],
+    use: ['My usage', 'What your own sessions cost. They are listed with how each ended and what failed. Only you can see this page. Cost is an estimate from token counts and a price table, not a bill.'],
+    trf: ['Traffic', 'Messages between Ed\'s orchestrators. The list covers every machine that reports here.'],
+    adm: ['Admin', 'Manage access, settings and reports. People, groups and reporters decide who can report here. Settings, model prices, security, certificates and stored data decide how the server runs. Reports cover usage, spend, sessions, tools and failures, and the Admin log lists what happened in Admin.'],
+    fleet: ['Fleet', 'Every session on this machine, live. Each orchestrator\'s model, plan, agents, cost and context are on its card. Cost is an estimate from token counts and a price table, not a bill.'],
+    board: ['Board', 'The fleet as a board of cards. Sessions are grouped by what each one is doing. Cost is an estimate from token counts and a price table, not a bill.'],
+    orch: ['Orchestrator', 'One orchestrator and its agents. Its plan, files, activity, cost and context are here. Cost is an estimate from token counts and a price table, not a bill.'],
+    hist: ['History', 'Past sessions, read-only. They are built from what the server stored. Cost is an estimate, not a bill.']
+  };
+  // What the banner says today, name and all (Fleet, Board and Orchestrator share one banner).
+  var OLD = {
+    chat: '<b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.',
+    rep: '<b>My reporters.</b> Your own machines, and which of them may message each other.',
+    use: '<b>My usage.</b> Your own spend, sessions and failures. Cost is an estimate from token counts and a price table, not a bill.',
+    trf: '<b>Traffic.</b> Which orchestrators message each other, and what they said.',
+    adm: '<b>Admin.</b> Tokens, groups, reporters and settings for this server.',
+    fleet: '<b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.',
+    hist: '<b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.'
+  };
+  OLD.board = OLD.fleet; OLD.orch = OLD.fleet;
+
+  // The proposed banner: the text is filled in by fit(), which decides how many whole sentences show and whether the (i) is needed.
+  function newBanner(k) {
+    var chat = k === 'chat';
+    return '<div class="banner has-picker" role="region" aria-label="Display settings"><span class="bt-wrap"><span class="bt" data-k="' + k + '"></span>' +
+      '<button type="button" class="info" data-more="' + k + '"' + (chat ? '' : ' hidden') + ' aria-haspopup="dialog" aria-label="' + (chat ? 'Chat privacy and controls' : 'Read the full description') + '"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg><span class="tip" aria-hidden="true">' + (chat ? 'Click to learn about chat privacy and controls' : 'Click to read the full description') + '</span></button></span><div data-wo></div></div>';
+  }
+  function oldBanner(k) { return '<div class="banner has-picker" role="region" aria-label="Display settings"><span>' + OLD[k] + '</span><div data-wo></div></div>'; }
+  function fr(k, ver, chip, bodyHtml) { return '<div class="po-frame">' + top(chip || D[k][0]) + (ver === 'new' ? newBanner(k) : oldBanner(k)) + (bodyHtml || '') + '</div>'; }
+  var TRF = '<div class="ch-nav" role="note"><b>Traffic is retired.</b> Chat replaces it. <a href="#/chat">Open Chat</a></div>';
+  var PH = { chat: 'Chat body: channels, Direct Messages and the thread (unchanged)', rep: 'My reporters body: requests and reporters (unchanged)', use: 'My usage body: period and filters, spend, sessions, failures (unchanged)', trf: 'Traffic body: links and messages (unchanged)' };
+  var OLDHEAD = {
+    chat: head('Chat', 'Talk with your orchestrators and subagents, read what they say to each other, and join in.').replace('<h1>Chat</h1>', '<div class="ttl-row"><h1>Chat</h1>' + INFO + '</div>'),
+    rep: head('My reporters', 'The machines that report your sessions to this server, and which of them may message each other. Only your own reporters are here. A person using Chat who wants to message one of your agents asks you below first.'),
+    use: head('My usage', 'What your own sessions cost, how they ended and what failed. Only you can see this page.', '<button type="button" class="btn">Export</button>'),
+    trf: head('Traffic', 'Messages between Ed\'s orchestrators, on every machine that reports here.')
+  };
+  var PEOPLE = head('People', 'Each person gets a token that only works with their own name. A report is accepted when the two match.');
+
+  var NOTES = {
+    chat: ['"Chat" three times: the chip, the bold name in the banner, the heading. The description twice, in different words.', 'The chip names the page. The banner shows the first sentence of the description and nothing else. Chat\'s (i) stays, and its modal now opens with the full description above the privacy and controls it holds today. The body starts at the channels.'],
+    rep: ['"My reporters" three times; two descriptions, the banner\'s short one and the heading\'s longer one.', 'The banner shows the first sentence. The (i) appears because the rest is cut, and its modal holds the whole text, including the sentence that appears while requests wait.'],
+    use: ['"My usage" three times; two descriptions. The heading carries the Export button at its right.', 'The banner shows the first sentence; the modal holds the rest, including the estimate caveat the banner had. <b>Still open:</b> the Export button lived in the heading, so it moves to a right-aligned row at the top of the body (.po-tools). The alternative is the "Period and filters" panel.'],
+    trf: ['"Traffic" three times; the heading\'s description names the people.', 'The banner shows the first sentence. The (i) appears only if the second sentence does not fit. The "Traffic is retired" notice stays first in the body.'],
+    adm: ['The chip says Admin, the banner starts with the bold "Admin." and its description is old: it names tokens, groups, reporters and settings, and leaves out Model prices, Security, Certificates, Data, Reporting and the Admin log.', 'Only the banner changes. It says what the Admin area is for in one sentence and the modal lists what is in it. The body keeps its own title and description, because the chip, banner and body each say something different. Every Admin page shares this banner.']
+  };
+
+  function pageView(k, ver) {
+    var bodyNew = { chat: body(VH('Chat'), ph(PH.chat)), rep: body(VH('My reporters'), ph(PH.rep)), use: body(VH('My usage'), ph(PH.use), '<div class="po-tools"><button type="button" class="btn">Export</button></div>'), trf: body(VH('Traffic'), TRF + ph(PH.trf)), adm: body('', PEOPLE + ph('People table (unchanged)')) };
+    var bodyOld = { chat: body(OLDHEAD.chat, ph(PH.chat)), rep: body(OLDHEAD.rep, ph(PH.rep)), use: body(OLDHEAD.use, ph(PH.use)), trf: body(OLDHEAD.trf, TRF + ph(PH.trf)), adm: body('', PEOPLE + ph('People table (unchanged)')) };
+    return note('<b>' + (ver === 'new' ? 'Proposed.' : 'Today.') + '</b> ' + NOTES[k][ver === 'new' ? 1 : 0]) + fr(k, ver, null, (ver === 'new' ? bodyNew : bodyOld)[k]);
+  }
+  var OTHERS = ['fleet', 'board', 'orch', 'hist'];
+  function othersView(ver) {
+    return note(ver === 'new' ?
+      '<b>Proposed.</b> The bold names go and each page gets its own description (Fleet, Board and the Orchestrator page shared one banner, so they were not unique). Their bodies have no title or description of their own, so nothing else changes. <b>The wording of Board and Orchestrator is my reading of the pages: please correct it.</b>' :
+      '<b>Today.</b> Fleet, Board and the Orchestrator page share one banner, so the banners are not unique. History says "Past sessions."') + OTHERS.map(function (k) { return fr(k, ver); }).join('');
+  }
+
+  function allView() {
+    function tr(chip, was, full) { var s = full.split(/(?<=[.!?])\s+/); return '<tr><td class="first"><b>' + chip + '</b></td><td class="was">' + (was || 'no banner text of its own') + '</td><td>' + s[0] + '</td><td class="' + (s[0].length > 36 ? 'flag' : 'was') + '">' + s[0].length + '</td><td>' + (s.length > 1 ? s.slice(1).join(' ') : '<span class="was">nothing more</span>') + '</td></tr>'; }
+    var rows = ['fleet', 'board', 'orch', 'hist', 'chat', 'rep', 'use', 'trf', 'adm'].map(function (k) { return tr(D[k][0], OLD[k], D[k][1]); }).join('');
+    return note('<b>Every page description, reviewed.</b> The "Banner, proposed" column is the first sentence, the one line the banner shows. It must be 36 characters or fewer, so that it fits beside the (i) and the Wall options pill at 400 px without being cut. "Length" is its character count. "In the (i)" is the rest, shown in the modal. The old text is on the left. Edit any cell and I will use your wording. Admin sub-pages (People, Groups, Reporters, Settings and the rest) keep their own body descriptions, which I read and found accurate; they are not shown.') +
+      '<div class="adminv"><div class="apage"><div class="apage-in"><div class="panel"><table class="po-table"><thead><tr><th>Page</th><th>Banner today</th><th>Banner, proposed</th><th>Length</th><th>In the (i), proposed</th></tr></thead><tbody>' + rows + '</tbody></table></div></div></div></div>';
+  }
+
+  function viewHtml() {
+    if (S.page === 'oth') return othersView(S.ver);
+    if (S.page === 'all') return allView();
+    return pageView(S.page, S.ver);
+  }
+
+  // ---- whole sentences only: show as many as fit on the one line, and the (i) when some are left out ----
+  function sentences(full) { return full.split(/(?<=[.!?])\s+/); }
+  function fit(bt) {
+    var k = bt.dataset.k, full = D[k][1], s = sentences(full), btn = bt.parentNode.querySelector('button.info');
+    var n = s.length, wrap = bt.parentNode;
+    wrap.classList.remove('full');
+    bt.textContent = s.slice(0, n).join(' ');
+    while (n > 1 && bt.scrollWidth > bt.clientWidth + 1) { n--; bt.textContent = s.slice(0, n).join(' '); }
+    // Even the first sentence passes the cap: let it use the whole row (the drawer opens over it) rather than cut it.
+    if (bt.scrollWidth > bt.clientWidth + 1) { wrap.classList.add('full'); }
+    var cut = n < s.length;
+    bt.title = '';
+    if (k !== 'chat') btn.hidden = !cut;
+    bt.dataset.clipped = String(bt.scrollWidth > bt.clientWidth + 1); // true only if even the first sentence is too long: a copy error to fix
+  }
+  function fitAll() { Array.prototype.forEach.call(app.querySelectorAll('.bt'), fit); }
+
+  // ---- the (i): the console's standard modal with the full description ----
+  var modal = null, opener = null;
+  var RULES = '<h3>Chat privacy and controls</h3><p class="hint">The rules list, unchanged: who reads what, how agents act, stopping a session, and Admins.</p>';
+  function openMore(k, from) {
+    opener = from;
+    modal = document.createElement('div'); modal.className = 'podium podium-modal'; modal.setAttribute('data-theme', root.getAttribute('data-theme'));
+    var paras = sentences(D[k][1]).join(' ');
+    modal.innerHTML = '<div class="scrim anchor"><div class="modal anchor" role="dialog" aria-modal="true" aria-labelledby="more-h"><div class="mh"><div class="ttl"><h2 id="more-h">' + (k === 'chat' ? 'About Chat' : 'About ' + D[k][0]) + '</h2></div><button type="button" class="x" aria-label="Close (Esc)">✕</button></div><div class="mb"><p>' + paras + '</p>' + (k === 'chat' ? RULES : '') + '</div></div></div>';
+    document.body.appendChild(modal); document.body.classList.add('modal-open');
+    // Under the (i), its left edge a little left of it, kept inside the window.
+    var r = from.getBoundingClientRect(), box = modal.querySelector('.modal'), bw = box.offsetWidth;
+    box.style.top = Math.round(r.bottom + 8) + 'px';
+    box.style.left = Math.max(16, Math.min(Math.round(r.left - 12), window.innerWidth - bw - 16)) + 'px';
+    var x = modal.querySelector('.x'); x.focus(); x.onclick = closeMore;
+    modal.querySelector('.scrim').onmousedown = function (e) { if (e.target === e.currentTarget) closeMore(); };
+  }
+  function closeMore() { if (!modal) return; modal.remove(); modal = null; document.body.classList.remove('modal-open'); if (opener) opener.focus(); }
+  document.addEventListener('keydown', function (e) {
+    if (!modal) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeMore(); }
+    else if (e.key === 'Tab') { e.preventDefault(); modal.querySelector('.x').focus(); }
+  }, true);
+
+  // ---- the real Wall options drawer (WallOptions.tsx), mounted into each banner ----
+  function mount(slot) {
+    var id = 'wo-' + (++nid);
+    var el = document.getElementById('wo').content.firstElementChild.cloneNode(true);
+    var pill = el.querySelector('.edge-tab-opts'), bodyEl = el.querySelector('.wallopts-body');
+    bodyEl.id = id; pill.setAttribute('aria-controls', id);
+    var sw = el.querySelector('[role=switch]'), nm = el.querySelector('[data-n]'), st = el.querySelector('[data-s]');
+    nm.id = id + '-n'; st.id = id + '-s'; sw.setAttribute('aria-labelledby', id + '-n ' + id + '-s');
+    var radios = Array.prototype.slice.call(el.querySelectorAll('[role=radio]'));
+    var open = false;
+    function set(o, focus) {
+      open = o; el.classList.toggle('open', o); bodyEl.hidden = !o;
+      pill.setAttribute('aria-expanded', String(o));
+      var name = o ? 'Hide wall options' : 'Wall options';
+      pill.setAttribute('aria-label', name); pill.dataset.tip = name;
+      pill.classList.toggle('edge-tab-shut', !o);
+      pill.innerHTML = o ? CHEVRON : SLIDERS;
+      if (focus) pill.focus();
+    }
+    function sync() {
+      el.querySelector('[data-k="every"]').value = store.every;
+      el.querySelector('[data-k="theme"]').value = store.theme;
+      sw.setAttribute('aria-checked', String(store.shortcuts)); st.textContent = store.shortcuts ? 'On' : 'Off';
+      radios.forEach(function (r) { var on = r.dataset.m === store.mode; r.setAttribute('aria-checked', String(on)); r.tabIndex = on ? 0 : -1; });
+    }
+    pill.addEventListener('click', function () { set(!open, false); });
+    el.addEventListener('keydown', function (e) { if (e.key === 'Escape' && open) { set(false, true); e.stopPropagation(); } });
+    document.addEventListener('mousedown', function (e) { if (open && !el.contains(e.target)) set(false, false); });
+    el.querySelector('[data-k="every"]').addEventListener('change', function (e) { store.every = e.target.value; });
+    el.querySelector('[data-k="theme"]').addEventListener('change', function (e) { store.theme = e.target.value; root.setAttribute('data-theme-name', e.target.value); });
+    sw.addEventListener('click', function () { store.shortcuts = !store.shortcuts; drawers.forEach(function (d) { d.sync(); }); });
+    radios.forEach(function (r) { r.addEventListener('click', function () { store.mode = r.dataset.m; applyMode(); }); });
+    set(false, false); sync(); slot.replaceWith(el);
+    drawers.push({ sync: sync });
+  }
+  function applyMode() {
+    var dark = store.mode === 'dark' || (store.mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    root.setAttribute('data-theme', dark ? 'dark' : 'light');
+    Array.prototype.forEach.call(document.querySelectorAll('.po-demo [data-mode]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === (dark ? 'dark' : 'light'))); });
+    drawers.forEach(function (d) { d.sync(); });
+  }
+
+  function press(attr, val) { Array.prototype.forEach.call(document.querySelectorAll('.po-demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', b.getAttribute(attr) === val ? 'true' : 'false'); }); }
+  function render() {
+    drawers = [];
+    stage.dataset.ver = S.page === 'all' ? 'new' : S.ver;
+    app.innerHTML = viewHtml();
+    Array.prototype.forEach.call(app.querySelectorAll('[data-wo]'), mount);
+    Array.prototype.forEach.call(app.querySelectorAll('button.info[data-more]'), function (b) { b.addEventListener('click', function () { openMore(b.dataset.more, b); }); });
+    fitAll();
+  }
+  document.querySelector('.po-demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.page) { S.page = b.dataset.page; press('data-page', S.page); render(); }
+    if (b.dataset.ver) { S.ver = b.dataset.ver; press('data-ver', S.ver); render(); }
+    if (b.dataset.mode) { store.mode = b.dataset.mode; applyMode(); }
+    if (b.dataset.w) {
+      stage.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : b.dataset.w === 'mid' ? '760px' : '1280px');
+      stage.classList.toggle('narrow', b.dataset.w === 'narrow');
+      press('data-w', b.dataset.w); fitAll();
+    }
+  });
+  root.setAttribute('data-theme', 'dark');
+  render();
+  if (window.ResizeObserver) new ResizeObserver(function () { fitAll(); }).observe(stage);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
+})();
+</script>
