@@ -112,7 +112,7 @@ export const ADMIN_SECRET = 'admin secret';
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {
   kind: 'mod' | 'hooks';
-  /** Which reporter sent it (`reporter.name` of the report). Absent means `DEFAULT_REPORTER_NAME`. A machine running two reporters is two rows (#849). */
+  /** Which reporter sent it (`reporter.name` of the report). Absent means the Claude Code reporter (`CLAUDE_REPORTER_NAME`). A machine running two reporters is two rows (#849). */
   reporterName?: string;
   machineId: string | null;
   machineName: string | null;

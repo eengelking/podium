@@ -12,7 +12,7 @@ export type PriceSet = ModelPriceSet;
 
 export interface ModelPrice {
   std: PriceSet;
-  /** Higher prices for a prompt over `LONG_PROMPT_TOKENS`; only some models (Haiku 5.5) have one. */
+  /** Higher prices for a prompt over 100,000 tokens (the reporters decide the tier); only some models (Haiku 5.5) have one. */
   long?: PriceSet;
 }
 
