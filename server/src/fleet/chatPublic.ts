@@ -4,7 +4,7 @@
 // Admin edits the description; only an Admin removes one. An Admin who edits or removes a channel somebody else opened tells that person, in words, with who
 // did it, in each of their live reporter sessions (PROJECT.md "An Admin Never Reads in Silence": an Admin's power to stop things is always told).
 import { ADMIN_OWNER, nameKey } from '../storage/rows.js';
-import { channelKey } from '../storage/chatRows.js';
+import { channelKey, linkRef, linkText } from '../storage/chatRows.js';
 import type { PublicChannel, PublicChannelLinkKind, PublicChannelOutcome } from '../storage/types.js';
 import type { AdminReads } from './chatAdminReads.js';
 import type { ChatCore } from './chatCore.js';
@@ -34,8 +34,8 @@ export class PublicChannels {
         return fail(409, `There is already a channel called ${channelKey(asked.name ?? '')}. Open it, or pick another name.`, out.error);
       case 'link-taken': {
         const at = asked.link;
-        const other = at ? (await this.store.channels.list()).find((c) => c.link?.kind === at.kind && c.link.ref.toLowerCase() === at.ref.toLowerCase()) : undefined;
-        return fail(409, other ? `There is already a channel for ${at!.kind} ${at!.ref}: ${other.name}. Open it instead.` : out.message, out.error);
+        const other = at ? (await this.store.channels.list()).find((c) => c.link?.kind === at.kind && c.link.ref.toLowerCase() === linkRef(at.kind, at.ref).toLowerCase()) : undefined;
+        return fail(409, other ? `There is already a channel for ${other.link!.kind} ${linkText(other.link!.kind, other.link!.ref)}: ${other.name}. Open it instead.` : out.message, out.error);
       }
       case 'limit-reached':
         return fail(409, 'This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.', out.error);

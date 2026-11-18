@@ -16,8 +16,8 @@ export const DESC_MAX = 280;
 export const REF_MAX = 100;
 
 const KIND_WORD: Record<ChannelLinkKind, string> = { issue: "Issue", milestone: "Milestone", project: "Project" };
-/** A channel's link as the chip and the words name it: "Issue #1035". */
-export const linkWords = (l: ChannelLink): string => `${KIND_WORD[l.kind]} ${l.ref}`;
+/** A channel's link as the chip and the words name it: "Issue #1035". The server keeps an issue's number without its #, so a number is shown with one; any other reference is shown as it is. */
+export const linkWords = (l: ChannelLink): string => `${KIND_WORD[l.kind]} ${l.kind === "issue" && /^\d+$/.test(l.ref) ? `#${l.ref}` : l.ref}`;
 
 /** What a refusal says: the server's own words for a refusal of the form, and what to do for any other failure. */
 function refusal(err: unknown, what: string): string {

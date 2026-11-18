@@ -2369,7 +2369,7 @@ function chanWorld(admin = false) {
   const can = (own: boolean) => (admin ? ADMIN_CAN : own ? OWN_CAN : ELSE_CAN);
   w.overview.channels = [
     channelOf("general"),
-    channelOf("issue-1035", { description: DESC, link: { kind: "issue", ref: "#1035" }, openedBy: "Maya", unread: 3, messages: 2, can: can(false) }),
+    channelOf("issue-1035", { description: DESC, link: { kind: "issue", ref: "1035" }, openedBy: "Maya", unread: 3, messages: 2, can: can(false) }),
     channelOf("mine-chan", { description: "Ed's own scratch channel.", openedBy: "Ed", messages: 0, can: can(true) }),
     channelOf("group", { mentions: 1, messages: 2 }),
   ];
@@ -2489,6 +2489,18 @@ describe("a public channel's thread", () => {
     expect(screen.getByTestId("chat-link-chip")).toHaveTextContent("Milestone v1.7");
     await open("c:mine-chan");
     expect(screen.getByTestId("chat-link-chip")).toHaveTextContent("Project podium");
+  });
+
+  it("shows an issue number with one # and any other issue reference as it is, never ## or none", async () => {
+    const w = chanWorld();
+    w.overview.channels[1] = channelOf("issue-1035", { description: "d", link: { kind: "issue", ref: "PODIUM-7" }, can: ELSE_CAN });
+    w.overview.channels[2] = channelOf("mine-chan", { description: "d", link: { kind: "milestone", ref: "1035" }, can: OWN_CAN });
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:issue-1035");
+    expect(screen.getByTestId("chat-link-chip").textContent).toBe("Issue PODIUM-7");
+    await open("c:mine-chan");
+    expect(screen.getByTestId("chat-link-chip").textContent).toBe("Milestone 1035");
   });
 
   it("has no link chip, no description and no 'Opened by' when the channel has none of them", async () => {

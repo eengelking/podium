@@ -717,7 +717,7 @@ export function chatCases(o: Openers): void {
     const made = (k: string): { ok: boolean; channel: Record<string, unknown> } => t.get(k) as never;
     expect(made('create').ok).toBe(true);
     expect(made('create').channel).toEqual({ name: 'podium-dev', description: 'About Podium', link: null, createdBy: 'ed engelking', createdByName: 'Ed  Engelking', createdAt: T0, updatedAt: T0 });
-    expect(made('create (linked to an issue)').channel).toMatchObject({ name: 'issue-1035', link: { kind: 'issue', ref: '#1035' }, createdBy: 'eve', createdByName: 'Eve' });
+    expect(made('create (linked to an issue)').channel).toMatchObject({ name: 'issue-1035', link: { kind: 'issue', ref: '1035' }, createdBy: 'eve', createdByName: 'Eve' });
     expect(t.get('refuse: name taken (another case)')).toMatchObject({ ok: false, error: 'name-taken' });
     expect(t.get('refuse: link taken (another case and spacing)')).toMatchObject({ ok: false, error: 'link-taken' });
     expect(made('create (the same reference, another kind)').ok).toBe(true);
@@ -771,7 +771,7 @@ export function chatCases(o: Openers): void {
     expect(t.get('describe (too long)')).toMatchObject({ ok: false, error: 'invalid' });
     expect(t.get('describe (no such channel)')).toMatchObject({ ok: false, error: 'not-found' });
     expect(t.get('describe (general)')).toMatchObject({ ok: false, error: 'not-found' });
-    expect(t.get('get one')).toMatchObject({ description: 'changed', link: { kind: 'issue', ref: '#1' } });
+    expect(t.get('get one')).toMatchObject({ description: 'changed', link: { kind: 'issue', ref: '1' } });
     expect(t.get('count in one')).toBe(2);
     expect(t.get('remove one')).toEqual({ removed: true, messages: 2 });
     expect(t.get('remove one again')).toEqual({ removed: false, messages: 0 });
@@ -850,6 +850,29 @@ export function chatCases(o: Openers): void {
     expect(t.get('create after a removal')).toBe(true);
     expect(t.get('create over the limit again')).toMatchObject({ ok: false, error: 'limit-reached' });
     expect(t.get('count (after)')).toBe(50);
+  });
+
+  it('agrees on every adapter that an issue is one link however it is typed: with or without the #, with spaces; a milestone in another case is the same link', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const ch = s.chat({ now: () => T0 }).channels;
+      await rec('first', ch.create({ name: 'one', link: { kind: 'issue', ref: '#1035' }, createdBy: 'ed' }, T0));
+      await rec('without the hash', ch.create({ name: 'two', link: { kind: 'issue', ref: '1035' }, createdBy: 'ed' }, T0 + 1));
+      await rec('with spaces', ch.create({ name: 'three', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'ed' }, T0 + 2));
+      await rec('hash and space inside', ch.create({ name: 'four', link: { kind: 'issue', ref: '# 1035' }, createdBy: 'ed' }, T0 + 3));
+      await rec('hash alone', ch.create({ name: 'five', link: { kind: 'issue', ref: '#' }, createdBy: 'ed' }, T0 + 4));
+      await rec('hash and spaces alone', ch.create({ name: 'six', link: { kind: 'issue', ref: ' # ' }, createdBy: 'ed' }, T0 + 5));
+      await rec('milestone', ch.create({ name: 'seven', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed' }, T0 + 6));
+      await rec('milestone in another case', ch.create({ name: 'eight', link: { kind: 'milestone', ref: ' V1.7 ' }, createdBy: 'ed' }, T0 + 7));
+      await rec('a second hash is part of the reference', ch.create({ name: 'nine', link: { kind: 'issue', ref: '##5' }, createdBy: 'ed' }, T0 + 8));
+      await rec('count', ch.count());
+    });
+    expect(t.get('first')).toMatchObject({ ok: true, channel: { link: { kind: 'issue', ref: '1035' } } });
+    for (const k of ['without the hash', 'with spaces', 'milestone in another case']) expect(t.get(k), k).toMatchObject({ ok: false, error: 'link-taken' });
+    expect(t.get('hash and space inside')).toMatchObject({ ok: false, error: 'link-taken' });
+    for (const k of ['hash alone', 'hash and spaces alone']) expect(t.get(k), k).toMatchObject({ ok: false, error: 'invalid' });
+    expect(t.get('milestone')).toMatchObject({ ok: true });
+    expect(t.get('a second hash is part of the reference')).toMatchObject({ ok: true, channel: { link: { kind: 'issue', ref: '#5' } } });
+    expect(t.get('count')).toBe(3);
   });
 
   it('lets two channels with the same new link open at once with exactly one winner', async () => {

@@ -376,7 +376,11 @@ export function channelListAnswer(body: { channels?: unknown }, ctx: { owner: st
     const parts = [`${name}: ${n} message${n === 1 ? '' : 's'}.`];
     const description = text(c.description, 280);
     if (description) parts.push(`Description: "${description}".`);
-    if (link && text(link.kind, 20) && text(link.ref, 100)) parts.push(`For ${text(link.kind, 20)} ${text(link.ref, 100)}.`);
+    if (link && text(link.kind, 20) && text(link.ref, 100)) {
+      const ref = text(link.ref, 100);
+      // An issue's number is stored without its #, so it is shown with one; any other reference is shown as it is.
+      parts.push(`For ${text(link.kind, 20)} ${text(link.kind, 20) === 'issue' && /^\d+$/.test(ref) ? `#${ref}` : ref}.`);
+    }
     const by = text(c.openedBy, 80);
     if (by) parts.push(`Opened by ${by}.`);
     if (c.disconnected === true) parts.push(`Disconnected for ${o}, so you cannot read or post there until they reconnect it.`);

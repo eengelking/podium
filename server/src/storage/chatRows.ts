@@ -272,8 +272,17 @@ export const toPublicChannel = (r: DbPublicChannel): PublicChannel => ({
 /** The folded form of a channel name as every method takes it. */
 export const channelKey = (name: string): string => String(name).toLowerCase();
 
-/** The unique key of a link: its kind and its reference folded, so `#12` and `#12` match whatever the case, and `NULL` (no link) never collides. */
+/** The unique key of a link: its kind and its reference folded, so `v1.7` and `V1.7` match, and `NULL` (no link) never collides. An issue's reference is stored without its one leading `#` (see `checkNewChannel`), so `#12` and `12` are one link. */
 export const linkKey = (kind: string, ref: string): string => `${kind}:${ref.toLowerCase()}`;
+
+/** A link's reference as it is stored: trimmed, and for an issue without its one leading `#` (so `#12`, `12` and ` #12 ` are one link). */
+export const linkRef = (kind: string, ref: string): string => {
+  const t = String(ref).trim();
+  return kind === 'issue' && t.startsWith('#') ? t.slice(1).trim() : t;
+};
+
+/** A stored link in words: an issue whose reference is all digits reads `#12`, any other reference reads as it is. */
+export const linkText = (kind: string, ref: string): string => (kind === 'issue' && /^\d+$/.test(ref) ? `#${ref}` : ref);
 
 export const channelRefusal = (error: PublicChannelRefusal, message: string): Extract<PublicChannelOutcome, { ok: false }> => ({ ok: false, error, message });
 
@@ -291,8 +300,8 @@ export function checkNewChannel(input: NewPublicChannel): Extract<PublicChannelO
   if (bad) return bad;
   let link: { kind: PublicChannelLinkKind; ref: string; key: string } | null = null;
   if (input.link) {
-    const ref = typeof input.link.ref === 'string' ? input.link.ref.trim() : '';
-    if (!CHANNEL_LINK_KINDS.includes(input.link.kind) || !ref || [...ref].length > MAX_CHANNEL_LINK_REF) {
+    const ref = typeof input.link.ref === 'string' ? linkRef(input.link.kind, input.link.ref) : '';
+    if (!CHANNEL_LINK_KINDS.includes(input.link.kind) ||!ref || [...ref].length > MAX_CHANNEL_LINK_REF) {
       return channelRefusal('invalid', `A link is an issue, milestone or project and a reference of 1 to ${MAX_CHANNEL_LINK_REF} characters.`);
     }
     link = { kind: input.link.kind, ref, key: linkKey(input.link.kind, ref) };

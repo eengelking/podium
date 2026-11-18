@@ -114,7 +114,7 @@ describe('opening a public channel', () => {
     expect(res.body).toMatchObject({
       ok: true,
       channel: {
-        id: 'issue-1035', name: 'issue-1035', kind: 'public', thread: 'public:issue-1035', description: 'Everything about the channels issue.', link: { kind: 'issue', ref: '#1035' }, openedBy: 'Ed',
+        id: 'issue-1035', name: 'issue-1035', kind: 'public', thread: 'public:issue-1035', description: 'Everything about the channels issue.', link: { kind: 'issue', ref: '1035' }, openedBy: 'Ed',
         unread: 0, mentions: 0, messages: 0, paused: false, pausedByAdmin: null, pausedForEveryone: false, disconnected: false,
         can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: true, removeChannel: false },
       },
@@ -170,6 +170,10 @@ describe('opening a public channel', () => {
     await bad({ name: 'GROUP' }, 422, 'reserved', /reserved/);
     await bad({ name: 'STAGING' }, 409, 'name-taken', /There is already a channel called staging\. Open it, or pick another name\./);
     await bad({ name: 'other', link: { kind: 'issue', ref: '#12' } }, 409, 'link-taken', /There is already a channel for issue #12: staging\. Open it instead\./);
+    // The same issue typed without the # or with spaces is the same link, and the words never say "##12".
+    await bad({ name: 'other', link: { kind: 'issue', ref: '12' } }, 409, 'link-taken', /^There is already a channel for issue #12: staging\. Open it instead\.$/);
+    await bad({ name: 'other', link: { kind: 'issue', ref: ' #12 ' } }, 409, 'link-taken', /^There is already a channel for issue #12: staging\. Open it instead\.$/);
+    await bad({ name: 'other', link: { kind: 'issue', ref: '#' } }, 422, 'invalid', /issue, milestone or project/);
     await bad({ name: 'other', link: { kind: 'planet', ref: '#12' } }, 422, 'invalid', /issue, milestone or project/);
     await bad({ name: 'other', link: { kind: 'issue', ref: '   ' } }, 422, 'invalid', /issue, milestone or project/);
     await bad({ name: 'other', description: 'd'.repeat(281) }, 422, 'invalid', /280/);
@@ -210,7 +214,7 @@ describe('describing and removing a public channel', () => {
     expect((await describe_(w.alexB, 'topic', { description: 'hijacked' })).status).toBe(403);
     const mine = await describe_(w.edB, 'topic', { description: 'by the opener' });
     expect(mine.status).toBe(200);
-    expect(mine.body).toMatchObject({ ok: true, channel: { id: 'topic', description: 'by the opener', link: { kind: 'issue', ref: '#1' }, openedBy: 'Ed' } });
+    expect(mine.body).toMatchObject({ ok: true, channel: { id: 'topic', description: 'by the opener', link: { kind: 'issue', ref: '1' }, openedBy: 'Ed' } });
     expect((await describe_(w.rootB, 'topic', { description: 'by an Administrator' })).body.channel.description).toBe('by an Administrator');
     expect((await describe_(w.secretB, 'topic', { description: 'by the secret' })).status).toBe(200);
     expect((await describe_(w.edB, 'topic', { description: '' })).body.channel.description).toBe('');
@@ -757,7 +761,7 @@ describe('an agent lists the channels (#1035)', () => {
     expect(r.body.ok).toBe(true);
     expect(r.body.channels.map((c: { name: string }) => c.name)).toEqual(['general', 'issue-1035', 'zeta']);
     expect(r.body.channels[0]).toEqual({ name: 'general', description: '', link: null, openedBy: null, messages: 1, paused: false, disconnected: false });
-    expect(r.body.channels[1]).toEqual({ name: 'issue-1035', description: 'The channels issue.', link: { kind: 'issue', ref: '#1035' }, openedBy: 'Alex', messages: 2, paused: false, disconnected: false });
+    expect(r.body.channels[1]).toEqual({ name: 'issue-1035', description: 'The channels issue.', link: { kind: 'issue', ref: '1035' }, openedBy: 'Alex', messages: 2, paused: false, disconnected: false });
     expect(JSON.stringify(r.body)).not.toContain('SECRET-BODY-TEXT');
     expect(JSON.stringify(r.body)).not.toMatch(/group/i);
   });
