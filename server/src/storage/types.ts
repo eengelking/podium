@@ -329,13 +329,15 @@ export interface ChannelMention {
   stateAt: number;
 }
 
-/** A channel message. The same shape in the group channel and in General; `owner` and `groupId` are set only in the group channel (a table is the audience, so there is no visibility field). */
+/** A channel message. The same shape in the group channel and in a public channel (General included); `owner` and `groupId` are set only in the group channel (a table is the audience, so there is no visibility field). */
 export interface ChannelMessage {
   /** `grp_` or `pub_`, the server's 8 hex digits of scope, then 24 hex digits: `grp_3fa9c1d2_9e1b0c47d5a86f3e2b4a7c10`. */
   id: string;
-  /** The group's owner, folded (`nameKey`); null in General. */
+  /** The group's owner, folded (`nameKey`); null in a public channel. */
   owner: string | null;
   groupId: string | null;
+  /** The public channel's key (`general` or a channel's name, #1035); null in the group channel. */
+  channel: string | null;
   authorKind: ChatAuthorKind;
   /** The person's name, the session id or the reporter key. */
   authorRef: string;
@@ -376,7 +378,7 @@ export interface GroupScope {
 
 /**
  * The channel store of one table. `A` is the scope the table needs: `[GroupScope]` for the group channel (every read and write is scoped to the owner and group,
- * so a member reads only their own), `[]` for General. No method here reads or returns a direct message (`peer_messages`), and none ever will.
+ * so a member reads only their own), `[string]` (the channel's key) for the public audience. No method here reads or returns a direct message (`peer_messages`), and none ever will.
  */
 export interface ChannelStoreApi<A extends unknown[]> {
   /** Stores a message. Throws for an author kind or delivery state that is not one of the listed ones. The text is stored as given; the server has cleaned, redacted and limited it. */
@@ -392,6 +394,57 @@ export interface ChannelStoreApi<A extends unknown[]> {
   count(...args: A): Promise<number>;
   /** Retention: deletes the messages (of every group, for the group table) created before `olderThan`. Returns how many. */
   purge(olderThan: number): Promise<number>;
+}
+
+/** What a public channel can be linked to (#1035). */
+export type PublicChannelLinkKind = 'issue' | 'milestone' | 'project';
+
+/** A public channel beside General (#1035). General is built in, has the fixed key `general` and is not one of these rows. */
+export interface PublicChannel {
+  /** The channel's key and id: a lowercase slug, never changed. */
+  name: string;
+  /** At most 280 characters, may be empty. */
+  description: string;
+  /** What the channel is about, or null for a channel about any other topic. At most one channel has a given link. */
+  link: { kind: PublicChannelLinkKind; ref: string } | null;
+  /** The person who opened it, folded (`nameKey`); empty once that person is deleted, so a new person of the same name does not inherit it. */
+  createdBy: string;
+  /** The opener's name as it was written. */
+  createdByName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NewPublicChannel {
+  name: string;
+  description?: string;
+  link?: { kind: PublicChannelLinkKind; ref: string } | null;
+  /** The person's name; the store folds it. */
+  createdBy: string;
+}
+
+/** Why a public channel was not made or changed. `reserved`: `general` or `group`. `name-taken` and `link-taken`: another channel has it (compared without case). `limit-reached`: 50 besides General. */
+export type PublicChannelRefusal = 'invalid' | 'reserved' | 'name-taken' | 'link-taken' | 'limit-reached' | 'not-found';
+
+export type PublicChannelOutcome = { ok: true; channel: PublicChannel } | { ok: false; error: PublicChannelRefusal; message: string };
+
+/**
+ * The public channels beside General (#1035). Their messages are in the public audience's table, keyed by the channel; this is only the list of channels.
+ * A refusal is a value and never a throw.
+ */
+export interface PublicChannelsApi {
+  /** Opens a channel. The name is folded to lowercase, then checked against `^[a-z0-9][a-z0-9-]{0,39}$`; the link's reference is trimmed (at most 100 characters). The limit is checked in the same step as the insert, so two at once cannot pass 50. */
+  create(input: NewPublicChannel, at: number): Promise<PublicChannelOutcome>;
+  /** Every channel beside General, by name. */
+  list(): Promise<PublicChannel[]>;
+  /** One channel by name (any case), or null. Always null for `general`. */
+  get(name: string): Promise<PublicChannel | null>;
+  /** Sets the description (at most 280 characters). */
+  updateDescription(name: string, description: string, at: number): Promise<PublicChannelOutcome>;
+  /** Removes the channel and every message in it in one step. `removed` is false when there was no such channel. */
+  remove(name: string): Promise<{ removed: boolean; messages: number }>;
+  /** How many channels there are beside General. */
+  count(): Promise<number>;
 }
 
 /** One person's counts in one thread (`dm:<a>|<b>` with the two session ids sorted, `group:<group id>`, or `public`). The server keeps them so SSE can carry the counts and no text. */
@@ -516,8 +569,10 @@ export interface ChatStoreApi {
   serverScope(): Promise<string>;
   /** The group channel (`group_messages`): a person and their own orchestrators, subagents and forks. */
   readonly group: ChannelStoreApi<[GroupScope]>;
-  /** General (`public_messages`): every signed-in user and reporter. */
-  readonly public: ChannelStoreApi<[]>;
+  /** The public audience (`public_messages`): every signed-in user and reporter. The first argument is the channel's key: `general`, or a channel of `channels` (#1035). A message of any other audience never lands here. */
+  readonly public: ChannelStoreApi<[string]>;
+  /** The public channels beside General (`public_channels`, #1035). */
+  readonly channels: PublicChannelsApi;
   readonly readState: ChatReadStateApi;
   /** The records of an Admin reading a thread that is not theirs. */
   readonly adminReads: ChatAdminReadsApi;

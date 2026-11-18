@@ -78,9 +78,21 @@ export interface LegacyMessage {
   seq: number;
 }
 
+/** A public message as an older database stores it, before a message was kept in a channel (#1035): in General's table, with its insertion number. */
+export interface LegacyPublicMessage {
+  id: string;
+  authorKind: string;
+  authorRef: string;
+  authorName: string;
+  text: string;
+  createdAt: number;
+  mentionsJson: string;
+  seq: number;
+}
+
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[]): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -319,6 +331,30 @@ export function upgradeCases(o: UpgradeOpeners): void {
       // Nobody is owed the first two now; the one that names nobody goes by retention alone.
       expect(await reads.forget('dm:a|b')).toBe(3);
       expect(await reads.purge(T0 + 4 * MIN)).toBe(2);
+    } finally {
+      await s.close();
+    }
+  });
+  it('puts every public message an older database holds in General, in order and with its mentions, and lets a channel be opened beside it, when the database is upgraded (#1035)', async () => {
+    const old = (id: string, createdAt: number, seq: number, text: string, mentionsJson = '[]'): LegacyPublicMessage => ({ id, authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, createdAt, mentionsJson, seq });
+    const held = JSON.stringify([{ sessionId: 'sa', peerKey: 'k', typed: 'alpha@box', state: 'held', why: null, stateAt: T0 }]);
+    const s = await o.openUpgraded([], [], [], [], [], [], [old('pub_00000000_a', T0, 1, 'first'), old('pub_00000000_c', T0 + 5, 3, 'third', held), old('pub_00000000_b', T0, 2, 'second')]);
+    try {
+      const chat = s.chat({ now: () => T0 + 10 });
+      const page = await chat.public.page('general', { limit: 10 });
+      expect(page.messages.map((m) => [m.text, m.channel])).toEqual([['first', 'general'], ['second', 'general'], ['third', 'general']]);
+      expect(page.messages[2]!.mentions[0]).toMatchObject({ sessionId: 'sa', state: 'held' });
+      expect(await chat.public.count('general')).toBe(3);
+      expect((await chat.public.heldMentions('general', {})).map((m) => m.text)).toEqual(['third']);
+      expect(await chat.channels.list()).toEqual([]);
+      // A channel beside General has none of them, and a new General post follows the old ones.
+      expect(await chat.channels.create({ name: 'new', createdBy: 'ed' }, T0 + 10)).toMatchObject({ ok: true });
+      expect(await chat.public.count('new')).toBe(0);
+      await chat.public.post('new', { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'in new' });
+      await chat.public.post('general', { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'fourth' });
+      expect((await chat.public.page('general', { limit: 10 })).messages.map((m) => m.text)).toEqual(['first', 'second', 'third', 'fourth']);
+      expect((await chat.public.page('new', { limit: 10 })).messages.map((m) => m.text)).toEqual(['in new']);
+      expect(await chat.public.purge(T0 + 1)).toBe(2);
     } finally {
       await s.close();
     }

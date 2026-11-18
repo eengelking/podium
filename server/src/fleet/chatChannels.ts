@@ -137,12 +137,12 @@ export class ChannelChat {
       };
     }
     return {
-      post: (i: ChannelPostInput) => st.public.post(i),
-      page: (o: { before?: string | null; limit: number }) => st.public.page(o),
-      setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null }) => st.public.setMention(id, index, patch),
-      heldMentions: (f: { sessionId?: string }) => st.public.heldMentions(f),
-      clear: () => st.public.clear(),
-      count: () => st.public.count(),
+      post: (i: ChannelPostInput) => st.public.post('general', i),
+      page: (o: { before?: string | null; limit: number }) => st.public.page('general', o),
+      setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null }) => st.public.setMention('general', id, index, patch),
+      heldMentions: (f: { sessionId?: string }) => st.public.heldMentions('general', f),
+      clear: () => st.public.clear('general'),
+      count: () => st.public.count('general'),
     };
   }
 

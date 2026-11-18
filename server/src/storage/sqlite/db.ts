@@ -573,6 +573,21 @@ CREATE TABLE IF NOT EXISTS chat_admin_owed (
 );
 CREATE INDEX IF NOT EXISTS chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);`,
   },
+  {
+    version: 45,
+    // Public channels beside General (#1035). The audience is still the table (decision 61), so a public channel's messages stay in `public_messages`, now keyed by a
+    // channel: every message already there is General's, and the column's default is its fixed key `general`. `public_channels` lists the others: the name is the
+    // key (a lowercase slug, never changed), the description is at most 280 characters, the link is a kind and a reference, and `link_key` is the folded
+    // `<kind>:<reference>` under a unique key so one link has one channel (a channel with no link keeps NULL, which never collides). The same step is PostgreSQL step 21
+    // and MariaDB step 21. `created_by` is the opener's folded name and is emptied when that person is deleted.
+    sql: `
+ALTER TABLE public_messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'general';
+CREATE INDEX IF NOT EXISTS public_messages_in_channel ON public_messages(channel, created_at, seq);
+CREATE TABLE IF NOT EXISTS public_channels (
+  name TEXT PRIMARY KEY, description TEXT NOT NULL DEFAULT '', link_kind TEXT, link_ref TEXT, link_key TEXT UNIQUE,
+  created_by TEXT NOT NULL, created_by_name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
