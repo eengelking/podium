@@ -201,11 +201,11 @@ describe('opening a public channel', () => {
 
   it('cleans and redacts the description and the link', async () => {
     const w = await world();
-    const r = await open(w.edB, { name: 'secrets', description: 'key sk-abcdefghijklmnopqrstuvwxyz123456 here‮', link: { kind: 'project', ref: 'podium' } });
+    const r = await open(w.edB, { name: 'secrets', description: 'key sk-abcdefghijklmnopqrstuvwxyz123456 here\u202e', link: { kind: 'project', ref: 'podium' } });
     expect(r.status).toBe(201);
     expect(r.body.channel.description).toContain('[redacted]');
     expect(r.body.channel.description).not.toContain('sk-abcdef');
-    expect(r.body.channel.description).not.toContain('‮');
+    expect(r.body.channel.description).not.toContain('\u202e');
   });
 });
 

@@ -493,7 +493,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   // channel for everyone. Pause holds messages and keeps access; Disconnect takes the agents' access away; Remove all
   // messages deletes the history. Only the Admin can do either to General as a whole.
   function chanMenu(c) {
-    var admin = S.viewer === 'admin', gen = isPub(c), pn = c.kind === 'public' ? c.name : 'General', label = 'Actions for ' + gname(c);
+    var admin = S.viewer === 'admin', gen = isPub(c), pn = c.kind === 'public' ? esc(c.name) : 'General', label = 'Actions for ' + gname(c);
     var mine = gen ? 'my agents in ' + pn : admin ? 'every agent in ' + ownerOf(c) + '\'s group' : 'every agent in the group';
     var out = '<div class="ch-menu" role="menu" aria-label="' + esc(label) + '">';
     if (byAdmin(c) && !admin) out += '<div class="why">Paused by an Admin. Only an Admin can resume ' + mine + '.</div>';
