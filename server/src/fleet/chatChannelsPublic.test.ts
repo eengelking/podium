@@ -1,7 +1,7 @@
 // Public channels in Chat's server (#1035): opening, describing and removing one, posting and reading in one as a person and as an agent (the agent's read pages
 // through the whole history, 30,000 characters a call), the Admin who edits or removes a channel telling its opener, the privacy rule (a group's or a Direct
 // Message's text is never reachable through a public channel route), and the picker for a new Direct Message. The rest of Chat is `chatRoutes.test.ts`.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
@@ -262,6 +262,22 @@ describe('describing and removing a public channel', () => {
     expect((await remove(w.rootB, 'group')).status).toBe(403);
     await settle();
     expect(await logKinds(w)).toContain('channel_removed');
+  });
+
+  it('still tells the opener and writes the Admin log when the housekeeping after a removal fails, because the removal itself cannot be undone', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'half-gone' });
+    const store = w.fleet.chat.core.store;
+    const spy = vi.spyOn(store.readState, 'forget').mockRejectedValueOnce(new Error('housekeeping failed'));
+    const res = await remove(w.rootB, 'half-gone');
+    spy.mockRestore();
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+    expect((await noticesOf(w, 'dev')).at(-1)).toBe('Root (an Admin) removed the channel half-gone you opened.');
+    await settle();
+    expect(await logKinds(w)).toContain('channel_removed');
+    expect(await store.channels.count()).toBe(0);
+    expect((await read(w.edB, 'half-gone')).status).toBe(404);
   });
 
   it('tells the opener, in every live session of theirs and no one else\'s, when an Admin edits or removes their channel', async () => {

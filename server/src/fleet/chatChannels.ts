@@ -182,14 +182,16 @@ export class ChannelChat {
     return (await this.store.channels.get(raw))?.name ?? null;
   }
 
-  /** The owners of the agents that wrote these messages, as their sessions were last stored; a session that is gone has none (#1035). */
+  /** The owners of the agents that wrote these messages, as their sessions were last stored; a session that is gone has none (#1035). One lookup per agent, all at once. */
   async ownersOf(messages: ChannelMessage[]): Promise<Map<string, string | null>> {
-    const out = new Map<string, string | null>();
-    for (const m of messages) {
-      if (m.authorKind === 'person' || out.has(m.authorRef)) continue;
-      out.set(m.authorRef, (await this.core.host.sessionOf(m.authorRef))?.owner ?? null);
-    }
-    return out;
+    const refs = [...new Set(messages.filter((m) => m.authorKind !== 'person').map((m) => m.authorRef))];
+    const owners = await Promise.all(refs.map(async (ref) => [ref, (await this.core.host.sessionOf(ref))?.owner ?? null] as const));
+    return new Map(owners);
+  }
+
+  /** General and every public channel that exists, by key: the places a mention or a held message of the public audience can be. */
+  private async publicIds(): Promise<string[]> {
+    return [GENERAL, ...(await this.store.channels.list()).map((c) => c.name)];
   }
 
   /** The channel a request is about: the group of the person asking, or the owner an Admin names. Fails when there is none to use. */
@@ -517,7 +519,7 @@ export class ChannelChat {
   async acrossUpdate(u: AcrossUpdate): Promise<void> {
     // The person may have written it in General or in any public channel (#1035): the oldest such mention of that agent, in any of them, is the one that moves.
     let hit: { channel: ChannelId; message: ChannelMessage; index: number } | null = null;
-    for (const channel of [GENERAL, ...(await this.store.channels.list()).map((c) => c.name)]) {
+    for (const channel of await this.publicIds()) {
       const h = this.handle(channel, null);
       let before: string | null = null;
       const found: { message: ChannelMessage; index: number }[] = [];
@@ -678,7 +680,7 @@ export class ChannelChat {
   /** A target left the live set: the mentions held for it are dropped, unless another live session can take its place. */
   async sessionLeft(sessionId: string, owner: string): Promise<void> {
     const key = nameKey(owner);
-    for (const channel of [GROUP, GENERAL, ...(await this.store.channels.list()).map((c) => c.name)]) {
+    for (const channel of [GROUP, ...(await this.publicIds())]) {
       const scope = channel === GROUP ? key : null;
       const h = this.handle(channel, scope);
       for (const { message, index } of await this.held(channel, scope, sessionId)) {

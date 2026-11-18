@@ -99,12 +99,13 @@ export class PublicChannels {
     if (!c) return fail(404, 'There is no such channel.');
     const out = await this.store.channels.remove(c.name);
     if (!out.removed) return fail(404, 'There is no such channel.');
+    // The removal cannot be undone, so the opener is told and the Admin log written now, before the housekeeping below: a failure there must not leave a removal nobody was told of.
+    this.tellOpener(viewer, c, `removed the channel ${c.name} you opened${out.messages ? `, with its ${out.messages} message${out.messages === 1 ? '' : 's'}` : ''}`);
+    this.core.onEvent({ kind: 'channel_removed', channel: c.name, by: viewer.actor, messages: out.messages });
     const settings = this.store.settings;
     for (const scope of Object.keys(await settings.allFlags())) if (scope.startsWith(channelScopePrefix(c.name))) await settings.setFlags(scope, { paused: false, disconnected: false });
     await this.store.readState.forget(channelThread(c.name));
     await this.reads.forget(channelThread(c.name));
-    this.tellOpener(viewer, c, `removed the channel ${c.name} you opened${out.messages ? `, with its ${out.messages} message${out.messages === 1 ? '' : 's'}` : ''}`);
-    this.core.onEvent({ kind: 'channel_removed', channel: c.name, by: viewer.actor, messages: out.messages });
     this.core.signal({ scope: 'public', owner: null });
     return { ok: true, removed: out.messages };
   }

@@ -54,8 +54,10 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     const o = await session(req, res);
     if (!o) return;
     const person = nameKey(o.owner);
+    // Every flag that is on, read once, so a catalogue of 51 channels is not 102 reads of the settings.
+    const known = await fleet.chat.core.store.settings.allFlags();
     const entry = async (name: string, meta: PublicChannel | null) => {
-      const flags = await fleet.chat.channels.flagsOf(name, null, person);
+      const flags = await fleet.chat.channels.flagsOf(name, null, person, known);
       return {
         name,
         description: meta?.description ?? '',
