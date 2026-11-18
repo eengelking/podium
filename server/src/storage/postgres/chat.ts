@@ -7,7 +7,7 @@ import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
   CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
@@ -103,6 +103,22 @@ class PgChannel {
       [...w.args, ...likes],
     );
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
+  }
+
+  /** The messages of every channel with a held mention (of `sessionId`, when given), written by a person, oldest first (#1213). */
+  async heldMentionsAcross(filter: { sessionId?: string }): Promise<ChannelMessage[]> {
+    const likes = heldLikes(filter.sessionId);
+    const rows = await this.db.all<DbChannelRow>(
+      `SELECT ${this.cols} FROM ${this.table} WHERE author_kind = 'person' AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`,
+      likes,
+    );
+    return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
+  }
+
+  /** How many messages each channel holds, in one query; a channel with none is absent (#1213). */
+  async counts(): Promise<Record<string, number>> {
+    const rows = await this.db.all<{ channel: string; n: number | string | bigint }>(`SELECT channel, COUNT(*) AS n FROM ${this.table} GROUP BY channel ORDER BY channel`);
+    return Object.fromEntries(rows.map((r) => [r.channel, Number(r.n)]));
   }
 
   clear(scope: Scope): Promise<number> {
@@ -417,7 +433,7 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     purge: (olderThan) => group.purge(olderThan),
   };
   const inChannel = (c: string): { channel: string } => ({ channel: channelKey(c) });
-  const publicApi: ChannelStoreApi<[string]> = {
+  const publicApi: PublicStoreApi = {
     post: (c, input) => pub.post(inChannel(c), input),
     page: (c, o) => pub.page(inChannel(c), o),
     setMention: (c, id, index, patch) => pub.setMention(inChannel(c), id, index, patch),
@@ -425,6 +441,8 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     clear: (c) => pub.clear(inChannel(c)),
     count: (c) => pub.count(inChannel(c)),
     purge: (olderThan) => pub.purge(olderThan),
+    counts: () => pub.counts(),
+    heldMentionsAcross: (filter) => pub.heldMentionsAcross(filter),
   };
   const channels = new PgPublicChannels(db);
   const channelsApi: PublicChannelsApi = {
