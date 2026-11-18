@@ -17,7 +17,7 @@ import { asyncHandler } from './fleet/asyncHandler.js';
 import type { Logger } from './logging/logger.js';
 import { TlsError } from './tlsCa.js';
 import type { ClientSocket, PersonCertRow } from './tlsClientAuth.js';
-import { personSubject, REPORTER_DAYS, signClientCert, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
+import { personSubject, signClientCert, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
 
 /** A person's certificate is renewed at most once in this long (#612). */
 const MIN_RENEW_INTERVAL_MS = 3_600_000;
@@ -26,8 +26,6 @@ export interface ReporterSettings {
   /** `tls.reporter.lifetimeDays`: how long a person's certificate lasts. */
   lifetimeDays: number;
 }
-
-export const REPORTER_DEFAULTS: ReporterSettings = { lifetimeDays: REPORTER_DAYS };
 
 export interface IssueForKeyOptions {
   dir: string;

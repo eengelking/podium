@@ -20,7 +20,6 @@ import type {
   MachineInfo,
   ModelFamily,
   OwnerSpend,
-  Plan,
   PlanView,
   RecordingView,
   RespondInfo,

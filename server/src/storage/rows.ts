@@ -108,8 +108,6 @@ export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' |
 /** The credential the server records for a report made with the admin secret. */
 export const ADMIN_SECRET = 'admin secret';
 
-/** The name every reporter sent before a second one existed: the Claude Code reporter, and what a row from before the name was stored holds (#849). */
-const DEFAULT_REPORTER_NAME = CLAUDE_REPORTER_NAME;
 
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {

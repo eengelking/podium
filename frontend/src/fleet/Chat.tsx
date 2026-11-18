@@ -283,7 +283,6 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   }
 
   const own = (c: ChatChannel): boolean => ro && c.id === "group";
-  const owns = (d: DirectInfo) => o.me.person && d.owner.toLowerCase() === o.me.name.toLowerCase();
   const startAgent = (a: ChatAgent) => {
     const existing = ownDmWith(o.directs, a.sessionId);
     if (existing) return select({ kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: dmKey(existing) });

@@ -4,7 +4,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IconWarn } from "../components/Icons";
 import { AdminError, type AdminApi } from "./adminApi";
-import { CertBadge } from "./CertIcons";
 import { CertHttp } from "./CertHttp";
 import { CertSettings, type SaveSetting } from "./CertSettings";
 import { CertStatusPanel } from "./CertStatusPanel";

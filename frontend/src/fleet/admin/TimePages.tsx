@@ -4,7 +4,6 @@
 // new sections; the older report is not kept per harness, so the page says so. Names of people, groups, agent types and harnesses come from
 // reporters and are drawn as text nodes.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fmtDur } from "../format";
 import { AdminError, query } from "./adminApi";
 import { Choice, PageHeader, Panel, Section } from "./Page";
 import { Pager } from "./Pager";

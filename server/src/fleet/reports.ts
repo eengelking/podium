@@ -870,7 +870,6 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf, scope: Scop
 // ---- session time and workload (#722) ------------------------------------------------------------------
 
 const TIME_TABLES: readonly RollupTable[] = ['session_time_daily', 'agents_daily'];
-const WORKLOAD_TABLES: readonly RollupTable[] = ['person_sessions_daily', 'hour_peaks_daily'];
 
 /** The oldest day any of `tables` covers, or today when none does yet: they started later than the other rollups, and a gap is never drawn as zeros. */
 async function oldestDayOf(db: FleetStore, tables: readonly RollupTable[], today: string): Promise<string> {

@@ -4,7 +4,7 @@ import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import { serverBuild } from './build.js';
 import { checkReporter, serverVersion, supportFor } from './compat.js';
-import { MAIN_LOOP, validateReport } from './protocol.js';
+import { validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
 import { HarnessConflict, OwnerConflict } from './ingest.js';
 import { ADMIN_OWNER, nameKey, sourceAddress, keyOf, type PersonRow, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from '../storage/rows.js';
