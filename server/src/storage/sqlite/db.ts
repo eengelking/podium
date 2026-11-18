@@ -1131,7 +1131,7 @@ export class FleetDb {
   samplesSinceOf(sessionIds: string[], fromT: number): Map<string, SampleRow[]> {
     const rows: SampleRow[] = [];
     for (const part of pieces([...new Set(sessionIds)])) {
-      rows.push(...(this.many(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t`, [...part, fromT]) as unknown as SampleRow[]));
+      rows.push(...(this.many(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t, session_id`, [...part, fromT]) as unknown as SampleRow[]));
     }
     return grouped(sessionIds, rows);
   }

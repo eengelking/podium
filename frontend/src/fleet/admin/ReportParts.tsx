@@ -1,10 +1,10 @@
 // The pieces every Reporting page is made of (#484, mockup/podium-admin-reporting.html): Export, the Period and filters
 // controls with the lines under them, and the report itself (totals, a chart in a neutral ink, the table, the pager).
 // Names in a row are untrusted text and are drawn as text nodes.
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { query, type Paged } from "./adminApi";
 import { Pager } from "./Pager";
-import { Choice } from "./Page";
+import { Choice, Panel } from "./Page";
 import { SortArrow, useHeldColumns } from "./heldColumns";
 import {
   BYS,
@@ -467,21 +467,32 @@ function Versions({ title, counts }: { title: string; counts: Record<string, num
   );
 }
 
-/** The panel's contents for a loaded report. */
-export function ReportBody({ r }: { r: ReportState }) {
+/**
+ * A loaded report's panels (#1136). The summary figures, the versions and the chart are one panel; the table with its pager is another, as on Harness updates.
+ * `lead` sits at the top of the first panel (a control row) and `after` at the end of the last (a note).
+ */
+export function ReportBody({ r, lead, after }: { r: ReportState; lead?: ReactNode; after?: ReactNode }) {
   const { cfg, reply, page, prefs } = r;
-  if (r.problem) return <div className="empty">Fix the period above to see the report.</div>;
-  if (r.error) {
+  if (r.problem || r.error || !reply) {
     return (
-      <div className="err" role="alert">
-        {r.error}{" "}
-        <button type="button" className="btn sm" onClick={r.reload}>
-          Try again
-        </button>
-      </div>
+      <Panel>
+        {lead}
+        {r.problem ? (
+          <div className="empty">Fix the period above to see the report.</div>
+        ) : r.error ? (
+          <div className="err" role="alert">
+            {r.error}{" "}
+            <button type="button" className="btn sm" onClick={r.reload}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="empty">Loading…</div>
+        )}
+        {after}
+      </Panel>
     );
   }
-  if (!reply) return <div className="empty">Loading…</div>;
   const col = (key: string): ReportColumn => reply.columns.find((c) => c.key === key) ?? { key, label: key };
   const total = reply.total && typeof reply.total === "object" ? reply.total : null;
   const summary = reply.summary
@@ -494,7 +505,7 @@ export function ReportBody({ r }: { r: ReportState }) {
       ? cfg.summary.filter((s) => total[s.key] !== undefined).map((s) => ({ ...s, value: total[s.key] }))
       : [];
   const empty = reply.rows.length === 0;
-  return (
+  const figures = (
     <>
       {summary.length > 0 && !empty && (
         <div className="tool alone">
@@ -515,13 +526,33 @@ export function ReportBody({ r }: { r: ReportState }) {
         </div>
       )}
       {cfg.chart && !empty && <ReportChart rows={reply.rows} valueKey={cfg.chart.key} column={col(cfg.chart.key)} unit={cfg.chart.unit} by={reply.by} />}
-      {empty ? (
-        // A partial period already said why above; the empty line is for a period Podium covers and found nothing in.
-        !reply.partial && <div className="empty">Nothing was recorded in this period.</div>
-      ) : (
-        <ReportTable reply={reply} label={cfg.title} page={page} pageSize={prefs.pageSize} history={cfg.report === "failures"} breakdown={prefs.breakdown} onSort={() => r.setPage(1)} />
+    </>
+  );
+  const hasFigures = (summary.length > 0 || reply.summary || cfg.chart) && !empty;
+  if (empty) {
+    return (
+      <Panel>
+        {lead}
+        {/* A partial period already said why above; the empty line is for a period Podium covers and found nothing in. */}
+        {figures}
+        {!reply.partial && <div className="empty">Nothing was recorded in this period.</div>}
+        {after}
+      </Panel>
+    );
+  }
+  return (
+    <>
+      {(hasFigures || lead) && (
+        <Panel>
+          {lead}
+          {figures}
+        </Panel>
       )}
-      {!empty && <Pager id={`rep-${cfg.report}`} page={page} pageSize={prefs.pageSize} total={reply.rows.length} onPage={r.setPage} onSize={(pageSize) => r.setPrefs({ pageSize })} />}
+      <Panel>
+        <ReportTable reply={reply} label={cfg.title} page={page} pageSize={prefs.pageSize} history={cfg.report === "failures"} breakdown={prefs.breakdown} onSort={() => r.setPage(1)} />
+        <Pager id={`rep-${cfg.report}`} page={page} pageSize={prefs.pageSize} total={reply.rows.length} onPage={r.setPage} onSize={(pageSize) => r.setPrefs({ pageSize })} />
+        {after}
+      </Panel>
     </>
   );
 }

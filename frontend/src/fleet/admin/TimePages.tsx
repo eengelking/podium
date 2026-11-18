@@ -108,8 +108,8 @@ export function useSection(client: ReportsClient, r: ReportState, spec: Spec, on
   return { ...state, exportAs, exportError };
 }
 
-/** A section whose title line carries the CSV and JSON of its own table, as the Spend projection's does. */
-export function DataSection({ id, title, help, noun, s, children }: { id: string; title: string; help?: string; noun: string; s: SectionState; children: React.ReactNode }) {
+/** A section whose title line carries the CSV and JSON of its own table, as the Spend projection's does. With `split`, the children are their own panels (#1136). */
+export function DataSection({ id, title, help, noun, s, split = false, children }: { id: string; title: string; help?: string; noun: string; s: SectionState; split?: boolean; children: React.ReactNode }) {
   return (
     <section className="asec" aria-labelledby={id}>
       <div className="asec-h">
@@ -119,10 +119,12 @@ export function DataSection({ id, title, help, noun, s, children }: { id: string
         </div>
         <ExportButtons print={false} noun={noun} disabled={!s.reply} onCsv={() => void s.exportAs("csv")} onJson={() => void s.exportAs("json")} error={s.exportError} />
       </div>
-      <Panel>{children}</Panel>
+      {split ? children : <Panel>{children}</Panel>}
     </section>
   );
 }
+
+const HARNESS_NOTE = <div className="note-line">This section is not kept per harness, so it covers every harness. The sections below follow the Harness filter.</div>;
 
 export const BLOCKED = "These figures are kept for every person, group and model together, so they are not shown while a Person, Group or Model filter is set.";
 
@@ -143,95 +145,99 @@ function LengthBody({ reply, harness }: { reply: ReportReply; harness: string })
   const first = reply.by === "month" ? "Month" : reply.by === "day" ? "Day" : "Week of";
   return (
     <>
-      <div className="tool alone">
-        <div className="sum left">
-          <div>
-            <span className="big mono">{count(total.sessions)}</span>
-            <span className="cap">sessions</span>
-          </div>
-          <div>
-            <span className="big mono">{dur(total.avgDurationS)}</span>
-            <span className="cap">average length</span>
-          </div>
-          <div>
-            <span className="big mono">{dur(total.waitS)}</span>
-            <span className="cap">{late ? `waiting on people, since ${since}` : "waiting on people"}</span>
-          </div>
-          <div>
-            <span className="big mono">{share(total.waitSharePct)}</span>
-            <span className="cap">of session time spent waiting</span>
+      <Panel>
+        <div className="tool alone">
+          <div className="sum left">
+            <div>
+              <span className="big mono">{count(total.sessions)}</span>
+              <span className="cap">sessions</span>
+            </div>
+            <div>
+              <span className="big mono">{dur(total.avgDurationS)}</span>
+              <span className="cap">average length</span>
+            </div>
+            <div>
+              <span className="big mono">{dur(total.waitS)}</span>
+              <span className="cap">{late ? `waiting on people, since ${since}` : "waiting on people"}</span>
+            </div>
+            <div>
+              <span className="big mono">{share(total.waitSharePct)}</span>
+              <span className="cap">of session time spent waiting</span>
+            </div>
           </div>
         </div>
-      </div>
-      <ReportChart rows={reply.rows} valueKey="waitS" column={col} unit="Time waiting on people" by={reply.by ?? undefined} axis={hoursAxis} />
-      <div className="tw2">
-        <table className="ptab" aria-label="Length and waiting by period">
-          <thead>
-            <tr>
-              <th scope="col">{first}</th>
-              <th scope="col" className="n">
-                Sessions
-              </th>
-              <th scope="col" className="n">
-                Average length
-              </th>
-              <th scope="col" className="n">
-                Longest
-              </th>
-              <th scope="col" className="n">
-                Waiting on people
-              </th>
-              <th scope="col" className="n">
-                Share of time
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {periods.map((p) => (
-              <tr key={text(p.period)}>
-                <td className="who">{text(p.period)}</td>
-                <td className="n mono">{count(p.sessions)}</td>
-                <td className="n mono">{dur(p.avgDurationS)}</td>
-                <td className="n mono">{dur(p.maxDurationS)}</td>
-                <td className={`n mono${p.waitS === null ? " muted" : ""}`}>{dur(p.waitS)}</td>
-                <td className={`n mono${p.waitSharePct === null ? " muted" : ""}`}>{share(p.waitSharePct)}</td>
+        <ReportChart rows={reply.rows} valueKey="waitS" column={col} unit="Time waiting on people" by={reply.by ?? undefined} axis={hoursAxis} />
+      </Panel>
+      <Panel>
+        <div className="tw2">
+          <table className="ptab" aria-label="Length and waiting by period">
+            <thead>
+              <tr>
+                <th scope="col">{first}</th>
+                <th scope="col" className="n">
+                  Sessions
+                </th>
+                <th scope="col" className="n">
+                  Average length
+                </th>
+                <th scope="col" className="n">
+                  Longest
+                </th>
+                <th scope="col" className="n">
+                  Waiting on people
+                </th>
+                <th scope="col" className="n">
+                  Share of time
+                </th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row">{harness ? `Whole period, ${harnessName(harness)}` : "Whole period, all harnesses"}</th>
-              <td className="n mono">{count(total.sessions)}</td>
-              <td className="n mono">{dur(total.avgDurationS)}</td>
-              <td className="n mono">{dur(total.maxDurationS)}</td>
-              <td className="n mono">{dur(total.waitS)}</td>
-              <td className="n mono">{share(total.waitSharePct)}</td>
-            </tr>
-            {harness === "" &&
-              byHarness.length > 1 &&
-              byHarness.map((h) => (
-                <tr key={text(h.harness)}>
-                  <th scope="row">{harnessName(text(h.harness))}</th>
-                  <td className="n mono">{count(h.sessions)}</td>
-                  <td className="n mono">{dur(h.avgDurationS)}</td>
-                  <td className="n mono">{dur(h.maxDurationS)}</td>
-                  <td className="n mono">{dur(h.waitS)}</td>
-                  <td className="n mono">{share(h.waitSharePct)}</td>
+            </thead>
+            <tbody>
+              {periods.map((p) => (
+                <tr key={text(p.period)}>
+                  <td className="who">{text(p.period)}</td>
+                  <td className="n mono">{count(p.sessions)}</td>
+                  <td className="n mono">{dur(p.avgDurationS)}</td>
+                  <td className="n mono">{dur(p.maxDurationS)}</td>
+                  <td className={`n mono${p.waitS === null ? " muted" : ""}`}>{dur(p.waitS)}</td>
+                  <td className={`n mono${p.waitSharePct === null ? " muted" : ""}`}>{share(p.waitSharePct)}</td>
                 </tr>
               ))}
-          </tfoot>
-        </table>
-      </div>
-      {since === "" && <div className="note-line">Waiting time is recorded from the upgrade to this release on, and no session has recorded any yet.</div>}
-      {late && (
-        <div className="note-line">
-          <b>Waiting time is recorded from {since},</b> when Podium was upgraded to this release. Earlier periods show a dash, and the totals count only the periods that have it.
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">{harness ? `Whole period, ${harnessName(harness)}` : "Whole period, all harnesses"}</th>
+                <td className="n mono">{count(total.sessions)}</td>
+                <td className="n mono">{dur(total.avgDurationS)}</td>
+                <td className="n mono">{dur(total.maxDurationS)}</td>
+                <td className="n mono">{dur(total.waitS)}</td>
+                <td className="n mono">{share(total.waitSharePct)}</td>
+              </tr>
+              {harness === "" &&
+                byHarness.length > 1 &&
+                byHarness.map((h) => (
+                  <tr key={text(h.harness)}>
+                    <th scope="row">{harnessName(text(h.harness))}</th>
+                    <td className="n mono">{count(h.sessions)}</td>
+                    <td className="n mono">{dur(h.avgDurationS)}</td>
+                    <td className="n mono">{dur(h.maxDurationS)}</td>
+                    <td className="n mono">{dur(h.waitS)}</td>
+                    <td className="n mono">{share(h.waitSharePct)}</td>
+                  </tr>
+                ))}
+            </tfoot>
+          </table>
         </div>
-      )}
-      <div className="note-line">
-        Length is from a session&apos;s start to its last report. Waiting is the time a session reported that it waited on a person, so it is counted to the reporting interval, and
-        a wait for background work or a timer is not counted.
-      </div>
+        {since === "" && <div className="note-line">Waiting time is recorded from the upgrade to this release on, and no session has recorded any yet.</div>}
+        {late && (
+          <div className="note-line">
+            <b>Waiting time is recorded from {since},</b> when Podium was upgraded to this release. Earlier periods show a dash, and the totals count only the periods that have it.
+          </div>
+        )}
+        <div className="note-line">
+          Length is from a session&apos;s start to its last report. Waiting is the time a session reported that it waited on a person, so it is counted to the reporting interval, and
+          a wait for background work or a timer is not counted.
+        </div>
+      </Panel>
     </>
   );
 }
@@ -324,67 +330,71 @@ function AgentsBody({ reply, deepest }: { reply: ReportReply; deepest: number | 
   );
   return (
     <>
-      <div className="tool alone">
-        <div className="sum left">
-          <div>
-            <span className="big mono">{count(total.agents)}</span>
-            <span className="cap">agents launched</span>
-          </div>
-          <div>
-            <span className="big mono">{total.agentsPerSession === null || total.agentsPerSession === undefined ? "–" : String(total.agentsPerSession)}</span>
-            <span className="cap">agents per session</span>
-          </div>
-          {deepest !== null && deepest > 0 && (
+      <Panel>
+        <div className="tool alone">
+          <div className="sum left">
             <div>
-              <span className="big mono">{count(deepest)}</span>
-              <span className="cap">{deepest === 1 ? "level deep at most" : "levels deep at most"}</span>
+              <span className="big mono">{count(total.agents)}</span>
+              <span className="cap">agents launched</span>
             </div>
-          )}
+            <div>
+              <span className="big mono">{total.agentsPerSession === null || total.agentsPerSession === undefined ? "–" : String(total.agentsPerSession)}</span>
+              <span className="cap">agents per session</span>
+            </div>
+            {deepest !== null && deepest > 0 && (
+              <div>
+                <span className="big mono">{count(deepest)}</span>
+                <span className="cap">{deepest === 1 ? "level deep at most" : "levels deep at most"}</span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-      <div className="tw2">
-        <table className="ptab" aria-label="Agents launched by type">
-          <thead>
-            <tr>
-              <th scope="col">Agent type</th>
-              {harnesses.map((h) => (
-                <th key={h} scope="col" className="n">
-                  {harnessName(h)}
+      </Panel>
+      <Panel>
+        <div className="tw2">
+          <table className="ptab" aria-label="Agents launched by type">
+            <thead>
+              <tr>
+                <th scope="col">Agent type</th>
+                {harnesses.map((h) => (
+                  <th key={h} scope="col" className="n">
+                    {harnessName(h)}
+                  </th>
+                ))}
+                <th scope="col" className="n">
+                  Launched
                 </th>
-              ))}
-              <th scope="col" className="n">
-                Launched
-              </th>
-              <th scope="col" className="n">
-                Share
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((t) => line(t.type, (h) => t.perHarness.get(h) ?? 0, t.agents, true, t.type))}
-            {rest.length > 0 &&
-              line(
-                `Other, ${plural(rest.length, "type", "types")}`,
-                (h) => rest.reduce((n, t) => n + (t.perHarness.get(h) ?? 0), 0),
-                rest.reduce((n, t) => n + t.agents, 0),
-                false,
-                "other",
-              )}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row">Total</th>
-              {harnesses.map((h) => (
-                <td key={h} className="n mono">
-                  {count(ordered.reduce((n, t) => n + (t.perHarness.get(h) ?? 0), 0))}
-                </td>
-              ))}
-              <td className="n mono">{count(grand)}</td>
-              <td className="n mono">100%</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+                <th scope="col" className="n">
+                  Share
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((t) => line(t.type, (h) => t.perHarness.get(h) ?? 0, t.agents, true, t.type))}
+              {rest.length > 0 &&
+                line(
+                  `Other, ${plural(rest.length, "type", "types")}`,
+                  (h) => rest.reduce((n, t) => n + (t.perHarness.get(h) ?? 0), 0),
+                  rest.reduce((n, t) => n + t.agents, 0),
+                  false,
+                  "other",
+                )}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Total</th>
+                {harnesses.map((h) => (
+                  <td key={h} className="n mono">
+                    {count(ordered.reduce((n, t) => n + (t.perHarness.get(h) ?? 0), 0))}
+                  </td>
+                ))}
+                <td className="n mono">{count(grand)}</td>
+                <td className="n mono">100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </Panel>
     </>
   );
 }
@@ -474,10 +484,7 @@ export function SessionsPage({ cfg, client, onLocked }: { cfg: ReportConfig; cli
         </Panel>
       </Section>
       <Section id={`rep-${cfg.report}-r`} title={head.title} help={head.help}>
-        <Panel>
-          <ReportBody r={r} />
-          {prefs.harness && <div className="note-line">This section is not kept per harness, so it covers every harness. The sections below follow the Harness filter.</div>}
-        </Panel>
+        <ReportBody r={r} after={prefs.harness ? HARNESS_NOTE : null} />
       </Section>
       {!r.problem && (
         <>
@@ -487,9 +494,12 @@ export function SessionsPage({ cfg, client, onLocked }: { cfg: ReportConfig; cli
             help={`How long sessions ran, and how much of that they spent waiting on a person to answer a question, approve a plan or allow a tool. ${period}.`}
             noun="length and waiting "
             s={time}
+            split
           >
-            {blockedLine ?? (
-              <Waiting reply={time.reply} error={time.error} problem={r.problem} empty={empty("sessions")}>
+            {blocked ? (
+              <Panel>{blockedLine}</Panel>
+            ) : (
+              <Waiting split reply={time.reply} error={time.error} problem={r.problem} empty={empty("sessions")}>
                 {(rep) => <LengthBody reply={rep} harness={prefs.harness} />}
               </Waiting>
             )}
@@ -508,9 +518,11 @@ export function SessionsPage({ cfg, client, onLocked }: { cfg: ReportConfig; cli
             )}
           </DataSection>
           <AnswerSections client={client} r={r} onLocked={onLocked} />
-          <DataSection id="rep-sessiontime-a" title="Agents launched" help={`By agent type, with a column for each harness. ${period}.`} noun="agents by type " s={agents}>
-            {blockedLine ?? (
-              <Waiting reply={agents.reply} error={agents.error} problem={r.problem} empty={empty("agents launched")}>
+          <DataSection id="rep-sessiontime-a" title="Agents launched" help={`By agent type, with a column for each harness. ${period}.`} noun="agents by type " s={agents} split>
+            {blocked ? (
+              <Panel>{blockedLine}</Panel>
+            ) : (
+              <Waiting split reply={agents.reply} error={agents.error} problem={r.problem} empty={empty("agents launched")}>
                 {(rep) => <AgentsBody reply={rep} deepest={depth.reply ? num(depth.reply.total?.deepest) : null} />}
               </Waiting>
             )}
@@ -710,10 +722,7 @@ export function UsagePage({ cfg, client, onLocked }: { cfg: ReportConfig; client
         </Panel>
       </Section>
       <Section id={`rep-${cfg.report}-r`} title={head.title} help={head.help}>
-        <Panel>
-          <ReportBody r={r} />
-          {prefs.harness && <div className="note-line">This section is not kept per harness, so it covers every harness. The sections below follow the Harness filter.</div>}
-        </Panel>
+        <ReportBody r={r} after={prefs.harness ? HARNESS_NOTE : null} />
       </Section>
       {!r.problem && (
         <>
