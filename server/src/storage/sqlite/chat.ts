@@ -6,12 +6,15 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, withMentionState, type DbChannelRow,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, ThreadReadState } from '../types.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
-const PUBLIC_COLS = 'id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
+const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
+
+/** Which messages of a table: one person's group, or one public channel (#1035). */
+type Scope = GroupScope | { channel: string };
 
 /** One channel table. `grouped` is the group table, whose every statement is scoped to an owner and a group. */
 class Channel {
@@ -42,36 +45,38 @@ class Channel {
   }
 
   /** The `WHERE` for the channel and the values that fill it. */
-  private where(scope: GroupScope | null): { sql: string; args: string[] } {
-    return scope ? { sql: 'owner = ? AND group_id = ?', args: [channelOwner(scope.owner), scope.groupId] } : { sql: '1 = 1', args: [] };
+  private where(scope: Scope): { sql: string; args: string[] } {
+    return 'channel' in scope ? { sql: 'channel = ?', args: [scope.channel] } : { sql: 'owner = ? AND group_id = ?', args: [channelOwner(scope.owner), scope.groupId] };
   }
 
-  private byId(id: string, scope: GroupScope | null): DbChannelRow | undefined {
+  private byId(id: string, scope: Scope): DbChannelRow | undefined {
     const w = this.where(scope);
     return this.stmt(`SELECT ${this.cols} FROM ${this.table} WHERE id = ? AND ${w.sql}`).get(id, ...w.args) as unknown as DbChannelRow | undefined;
   }
 
-  post(scope: GroupScope | null, input: ChannelPostInput): ChannelMessage {
+  post(scope: Scope, input: ChannelPostInput): ChannelMessage {
     const kind = checkAuthorKind(input.authorKind);
     const at = this.now();
     const mentions = mentionsOf(input, at);
     const id = newChannelId(this.grouped ? 'grp' : 'pub', this.scope());
     const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions)] as const;
-    if (scope) {
+    if (!('channel' in scope)) {
       this.stmt(
         `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
       ).run(common[0], channelOwner(scope.owner), scope.groupId, ...common.slice(1));
     } else {
+      // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
+      if (scope.channel !== GENERAL_CHANNEL && !this.stmt('SELECT 1 AS x FROM public_channels WHERE name = ?').get(scope.channel)) throw new Error('There is no such public channel.');
       this.stmt(
-        `INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
-      ).run(...common);
+        `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
+      ).run(common[0], scope.channel, ...common.slice(1));
     }
     return toChannelMessage(this.byId(id, scope) as DbChannelRow);
   }
 
-  page(scope: GroupScope | null, opts: { before?: string | null; limit: number }): ChannelPage {
+  page(scope: Scope, opts: { before?: string | null; limit: number }): ChannelPage {
     const before = opts.before === undefined || opts.before === null ? null : decodeCursor(opts.before);
     const limit = pageSize(opts.limit);
     const w = this.where(scope);
@@ -86,7 +91,7 @@ class Channel {
     return { messages: kept.map(toChannelMessage), older: rows.length > limit && oldest ? encodeCursor(oldest.created_at, oldest.seq) : null };
   }
 
-  setMention(scope: GroupScope | null, id: string, index: number, patch: { state: MentionState; why?: string | null }): ChannelMessage | null {
+  setMention(scope: Scope, id: string, index: number, patch: { state: MentionState; why?: string | null }): ChannelMessage | null {
     const row = this.byId(id, scope);
     if (!row) return null;
     const at = this.now();
@@ -96,25 +101,88 @@ class Channel {
     return toChannelMessage(this.byId(id, scope) as DbChannelRow);
   }
 
-  heldMentions(scope: GroupScope | null, filter: { sessionId?: string }): ChannelMessage[] {
+  heldMentions(scope: Scope, filter: { sessionId?: string }): ChannelMessage[] {
     const w = this.where(scope);
     const likes = heldLikes(filter.sessionId);
     const rows = this.stmt(`SELECT ${this.cols} FROM ${this.table} WHERE ${w.sql} AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`).all(...w.args, ...likes) as unknown as DbChannelRow[];
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
   }
 
-  clear(scope: GroupScope | null): number {
+  clear(scope: Scope): number {
     const w = this.where(scope);
     return Number(this.stmt(`DELETE FROM ${this.table} WHERE ${w.sql}`).run(...w.args).changes);
   }
 
-  count(scope: GroupScope | null): number {
+  count(scope: Scope): number {
     const w = this.where(scope);
     return (this.stmt(`SELECT COUNT(*) AS n FROM ${this.table} WHERE ${w.sql}`).get(...w.args) as { n: number }).n;
   }
 
   purge(olderThan: number): number {
     return Number(this.stmt(`DELETE FROM ${this.table} WHERE created_at < ?`).run(olderThan).changes);
+  }
+}
+
+/** The public channels beside General (#1035): the rows of `public_channels`. Their messages are `public_messages` rows keyed by the channel. */
+class PublicChannels {
+  constructor(private readonly db: DatabaseSync) {}
+
+  private row(name: string): DbPublicChannel | undefined {
+    return this.db.prepare(`SELECT ${CHANNEL_COLS} FROM public_channels WHERE name = ?`).get(name) as unknown as DbPublicChannel | undefined;
+  }
+
+  create(input: NewPublicChannel, at: number): PublicChannelOutcome {
+    const c = checkNewChannel(input);
+    if ('ok' in c) return c;
+    if (this.row(c.name)) return channelRefusal('name-taken', `There is already a channel named ${c.name}.`);
+    if (c.link && this.db.prepare('SELECT 1 AS x FROM public_channels WHERE link_key = ?').get(c.link.key)) return channelRefusal('link-taken', 'That link already has a channel.');
+    // The limit is in the insert itself, so no second insert can pass it between a count and this statement.
+    const made = this.db
+      .prepare(
+        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_name, created_at, updated_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM public_channels) < ?`,
+      )
+      .run(c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdBy, c.createdByName, at, at, MAX_PUBLIC_CHANNELS);
+    if (Number(made.changes) === 0) return channelRefusal('limit-reached', `There are already ${MAX_PUBLIC_CHANNELS} channels besides General.`);
+    return { ok: true, channel: toPublicChannel(this.row(c.name) as DbPublicChannel) };
+  }
+
+  list(): PublicChannel[] {
+    return (this.db.prepare(`SELECT ${CHANNEL_COLS} FROM public_channels ORDER BY name`).all() as unknown as DbPublicChannel[]).map(toPublicChannel);
+  }
+
+  get(name: string): PublicChannel | null {
+    const r = this.row(channelKey(name));
+    return r ? toPublicChannel(r) : null;
+  }
+
+  updateDescription(name: string, description: string, at: number): PublicChannelOutcome {
+    const key = channelKey(name);
+    if (!this.row(key)) return channelRefusal('not-found', 'There is no such public channel.');
+    const bad = checkDescription(description);
+    if (bad) return bad;
+    this.db.prepare('UPDATE public_channels SET description = ?, updated_at = ? WHERE name = ?').run(description, at, key);
+    return { ok: true, channel: toPublicChannel(this.row(key) as DbPublicChannel) };
+  }
+
+  remove(name: string): { removed: boolean; messages: number } {
+    const key = channelKey(name);
+    if (!this.row(key)) return { removed: false, messages: 0 };
+    this.db.exec('SAVEPOINT remove_public_channel');
+    try {
+      const messages = Number(this.db.prepare('DELETE FROM public_messages WHERE channel = ?').run(key).changes);
+      this.db.prepare('DELETE FROM public_channels WHERE name = ?').run(key);
+      this.db.exec('RELEASE remove_public_channel');
+      return { removed: true, messages };
+    } catch (err) {
+      this.db.exec('ROLLBACK TO remove_public_channel');
+      this.db.exec('RELEASE remove_public_channel');
+      throw err;
+    }
+  }
+
+  count(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM public_channels').get() as { n: number }).n;
   }
 }
 
@@ -324,6 +392,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
   const scope = scopeOf(db);
   const group = new Channel(db, 'group_messages', opts.now, scope);
   const pub = new Channel(db, 'public_messages', opts.now, scope);
+  const channels = new PublicChannels(db);
   const state = new ReadState(db, opts.now);
   const reads = new AdminReads(db, opts.now);
   const step = <T>(fn: () => T): Promise<T> => lock.run(fn);
@@ -356,14 +425,23 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     count: (s) => step(() => group.count(s)),
     purge: (olderThan) => step(() => group.purge(olderThan)),
   };
-  const publicApi: ChannelStoreApi<[]> = {
-    post: (input) => step(() => pub.post(null, input)),
-    page: (o) => step(() => pub.page(null, o)),
-    setMention: (id, index, patch) => step(() => pub.setMention(null, id, index, patch)),
-    heldMentions: (filter) => step(() => pub.heldMentions(null, filter)),
-    clear: () => step(() => pub.clear(null)),
-    count: () => step(() => pub.count(null)),
+  const inChannel = (c: string): { channel: string } => ({ channel: channelKey(c) });
+  const publicApi: ChannelStoreApi<[string]> = {
+    post: (c, input) => step(() => pub.post(inChannel(c), input)),
+    page: (c, o) => step(() => pub.page(inChannel(c), o)),
+    setMention: (c, id, index, patch) => step(() => pub.setMention(inChannel(c), id, index, patch)),
+    heldMentions: (c, filter) => step(() => pub.heldMentions(inChannel(c), filter)),
+    clear: (c) => step(() => pub.clear(inChannel(c))),
+    count: (c) => step(() => pub.count(inChannel(c))),
     purge: (olderThan) => step(() => pub.purge(olderThan)),
+  };
+  const channelsApi: PublicChannelsApi = {
+    create: (input, at) => step(() => channels.create(input, at)),
+    list: () => step(() => channels.list()),
+    get: (name) => step(() => channels.get(name)),
+    updateDescription: (name, description, at) => step(() => channels.updateDescription(name, description, at)),
+    remove: (name) => step(() => channels.remove(name)),
+    count: () => step(() => channels.count()),
   };
   const get = (key: string): string | undefined => (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
   const settings = chatSettingsOver({
@@ -372,5 +450,5 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     del: (key) => step(() => void db.prepare('DELETE FROM settings WHERE key = ?').run(key)),
     prefixed: (prefix) => step(() => db.prepare("SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key").all(prefix.length, prefix) as unknown as { key: string; value: string }[]),
   });
-  return { serverScope: () => step(scope), group: groupApi, public: publicApi, readState, adminReads, settings };
+  return { serverScope: () => step(scope), group: groupApi, public: publicApi, channels: channelsApi, readState, adminReads, settings };
 }

@@ -5,13 +5,16 @@
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHAT_SCOPE_KEY, channelOwner, chatSettingsOver, checkAuthorKind, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, withMentionState, type DbChannelRow,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, ThreadReadState } from '../types.js';
 import type { MariaDbConn } from './conn.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
-const PUBLIC_COLS = 'id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
+const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
+
+/** Which messages of a table: one person's group, or one public channel (#1035). */
+type Scope = GroupScope | { channel: string };
 
 /** One channel table. The group table's every statement is scoped to an owner and a group. */
 class MariaChannel {
@@ -31,16 +34,16 @@ class MariaChannel {
   }
 
   /** The `WHERE` for the channel and the values that fill it. */
-  private where(scope: GroupScope | null): { sql: string; args: string[] } {
-    return scope ? { sql: 'owner = ? AND group_id = ?', args: [channelOwner(scope.owner), scope.groupId] } : { sql: '1 = 1', args: [] };
+  private where(scope: Scope): { sql: string; args: string[] } {
+    return 'channel' in scope ? { sql: 'channel = ?', args: [scope.channel] } : { sql: 'owner = ? AND group_id = ?', args: [channelOwner(scope.owner), scope.groupId] };
   }
 
-  private byId(id: string, scope: GroupScope | null): Promise<DbChannelRow | undefined> {
+  private byId(id: string, scope: Scope): Promise<DbChannelRow | undefined> {
     const w = this.where(scope);
     return this.db.get<DbChannelRow>(`SELECT ${this.cols} FROM ${this.table} WHERE id = ? AND ${w.sql}`, [id, ...w.args]);
   }
 
-  post(scope: GroupScope | null, input: ChannelPostInput): Promise<ChannelMessage> {
+  post(scope: Scope, input: ChannelPostInput): Promise<ChannelMessage> {
     return this.db.tx(async () => {
       const kind = checkAuthorKind(input.authorKind);
       const at = this.now();
@@ -48,24 +51,26 @@ class MariaChannel {
       const id = newChannelId(this.grouped ? 'grp' : 'pub', await this.scope());
       const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions)] as const;
       // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
-      if (scope) {
+      if (!('channel' in scope)) {
         await this.db.run(
           `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
           [common[0], channelOwner(scope.owner), scope.groupId, ...common.slice(1)],
         );
       } else {
+        // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
+        if (scope.channel !== GENERAL_CHANNEL && !(await this.db.get('SELECT 1 AS x FROM public_channels WHERE name = ?', [scope.channel]))) throw new Error('There is no such public channel.');
         await this.db.run(
-          `INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
-          [...common],
+          `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
+          [common[0], scope.channel, ...common.slice(1)],
         );
       }
       return toChannelMessage((await this.byId(id, scope)) as DbChannelRow);
     });
   }
 
-  async page(scope: GroupScope | null, opts: { before?: string | null; limit: number }): Promise<ChannelPage> {
+  async page(scope: Scope, opts: { before?: string | null; limit: number }): Promise<ChannelPage> {
     const before = opts.before === undefined || opts.before === null ? null : decodeCursor(opts.before);
     const limit = pageSize(opts.limit);
     const w = this.where(scope);
@@ -78,7 +83,7 @@ class MariaChannel {
     return { messages: kept.map(toChannelMessage), older: rows.length > limit && oldest ? encodeCursor(oldest.created_at, oldest.seq) : null };
   }
 
-  setMention(scope: GroupScope | null, id: string, index: number, patch: { state: MentionState; why?: string | null }): Promise<ChannelMessage | null> {
+  setMention(scope: Scope, id: string, index: number, patch: { state: MentionState; why?: string | null }): Promise<ChannelMessage | null> {
     return this.db.tx(async () => {
       const row = await this.byId(id, scope);
       if (!row) return null;
@@ -90,7 +95,7 @@ class MariaChannel {
     });
   }
 
-  async heldMentions(scope: GroupScope | null, filter: { sessionId?: string }): Promise<ChannelMessage[]> {
+  async heldMentions(scope: Scope, filter: { sessionId?: string }): Promise<ChannelMessage[]> {
     const w = this.where(scope);
     const likes = heldLikes(filter.sessionId);
     const rows = await this.db.all<DbChannelRow>(
@@ -100,18 +105,77 @@ class MariaChannel {
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
   }
 
-  clear(scope: GroupScope | null): Promise<number> {
+  clear(scope: Scope): Promise<number> {
     const w = this.where(scope);
     return this.db.run(`DELETE FROM ${this.table} WHERE ${w.sql}`, w.args);
   }
 
-  async count(scope: GroupScope | null): Promise<number> {
+  async count(scope: Scope): Promise<number> {
     const w = this.where(scope);
     return ((await this.db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${this.table} WHERE ${w.sql}`, w.args)) as { n: number }).n;
   }
 
   purge(olderThan: number): Promise<number> {
     return this.db.run(`DELETE FROM ${this.table} WHERE created_at < ?`, [olderThan]);
+  }
+}
+
+/** The public channels beside General (#1035): the rows of `public_channels`. Their messages are `public_messages` rows keyed by the channel. Each call that reads then writes is one transaction, and the gate in `MariaDbConn.tx` takes them one at a time, so the limit and the keys are checked and written with no other insert between. */
+class MariaPublicChannels {
+  constructor(private readonly db: MariaDbConn) {}
+
+  private row(name: string): Promise<DbPublicChannel | undefined> {
+    return this.db.get<DbPublicChannel>(`SELECT ${CHANNEL_COLS} FROM public_channels WHERE name = ?`, [name]);
+  }
+
+  create(input: NewPublicChannel, at: number): Promise<PublicChannelOutcome> {
+    const c = checkNewChannel(input);
+    if ('ok' in c) return Promise.resolve(c);
+    return this.db.tx(async () => {
+      if (await this.row(c.name)) return channelRefusal('name-taken', `There is already a channel named ${c.name}.`);
+      if (c.link && (await this.db.get('SELECT 1 AS x FROM public_channels WHERE link_key = ?', [c.link.key]))) return channelRefusal('link-taken', 'That link already has a channel.');
+      const have = ((await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM public_channels')) as { n: number }).n;
+      if (Number(have) >= MAX_PUBLIC_CHANNELS) return channelRefusal('limit-reached', `There are already ${MAX_PUBLIC_CHANNELS} channels besides General.`);
+      await this.db.run(
+        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdBy, c.createdByName, at, at],
+      );
+      return { ok: true as const, channel: toPublicChannel((await this.row(c.name)) as DbPublicChannel) };
+    });
+  }
+
+  async list(): Promise<PublicChannel[]> {
+    return (await this.db.all<DbPublicChannel>(`SELECT ${CHANNEL_COLS} FROM public_channels ORDER BY name`)).map(toPublicChannel);
+  }
+
+  async get(name: string): Promise<PublicChannel | null> {
+    const r = await this.row(channelKey(name));
+    return r ? toPublicChannel(r) : null;
+  }
+
+  updateDescription(name: string, description: string, at: number): Promise<PublicChannelOutcome> {
+    const key = channelKey(name);
+    return this.db.tx(async () => {
+      if (!(await this.row(key))) return channelRefusal('not-found', 'There is no such public channel.');
+      const bad = checkDescription(description);
+      if (bad) return bad;
+      await this.db.run('UPDATE public_channels SET description = ?, updated_at = ? WHERE name = ?', [description, at, key]);
+      return { ok: true as const, channel: toPublicChannel((await this.row(key)) as DbPublicChannel) };
+    });
+  }
+
+  remove(name: string): Promise<{ removed: boolean; messages: number }> {
+    const key = channelKey(name);
+    return this.db.tx(async () => {
+      if (!(await this.row(key))) return { removed: false, messages: 0 };
+      const messages = await this.db.run('DELETE FROM public_messages WHERE channel = ?', [key]);
+      await this.db.run('DELETE FROM public_channels WHERE name = ?', [key]);
+      return { removed: true, messages };
+    });
+  }
+
+  async count(): Promise<number> {
+    return Number(((await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM public_channels')) as { n: number }).n);
   }
 }
 
@@ -352,14 +416,24 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     count: (s) => group.count(s),
     purge: (olderThan) => group.purge(olderThan),
   };
-  const publicApi: ChannelStoreApi<[]> = {
-    post: (input) => pub.post(null, input),
-    page: (o) => pub.page(null, o),
-    setMention: (id, index, patch) => pub.setMention(null, id, index, patch),
-    heldMentions: (filter) => pub.heldMentions(null, filter),
-    clear: () => pub.clear(null),
-    count: () => pub.count(null),
+  const inChannel = (c: string): { channel: string } => ({ channel: channelKey(c) });
+  const publicApi: ChannelStoreApi<[string]> = {
+    post: (c, input) => pub.post(inChannel(c), input),
+    page: (c, o) => pub.page(inChannel(c), o),
+    setMention: (c, id, index, patch) => pub.setMention(inChannel(c), id, index, patch),
+    heldMentions: (c, filter) => pub.heldMentions(inChannel(c), filter),
+    clear: (c) => pub.clear(inChannel(c)),
+    count: (c) => pub.count(inChannel(c)),
     purge: (olderThan) => pub.purge(olderThan),
+  };
+  const channels = new MariaPublicChannels(db);
+  const channelsApi: PublicChannelsApi = {
+    create: (input, at) => channels.create(input, at),
+    list: () => channels.list(),
+    get: (name) => channels.get(name),
+    updateDescription: (name, description, at) => channels.updateDescription(name, description, at),
+    remove: (name) => channels.remove(name),
+    count: () => channels.count(),
   };
   const settings = chatSettingsOver({
     get: async (key) => (await db.get<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key]))?.value,
@@ -367,5 +441,5 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     del: async (key) => void (await db.run('DELETE FROM settings WHERE key = ?', [key])),
     prefixed: (prefix) => db.all<{ key: string; value: string }>('SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key', [prefix.length, prefix]),
   });
-  return { serverScope: () => scope(), group: groupApi, public: publicApi, readState, adminReads, settings };
+  return { serverScope: () => scope(), group: groupApi, public: publicApi, channels: channelsApi, readState, adminReads, settings };
 }

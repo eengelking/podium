@@ -99,20 +99,20 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const pub = s.chat({ now: () => clock.now }).public;
-      for (const text of ['a', 'b', 'c']) await rec(`post ${text}`, pub.post(input(text)));
+      for (const text of ['a', 'b', 'c']) await rec(`post ${text}`, pub.post('general', input(text)));
       clock.now += DAY;
-      await rec('post d', pub.post(input('d', { authorKind: 'reporter', authorRef: 'k-a', authorName: 'box-a', mentions: [{ sessionId: 'sa', peerKey: 'k-a', typed: 'alpha@box-a' }] })));
-      const p1 = await rec('page 1', pub.page({ limit: 3 }));
-      await rec('page 2', pub.page({ before: p1.older, limit: 3 }));
-      await rec('page (bad cursor)', pub.page({ before: '12.x', limit: 3 }));
-      await rec('count', pub.count());
-      const d = (await pub.page({ limit: 1 })).messages[0]!;
-      await rec('mention: done', pub.setMention(d.id, 0, { state: 'done' }));
-      await rec('mention: no such message', pub.setMention('pub_00000000_000000000000000000000000', 0, { state: 'done' }));
+      await rec('post d', pub.post('general', input('d', { authorKind: 'reporter', authorRef: 'k-a', authorName: 'box-a', mentions: [{ sessionId: 'sa', peerKey: 'k-a', typed: 'alpha@box-a' }] })));
+      const p1 = await rec('page 1', pub.page('general', { limit: 3 }));
+      await rec('page 2', pub.page('general', { before: p1.older, limit: 3 }));
+      await rec('page (bad cursor)', pub.page('general', { before: '12.x', limit: 3 }));
+      await rec('count', pub.count('general'));
+      const d = (await pub.page('general', { limit: 1 })).messages[0]!;
+      await rec('mention: done', pub.setMention('general', d.id, 0, { state: 'done' }));
+      await rec('mention: no such message', pub.setMention('general', 'pub_00000000_000000000000000000000000', 0, { state: 'done' }));
       await rec('purge (older than a day)', pub.purge(T0 + DAY));
-      await rec('page (after purge)', pub.page({ limit: 10 }));
-      await rec('clear', pub.clear());
-      await rec('count (cleared)', pub.count());
+      await rec('page (after purge)', pub.page('general', { limit: 10 }));
+      await rec('clear', pub.clear('general'));
+      await rec('count (cleared)', pub.count('general'));
     });
     const p1 = t.get('page 1') as ChannelPage;
     expect(texts(p1)).toEqual(['b', 'c', 'd']);
@@ -143,14 +143,14 @@ export function chatCases(o: Openers): void {
       await g.post(G, input('held for both', { mentions: [...held('sa', 'held')!, ...held('sb', 'held')!] }));
       await g.post({ owner: 'ed', groupId: 'g2' }, input('another group', { mentions: held('sa', 'held') }));
       await g.post({ owner: 'eve', groupId: 'g1' }, input('another owner', { mentions: held('sa', 'held') }));
-      await pub.post(input('general held', { mentions: held('sa', 'held') }));
-      await pub.post(input('general held for sc', { mentions: held('sc', 'held') }));
+      await pub.post('general', input('general held', { mentions: held('sa', 'held') }));
+      await pub.post('general', input('general held for sc', { mentions: held('sc', 'held') }));
       await rec('group: every held', g.heldMentions(G, {}));
       await rec('group: held for sa', g.heldMentions(G, { sessionId: 'sa' }));
       await rec('group: held for nobody', g.heldMentions(G, { sessionId: 'nobody' }));
       await rec('group: another group', g.heldMentions({ owner: 'ed', groupId: 'g2' }, {}));
-      await rec('general: every held', pub.heldMentions({}));
-      await rec('general: held for sc', pub.heldMentions({ sessionId: 'sc' }));
+      await rec('general: every held', pub.heldMentions('general', {}));
+      await rec('general: held for sc', pub.heldMentions('general', { sessionId: 'sc' }));
       clock.now += 1;
       await g.setMention(G, a.id, 0, { state: 'done' });
       await rec('group: held for sa (one taken)', g.heldMentions(G, { sessionId: 'sa' }));
@@ -172,21 +172,21 @@ export function chatCases(o: Openers): void {
       let best = Infinity;
       for (let r = 0; r < 3; r++) {
         const t0 = performance.now();
-        for (let i = 0; i < 20; i++) await pub.heldMentions({ sessionId: 'sa' });
+        for (let i = 0; i < 20; i++) await pub.heldMentions('general', { sessionId: 'sa' });
         best = Math.min(best, performance.now() - t0);
       }
       return best;
     };
-    for (let i = 0; i < 100; i++) await pub.post(input(`old ${i}`));
-    await pub.post(input('held early', { mentions: held('sa') }));
+    for (let i = 0; i < 100; i++) await pub.post('general', input(`old ${i}`));
+    await pub.post('general', input('held early', { mentions: held('sa') }));
     const small = await cost();
-    for (let i = 0; i < 3000; i++) await pub.post(input(`later ${i}`));
-    await pub.post(input('held late', { mentions: held('sa') }));
-    await pub.post(input('held for another', { mentions: held('sb') }));
+    for (let i = 0; i < 3000; i++) await pub.post('general', input(`later ${i}`));
+    await pub.post('general', input('held late', { mentions: held('sa') }));
+    await pub.post('general', input('held for another', { mentions: held('sb') }));
     const large = await cost();
     // The early one is further back than the 1,000 messages the pages used to reach: it is found now.
-    expect((await pub.heldMentions({ sessionId: 'sa' })).map((x) => x.text)).toEqual(['held early', 'held late']);
-    expect((await pub.heldMentions({})).length).toBe(3);
+    expect((await pub.heldMentions('general', { sessionId: 'sa' })).map((x) => x.text)).toEqual(['held early', 'held late']);
+    expect((await pub.heldMentions('general', {})).length).toBe(3);
     expect(large).toBeLessThan(Math.max(small * 5, 250));
   }, 300_000);
 
@@ -608,7 +608,7 @@ export function chatCases(o: Openers): void {
     expect(await chat.serverScope()).toBe(scope);
     expect(await s.chat({ now: () => T0 + 1 }).serverScope()).toBe(scope);
     const g = await chat.group.post(G, input('x'));
-    const p = await chat.public.post(input('y'));
+    const p = await chat.public.post('general', input('y'));
     expect(g.id).toMatch(new RegExp(`^grp_${scope}_[0-9a-f]{24}$`));
     expect(p.id).toMatch(new RegExp(`^pub_${scope}_[0-9a-f]{24}$`));
     expect(new Set([g.id, (await chat.group.post(G, input('z'))).id]).size).toBe(2);
@@ -661,10 +661,10 @@ export function chatCases(o: Openers): void {
     await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
     const chat = s.chat({ now: () => clock.now });
     await chat.group.post(G, input('GROUP-ONLY-TEXT'));
-    await chat.public.post(input('PUBLIC-ONLY-TEXT'));
+    await chat.public.post('general', input('PUBLIC-ONLY-TEXT'));
     await chat.readState.bump('ed', 'public', true);
     const channelReads = JSON.stringify([
-      await chat.group.page(G, { limit: 100 }), await chat.group.count(G), await chat.public.page({ limit: 100 }), await chat.public.count(),
+      await chat.group.page(G, { limit: 100 }), await chat.group.count(G), await chat.public.page('general', { limit: 100 }), await chat.public.count('general'),
       await chat.readState.list('ed'),
     ]);
     expect(channelReads).not.toContain(dm);
@@ -679,10 +679,263 @@ export function chatCases(o: Openers): void {
     expect(dmReads).not.toContain('PUBLIC-ONLY-TEXT');
     // Clearing a channel leaves the direct messages alone, and deleting a conversation leaves the channels alone.
     await chat.group.clear(G);
-    await chat.public.clear();
+    await chat.public.clear('general');
     expect((await peers.messages.conversation('sa', 'sb')).map((m) => m.text)).toEqual([dm, `${dm} from the person`]);
     await chat.group.post(G, input('kept'));
     await peers.messages.deleteConversation('ed', 'sa', 'sb');
     expect(texts(await chat.group.page(G, { limit: 10 }))).toEqual(['kept']);
+  });
+
+  // Public channels (#1035): General is the built-in one with the fixed key `general`; the others are rows of `public_channels`, and their messages are in
+  // `public_messages` keyed by the channel. The audience is still the table: there is no visibility column.
+  it('agrees on every adapter for opening a public channel: the folded name, the description, the link, who opened it, and every refusal', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const ch = s.chat({ now: () => T0 }).channels;
+      await rec('create', ch.create({ name: 'Podium-Dev', description: 'About Podium', createdBy: 'Ed  Engelking' }, T0));
+      await rec('create (linked to an issue)', ch.create({ name: 'issue-1035', description: '', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'Eve' }, T0 + 1));
+      await rec('create (linked to a milestone)', ch.create({ name: 'v1-7', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed' }, T0 + 2));
+      await rec('create (linked to a project)', ch.create({ name: 'podium', link: { kind: 'project', ref: 'Podium' }, createdBy: 'ed' }, T0 + 3));
+      await rec('refuse: name taken (another case)', ch.create({ name: 'PODIUM-DEV', createdBy: 'eve' }, T0 + 4));
+      await rec('refuse: link taken (another case and spacing)', ch.create({ name: 'other', link: { kind: 'project', ref: ' PODIUM' }, createdBy: 'eve' }, T0 + 5));
+      await rec('create (the same reference, another kind)', ch.create({ name: 'milestone-podium', link: { kind: 'milestone', ref: 'podium' }, createdBy: 'eve' }, T0 + 6));
+      await rec('refuse: reserved general', ch.create({ name: 'general', createdBy: 'eve' }, T0 + 7));
+      await rec('refuse: reserved group (any case)', ch.create({ name: 'Group', createdBy: 'eve' }, T0 + 8));
+      for (const bad of ['', '-x', 'a b', 'a_b', 'x'.repeat(41), 'ünï']) await rec(`refuse: invalid name ${JSON.stringify(bad)}`, ch.create({ name: bad, createdBy: 'eve' }, T0 + 9));
+      await rec('create (40 characters)', ch.create({ name: 'x'.repeat(40), createdBy: 'eve' }, T0 + 10));
+      await rec('refuse: description too long', ch.create({ name: 'long', description: 'd'.repeat(281), createdBy: 'eve' }, T0 + 11));
+      await rec('create (description at the limit)', ch.create({ name: 'long', description: 'd'.repeat(280), createdBy: 'eve' }, T0 + 12));
+      await rec('refuse: bad link kind', ch.create({ name: 'bad-kind', link: { kind: 'repo' as never, ref: 'x' }, createdBy: 'eve' }, T0 + 13));
+      await rec('refuse: empty link reference', ch.create({ name: 'bad-ref', link: { kind: 'issue', ref: '  ' }, createdBy: 'eve' }, T0 + 14));
+      await rec('refuse: link reference too long', ch.create({ name: 'bad-ref', link: { kind: 'issue', ref: 'r'.repeat(101) }, createdBy: 'eve' }, T0 + 15));
+      await rec('refuse: no opener', ch.create({ name: 'nobody', createdBy: ' ' }, T0 + 16));
+      await rec('list', ch.list().then((l) => l.map((c) => c.name)));
+      await rec('get (any case)', ch.get('PODIUM-dev'));
+      await rec('get (general)', ch.get('general'));
+      await rec('get (none)', ch.get('nope'));
+      await rec('count', ch.count());
+    });
+    const made = (k: string): { ok: boolean; channel: Record<string, unknown> } => t.get(k) as never;
+    expect(made('create').ok).toBe(true);
+    expect(made('create').channel).toEqual({ name: 'podium-dev', description: 'About Podium', link: null, createdBy: 'ed engelking', createdByName: 'Ed  Engelking', createdAt: T0, updatedAt: T0 });
+    expect(made('create (linked to an issue)').channel).toMatchObject({ name: 'issue-1035', link: { kind: 'issue', ref: '1035' }, createdBy: 'eve', createdByName: 'Eve' });
+    expect(t.get('refuse: name taken (another case)')).toMatchObject({ ok: false, error: 'name-taken' });
+    expect(t.get('refuse: link taken (another case and spacing)')).toMatchObject({ ok: false, error: 'link-taken' });
+    expect(made('create (the same reference, another kind)').ok).toBe(true);
+    expect(t.get('refuse: reserved general')).toMatchObject({ ok: false, error: 'reserved' });
+    expect(t.get('refuse: reserved group (any case)')).toMatchObject({ ok: false, error: 'reserved' });
+    for (const bad of ['', '-x', 'a b', 'a_b', 'x'.repeat(41), 'ünï']) expect(t.get(`refuse: invalid name ${JSON.stringify(bad)}`), bad).toMatchObject({ ok: false, error: 'invalid' });
+    expect(made('create (40 characters)').ok).toBe(true);
+    expect(t.get('refuse: description too long')).toMatchObject({ ok: false, error: 'invalid' });
+    expect(made('create (description at the limit)').ok).toBe(true);
+    for (const k of ['refuse: bad link kind', 'refuse: empty link reference', 'refuse: link reference too long', 'refuse: no opener']) expect(t.get(k), k).toMatchObject({ ok: false, error: 'invalid' });
+    expect(t.get('list')).toEqual(['issue-1035', 'long', 'milestone-podium', 'podium', 'podium-dev', 'v1-7', 'x'.repeat(40)]);
+    expect(t.get('get (any case)')).toMatchObject({ name: 'podium-dev' });
+    expect(t.get('get (general)')).toBeNull();
+    expect(t.get('get (none)')).toBeNull();
+    expect(t.get('count')).toBe(7);
+  });
+
+  it('agrees on every adapter for changing a channel\'s description and removing a channel with its messages, leaving the others\' and General\'s', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      const ch = chat.channels;
+      await ch.create({ name: 'one', description: 'first', link: { kind: 'issue', ref: '#1' }, createdBy: 'ed' }, T0);
+      await ch.create({ name: 'two', createdBy: 'ed' }, T0);
+      await chat.public.post('one', input('in one'));
+      await chat.public.post('one', input('also in one'));
+      await chat.public.post('two', input('in two'));
+      await chat.public.post('general', input('in general'));
+      clock.now += 10;
+      await rec('describe', ch.updateDescription('ONE', 'changed', T0 + 10));
+      await rec('describe (empty)', ch.updateDescription('two', '', T0 + 11));
+      await rec('describe (too long)', ch.updateDescription('one', 'd'.repeat(281), T0 + 12));
+      await rec('describe (no such channel)', ch.updateDescription('nope', 'x', T0 + 13));
+      await rec('describe (general)', ch.updateDescription('general', 'x', T0 + 14));
+      await rec('get one', ch.get('one'));
+      await rec('count in one', chat.public.count('one'));
+      await rec('remove one', ch.remove('One'));
+      await rec('remove one again', ch.remove('one'));
+      await rec('remove general', ch.remove('general'));
+      await rec('list', ch.list().then((l) => l.map((c) => c.name)));
+      await rec('messages of one', chat.public.page('one', { limit: 50 }).then(texts));
+      await rec('messages of two', chat.public.page('two', { limit: 50 }).then(texts));
+      await rec('messages of general', chat.public.page('general', { limit: 50 }).then(texts));
+      await rec('the link is free again', ch.create({ name: 'one-again', link: { kind: 'issue', ref: '#1' }, createdBy: 'ed' }, T0 + 20));
+      await rec('the name is free again', ch.create({ name: 'one', createdBy: 'ed' }, T0 + 21));
+      await rec('post to a removed channel', chat.public.post('gone', input('x')));
+      await rec('messages of the new one', chat.public.page('one', { limit: 50 }).then(texts));
+    });
+    expect(t.get('describe')).toMatchObject({ ok: true, channel: { name: 'one', description: 'changed', updatedAt: T0 + 10, createdAt: T0 } });
+    expect(t.get('describe (empty)')).toMatchObject({ ok: true, channel: { description: '' } });
+    expect(t.get('describe (too long)')).toMatchObject({ ok: false, error: 'invalid' });
+    expect(t.get('describe (no such channel)')).toMatchObject({ ok: false, error: 'not-found' });
+    expect(t.get('describe (general)')).toMatchObject({ ok: false, error: 'not-found' });
+    expect(t.get('get one')).toMatchObject({ description: 'changed', link: { kind: 'issue', ref: '1' } });
+    expect(t.get('count in one')).toBe(2);
+    expect(t.get('remove one')).toEqual({ removed: true, messages: 2 });
+    expect(t.get('remove one again')).toEqual({ removed: false, messages: 0 });
+    expect(t.get('remove general')).toEqual({ removed: false, messages: 0 });
+    expect(t.get('list')).toEqual(['two']);
+    expect(t.get('messages of one')).toEqual([]);
+    expect(t.get('messages of two')).toEqual(['in two']);
+    expect(t.get('messages of general')).toEqual(['in general']);
+    expect(t.get('the link is free again')).toMatchObject({ ok: true });
+    expect(t.get('the name is free again')).toMatchObject({ ok: true });
+    expect(t.get('post to a removed channel')).toEqual({ threw: 'There is no such public channel.' });
+    expect(t.get('messages of the new one')).toEqual([]);
+  });
+
+  it('agrees on every adapter that each public channel has its own messages, pages, counts, mentions, clearing and retention, and General is unchanged', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      const pub = chat.public;
+      await chat.channels.create({ name: 'alpha', createdBy: 'ed' }, T0);
+      await chat.channels.create({ name: 'beta', createdBy: 'ed' }, T0);
+      for (const text of ['g1', 'g2']) await pub.post('general', input(text));
+      for (const text of ['a1', 'a2', 'a3']) await pub.post('alpha', input(text));
+      clock.now += 5;
+      const b1 = await rec('post to beta', pub.post('beta', input('b1', { mentions: [{ sessionId: 'sb', peerKey: 'k', typed: 'x@box', state: 'held' }] })));
+      await pub.post('alpha', input('a4'));
+      const p1 = await rec('alpha page 1', pub.page('alpha', { limit: 2 }));
+      await rec('alpha page 2', pub.page('alpha', { before: p1.older, limit: 2 }));
+      await rec('alpha (a cursor of another channel)', pub.page('beta', { before: p1.older, limit: 2 }));
+      await rec('general page', pub.page('general', { limit: 50 }));
+      await rec('beta page', pub.page('beta', { limit: 50 }));
+      await rec('counts', Promise.all(['general', 'alpha', 'beta'].map((c) => pub.count(c))));
+      await rec('held in beta', pub.heldMentions('beta', {}));
+      await rec('held in alpha', pub.heldMentions('alpha', {}));
+      await rec('mention in the wrong channel', pub.setMention('alpha', b1.id, 0, { state: 'done' }));
+      await rec('mention in its channel', pub.setMention('beta', b1.id, 0, { state: 'done' }));
+      await rec('clear alpha', pub.clear('alpha'));
+      await rec('counts (alpha cleared)', Promise.all(['general', 'alpha', 'beta'].map((c) => pub.count(c))));
+      await rec('purge (every channel)', pub.purge(T0 + 1));
+      await rec('counts (purged)', Promise.all(['general', 'alpha', 'beta'].map((c) => pub.count(c))));
+    });
+    const p1 = t.get('alpha page 1') as ChannelPage;
+    expect(texts(p1)).toEqual(['a3', 'a4']);
+    expect(p1.messages[0]).toMatchObject({ channel: 'alpha', owner: null, groupId: null });
+    expect(texts(t.get('alpha page 2') as ChannelPage)).toEqual(['a1', 'a2']);
+    expect(texts(t.get('general page') as ChannelPage)).toEqual(['g1', 'g2']);
+    expect((t.get('general page') as ChannelPage).messages[0]).toMatchObject({ channel: 'general' });
+    expect(texts(t.get('beta page') as ChannelPage)).toEqual(['b1']);
+    expect(t.get('counts')).toEqual([2, 4, 1]);
+    expect(texts({ messages: t.get('held in beta') as ChannelMessage[], older: null })).toEqual(['b1']);
+    expect(t.get('held in alpha')).toEqual([]);
+    expect(t.get('mention in the wrong channel')).toBeNull();
+    expect(t.get('mention in its channel')).toMatchObject({ id: expect.any(String) });
+    expect(t.get('clear alpha')).toBe(4);
+    expect(t.get('counts (alpha cleared)')).toEqual([2, 0, 1]);
+    expect(t.get('counts (purged)')).toEqual([0, 0, 1]);
+  });
+
+  it('refuses the 51st channel besides General, and lets only 50 of 60 opened at once in', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const ch = s.chat({ now: () => T0 }).channels;
+      const names = Array.from({ length: 60 }, (_, i) => `c${String(i).padStart(2, '0')}`);
+      const results = await Promise.all(names.map((name) => ch.create({ name, createdBy: 'ed' }, T0)));
+      await rec('accepted', results.filter((r) => r.ok).length);
+      await rec('refused', results.filter((r) => !r.ok).map((r) => (r.ok ? '' : r.error)));
+      await rec('count', ch.count());
+      const first = (await ch.list())[0]!;
+      await rec('remove one', ch.remove(first.name));
+      await rec('create after a removal', ch.create({ name: 'after', createdBy: 'ed' }, T0 + 1).then((r) => r.ok));
+      await rec('create over the limit again', ch.create({ name: 'over', createdBy: 'ed' }, T0 + 2));
+      await rec('count (after)', ch.count());
+    });
+    expect(t.get('accepted')).toBe(50);
+    expect(t.get('refused')).toEqual(Array(10).fill('limit-reached'));
+    expect(t.get('count')).toBe(50);
+    expect(t.get('create after a removal')).toBe(true);
+    expect(t.get('create over the limit again')).toMatchObject({ ok: false, error: 'limit-reached' });
+    expect(t.get('count (after)')).toBe(50);
+  });
+
+  it('agrees on every adapter that an issue is one link however it is typed: with or without the #, with spaces; a milestone in another case is the same link', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const ch = s.chat({ now: () => T0 }).channels;
+      await rec('first', ch.create({ name: 'one', link: { kind: 'issue', ref: '#1035' }, createdBy: 'ed' }, T0));
+      await rec('without the hash', ch.create({ name: 'two', link: { kind: 'issue', ref: '1035' }, createdBy: 'ed' }, T0 + 1));
+      await rec('with spaces', ch.create({ name: 'three', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'ed' }, T0 + 2));
+      await rec('hash and space inside', ch.create({ name: 'four', link: { kind: 'issue', ref: '# 1035' }, createdBy: 'ed' }, T0 + 3));
+      await rec('hash alone', ch.create({ name: 'five', link: { kind: 'issue', ref: '#' }, createdBy: 'ed' }, T0 + 4));
+      await rec('hash and spaces alone', ch.create({ name: 'six', link: { kind: 'issue', ref: ' # ' }, createdBy: 'ed' }, T0 + 5));
+      await rec('milestone', ch.create({ name: 'seven', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed' }, T0 + 6));
+      await rec('milestone in another case', ch.create({ name: 'eight', link: { kind: 'milestone', ref: ' V1.7 ' }, createdBy: 'ed' }, T0 + 7));
+      await rec('a second hash is part of the reference', ch.create({ name: 'nine', link: { kind: 'issue', ref: '##5' }, createdBy: 'ed' }, T0 + 8));
+      await rec('count', ch.count());
+    });
+    expect(t.get('first')).toMatchObject({ ok: true, channel: { link: { kind: 'issue', ref: '1035' } } });
+    for (const k of ['without the hash', 'with spaces', 'milestone in another case']) expect(t.get(k), k).toMatchObject({ ok: false, error: 'link-taken' });
+    expect(t.get('hash and space inside')).toMatchObject({ ok: false, error: 'link-taken' });
+    for (const k of ['hash alone', 'hash and spaces alone']) expect(t.get(k), k).toMatchObject({ ok: false, error: 'invalid' });
+    expect(t.get('milestone')).toMatchObject({ ok: true });
+    expect(t.get('a second hash is part of the reference')).toMatchObject({ ok: true, channel: { link: { kind: 'issue', ref: '#5' } } });
+    expect(t.get('count')).toBe(3);
+  });
+
+  it('lets two channels with the same new link open at once with exactly one winner', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const ch = s.chat({ now: () => T0 }).channels;
+      const rs = await Promise.all(['x1', 'x2', 'x3'].map((name) => ch.create({ name, link: { kind: 'issue', ref: '#9' }, createdBy: 'ed' }, T0)));
+      await rec('ok', rs.filter((r) => r.ok).length);
+      await rec('errors', rs.filter((r) => !r.ok).map((r) => (r.ok ? '' : r.error)));
+      await rec('count', ch.count());
+    });
+    expect(t.get('ok')).toBe(1);
+    expect(t.get('errors')).toEqual(['link-taken', 'link-taken']);
+    expect(t.get('count')).toBe(1);
+  });
+
+  it('keeps the channels a deleted person opened and every public message, and clears who opened them so a new person of the same name does not inherit the right to edit them', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      const ed = (await s.people.createPerson('Ed', null, T0)).person;
+      await s.people.createPerson('Eve', null, T0);
+      await chat.channels.create({ name: 'eds', createdBy: 'Ed' }, T0);
+      await chat.channels.create({ name: 'eves', createdBy: 'Eve' }, T0);
+      await chat.public.post('eds', input('ED POST'));
+      await chat.public.post('general', input('ED IN GENERAL'));
+      await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
+      await rec('channels', chat.channels.list().then((l) => l.map((c) => [c.name, c.createdBy, c.createdByName])));
+      await rec('messages in the channel', chat.public.page('eds', { limit: 10 }).then(texts));
+      await rec('messages in General', chat.public.page('general', { limit: 10 }).then(texts));
+    });
+    expect(t.get('channels')).toEqual([['eds', '', 'Ed'], ['eves', 'eve', 'Eve']]);
+    expect(t.get('messages in the channel')).toEqual(['ED POST']);
+    expect(t.get('messages in General')).toEqual(['ED IN GENERAL']);
+  });
+
+  // Decision 61 stays true with channels: the audience is the table, so no private text can be in a public channel.
+  onEachAdapter(o, 'never shows a group message or a direct message in any public channel, and never puts a public channel\'s message in a group or a conversation', async (s) => {
+    const clock = { now: T0 };
+    const { peers, a, b } = await setUp(s, clock);
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+    const dm = 'DM-NEVER-PUBLIC';
+    await peers.messages.send('sa', 'beta@box-b', dm);
+    await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
+    const chat = s.chat({ now: () => clock.now });
+    await chat.channels.create({ name: 'open', createdBy: 'ed' }, T0);
+    await chat.group.post(G, input('GROUP-NEVER-PUBLIC'));
+    await chat.group.post({ owner: 'eve', groupId: 'g1' }, input('EVE-GROUP-NEVER-PUBLIC'));
+    await chat.public.post('open', input('PUBLIC-OPEN-ONLY'));
+    await chat.public.post('general', input('PUBLIC-GENERAL-ONLY'));
+    const publicReads = JSON.stringify([
+      await chat.public.page('open', { limit: 100 }), await chat.public.page('general', { limit: 100 }), await chat.public.page('group', { limit: 100 }),
+      await chat.public.heldMentions('open', {}), await chat.channels.list(), await chat.channels.get('open'),
+    ]);
+    expect(publicReads).toContain('PUBLIC-OPEN-ONLY');
+    expect(publicReads).toContain('PUBLIC-GENERAL-ONLY');
+    expect(publicReads).not.toContain('NEVER-PUBLIC');
+    expect(await chat.public.count('group')).toBe(0);
+    await expect(chat.public.post('group', input('x'))).rejects.toThrow('There is no such public channel.');
+    const private1 = JSON.stringify([await chat.group.page(G, { limit: 100 }), await peers.messages.conversation('sa', 'sb')]);
+    expect(private1).not.toContain('PUBLIC-');
+    // Removing a channel leaves every private text alone.
+    await chat.channels.remove('open');
+    expect(texts(await chat.group.page(G, { limit: 10 }))).toEqual(['GROUP-NEVER-PUBLIC']);
+    expect((await peers.messages.conversation('sa', 'sb')).map((m) => m.text)).toContain(dm);
   });
 }

@@ -408,6 +408,20 @@ CREATE TABLE IF NOT EXISTS chat_admin_owed (
 CREATE INDEX IF NOT EXISTS chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
 `),
   },
+  {
+    version: 21,
+    // Public channels beside General (#1035), as SQLite migration 45 keeps them. A name is at most 40 characters and a link key at most 150 (the kind, a colon and a
+    // reference of at most 100), so both can be keys. NULLs in a unique key never collide, so a channel with no link takes no link.
+    statements: steps(`
+ALTER TABLE public_messages ADD COLUMN IF NOT EXISTS channel K(40) NOT NULL DEFAULT 'general';
+CREATE INDEX IF NOT EXISTS public_messages_in_channel ON public_messages(channel, created_at, seq);
+CREATE TABLE IF NOT EXISTS public_channels (
+  name K(40) PRIMARY KEY, description TXT NOT NULL, link_kind K(16), link_ref TXT, link_key K(150),
+  created_by TXT NOT NULL, created_by_name TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL,
+  CONSTRAINT uq_public_channels_link UNIQUE (link_key)
+) TABLE_OPTIONS;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

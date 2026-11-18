@@ -12,15 +12,16 @@ import { ChatComposer } from "./components/ChatComposer";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
+import { ChannelModal, DirectModal } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct } from "./components/ChatMenu";
-import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
+import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo, type DirectTarget } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
 import type { RespondMe, SessionView } from "./types";
 
-type Confirm = "remove-link" | "delete-dm" | "clear";
+type Confirm = "remove-link" | "delete-dm" | "clear" | "remove-channel";
 
 /** How often an Admin's open thread says it is still being read. */
 const KEEP_ALIVE_MS = 15_000;
@@ -160,6 +161,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(0);
   const [busy, setBusy] = useState(false);
+  // The New channel form (`edit` is the channel whose description it changes) and the New direct message form (#1035).
+  const [form, setForm] = useState<{ kind: "channel"; edit: ChatChannel | null } | { kind: "dm" } | null>(null);
+  const formFrom = useRef<HTMLElement | null>(null);
+  const formFallback = useRef<string | null>(null);
   // Counts the times a thread was opened; each one asks for the focus to move to its heading (see the effect below).
   const [focusAsk, setFocusAsk] = useState(0);
   const keepBtn = useRef<HTMLButtonElement>(null);
@@ -167,6 +172,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
   let sel: Selection = picked ?? GENERAL;
   if (o && picked?.kind === "dm" && !picked.fresh && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
+  // A channel an Admin removed leaves the list, and the page falls back to General.
+  if (o && picked?.kind === "channel" && !o.channels.some((c) => c.id === picked.id)) sel = GENERAL;
   const key = selKey(sel)!;
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
   // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
@@ -226,7 +233,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   // An Admin's open thread says every 15 seconds that it is still being read, so its people keep seeing it. It stops with the thread, and
   // while the tab is hidden. A ping that fails shows nothing: the next one tries again.
-  const reading = ro && thread.loaded && !thread.error && readAs !== null && !(sel.kind === "channel" && sel.id === "general");
+  const reading = ro && thread.loaded && !thread.error && readAs !== null && !(sel.kind === "channel" && sel.id !== "group");
   const selId = sel.kind === "channel" ? sel.id : `${sel.a}|${sel.b}`;
   useEffect(() => {
     if (!reading || !readAs) return;
@@ -315,6 +322,26 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setBusy(false);
   };
 
+  /** Opens a form; the focus goes back to what opened it, or to the row's "..." when that is gone, on closing. */
+  const openForm = (next: NonNullable<typeof form>, fallback?: string) => {
+    const from = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    formFrom.current = from;
+    formFallback.current = fallback ?? null;
+    setMenu(null);
+    setForm(next);
+  };
+  /** `restore` is false once a thread was opened, which takes the focus to its heading itself. */
+  const closeForm = (restore = true) => {
+    setForm(null);
+    if (!restore) return;
+    const from = formFrom.current;
+    const fb = formFallback.current;
+    setTimeout(() => {
+      if (from?.isConnected) from.focus();
+      else if (fb) [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === fb)?.focus();
+    }, 0);
+  };
+
   const pick = (rowKey: string, a: MenuAct) => {
     setMenu(null);
     const [kind, ...rest] = rowKey.split(":");
@@ -331,7 +358,12 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         select({ kind: "channel", id: c.id });
         setConfirm("clear");
       } else if (a === "pause") void act(() => (own(c) ? api.pause(c.id, !(c.paused && !c.pausedForEveryone), false, readAs) : api.pause(c.id, !(c.paused && !c.pausedForEveryone))), c.paused && !c.pausedForEveryone ? "Resumed." : "Paused.", (w) => `Could not ${c.paused ? "resume" : "pause"} ${c.name}: ${w}. Nothing changed. Try again.`);
-      else if (a === "pause-all") void act(() => api.pause(c.id, !c.pausedForEveryone, true), c.pausedForEveryone ? "General resumed." : "General is paused for everyone.", (w) => `Could not change General: ${w}. Nothing changed. Try again.`);
+      else if (a === "pause-all") void act(() => api.pause(c.id, !c.pausedForEveryone, true), c.pausedForEveryone ? `${c.name} resumed.` : `${c.name} is paused for everyone.`, (w) => `Could not change ${c.name}: ${w}. Nothing changed. Try again.`);
+      else if (a === "edit") openForm({ kind: "channel", edit: c }, `c:${c.id}`);
+      else if (a === "remove-channel") {
+        select({ kind: "channel", id: c.id });
+        setConfirm("remove-channel");
+      }
       else if (a === "disconnect") void act(() => (own(c) ? api.disconnect(c.id, !c.disconnected, readAs) : api.disconnect(c.id, !c.disconnected)), c.disconnected ? "Your agents are reconnected." : "Your agents are disconnected.", (w) => `Could not ${c.disconnected ? "reconnect" : "disconnect"} your agents: ${w}. Nothing changed. Try again.`);
       return;
     }
@@ -438,10 +470,34 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         </div>
       );
     }
+    if (confirm === "remove-channel" && channel) {
+      return (
+        <div className="confirm" role="alertdialog" aria-label="Remove channel" data-testid="chat-confirm">
+          Remove the channel {channel.name}? Its {channel.messages} messages are removed for everyone, and it cannot be recovered.{channel.openedBy ? ` ${channel.openedBy} is told that an Admin removed it.` : ""}
+          <button type="button" className="btn sm" ref={keepBtn} onClick={keep}>
+            Keep it
+          </button>
+          <button type="button" className="btn sm dng" disabled={busy} onClick={() => {
+            setConfirm(null);
+            const at = channel;
+            void act(
+              async () => {
+                await api.removeChannel(at.id);
+                setPicked(null);
+              },
+              "Channel removed.",
+              (w) => `Could not remove the channel: ${w}. Nothing changed. Try again.`,
+            );
+          }}>
+            Remove channel
+          </button>
+        </div>
+      );
+    }
     if (confirm === "clear" && channel) {
       return (
         <div className="confirm" role="alertdialog" aria-label="Remove all messages" data-testid="chat-confirm">
-          Remove all {channel.messages} messages in {channel.name}? {channel.id === "general" ? "Everyone loses the history, and it cannot be recovered." : "The history is deleted, and it cannot be recovered."}
+          Remove all {channel.messages} messages in {channel.name}? {channel.kind === "public" ? "Everyone loses the history, and it cannot be recovered." : "The history is deleted, and it cannot be recovered."}
           <button type="button" className="btn sm" ref={keepBtn} onClick={keep}>
             Keep them
           </button>
@@ -487,7 +543,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     else if (dmPaused) stop("Paused", "Paused: messages are held. Resume from the menu to send.");
     else if (agentParties.length > 0 && ended.length >= agentParties.length) stop("Ended", `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended, so it will not receive this.`);
   }
-  const roThread = ro && !(sel.kind === "channel" && sel.id === "general");
+  const roThread = ro && !(sel.kind === "channel" && sel.id !== "group");
   const draft = drafts[key] ?? "";
   // `/clear` and `/compact` are commands only in a message to the person's own agent: one agent and the person, no other person.
   const ownAgent = sel.kind === "dm" && !ro && o.me.person && !cross && parties.length === 2 && agentParties.length === 1 ? agentParties[0]! : null;
@@ -556,6 +612,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onClose={closeMenu}
           onPick={pick}
           onChannel={(id) => select({ kind: "channel", id })}
+          onNewChannel={() => openForm({ kind: "channel", edit: null })}
+          onNewDm={() => openForm({ kind: "dm" })}
           onDm={openDm}
           onAgent={startAgent}
           readAs={ro ? readAs : null}
@@ -612,6 +670,34 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         />
       </div>
       {!ro && <ListRecordLines reads={o.listReads ?? []} />}
+      {form?.kind === "channel" && (
+        <ChannelModal
+          api={api}
+          edit={form.edit}
+          onClose={() => closeForm()}
+          onDone={async (c, say) => {
+            // The list is read again first, so the channel is in it when it is selected.
+            await overview.reload();
+            if (!form.edit) select({ kind: "channel", id: c.id });
+            setSaid(say);
+            closeForm(!!form.edit);
+          }}
+        />
+      )}
+      {form?.kind === "dm" && (
+        <DirectModal
+          api={api}
+          sessions={sessions}
+          onClose={() => closeForm()}
+          onDone={async (t: DirectTarget, say) => {
+            await overview.reload();
+            // The conversation is the one the overview lists now, found by this key (an own agent's by the agent), or the fresh one that opens it.
+            select({ kind: "dm", a: "me", b: t.sessionId, key: t.own ? t.sessionId : t.thread, fresh: true });
+            setSaid(say);
+            closeForm(false);
+          }}
+        />
+      )}
       <div className="vh" role="status" aria-live="polite">
         {said}
       </div>

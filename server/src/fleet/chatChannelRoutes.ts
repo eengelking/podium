@@ -4,7 +4,7 @@ import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
-import { channelOf, fail, type ChannelId, type ChatViewer, type Fail } from './chatTypes.js';
+import { fail, GROUP, GENERAL, isPublicChannel, type ChannelId, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** What Chat's browser routes share: the gate (messaging on, and a signed-in viewer) and how a refusal is answered. */
 export interface ChatBrowserDeps {
@@ -34,7 +34,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   const target = async (req: Request, res: Response, named: unknown): Promise<{ v: ChatViewer; channel: ChannelId; owner: string | null } | null> => {
     const v = await d.viewer(req, res);
     if (!v) return null;
-    const channel = channelOf(String(req.params.channel));
+    const channel = await channels().resolve(req.params.channel);
     if (!channel) {
       res.status(404).json({ ok: false, error: 'no such channel' });
       return null;
@@ -47,6 +47,39 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     return { v, channel, owner: scope.owner };
   };
 
+  /** Opens a public channel (#1035): a signed-in person or an Admin. `201 { ok, channel }`, the channel as the overview lists it. */
+  browser.post('/chat/channels', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const out = await fleet.chat.publicChannels.open(v, (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.status(201).json({ ok: true, channel: await fleet.chat.channelEntry(v, out.channel) });
+  }));
+
+  /** Changes a public channel's description: the person who opened it, or an Admin. */
+  browser.patch('/chat/channels/:channel', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const channel = await channels().resolve(req.params.channel);
+    if (channel === GENERAL || channel === GROUP) return void d.refuse(req, res, fail(403, `${channel === GENERAL ? 'General' : 'My group'} is built in: it has no description to change.`));
+    if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
+    const out = await fleet.chat.publicChannels.describe(v, channel, (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json({ ok: true, channel: await fleet.chat.channelEntry(v, out.channel) });
+  }));
+
+  /** Removes a public channel and everything in it: an Admin only. Its opener is told who did it. */
+  browser.delete('/chat/channels/:channel', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const channel = await channels().resolve(req.params.channel);
+    if (channel === GENERAL || channel === GROUP) return void d.refuse(req, res, fail(403, `${channel === GENERAL ? 'General' : 'My group'} is built in and cannot be removed.`));
+    if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
+    const out = await fleet.chat.publicChannels.remove(v, channel);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json(out);
+  }));
+
   browser.get('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
     const t = await target(req, res, req.query.owner);
     if (!t) return;
@@ -58,17 +91,18 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     if ('status' in got) return void d.refuse(req, res, got);
     // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded; if recording fails the read fails. General is public and never is.
     const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
-    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total, adminReads });
+    const owners = await channels().ownersOf(got.page.messages);
+    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name, owners)), older: got.page.older, total: got.total, adminReads });
   }));
 
   /** An Admin's open group pings this every 15 seconds so its person keeps seeing that it is being read. Answers only `ok`. */
   browser.post('/chat/channels/:channel/reading', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
-    const channel = channelOf(String(req.params.channel));
+    const channel = await channels().resolve(req.params.channel);
     if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
     if (!v.admin) return void d.refuse(req, res, fail(403, 'Only an Admin reads a group that is not their own.'));
-    if (channel === 'general') return void res.status(400).json({ ok: false, error: 'General is public, so reading it is not recorded.' });
+    if (isPublicChannel(channel)) return void res.status(400).json({ ok: false, error: `${channel === GENERAL ? 'General' : 'A public channel'} is public, so reading it is not recorded.` });
     const scope = channels().scopeFor(v, channel, str(((req.body ?? {}) as Record<string, unknown>).owner));
     if ('status' in scope) return void d.refuse(req, res, scope);
     const out = await channels().reading(v, scope.owner);
@@ -82,7 +116,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     if (!t) return;
     const out = await channels().post(t.v, t.channel, t.owner, (req.body ?? {}) as Record<string, unknown>);
     if (!out.ok) return void d.refuse(req, res, out);
-    res.status(201).json({ ok: true, message: messageView(out.message, t.v.name), warnings: out.warnings });
+    res.status(201).json({ ok: true, message: messageView(out.message, t.v.name, await channels().ownersOf([out.message])), warnings: out.warnings });
   }));
 
   browser.put('/chat/channels/:channel/pause', asyncHandler(async (req, res) => {
@@ -117,7 +151,9 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   browser.get('/chat/addresses', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
-    const channel: ChannelId = req.query.channel === 'general' ? 'general' : 'group';
+    // A public channel's list is General's: everyone who can be reached from it. Anything that is not a channel is the viewer's group, as before.
+    const named = await channels().resolve(req.query.channel);
+    const channel: ChannelId = named !== null && isPublicChannel(named) ? named : GROUP;
     const scope = channels().scopeFor(v, channel, undefined);
     if ('status' in scope) return void d.refuse(req, res, scope);
     const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase() : '';

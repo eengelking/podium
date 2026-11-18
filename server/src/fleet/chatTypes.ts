@@ -3,10 +3,18 @@ import type { PeerStoreApi } from '../storage/types.js';
 import type { RespondStore } from './respond.js';
 import { nameKey } from '../storage/rows.js';
 
-/** The two channels: General (everyone signed in) and My group (a person and their own agents). */
-export type ChannelId = 'general' | 'group';
-export const channelOf = (raw: string): ChannelId | null => (raw === 'general' || raw === 'group' ? raw : null);
-export const CHANNEL_NAMES: Record<ChannelId, string> = { general: 'General', group: 'My group' };
+/**
+ * The channels: General (everyone signed in), My group (a person and their own agents), and a public channel someone opened (#1035), which is named by its own
+ * name. A name is never `general` or `group` (the store refuses both), so the three kinds cannot be mistaken for one another. Whether a name is a channel that exists
+ * is the channel service's to say (`ChannelChat.resolve`); a value of this type has already been through it.
+ */
+export type ChannelId = string;
+export const GENERAL = 'general';
+export const GROUP = 'group';
+/** General and every public channel are the public audience: everything in them is readable by every signed-in person, every reporter and every Admin. */
+export const isPublicChannel = (c: ChannelId): boolean => c !== GROUP;
+/** What a channel is called to a person: General, My group, or the public channel's own name. */
+export const channelName = (c: ChannelId): string => (c === GENERAL ? 'General' : c === GROUP ? 'My group' : c);
 
 /** Who is signed in to the browser: a person (`personId` set) or the admin secret (null). */
 export interface ChatViewer {
@@ -21,11 +29,16 @@ export interface Fail {
   ok: false;
   status: number;
   error: string;
+  /** For a form that must say which field is wrong (#1035): the store's reason, such as `name-taken`. Not in every refusal. */
+  reason?: string;
 }
-export const fail = (status: number, error: string): Fail => ({ ok: false, status, error });
+export const fail = (status: number, error: string, reason?: string): Fail => ({ ok: false, status, error, ...(reason ? { reason } : {}) });
 
-/** The thread names the read state keeps counts under. */
+/** The thread names the read state keeps counts under. General's is `public`; another public channel's is `public:<name>`. */
 export const publicThread = 'public';
+export const channelThread = (c: ChannelId): string => (c === GENERAL ? publicThread : `${publicThread}:${c}`);
+/** The channel a thread names, when it is a public channel other than General (`public:<name>`). */
+export const channelOfThread = (thread: string): string | null => (thread.startsWith(`${publicThread}:`) ? thread.slice(publicThread.length + 1) : null);
 export const groupThread = (owner: string): string => `group:${nameKey(owner)}`;
 
 /** An Admin who is reading a thread now (#1034): since when, and until when it counts as live if the Admin reads no more. Epoch milliseconds. */
@@ -44,6 +57,11 @@ export const isPersonId = (id: string): boolean => id.startsWith('person:');
 export const GLOBAL_SCOPE = 'public:global';
 export const personScope = (owner: string): string => `public:person:${nameKey(owner)}`;
 export const groupScope = (owner: string): string => `group:${nameKey(owner)}`;
+/** The same two flags of a public channel other than General (#1035): its own keys, so pausing one never touches General or another. General keeps its keys. */
+export const channelGlobalScope = (c: ChannelId): string => (c === GENERAL ? GLOBAL_SCOPE : `channel:${c}:global`);
+export const channelPersonScope = (c: ChannelId, owner: string): string => (c === GENERAL ? personScope(owner) : `channel:${c}:person:${nameKey(owner)}`);
+/** The prefix every flag scope of one public channel starts with, to forget them when it is removed. */
+export const channelScopePrefix = (c: ChannelId): string => `channel:${c}:`;
 
 /** Something that happened in Chat that the Admin log records: ids and who, never text. */
 export type ChatEvent =
@@ -54,7 +72,8 @@ export type ChatEvent =
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
   | { kind: 'admin_browse'; by: string; person: string }
-  | { kind: 'purged'; channelMessages: number; directMessages: number };
+  | { kind: 'purged'; channelMessages: number; directMessages: number }
+  | { kind: 'channel_opened' | 'channel_edited' | 'channel_removed'; channel: ChannelId; by: string; messages?: number };
 
 /** What Chat tells the host changed. The stream sends only `rev` and `scope` of it; the rest is for the host and is never broadcast. */
 export interface ChatSignal {

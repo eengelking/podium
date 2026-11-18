@@ -103,7 +103,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOD="$ROOT/dist-dev/claudecode"
 OC_DIST="$ROOT/dist-dev/opencode"
 MARKER=".podium-peers-e2e"
-TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access"
+TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access mcp__podium-reporter__podium_chat_read"
 
 CMD=""
 TMP_BASE="${TMPDIR:-/tmp}"

@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
 import { openSqliteStorage } from './index.js';
-import type { LegacyAdminRead, LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
-export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = []): { storage: Storage; dir: string } {
+export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = []): { storage: Storage; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'podium-upgrade-'));
   const file = path.join(dir, 'podium.sqlite');
   const old = openDb(file, 25);
@@ -55,6 +55,15 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
       for (const x of adminReads) if (x.lists) insertListed.run(x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt, x.lists.kind, JSON.stringify(x.lists.people), JSON.stringify(x.lists.seen));
       late.close();
     }
+  }
+  if (publicMessages.length > 0) {
+    // General's messages come from migration 31; migration 45 gave them a channel, so the rows go in at the schema before it.
+    const before = openDb(file, 44);
+    const insertPublic = before.prepare(
+      'INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
+    );
+    for (const x of publicMessages) insertPublic.run(x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+    before.close();
   }
   return { storage: openSqliteStorage(file, 0), dir };
 }

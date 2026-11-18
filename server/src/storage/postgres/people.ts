@@ -165,6 +165,8 @@ class PgPeopleStore implements PeopleStoreApi {
     await this.db.run('DELETE FROM peer_requests WHERE from_key = ?', [pk]);
     await this.db.run('DELETE FROM peer_owner_settings WHERE owner_lower = ?', [key]);
     await this.db.run('DELETE FROM group_messages WHERE owner = ?', [key]);
+    // The channels they opened stay, public like General, but no longer name them as the opener, so a new person of the same name cannot edit them (#1035).
+    await this.db.run("UPDATE public_channels SET created_by = '' WHERE created_by = ?", [key]);
     await this.db.run('DELETE FROM chat_read_state WHERE person = ?', [key]);
     // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
     // The records still owed to this person are found by the person (#1061); one they have already seen is not owed and stays by retention.

@@ -93,13 +93,13 @@ Chat is the page that replaced Traffic. It adds two channels, lets the owner wri
 another person's agent for a message. Files: `server/src/fleet/chat.ts`, `chatCore.ts`, `chatChannels.ts`, `chatDirect.ts`,
 `chatMentions.ts`, `chatTypes.ts` and the route files `chatRoutes.ts`, `chatChannelRoutes.ts`, `chatDmRoutes.ts` and
 `chatAgentRoutes.ts`; the console's `Chat.tsx`, `chatData.ts`, `useChat.ts`, `chat.css` and `components/Chat*.tsx`. The rules are in SPEC 7.1,
-7.5, 7.7 and 8.1, and the reasoning in DECISIONS 61. The storage is in [Storage](19-storage.md#chats-stores-1034).
+7.5, 7.7 and 8.1, and the reasoning in DECISIONS 61 and, for the public channels, 69. The storage is in [Storage](19-storage.md#chats-stores-1034).
 
 **Parts.** `ChatService` (`chat.ts`) is the object the fleet owns (`fleet.chat`). It holds three things and keeps them apart on
 purpose. `ChatCore` has what both sides share and touches no message: the Admin's limits, redaction (`scrubStored`), the per-author
 rate limit, the read-state counts and the stream signal, the audit callback, and `deliver`, which hands a text to an agent through
 responding's message path (`RespondStore.message`) so the Admin's respond flags and the reporter's own consent apply as they do for the
-console's message box. `ChannelChat` is General and My group: posting, paging, the `@` address book, mentions and their
+console's message box. `ChannelChat` is General, the public channels (#1035) and My group: posting, paging, the `@` address book, mentions and their
 delivery state, and the stop buttons. `DirectChat` is the Direct Messages: a person writing to one agent or into a conversation
 between two, a person writing to another person's agent, the link between them, hide and show, and delete. `channels` never
 reads a conversation and `direct` never reads a channel, and `chatSeparation.test.ts` holds the files to it. Where they need each
@@ -114,6 +114,15 @@ channel's flags decide: disconnected is Not delivered, paused is Held (kept in t
 message is stored with its mentions, and `core.watch` follows each delivery's trail so the mention moves to Working, Done, Not
 delivered or Dropped. A mention of another person's agent is stored as `approval` and asked of its owner (below). The counts of
 every person it concerns are bumped (`readState.bump`), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
+
+**Public channels (#1035).** A `ChannelId` is a string: `general`, `group` or a public channel's name (`chatTypes.ts`; `resolve` in `ChannelChat` says whether a name is a channel that exists, and every route passes its `:channel` through it, so a name that is
+none answers `404` before it reaches a store). The audience is still the table (DECISIONS 61, 69): a public channel's messages are rows of `public_messages` keyed by the channel, so `ChannelChat` reaches them through the same public handle as General's
+with the channel as its key, and nothing of a group or a Direct Message can be reached from a public channel's route. `PublicChannels` (`chatPublic.ts`) opens, describes and removes a channel over the catalogue store (`store.channels`); it holds the rules a store cannot
+(who may: a person or an Admin opens, the opener or an Admin describes, an Admin removes) and the words of a refusal for the New channel form (`Fail.reason` carries the store's reason, such as `name-taken`, so the form can mark the field). A channel's pause and disconnect flags
+are `channel:<name>:*` scopes in `settings` (`channelGlobalScope`, `channelPersonScope`), General keeps its own keys, and a thread name is `public:<name>` (`channelThread`), so a removed channel's flags, counts and Admin records are found and forgotten by their prefix.
+`chat.ts` adds the channels to the overview in order (General, public channels by name, My group), with `description`, `link`, `openedBy` and the `can` flags, and `GET …/direct-targets` is `DirectChat.targets`, which lists what the first message of a new Direct Message goes through (`newWith`), so the picker offers exactly what a send accepts.
+An Admin's read of a public channel notes nothing (`readRecord` returns before `note` for `isPublicChannel`), as General's does; an Admin's pause for everyone, remove all, description edit and removal go through `AdminReads.stopped` or `PublicChannels.tellOpener`, which tell the live sessions with the same notices as every other Admin act, and
+the log rows are `channel_*` (`wireChatLogs` in `chatRoutes.ts`). An agent's read and post in a public channel follow the rules of General's, with no difference between them (DECISIONS 69): only the last hour, only where a stored, delivered `@` of that agent called it in, whole messages cut to `AGENT_READ_CHARS`, and a cursor that pages inside the hour. Only the channel list, which holds no message text, needs no call-in.
 
 **A Direct Message.** The conversation is `peer_messages`, so its rules are the messaging store's. A person's text is stored as a
 message with `author: person`; it is stored `queued` after `deliver` took it, so the peer path does not hand it a second time. A
@@ -152,7 +161,7 @@ again whenever the `chat` signal moves `rev` (no interval for data, since a page
 
 **An Admin reading (#1034).** An Admin never reads a person's content in silence (PROJECT.md). `AdminReads` (`chatAdminReads.ts`) is where it is kept:
 `note` runs whenever an Admin reads a My group or a Direct Message that is not theirs (the channel page, the conversation page and the ping routes
-all end in it), and writes one `chat_admin_reads` row for each Admin and reading session (a read less than 30 minutes after the last one is the same
+all end in it; never for General or a public channel, which are public, DECISIONS 69), and writes one `chat_admin_reads` row for each Admin and reading session (a read less than 30 minutes after the last one is the same
 row; `touch` returns whether it started a new one). A new session writes `chat_admin_read` to the Admin log (`chatRoutes.ts`) and tells each live
 reporter session of the people in the thread; a reading that came back after more than 30 seconds raises the content-free `chat` signal for
 those people, so their page shows the red banner at once. A reading is live for 30 seconds after the last read (`LIVE_MS`), which `liveFor` reports as
@@ -174,7 +183,8 @@ No table or column changed: the kinds are text in every adapter.
 
 **The agent's side of the channels.** The reporter-token routes are in `chatAgentRoutes.ts` and the
 paged read is capped near 30,000 characters (the spike, #1033, found a tool result is cut between about 34,000 and 73,000). The tools are
-`podium_chat_read` and `podium_send` to `channel:group` or `channel:general` (#1035). Delivery is `queue` on both harnesses; OpenCode can also deliver at the next step of a running
+`podium_chat_read` (no channel lists the channels, `GET /sessions/:id/chat/channels`; a channel reads it) and `podium_send` to `channel:group`, `channel:general` or `channel:<name>` (#1035). Both harnesses build the tool from `plugin/core/peers.ts` (`chatReadTarget`, `channelListAnswer`, `chatReadAnswer`, `channelSendTarget`), so a rule is written once. That file also keeps the answer to at most `CHAT_READ_MAX_CHARS`, because both harnesses replace a larger tool result with a saved-file path that the model may not be able to open (#1033).
+A subagent's call is told apart in each harness's own way (Claude Code by `agentId`, OpenCode by its child session's `sessionID` and `agent`) and refused before any route is called, so only an orchestrator's main loop lists, reads or posts. A channel message is never pushed into a running turn: an agent reads it when it chooses to or at the end of its turn. Delivery is `queue` on both harnesses; OpenCode can also deliver at the next step of a running
 turn (`delivery: 'steer'`, verified in #1033), which was evaluated and left for later so the two harnesses read the same.
 "Send selected messages to an agent" did not ship.
 

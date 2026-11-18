@@ -360,7 +360,7 @@ CREATE TABLE peer_messages (id TEXT PRIMARY KEY, owner TEXT, link TEXT, from_key
 
 Chat has three tables, one for each audience, so that a missed filter can never send one audience's text to another. A
 conversation between agents, or between a person and one agent, is `peer_messages` above. The group channel is
-`group_messages` and General is `public_messages`. **`peer_messages` is never copied into, merged with or returned together with the
+`group_messages` and General is `public_messages`, which since migration 45 (#1035, below) also holds the public channels' messages, keyed by channel. **`peer_messages` is never copied into, merged with or returned together with the
 other two**: each has its own read and write path in the storage interface, and a test holds the server's code to it.
 
 Migration 31 (PostgreSQL and MariaDB main step 7; migration 32 is PostgreSQL and MariaDB main step 8) adds the following. Every adapter carries the same
@@ -432,6 +432,25 @@ CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, starte
 
 A person's overview reads their rows by the key's first column. A row is added when a record is written for the person, and removed when the person sees the thread, when the person is deleted, and 90 days after the record was last read (the record is then no longer owed to anyone who had not seen it, and retention removes it). The records an older database holds are filled into the table once, by the store, from `people` and `seen`, because a JSON list cannot be split the same way on every database.
 
+Migration 45 (#1035; PostgreSQL and MariaDB main step 21) adds public channels beside General. The audience is still the table ([DECISIONS 61](../../decisions/61-chat-keeps-each-audience-in-its-own-table-and-a-person-may-write-to.md), amended by [69](../../decisions/69-public-channels-are-a-catalogue-inside-the-public-audience.md)): a public channel's messages stay in `public_messages`, now keyed by channel, and there is no `visibility` column. General is the built-in key `general` and is not a row of `public_channels`.
+
+```sql
+ALTER TABLE public_messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'general';   -- every message already there is General's
+CREATE INDEX public_messages_in_channel ON public_messages(channel, created_at, seq);
+CREATE TABLE public_channels (   -- the channels beside General: a catalogue, never any message text
+  name TEXT PRIMARY KEY,         -- the channel's key and id: a lowercase slug, ^[a-z0-9][a-z0-9-]{0,39}$, never changed. `general` and `group` are reserved
+  description TEXT NOT NULL DEFAULT '',   -- at most 280 characters
+  link_kind TEXT, link_ref TEXT, -- 'issue', 'milestone' or 'project' and its reference (at most 100 characters), or NULL for a channel about any other topic
+  link_key TEXT UNIQUE,          -- the folded `<kind>:<reference>` (an issue's `#12` and `12` are one), so one link has one channel; NULL for no link, which never collides
+  created_by TEXT NOT NULL,      -- the opener's folded name; '' once that person is deleted, so a new person of the same name does not inherit it
+  created_by_name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+```
+
+At most 50 channels are kept beside General, and the limit is checked in the same step as the insert so two at once cannot pass it. A name is folded to lowercase before it is checked and compared without case.
+Deleting a person clears `created_by` of the channels they opened and leaves the channels and their messages. Removing a channel deletes it and every message in it in one step, then the pause and disconnect flags, the read counts and the Admin's records that belonged to it.
+A page of a public channel orders by `created_at, seq` like every other. The retention days apply to a public channel's messages as they do to General's.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql
@@ -452,7 +471,7 @@ Direct Messages (the ones they own and the ones with their `person:<name>` end),
 can never be seen); a record owed to others as well stays for them, without the deleted person. A record that names nobody is not theirs. Sessions, spend, the
 Admin log and General keep their name as text.
 
-- **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
+- **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General and a public channel). `<scope>` is
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
   unchanged later. A direct message keeps its `dlv_` style id.
 - **Author.** `author_kind` is `person`, `orchestrator`, `subagent` or `reporter`; `author_ref` is the person's name, the session id
@@ -471,7 +490,8 @@ Admin log and General keep their name as text.
   or message to one's own agent from Chat, default 4,000, 1 to 20,000) and `chat.perMinute` (posts or messages a minute for one author, default 6, 1
   to 600). A value outside its range is ignored on read and refused on write. `chat.flag.<scope>` holds a channel's flags as
   letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<name>`
-  (General, one person's agents) or `group:<owner>`. A scope with neither flag has no row. The flag `feature.chat-everyone`
+  (General, one person's agents) or `group:<owner>`; a public channel besides General has its own, `channel:<name>:global` and `channel:<name>:person:<name>`, so pausing one never touches General or another channel,
+  and removing a channel resets them. A scope with neither flag has no row. The flag `feature.chat-everyone`
   is '0' or '1' like the other features, and is off by default.
 - A message's text is never in the state, the stream, the Admin log or the server log.
 
@@ -523,7 +543,7 @@ The sweeper runs this hourly:
 - Admin log rows older than 90 days are deleted, except that the newest 100 rows are always kept, so a quiet
   server keeps some history (#303).
 - Chat (#1034): a channel message older than the Admin's `retainDays` (30 days unless the Admin sets another) is deleted from
-  General and every group, and the messages of a Direct Message hidden for longer than the longest resume window of its agents (#1113, 30 days unless
+  General, every public channel (#1035; the channel itself stays, however old) and every group, and the messages of a Direct Message hidden for longer than the longest resume window of its agents (#1113, 30 days unless
   the harness says another) are deleted, or longer than `graceHours` (24 unless set) when neither agent has a window ([7.5](07-05-lifecycle-timers.md)). A Direct Message with a live agent is still removed by the messaging rule below.
 - Orchestrator messages on a link whose newest message is older than the Admin's period (30 days unless the Admin
   sets another) are deleted, as are the messages of a session the server no longer holds and closed requests past the

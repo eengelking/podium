@@ -24,7 +24,8 @@ import {
 import type { Selection, ThreadMessage, ThreadRead } from "../useChat";
 import type { SessionView } from "../types";
 import { AdminPauseBanner, AdminTags, ReadOnlyBanner, ReadingBanner, RecordLine } from "./ChatAdmin";
-import { ChMsg, ChNo, ChClock, ChWarn, DeliveryGlyph, TagGlyph } from "./ChatIcons";
+import { ChLink, ChMsg, ChNo, ChClock, ChWarn, DeliveryGlyph, TagGlyph } from "./ChatIcons";
+import { linkWords } from "./ChatForms";
 import { ChatMenu, agentMenu, type MenuAct } from "./ChatMenu";
 import { agentState, STATE_WORD } from "./ChatSidebar";
 import { StateIcon } from "./Chips";
@@ -107,6 +108,12 @@ function Message({ m, all, me, now, paused, owner, across, heldBy, people, machi
                 </span>
               ))}
             </>
+          )}
+          {c?.authorOwner && !mine && (
+            <span className="re">
+              {" "}
+              orchestrator of <bdi>{c.authorOwner}</bdi>
+            </span>
           )}
           {re && (
             <span className="re">
@@ -220,7 +227,9 @@ export function ChatThread(p: ThreadProps) {
   const parties: Party[] = p.direct ? [p.direct.a, p.direct.b] : dmHead?.a && dmHead.b ? [dmHead.a, dmHead.b] : [];
   const agents = parties.filter((x) => x.kind === "agent");
   const cross = (p.direct?.cross ?? dmHead?.cross) || null;
-  const ro = p.readAs !== null && !(p.sel.kind === "channel" && p.sel.id === "general");
+  // General and a public channel are readable by everyone, so an Admin reading someone's conversations has nothing to be told about in them (#1035).
+  const publicChannel = p.sel.kind === "channel" && p.sel.id !== "group";
+  const ro = p.readAs !== null && !publicChannel;
   const ownerName = dmHead?.owner ?? p.direct?.owner ?? p.readAs ?? o.me.name;
   // A conversation between two agents has the viewer in it as the third person; one with the person has them as a party.
   const person = parties.find((x) => x.kind === "person") ?? (ro ? ({ name: ownerName } as Party) : o.me.person ? ({ name: o.me.name } as Party) : undefined);
@@ -237,6 +246,8 @@ export function ChatThread(p: ThreadProps) {
       : p.sel.kind === "channel"
       ? p.sel.id === "general"
         ? "Everyone signed in to this server can read and post here."
+        : p.sel.id !== "group"
+        ? "Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour. A subagent does not post here; its orchestrator does."
         : "Only you and your own orchestrators, subagents and forks can read and post here."
       : "Only you and an Admin can read this. The two agents and you are the only ones in it. It is removed when every agent session in it has ended.";
   const trips = dmHead?.roundTrips ?? p.direct?.roundTrips;
@@ -245,6 +256,10 @@ export function ChatThread(p: ThreadProps) {
     p.sel.kind === "channel"
       ? p.sel.id === "general"
         ? "Everyone signed in to this server"
+        : p.sel.id !== "group"
+        ? p.channel?.openedBy
+          ? `Opened by ${p.channel.openedBy}`
+          : null
         : ro
         ? `${p.readAs}'s own orchestrators and subagents`
         : `You and your ${plural(o.agents.length, "orchestrator")} and subagents`
@@ -265,9 +280,15 @@ export function ChatThread(p: ThreadProps) {
           <span className="nm">
             <bdi>{title}</bdi>
           </span>
+          {p.channel?.link && (
+            <span className="ch-link" data-testid="chat-link-chip">
+              <ChLink />
+              {linkWords(p.channel.link)}
+            </span>
+          )}
         </h2>
         <div className="sub">
-          <span>{sub}</span>
+          {sub && <span>{sub}</span>}
           <span>{plural(total, "message")}</span>
           {tag && (
             <span className={`tag${tag.warn ? " warn" : ""}`}>
@@ -276,6 +297,11 @@ export function ChatThread(p: ThreadProps) {
           )}
           <AdminTags readers={readers} pause={pause} />
         </div>
+        {p.channel?.kind === "public" && p.channel.description && (
+          <div className="ch-desc" data-testid="chat-desc">
+            {p.channel.description}
+          </div>
+        )}
         <div className="sub">
           <span>{scope}</span>
         </div>

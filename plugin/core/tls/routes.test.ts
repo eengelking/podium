@@ -26,6 +26,14 @@ describe("routes.mjs: the reporter routes and nothing else", () => {
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/group")).toBeNull();
   });
 
+  test("lets a reporter list the channels (#1035) by GET only: opening one is a person's, never a reporter's", () => {
+    expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels")).toEqual({ method: "GET", path: "/api/fleet/sessions/s1/chat/channels" });
+    expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/")).toEqual({ method: "GET", path: "/api/fleet/sessions/s1/chat/channels" });
+    expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/issue-1035/messages")).toEqual({ method: "GET", path: "/api/fleet/sessions/s1/chat/channels/issue-1035/messages" });
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) expect(reporterTarget(method, "/api/fleet/sessions/s1/chat/channels")).toBeNull();
+    expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/../x")).toBeNull();
+  });
+
   test("says no to another route, method, address form, or an id that could change where the request goes", () => {
     for (const [m, u] of [
       ["GET", "/api/fleet/ping"],

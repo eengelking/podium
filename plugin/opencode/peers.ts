@@ -11,7 +11,7 @@ import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
 import { isLaunchId } from '../core/launch.ts';
 import {
-  accessAnswer, answerPaused, channelArgument, channelSendAnswer, channelSendTarget, chatReadAnswer, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
+  accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, chatReadTarget, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
   refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { Root } from './state.ts';
@@ -224,14 +224,15 @@ export class Peers {
     return this.outcome('Not asked.', out, (body) => accessAnswer(body, { owner: this.owner(), right, to }));
   }
 
-  /** `podium_chat_read`: the last hour of a channel this orchestrator was called into. Podium decides what it may read; the answer starts with Podium's frame. */
+  /** `podium_chat_read`: the list of channels (no channel given), or the last hour of General, My group or a public channel when this orchestrator was called into it. Podium decides what it may read; the answer starts with Podium's frame. */
   async chatRead(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
     if (sub) return SUBAGENT_CHAT_READ;
     if (!root || !t || !this.on(root, t)) return this.off('Not read.', root, t);
-    const channel = channelArgument(input.channel);
-    if (!channel) return 'Not read. channel must be general or group.';
-    const before = typeof input.before === 'string' && input.before.trim() ? `?before=${encodeURIComponent(input.before.trim())}` : '';
-    const out = await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels/${channel}/messages${before}`);
+    const target = chatReadTarget(input);
+    if ('refusal' in target) return target.refusal;
+    if ('list' in target) return this.outcome('Not read.', await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels`), (body) => channelListAnswer(body, { owner: this.owner() }));
+    const channel = target.channel;
+    const out = await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels/${channel}/messages${target.query}`);
     return this.outcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: this.owner() }));
   }
 

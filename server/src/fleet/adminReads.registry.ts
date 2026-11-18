@@ -75,7 +75,7 @@ export const ADMIN_READS: AdminReadEntry[] = [
     'fleet/fileDiffRoutes.test.ts',
     'lets only the owner: not another person, not an Administrator, not the admin secret',
   ]),
-  ownerOnly({ call: 'channels.agentRead', files: ['fleet/chatAgentRoutes.ts'], what: "the last hour of a channel, read by the person's own agent with its reporter token; the admin secret and any other person are refused" }, [
+  ownerOnly({ call: 'channels.agentRead', files: ['fleet/chatAgentRoutes.ts'], what: "the last hour of a channel (General, My group or a public one), read by the person's own agent with its reporter token; the admin secret and any other person are refused" }, [
     'fleet/chatRoutes.test.ts',
     "refuses an ended agent, another person's agent and the admin secret",
   ]),

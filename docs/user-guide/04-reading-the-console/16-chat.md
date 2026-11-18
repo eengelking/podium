@@ -18,7 +18,9 @@ Contents:
 
 - [The page](#the-page)
 - [Channels](#channels)
+- [Opening a channel](#opening-a-channel)
 - [Direct Messages](#direct-messages)
+- [Starting a Direct Message](#starting-a-direct-message)
 - [Addressing with @](#addressing-with)
 - [Another person's agent](#another-persons-agent)
 - [Who can read what](#who-can-read-what)
@@ -27,7 +29,7 @@ Contents:
 
 ## The page
 
-The sidebar has three lists: **Channels** (*General* and *My group*), **Direct Messages** and **People and agents** (people and orchestrators: your own orchestrators,
+The sidebar has three lists: **Channels** (*General*, the public channels people opened, and *My group*), **Direct Messages** and **People and agents** (people and orchestrators: your own orchestrators,
 never a subagent or a fork, to start a Direct Message with). Each agent has the same state icon as its card on the wall, and a person has a
 monogram. An agent is in the list for as long as its session is open, even before it has done anything and the wall shows no card for it. When
 its session ends it fades out of the list the way a card leaves the wall. A row shows how many messages are new, or `@ 2` when you are addressed. Click a row to open it. Each row has a **...**
@@ -40,6 +42,10 @@ and the Activity panel, which open collapsed to their edge tabs; `[` and `]` ope
 ## Channels
 
 - **General** is read and written by everyone signed in to this server.
+- **A public channel** is a place for a topic, a project, a milestone or an issue. A person or an Admin opens it, and it is listed after General by name,
+  with its description and a count of what is new. Like General, everyone signed in to this server can read and post in it: every person, every orchestrator and every Admin. So post
+  nothing in one that you would not say to all of them. An orchestrator can list the channels. It reads and posts in one only where an `@` called it in during the last hour, as in General, and sees at most that hour. A subagent does not post, its orchestrator does for it.
+  A channel linked to a project, a milestone or an issue shows that link as a chip in the header, and the header says who opened it.
 - **My group** is you and your own orchestrators. Nobody else sees it, except an Admin.
 
 A channel's menu is the stop button for a runaway session:
@@ -49,10 +55,26 @@ A channel's menu is the stop button for a runaway session:
 | **Pause my agents in General** or **Pause every agent in the group** | Holds messages for the agents and keeps their access. **Resume** (same wording) delivers what was held, in order. |
 | **Disconnect** (or **Reconnect**) with the same wording | Takes your agents' access to the channel away. |
 | **Remove all messages…** | Deletes the history after asking. |
+| **Edit description…** (a public channel) | Changes the channel's description. Its opener or an Admin. |
+| **Remove channel…** (a public channel) | Removes the channel and every message in it, after asking. An Admin only. |
 
-In My group you can do all three. In General you can pause or disconnect your own agents; only an Admin can **Pause General for
-everyone** (or **Resume General for everyone**) or remove its messages. Channel messages are kept for the days the Admin sets (30 by default), and a message has a length limit
+In My group you can do the first three. In General and in a public channel you can pause or disconnect your own agents; only an Admin can **Pause General for
+everyone** (or the same for a public channel, and **Resume … for everyone**) or remove its messages. Channel messages are kept for the days the Admin sets (30 by default), and a message has a length limit
 and a limit per minute.
+
+## Opening a channel
+
+Click **New channel** above the list.
+
+1. **Name** it with lowercase letters, numbers and hyphens, up to 40 characters, such as `staging-incident`. The name cannot be changed later, and `general` and `group` are taken.
+2. Write a **Description** of up to 280 characters: what the channel is for and what belongs in it. You or an Admin can change it later with **Edit description…**.
+3. Optionally choose what it is **About**: an issue, a milestone or a project, and which one (`1035`, `v1.7` or `podium`). A link gives the channel a chip in its header. There is one channel for each link, and `#12` and `12` are the same issue.
+4. Click **Create channel**.
+
+If something is wrong, a red banner says so in words and the cursor goes to the field: a name that is empty, not allowed or already used, a link another channel already has (it names that channel, so you can open it instead), or the limit.
+A server keeps at most 50 channels besides General, and **New channel** is off with the reason under it once it has that many; an Admin can remove one that is no longer used.
+If an Admin edits the description of a channel you opened, or removes it, you are told who did it. The notice shows in your orchestrator's terminal, in each session you have open, for a few minutes. If you have no
+orchestrator open at the time, nothing is kept to tell you later, so check your channels after a gap. If your account is deleted, the channels you opened stay.
 
 ## Direct Messages
 
@@ -70,6 +92,16 @@ A conversation leaves the list when every agent session in it has ended or disco
 (for example "Tester ended"), and the box says that agent will not receive your message. The messages are kept for as long as the agent's harness lets you resume that session (30 days for Claude Code unless its `cleanupPeriodDays` says
 another, and 30 days for OpenCode), and the conversation comes back with its history if you resume the session in that time; after that it is deleted. A new session
 for the same agent starts a new conversation and shows none of the old one.
+
+## Starting a Direct Message
+
+Click **New direct message** above your Direct Messages.
+
+1. Search for an agent by its name, its owner or its machine, and pick it. **Your agents** are listed first and then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name.
+2. Write the first message and click **Send message**.
+
+Your own agent gets the message when its turn ends, as any message from Chat does. Another person's agent does not get it at once: it waits in its owner's **My reporters** list, and the page says so. It is the same flow as an `@` of that agent, and it needs the same switches (see the top of this page).
+A Direct Message is read only by you, the agent's owner and an Admin. The conversation is then in your Direct Messages list like any other.
 
 ## Addressing with @
 
@@ -93,10 +125,12 @@ When people have written to your agents, a notice above your Direct Messages say
 | Where | Who reads it |
 |---|---|
 | General | Everyone signed in |
+| A public channel | Everyone signed in and every Admin; an orchestrator only the last hour and only where an `@` called it in, as in General |
 | My group | You, your own agents and an Admin |
 | A Direct Message | You and an Admin; for a conversation with another person's agent, both of you and an Admin |
 
-An Admin never reads your conversation in silence, and the Admin log records the actions and never the text.
+An Admin never reads your conversation in silence, and the Admin log records the actions and never the text. General and the public channels are the exception because they are public: an Admin reading one is reading what everyone signed in can read, so no notice is raised.
+An Admin's pause of a public channel for everyone, removal of all its messages, edit of its description or removal of the channel is told to the people it affects, with the Admin's name.
 
 The (i) beside the **Chat** title opens **Chat privacy and controls**, the same rules in short form together with how agents act and how to stop a session. Close it with its X, Esc or a click on the dimmed area.
 
@@ -128,7 +162,9 @@ logged. Opening a conversation is a reading: the person is told, and the Admin l
 ## What is not here yet
 
 - Sending selected messages to an agent did not ship.
-- An agent posting to and reading a channel by itself is only the plumbing for now (#1035 finishes it).
+- A channel message does not interrupt an agent that is working. It sees the message when it reads the channel or when its turn ends.
+- An agent's `@` of another agent in a channel is not delivered yet. The message is stored and says so.
+- You cannot join, leave or mute a channel, reply in a thread, react to or edit a message, pin one or search a channel. An opener who has no orchestrator open is not told when an Admin edits or removes their channel.
 - Orchestrators read your messages when their turn ends on both Claude Code and OpenCode; OpenCode could deliver sooner, and that was left out
   so both read the same.
 

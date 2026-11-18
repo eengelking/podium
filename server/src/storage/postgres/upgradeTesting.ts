@@ -4,20 +4,20 @@ import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { openPostgresStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyAdminRead, LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads), td };
+    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[]): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[]): Promise<Storage> {
   const old = new PgDb({ connectionString: td.url, schema: MAIN_SCHEMA, max: 2, name: 'test' });
   try {
     await migrate(old, MAIN_SCHEMA, MAIN_STEPS.slice(0, 1));
@@ -67,6 +67,16 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
           if (!x.lists) continue;
           await old.run('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [x.thread, x.adminKey, x.admin, x.startedAt, x.lastSeenAt, x.lists.kind, JSON.stringify(x.lists.people), JSON.stringify(x.lists.seen)]);
         }
+      }
+    }
+    if (publicMessages.length > 0) {
+      // General's messages come from step 7; step 21 gave them a channel, so the rows go in at the schema before it.
+      await migrate(old, MAIN_SCHEMA, MAIN_STEPS.filter((s) => s.version <= 20));
+      for (const x of publicMessages) {
+        await old.run(
+          'INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
+          [x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq],
+        );
       }
     }
   } finally {

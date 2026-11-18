@@ -7,6 +7,16 @@ import { limitOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
 export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
   const direct = () => d.fleet.chat.direct;
 
+  /**
+   * The picker for a new Direct Message (#1035): the live orchestrators the viewer may start a conversation with, their own and other people's, never a subagent, a
+   * fork or an ended session. Names, owners, machines and states only, never a message's text. The first message goes to `POST /chat/dm/me/<sessionId>/messages`.
+   */
+  browser.get('/chat/direct-targets', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    res.json({ ok: true, targets: await direct().targets(v, typeof req.query.q === 'string' ? req.query.q : '') });
+  }));
+
   browser.get('/chat/dm/:a/:b/messages', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;

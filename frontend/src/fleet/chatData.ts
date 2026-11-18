@@ -38,8 +38,17 @@ export interface AdminRead {
 
 /** A channel as the overview lists it. `can` says what the viewer may do to it; the page offers nothing else. */
 export interface ChatChannel {
-  id: "general" | "group";
+  /** `general`, `group`, or a public channel's own name (#1035). */
+  id: string;
+  /** `public` for General and a channel someone opened, `group` for My group. */
+  kind: "public" | "group";
   name: string;
+  /** What a public channel is for; empty for General and My group. */
+  description: string;
+  /** What a public channel is about, or null. */
+  link: ChannelLink | null;
+  /** The person who opened a public channel; null for General, My group and a channel nobody opened. */
+  openedBy: string | null;
   thread: string;
   unread: number;
   mentions: number;
@@ -51,7 +60,33 @@ export interface ChatChannel {
   pausedByAdmin?: string | null;
   /** The Admins reading it now (My group only). Hide an entry once its `until` has passed. */
   adminReading?: AdminReading[];
-  can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean };
+  can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean; editDescription: boolean; removeChannel: boolean };
+}
+
+export type ChannelLinkKind = "issue" | "milestone" | "project";
+export interface ChannelLink {
+  kind: ChannelLinkKind;
+  ref: string;
+}
+
+/** The most public channels besides General the server keeps (#1035); at it, New channel is off. */
+export const MAX_PUBLIC_CHANNELS = 50;
+
+/** One agent the New direct message picker offers (#1035). Names, owners and states only. */
+export interface DirectTarget {
+  sessionId: string;
+  name: string;
+  machine: string;
+  address: string;
+  owner: string;
+  own: boolean;
+  status: AgentStatus;
+  waitReason: "permission" | "input" | null;
+  canMessage: boolean;
+  why: string | null;
+  needsApproval: boolean;
+  link: "none" | "open" | "paused" | "removed" | null;
+  thread: string;
 }
 
 /** One end of a Direct Message: an agent, or the person (`kind: "person"`). */
@@ -169,6 +204,8 @@ export interface ChannelMessage {
   issue: string | null;
   project: string | null;
   milestone: string | null;
+  /** For an agent's message in a public channel, the person who owns the agent; null for a person's message or an agent whose session is gone. */
+  authorOwner?: string | null;
   mine: boolean;
   mentions: Mention[];
 }
@@ -194,7 +231,7 @@ export interface DirectMessage {
 
 export interface ChannelPageRead {
   ok: true;
-  channel: "general" | "group";
+  channel: string;
   messages: ChannelMessage[];
   older: string | null;
   total: number;
@@ -245,7 +282,7 @@ export const chatApi = {
   /** An Admin names the person whose conversations to read with `owner`; the server answers that person's My group and Direct Messages. */
   overview: (owner?: string | null) => call<ChatOverview>("GET", owner ? `${BASE}?owner=${enc(owner)}` : BASE),
   markRead: (thread: string, upTo: string | null) => call<{ ok: true; unread: number; mentions: number }>("POST", `${BASE}/read`, { thread, upTo }),
-  addresses: (channel: "general" | "group") => call<{ ok: true; addresses: Address[] }>("GET", `${BASE}/addresses?channel=${channel}`),
+  addresses: (channel: string) => call<{ ok: true; addresses: Address[] }>("GET", `${BASE}/addresses?channel=${channel}`),
   channelMessages: (channel: string, o: { before?: string | null; limit?: number; owner?: string | null } = {}) => call<ChannelPageRead>("GET", `${BASE}/channels/${enc(channel)}/messages${qs(o)}`),
   post: (channel: string, text: string) => call<{ ok: true; message: ChannelMessage; warnings: string[] }>("POST", `${BASE}/channels/${enc(channel)}/messages`, { text }),
   pause: (channel: string, paused: boolean, everyone = false, owner?: string | null) => call<{ ok: true }>("PUT", `${BASE}/channels/${enc(channel)}/pause`, { paused, ...(everyone ? { everyone: true } : {}), ...(owner ? { owner } : {}) }),
@@ -261,6 +298,12 @@ export const chatApi = {
   pauseLink: (a: string, b: string, paused: boolean) => call<{ ok: true }>("PUT", "/api/fleet/respond/peers/links", { a, b, paused }),
   removeLink: (a: string, b: string) => call<{ ok: true }>("DELETE", "/api/fleet/respond/peers/links", { a, b }),
   /** Pause, resume, remove or open again the link of a conversation across owners (the two ids of the conversation, `person:<name>` included). */
+  /** Opens a public channel (#1035). A refusal is a RespondError whose body has the server's `error` and its `reason`. */
+  createChannel: (name: string, description: string, link: ChannelLink | null) => call<{ ok: true; channel: ChatChannel }>("POST", `${BASE}/channels`, { name, description, link }),
+  describeChannel: (channel: string, description: string) => call<{ ok: true; channel: ChatChannel }>("PATCH", `${BASE}/channels/${enc(channel)}`, { description }),
+  removeChannel: (channel: string) => call<{ ok: true; removed: number }>("DELETE", `${BASE}/channels/${enc(channel)}`),
+  /** Who the person may start a Direct Message with, narrowed by `q` (the search box asks as it is typed). */
+  directTargets: (q = "") => call<{ ok: true; targets: DirectTarget[] }>("GET", `${BASE}/direct-targets${q ? `?q=${enc(q)}` : ""}`),
   link: (a: string, b: string, op: LinkOp) => call<{ ok: true; link: Cross["link"] }>("PUT", `${BASE}/dm/${enc(a)}/${enc(b)}/link`, { op }),
 };
 

@@ -198,7 +198,7 @@ interface Delivery {
   text?: string;                        // 'reply' (a message in place of an answer), 'plan-feedback', 'deny' (the reason, may be empty) and 'message': ≤ 20,000 chars, line breaks kept
   command?: 'clear' | 'compact';        // kind 'command'
   chat?: true;                          // kind 'message': the owner's own Chat Direct Message to this agent (#1034); the agent may answer in the thread with `podium_send` to `person:<by>`. Older reporters ignore it
-  channel?: string;                     // kind 'message': set on a message from an `@` in a Chat channel (#1034), the channel's name (`General` or `My group`)
+  channel?: string;                     // kind 'message': set on a message from an `@` in a Chat channel (#1034), the channel's name (`General`, `My group` or a public channel's name, #1035)
 }
 
 // Orchestrator messaging (#347, 7.7). A message or a notice for this session's orchestrator, in the reply to a report.

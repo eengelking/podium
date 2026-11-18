@@ -34,8 +34,8 @@ const direct = (a: Party, b: Party, over: Partial<DirectInfo> = {}): DirectInfo 
   thread: `dm:${a.sessionId}|${b.sessionId}`, a, b, owner: "Ed", messages: 6, lastAt: T0, state: "active", paused: false, canSend: { aToB: true, bToA: true }, roundTrips: { used: 3, cap: 10 }, ended: [], unread: 0, mentions: 0, hiddenAt: null, ...over,
 });
 const channelOf = (id: "general" | "group", over: Partial<ChatOverview["channels"][number]> = {}): ChatOverview["channels"][number] => ({
-  id, name: id === "general" ? "General" : "My group", thread: id === "general" ? "public" : "group:ed", unread: 0, mentions: 0, messages: 3, paused: false, pausedForEveryone: false, disconnected: false,
-  can: id === "general" ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: false } : { pause: true, pauseEveryone: false, disconnect: true, removeAll: true }, ...over,
+  id, kind: id === "group" ? "group" : "public", description: "", link: null, openedBy: null, name: id === "general" ? "General" : "My group", thread: id === "general" ? "public" : "group:ed", unread: 0, mentions: 0, messages: 3, paused: false, pausedForEveryone: false, disconnected: false,
+  can: id === "general" ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: false, removeChannel: false } : { pause: true, pauseEveryone: false, disconnect: true, removeAll: true, editDescription: false, removeChannel: false }, ...over,
 });
 const cmsg = (id: string, text: string, over: Partial<ChannelMessage> = {}): ChannelMessage => ({ id, authorKind: "person", authorName: "Ed", authorRef: "Ed", text, createdAt: T0 - 600_000, updatedAt: T0 - 600_000, replyTo: null, issue: null, project: null, milestone: null, mine: true, mentions: [], ...over });
 const dmsg = (id: string, from: Party, to: Party, text: string, over: Partial<DirectMessage> = {}): DirectMessage => ({
@@ -67,11 +67,11 @@ function world(over: { directs?: DirectInfo[]; channels?: ChatOverview["channels
   };
   if (!over.admin) return { overview };
   overview.me = { name: "Root", admin: true, person: false };
-  overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } })];
+  overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } })];
   overview.directs = [];
   overview.agents = [];
   overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
-  return { overview, owners: { Maya: { channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })], directs: [MAYA_DM] } } };
+  return { overview, owners: { Maya: { channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })], directs: [MAYA_DM] } } };
 }
 
 const DMS: Record<string, DmPage> = {

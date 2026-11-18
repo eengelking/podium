@@ -3,7 +3,7 @@
 // conversation's text are kept in different tables and read by different methods on purpose.
 import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
-import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState } from './types.js';
+import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal } from './types.js';
 
 const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
 const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
@@ -29,6 +29,8 @@ export interface DbChannelRow {
   id: string;
   owner?: string;
   group_id?: string;
+  /** Only in the public table (#1035). */
+  channel?: string;
   author_kind: string;
   author_ref: string;
   author_name: string;
@@ -81,6 +83,7 @@ export function toChannelMessage(r: DbChannelRow): ChannelMessage {
     id: r.id,
     owner: r.owner ?? null,
     groupId: r.group_id ?? null,
+    channel: r.channel ?? null,
     authorKind: r.author_kind as ChatAuthorKind,
     authorRef: r.author_ref,
     authorName: r.author_name,
@@ -228,3 +231,82 @@ export const OWED_CAP_MS = 90 * 86_400_000;
 
 /** The `settings` key that says the `chat_admin_owed` table has been filled from the records that were there before it (#1061). */
 export const OWED_FILLED_KEY = 'chat_admin_owed_filled';
+
+/** The key of General, the built-in public channel (#1035). Existing public messages belong to it. */
+export const GENERAL_CHANNEL = 'general';
+/** Words no public channel may be named: General is built in, and `group` is the thread name of a person's group. */
+export const RESERVED_CHANNEL_NAMES: readonly string[] = [GENERAL_CHANNEL, 'group'];
+/** A public channel's name once folded. */
+export const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+/** At most this many public channels besides General. */
+export const MAX_PUBLIC_CHANNELS = 50;
+export const MAX_CHANNEL_DESCRIPTION = 280;
+export const MAX_CHANNEL_LINK_REF = 100;
+export const CHANNEL_LINK_KINDS: readonly PublicChannelLinkKind[] = ['issue', 'milestone', 'project'];
+
+/** The columns of a public channel row. */
+export const CHANNEL_COLS = 'name, description, link_kind, link_ref, created_by, created_by_name, created_at, updated_at';
+
+/** A public channel as its table keeps it. `link_key` is only for the unique key and is never read back. */
+export interface DbPublicChannel {
+  name: string;
+  description: string;
+  link_kind: string | null;
+  link_ref: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export const toPublicChannel = (r: DbPublicChannel): PublicChannel => ({
+  name: r.name,
+  description: r.description,
+  link: r.link_kind && r.link_ref ? { kind: r.link_kind as PublicChannelLinkKind, ref: r.link_ref } : null,
+  createdBy: r.created_by,
+  createdByName: r.created_by_name,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+/** The folded form of a channel name as every method takes it. */
+export const channelKey = (name: string): string => String(name).toLowerCase();
+
+/** The unique key of a link: its kind and its reference folded, so `v1.7` and `V1.7` match, and `NULL` (no link) never collides. An issue's reference is stored without its one leading `#` (see `checkNewChannel`), so `#12` and `12` are one link. */
+export const linkKey = (kind: string, ref: string): string => `${kind}:${ref.toLowerCase()}`;
+
+/** A link's reference as it is stored: trimmed, and for an issue without its one leading `#` (so `#12`, `12` and ` #12 ` are one link). */
+export const linkRef = (kind: string, ref: string): string => {
+  const t = String(ref).trim();
+  return kind === 'issue' && t.startsWith('#') ? t.slice(1).trim() : t;
+};
+
+/** A stored link in words: an issue whose reference is all digits reads `#12`, any other reference reads as it is. */
+export const linkText = (kind: string, ref: string): string => (kind === 'issue' && /^\d+$/.test(ref) ? `#${ref}` : ref);
+
+export const channelRefusal = (error: PublicChannelRefusal, message: string): Extract<PublicChannelOutcome, { ok: false }> => ({ ok: false, error, message });
+
+/** Checks a description. Null when it is fine, else the refusal. */
+export const checkDescription = (description: unknown): Extract<PublicChannelOutcome, { ok: false }> | null =>
+  typeof description === 'string' && [...description].length <= MAX_CHANNEL_DESCRIPTION ? null : channelRefusal('invalid', `The description is at most ${MAX_CHANNEL_DESCRIPTION} characters.`);
+
+/** A new channel's values after the checks that need no database (`reserved`, `invalid`); the refusal when one fails. */
+export function checkNewChannel(input: NewPublicChannel): Extract<PublicChannelOutcome, { ok: false }> | { name: string; description: string; link: { kind: PublicChannelLinkKind; ref: string; key: string } | null; createdBy: string; createdByName: string } {
+  const name = channelKey(typeof input.name === 'string' ? input.name : '');
+  if (RESERVED_CHANNEL_NAMES.includes(name)) return channelRefusal('reserved', `"${name}" is reserved.`);
+  if (!CHANNEL_NAME.test(name)) return channelRefusal('invalid', 'A channel name is 1 to 40 lowercase letters, digits or hyphens, and starts with a letter or digit.');
+  const description = input.description ?? '';
+  const bad = checkDescription(description);
+  if (bad) return bad;
+  let link: { kind: PublicChannelLinkKind; ref: string; key: string } | null = null;
+  if (input.link) {
+    const ref = typeof input.link.ref === 'string' ? linkRef(input.link.kind, input.link.ref) : '';
+    if (!CHANNEL_LINK_KINDS.includes(input.link.kind) ||!ref || [...ref].length > MAX_CHANNEL_LINK_REF) {
+      return channelRefusal('invalid', `A link is an issue, milestone or project and a reference of 1 to ${MAX_CHANNEL_LINK_REF} characters.`);
+    }
+    link = { kind: input.link.kind, ref, key: linkKey(input.link.kind, ref) };
+  }
+  const createdByName = typeof input.createdBy === 'string' ? input.createdBy.trim() : '';
+  if (!createdByName) return channelRefusal('invalid', 'A channel needs the person who opens it.');
+  return { name, description, link, createdBy: nameKey(createdByName), createdByName };
+}

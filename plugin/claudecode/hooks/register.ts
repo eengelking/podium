@@ -81,8 +81,9 @@ import { redactText } from '../../core/diffRedact.ts';
 import {
   accessAnswer,
   answerPaused,
-  channelArgument,
+  channelListAnswer,
   chatReadAnswer,
+  chatReadTarget,
   channelSendAnswer,
   channelSendTarget,
   appliedLevel,
@@ -1633,8 +1634,7 @@ async function registerPeerTools($: Engine): Promise<void> {
       description: TOOL_DESCRIPTIONS.chatRead,
       inputSchema: {
         type: 'object',
-        properties: { channel: { type: 'string', enum: ['general', 'group'], description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
-        required: ['channel'],
+        properties: { channel: { type: 'string', description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
       },
     });
   } catch (err) {
@@ -1784,10 +1784,11 @@ async function chatReadTool($: Engine, e: { agentId?: unknown; channel?: unknown
   if (fromSubagent(e)) return SUBAGENT_CHAT_READ;
   const r = rt;
   if (!peersOn(r)) return notTakingPart('Not read.');
-  const channel = channelArgument(e.channel);
-  if (!channel) return 'Not read. channel must be general or group.';
-  const before = typeof e.before === 'string' && e.before.trim() ? `?before=${encodeURIComponent(e.before.trim())}` : '';
-  const out = await peerCall($, 'GET', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages${before}`);
+  const target = chatReadTarget(e);
+  if ('refusal' in target) return target.refusal;
+  if ('list' in target) return peerOutcome('Not read.', await peerCall($, 'GET', `${sessionPath(r.state.id)}/chat/channels`), (body) => channelListAnswer(body, { owner: ownerName() }));
+  const channel = target.channel;
+  const out = await peerCall($, 'GET', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages${target.query}`);
   return peerOutcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: ownerName() }));
 }
 

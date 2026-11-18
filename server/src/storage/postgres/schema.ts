@@ -388,6 +388,19 @@ CREATE TABLE chat_admin_owed (
 CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
 `),
   },
+  {
+    version: 21,
+    // Public channels beside General (#1035), as SQLite migration 45 keeps them: a channel key on `public_messages` (every message already there is General's) and the
+    // list of the other channels, with one channel per link through a unique key over the folded `<kind>:<reference>` (NULL when there is no link).
+    sql: typed(`
+ALTER TABLE public_messages ADD COLUMN channel TXT NOT NULL DEFAULT 'general';
+CREATE INDEX public_messages_in_channel ON public_messages(channel, created_at, seq);
+CREATE TABLE public_channels (
+  name TXT PRIMARY KEY, description TXT NOT NULL DEFAULT '', link_kind TXT, link_ref TXT, link_key TXT UNIQUE,
+  created_by TXT NOT NULL, created_by_name TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
