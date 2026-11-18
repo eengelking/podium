@@ -7,9 +7,9 @@
 import os from 'node:os';
 import { cleanFields, scrub, type FieldValue, type Fields } from './redact.js';
 
-export type { FieldValue, Fields };
+export type { Fields };
 
-export const LEVELS = ['debug', 'info', 'warn', 'error'] as const;
+const LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type Level = (typeof LEVELS)[number];
 export type LogFormat = 'text' | 'json';
 
@@ -24,7 +24,7 @@ const PRINTED_TLS = new Set(['tls.listening', 'tls.ca_created']);
  * credential (`auth.failed`) is not listed either: an Admin looking at a plain log to learn why a reporter is
  * offline needs the reason, so it prints at warn (#602), folded by `foldedInText`.
  */
-export function quietInText(event: string): boolean {
+function quietInText(event: string): boolean {
   return (
     event.startsWith('session.') ||
     event.startsWith('reporter.') ||
@@ -39,7 +39,7 @@ export function quietInText(event: string): boolean {
 }
 
 /** Events whose repeats are folded in the text output: a reporter retrying a refused credential every few seconds. */
-export function foldedInText(event: string, level: Level): boolean {
+function foldedInText(event: string, level: Level): boolean {
   return event === 'auth.failed' || (event.startsWith('tls.') && RANK[level] >= RANK.warn);
 }
 
@@ -70,7 +70,7 @@ function createFolder() {
 /** The contract fields; an event's own fields cannot overwrite them. */
 const RESERVED = new Set(['timestamp', 'level', 'message', 'event', 'service', 'host', 'version']);
 
-export interface EmitOptions {
+interface EmitOptions {
   /** false keeps the line local: the shipper uses it to talk about itself without feeding its own buffer. */
   ship?: boolean;
 }

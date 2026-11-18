@@ -16,7 +16,7 @@ import type { PeopleStoreApi } from '../storage/types.js';
 const short = (id: string): string => id.slice(0, 12);
 
 /** The Admin log and the server log get every Chat event: who, which channel or conversation, and ids. Never a message's text. */
-export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): void {
+function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): void {
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
     void Promise.resolve(people?.log(kind, detail, 'server', fleet.now(), actor))
       .then(() => logger.info(`chat.${kind}`, `podium: ${detail}`, fields as Record<string, string | number | boolean | null>))

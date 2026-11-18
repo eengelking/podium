@@ -5,8 +5,8 @@ import { useEffect, useReducer } from "react";
 import { fleetReducer, initialState, LEAVE_MS, type FleetState } from "./store";
 import type { ActivityView, Kpis, RemovedReason, SessionView, StateBody, WallSettingsView } from "./types";
 
-export const SILENCE_MS = 6000;
-export const RECONNECT_MS = 2000;
+const SILENCE_MS = 6000;
+const RECONNECT_MS = 2000;
 
 export interface FleetSource {
   addEventListener(type: string, listener: (ev: MessageEvent) => void): void;

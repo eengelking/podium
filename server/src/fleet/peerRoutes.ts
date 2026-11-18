@@ -64,7 +64,7 @@ function send(res: Response, out: Refusal): void {
  * Writes every right and message event to the Admin log and the server log, never a message's text. Returns the
  * wrapper the routes use so a row names the address of the request that caused it ('server' for a sweep or a report).
  */
-export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
+function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
   // The peer calls run later, under the storage lock, so the address is carried with the call and not in a variable
   // the caller resets as soon as it has started them.
   const sources = new AsyncLocalStorage<string>();

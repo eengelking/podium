@@ -45,7 +45,7 @@ export function waitSummary(s: Pick<SessionView, "waitReason" | "waitNote">): { 
   return { lead, detail: (s.waitNote?.length ?? 0) >= WAIT_NOTE_LIMIT ? null : note };
 }
 
-export function riskText(s: SessionView): string {
+function riskText(s: SessionView): string {
   const b = s.blowouts;
   return `Context exceeded ${b.total}× (${b.loopsHit} of ${b.loopsTotal} loops). Likely losing context; check for invented details.`;
 }
@@ -160,7 +160,7 @@ function CardTitle({ s, withMachine }: { s: SessionView; withMachine: boolean })
 }
 
 /** "Delegating to 2 agents." The one sentence the card, the wall and the orchestrator page's band share (SPEC 8.1). */
-export function delegatingLead(delegates: readonly AgentView[]): string {
+function delegatingLead(delegates: readonly AgentView[]): string {
   return `Delegating to ${delegates.length} agent${delegates.length === 1 ? "" : "s"}.`;
 }
 

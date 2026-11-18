@@ -224,7 +224,7 @@ function PlatformBody({ reply }: { reply: ReportReply }) {
   );
 }
 
-export function PlatformSection({ client, r, onLocked }: { client: ReportsClient; r: ReportState; onLocked: () => void }) {
+function PlatformSection({ client, r, onLocked }: { client: ReportsClient; r: ReportState; onLocked: () => void }) {
   const [harness, setHarness] = useState("");
   const s = useSection(client, r, { report: "harness", breakdown: "platform", harness, blocked: null }, onLocked);
   return (

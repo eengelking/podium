@@ -75,7 +75,7 @@ export function feedTime(at: number, startedAt: number): string {
   return h ? `${h}:${two(Math.floor((s % 3600) / 60))}:${two(s % 60)}` : `${two(Math.floor(s / 60))}:${two(s % 60)}`;
 }
 
-export { ActivityOutputFlag, Redacted };
+export { Redacted };
 
 /** Who sent an answer or message from Podium, as the feed names them: "You" for the signed-in person (#206). */
 function senderOf(by: string | undefined, me: string | null): string {

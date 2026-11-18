@@ -7,7 +7,7 @@ import { FileDiffModal } from "./FileDiffModal";
 import { PageNav } from "./PageNav";
 
 /** Files shown per page; the reporter sends at most 200, so there are at most ten pages. */
-export const FILES_PER_PAGE = 20;
+const FILES_PER_PAGE = 20;
 
 const LETTER: Record<ChangedFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 const MINUS = "−";

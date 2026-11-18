@@ -3,7 +3,7 @@
 // counts as idle, so a control is never hidden from under the pointer.
 import { useEffect, useState } from "react";
 
-export const IDLE_MS = 4000;
+const IDLE_MS = 4000;
 
 export function useIdle(enabled: boolean, ms: number = IDLE_MS): boolean {
   const [idle, setIdle] = useState(false);

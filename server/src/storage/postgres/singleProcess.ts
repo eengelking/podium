@@ -5,7 +5,7 @@ import pg from 'pg';
 import { SINGLE_PROCESS_LOCK_KEY } from './conn.js';
 
 /** `host:port/dbname` for a PostgreSQL URL, with no user and no password, so it is safe to log and to show. */
-export function pgLabel(url: string): string {
+function pgLabel(url: string): string {
   try {
     const u = new URL(url);
     return `${u.hostname}${u.port ? `:${u.port}` : ''}${u.pathname}`;

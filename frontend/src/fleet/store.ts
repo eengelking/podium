@@ -166,11 +166,6 @@ export function fleetReducer(state: FleetState, action: FleetAction): FleetState
   }
 }
 
-/** Sessions on screen: live ones plus those playing their leave animation. */
-export function visibleSessions(state: FleetState): SessionView[] {
-  return Object.values(state.sessions);
-}
-
 /** Reporters currently live: sessions still on screen that have not gone stale. Both top bars show this. */
 export function reportersLive(sessions: Record<string, SessionView>, leaving: Record<string, number>): number {
   return Object.values(sessions).filter((s) => !leaving[s.id] && s.status !== "stale").length;

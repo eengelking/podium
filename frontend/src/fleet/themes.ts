@@ -15,7 +15,7 @@ export const THEMES: readonly ThemeInfo[] = [
   { id: "github", label: "GitHub", credit: "GitHub Primer, MIT license", modes: ["light", "dark"] },
 ];
 
-export const DEFAULT_THEME = "podium";
+const DEFAULT_THEME = "podium";
 export const DEFAULT_CHOICE: ThemeChoice = { theme: DEFAULT_THEME, mode: "system" };
 
 const isMode = (v: unknown): v is ModeChoice => v === "light" || v === "dark" || v === "system";

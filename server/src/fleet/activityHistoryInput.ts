@@ -7,13 +7,13 @@ import type { ActivityHistorySettings, StoredDeleteBody, StoredFilter } from './
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** The most session ids one delete takes, and the longest id (the session id limit in the report protocol). */
-export const STORED_DELETE_MAX_IDS = 200;
-export const STORED_ID_MAX = 200;
+const STORED_DELETE_MAX_IDS = 200;
+const STORED_ID_MAX = 200;
 const TEXT_MAX = 200;
 const LOOPS = ['all', 'main', 'agents'] as const;
 const FILTER_KEYS = ['q', 'loop', 'project', 'owner', 'olderThanDays', 'from', 'to', 'source'] as const;
 
-export const EMPTY_FILTER_ERROR = 'Pick a filter, or delete everything.';
+const EMPTY_FILTER_ERROR = 'Pick a filter, or delete everything.';
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -61,7 +61,7 @@ export function parseFilter(raw: Record<string, unknown>, strict = false): Parse
 }
 
 /** Whether a filter would match everything: nothing in it narrows the stored sessions. */
-export function filterIsEmpty(f: StoredFilter): boolean {
+function filterIsEmpty(f: StoredFilter): boolean {
   return !f.q?.trim() && (f.loop === undefined || f.loop === 'all') && !f.project && !f.owner && f.olderThanDays === undefined && f.from === undefined && f.to === undefined;
 }
 

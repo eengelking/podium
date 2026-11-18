@@ -10,7 +10,7 @@ import type { AsyncPeerReporterLookup } from '../types.js';
 import type { PgDb } from './conn.js';
 
 /** The keys of the reporters a trail names, so their machine names can be read before the handler runs. */
-export function trailKeys(t: object): string[] {
+function trailKeys(t: object): string[] {
   const keys = new Set<string>();
   const walk = (v: unknown): void => {
     if (typeof v !== 'object' || v === null) return;

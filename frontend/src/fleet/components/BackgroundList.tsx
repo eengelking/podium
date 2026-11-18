@@ -77,7 +77,7 @@ export function agoOf(ms: number): string {
 }
 
 /** The time a running item has run, or a finished one ran (when its end is known); null when it is not known. */
-export function ranOf(i: BackgroundItem, now: number): number | null {
+function ranOf(i: BackgroundItem, now: number): number | null {
   if (i.state === "running") return now - i.startedAt;
   return i.endedAt === undefined ? null : i.endedAt - i.startedAt;
 }

@@ -8,7 +8,7 @@ import { StateIcon, type StateKind } from "./Chips";
 
 export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open";
 
-export interface MenuItem {
+interface MenuItem {
   act: MenuAct;
   label: string;
   icon: ReactNode;

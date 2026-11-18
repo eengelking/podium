@@ -5,7 +5,6 @@ import { fleetHash, replayHash } from "../route";
 import { isMine } from "./respond";
 import type { AgentView, RecordingGrant, RecordingLoopInfo, RecordingView, RespondMe, SessionView } from "./types";
 
-export { MAIN_LOOP };
 export { fmtBytes as sizeWords } from "./admin/activityFormat";
 
 const pad = (n: number) => String(n).padStart(2, "0");

@@ -102,5 +102,3 @@ export const SCREENS: Record<string, Screen> = {
   ...STATE_SCREENS,
   ...RECORDING_SCREENS,
 };
-
-export { fireEvent };

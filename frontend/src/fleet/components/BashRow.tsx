@@ -85,7 +85,7 @@ export function missingOutput(why: { stored: boolean; adminOn: boolean | null; m
   return { title: "Output was not collected.", note: "Output is only collected while this panel is open." };
 }
 
-export interface BashData {
+interface BashData {
   /** The whole command, as the mod sent or the history stored it; absent from an older reporter. */
   command?: string;
   output?: string;
@@ -102,7 +102,7 @@ export interface BashData {
 const failedOf = (d: BashData) => d.failed === true || (d.exitCode !== undefined && d.exitCode !== 0);
 
 /** The exit status as a shape, a word and a color. A success is a bare check, named for a screen reader and by a tooltip. */
-export function ExitStatus(props: { d: BashData }) {
+function ExitStatus(props: { d: BashData }) {
   const { d } = props;
   if (!failedOf(d)) {
     return (

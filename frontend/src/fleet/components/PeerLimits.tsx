@@ -20,7 +20,7 @@ export const PEER_LIMIT_RANGES: Record<PeerLimitKey, { min: number; max: number 
 export const PEER_LIMIT_DEFAULTS: Record<PeerLimitKey, number> = { roundTrips: 10, perMinute: 6, maxChars: 20_000, retainDays: 30 };
 
 /** The words an error names a limit by, as the server's refusal does. */
-export const PEER_LIMIT_NAMES: Record<PeerLimitKey, string> = {
+const PEER_LIMIT_NAMES: Record<PeerLimitKey, string> = {
   roundTrips: "Round trips",
   perMinute: "Messages per minute",
   maxChars: "Longest message",

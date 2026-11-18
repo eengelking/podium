@@ -6,9 +6,9 @@ export type { ModelUsage };
 
 export const PRICES_AS_OF = '2026-10-13';
 /** Upper bound for one price, USD per million tokens: catches a typo, not a real price. */
-export const MAX_PRICE = 1000;
+const MAX_PRICE = 1000;
 /** A request whose prompt (input + cache reads + cache writes) is over this pays a model's `long` tier. */
-export const LONG_PROMPT_TOKENS = 100_000;
+const LONG_PROMPT_TOKENS = 100_000;
 
 export type PriceSet = ModelPriceSet;
 

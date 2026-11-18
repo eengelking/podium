@@ -9,7 +9,7 @@ export function activityPeriodMs(s: ActivityHistorySettings): number {
   return s.n * ACTIVITY_UNIT_MS[s.unit];
 }
 
-export const isWhole = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+const isWhole = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
 /** The error for one field's value, or null when it is acceptable. */
 export function activityHistoryFieldError(field: (typeof FIELDS)[number], v: unknown): string | null {
@@ -59,7 +59,7 @@ export const PEER_LIMIT_KEYS: readonly (keyof PeerLimits)[] = ['roundTrips', 'pe
 export const KEYS: readonly (keyof PeerServerSettings)[] = [...PEER_LIMIT_KEYS, 'retainDays'];
 
 /** The words a refusal names a setting by, as Admin > Settings labels it. */
-export const LABELS: Record<keyof PeerServerSettings, string> = {
+const LABELS: Record<keyof PeerServerSettings, string> = {
   roundTrips: 'Round trips',
   perMinute: 'Messages per minute',
   maxChars: 'Longest message',

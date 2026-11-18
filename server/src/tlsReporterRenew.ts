@@ -20,7 +20,7 @@ import type { ClientSocket, PersonCertRow } from './tlsClientAuth.js';
 import { personSubject, REPORTER_DAYS, signClientCert, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
 
 /** A person's certificate is renewed at most once in this long (#612). */
-export const MIN_RENEW_INTERVAL_MS = 3_600_000;
+const MIN_RENEW_INTERVAL_MS = 3_600_000;
 
 export interface ReporterSettings {
   /** `tls.reporter.lifetimeDays`: how long a person's certificate lasts. */
@@ -69,7 +69,7 @@ export interface RenewSocket extends Omit<ClientSocket, 'getPeerCertificate'> {
   getPeerCertificate?: () => { fingerprint256?: string; raw?: Buffer };
 }
 
-export type RenewRefusal = 'NO_CERTIFICATE' | 'NOT_TRUSTED' | 'NOT_RECOGNISED' | 'REVOKED';
+type RenewRefusal = 'NO_CERTIFICATE' | 'NOT_TRUSTED' | 'NOT_RECOGNISED' | 'REVOKED';
 
 export type RenewAuth = { ok: true; person: PersonRow; cert: PersonCertRow } | { ok: false; code: RenewRefusal; reason: string };
 

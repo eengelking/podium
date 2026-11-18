@@ -15,7 +15,7 @@ import {
   type ReportsClient,
 } from "./reportsApi";
 
-export type FilterId = "person" | "group" | "model" | "harness";
+type FilterId = "person" | "group" | "model" | "harness";
 export interface ReportConfig {
   report: ReportId;
   /** What the page's choices are remembered under, when it is not `report`: My usage (#726) asks for the same reports as Admin but keeps its own period and breakdown. */

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { Report } from './protocol.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const REPO_ROOT = path.resolve(here, '..', '..', '..');
+const REPO_ROOT = path.resolve(here, '..', '..', '..');
 
 /** The shared fixture as raw JSON (for validator tests that mutate it). */
 export function loadFixture(): Record<string, unknown> {

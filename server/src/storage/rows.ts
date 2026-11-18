@@ -109,7 +109,7 @@ export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' |
 export const ADMIN_SECRET = 'admin secret';
 
 /** The name every reporter sent before a second one existed: the Claude Code reporter, and what a row from before the name was stored holds (#849). */
-export const DEFAULT_REPORTER_NAME = CLAUDE_REPORTER_NAME;
+const DEFAULT_REPORTER_NAME = CLAUDE_REPORTER_NAME;
 
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {
@@ -570,7 +570,7 @@ export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'r
 }
 
 /** The longest owner name a second account's key holds, cut here for the same reason as `SOURCE_MAX` (#1153). */
-export const OWNER_KEY_MAX = 120;
+const OWNER_KEY_MAX = 120;
 
 /** The key a second account on one machine is filed under: `<machine id>#<owner>` plus the name suffix (#221). */
 export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> & { owner?: string | null }): string {

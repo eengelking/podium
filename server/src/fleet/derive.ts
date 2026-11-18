@@ -28,7 +28,7 @@ import type {
   SessionView,
 } from './protocol.js';
 
-export const SERIES_POINTS = 60;
+const SERIES_POINTS = 60;
 
 /** Model family by case-insensitive substring, for Claude models only (SPEC 6.5); mirrors the mod. */
 export function family(model: string | null | undefined): ModelFamily {
@@ -62,7 +62,7 @@ export function shortenHome(p: string, home: string): string {
 }
 
 /** Quotes a path for a POSIX shell when it holds anything but safe characters. */
-export function shellQuote(s: string): string {
+function shellQuote(s: string): string {
   if (/^[A-Za-z0-9_\/.,:@%+=-]+$/.test(s)) return s;
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
@@ -156,7 +156,7 @@ export function agentView(a: AgentRow, pricing?: Pricing): AgentView {
  * The last whole second before `now`: the newest series point. The second in progress is left out
  * because its sample is still partial (it would always read as a dip).
  */
-export function lastCompleteSecond(now: number): number {
+function lastCompleteSecond(now: number): number {
   return Math.floor(now / 1000) - 1;
 }
 

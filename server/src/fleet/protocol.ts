@@ -216,7 +216,7 @@ export interface AskSummary {
 export type AskOutcome = 'podium' | 'terminal' | 'closed' | 'ended';
 
 /** One delivery as the modal reads it back: what was sent, by whom, and what became of it. */
-export interface DeliveryView extends Delivery {
+interface DeliveryView extends Delivery {
   result: DeliveryResult | null;
   /** Whether the signed-in person sent it. */
   mine: boolean;

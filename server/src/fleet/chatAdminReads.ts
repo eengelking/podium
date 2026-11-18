@@ -13,7 +13,7 @@ export const SESSION_GAP_MS = 30 * 60_000;
 /** A reading is live this long after the Admin's last read. The Admin's open thread pings every 15 seconds to keep it so. */
 export const LIVE_MS = 30_000;
 /** The readings on record are read from the store at most this often for the reports of every session (#1062); a note or a stop drops them at once. */
-export const RECENT_CACHE_MS = 2_000;
+const RECENT_CACHE_MS = 2_000;
 /** A thread with no subject (a deleted conversation) is remembered this long, so it is looked up once per window and not on every report; short, so a conversation or session that appears after is still told (#1062). */
 export const NO_SUBJECT_MS = 10_000;
 
@@ -50,7 +50,7 @@ export type ReplaySubject = Omit<ReadSubject, 'scope'> & { scope: 'replay' };
 export const replayThread = (sessionId: string): string => `replay:${sessionId}`;
 
 /** What the callout says of a replay of a recorded session. */
-export const replayPhrase = (name: string): string => `is replaying your recorded Podium session ${name}`;
+const replayPhrase = (name: string): string => `is replaying your recorded Podium session ${name}`;
 
 /** The thread an Admin's look at a person's list of conversations is recorded under. */
 export const listThread = (owner: string): string => `list:${nameKey(owner)}`;

@@ -63,7 +63,7 @@ const toPerson = (r: DbPerson): PersonRow => ({
 });
 
 
-export class PgPeopleStore implements PeopleStoreApi {
+class PgPeopleStore implements PeopleStoreApi {
   constructor(private readonly db: PgDb) {}
 
   // ---- people ---------------------------------------------------------------------------------

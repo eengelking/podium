@@ -54,7 +54,7 @@ export interface FleetRouterOptions {
   compression?: boolean;
 }
 
-export const BODY_LIMIT = '512kb';
+const BODY_LIMIT = '512kb';
 
 /** Who a request's X-Podium-Token says it is. */
 export type Identity = { kind: 'person'; person: PersonRow } | { kind: 'admin' } | { kind: 'open' };

@@ -8,7 +8,7 @@ import type { Logger } from './logging/logger.js';
 import { startTls, type StartTlsOptions, type TlsListener } from './tlsServer.js';
 
 /** `20260404183519Z`: the form `openssl ca -startdate` and `-enddate` take. */
-export const opensslStamp = (ms: number): string => new Date(ms).toISOString().replaceAll(/[-:T]|\.\d{3}/g, '');
+const opensslStamp = (ms: number): string => new Date(ms).toISOString().replaceAll(/[-:T]|\.\d{3}/g, '');
 
 /**
  * Signs a request with the dates given, for a test that needs a certificate the server would never issue (an expired one).

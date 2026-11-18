@@ -17,7 +17,7 @@ import {
 import type { Root } from './state.ts';
 
 /** How long a tool waits for Podium before it says it did not answer. */
-export const PEER_CALL_WAIT_MS = 8000;
+const PEER_CALL_WAIT_MS = 8000;
 /** Requests remembered for `/podium allow|decline|deliver`, after they leave the reply too, so a late answer hears how it closed. */
 const REQUESTS_KEPT = 50;
 

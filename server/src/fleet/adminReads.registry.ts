@@ -10,7 +10,7 @@
  * - `owner-only`: an Admin is refused, so there is nothing to tell. `case` names the test that shows the refusal.
  * - `open`: anyone who can load the console may read it, as how the wall looks. It needs the decision that says so (`decision`) or an open issue (`issue`).
  */
-export type AdminReadNotice = 'told' | 'owner-only' | 'open';
+type AdminReadNotice = 'told' | 'owner-only' | 'open';
 
 export interface AdminReadEntry {
   /** The call, as the last segments of the callee with call parentheses dropped: `fleet.peers.messages.conversation` is `messages.conversation`. */

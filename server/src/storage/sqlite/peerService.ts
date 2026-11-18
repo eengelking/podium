@@ -9,8 +9,6 @@ import { isIdle, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, ty
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 
-export { isIdle } from '../../fleet/peerTypes.js';
-
 export class PeerService {
   readonly settings: PeerSettings;
   readonly rights: PeerRights;

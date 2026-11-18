@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 /** Where the pill leads. Admin follows `#/admin/<page>` for pages a link elsewhere in the console can open. */
 export const HARNESS_UPDATES_HASH = "#/admin/harness";
 /** How often the header asks again. The count is built from daily rollups, so a few minutes is plenty. */
-export const STOPPED_POLL_MS = 5 * 60_000;
+const STOPPED_POLL_MS = 5 * 60_000;
 
 /** The number of features to show, or 0 for nothing: locked, none stopped, or no answer. */
 export function stoppedOf(body: unknown): number {

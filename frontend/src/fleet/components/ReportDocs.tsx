@@ -13,13 +13,13 @@ import { Modal } from "./Modal";
 // when a modal opens; it is not part of the state the server streams.
 
 type Kind = "prompt" | "answer";
-export interface AgentTexts {
+interface AgentTexts {
   prompt: string | null;
   answer: string | null;
 }
 export type FetchText = (sessionId: string, agentId: string) => Promise<AgentTexts>;
 
-export const FULL_TEXT_REPORTER_MINOR = 10;
+const FULL_TEXT_REPORTER_MINOR = 10;
 
 const defaultFetchText: FetchText = async (sessionId, agentId) => {
   const res = await fetch(`/api/fleet/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/text`);

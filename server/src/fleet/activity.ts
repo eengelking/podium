@@ -27,7 +27,7 @@ import { LIMITS, MAIN_LOOP, type ActivityEntry, type BackgroundItem, type Report
 import type { ActivityHistoryNote } from './activityHistoryTypes.js';
 
 /** The refresh intervals the panel offers, in seconds. The first is the default. */
-export const ACTIVITY_EVERY_SECONDS = [5, 10, 20, 30, 60] as const;
+const ACTIVITY_EVERY_SECONDS = [5, 10, 20, 30, 60] as const;
 /**
  * How long a lease outlives the viewer's interval: one missed or slow fetch, and a report cycle or two, before the
  * server lets go. A lease taken with `every=5` lapses 20 s after the last fetch; with `every=60`, 75 s after it.

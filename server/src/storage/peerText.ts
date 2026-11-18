@@ -102,7 +102,7 @@ export function shownCount(rows: readonly ShownRow[]): number {
 export const latestOf = (list: readonly number[]): number => list.reduce((m, n) => (n > m ? n : m), Number.NEGATIVE_INFINITY);
 
 /** What a paging read throws for a cursor it did not give out (a person or a script made it up). */
-export const BAD_CURSOR = 'The cursor is not one this server gave out.';
+const BAD_CURSOR = 'The cursor is not one this server gave out.';
 
 /** A paging cursor: the time and insertion number of the oldest row of the page, as `<ms>.<seq>`. A page back starts strictly before it, so the row itself need not exist any more. */
 export const encodeCursor = (at: number, seq: number): string => `${at}.${seq}`;

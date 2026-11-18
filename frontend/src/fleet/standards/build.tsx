@@ -95,5 +95,3 @@ export async function buildPages(): Promise<Record<string, string>> {
     "process.html": processPage(readEntries<Entry>(DEFERRED).map((d) => ({ file: `${d.file} ${(d as unknown as { text: string }).text}`, reason: d.reason }))),
   };
 }
-
-export { classesIn };

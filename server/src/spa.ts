@@ -12,9 +12,9 @@ import { pageLimiter } from './failureLimiter.js';
 const gzipAsync = promisify(gzip);
 
 /** The build names each file under assets/ by its content hash, so a file at one URL never changes: a year, and never ask again. */
-export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
+const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 /** The page and the other files keep their names between builds, so the browser asks each visit and gets a 304 when nothing changed. */
-export const REVALIDATE_CACHE = 'no-cache';
+const REVALIDATE_CACHE = 'no-cache';
 
 const COMPRESSIBLE = new Set(['.js', '.mjs', '.css', '.html', '.svg', '.json', '.txt', '.map']);
 

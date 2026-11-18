@@ -15,7 +15,7 @@ import type { KnownDefect } from './contractAdapter.js';
 import type { Storage } from './types.js';
 
 /** A small seeded generator (mulberry32): the same seed gives the same program on every machine. */
-export function rng(seed: number): () => number {
+function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -29,12 +29,12 @@ type Rand = () => number;
 const pick = <T>(r: Rand, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
 
 /** Numbers a database may treat differently: fractions, the edges of 32 and 53 bits, signs, NaN and the infinities. */
-export const EDGE_NUMBERS: readonly number[] = [
+const EDGE_NUMBERS: readonly number[] = [
   0, 1, -1, 2, 1.5, -1.5, 0.1, 1e-7, 2 ** 31 - 1, 2 ** 31, -(2 ** 31) - 1, 2 ** 32, 2 ** 53 - 1, 2 ** 53, 1e15 + 0.5, 1e21, Number.MAX_VALUE, Number.MIN_VALUE, -0, Number.NaN, Infinity, -Infinity,
 ];
 
 /** Strings a database may store, compare or sort differently. */
-export const EDGE_STRINGS: readonly string[] = [
+const EDGE_STRINGS: readonly string[] = [
   '', ' ', 'a', 'A', 'a b', 'a  b', 'a\0b', '\0', 'a\tb\nc\r', '\u0001\u001f\u007f', '\ud800', 'x\udc00y', '😀', 'é', 'é', 'İ', 'i', 'I', 'ı', 'ß', 'SS', 'ǅ', 'ǆ', 'Σ', 'ς', 'σ',
   'résumé', 'Zebra', 'apple', 'Apple', '_a', '%', 'a%b', "o'brien", '"q"', '\\', 'x'.repeat(1000), 'y'.repeat(70_000), '日本語',
 ];
@@ -47,7 +47,7 @@ const ID = ['s1', 's2', 's3', 'S1'] as const;
 // An id is at most ID_MAX characters, the longest every store takes (#1177); the wire cuts one to 200 before a store sees it.
 const id = (r: Rand): string => (r() < 0.2 ? str(r).slice(0, ID_MAX) : pick(r, ID));
 
-export interface Target {
+interface Target {
   name: string;
   /** Arguments for one call. */
   args(r: Rand): unknown[];
@@ -55,7 +55,7 @@ export interface Target {
 }
 
 /** The calls the program is made of. Every one takes only values a caller can send, so a divergence here is a divergence a screen can reach. */
-export const TARGETS: readonly Target[] = [
+const TARGETS: readonly Target[] = [
   { name: 'people.log', args: (r) => [str(r), str(r), str(r), num(r), r() < 0.5 ? str(r) : null], run: (s, a) => s.people.log(...(a as [string, string, string, number, string | null])) },
   { name: 'people.listLog', args: (r) => [{ page: int(r), pageSize: pick(r, [0, 1, 2, 5, 1000, -1]) }], run: (s, a) => s.people.listLog(a[0] as { page: number; pageSize: number }) },
   { name: 'people.createGroup', args: (r) => [str(r), num(r)], run: (s, a) => s.people.createGroup(a[0] as string, a[1] as number) },
@@ -84,7 +84,7 @@ export const TARGETS: readonly Target[] = [
 export interface Step { target: string; args: unknown[] }
 
 /** `length` calls chosen from the targets by the seed. */
-export function program(seed: number, length: number): Step[] {
+function program(seed: number, length: number): Step[] {
   const r = rng(seed);
   return Array.from({ length }, () => {
     const t = pick(r, TARGETS);
@@ -93,7 +93,7 @@ export function program(seed: number, length: number): Step[] {
 }
 
 /** Renders a value for a report, keeping what JSON hides: NaN, the infinities, -0, undefined and a lone surrogate. */
-export function show(v: unknown): string {
+function show(v: unknown): string {
   if (typeof v === 'number') return Object.is(v, -0) ? '-0' : String(v);
   if (typeof v === 'string') return JSON.stringify(v.length > 60 ? `${v.slice(0, 40)}…(${v.length} chars)` : v);
   if (v === undefined) return 'undefined';
@@ -119,7 +119,7 @@ function norm(v: unknown): unknown {
   return v;
 }
 
-export interface Outcome { ok?: unknown; threw?: string }
+interface Outcome { ok?: unknown; threw?: string }
 
 async function runProgram(open: () => Promise<Storage>, steps: Step[]): Promise<Outcome[]> {
   const s = await open();
@@ -158,7 +158,7 @@ async function firstDivergence(o: Openers, steps: Step[]): Promise<{ at: number;
 }
 
 /** Removes steps while the programs still disagree, so the report shows the fewest calls that do. */
-export async function shrink(o: Openers, steps: Step[]): Promise<Step[]> {
+async function shrink(o: Openers, steps: Step[]): Promise<Step[]> {
   let cur = steps;
   for (let chunk = Math.ceil(cur.length / 2); chunk >= 1; chunk = Math.floor(chunk / 2)) {
     for (let i = 0; i < cur.length; ) {
@@ -183,7 +183,7 @@ const anyValue = (v: unknown, test: (x: unknown) => boolean): boolean =>
 const { PODIUM_DIFF_STRICT: STRICT_ENV, PODIUM_DIFF_SEED: SEED_ENV } = process.env; // destructured: podiumctl's settings test lists what the server reads, and these are for tests only
 const STRICT = STRICT_ENV === '1';
 
-export const seedOf = (): number => (SEED_ENV ? Number(SEED_ENV) >>> 0 : Math.floor(Math.random() * 2 ** 32));
+const seedOf = (): number => (SEED_ENV ? Number(SEED_ENV) >>> 0 : Math.floor(Math.random() * 2 ** 32));
 
 /** Wraps a case about one adapter: when the case is in the adapter's `known` list it may fail (a warning) and must not pass (remove the entry). */
 function trackedCase(o: Openers, id: string, body: (s: Storage, adapter: string) => Promise<void>): (s: Storage, adapter: string) => Promise<void> {

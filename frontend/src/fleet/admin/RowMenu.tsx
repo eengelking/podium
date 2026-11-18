@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { IconChevron } from "../components/Icons";
 
-export interface MenuItem {
+interface MenuItem {
   label: string;
   act: string;
   danger?: boolean;

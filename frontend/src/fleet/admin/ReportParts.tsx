@@ -146,7 +146,7 @@ export function HarnessSelect(props: { value: string; ids: string[]; onChange: (
 const BUCKET: Record<string, string> = { day: "Days are in", week: "Weeks start Monday, in", month: "Months are in" };
 
 /** What the figures are based on, and how far back the data goes. */
-export function basisLine(reply: ReportReply): { zone: string; basis: string } {
+function basisLine(reply: ReportReply): { zone: string; basis: string } {
   const zone = `${reply.by ? BUCKET[reply.by] : "Times are in"} ${reply.tz} time.`;
   // basedOn is 'rollups', 'rollups and live' or 'admin log'.
   const based = typeof reply.basedOn === "string" ? reply.basedOn : "rollups and live";
@@ -336,8 +336,8 @@ function HistoryLinks({ row }: { row: ReportRow }) {
 }
 
 /** An empty owner, group, model or project is "-" in a key; it reads as what it is. */
-export const NONE_LABEL: Record<string, string> = { person: "No owner", group: "No group", model: "Unknown model", project: "No project" };
-export function keyText(v: unknown, breakdown: string): unknown {
+const NONE_LABEL: Record<string, string> = { person: "No owner", group: "No group", model: "Unknown model", project: "No project" };
+function keyText(v: unknown, breakdown: string): unknown {
   return v === "-" ? (NONE_LABEL[breakdown] ?? "None") : v;
 }
 
