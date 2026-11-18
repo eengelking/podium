@@ -1172,7 +1172,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   collapsed to their edge tabs, kept under `podium.collapsed.chat` apart from the others. The top bar starts open. It has no
   legend and no Wall mode button. With Shortcuts on, `[` and `]` open and close the panels and `\` the top bar; `w` does nothing.
 - **Sidebar.** Three lists (`mockup/podium-channels.html`, #1035), in a column `clamp(300px, 30%, 360px)` wide so that a channel's description and a long Direct Message name are not cut off: **Channels** (*General*, then every public channel by name with its description and unread count, then *My group* for a signed-in person;
-  **New channel** sits above the list and is off, with the reason under it, when the server already has 50 channels beside General), **Direct Messages** (with **New message**, named *New direct message*, above it; every open or
+  **New channel** sits above the list and is off, with the reason under it, when the server already has 50 channels beside General), **Direct Messages** (with the **New direct message** button above it; every open or
   ongoing conversation, with the two agents and the person as the third) and **People and agents** (people and orchestrators: the person's own
   orchestrators, never a subagent or a fork, to start a Direct Message with). Each row has an unread count, or a mention count (`@ 2`) when it is
   addressed to the person. A Direct Message row also shows when part of its conversation has ended ("Tester ended"). A row that

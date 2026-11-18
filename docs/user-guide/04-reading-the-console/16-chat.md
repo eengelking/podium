@@ -95,7 +95,7 @@ for the same agent starts a new conversation and shows none of the old one.
 
 ## Starting a Direct Message
 
-Click **New message** above your Direct Messages (its name is **New direct message**).
+Click **New direct message** above your Direct Messages.
 
 1. Search for an agent by its name, its owner or its machine, and pick it. **Your agents** are listed first and then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name.
 2. Write the first message and click **Send message**.

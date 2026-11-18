@@ -2,7 +2,7 @@
 .ch-split { display: grid; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
 .ch-sec { padding: 4px 0 8px; }
-.ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ch-sec h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .ch-list { list-style: none; margin: 0; padding: 0; }
 .ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
 .ch-item:hover { background: var(--hover); }
@@ -94,12 +94,12 @@
 .ch-ac .h { font-weight: 600; }
 .ch-ac .r { font-size: 11px; color: var(--muted); }
 .ch-ac .off { flex-basis: 100%; font-size: 11px; color: var(--warn-text); }
-.podium .ch-split .si { width: 16px; height: 16px; flex: none; }
-.podium .ch-split .si-running { color: var(--good-text); }
-.podium .ch-split .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
-.podium .ch-split .si-bg, .podium .ch-split .si-deleg { color: var(--deleg-text); }
-.podium .ch-split .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
-.podium .ch-split .si-done { color: var(--ink2); }
+.podium .ch-split .si, .podium .dm-pick .si { width: 16px; height: 16px; flex: none; }
+.podium .ch-split .si-running, .podium .dm-pick .si-running { color: var(--good-text); }
+.podium .ch-split .si-waiting, .podium .dm-pick .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .ch-split .si-bg, .podium .ch-split .si-deleg, .podium .dm-pick .si-bg, .podium .dm-pick .si-deleg { color: var(--deleg-text); }
+.podium .ch-split .si-stale, .podium .dm-pick .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.podium .ch-split .si-done, .podium .dm-pick .si-done { color: var(--ink2); }
 .ch-st .s .si { width: 12px; height: 12px; }
 .ch-chipwrap { position: relative; display: inline-flex; }
 .podium .ch-chipwrap .m { cursor: pointer; background: transparent; color: var(--ink2); }
@@ -169,10 +169,11 @@
 .rl li .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--ink2); }
 .rl li p { margin: 0; max-width: 64ch; }
 
-/* Public channels and the two forms (#1035, mockup/podium-channels.html): New channel and New message sit in their section's heading, a channel
+/* Public channels and the two forms (#1035, mockup/podium-channels.html): New channel and New direct message sit in their section's heading, a channel
    shows its description and its link, and the forms are the console's modal. */
-.ch-sec { position: relative; }
-.podium .ch-new { position: absolute; right: 12px; top: 3px; }
+/* A section's heading and its button share one row. The button sits at the right; when it does not fit beside the heading it wraps under it, at the rows' left padding. */
+.ch-sec-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.podium .ch-sec-h .ch-new { margin: 0 12px 4px 20px; }
 .ch-head .ch-desc { margin-top: 4px; color: var(--ink2); font-size: 13px; overflow-wrap: anywhere; max-width: 80ch; }
 .ch-link { display: inline-flex; gap: 6px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; font-weight: 400; color: var(--ink2); white-space: nowrap; }
 .ch-link svg { width: 12px; height: 12px; flex: none; }
@@ -202,12 +203,6 @@
 .dm-pick .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .dm-pick .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
 .dm-pick .none { padding: 12px; color: var(--muted); }
-.podium .dm-pick .si { width: 16px; height: 16px; flex: none; }
-.podium .dm-pick .si-running { color: var(--good-text); }
-.podium .dm-pick .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
-.podium .dm-pick .si-bg, .podium .dm-pick .si-deleg { color: var(--deleg-text); }
-.podium .dm-pick .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
-.podium .dm-pick .si-done { color: var(--ink2); }
 @media (max-width: 760px) {
   .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
 }

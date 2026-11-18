@@ -54,7 +54,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .ch-split { display: grid; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
 .ch-sec { padding: 4px 0 8px; }
-.ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ch-sec h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .ch-list { list-style: none; margin: 0; padding: 0; }
 .ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
 .ch-item:hover { background: var(--hover); }
@@ -179,8 +179,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   .ch-split { grid-template-columns: minmax(0, 1fr); }
   .ch-side { border-right: 0; max-height: none; }
 }
-.ch-sec { position: relative; }
-.podium .ch-new { position: absolute; right: 12px; top: 3px; }
+.ch-sec-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.podium .ch-sec-h .ch-new { margin: 0 12px 4px 20px; }
 .ch-head .ch-desc { margin-top: 4px; color: var(--ink2); font-size: 13px; overflow-wrap: anywhere; max-width: 80ch; }
 .ch-link { display: inline-flex; gap: 6px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; font-weight: 400; color: var(--ink2); white-space: nowrap; }
 .ch-link svg { width: 12px; height: 12px; flex: none; }
@@ -201,7 +201,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .dm-pick .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .dm-pick .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
 .dm-pick .none { padding: 12px; color: var(--muted); }
-.ch-sec > .ch-new.dm { top: 3px; }
 .stage.narrow .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
 </style>
 
@@ -518,10 +517,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   function newBtn() {
     var cap = S.kase === 'cap';
-    return '<button type="button" class="btn sm ch-new" data-newch aria-haspopup="dialog"' + (cap ? ' disabled aria-describedby="cap-why"' : '') + '>New channel</button>' +
-      (cap ? '<p class="hint" id="cap-why" style="padding:0 20px 6px">This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.</p>' : '');
+    return '<div class="ch-sec-h"><h2 id="sec-ch">Channels</h2><button type="button" class="btn sm ch-new" data-newch aria-haspopup="dialog"' + (cap ? ' disabled aria-describedby="cap-why"' : '') + '>New channel</button></div>' +
+      (cap ? '<p class="hint" id="cap-why" style="padding:0 20px 6px">This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.</p>' : '');
   }
-  function newDmBtn() { return '<button type="button" class="btn sm ch-new dm" data-newdm aria-haspopup="dialog" aria-label="New direct message">New message</button>'; }
+  function newDmBtn() { return '<button type="button" class="btn sm ch-new dm" data-newdm aria-haspopup="dialog">New direct message</button>'; }
   function sidebar() {
     var owner = canSee();
     function chRow(c) {
@@ -550,8 +549,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       '<select class="field sm" id="read-as"><option value="">' + (who.length ? 'Choose a person…' : 'No one has a conversation yet') + '</option>' + who.map(function (w) { return '<option value="' + esc(w[0]) + '"' + (S.readAs === w[0] ? ' selected' : '') + '>' + esc(w[0]) + ', ' + w[1] + ' Direct Message' + (w[1] === 1 ? '' : 's') + '</option>'; }).join('') + '</select>' +
       '<p class="hint">' + (S.readAs ? 'Showing ' + esc(S.readAs) + '\'s My group and Direct Messages. ' : 'Pick a person to see their My group and Direct Messages. ') + 'Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.</p></div></section>';
     return '<nav class="ch-side" aria-label="Chat">' + readSec +
-      '<section class="ch-sec" aria-labelledby="sec-ch"><h2 id="sec-ch">Channels</h2>' + newBtn() + '<ul class="ch-list">' + CHANNELS.filter(visible).filter(function (c) { return S.kase !== 'empty' || c.kind !== 'public'; }).map(chRow).join('') + '</ul></section>' +
-      ((owner || S.viewer === 'other') && (!adm || S.readAs) ? '<section class="ch-sec" aria-labelledby="sec-dm"><h2 id="sec-dm">Direct Messages</h2>' + (!adm ? newDmBtn() : '') + '<ul class="ch-list">' + dms + '</ul></section>' : '') +
+      '<section class="ch-sec" aria-labelledby="sec-ch">' + newBtn() + '<ul class="ch-list">' + CHANNELS.filter(visible).filter(function (c) { return S.kase !== 'empty' || c.kind !== 'public'; }).map(chRow).join('') + '</ul></section>' +
+      ((owner || S.viewer === 'other') && (!adm || S.readAs) ? '<section class="ch-sec" aria-labelledby="sec-dm">' + (!adm ? '<div class="ch-sec-h"><h2 id="sec-dm">Direct Messages</h2>' + newDmBtn() + '</div>' : '<h2 id="sec-dm">Direct Messages</h2>') + '<ul class="ch-list">' + dms + '</ul></section>' : '') +
       (owner && !adm ? '<section class="ch-sec" aria-labelledby="sec-pe"><h2 id="sec-pe">People and agents</h2><ul class="ch-list">' + people + '</ul></section>' : '') +
       '</nav>';
   }

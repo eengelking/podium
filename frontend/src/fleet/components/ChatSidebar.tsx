@@ -160,13 +160,15 @@ export function ChatSidebar(p: SidebarProps) {
     <nav className="ch-side" aria-label="Chat">
       {o.me.admin && <ReadPicker people={o.people.filter((x) => !x.you).map((x) => x.name)} value={p.picked} onChange={p.onReadAs} />}
       <section className="ch-sec" aria-labelledby="sec-ch">
-        <h2 id="sec-ch">Channels</h2>
-        <button type="button" className="btn sm ch-new" aria-haspopup="dialog" disabled={capped} aria-describedby={capped ? "cap-why" : undefined} onClick={p.onNewChannel}>
-          New channel
-        </button>
+        <div className="ch-sec-h">
+          <h2 id="sec-ch">Channels</h2>
+          <button type="button" className="btn sm ch-new" aria-haspopup="dialog" disabled={capped} aria-describedby={capped ? "cap-why" : undefined} onClick={p.onNewChannel}>
+            New channel
+          </button>
+        </div>
         {capped && (
           <p className="hint ch-pad" id="cap-why">
-            This server has {MAX_PUBLIC_CHANNELS} channels, the most it keeps. An Admin can remove one that is no longer used.
+            This server has {MAX_PUBLIC_CHANNELS} channels besides General, the most it keeps. An Admin can remove one that is no longer used.
           </p>
         )}
         <ul className="ch-list">{o.channels.map(channelRow)}</ul>
@@ -179,10 +181,12 @@ export function ChatSidebar(p: SidebarProps) {
       ) : person ? (
         <>
           <section className="ch-sec" aria-labelledby="sec-dm">
-            <h2 id="sec-dm">Direct Messages</h2>
-            <button type="button" className="btn sm ch-new" aria-haspopup="dialog" onClick={p.onNewDm}>
-              New message
-            </button>
+            <div className="ch-sec-h">
+              <h2 id="sec-dm">Direct Messages</h2>
+              <button type="button" className="btn sm ch-new" aria-haspopup="dialog" onClick={p.onNewDm}>
+                New direct message
+              </button>
+            </div>
             <ul className="ch-list">
               {(o.approvals ?? 0) > 0 && (
                 <li className="ch-pad">

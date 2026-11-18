@@ -38,7 +38,7 @@ export class PublicChannels {
         return fail(409, other ? `There is already a channel for ${other.link!.kind} ${linkText(other.link!.kind, other.link!.ref)}: ${other.name}. Open it instead.` : out.message, out.error);
       }
       case 'limit-reached':
-        return fail(409, 'This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.', out.error);
+        return fail(409, 'This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.', out.error);
       case 'not-found':
         return fail(404, 'There is no such channel.', out.error);
       default:

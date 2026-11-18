@@ -25,6 +25,19 @@ function refusal(err: unknown, what: string): string {
   return `Could not ${what}: ${plain(failReason(err))}. Nothing was saved. Try again.`;
 }
 
+/**
+ * The field a refusal is about, or the banner when it is about none (a 403, a 429, a network failure, the limit, an unknown reason). Only a refusal
+ * that is really about a field marks it; in edit mode the name and the link are fixed, so only the description or the banner can take it.
+ */
+export function fieldOf(reason: string, text: string, edit: boolean): "name" | "ref" | "desc" | "banner" {
+  const linkWords = /link|reference|issue|milestone|project/i.test(text);
+  if (reason === "invalid" && /description/i.test(text)) return "desc";
+  if (edit) return "banner";
+  if (reason === "name-taken" || reason === "reserved") return "name";
+  if (reason === "link-taken" || (reason === "invalid" && linkWords)) return "ref";
+  return reason === "invalid" ? "name" : "banner";
+}
+
 /** Moves the focus to a field once the modal's own focus (on its X) has landed. */
 function useFirstFocus(ref: { current: HTMLElement | null }) {
   useEffect(() => {
@@ -40,16 +53,18 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
   const [desc, setDesc] = useState(edit?.description ?? "");
   const [kind, setKind] = useState<"" | ChannelLinkKind>("");
   const [ref, setRef] = useState("");
-  const [error, setError] = useState<{ text: string; field: "name" | "ref" | "desc" } | null>(null);
+  const [error, setError] = useState<{ text: string; field: "name" | "ref" | "desc" | "banner" } | null>(null);
   const [busy, setBusy] = useState(false);
+  const bannerEl = useRef<HTMLDivElement>(null);
   const nameEl = useRef<HTMLInputElement>(null);
   const descEl = useRef<HTMLTextAreaElement>(null);
   const refEl = useRef<HTMLInputElement>(null);
   useFirstFocus(edit ? descEl : nameEl);
-  const fail = (text: string, field: "name" | "ref" | "desc") => {
-    setError({ text, field });
-    (field === "name" ? nameEl : field === "ref" ? refEl : descEl).current?.focus();
-  };
+  const fail = (text: string, field: "name" | "ref" | "desc" | "banner") => setError({ text, field });
+  // The focus goes to what the refusal is about once it is drawn (the banner does not exist until then).
+  useEffect(() => {
+    if (error) (error.field === "name" ? nameEl : error.field === "ref" ? refEl : error.field === "desc" ? descEl : bannerEl).current?.focus();
+  }, [error]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -67,7 +82,7 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
     } catch (err) {
       const text = refusal(err, edit ? "save the description" : "create the channel");
       const reason = err instanceof RespondError && typeof err.body.reason === "string" ? err.body.reason : "";
-      fail(text, reason === "link-taken" || (reason === "invalid" && /link|reference|issue|milestone|project/i.test(text)) ? "ref" : reason === "invalid" && /description/i.test(text) ? "desc" : "name");
+      fail(text, fieldOf(reason, text, !!edit));
       setBusy(false);
     }
   };
@@ -111,7 +126,7 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
             </div>
           )}
           {error && (
-            <div className="banner bad" role="alert" data-testid="channel-form-error">
+            <div className="banner bad" role="alert" tabIndex={-1} ref={bannerEl} data-testid="channel-form-error">
               {error.text}
             </div>
           )}

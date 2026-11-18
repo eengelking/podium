@@ -191,11 +191,11 @@ describe('chat: public channels', () => {
     cy.tid('chat-message').should('have.length', 2).last().should('contain.text', 'Alex here: the cut is tomorrow.');
   });
 
-  it('opens a Direct Message from New message to one of the person\'s own agents, and filters the list as they type', () => {
+  it('opens a Direct Message from New direct message to one of the person\'s own agents, and filters the list as they type', () => {
     openChat('Ed');
     // Its accessible name is its visible text: an aria-label that does not contain it fails axe's label-content-name-mismatch.
-    cy.get('nav[aria-label=Chat]').contains('button', 'New message').should('not.have.attr', 'aria-label');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New message').click();
+    cy.get('nav[aria-label=Chat]').contains('button', 'New direct message').should('not.have.attr', 'aria-label');
+    cy.get('nav[aria-label=Chat]').contains('button', 'New direct message').click();
     cy.get('[role=dialog]').should('contain.text', 'New direct message').and('contain.text', 'A Direct Message is read only by you, the agent\'s owner and an Admin.');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Your orchestrator');
@@ -222,7 +222,7 @@ describe('chat: public channels', () => {
 
   it('opens a Direct Message to another person\'s agent, and it waits for that person\'s approval', () => {
     openChat('Alex');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New message').click();
+    cy.get('nav[aria-label=Chat]').contains('button', 'New direct message').click();
     cy.tid('dm-form').contains('h3', 'Other people\'s agents');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Ed').and('contain.text', 'Ed approves before it is delivered.').find('input[type=radio]').check();
@@ -344,11 +344,11 @@ describe('chat: the 50 channels a server keeps', () => {
     create('one-too-many', '', null).then((r) => {
       expect(r.status).to.eq(409);
       expect(r.body.reason).to.eq('limit-reached');
-      expect(r.body.error).to.contain('This server has 50 channels, the most it keeps.');
+      expect(r.body.error).to.contain('This server has 50 channels besides General, the most it keeps.');
     });
     cy.openConsole('#/chat');
     cy.get('nav[aria-label=Chat]').contains('button', 'New channel').should('be.disabled');
-    cy.get('nav[aria-label=Chat]').contains('This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.');
+    cy.get('nav[aria-label=Chat]').contains('This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.');
     cy.signIn('Admin');
     call('DELETE', '/channels/fill-50').its('status').should('eq', 200);
     cy.signIn('Ed');

@@ -372,6 +372,20 @@ describe("the calls for public channels and the direct message picker (#1035)", 
     expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b", method: "DELETE" });
   });
 
+  it("asks what @ can mean in a channel by the channel's name", async () => {
+    const f = stub();
+    await chatApi.addresses("issue-1035");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/addresses?channel=issue-1035", method: "GET" });
+  });
+
+  it("reads a channel's messages by its encoded name, with the page size, cursor and owner", async () => {
+    const f = stub();
+    await chatApi.channelMessages("a b", { before: "m9", limit: 20, owner: "Maya" });
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b/messages?owner=Maya&before=m9&limit=20", method: "GET" });
+    await chatApi.channelMessages("general");
+    expect(last(f).url).toBe("/api/fleet/respond/chat/channels/general/messages?limit=50");
+  });
+
   it("asks for the people it may message, narrowed by what is typed", async () => {
     const f = stub();
     await chatApi.directTargets();

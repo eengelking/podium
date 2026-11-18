@@ -192,7 +192,7 @@ describe('opening a public channel', () => {
     for (let i = 0; i < 50; i++) expect((await open(w.edB, { name: `c${i}` })).status, `c${i}`).toBe(201);
     const over = await open(w.alexB, { name: 'one-too-many' });
     expect(over.status).toBe(409);
-    expect(over.body).toMatchObject({ ok: false, reason: 'limit-reached', error: 'This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.' });
+    expect(over.body).toMatchObject({ ok: false, reason: 'limit-reached', error: 'This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.' });
     expect((await remove(w.rootB, 'c7')).status).toBe(200);
     expect((await open(w.alexB, { name: 'one-too-many' })).status).toBe(201);
   });

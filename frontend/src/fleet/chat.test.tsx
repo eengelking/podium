@@ -2409,6 +2409,18 @@ describe("public channels in the sidebar", () => {
     expect(row("c:general").querySelector(".sub")).toHaveTextContent("Everyone signed in to this server");
   });
 
+  it("puts each section's heading and its New button in one row, heading first, so the button can wrap under the heading", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    for (const [h, b] of [["Channels", "New channel"], ["Direct Messages", "New direct message"]] as const) {
+      const heading = screen.getByRole("heading", { level: 2, name: h });
+      const btn = screen.getByRole("button", { name: b });
+      expect(heading.parentElement).toHaveClass("ch-sec-h");
+      expect(btn.parentElement).toBe(heading.parentElement);
+      expect(heading.nextElementSibling).toBe(btn);
+    }
+  });
+
   it("says so when a channel has no description yet", async () => {
     const w = chanWorld();
     w.overview.channels[2] = channelOf("mine-chan", { description: "", openedBy: "Ed", can: OWN_CAN });
@@ -2443,7 +2455,7 @@ describe("public channels in the sidebar", () => {
     await flush();
     const btn = screen.getByRole("button", { name: "New channel" });
     expect(btn).toBeDisabled();
-    expect(btn).toHaveAccessibleDescription("This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.");
+    expect(btn).toHaveAccessibleDescription("This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.");
     fireEvent.click(btn);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -2770,7 +2782,7 @@ describe("the New channel form", () => {
   const refused: [string, number, string, string, string][] = [
     ["a name that is taken", 409, "name-taken", "There is already a channel called issue-1035. Open it, or pick another name.", "Name"],
     ["a link that is taken", 409, "link-taken", "There is already a channel for issue #1035: issue-1035. Open it instead.", "Which one"],
-    ["the limit", 409, "limit-reached", "This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.", "Name"],
+    ["the limit", 409, "limit-reached", "This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.", "banner"],
     ["a reserved name", 422, "reserved", "general is the name of a built-in channel.", "Name"],
     ["an invalid name", 422, "invalid", "The name must be 1 to 40 characters.", "Name"],
     ["an invalid link", 422, "invalid", "The link reference must be at most 100 characters.", "Which one"],
@@ -2787,7 +2799,10 @@ describe("the New channel form", () => {
       expect(banner()).toHaveTextContent(words);
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(field("Name").value).toBe("issue-1035");
-      expect(field(focus)).toHaveFocus();
+      if (focus === "banner") {
+        expect(banner()).toHaveFocus();
+        expect(within(screen.getByRole("dialog")).getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+      } else expect(field(focus)).toHaveFocus();
       expect(screen.getByRole("button", { name: "Create channel" })).toBeEnabled();
     });
   }
@@ -2900,7 +2915,7 @@ describe("the New direct message form", () => {
   const openForm = async (chat = withTargets()) => {
     const p = page({ chat });
     await flush();
-    const btn = screen.getByRole("button", { name: "New message" });
+    const btn = screen.getByRole("button", { name: "New direct message" });
     btn.focus();
     fireEvent.click(btn);
     await flush();
@@ -2910,12 +2925,12 @@ describe("the New direct message form", () => {
   const dlg = () => within(screen.getByRole("dialog", { name: "New direct message" }));
   const sendBtn = () => dlg().getByRole("button", { name: "Send message" });
 
-  it("puts a New message button, named by its visible words and with no aria-label, in the Direct Messages heading", async () => {
+  it("puts a New direct message button, named by its visible words and with no aria-label, in the Direct Messages heading", async () => {
     page({ chat: withTargets() });
     await flush();
-    const b = screen.getByRole("button", { name: "New message" });
+    const b = screen.getByRole("button", { name: "New direct message" });
     expect(b).not.toHaveAttribute("aria-label");
-    expect(b).toHaveTextContent("New message");
+    expect(b).toHaveTextContent("New direct message");
     expect(b.closest("section")).toContainElement(screen.getByRole("heading", { name: "Direct Messages" }));
   });
 
@@ -3054,6 +3069,41 @@ describe("the New direct message form", () => {
     }
   });
 
+  it("ignores an answer to an older search, whether it lands or fails after the newer one", async () => {
+    const chat = withTargets();
+    let late: (v: { ok: true; targets: DirectTarget[] }) => void = () => {};
+    let lateFail: (e: unknown) => void = () => {};
+    chat.api.directTargets.mockImplementation(async (q = "") => {
+      if (q === "a") return new Promise((res) => (late = res));
+      if (q === "b") return new Promise((_, rej) => (lateFail = rej));
+      return { ok: true as const, targets: TARGETS.filter((t) => t.name.includes(q)) };
+    });
+    await openForm(chat);
+    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "a" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "b" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "docs" } });
+    await flush();
+    expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
+    await act(async () => {
+      late({ ok: true, targets: [] });
+      lateFail(new Error("offline"));
+    });
+    expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
+    expect(dlg().queryByText(/Could not read who you can message/)).toBeNull();
+  });
+
+  it("falls back to the owner's name when the server names nobody to approve, and to plain words when it gives no reason", async () => {
+    const chat = withTargets([TARGETS[1]!, { ...TARGETS[3]!, why: null }]);
+    chat.api.sendDm.mockResolvedValueOnce({ ok: true as const, message: dmsg("z1", ME, agent("s-docs", "docs-writer", "maya-laptop"), "hi", { state: "approval" }), skipped: [], errors: [] });
+    await openForm(chat);
+    expect(screen.getByRole("dialog")).toHaveTextContent("It takes no messages now.");
+    fireEvent.click(dlg().getByLabelText(/docs-writer/));
+    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: "hi" } });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(screen.getByText("Sent. It waits for Maya to approve it.")).toBeInTheDocument();
+  });
+
   it("is not offered to an Admin who is reading a person", async () => {
     const w = chanWorld();
     w.overview.me = { name: "Root", admin: true, person: false };
@@ -3064,7 +3114,7 @@ describe("the New direct message form", () => {
     fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
     await flush();
     expect(screen.getByRole("heading", { name: "Direct Messages" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "New message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New direct message" })).toBeNull();
   });
 
   it("passes the axe rules jsdom can judge, with an error showing", async () => {
@@ -3074,5 +3124,83 @@ describe("the New direct message form", () => {
     await flush();
     const r = await axe.run(screen.getByRole("dialog"), AXE_RULES);
     expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  });
+});
+
+describe("a refusal that is not about a field (#1035)", () => {
+  const dlg = () => within(screen.getByRole("dialog"));
+  const anyInvalid = () => screen.getByRole("dialog").querySelectorAll('[aria-invalid="true"]').length;
+  const limited = () => new RespondError(429, { ok: false, error: "Too many requests. Wait a minute and try again." });
+
+  it("in create mode shows a 429 in the banner, focuses the banner and marks no field invalid", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.createChannel.mockRejectedValueOnce(limited());
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "New channel" }));
+    await tick();
+    fireEvent.change(dlg().getByLabelText("Name"), { target: { value: "fine-name" } });
+    fireEvent.click(dlg().getByRole("button", { name: "Create channel" }));
+    await flush();
+    const banner = dlg().getByRole("alert");
+    expect(banner).toHaveTextContent("Too many requests. Wait a minute and try again.");
+    expect(banner).toHaveFocus();
+    expect(anyInvalid()).toBe(0);
+  });
+
+  it("in edit mode shows a 429 in the banner, keeps the focus in the dialog and never marks the disabled name", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.describeChannel.mockRejectedValueOnce(limited());
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for mine-chan" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit description…" }));
+    await tick();
+    fireEvent.click(dlg().getByRole("button", { name: "Save description" }));
+    await flush();
+    const banner = dlg().getByRole("alert");
+    expect(banner).toHaveTextContent("Too many requests. Wait a minute and try again.");
+    expect(banner).toHaveFocus();
+    expect(dlg().getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+    expect(anyInvalid()).toBe(0);
+  });
+
+  it("in edit mode puts an invalid description on the description, and a network failure in the banner", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.describeChannel.mockRejectedValueOnce(new RespondError(422, { ok: false, error: "The description is too long.", reason: "invalid" }));
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for mine-chan" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit description…" }));
+    await tick();
+    fireEvent.click(dlg().getByRole("button", { name: "Save description" }));
+    await flush();
+    expect(dlg().getByLabelText("Description")).toHaveAttribute("aria-invalid", "true");
+    expect(dlg().getByLabelText("Description")).toHaveFocus();
+    expect(dlg().getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+    chat.api.describeChannel.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(dlg().getByRole("button", { name: "Save description" }));
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveFocus();
+    expect(anyInvalid()).toBe(0);
+  });
+
+  it("an unknown reason in create mode is a banner too, and a reserved name still marks the name", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.createChannel.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "Something else.", reason: "mystery" }));
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "New channel" }));
+    await tick();
+    fireEvent.change(dlg().getByLabelText("Name"), { target: { value: "general" } });
+    fireEvent.click(dlg().getByRole("button", { name: "Create channel" }));
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveFocus();
+    expect(anyInvalid()).toBe(0);
+    chat.api.createChannel.mockRejectedValueOnce(new RespondError(422, { ok: false, error: "general is built in.", reason: "reserved" }));
+    fireEvent.click(dlg().getByRole("button", { name: "Create channel" }));
+    await flush();
+    expect(dlg().getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(dlg().getByLabelText("Name")).toHaveFocus();
   });
 });
