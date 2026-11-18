@@ -11,7 +11,7 @@ export const DETAIL_LIMIT = 20_000;
 /** Raw characters read before redaction, so a huge output costs bounded work; the cut at DETAIL_LIMIT comes after redaction. */
 const RAW_LIMIT = 100_000;
 /** Characters of commands and output over one report (the server's `activityDetailChars`), apart from the 60,000 of summaries. */
-export const DETAIL_CHARS_PER_REPORT = 200_000;
+const DETAIL_CHARS_PER_REPORT = 200_000;
 /** Full prompt and answer characters in one report; the server accepts a 512 kB body. The rest goes in later reports. */
 export const MAX_FULL_TEXT_PER_REPORT = 120_000;
 /** Activity-feed characters in one report (#118), as the server takes them: the orchestrator's first, then the agents'. */

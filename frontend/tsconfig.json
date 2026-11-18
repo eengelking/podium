@@ -11,7 +11,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["node"],
-    "strict": true
+    "strict": true,
+    "noUnusedLocals": true
   },
   "include": ["src"]
 }

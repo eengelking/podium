@@ -245,14 +245,14 @@ export const OWED_FILLED_KEY = 'chat_admin_owed_filled';
 /** The key of General, the built-in public channel (#1035). Existing public messages belong to it. */
 export const GENERAL_CHANNEL = 'general';
 /** Words no public channel may be named: General is built in, and `group` is the thread name of a person's group. */
-export const RESERVED_CHANNEL_NAMES: readonly string[] = [GENERAL_CHANNEL, 'group'];
+const RESERVED_CHANNEL_NAMES: readonly string[] = [GENERAL_CHANNEL, 'group'];
 /** A public channel's name once folded. */
 export const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 /** At most this many public channels besides General. */
 export const MAX_PUBLIC_CHANNELS = 50;
-export const MAX_CHANNEL_DESCRIPTION = 280;
-export const MAX_CHANNEL_LINK_REF = 100;
-export const CHANNEL_LINK_KINDS: readonly PublicChannelLinkKind[] = ['issue', 'milestone', 'project'];
+const MAX_CHANNEL_DESCRIPTION = 280;
+const MAX_CHANNEL_LINK_REF = 100;
+const CHANNEL_LINK_KINDS: readonly PublicChannelLinkKind[] = ['issue', 'milestone', 'project'];
 
 /** The columns of a public channel row. */
 export const CHANNEL_COLS = 'name, description, link_kind, link_ref, created_by, created_by_name, created_at, updated_at';
@@ -283,7 +283,7 @@ export const toPublicChannel = (r: DbPublicChannel): PublicChannel => ({
 export const channelKey = (name: string): string => String(name).toLowerCase();
 
 /** The unique key of a link: its kind and its reference folded, so `v1.7` and `V1.7` match, and `NULL` (no link) never collides. An issue's reference is stored without its one leading `#` (see `checkNewChannel`), so `#12` and `12` are one link. */
-export const linkKey = (kind: string, ref: string): string => `${kind}:${ref.toLowerCase()}`;
+const linkKey = (kind: string, ref: string): string => `${kind}:${ref.toLowerCase()}`;
 
 /** A link's reference as it is stored: trimmed, and for an issue without its one leading `#` (so `#12`, `12` and ` #12 ` are one link). */
 export const linkRef = (kind: string, ref: string): string => {

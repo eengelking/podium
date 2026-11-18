@@ -30,7 +30,6 @@ const ACCEPTS = { level: 'everything', accepts: ['message'], limits: [] } as unk
 async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const clock = { now: T0 };
   const lines: string[] = [];
   const logger = loggerFromLine((l) => lines.push(l));
@@ -81,7 +80,6 @@ async function chosen(over: Parameters<typeof setup>[0] = {}, loops = [MAIN_LOOP
 }
 
 const logRows = async (people: PeopleStoreApi) => (await people.listLog({ page: 1, pageSize: 100 })).rows;
-const kinds = async (people: PeopleStoreApi) => (await logRows(people)).map((r) => r.kind);
 
 describe('the report reply carries the consent', () => {
   it('says off, with the Admin answer, while the flag is off', async () => {

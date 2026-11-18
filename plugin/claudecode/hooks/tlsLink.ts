@@ -11,11 +11,11 @@ import { podiumHome, trimTrailingSeparators, type ConfigHeaders } from '../../co
 import type { FetchLike, HttpResult } from '../../core/transport.ts';
 
 /** How long to wait for the helper's `ready` line. */
-export const READY_MS = 5000;
+const READY_MS = 5000;
 /** How long a request waits for the helper's reply through the mailbox (#834); the upstream timeout is shorter, so a live helper always answers first. */
 export const REPLY_MS = 45_000;
 /** Do not restart a helper that exited more often than this. */
-export const RESTART_MIN_MS = 10_000;
+const RESTART_MIN_MS = 10_000;
 const HELPER_ERROR_HEADER = 'x-podium-helper-error';
 const NODE_PLACES = ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node', '/opt/local/bin/node', '/snap/bin/node'];
 

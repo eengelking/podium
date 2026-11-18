@@ -690,13 +690,13 @@ describe("an Admin's read of a waiting ask (#1073)", () => {
 
   it("shows the owner the red notice above the ask while an Admin has it open, and an Admin who is not the owner nothing", async () => {
     const reading = { admin: "Root", since: Date.now() - 20_000, until: Date.now() + 25_000 };
-    const owner = await openWith(readingApi(ME, { "sess-ed": [reading] }), session());
+    await openWith(readingApi(ME, { "sess-ed": [reading] }), session());
     const note = document.querySelector("[data-testid='read-notice']")!;
     expect(note.textContent).toContain("Root (an Admin) is reading your waiting plan, question or tool request.");
     expect(note.closest(".read-notes.above")).not.toBeNull();
     expect(note.compareDocumentPosition(document.querySelector("section.ask")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     cleanup();
-    const admin = await openWith(readingApi(ADMIN, { "sess-ed": [reading] }), session());
+    await openWith(readingApi(ADMIN, { "sess-ed": [reading] }), session());
     expect(document.querySelector("[data-testid='read-notice']")).toBeNull();
   });
 });

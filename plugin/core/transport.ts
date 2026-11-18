@@ -18,7 +18,7 @@ export const EVENTS_PER_REPORT = 100;
  */
 export const REPORT_TIMEOUT_MS = 60_000;
 /** How long to wait after the server refuses the token or name: it will not change until the settings do. */
-export const REFUSED_RETRY_MS = 60_000;
+const REFUSED_RETRY_MS = 60_000;
 /** More watched loops than a report can carry agents is not a list the mod takes whole. */
 const MAX_WATCHED = 201;
 /** File diffs one reply can ask for (#319). */
@@ -47,13 +47,13 @@ export function isDelivery(v: unknown): v is Delivery {
 }
 
 /** A message or notice for this orchestrator as the server sends it (#347): only its shape is checked here; whether it is taken is the mod's to decide (SPEC 5.3). */
-export function isPeerDelivery(v: unknown): v is PeerDelivery {
+function isPeerDelivery(v: unknown): v is PeerDelivery {
   const d = v as Partial<PeerDelivery> | null;
   return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && (d.kind === 'message' || d.kind === 'notice') && typeof d.at === 'number' && typeof d.text === 'string';
 }
 
 /** One of the owner's open requests as the server sends it (#347): only its shape is checked here. */
-export function isPeerRequest(v: unknown): v is PeerRequest {
+function isPeerRequest(v: unknown): v is PeerRequest {
   const r = v as Partial<PeerRequest> | null;
   const side = (s: unknown) => !!s && typeof s === 'object' && typeof (s as { machine?: unknown }).machine === 'string';
   return !!r && typeof r === 'object' && typeof r.id === 'string' && r.id.length > 0 && (r.kind === 'proposal' || r.kind === 'access' || r.kind === 'message') && side(r.from) && side(r.to) && typeof r.by === 'string';
@@ -83,7 +83,7 @@ export function isRecordingGrant(v: unknown): v is RecordingGrant {
 }
 
 /** A request for a file's diff as the server sends it (#319): only its shape is checked here. */
-export function isDiffRequest(v: unknown): v is DiffRequest {
+function isDiffRequest(v: unknown): v is DiffRequest {
   const d = v as Partial<DiffRequest> | null;
   return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && typeof d.path === 'string' && d.path.length > 0;
 }

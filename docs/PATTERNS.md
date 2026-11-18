@@ -134,6 +134,7 @@ holds only the code patterns.
 | End-to-end tests run in containers | Cypress runs only through `scripts/e2e-up.sh`; nothing is installed on the host. A feature change ships its specs and its row in `docs/e2e/COVERAGE.md`. See [decision 49](decisions/49-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md). | `scripts/e2e-up.sh` | `scripts/e2e-map.test.ts` |
 | E2E selectors | A role and name, a label or text first; `data-testid` only when none works. | `e2e/support/commands.js:94` | `scripts/e2e-map.mjs` checks each testid exists |
 | New lines are tested | The SonarCloud gate needs 80% coverage on new lines. A `[SKIPPED]` analysis is reported as skipped. | `sonar analyze` | the SonarCloud gate |
+| No unused code | `noUnusedLocals` is on in every `tsconfig.json`, and `knip` fails on an unused file, dependency or export. A name kept on purpose is listed in `knip.jsonc` with its reason, never silenced elsewhere. A test file counts as a user. | `knip.jsonc` | `npm run build`, `npm run knip` (both in CI) |
 | A throwaway server and database for checks | Never point a check at the maintainer's own server or a database that matters. | `scripts/throwaway-db.mjs` | `scripts/throwaway-leak.test.ts` |
 
 ## Docs

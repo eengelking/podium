@@ -14,10 +14,10 @@
  * means it is supported but has no value right now (an effort not chosen, a cost not yet known). Nothing else is
  * guessed from an omission, and a reader never turns one into the other.
  */
-export const REPORT_VERSIONS = [1, 2] as const;
+const REPORT_VERSIONS = [1, 2] as const;
 export type ReportVersion = (typeof REPORT_VERSIONS)[number];
 /** The harness a v1 report comes from, since v1 has no block to say so. */
-export const CLAUDE_CODE_HARNESS = 'claude-code';
+const CLAUDE_CODE_HARNESS = 'claude-code';
 /** The id of the harness a report comes from: its block, else the session's own field (#851), else Claude Code. */
 export function harnessOf(r: { harness?: { id: string }; session: { harness?: string } }): string {
   return r.harness?.id ?? r.session.harness ?? CLAUDE_CODE_HARNESS;
@@ -30,7 +30,7 @@ export type Effort = string;
 export type CostSource = 'harness' | 'estimate';
 
 /** How many characters of a session id the console and the logs show: enough to tell sessions apart, and the id shown whole is what is copied. */
-export const SHORT_ID_LENGTH = 8;
+const SHORT_ID_LENGTH = 8;
 
 /**
  * A session id shortened for display (#853): its first eight characters, counted after a short word prefix such as `ses_`, which is kept.
@@ -63,7 +63,7 @@ export interface TokenCounts {
 }
 
 /** `cacheWrite` is the 5-minute cache write; `cacheWrite1h` the 1-hour one (0 when the reporter cannot split them). */
-export interface UsageTokens extends TokenCounts {
+interface UsageTokens extends TokenCounts {
   cacheWrite1h: number;
 }
 
@@ -170,9 +170,9 @@ export interface ToolStat {
 }
 
 /** Each call length bucket is this much longer than the one before, so a percentile read from the buckets is within 10% of the call's real length. */
-export const TIME_BUCKET_RATIO = 1.1;
+const TIME_BUCKET_RATIO = 1.1;
 /** The longest call that is told apart: an hour. Longer calls count in the last bucket. */
-export const TIME_BUCKET_MAX_MS = 3_600_000;
+const TIME_BUCKET_MAX_MS = 3_600_000;
 
 /** The bucket a call of `ms` milliseconds counts in: 0 up to 1 ms, then one step for each 10% more. */
 export function timeBucket(ms: number): number {
@@ -207,7 +207,7 @@ export const MAIN_LOOP = '@orchestrator';
 
 /** The status of one file's diff, as the mod answers a request for it (#319, SPEC 6.4). */
 export const FILE_DIFF_STATUSES = ['ok', 'binary', 'withheld', 'too-large', 'unavailable'] as const;
-export type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
+type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
 
 /** A diff the session's owner is waiting for, in the report reply's `diffs` list. */
 export interface DiffRequest {
@@ -566,7 +566,7 @@ export function acceptsFor(level: RespondLevel, limits: readonly RespondLimit[],
 
 export type AskKind = 'question' | 'plan' | 'permission';
 
-export interface AskOption {
+interface AskOption {
   label: string;
   description: string;
   preview: string | null;
@@ -621,7 +621,6 @@ export const tooManyOptions = (count: number): boolean => count > RESPOND_LIMITS
 
 /** What a delivery carries. `reply` is a message sent in place of an answer. */
 export type DeliveryKind = 'question' | 'reply' | 'plan-approve' | 'plan-feedback' | 'allow-once' | 'deny' | 'message' | 'command';
-export const DELIVERY_KINDS: readonly DeliveryKind[] = ['question', 'reply', 'plan-approve', 'plan-feedback', 'allow-once', 'deny', 'message', 'command'];
 
 /** One question's answer by position: the chosen options' indexes, a typed answer, or null for skipped. */
 export type QuestionAnswer = { options: number[] } | { text: string } | null;
@@ -630,7 +629,6 @@ export type PlanMode = 'auto' | 'acceptEdits' | 'default';
 export const PLAN_MODES: readonly PlanMode[] = ['auto', 'acceptEdits', 'default'];
 
 export type PodiumCommand = 'clear' | 'compact';
-export const PODIUM_COMMANDS: readonly PodiumCommand[] = ['clear', 'compact'];
 
 /** One answer or message sent from Podium, as the server hands it to the mod. */
 export interface Delivery {
@@ -757,47 +755,6 @@ export interface AdminNotice {
   text: string;
 }
 
-/** The reply to an accepted report. Older servers send only some of it. */
-export interface ReportReply {
-  ok: true;
-  serverTime: number;
-  ackedEvents: number;
-  sessionId: string;
-  liveSessions: number;
-  serverVersion: string;
-  /** The commit of a dev build of the server (#400); null for a release. Older servers do not send it. */
-  serverBuild?: string | null;
-  reporterSupport: { min: string; max: string };
-  reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
-  watch: string[];
-  /**
-   * The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is
-   * on (#431). A subset of `watch`: a loop listed there only because the Activity history keeps it is not here. The mod captures
-   * a Bash call's output only for these loops, and only with its `activityOutput` option on. Absent from a server older than the
-   * release that adds it, which asks for none.
-   */
-  watchOutput?: string[];
-  /**
-   * The loops of `watch` that a viewer has open right now (a live lease), when the Admin's `background-output` flag is on (#897). The mod sends a
-   * background item's whole command and output only for these loops, and only with its `backgroundOutput` option on. Absent from a server older than the release that adds it.
-   */
-  watchBackground?: string[];
-  /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
-  respond: boolean;
-  /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
-  deliveries: Delivery[];
-  /** Whether this session's orchestrator can take part in messaging now (#347): authentication on, the Admin's flag on, the session owned by a person, and the `peers` option on. */
-  peers?: boolean;
-  /** Messages and notices for this orchestrator, oldest first, handed over only while it is idle; empty while `peers` is false. */
-  peerDeliveries?: PeerDelivery[];
-  /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
-  peerRequests?: PeerRequest[];
-  /** Callouts for the person, present only while there is one (#1034). Absent from a server older than the release that adds it; an older reporter ignores it. */
-  adminNotices?: AdminNotice[];
-  /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
-  recording?: RecordingGrant;
-}
-
 /**
  * Session recording (#353, SPEC 6.4 "Session recording"). Everything an orchestrator and the agents under it do, whole, for
  * troubleshooting. Three yes answers are needed before anything leaves the machine: the Admin's `session-recording` flag,
@@ -847,15 +804,6 @@ export interface RecordingBatch {
   entries: RecordingEntry[];
 }
 
-/** The server's answer to a batch. A batch that was accepted is never sent again. */
-export interface RecordingBatchReply {
-  ok: true;
-  /** How many entries were new; the rest were already held. */
-  stored: number;
-  /** The state after this batch, so a cap reached by it stops the mod at once. */
-  recording: RecordingGrant;
-}
-
 export const RECORDING_STATES = ['off', 'recording', 'stopped', 'limit'] as const;
 /** `off`: nothing is chosen. `recording`: capturing. `stopped`: capture ended and what was recorded is kept. `limit`: the per-session cap or the disk budget stopped it. */
 export type RecordingState = (typeof RECORDING_STATES)[number];
@@ -864,7 +812,7 @@ export type RecordingState = (typeof RECORDING_STATES)[number];
 export type RecordingLimit = 'session' | 'budget';
 
 /** The three yes answers. Capture needs all three. */
-export interface RecordingConsent {
+interface RecordingConsent {
   /** The Admin's `session-recording` flag is on and the server has authentication on. */
   admin: boolean;
   /** Someone with the right (the session's owner or an Admin) chose to record this session. */

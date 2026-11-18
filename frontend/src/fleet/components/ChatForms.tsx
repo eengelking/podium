@@ -11,9 +11,9 @@ import { failReason } from "../useMyPeers";
 import type { SessionView } from "../types";
 
 /** The name the server accepts, after it is lowercased (the same rule as the store's). */
-export const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
-export const DESC_MAX = 280;
-export const REF_MAX = 100;
+const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const DESC_MAX = 280;
+const REF_MAX = 100;
 
 const KIND_WORD: Record<ChannelLinkKind, string> = { issue: "Issue", milestone: "Milestone", project: "Project" };
 /** A channel's link as the chip and the words name it: "Issue #1035". The server keeps an issue's number without its #, so a number is shown with one; any other reference is shown as it is. */
@@ -29,7 +29,7 @@ function refusal(err: unknown, what: string): string {
  * The field a refusal is about, or the banner when it is about none (a 403, a 429, a network failure, the limit, an unknown reason). Only a refusal
  * that is really about a field marks it; in edit mode the name and the link are fixed, so only the description or the banner can take it.
  */
-export function fieldOf(reason: string, text: string, edit: boolean): "name" | "ref" | "desc" | "banner" {
+function fieldOf(reason: string, text: string, edit: boolean): "name" | "ref" | "desc" | "banner" {
   const linkWords = /link|reference|issue|milestone|project/i.test(text);
   if (reason === "invalid" && /description/i.test(text)) return "desc";
   if (edit) return "banner";

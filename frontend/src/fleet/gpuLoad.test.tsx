@@ -16,12 +16,6 @@ afterEach(() => {
 
 const css = readFileSync(resolve(process.cwd(), "src/fleet/fleet.css"), "utf8");
 
-function keyframes(name: string): string {
-  const m = css.match(new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?)\\n(?=\\S)`));
-  if (!m) throw new Error(`no @keyframes ${name}`);
-  return m[1]!;
-}
-
 function setVisibility(state: "visible" | "hidden") {
   Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
   document.dispatchEvent(new Event("visibilitychange"));

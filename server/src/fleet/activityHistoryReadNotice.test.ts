@@ -22,7 +22,6 @@ const SECRET = 'admin-secret';
 const H = { 'X-Podium-Respond': '1' };
 const T0 = 1_791_648_000_000;
 const SID = 'sess-ed';
-const AGENT = 'a1';
 const TEXT = 'UNIQUE-STORED-TEXT-9921';
 const READ = (sid = SID) => `/api/fleet/respond/sessions/${sid}/activity-history`;
 

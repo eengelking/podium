@@ -49,7 +49,7 @@ function quote(v: unknown, max = TOAST_TEXT_MAX): string {
  * (CR, LF, U+2028, U+2029, U+0085) ends a line, format characters (bidi controls, zero-width) are removed, other control characters become spaces.
  * One rule for every harness and for the frame of a delivery and of a channel read.
  */
-export function quoteLines(v: unknown): string {
+function quoteLines(v: unknown): string {
   const text = typeof v === 'string' ? v.replaceAll(/\r\n?|\u2028|\u2029|\u0085/g, '\n').replaceAll(/\p{Cf}+/gu, '') : '';
   return text
     .split('\n')
@@ -79,13 +79,13 @@ function replyAddress(from: PeerParty): string {
 }
 
 /** The last line of the owner's own Chat message to this agent (#1034): where its answer goes so the thread shows it. One rule for every harness. */
-export const CHAT_HINT_START = 'To answer in the Chat thread, use podium_send to "person:';
+const CHAT_HINT_START = 'To answer in the Chat thread, use podium_send to "person:';
 export function chatAnswerHint(by: string): string {
   return `${CHAT_HINT_START}${oneLine(by)}".`;
 }
 
 /** What a public channel's name is, the rule the server holds it to (#1035). `general` and `group` are the two built-in channels. */
-export const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 /** The channel a tool names: `general` or `group` (or `My group`), or the name of a public channel (any case, folded to lowercase); null for anything else. */
 export function channelArgument(v: unknown): string | null {
@@ -184,13 +184,13 @@ export function noticePrompt(text: string): string {
 
 // ---- The tools' answers --------------------------------------------------------------------------------------------
 
-export interface PersonListing {
+interface PersonListing {
   address: string;
   name: string;
   paused: boolean;
 }
 
-export interface PeerListing {
+interface PeerListing {
   address: string;
   /** The session's short id; absent from a server older than #500. */
   id?: string;
@@ -437,7 +437,7 @@ export function appliedLevel(text: string): PeerLevel | null {
 // ---- Requests in the terminal --------------------------------------------------------------------------------------
 
 /** "can send to build-pi, with approval": what a right lets a reporter do. */
-export function canPhrase(level: PeerLevel | null, to: string): string {
+function canPhrase(level: PeerLevel | null, to: string): string {
   if (level === 'see') return `can see ${to}`;
   if (level === 'ask') return `can send to ${to}, with approval`;
   if (level === 'send') return `can send to ${to}`;

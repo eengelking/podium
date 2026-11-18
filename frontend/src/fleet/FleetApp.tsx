@@ -668,5 +668,3 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     </div>
   );
 }
-
-export default FleetApp;

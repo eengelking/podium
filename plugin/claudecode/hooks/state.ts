@@ -19,18 +19,18 @@ import { assignOwners, emptyPlan, setTitle, taskCreate, taskUpdate, todoWrite, t
 import { askEndedEvent, bumpStat, callEndedEvent, copyStats, MAX_TOOL_NAMES } from '../../core/toolStats.ts';
 import { backgroundSummary, MAIN_LOOP, type ToolStat, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from '../../core/protocol.ts';
 
-export const BLOWOUT_DEDUP_MS = 2000;
+const BLOWOUT_DEDUP_MS = 2000;
 /** An automatic compaction counts as a blowout only when the context was at least this full (#803). Claude Code also compacts early, after a quiet stretch. */
 export const AUTO_COMPACT_BLOWOUT_FILL = 0.8;
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-export const EVENT_QUEUE_MAX = 500;
+const EVENT_QUEUE_MAX = 500;
 /** Nothing changed yet (also what a session that is not in a repository reports). */
 export const NO_FILES: FilesReport = { files: [], total: 0, added: 0, removed: 0, since: 'start' };
-export const PLAN_TOOL = 'mcp__podium-reporter__plan';
+const PLAN_TOOL = 'mcp__podium-reporter__plan';
 /** Activity entries a watched loop keeps (#118). */
 export const ACTIVITY_KEPT = 20;
 
-export interface Tokens {
+interface Tokens {
   input: number;
   output: number;
   cacheRead: number;
@@ -48,12 +48,12 @@ export interface Usage {
 }
 
 /** A request whose prompt (input + cache reads + cache writes) is over this is priced at a model's long-prompt tier. */
-export const LONG_PROMPT_TOKENS = 100_000;
+const LONG_PROMPT_TOKENS = 100_000;
 
 const usageKey = (model: string, tier: 'std' | 'long') => `${model}\u0000${tier}`;
 
 /** Adds one request's tokens to a loop's per-model, per-tier totals (issue #117). The server prices them. */
-export function addUsage(usage: Record<string, ModelUsage> | undefined, model: string | null, u: Usage): Record<string, ModelUsage> {
+function addUsage(usage: Record<string, ModelUsage> | undefined, model: string | null, u: Usage): Record<string, ModelUsage> {
   const prior = usage ?? {};
   if (!model) return prior;
   const input = whole(u.input_tokens || 0);
@@ -102,9 +102,6 @@ export function mergeUsage(...sets: (Record<string, ModelUsage> | undefined)[]):
   }
   return [...out.values()].sort((a, b) => (a.model < b.model ? -1 : a.model > b.model ? 1 : a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0));
 }
-
-/** The most distinct tool names kept per loop; later new names count in toolCalls only. Defined in core with the stats that share the cap. */
-export { MAX_TOOL_NAMES };
 
 export interface LoopStats {
   model: string | null;
@@ -159,7 +156,7 @@ export interface AgentState extends LoopStats {
   toolUseId: string | null;
 }
 
-export interface PendingSpawn {
+interface PendingSpawn {
   effort: Effort | null;
   model: string | null;
   subagentType: string | null;
@@ -240,7 +237,7 @@ export interface SessionState {
   tasksDir: string | null;
 }
 
-export function emptyLoop(model: string | null = null): LoopStats {
+function emptyLoop(model: string | null = null): LoopStats {
   return {
     model,
     effort: null,
@@ -312,7 +309,7 @@ export function resetForNewId(s: SessionState, id: string, startedAt: number): S
 
 // ---- helpers ------------------------------------------------------------------------------------
 
-export function asEffort(v: unknown): Effort | null {
+function asEffort(v: unknown): Effort | null {
   return typeof v === 'string' && (EFFORTS as readonly string[]).includes(v) ? (v as Effort) : null;
 }
 
@@ -369,7 +366,7 @@ function loopLabel(s: SessionState, agentId: string | null | undefined): string 
   return a ? `in “${a.description}”` : 'in an agent';
 }
 
-export function agentLabel(a: Pick<AgentState, 'kind' | 'type' | 'model' | 'effort'>): string {
+function agentLabel(a: Pick<AgentState, 'kind' | 'type' | 'model' | 'effort'>): string {
   return `${a.kind === 'fork' ? 'fork' : a.type} · ${shortName(a.model)}${a.effort ? ` ${a.effort}` : ''}`;
 }
 
