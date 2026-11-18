@@ -91,7 +91,7 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
     <Modal titleId="nc-h" title={edit ? "Edit description" : "New channel"} onClose={props.onClose}>
       <div className="mb">
         <form className="ch-form" noValidate onSubmit={(e) => void submit(e)} data-testid="channel-form">
-          <p className="hint">Everyone signed in to this server can read and post in a channel, including every Admin and every orchestrator. Do not put anything here you would not want all of them to read.</p>
+          <p className="hint">Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in. Do not put anything here you would not want all of them to read.</p>
           <label>
             Name
             <input className="field" ref={nameEl} maxLength={40} autoComplete="off" value={name} placeholder="staging-incident" disabled={!!edit} aria-describedby="nc-name-hint" aria-invalid={bad("name")} onChange={(e) => setName(e.target.value.toLowerCase())} />

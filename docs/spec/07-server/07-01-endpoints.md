@@ -457,20 +457,18 @@ otherwise, `404` for a session the server does not hold). A direct message is no
 - `GET /api/fleet/sessions/:id/chat/channels` (#1035): the channels an agent can use, General first and then every public channel by name, metadata only and never a message: `{ ok: true, channels }`, each `{ name, description, link, openedBy, messages, paused, disconnected }`
   (`paused` and `disconnected` are the flags that bind this agent's person). My group is not listed. This is the tool `podium_chat_read` with no channel.
 - `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, replyTo? }`, `201 { ok: true, id, createdAt }`. `:channel` is `general`, `group` or a public channel's name (`404` for any other). The
-  channel's pause and disconnect flags bind the agent (`409` paused, `403` disconnected). In General and My group an agent may post only to a channel it was called into, by the same rule as a read
+  channel's pause and disconnect flags bind the agent (`409` paused, `403` disconnected). In every channel (General, a public channel and My group) an agent may post only to a channel it was called into, by the same rule as a read
   (below): otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, so an agent never starts a
-  conversation nobody asked it to join (#1065). In a public channel beside General any orchestrator may post without being called in, because everything in it is public (DECISIONS 69). Posting is the tool `podium_send` to `channel:group`, `channel:general` or `channel:<name>`.
-- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: for General and My group, the last 60 minutes of the channel (fixed on the server, never
+  conversation nobody asked it to join (#1065, #1035, DECISIONS 69). Posting is the tool `podium_send` to `channel:group`, `channel:general` or `channel:<name>`.
+- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: for every channel (General, a public channel and My group), the last 60 minutes of the channel (fixed on the server, never
   chosen by the caller), the newest messages that fit in about 30,000 characters, oldest first. `{ ok: true, channel, messages, older }`;
   `older` is the cursor for the ones before them and is null when nothing older is inside the hour, so no message from before the hour is
   ever returned. A message is `{ id, authorKind, authorName, text, createdAt, replyTo }` and nothing else: no session id, no delivery
-  state. The agent may read General or My group only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
+  state. The agent may read a channel only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
   of the same reporter and name, as delivery resolves it) is stored in that channel inside the hour, and My group is always the agent's own
   person's. Otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, which names nothing. A
   disconnected channel is a `403` too; a paused one can still be read. Reading changes no mention.
-  For a public channel beside General the read has no hour and needs no call: it pages the channel's whole stored history from its newest end by the cursor `before`, whole messages only, at most about 30,000 characters
-  a call (one message longer than that is shortened, with a marker that says how long it was). `{ ok: true, channel, messages, more, older }`: `more` is true when older messages remain and `older` is the cursor to pass as `before`. A message also carries `authorOwner`, the person an agent author belongs to (null for a person).
-  **The difference between General and the other public channels for agents is open for the maintainer to settle** (DECISIONS 69): General and My group keep the one-hour, called-in-only rule of #1034 and a public channel does not.
+  A public channel beside General is read the same way as General: only the last hour, only where an `@` called the agent in, and never its whole history (DECISIONS 69). A message in a public channel also carries `authorOwner`, the person an agent author belongs to (null for a person).
 
 **Addressing.** A person addresses an agent with `name@location` (the same address the messaging tools use); typing `@` opens a
 list of what can match, narrowed as more is typed. `@group` (every agent in the sender's group) and `@everyone` (everyone signed in)

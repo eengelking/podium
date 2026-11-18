@@ -83,19 +83,13 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     res.status(201).json({ ok: true, id: out.message.id, createdAt: out.message.createdAt });
   }));
 
-  /** The last hour of a channel the agent was called into: the newest messages that fit in about 30,000 characters, oldest first; `older` is the cursor for the ones before them that are inside the hour. For a public channel besides General (#1035): the same size of call, with no hour and no call needed, `more` says whether there are older ones and `older` is the cursor. */
+  /** The last hour of a channel the agent was called into: the newest messages that fit in about 30,000 characters, oldest first; `older` is the cursor for the ones before them that are inside the hour. The same for General, My group and every public channel (#1035). */
   router.get('/sessions/:id/chat/channels/:channel/messages', d.requireToken, asyncHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
     const channel = await channelOrNot(req, res);
     if (!channel) return;
     const before = typeof req.query.before === 'string' ? req.query.before : null;
-    // A public channel besides General (#1035) is read through its whole history by a cursor, with no hour and no call needed; General and My group keep the hour.
-    if (fleet.chat.channels.openToAgents(channel)) {
-      const page = await fleet.chat.channels.agentReadPublic(o, channel, before);
-      if ('status' in page) return void failed(req, res, page);
-      return void res.json({ ok: true, channel, messages: page.messages, more: page.more, older: page.older });
-    }
     const out = await fleet.chat.channels.agentRead(o, channel, before);
     if ('status' in out) return void failed(req, res, out);
     res.json({ ok: true, channel, messages: out.messages.map(agentMessageView), older: out.older });

@@ -247,7 +247,7 @@ export function ChatThread(p: ThreadProps) {
       ? p.sel.id === "general"
         ? "Everyone signed in to this server can read and post here."
         : p.sel.id !== "group"
-        ? "Everyone signed in to this server can read and post here: every person, orchestrator and Admin. A subagent does not post here; its orchestrator does. An orchestrator reads it when it chooses to or when its turn ends."
+        ? "Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour. A subagent does not post here; its orchestrator does."
         : "Only you and your own orchestrators, subagents and forks can read and post here."
       : "Only you and an Admin can read this. The two agents and you are the only ones in it. It is removed when every agent session in it has ended.";
   const trips = dmHead?.roundTrips ?? p.direct?.roundTrips;

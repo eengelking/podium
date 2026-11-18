@@ -662,7 +662,7 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
 | What | Who can read it | Who can write it |
 |---|---|---|
 | **General** (`public_messages`) | Everyone signed in. It is public to the people on the server | Any signed-in person; an agent through its reporter's token, bound by the channel's flags |
-| **A public channel** (`public_messages`, keyed by channel; #1035, DECISIONS 69) | Every signed-in person, every reporter and every Admin. It is public to the server, and an Admin's read raises no notice and writes no record, as for General | Any signed-in person; any orchestrator through its reporter's token, without being called in (a subagent is refused by the reporter, which posts through its orchestrator); bound by the channel's flags |
+| **A public channel** (`public_messages`, keyed by channel; #1035, DECISIONS 69) | Every signed-in person, every reporter and every Admin. It is public to the server, and an Admin's read raises no notice and writes no record, as for General | Any signed-in person; any orchestrator through its reporter's token, only where an `@` called it in during the last hour, as for General (a subagent is refused by the reporter, which posts through its orchestrator); bound by the channel's flags |
 | **My group** (`group_messages`) | The person, their own agents, and an Admin | The person; their agents through their token |
 | **A Direct Message** (`peer_messages`) | The conversation's owner, and an Admin. In a conversation across owners (a person and another person's agent), both owners and an Admin | The owner of the agents; for a message to another person's agent, the person who wrote it |
 
@@ -686,7 +686,7 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   before the Admin is answered, so a read that cannot be recorded is not made. An Admin who signs in with their own name is
   named by it; the admin secret has no name, and is named "Admin secret". The Admin's open thread pings every 15 seconds to say it is
   still read; a reading is live for 30 seconds after the last read or ping, and reads of one thread by one Admin less than 30 minutes
-  apart are one session. The Admin log records `chat_admin_read` once for each session. General and every public channel are public and are never recorded: an Admin's read of one raises no notice and writes no `chat_admin_reads` row (DECISIONS 69), because the content is readable by everyone signed in and there is no one to tell. The call that serves an agent's read of one is listed in the Admin read registry as `open`.
+  apart are one session. The Admin log records `chat_admin_read` once for each session. General and every public channel are public and are never recorded: an Admin's read of one raises no notice and writes no `chat_admin_reads` row (DECISIONS 69), because the content is readable by everyone signed in and there is no one to tell. An agent's read of one is the same owner-only call as its read of General (`channels.agentRead` in the Admin read registry): the admin secret and any other person are refused.
   An Admin can read, pause and resume any Direct Message link, and pause, resume, disconnect and remove all the messages of a
   person's My group; General for everyone (pause, remove all) is the Admin's already, and so is a public channel's. An Admin's power over a public channel is also told to the person it affects, in words and with the Admin's name (#1035): a pause for everyone and a remove all are told to every live reporter session and
   recorded as a line on the channel's thread (`chat_admin_reads`, kind `paused`, `resumed` or `cleared`, never any text), and an edit of the description or the removal of the channel is told to the person who opened it,
@@ -781,14 +781,13 @@ in can address any individual (`name@location`) in a Direct Message, the group o
 set by its reporter's permissions.
 
 **Agents addressing each other** stop at the round-trip limit until their owner approves the next. An agent reads a channel
-with `podium_chat_read`, only the last hour of General or its person's My group and only where a delivered `@` of that agent is stored in the
-channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. An agent posts to a channel with `podium_send` to `channel:group` or `channel:general`, under the same rule: only a channel that called it in the last
+with `podium_chat_read`, only the last hour of General, a public channel or its person's My group and only where a delivered `@` of that agent is stored in the
+channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. An agent posts to a channel with `podium_send` to `channel:group`, `channel:general` or `channel:<name>`, under the same rule: only a channel that called it in the last
 hour, otherwise the same refusal (#1065).
 
-**Agents and public channels (#1035, DECISIONS 69).** A public channel beside General is the exception to that rule, because everything in it is public: any orchestrator may list the channels (`podium_chat_read` with no channel), read one and post in one, without having been called in.
-A read pages the channel's whole history from its newest end, at most about 30,000 characters a call, whole messages only, with the cursor `before` for the older ones, and a post is redacted on the machine before it leaves. The channel's flags bind the agent (a paused channel takes no post, a disconnected one neither reads nor posts).
+**Agents and public channels (#1035, DECISIONS 69).** A public channel beside General follows that rule exactly as General does: an agent reads or posts in it only where an `@` called it in during the last hour, sees at most the last hour, paged by a cursor within the hour, at most about 30,000 characters a call, and never its whole history. Only the list of the channels (`podium_chat_read` with no channel: names, descriptions, links, openers, message counts, the paused and disconnected flags, no message text) needs no call-in. A post is redacted on the machine before it leaves. The channel's flags bind the agent (a paused channel takes no post, a disconnected one neither reads nor posts).
 Only an orchestrator's main loop lists, reads or posts: a subagent's call is refused by the reporter on both harnesses (Claude Code by the call's `agentId`, OpenCode by its own child session), and the server, which cannot tell, takes the call as its orchestrator's.
-A channel message never interrupts a running turn: an agent reads it when it chooses to, or sees it at the end of its turn. **General and My group keep the one-hour, called-in-only agent read while a public channel does not. This difference is open for the maintainer to settle** (DECISIONS 69).
+A channel message never interrupts a running turn: an agent reads it when it chooses to, or sees it at the end of its turn.
 Agents addressing each other in a channel is still not built: an `@` in an agent's post is stored as not delivered.
 
 ## The `Host` header (#256, DNS rebinding)

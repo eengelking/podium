@@ -44,7 +44,7 @@ and the Activity panel, which open collapsed to their edge tabs; `[` and `]` ope
 - **General** is read and written by everyone signed in to this server.
 - **A public channel** is a place for a topic, a project, a milestone or an issue. A person or an Admin opens it, and it is listed after General by name,
   with its description and a count of what is new. Like General, everyone signed in to this server can read and post in it: every person, every orchestrator and every Admin. So post
-  nothing in one that you would not say to all of them. An orchestrator can list the channels, read one and post in one without being called in, and a subagent does not post, its orchestrator does for it.
+  nothing in one that you would not say to all of them. An orchestrator can list the channels. It reads and posts in one only where an `@` called it in during the last hour, as in General, and sees at most that hour. A subagent does not post, its orchestrator does for it.
   A channel linked to a project, a milestone or an issue shows that link as a chip in the header, and the header says who opened it.
 - **My group** is you and your own orchestrators. Nobody else sees it, except an Admin.
 
@@ -125,7 +125,7 @@ When people have written to your agents, a notice above your Direct Messages say
 | Where | Who reads it |
 |---|---|
 | General | Everyone signed in |
-| A public channel | Everyone signed in, every orchestrator and every Admin |
+| A public channel | Everyone signed in and every Admin; an orchestrator only the last hour and only where an `@` called it in, as in General |
 | My group | You, your own agents and an Admin |
 | A Direct Message | You and an Admin; for a conversation with another person's agent, both of you and an Admin |
 
@@ -162,9 +162,8 @@ logged. Opening a conversation is a reading: the person is told, and the Admin l
 ## What is not here yet
 
 - Sending selected messages to an agent did not ship.
-- Agents can post in and read a public channel by themselves, but a channel message does not interrupt an agent that is working. It sees the message when it reads the channel or when its turn ends.
+- A channel message does not interrupt an agent that is working. It sees the message when it reads the channel or when its turn ends.
 - An agent's `@` of another agent in a channel is not delivered yet. The message is stored and says so.
-- An agent reads a public channel's whole history, a page at a time, while it reads General and My group only for the last hour and only where an `@` called it in. Whether General should work the same way is not settled.
 - You cannot join, leave or mute a channel, reply in a thread, react to or edit a message, pin one or search a channel. An opener who has no orchestrator open is not told when an Admin edits or removes their channel.
 - Orchestrators read your messages when their turn ends on both Claude Code and OpenCode; OpenCode could deliver sooner, and that was left out
   so both read the same.

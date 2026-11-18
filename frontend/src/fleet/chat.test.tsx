@@ -2479,7 +2479,7 @@ describe("a public channel's thread", () => {
     expect(t).toHaveTextContent("Opened by Maya");
     expect(t).toHaveTextContent("2 messages");
     expect(screen.getByTestId("chat-desc")).toHaveTextContent(DESC);
-    expect(t).toHaveTextContent("Everyone signed in to this server can read and post here: every person, orchestrator and Admin. A subagent does not post here; its orchestrator does. An orchestrator reads it when it chooses to or when its turn ends.");
+    expect(t).toHaveTextContent("Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour. A subagent does not post here; its orchestrator does.");
     const msgs = within(t).getAllByTestId("chat-message");
     expect(msgs[1]).toHaveTextContent("docs-writer");
     expect(msgs[1]).toHaveTextContent("orchestrator of Maya");
@@ -2715,7 +2715,7 @@ describe("the New channel form", () => {
   it("opens a dialog with the fields, the privacy hint and the focus on Name", async () => {
     await openForm();
     const d = screen.getByRole("dialog", { name: "New channel" });
-    expect(d).toHaveTextContent("Everyone signed in to this server can read and post in a channel, including every Admin and every orchestrator.");
+    expect(d).toHaveTextContent("Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in.");
     for (const l of ["Name", "Description", "About (optional)", "Which one"]) expect(within(d).getByLabelText(l)).toBeInTheDocument();
     expect([...(field("About (optional)") as unknown as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(["Nothing", "Issue", "Milestone", "Project"]);
     expect(field("Name")).toHaveFocus();

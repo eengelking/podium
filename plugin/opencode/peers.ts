@@ -224,7 +224,7 @@ export class Peers {
     return this.outcome('Not asked.', out, (body) => accessAnswer(body, { owner: this.owner(), right, to }));
   }
 
-  /** `podium_chat_read`: the list of channels (no channel given), a public channel in pages, or the last hour of General or My group when this orchestrator was called into it. Podium decides what it may read; the answer starts with Podium's frame. */
+  /** `podium_chat_read`: the list of channels (no channel given), or the last hour of General, My group or a public channel when this orchestrator was called into it. Podium decides what it may read; the answer starts with Podium's frame. */
   async chatRead(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
     if (sub) return SUBAGENT_CHAT_READ;
     if (!root || !t || !this.on(root, t)) return this.off('Not read.', root, t);

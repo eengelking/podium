@@ -103,6 +103,8 @@ const noticesOf = async (w: W, who: 'dev' | 'tester' | 'alex') => {
 };
 const agentPost = (s: S, sid: string, channel: string, body: Record<string, unknown>, token?: string) =>
   request(s.app).post(`/api/fleet/sessions/${sid}/chat/channels/${encodeURIComponent(channel)}/messages`).set('X-Podium-Token', token ?? s.ed.token).send(body);
+/** An agent is called into a public channel by an @ of it from a person (a delivered mention, in the last hour): the only way in (decision 69). */
+const callIn = (b: B, channel: string, who = 'dev@ed-mbp') => say(b, channel, `@${who} look at this`);
 const agentRead = (s: S, sid: string, channel: string, q = '', token?: string) =>
   request(s.app).get(`/api/fleet/sessions/${sid}/chat/channels/${encodeURIComponent(channel)}/messages${q}`).set('X-Podium-Token', token ?? s.ed.token);
 
@@ -346,23 +348,24 @@ describe('posting and reading in a public channel', () => {
     const sent = await say(w.alexB, 'shared', 'from Alex');
     expect(sent.status).toBe(201);
     expect(sent.body.message).toMatchObject({ authorKind: 'person', authorName: 'Alex', mine: true, authorOwner: null });
+    expect((await callIn(w.edB, 'shared')).status).toBe(201);
     const agent = await agentPost(w, 'sess-dev', 'shared', { text: 'from the dev agent' });
     expect(agent.status).toBe(201);
     expect(agent.body).toMatchObject({ ok: true, id: expect.any(String), createdAt: expect.any(Number) });
     for (const b of [w.edB, w.alexB, w.rootB, w.secretB]) {
       const r = await read(b, 'shared');
-      expect(texts(r)).toEqual(['from Alex', 'from the dev agent']);
-      expect(r.body.messages[1]).toMatchObject({ authorKind: 'orchestrator', authorName: 'dev', authorOwner: 'Ed', mine: false });
-      expect(r.body).toMatchObject({ ok: true, channel: 'shared', total: 2, older: null });
+      expect(texts(r)).toEqual(['from Alex', '@dev@ed-mbp look at this', 'from the dev agent']);
+      expect(r.body.messages[2]).toMatchObject({ authorKind: 'orchestrator', authorName: 'dev', authorOwner: 'Ed', mine: false });
+      expect(r.body).toMatchObject({ ok: true, channel: 'shared', total: 3, older: null });
     }
     // General and My group are untouched.
     expect(texts(await read(w.edB, 'general'))).toEqual([]);
     expect(texts(await read(w.edB, 'group'))).toEqual([]);
     expect(await w.fleet.chat.core.store.public.count('general')).toBe(0);
-    expect(await w.fleet.chat.core.store.public.count('shared')).toBe(2);
+    expect(await w.fleet.chat.core.store.public.count('shared')).toBe(3);
     await settle();
     const kinds = await logKinds(w);
-    expect(kinds.filter((k) => k === 'channel_sent')).toHaveLength(2);
+    expect(kinds.filter((k) => k === 'channel_sent')).toHaveLength(3);
   });
 
   it('redacts a person\'s text and an agent\'s text, and counts unread and mentions per channel', async () => {
@@ -370,12 +373,13 @@ describe('posting and reading in a public channel', () => {
     await open(w.edB, { name: 'counts' });
     await open(w.edB, { name: 'other' });
     expect((await say(w.alexB, 'counts', 'use sk-abcdefghijklmnopqrstuvwxyz123456 now')).body.message.text).toContain('[redacted]');
+    expect((await callIn(w.alexB, 'counts', 'review@alex-box')).status).toBe(201);
     const agent = await agentPost(w, 'sess-alex', 'counts', { text: 'agent token=hunter2hunter2 here', replyTo: undefined }, w.alex.token);
     expect(agent.status).toBe(201);
     expect(JSON.stringify((await read(w.edB, 'counts')).body)).not.toMatch(/hunter2|sk-abcdef/);
     const overview = async () => (await w.edB.get(CH)).body.channels as { id: string; unread: number; mentions: number }[];
     // Both posts count for Ed (a person's own post never counts against them, an agent's does), and only in the channel they were made in.
-    expect((await overview()).find((c) => c.id === 'counts')).toMatchObject({ unread: 2, mentions: 0 });
+    expect((await overview()).find((c) => c.id === 'counts')).toMatchObject({ unread: 3, mentions: 0 });
     expect((await overview()).find((c) => c.id === 'other')).toMatchObject({ unread: 0 });
     expect((await w.edB.post(`${CH}/read`).set(H).send({ thread: 'public:counts', upTo: null })).body).toMatchObject({ ok: true, unread: 0 });
     expect((await overview()).find((c) => c.id === 'counts')).toMatchObject({ unread: 0 });
@@ -408,10 +412,12 @@ describe('posting and reading in a public channel', () => {
     expect(await flags()).toMatchObject({ general: [false, false], quiet: [true, false], loud: [false, false] });
     const held = await say(w.edB, 'quiet', '@Tester@ci-runner-01 later');
     expect(held.body.message.mentions[0]).toMatchObject({ state: 'held', why: 'quiet is paused' });
+    expect((await callIn(w.edB, 'loud')).status).toBe(201);
+    expect((await callIn(w.edB, 'quiet')).status).toBe(201);
     expect((await agentPost(w, 'sess-dev', 'quiet', { text: 'agent?' })).status).toBe(409);
     expect((await agentPost(w, 'sess-dev', 'loud', { text: 'agent!' })).status).toBe(201);
     const back = await w.edB.put(`${CH}/channels/quiet/pause`).set(H).send({ paused: false });
-    expect(back.body).toMatchObject({ paused: false, delivered: 1 });
+    expect(back.body).toMatchObject({ paused: false, delivered: 2 });
     expect(((await tester(w)).body.deliveries ?? []).map((d: { text?: string }) => d.text)).toEqual(['From Podium Chat, quiet, Ed wrote:\n@Tester@ci-runner-01 later']);
     expect((await w.edB.put(`${CH}/channels/loud/disconnect`).set(H).send({ disconnected: true })).body).toMatchObject({ disconnected: true });
     expect(await flags()).toMatchObject({ general: [false, false], quiet: [false, false], loud: [false, true] });
@@ -456,83 +462,124 @@ describe('posting and reading in a public channel', () => {
 
 const s_tick = (w: { tick: (ms: number) => number }, ms: number) => w.tick(ms);
 
-describe('an agent reads a public channel (#1035)', () => {
+describe('an agent reads and posts a public channel exactly as it does General: only when called in, only the last hour (#1035)', () => {
+  const HOUR = 3_600_000;
   const pageAll = async (w: W, sid: string, channel: string) => {
-    const pages: { messages: { text: string }[]; older: string | null; more: boolean }[] = [];
+    const pages: { messages: { text: string; createdAt: number }[]; older: string | null }[] = [];
     let before: string | null = null;
     for (let i = 0; i < 30; i++) {
       const r: request.Response = await agentRead(w, sid, channel, before ? `?before=${encodeURIComponent(before)}` : '');
       expect(r.status).toBe(200);
       pages.push(r.body);
-      if (!r.body.more) break;
+      if (!r.body.older) break;
       before = r.body.older;
     }
     return pages;
   };
 
-  it('needs no call into the channel and no hour window, and reads what a person and another agent posted', async () => {
+  it('refuses an agent that was not called into the channel, to read and to post, whatever the channel holds', async () => {
     const w = await world();
     await open(w.edB, { name: 'history' });
     await say(w.alexB, 'history', 'from Alex');
-    await agentPost(w, 'sess-alex', 'history', { text: 'from Alex\'s agent' }, w.alex.token);
-    w.tick(3 * 3_600_000);
-    await say(w.edB, 'history', 'from Ed, three hours later');
+    await say(w.edB, 'history', 'a call for Ed\'s other agent: @Tester@ci-runner-01');
     for (const [sid, token] of [['sess-dev', w.ed.token], ['sess-alex', w.alex.token]] as const) {
       const r = await agentRead(w, sid, 'history', '', token);
-      expect(r.status).toBe(200);
-      expect(r.body).toMatchObject({ ok: true, channel: 'history', more: false, older: null });
-      expect(r.body.messages.map((m: { text: string }) => m.text)).toEqual(['from Alex', "from Alex's agent", 'from Ed, three hours later']);
-      expect(r.body.messages[1]).toMatchObject({ authorKind: 'orchestrator', authorName: 'review', authorOwner: 'Alex' });
-      expect(Object.keys(r.body.messages[0]).sort()).toEqual(['authorKind', 'authorName', 'authorOwner', 'createdAt', 'id', 'replyTo', 'text']);
+      expect(r.status).toBe(403);
+      expect(r.body).toEqual({ ok: false, error: 'You were not called into this channel in the last hour.' });
+      expect(JSON.stringify(r.body)).not.toMatch(/from Alex/);
+      const p = await agentPost(w, sid, 'history', { text: 'uninvited' }, token);
+      expect(p.status).toBe(403);
+      expect(p.body.error).toBe('You were not called into this channel in the last hour.');
     }
+    expect(texts(await read(w.edB, 'history'))).not.toContain('uninvited');
+    // The Tester agent was called in; dev was not.
+    expect((await agentRead(w, 'sess-tester', 'history')).status).toBe(200);
+    // A call into one channel is no call into another, or into General.
+    await open(w.edB, { name: 'elsewhere' });
+    expect((await agentRead(w, 'sess-dev', 'elsewhere')).status).toBe(403);
+    await callIn(w.edB, 'elsewhere');
+    expect((await agentRead(w, 'sess-dev', 'elsewhere')).status).toBe(200);
+    expect((await agentRead(w, 'sess-dev', 'history')).status).toBe(403);
+    expect((await agentRead(w, 'sess-dev', 'general')).status).toBe(403);
   });
 
-  it('pages back by a cursor, about 30,000 characters a call, whole messages only, oldest first, and says when there is more', async () => {
+  it('does not count a call that was not delivered: an @ of another person\'s agent that waits for approval', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'asked' });
+    expect((await say(w.edB, 'asked', '@review@alex-box and you?')).body.message.mentions[0]).toMatchObject({ state: 'approval' });
+    const r = await agentRead(w, 'sess-alex', 'asked', '', w.alex.token);
+    expect(r.status).toBe(403);
+    expect((await agentPost(w, 'sess-alex', 'asked', { text: 'in?' }, w.alex.token)).status).toBe(403);
+  });
+
+  it('reads only the last hour once called in, in the same answer as General, and posts', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'history' });
+    await say(w.alexB, 'history', 'from Alex, long ago');
+    await agentPost(w, 'sess-alex', 'history', { text: 'x' }, w.alex.token);
+    w.tick(2 * HOUR);
+    await say(w.alexB, 'history', 'from Alex, recent');
+    await callIn(w.edB, 'history');
+    const r = await agentRead(w, 'sess-dev', 'history');
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, channel: 'history', older: null });
+    expect(r.body).not.toHaveProperty('more');
+    expect(texts(r)).toEqual(['from Alex, recent', '@dev@ed-mbp look at this']);
+    expect(JSON.stringify(r.body)).not.toMatch(/long ago/);
+    expect(Object.keys(r.body.messages[0]).sort()).toEqual(['authorKind', 'authorName', 'createdAt', 'id', 'replyTo', 'text']);
+    const posted = await agentPost(w, 'sess-dev', 'history', { text: 'on it' });
+    expect(posted.status).toBe(201);
+    expect(texts(await agentRead(w, 'sess-dev', 'history'))).toEqual(['from Alex, recent', '@dev@ed-mbp look at this', 'on it']);
+    expect((await agentRead(w, 'sess-dev', 'history', '?before=junk')).status).toBe(400);
+    // The call lapses with the hour: nothing is read or posted after it.
+    w.tick(HOUR + 1000);
+    expect((await agentRead(w, 'sess-dev', 'history')).status).toBe(403);
+    expect((await agentPost(w, 'sess-dev', 'history', { text: 'too late' })).status).toBe(403);
+  });
+
+  it('pages back by a cursor only through messages still inside the hour, about 30,000 characters a call, whole messages only, oldest first', async () => {
     const w = await world();
     await open(w.edB, { name: 'long' });
     const store = w.fleet.chat.core.store.public;
     const input = (text: string) => ({ authorKind: 'person' as const, authorRef: 'Ed', authorName: 'Ed', text });
+    for (let i = 0; i < 20; i++) await store.post('long', input(`old${String(i).padStart(2, '0')} ${'x'.repeat(996)}`));
+    w.tick(2 * HOUR);
     for (let i = 0; i < 70; i++) await store.post('long', input(`m${String(i).padStart(2, '0')} ${'x'.repeat(996)}`));
+    await callIn(w.edB, 'long');
     const pages = await pageAll(w, 'sess-dev', 'long');
     expect(pages.length).toBeGreaterThan(1);
-    for (const p of pages) {
-      expect(p.messages.reduce((n, m) => n + m.text.length, 0)).toBeLessThanOrEqual(30_000);
-      for (const m of p.messages) expect(m.text).toMatch(/^m\d\d x{996}$/);
-    }
-    expect(pages.at(-1)!.more).toBe(false);
+    for (const p of pages) expect(p.messages.reduce((n, m) => n + m.text.length, 0)).toBeLessThanOrEqual(30_000);
     expect(pages.at(-1)!.older).toBeNull();
-    for (const p of pages.slice(0, -1)) expect(p).toMatchObject({ more: true, older: expect.any(String) });
-    // Newest page first, each page oldest first, so reading them back to front gives the channel in order, each message once.
+    for (const p of pages.slice(0, -1)) expect(p.older).toEqual(expect.any(String));
+    // Newest page first, each page oldest first, so reading them back to front gives the hour in order, each message once, and nothing from before it.
     const all = pages.reverse().flatMap((p) => p.messages.map((m) => m.text.slice(0, 3)));
-    expect(all).toEqual(Array.from({ length: 70 }, (_, i) => `m${String(i).padStart(2, '0')}`));
-    expect((await agentRead(w, 'sess-dev', 'long', '?before=junk')).status).toBe(400);
+    expect(all).toEqual([...Array.from({ length: 70 }, (_, i) => `m${String(i).padStart(2, '0')}`), '@de']);
+    expect(all.some((t) => t.startsWith('old'))).toBe(false);
   });
 
-  it('shortens one message that is longer than a call with a marker, and still pages past it', async () => {
+  it('keeps one message that is longer than a call whole on its own page, and still pages past it', async () => {
     const w = await world();
     await open(w.edB, { name: 'huge' });
     const store = w.fleet.chat.core.store.public;
     await store.post('huge', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: 'older line' });
-    await store.post('huge', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: `HEAD${'y'.repeat(60_000)}TAIL` });
-    await store.post('huge', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: 'newest line' });
+    await store.post('huge', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: `HEAD${'y'.repeat(31_000)}TAIL` });
+    await callIn(w.edB, 'huge');
     const first = await agentRead(w, 'sess-dev', 'huge');
-    expect(first.body.messages.map((m: { text: string }) => m.text)).toEqual(['newest line']);
-    expect(first.body).toMatchObject({ more: true });
+    expect(texts(first)).toEqual(['@dev@ed-mbp look at this']);
+    expect(first.body.older).toEqual(expect.any(String));
     const second = await agentRead(w, 'sess-dev', 'huge', `?before=${encodeURIComponent(first.body.older)}`);
     expect(second.body.messages).toHaveLength(1);
-    const cut: string = second.body.messages[0].text;
-    expect(cut.startsWith('HEAD')).toBe(true);
-    expect(cut.length).toBeLessThanOrEqual(30_000);
-    expect(cut).toMatch(/\[cut: this message is 60,008 characters; the first \d[\d,]* are shown\]$/);
-    expect(second.body).toMatchObject({ more: true });
+    expect(second.body.messages[0].text).toMatch(/^HEAD.*TAIL$/);
     const third = await agentRead(w, 'sess-dev', 'huge', `?before=${encodeURIComponent(second.body.older)}`);
     expect(texts(third)).toEqual(['older line']);
-    expect(third.body).toMatchObject({ more: false, older: null });
+    expect(third.body.older).toBeNull();
   });
 
-  it('refuses a public channel\'s agent read to anyone but the person\'s own live agent: the admin secret, another person\'s agent, an ended agent, a browser sign-in and no credential', async () => {
+  it('refuses a public channel\'s agent read to anyone but the person\'s own live agent: the admin secret, another person\'s agent, an ended agent, a browser sign-in and no credential, even for an agent that was called in', async () => {
     const w = await world();
     await open(w.edB, { name: 'closed' });
+    await callIn(w.edB, 'closed');
+    expect((await agentRead(w, 'sess-dev', 'closed')).status).toBe(200);
     expect((await agentRead(w, 'sess-dev', 'closed', '', w.alex.token)).status).toBe(403);
     expect((await agentRead(w, 'sess-dev', 'closed', '', SECRET)).status).toBe(403);
     // A non-agent has no way in: a request with no token, and a browser's sign-in cookie (even an Administrator's), are refused and read nothing.
@@ -545,6 +592,7 @@ describe('an agent reads a public channel (#1035)', () => {
     }
     expect(bare.body).not.toHaveProperty('messages');
     expect((await agentPost(w, 'sess-dev', 'closed', { text: 'x' }, w.alex.token)).status).toBe(403);
+    expect((await agentPost(w, 'sess-dev', 'closed', { text: 'x' }, SECRET)).status).toBe(403);
     expect((await agentRead(w, 'sess-dev', 'nowhere')).status).toBe(404);
     expect((await agentPost(w, 'sess-dev', 'nowhere', { text: 'x' })).status).toBe(404);
     expect((await agentRead(w, 'sess-unknown', 'closed')).status).toBe(404);
@@ -554,9 +602,10 @@ describe('an agent reads a public channel (#1035)', () => {
     expect((await agentRead(w, 'sess-dev', 'closed')).status).toBe(404);
   });
 
-  it('keeps the posting rules for an agent: empty and long refused, the rate limit applies, and a reply must point at a message of the channel', async () => {
+  it('keeps the posting rules for an agent that was called in: empty and long refused, the rate limit applies, and a reply must point at a message of the channel', async () => {
     const w = await world();
     await open(w.edB, { name: 'rules' });
+    await callIn(w.edB, 'rules');
     expect((await agentPost(w, 'sess-dev', 'rules', { text: '  ' })).status).toBe(400);
     expect((await agentPost(w, 'sess-dev', 'rules', { text: 'x'.repeat(4001) })).status).toBe(422);
     const first = await agentPost(w, 'sess-dev', 'rules', { text: 'first' });
@@ -567,10 +616,10 @@ describe('an agent reads a public channel (#1035)', () => {
     const over = await agentPost(w, 'sess-dev', 'rules', { text: 'too many' });
     expect(over.status).toBe(429);
     expect(over.body.error).toMatch(/6 messages a minute/);
-    expect(texts(await read(w.alexB, 'rules'))).toEqual(['first', 'a reply', 'n0', 'n1', 'n2']);
+    expect(texts(await read(w.alexB, 'rules'))).toEqual(['@dev@ed-mbp look at this', 'first', 'a reply', 'n0', 'n1', 'n2']);
   });
 
-  it('leaves General\'s and My group\'s agent read as it was: only what called the agent in, inside the hour', async () => {
+  it('leaves General\'s agent read as it was: only what called the agent in, inside the hour', async () => {
     const w = await world();
     await say(w.edB, 'general', 'plain');
     expect((await agentRead(w, 'sess-dev', 'general')).status).toBe(403);
@@ -579,7 +628,7 @@ describe('an agent reads a public channel (#1035)', () => {
     expect(r.status).toBe(200);
     expect(r.body).not.toHaveProperty('more');
     expect(Object.keys(r.body.messages[0]).sort()).toEqual(['authorKind', 'authorName', 'createdAt', 'id', 'replyTo', 'text']);
-    w.tick(2 * 3_600_000);
+    w.tick(2 * HOUR);
     expect((await agentRead(w, 'sess-dev', 'general')).status).toBe(403);
   });
 });
@@ -641,9 +690,20 @@ describe('the privacy rule: a private message is never reachable through a publi
         expect(texts(r)).toEqual(['PUBLIC-X-LINE']);
         none(r.body);
       }
+      // An agent that was not called into it reads nothing of it, and an agent that was reads only that channel's own text.
       for (const [sid, token] of [['sess-dev', w.ed.token], ['sess-alex', w.alex.token]] as const) {
         const r = await agentRead(w, sid, name, '', token);
-        expect(texts(r)).toEqual(['PUBLIC-X-LINE']);
+        expect(r.status, `agent read ${name} uncalled`).toBe(403);
+        none(r.body);
+      }
+    }
+    await say(w.edB, 'x', '@dev@ed-mbp look');
+    await say(w.alexB, 'x', '@review@alex-box look');
+    for (const name of ['x', 'X']) {
+      for (const [sid, token] of [['sess-dev', w.ed.token], ['sess-alex', w.alex.token]] as const) {
+        const r = await agentRead(w, sid, name, '', token);
+        expect(r.status).toBe(200);
+        expect(texts(r)).toEqual(['PUBLIC-X-LINE', '@dev@ed-mbp look', '@review@alex-box look']);
         none(r.body);
       }
     }

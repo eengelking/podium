@@ -16,14 +16,7 @@ import {
 const HELD_PAGES = 10;
 const HELD_PAGE = 100;
 /** A read for an agent is cut at about this many characters; the cursor gets the rest. */
-export const AGENT_READ_CHARS = 30_000;
-/** A message longer than a whole agent read is shortened to fit one, and says so, so the agent knows it has not seen all of it. */
-export function cutForAgent(text: string): string {
-  if (text.length <= AGENT_READ_CHARS) return text;
-  const note = (shown: number): string => `\n[cut: this message is ${text.length.toLocaleString('en-US')} characters; the first ${shown.toLocaleString('en-US')} are shown]`;
-  const shown = AGENT_READ_CHARS - note(AGENT_READ_CHARS).length;
-  return text.slice(0, shown) + note(shown);
-}
+const AGENT_READ_CHARS = 30_000;
 /** The window an agent may read: fixed here, never chosen by the caller. */
 const AGENT_READ_WINDOW_MS = 60 * 60 * 1000;
 /** How many pages of 100 are searched for the call into a channel: far more than a channel gets in an hour. */
@@ -96,16 +89,6 @@ export interface AgentMessageView {
   replyTo: string | null;
 }
 export const agentMessageView = (m: ChannelMessage): AgentMessageView => ({ id: m.id, authorKind: m.authorKind, authorName: m.authorName, text: m.text, createdAt: m.createdAt, replyTo: m.replyTo });
-
-/** What an agent reads of a public channel (#1035): the same, and the owner of an agent's message, which a public reader has no other way to know (null for a person's). */
-export type PublicAgentMessageView = AgentMessageView & { authorOwner: string | null };
-
-/** What an agent's read of a public channel answers: the messages (oldest first), whether there are older ones, and the cursor to ask for them with (`before`). */
-export interface PublicAgentPage {
-  messages: PublicAgentMessageView[];
-  more: boolean;
-  older: string | null;
-}
 
 /** The flags a channel is under for the person it concerns: the group's own, or General's for everyone and for one person's agents. */
 export interface ChannelState {
@@ -299,42 +282,6 @@ export class ChannelChat {
         keep++;
       }
       return keep < page.messages.length ? await inHour(before, keep) : page;
-    } catch (err) {
-      return fail(400, (err as Error).message);
-    }
-  }
-
-  /** Whether any agent may read and post in the channel without having been called in: a public channel that someone opened. General and My group keep the call-in rule. */
-  openToAgents(channel: ChannelId): boolean {
-    return channel !== GROUP && channel !== GENERAL;
-  }
-
-  /**
-   * What an agent reads of a public channel besides General (#1035): its whole stored history, newest first by page, never limited to an hour or to a call into the
-   * channel, because everything in it is public. A call answers the newest messages that fit in about `AGENT_READ_CHARS` characters (whole messages only, oldest first),
-   * and `older` is the cursor (`before`) for the ones before them. One message longer than a call is shortened, with a marker that says so. Reading changes no mention.
-   */
-  async agentReadPublic(o: LiveOrchestrator, channel: ChannelId, before: string | null): Promise<PublicAgentPage | Fail> {
-    const flags = await this.flagsOf(channel, nameKey(o.owner), nameKey(o.owner));
-    if (flags.disconnected) return fail(403, `${channelName(channel)} is disconnected for your agents. Your person reconnects it.`);
-    const h = this.handle(channel, nameKey(o.owner));
-    try {
-      let page = await h.page({ before, limit: 50 });
-      let used = 0;
-      let keep = 0;
-      for (let i = page.messages.length - 1; i >= 0; i--) {
-        used += page.messages[i]!.text.length;
-        if (used > AGENT_READ_CHARS && keep > 0) break;
-        keep++;
-      }
-      // A page that does not fit is read again at the size that does, so the cursor it answers starts exactly before the first message kept.
-      if (keep < page.messages.length) page = await h.page({ before, limit: keep });
-      const owners = await this.ownersOf(page.messages);
-      return {
-        messages: page.messages.map((m) => ({ ...agentMessageView(m), text: cutForAgent(m.text), authorOwner: m.authorKind === 'person' ? null : (owners.get(m.authorRef) ?? null) })),
-        more: page.older !== null,
-        older: page.older,
-      };
     } catch (err) {
       return fail(400, (err as Error).message);
     }
@@ -580,13 +527,10 @@ export class ChannelChat {
     const limited = this.busy(`agent:${o.sessionId}`, limits);
     if (limited) return limited;
     // An agent answers a channel that called it in the last hour, the window it reads (#1065). It does not start a conversation nobody asked it to join.
-    // A public channel besides General is open to every agent to read and post in (#1035): that is what it is for, so it needs no call.
-    if (!this.openToAgents(channel)) {
-      try {
-        if (!(await this.calledInto(h, o, this.core.host.now() - AGENT_READ_WINDOW_MS))) return fail(403, NOT_CALLED);
-      } catch (err) {
-        return fail(400, (err as Error).message);
-      }
+    try {
+      if (!(await this.calledInto(h, o, this.core.host.now() - AGENT_READ_WINDOW_MS))) return fail(403, NOT_CALLED);
+    } catch (err) {
+      return fail(400, (err as Error).message);
     }
     const text = this.core.redact(checked.raw);
     const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;

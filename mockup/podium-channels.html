@@ -15,7 +15,7 @@
        the creator or an Admin edits the description; an Admin removes a channel.
      - Everything in a public channel is readable by every signed-in person, orchestrator and Admin, so an Admin reading one raises no
        notice (the same as General). A person and a person's orchestrator post; a subagent does not (its orchestrator posts).
-       An orchestrator reads a channel when it chooses to or when its turn ends; a post never interrupts a turn.
+       An orchestrator reads or posts in a channel only when an @ called it in during the last hour, and sees at most that hour (the same as General); a post never interrupts a turn.
      - New classes: ch-new (the "New channel" button in the Channels header), ch-desc (a channel's description in its header), ch-link
        (the "Linked to" chip), and ch-form (the fields in the New channel modal, which is the existing .scrim and .modal).
      - Direct Messages gets a "New direct message" button, the same shape as New channel: a modal where you pick one of your own agents or
@@ -575,7 +575,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     } else {
       title = '<span class="nm">' + esc(gname(x)) + '</span>' + (x.link ? '<span class="ch-link">' + I.link + esc(x.link) + '</span>' : ''); sub = x.kind === 'public' ? '<span>Opened by ' + esc(x.by) + '</span><span>' + x.n + ' messages</span>' + stateTag(x) : '<span>' + esc(x.sub) + '</span><span>' + x.n + ' messages</span>' + stateTag(x) + adminTags(x);
     }
-    var scope = x.kind === 'public' ? 'Everyone signed in to this server can read and post here: every person, orchestrator and Admin. A subagent does not post here; its orchestrator does. An orchestrator reads it when it chooses to or when its turn ends.' : x.kind === 'general' ? 'Everyone signed in to this server can read and post here.'
+    var scope = x.kind === 'public' ? 'Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour. A subagent does not post here; its orchestrator does.' : x.kind === 'general' ? 'Everyone signed in to this server can read and post here.'
       : x.kind === 'group' ? (ro(x) ? 'Only ' + ownerOf(x) + ' and ' + ownerOf(x) + '\'s own orchestrators, subagents and forks can post here. You are reading it as an Admin.' : 'Only you and your own orchestrators, subagents and forks can read and post here.')
       : x.kind === 'people' ? (ro(x) ? 'Only ' + ownerOf(x) + ', ' + x.also + ' and an Admin can read this.' : 'Only you, ' + dmName(x) + ' and an Admin can read this.')
       : x.cross ? 'Only you, ' + x.cross + ' and an Admin can read this. ' + x.cross + ' approves before anything is delivered to ' + nm(x.b) + '.'
@@ -665,7 +665,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var head = '<div class="page-h"><div><h1>Chat</h1><p class="lead">Talk with your orchestrators and subagents, read what they say to each other, and join in.</p></div></div>';
     return head + (S.nav ? '<div class="ch-nav" role="status">' + esc(S.nav) + '</div>' : '') + '<section class="asec" aria-label="Chat"><div class="ch-split" data-pane="' + S.pane + '">' + sidebar() + thread() + '</div></section>' +
       '<section class="asec" aria-labelledby="rules-h"><div class="asec-h"><div><h2 id="rules-h">Who can read what</h2></div></div><div class="panel"><ul class="plain">' +
-      '<li><b>General</b> and every channel someone opens are read and written by everyone signed in to this server, including every Admin and every orchestrator. An Admin reading one raises no notice, because nothing in it was private. A subagent does not post in a channel; its orchestrator does. The person who opens a channel, or an Admin, can edit its description; only an Admin removes a channel.</li>' +
+      '<li><b>General</b> and every channel someone opens are read and written by every person and Admin signed in to this server. An orchestrator reads or posts in one only when an @ called it in during the last hour, and sees at most that hour. An Admin reading one raises no notice, because nothing in it was private. A subagent does not post in a channel; its orchestrator does. The person who opens a channel, or an Admin, can edit its description; only an Admin removes a channel.</li>' +
       '<li><b>My group</b> is you and your own orchestrators, subagents and forks. No one else sees it.</li>' +
       '<li><b>Direct Messages</b> are read only by you and an Admin. A conversation between two agents shows you as the third person in it, and you can add to it. Delete conversation removes one from your list. One also goes away on its own once every agent session in it has ended or disconnected from Podium.</li>' +
       '<li>An <b>Admin</b> picks a person under <b>Read a person\'s conversations</b> to read their My group and Direct Messages. It is read only: an Admin cannot send in either, and can pause, disconnect or clear a group. While an Admin reads, the person sees a red notice at the top of the thread and an <b>Admin reading</b> tag on its row, and afterward a line stays in the thread saying when. Podium records it in the audit log, never the text.</li>' +
@@ -690,7 +690,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var d = edit || { name: errors ? 'issue-1035' : '', desc: '' }, link = edit ? edit.link : null;
     chWrap = document.createElement('div'); chWrap.className = 'podium podium-modal'; chWrap.setAttribute('data-theme', root.getAttribute('data-theme'));
     chWrap.innerHTML = '<div class="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="nc-h"><div class="mh"><div class="ttl"><h2 id="nc-h">' + (edit ? 'Edit description' : 'New channel') + '</h2></div><button type="button" class="x" data-nc-x aria-label="Close (Esc)">\u2715</button></div><div class="mb">' +
-      '<form class="ch-form" novalidate><p class="hint">Everyone signed in to this server can read and post in a channel, including every Admin and every orchestrator. Do not put anything here you would not want all of them to read.</p>' +
+      '<form class="ch-form" novalidate><p class="hint">Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in. Do not put anything here you would not want all of them to read.</p>' +
       '<label>Name<input class="field" id="nc-name" maxlength="40" autocomplete="off" value="' + esc(d.name) + '" placeholder="staging-incident"' + (edit ? ' disabled' : '') + ' aria-describedby="nc-name-hint"></label>' +
       '<p class="hint" id="nc-name-hint">' + (edit ? 'A name cannot be changed after the channel is made.' : 'Lowercase letters, numbers and hyphens. It cannot be changed later.') + '</p>' +
       '<label>Description<textarea class="field" id="nc-desc" maxlength="280" rows="3" placeholder="What this channel is for, and what belongs here.">' + esc(d.desc) + '</textarea></label><span class="count" id="nc-count"></span>' +
