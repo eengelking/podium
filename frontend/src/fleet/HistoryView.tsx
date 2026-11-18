@@ -14,7 +14,8 @@ import { FocusView } from "./components/FocusView";
 import { StreamTopBar } from "./components/StreamTopBar";
 import type { UseFleetOptions } from "./useFleet";
 import type { PeersApi, RespondApi } from "./respondApi";
-import { WallOptions } from "./components/WallOptions";
+import { PageBanner } from "./components/PageBanner";
+import { PAGE_INFO } from "./pageInfo";
 import { PAGE_SIZES, Pager } from "./admin/Pager";
 import { useTheme } from "./useTheme";
 import { useShortcuts } from "./useShortcuts";
@@ -171,13 +172,8 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
   return (
     <div className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
-        <StreamTopBar page="History" base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} onSignInChange={setSignedIn} />
-        <div className="banner has-picker" role="region" aria-label="Display settings">
-          <span>
-            <b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.
-          </span>
-          <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} />
-        </div>
+        <StreamTopBar page={PAGE_INFO.history.name} base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} onSignInChange={setSignedIn} />
+        <PageBanner name={PAGE_INFO.history.name} description={PAGE_INFO.history.description} wall={{ theme, shortcuts, onShortcuts: setShortcuts }} />
         <div className="history">
           <main className="main">
             {/* An open session carries its own h1; the day's list gets one a screen reader can find (#636). */}

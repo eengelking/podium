@@ -23,6 +23,6 @@ describe('wall: heartbeat lost', () => {
   it('removes a stale session with its own Remove button', () => {
     cy.card('api').parent().find('button.remove').click();
     cy.get('button.card.sc[data-session="e2e-s-api-gateway"]', { timeout: 15000 }).should('not.exist');
-    cy.get('button.info').should('have.attr', 'aria-label').and('match', /^11 shown/);
+    cy.get('.toolbar button.info').should('have.attr', 'aria-label').and('match', /^11 shown/);
   });
 });

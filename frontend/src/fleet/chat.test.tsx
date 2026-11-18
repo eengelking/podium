@@ -5,6 +5,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import axe from "axe-core";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
+import { PAGE_INFO } from "./pageInfo";
 import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer, LEAVE_MS } from "./store";
@@ -327,12 +328,17 @@ describe("the page", () => {
     await flush();
     const info = screen.getByRole("button", { name: "Chat privacy and controls" });
     expect(info).toHaveAttribute("aria-expanded", "false");
-    expect(info.closest(".ttl-row")).toContainElement(screen.getByRole("heading", { level: 1, name: "Chat" }));
+    // The (i) sits in the banner, beside the description, and the page body has no title or description of its own (#1209).
+    expect(info.closest(".banner")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Chat" })).toHaveClass("vh");
+    expect(document.querySelector(".apage .page-h")).toBeNull();
     expect(screen.queryByText(/A conversation with another person's agent is read by that person/)).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(info);
-    const dialog = screen.getByRole("dialog", { name: "Chat privacy and controls" });
+    const dialog = screen.getByRole("dialog", { name: "About Chat" });
     expect(info).toHaveAttribute("aria-expanded", "true");
+    expect(within(dialog).getByText(PAGE_INFO.chat.description)).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { level: 3, name: "Chat privacy and controls" })).toBeInTheDocument();
     for (const group of ["Who reads what", "How agents act", "Stopping a session", "Admins"]) expect(within(dialog).getByRole("heading", { level: 3, name: group })).toBeInTheDocument();
     expect(within(dialog).getAllByRole("listitem")).toHaveLength(8);
     expect(within(dialog).getByText(/A conversation with another person's agent is read by that person, the agent's owner and an Admin/)).toBeInTheDocument();

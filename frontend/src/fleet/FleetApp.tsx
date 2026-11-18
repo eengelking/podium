@@ -9,7 +9,9 @@ import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type Agen
 import { PAGE } from "./components/ActivityList";
 import type { AgentSort } from "./components/AgentTree";
 import { FocusView } from "./components/FocusView";
-import { WallOptions } from "./components/WallOptions";
+import { PageBanner } from "./components/PageBanner";
+import { ChatRules } from "./components/ChatRules";
+import { PAGE_INFO, myReportersDescription, type PageKey } from "./pageInfo";
 import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
@@ -257,6 +259,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const selSession = sel && Object.hasOwn(state.sessions, sel) ? state.sessions[sel] : null;
   const selGone = sel && Object.hasOwn(state.gone, sel) ? state.gone[sel] : null;
   const selected = showsOrchestrator ? selSession : null;
+  // The page's name (the chip) and description (the banner) come from one place (#1209).
+  const pageKey: PageKey = myReporters ? "myReporters" : myUsage ? "myUsage" : traffic ? "traffic" : chat ? "chat" : board ? "board" : selected ? "orchestrator" : "fleet";
+  const info = PAGE_INFO[pageKey];
 
   // One page, many routes: the title says which one is on screen (#636). History and Admin set their own.
   const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : myUsage ? `${APP_NAME} my usage` : traffic ? `${APP_NAME} traffic` : chat ? `${APP_NAME} chat` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
@@ -500,7 +505,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       )}
       <div className="app">
         <TopBar
-          page={myReporters ? "My reporters" : myUsage ? "My usage" : traffic ? "Traffic" : chat ? "Chat" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
+          page={info.name}
           myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: myReporters } : undefined}
           chat={peersOn ? { current: chat } : undefined}
           phase={state.phase}
@@ -527,32 +532,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
         ) : panes.collapsed.top ? null : (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              {myReporters ? (
-                <>
-                  <b>My reporters.</b> Your own machines, and which of them may message each other.
-                </>
-              ) : myUsage ? (
-                <>
-                  <b>My usage.</b> Your own spend, sessions and failures. Cost is an estimate from token counts and a price table, not a bill.
-                </>
-              ) : traffic ? (
-                <>
-                  <b>Traffic.</b> Which orchestrators message each other, and what they said.
-                </>
-              ) : chat ? (
-                <>
-                  <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
-                </>
-              ) : (
-                <>
-                  <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
-                </>
-              )}
-            </span>
-            <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} every={updateEvery} onEvery={onUpdateEvery} />
-          </div>
+          <PageBanner
+            name={info.name}
+            description={myReporters ? myReportersDescription((peers.data?.reporters.length ?? 0) > 0) : info.description}
+            wall={{ theme, shortcuts, onShortcuts: setShortcuts, every: updateEvery, onEvery: onUpdateEvery }}
+            more={chat && peersOn && signedIn?.signedIn ? { label: "Chat privacy and controls", tip: "Click to learn about chat privacy and controls", children: <ChatRules /> } : undefined}
+          />
         )}
         {traffic ? (
           <TrafficPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} peers={peers} api={trafficApiProp ?? trafficApi} now={now} />

@@ -40,6 +40,7 @@
 .adminv .apage { padding: 24px 32px 0; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .adminv .apage-in { display: grid; gap: 24px; align-content: start; flex: 1; padding-bottom: 32px; }
 .adminv .afoot-narrow { display: none; }
+.adminv .page-tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
 .adminv .page-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .adminv .asec { display: grid; gap: 12px; min-width: 0; }
 .adminv .asec-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }

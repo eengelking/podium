@@ -239,13 +239,13 @@ describe("FleetView collapsible shell", () => {
 
   it("hides the top bar and its banner with \\, and brings them back", () => {
     render(<FleetView state={stateFrom()} />);
-    expect(screen.getByText(/Live fleet\./)).toBeVisible();
+    expect(screen.getByText(/Every session on this machine, live\./)).toBeVisible();
     fireEvent.keyDown(document, { key: "\\" });
     expect(document.getElementById("podium-top")).not.toBeVisible();
-    expect(screen.queryByText(/Live fleet\./)).toBeNull();
+    expect(screen.queryByText(/Every session on this machine, live\./)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show top bar" }));
     expect(document.getElementById("podium-top")).toBeVisible();
-    expect(screen.getByText(/Live fleet\./)).toBeVisible();
+    expect(screen.getByText(/Every session on this machine, live\./)).toBeVisible();
   });
 
   it("hides and shows the top bar with an icon-only tab that keeps its name, tooltip and aria attributes (#402)", () => {

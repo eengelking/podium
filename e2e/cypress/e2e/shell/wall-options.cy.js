@@ -18,7 +18,7 @@ describe('wall options', () => {
 
   // Every page that shows the banner. Traffic's address is retired and opens Chat (#1034), so it is checked at that address too.
   const PAGES = [
-    { name: 'Live fleet', go: () => cy.openConsole('#/') },
+    { name: 'Fleet', go: () => cy.openConsole('#/') },
     { name: 'Board', go: () => cy.openConsole('#/board') },
     {
       name: 'My reporters',
@@ -53,7 +53,8 @@ describe('wall options', () => {
       shut();
       pill().should('have.attr', 'data-tip', 'Wall options');
       body().invoke('attr', 'id').then((id) => pill().should('have.attr', 'aria-controls', id));
-      cy.displaySettings().find('button, select').filter(':visible').should('have.length', 1);
+      // The (i) that opens a description or Chat's rules is not a display control (#1209).
+      cy.displaySettings().find('button, select').filter(':visible').not('.info').should('have.length', 1);
       pill().click();
       open();
       pill().should('have.attr', 'data-tip', 'Hide wall options');
@@ -77,7 +78,7 @@ describe('wall options', () => {
     cy.contains('Square color is the model').click();
     shut();
     cy.openWallOptions();
-    cy.displaySettings().contains('b', 'Live fleet.').click();
+    cy.displaySettings().find('.bt').click();
     shut();
   });
 
@@ -111,7 +112,7 @@ describe('wall options', () => {
     shut();
   });
 
-  it('shares each setting across pages: Refresh every and Shortcuts set on Admin show on Live fleet and History', () => {
+  it('shares each setting across pages: Refresh every and Shortcuts set on Admin show on Fleet and History', () => {
     cy.openAdmin();
     cy.openWallOptions();
     cy.contains('label.field', 'Refresh every').find('select').should('have.value', '2').select('20s');

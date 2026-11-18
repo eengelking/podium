@@ -249,7 +249,7 @@ export function Board(props: {
   return (
     <section className="kb" aria-label="Board" ref={root}>
       <div className="kb-head">
-        <h2>Board</h2>
+        <h2 className="vh">Board</h2>
         <span className="kb-seg" role="group" aria-label="Sessions shown">
           <button type="button" aria-pressed={plansOnly} onClick={() => setPref({ view: "plans" })}>
             Plans

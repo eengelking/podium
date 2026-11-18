@@ -3,6 +3,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
+import { PAGE_INFO } from "./pageInfo";
 import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
@@ -786,13 +787,11 @@ describe("the empty, off and error cases", () => {
     expect(line(/^claude-dashboard and Tester/)).toBeInTheDocument();
   });
 
-  it("names the people in the lead", async () => {
+  it("says what the page is for once, in the banner, and not again in the page body (#1209)", async () => {
     page({ traffic: fakeTraffic([link(DEV, TESTER), link(ARM, NOTES, { owner: "Ann" })]) });
     await flush();
-    expect(screen.getByText("Messages between each person's own orchestrators, on every machine that reports here.")).toBeInTheDocument();
-    cleanup();
-    page();
-    await flush();
-    expect(screen.getByText("Messages between Ed's orchestrators, on every machine that reports here.")).toBeInTheDocument();
+    expect(screen.getAllByText(PAGE_INFO.traffic.description)).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Traffic" })).toHaveClass("vh");
+    expect(document.querySelector(".apage .page-h")).toBeNull();
   });
 });

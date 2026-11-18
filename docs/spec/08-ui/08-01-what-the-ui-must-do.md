@@ -38,6 +38,25 @@ pages, responding, the orchestrator page and the right panel.
   reporter count and a control after it would move; the buttons stay at the far right.
 - No Pause or simulator buttons (those belong to the simulator script).
 
+**The info row** (#1209, `mockup/podium-page-title-once.html`)
+- The page's name is the page pill in the top bar and is not said again. The info row holds the page's description
+  alone, with no bold name before it, on every page that shows it. A page's name and description are one entry
+  (`pageInfo.ts`), so the pill, the row and the (i) cannot drift apart. No two pages share a name or a description.
+- The row is one line and its text stops at the middle of the row, or before the open drawer, whichever is nearer.
+  The text is cut only between sentences: the row shows as many whole sentences as fit, and a first sentence that
+  does not fit uses the whole row and is never cut inside. A description's first sentence is at most 36 characters,
+  so it fits at 400 px beside the (i) and the Wall options pill.
+- When a sentence is left out, an (i) button comes before the text, at the left edge of the row, clear of the top bar's
+  collapse tab, which hangs into the middle of the row. Hovering or focusing it shows the tip "Click to read
+  the full description"; a click opens a modal, under the (i) and not in the middle of the page, titled "About" and
+  the page's name, with the full description. The modal closes with its X, Esc or a click on the dimmed area and
+  gives focus back to the (i). It is as wide as its text needs, with the same padding on all four sides.
+- The page body does not say the name or the description again where the pill and the row already say them: Chat,
+  My reporters, My usage and Traffic start at their content, with a visually hidden `h1`. A page whose body has a
+  title and description of its own that differ from the pill and the row (each Admin page) keeps them. My usage's
+  Export is a row at the top of its body.
+- The Wall options drawer opens over the row and never makes it taller.
+
 **Wall options** (#1129, `mockup/podium-wall-options.html`)
 - The info row under the top bar ends in one drawer, Wall options (`WallOptions`), that holds the display controls:
   Refresh every, Shortcuts, Theme and Light / Dark / System, in that order. Every page that shows the row draws the
@@ -1234,7 +1253,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 - **Not signed in, or the admin secret.** General and the public channels are read and written by every signed-in person. The admin secret reads them and has
   no group, no Direct Messages and no counts of its own, and says so. An Admin reading a public channel sees no Admin-reading notice and the people in it are told nothing, because it is public.
 - A failed action says so in place ("Could not pause General: … Nothing changed. Try again.") and changes nothing.
-- The page title has an (i) button beside it. It opens **Chat privacy and controls**, the rules in short form, in a modal that closes with its X, Esc or a click on the dimmed area and gives focus back to the (i). The rules no longer sit under the thread (#1099).
+- The info row has an (i) button before its text, always (#1209; it was beside the page title, #1099). It opens **About Chat**: the page's description, then **Chat privacy and controls**, the rules in short form, in a modal under the (i) that closes with its X, Esc or a click on the dimmed area and gives focus back to the (i). The rules no longer sit under the thread (#1099).
 
 **Not in this release.** Sending selected messages to an agent did not ship. An agent's `@` of another agent in a channel is stored as not delivered. Joining, leaving or muting a channel, threads, reactions, editing a message, pins and search are not built.
 

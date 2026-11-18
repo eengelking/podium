@@ -11,6 +11,18 @@ const FOCUSABLE = "button:not([disabled]), a[href], select:not([disabled]), inpu
 /** Fields inside the dialog keep their own keys (Enter to send, arrows in a list); the shell's shortcuts already skip fields. */
 const FIELD = "input, textarea, select";
 
+/** The widest an anchored modal is, in pixels: the `.modal.anchor` width in fleet.css. */
+export const ANCHORED_WIDTH = 440;
+/** The room kept between an anchored modal and the window's edge. */
+const EDGE = 16;
+
+/** Where an anchored modal goes: 8 px under the element, its left edge 12 px left of it, kept inside the window. */
+export function anchoredAt(el: HTMLElement): { top: number; left: number } {
+  const r = el.getBoundingClientRect();
+  const width = Math.min(ANCHORED_WIDTH, window.innerWidth - 2 * EDGE);
+  return { top: Math.round(r.bottom + 8), left: Math.max(EDGE, Math.min(Math.round(r.left - 12), window.innerWidth - width - EDGE)) };
+}
+
 export function Modal(props: {
   titleId: string;
   title: ReactNode;
@@ -21,6 +33,8 @@ export function Modal(props: {
   onEscape?: () => boolean;
   onClose: () => void;
   className?: string;
+  /** Open under this element instead of in the middle of the page (#1209): the (i) in the banner that opened it. */
+  anchor?: HTMLElement | null;
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
@@ -65,15 +79,16 @@ export function Modal(props: {
     };
   }, []);
 
+  const place = props.anchor ? anchoredAt(props.anchor) : undefined;
   return createPortal(
     <div className="podium podium-modal">
       <div
-        className="scrim"
+        className={`scrim${place ? " anchor" : ""}`}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) props.onClose();
         }}
       >
-        <div className={`modal${props.className ? ` ${props.className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby={props.titleId} ref={dialog}>
+        <div className={`modal${place ? " anchor" : ""}${props.className ? ` ${props.className}` : ""}`} style={place} role="dialog" aria-modal="true" aria-labelledby={props.titleId} ref={dialog}>
           <div className="mh">
             <div className="ttl">
               <h2 id={props.titleId}>{props.title}</h2>
