@@ -54,7 +54,7 @@ describe('chat: public channels', () => {
     openChat('Ed');
     cy.get('nav[aria-label=Chat]').contains('button', 'New channel').should('not.be.disabled');
     openNewChannel();
-    cy.get('[role=dialog]').should('contain.text', 'Everyone signed in to this server can read and post in a channel');
+    cy.get('[role=dialog]').should('contain.text', 'Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in.');
     fillChannel(CH, DESC, ['Issue', '#12']);
     cy.contains('[role=dialog] button', 'Create channel').click();
     cy.get('[role=dialog]').should('not.exist');
@@ -65,7 +65,7 @@ describe('chat: public channels', () => {
     cy.chatRow(CH_ROW).find('button.ch-row').should('have.attr', 'aria-current', 'true');
     cy.contains('[role=status]', `Channel ${CH} created.`);
     cy.contains('Opened by Ed');
-    cy.contains('Everyone signed in to this server can read and post here: every person, orchestrator and Admin.');
+    cy.contains('Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour.');
     // The channel stays in the list across a reload, with General above it.
     cy.reload();
     cy.chatRow(CH_ROW).should('contain.text', DESC);
@@ -160,10 +160,13 @@ describe('chat: public channels', () => {
     call('DELETE', '/channels/general').its('status').should('eq', 403);
   });
 
-  it('lets an agent post and read in a channel it was never called into, and shows a second person the post', () => {
+  it('lets an agent read and post in a channel only after an @ called it in, as in General, and shows a second person the post', () => {
+    const NOT_CALLED = 'You were not called into this channel in the last hour.';
+    const agent = (method, channel, body) => cy.request({ method, url: `/api/fleet/sessions/${INVOICE}/chat/channels${channel}`, headers: edToken(), body, failOnStatusCode: false, log: false });
     cy.signIn('Ed');
-    cy.request({ method: 'POST', url: `/api/fleet/sessions/${INVOICE}/chat/channels/${CH}/messages`, headers: edToken(), body: { text: 'blockers: none from invoice-v2' }, log: false }).its('status', { log: false }).should('eq', 201);
-    cy.request({ url: `/api/fleet/sessions/${INVOICE}/chat/channels`, headers: edToken(), log: false }).then((r) => {
+    // The list of channels needs no call-in: General and every public channel, never My group.
+    agent('GET', '').then((r) => {
+      expect(r.status).to.eq(200);
       const names = r.body.channels.map((c) => c.name);
       expect(names).to.include.members(['general', CH]);
       expect(names).not.to.include('group');
@@ -171,24 +174,47 @@ describe('chat: public channels', () => {
       expect(mine.link).to.deep.eq({ kind: 'issue', ref: '12' });
       expect(mine.openedBy).to.eq('Ed');
     });
-    cy.request({ method: 'POST', url: `/api/fleet/sessions/${INVOICE}/chat/channels/no-such-channel/messages`, headers: edToken(), body: { text: 'hello' }, failOnStatusCode: false, log: false }).its('status').should('eq', 404);
+    // Not called in: neither a read nor a post, and the refusal says why.
+    agent('GET', `/${CH}/messages`).then((r) => {
+      expect(r.status).to.eq(403);
+      expect(r.body.error).to.eq(NOT_CALLED);
+    });
+    agent('POST', `/${CH}/messages`, { text: 'uninvited' }).then((r) => {
+      expect(r.status).to.eq(403);
+      expect(r.body.error).to.eq(NOT_CALLED);
+    });
+    agent('POST', '/no-such-channel/messages', { text: 'hello' }).its('status').should('eq', 404);
+    // Ed calls it in with an @ (his own agent: no approval is waited for).
+    call('POST', `/channels/${CH}/messages`, { text: '@invoice-v2@ed-mbp what blocks the cut?' }).its('status').should('eq', 201);
+    agent('GET', `/${CH}/messages`).then((r) => {
+      expect(r.status).to.eq(200);
+      expect(r.body.messages.map((m) => m.text)).to.deep.eq(['@invoice-v2@ed-mbp what blocks the cut?']);
+      expect(r.body.older).to.eq(null);
+    });
+    agent('POST', `/${CH}/messages`, { text: 'blockers: none from invoice-v2' }).its('status').should('eq', 201);
+    // A call into one channel is no call into another.
+    agent('GET', '/via-api-c/messages').then((r) => {
+      expect(r.status).to.eq(403);
+      expect(r.body.error).to.eq(NOT_CALLED);
+    });
+    agent('POST', '/via-api-c/messages', { text: 'uninvited' }).its('status').should('eq', 403);
     openChat('Alex');
     cy.chatRow(CH_ROW).find('.unread').should('exist');
     cy.chatRow(CH_ROW).find('button.ch-row').click();
-    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'blockers: none from invoice-v2').and('contain.text', 'orchestrator of Ed');
+    cy.tid('chat-message').should('have.length', 2).last().should('contain.text', 'blockers: none from invoice-v2').and('contain.text', 'orchestrator of Ed');
     cy.tid('chat-box').type('Alex here: the cut is tomorrow.{enter}');
-    cy.tid('chat-message').should('have.length', 2).last().should('contain.text', 'Alex here: the cut is tomorrow.');
+    cy.tid('chat-message').should('have.length', 3).last().should('contain.text', 'Alex here: the cut is tomorrow.');
     cy.chatRow(CH_ROW).find('.unread').should('not.exist');
-    // Ed sees it, and the agent reads both, newest page, with nothing more behind.
+    // The agent now reads the hour, all three, with nothing older behind.
     cy.signIn('Ed');
-    cy.request({ url: `/api/fleet/sessions/${INVOICE}/chat/channels/${CH}/messages`, headers: edToken(), log: false }).then((r) => {
-      expect(r.body.messages.map((m) => m.text)).to.deep.eq(['blockers: none from invoice-v2', 'Alex here: the cut is tomorrow.']);
-      expect(r.body.more).to.eq(false);
+    agent('GET', `/${CH}/messages`).then((r) => {
+      expect(r.body.messages.map((m) => m.text)).to.deep.eq(['@invoice-v2@ed-mbp what blocks the cut?', 'blockers: none from invoice-v2', 'Alex here: the cut is tomorrow.']);
+      expect(r.body.older).to.eq(null);
     });
     cy.openConsole('#/chat');
     cy.chatRow(CH_ROW).find('.unread').should('exist');
     cy.chatRow(CH_ROW).find('button.ch-row').click();
-    cy.tid('chat-message').should('have.length', 2).last().should('contain.text', 'Alex here: the cut is tomorrow.');
+    cy.tid('chat-message').should('have.length', 3).last().should('contain.text', 'Alex here: the cut is tomorrow.');
   });
 
   it('opens a Direct Message from New direct message to one of the person\'s own agents, and filters the list as they type', () => {
@@ -250,7 +276,7 @@ describe('chat: public channels', () => {
     call('GET', `/channels/${CH}/messages?limit=100`).its('body').should((b) => expect(JSON.stringify(b)).not.to.contain(MARK).and.not.to.contain(DM_MARK));
     cy.openConsole('#/chat');
     cy.chatRow(CH_ROW).find('button.ch-row').click();
-    cy.tid('chat-message').should('have.length', 2);
+    cy.tid('chat-message').should('have.length', 3);
     cy.tid('chat-thread').should('not.contain.text', MARK).and('not.contain.text', DM_MARK);
     // The group note is still there, in the group.
     cy.signIn('Ed');
@@ -268,7 +294,7 @@ describe('chat: public channels', () => {
     });
     cy.openConsole('#/chat');
     cy.chatRow(CH_ROW).find('button.ch-row').click();
-    cy.tid('chat-message').should('have.length', 2);
+    cy.tid('chat-message').should('have.length', 3);
     cy.tid('chat-ro-banner').should('not.exist');
     cy.tid('chat-reading-banner').should('not.exist');
     // Ed and Alex are told nothing: no reader on the channel, no record line, no banner.
@@ -281,7 +307,7 @@ describe('chat: public channels', () => {
       });
       cy.openConsole('#/chat');
       cy.chatRow(CH_ROW).find('button.ch-row').click();
-      cy.tid('chat-message').should('have.length', 2);
+      cy.tid('chat-message').should('have.length', 3);
       cy.tid('chat-reading-banner').should('not.exist');
       cy.chatRow(CH_ROW).should('not.contain.text', 'Admin reading');
     }
@@ -290,7 +316,7 @@ describe('chat: public channels', () => {
     cy.openConsole('#/chat');
     cy.tid('chat-read-as').select('Ed');
     cy.chatRow(CH_ROW).find('button.ch-row').click();
-    cy.tid('chat-message').should('have.length', 2);
+    cy.tid('chat-message').should('have.length', 3);
     cy.tid('chat-box').should('exist');
     cy.tid('chat-ro-banner').should('not.exist');
     cy.tid('chat-stop-reading').click();
