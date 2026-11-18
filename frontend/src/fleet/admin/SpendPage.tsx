@@ -1,7 +1,7 @@
 // Admin > Reporting > Spend (#484, #482, #483): three sections in order. Spend today (with the breakdown a row opens),
 // the Projection, and Spend over time, which is the shared report with the page's Export. Figures are estimated from tokens.
 import type { UseFleetOptions } from "../useFleet";
-import { PageHeader, Panel, Section } from "./Page";
+import { PageHeader, Section } from "./Page";
 import { TokenSection } from "./CostSections";
 import { ReportBody, ReportExport, ReportFilters } from "./ReportParts";
 import { SPEND_CONFIG, resultsHeading } from "./ReportPages";
@@ -20,10 +20,7 @@ export function SpendPage(props: { client: ReportsClient; fleetOptions?: UseFlee
       <SpendTab fleetOptions={props.fleetOptions} onCount={props.onCount} client={client} onLocked={onLocked} />
       <SpendProjection client={client} onLocked={onLocked} />
       <Section id="rep-spend-r" title="Spend over time" help={head.help}>
-        <Panel>
-          <ReportFilters client={client} r={r} />
-          <ReportBody r={r} />
-        </Panel>
+        <ReportBody r={r} lead={<ReportFilters client={client} r={r} />} />
       </Section>
       <TokenSection client={client} r={r} onLocked={onLocked} />
     </>

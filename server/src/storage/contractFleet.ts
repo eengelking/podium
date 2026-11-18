@@ -154,7 +154,8 @@ export function fleetCases(o: Openers): void {
       await f.insertBlowout({ session_id: 'b', agent_id: null, t: T0 + 1, kind: 'clear', tokens_before: null, tokens_after: null });
       await f.insertEvent({ id: 'e1', session_id: 'a', agent_id: null, t: T0, kind: 'compact', text: 't', data_json: '{"trigger":"auto"}' });
       await f.insertEvent({ id: 'e2', session_id: 'a', agent_id: null, t: T0 + 1, kind: 'compact', text: 't', data_json: '{"trigger":"manual"}' });
-      for (const [id, secs] of [['b', [100, 90, 95]], ['a', [100]]] as const) for (const t of secs) await f.upsertSample(sample(id, t));
+      // sessions a, b and c all have a sample at second 100, and b and c at 95: `t` is only unique within one session (#1136)
+      for (const [id, secs] of [['b', [100, 90, 95]], ['a', [100]], ['c', [100, 95]]] as const) for (const t of secs) await f.upsertSample(sample(id, t));
       const ids = ['c', 'missing', 'a', 'b'];
       const batched = await rec('sessions', f.getSessions(ids));
       const agents = await rec('agents', f.getAgentsOf(ids));
@@ -177,6 +178,7 @@ export function fleetCases(o: Openers): void {
         expect(blowouts.get(id)).toEqual(await f.getBlowouts(id));
         expect(compactions.get(id)).toBe(await f.countAutoCompactions(id));
         expect(samples.get(id)).toEqual(await f.samplesSince(id, 95));
+        expect(samples.get(id)!.map((r) => r.t)).toEqual([...new Set(samples.get(id)!.map((r) => r.t))].sort((x, y) => x - y)); // oldest first, each second once
         expect(latest.get(id)).toEqual(await f.latestSample(id)); // #750: the latest sample, or no entry for a session with none
       }
       expect([...agents.keys()]).toEqual(ids);

@@ -140,9 +140,7 @@ export function ReportPage({ cfg, client, onLocked }: { cfg: ReportConfig; clien
         </Panel>
       </Section>
       <Section id={`rep-${cfg.report}-r`} title={head.title} help={head.help}>
-        <Panel>
-          <ReportBody r={r} />
-        </Panel>
+        <ReportBody r={r} />
       </Section>
     </>
   );

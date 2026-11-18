@@ -245,67 +245,83 @@ function VersionTable({ reply }: { reply: ReportReply }) {
   const newest = (h: string, v: string) => reply.rows.some((x) => x.harness === h && x.version === v && x.newest === "Newest seen");
   return (
     <>
-      <div className="tool alone">
-        <div className="sum left">
-          {(reply.behind ?? []).map((b) => (
-            <div key={b.harness}>
-              <span className="big mono">
-                {b.behind} of {b.reporters}
-              </span>
-              <span className="cap">
-                {harnessName(b.harness)} reporters older than {b.newest}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="tw2">
-        <table className="ptab" aria-label="Reporters by harness version and period">
-          <thead>
-            <tr>
-              <th scope="col">Harness and version</th>
-              {periods.map((p) => (
-                <th key={p} scope="col" className="n">
-                  {p}
-                </th>
-              ))}
-              <th scope="col">Now</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map(([h, v]) => (
-              <tr key={`${h}-${v}`}>
-                <td className="who mono">
-                  {harnessName(h)} {v}
-                </td>
-                {periods.map((p) => (
-                  <td key={p} className="n mono">
-                    {num(at(h, v, p)?.reporters)}
-                  </td>
-                ))}
-                <td>{newest(h, v) ? "Newest seen" : "Older"}</td>
-              </tr>
+      <Panel>
+        <div className="tool alone">
+          <div className="sum left">
+            {(reply.behind ?? []).map((b) => (
+              <div key={b.harness}>
+                <span className="big mono">
+                  {b.behind} of {b.reporters}
+                </span>
+                <span className="cap">
+                  {harnessName(b.harness)} reporters older than {b.newest}
+                </span>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="note-line">A reporter counts in the period it reported. People and groups keeps its own list of the versions in use today.</div>
+          </div>
+        </div>
+      </Panel>
+      <Panel>
+        <div className="tw2">
+          <table className="ptab" aria-label="Reporters by harness version and period">
+            <thead>
+              <tr>
+                <th scope="col">Harness and version</th>
+                {periods.map((p) => (
+                  <th key={p} scope="col" className="n">
+                    {p}
+                  </th>
+                ))}
+                <th scope="col">Now</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map(([h, v]) => (
+                <tr key={`${h}-${v}`}>
+                  <td className="who mono">
+                    {harnessName(h)} {v}
+                  </td>
+                  {periods.map((p) => (
+                    <td key={p} className="n mono">
+                      {num(at(h, v, p)?.reporters)}
+                    </td>
+                  ))}
+                  <td>{newest(h, v) ? "Newest seen" : "Older"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="note-line">A reporter counts in the period it reported. People and groups keeps its own list of the versions in use today.</div>
+      </Panel>
     </>
   );
 }
 
-/** A section's panel while its answer is not here yet, or failed, or has nothing in it. */
-export function Waiting({ reply, error, problem, empty, children }: { reply: ReportReply | null; error: string | null; problem: string | null; empty: string; children: (reply: ReportReply) => React.ReactNode }) {
-  if (problem) return <div className="empty">Fix the period above to see the report.</div>;
+/**
+ * A section's panel while its answer is not here yet, or failed, or has nothing in it. With `split`, the caller puts no panel around it and
+ * `children` return their own panels (#1136), so the states here get one.
+ */
+export function Waiting({ reply, error, problem, empty, split = false, lead, children }: { reply: ReportReply | null; error: string | null; problem: string | null; empty: string; split?: boolean; lead?: React.ReactNode; children: (reply: ReportReply) => React.ReactNode }) {
+  const alone = (body: React.ReactNode) =>
+    split ? (
+      <Panel>
+        {lead}
+        {body}
+      </Panel>
+    ) : (
+      body
+    );
+  if (problem) return alone(<div className="empty">Fix the period above to see the report.</div>);
   if (error) {
-    return (
+    return alone(
       <div className="err" role="alert">
         {error}
-      </div>
+      </div>,
     );
   }
-  if (!reply) return <div className="empty">Loading…</div>;
-  if (reply.rows.length === 0) return reply.partial ? null : <div className="empty">{empty}</div>;
+  if (!reply) return alone(<div className="empty">Loading…</div>);
+  if (reply.rows.length === 0) return reply.partial ? alone(null) : alone(<div className="empty">{empty}</div>);
   return <>{children(reply)}</>;
 }
 
@@ -372,13 +388,13 @@ export function ToolsPage({ cfg, client, onLocked }: { cfg: ReportConfig; client
       </Section>
       <ToolCostSections client={client} r={r} onLocked={onLocked} />
       {!r.problem && <SkillsSection client={client} r={r} onLocked={onLocked} />}
-      <ToolSection id="rep-tools-x" title="Tool failures" help="Failures divided by calls, per tool. The bars show the number of failures, and the figure after each is its share of that tool's calls. Only counts are kept: no error text, arguments or paths.">
-        <Waiting reply={failures.reply} error={failures.error} problem={r.problem} empty="No tool was called in this period.">
+      <ToolSection split id="rep-tools-x" title="Tool failures" help="Failures divided by calls, per tool. The bars show the number of failures, and the figure after each is its share of that tool's calls. Only counts are kept: no error text, arguments or paths.">
+        <Waiting split reply={failures.reply} error={failures.error} problem={r.problem} empty="No tool was called in this period.">
           {(rep) => <FailuresSection r={r} reply={rep} />}
         </Waiting>
       </ToolSection>
-      <ToolSection id="rep-tools-p" title="Permission prompts" help="How often a tool asked before it ran, and how the ask ended.">
-        <Waiting reply={prompts.reply} error={prompts.error} problem={r.problem} empty="No tool asked for permission in this period.">
+      <ToolSection split id="rep-tools-p" title="Permission prompts" help="How often a tool asked before it ran, and how the ask ended.">
+        <Waiting split reply={prompts.reply} error={prompts.error} problem={r.problem} empty="No tool asked for permission in this period.">
           {(rep) => <PromptsSection reply={rep} />}
         </Waiting>
       </ToolSection>
@@ -395,11 +411,9 @@ export function ToolsPage({ cfg, client, onLocked }: { cfg: ReportConfig; client
         </Panel>
       </Section>
       <Section id="rep-tools-v" title="Harness versions" help="Reporters on each version, per period. Each harness is compared only with its own newest version.">
-        <Panel>
-          <Waiting reply={versions.reply} error={versions.error} problem={r.problem} empty="No reporter reported a version in this period.">
-            {(rep) => <VersionTable reply={rep} />}
-          </Waiting>
-        </Panel>
+        <Waiting split reply={versions.reply} error={versions.error} problem={r.problem} empty="No reporter reported a version in this period.">
+          {(rep) => <VersionTable reply={rep} />}
+        </Waiting>
       </Section>
     </>
   );
