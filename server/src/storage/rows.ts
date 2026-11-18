@@ -579,7 +579,7 @@ export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> &
  * What a reporter's name adds to its key (#849): nothing for the Claude Code reporter, so every key and ignore rule made before
  * the name was stored stays valid, and `@<name>` for any other, so two reporters on one machine are two rows.
  */
-export function nameSuffix(reporterName: string | undefined | null): string {
+function nameSuffix(reporterName: string | undefined | null): string {
   const name = canonicalReporterName(reporterName);
   return name === CLAUDE_REPORTER_NAME ? '' : `@${name}`;
 }

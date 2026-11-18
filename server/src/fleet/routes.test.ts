@@ -372,7 +372,7 @@ describe('the activity feed (#118)', () => {
   });
 
   it('keeps nothing for a loop nobody watches, and never puts entries in the session view', async () => {
-    const { app, fleet, viewer } = await setupSignedIn();
+    const { app, fleet } = await setupSignedIn();
     const r = live([{ at: Date.now(), kind: 'tool', text: 'Read a' }]);
     await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
     expect(fleet.activity.size).toBe(0);
@@ -492,7 +492,7 @@ describe('DELETE /sessions/:id', () => {
 
 describe('POST /sessions/:id/drop', () => {
   it('removes a stale session without a token; 409 while it is not stale; 404 when unknown', async () => {
-    const { app, fleet, storage } = await setup('t');
+    const { app, storage } = await setup('t');
     const r = fixtureReport();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', 't').send(r);
     expect((await request(app).post(`/api/fleet/sessions/${r.session.id}/drop`)).status).toBe(409);

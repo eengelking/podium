@@ -12,7 +12,7 @@ const FOCUSABLE = "button:not([disabled]), a[href], select:not([disabled]), inpu
 const FIELD = "input, textarea, select";
 
 /** The widest an anchored modal is, in pixels: the `.modal.anchor` width in fleet.css. */
-export const ANCHORED_WIDTH = 440;
+const ANCHORED_WIDTH = 440;
 /** The room kept between an anchored modal and the window's edge. */
 const EDGE = 16;
 

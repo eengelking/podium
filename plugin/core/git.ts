@@ -2,7 +2,7 @@
 // queries through an injected runner (the mod passes `$.process.run`).
 import type { ChangedFile, FileStatus, FilesReport, GitInfo } from './protocol.ts';
 
-export interface RunResult {
+interface RunResult {
   exitCode: number;
   stdout: string;
 }

@@ -4,7 +4,7 @@ import { activityCall, parseExitCode } from '../../core/failures.ts';
 import { commandDetail, outputDetail } from '../../core/feed.ts';
 import type { ActivityEntry } from '../../core/protocol.ts';
 // The limits and the text clean-up moved to core/feed.ts for the OpenCode reporter (#969); they are still exported from here.
-export { commandDetail, DETAIL_CHARS_PER_REPORT, DETAIL_LIMIT, outputDetail, stripControl, type Detail } from '../../core/feed.ts';
+export { commandDetail, DETAIL_LIMIT, outputDetail, stripControl } from '../../core/feed.ts';
 
 /** The first line of a failed Bash call's text, with its line break (or alone, when nothing was printed). */
 const EXIT_LINE = /^Exit code -?\d{1,3}(?:\n|$)/;

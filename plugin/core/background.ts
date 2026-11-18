@@ -15,7 +15,7 @@ export const BACKGROUND_KEPT_FINISHED = 20;
 /** Items a loop sends at most, the server's `LIMITS.backgroundItems`. */
 export const BACKGROUND_MAX_ITEMS = 60;
 /** The longest label (the command's first word) an item carries, the server's `LIMITS.backgroundLabel`. */
-export const BACKGROUND_LABEL = 80;
+const BACKGROUND_LABEL = 80;
 /** Characters of commands and output over one report, the server's `LIMITS.backgroundDetailChars`. */
 export const BACKGROUND_DETAIL_CHARS_PER_REPORT = 200_000;
 /** An id is an identifier, not free text: cut at the server's limit. */
@@ -24,7 +24,7 @@ const ID_MAX = 200;
 /** Said at the start of an output that began before what is shown: the newest text is kept, so the cut is at the front. */
 export const BACKGROUND_CUT_MARKER = '[older output cut off, newest 20,000 characters shown]\n';
 /** Said at the end of a command that is longer than the limit. */
-export const BACKGROUND_COMMAND_CUT_MARKER = '\n\n[cut off at 20,000 characters]';
+const BACKGROUND_COMMAND_CUT_MARKER = '\n\n[cut off at 20,000 characters]';
 
 /** What a harness found about one background item, before anything is redacted or cut. */
 export interface RawBackgroundItem {

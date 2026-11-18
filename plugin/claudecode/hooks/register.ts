@@ -28,7 +28,6 @@ import {
   notification,
   permissionRequest,
   permissionAsked,
-  PLAN_TOOL,
   reconcile,
   resetForNewId,
   describeBackground,
@@ -68,7 +67,7 @@ import { contextArgs } from '../../core/podiumCommand.ts';
 import { isConfigArgs } from '../../core/settingsWindow.ts';
 import { registerConfigPane } from './configPane.tsx';
 import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
-import { activityCall, activityText, cap, explainPrompt } from '../../core/failures.ts';
+import { activityText, cap, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { pinnedMachineName, readOsName, type HostIO } from '../../core/machineHost.ts';

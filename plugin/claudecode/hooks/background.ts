@@ -137,10 +137,8 @@ export function bgItems(s: SessionState, loop: string, detail: boolean): Backgro
   return keepBackground(items);
 }
 
-export const bgLoopOf = loopOf;
-
 /** A background task's id as Claude Code names it: a short token, never a path. */
-export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The task a Bash call with `run_in_background` or a Monitor call started, from what its result carries; null for any other call. */
 export function backgroundStartOf(tool: string, input: Record<string, unknown>, call: Record<string, unknown>): { id: string; kind: 'shell' | 'monitor'; command: string } | null {

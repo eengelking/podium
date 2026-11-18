@@ -4,13 +4,13 @@ import { MAIN_LOOP } from '../../core/protocol.ts';
 import { withinBackgroundBudget } from '../../core/background.ts';
 import { pct } from '../../core/contextFill.ts';
 import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
-import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures.ts';
+import { cap, clip, excerpt, reportedFailure } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
 import { resumeWindowDays } from '../../core/resumeWindow.ts';
 import { family, windowOf } from './models.ts';
 import { reportStats } from '../../core/toolStats.ts';
 import { toPlan } from '../../core/plan.ts';
-import type { ActivityEntry, ActivityEvent, AgentReport, Ask, BackgroundItem, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
+import type { ActivityEvent, AgentReport, Ask, BackgroundItem, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
 import { bgItems } from './background.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
 

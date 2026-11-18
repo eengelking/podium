@@ -54,8 +54,8 @@ export const personId = (owner: string): string => `person:${nameKey(owner)}`;
 export const isPersonId = (id: string): boolean => id.startsWith('person:');
 
 /** The scope keys of a channel's flags in `settings`: General for everyone, General for one person's agents, and a group. */
-export const GLOBAL_SCOPE = 'public:global';
-export const personScope = (owner: string): string => `public:person:${nameKey(owner)}`;
+const GLOBAL_SCOPE = 'public:global';
+const personScope = (owner: string): string => `public:person:${nameKey(owner)}`;
 export const groupScope = (owner: string): string => `group:${nameKey(owner)}`;
 /** The same two flags of a public channel other than General (#1035): its own keys, so pausing one never touches General or another. General keeps its keys. */
 export const channelGlobalScope = (c: ChannelId): string => (c === GENERAL ? GLOBAL_SCOPE : `channel:${c}:global`);

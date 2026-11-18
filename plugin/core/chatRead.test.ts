@@ -205,7 +205,6 @@ describe('answering in the channel that called the agent (#1065)', () => {
 describe('public channels: addressing, listing and paging for an agent (#1035)', () => {
   const stamp = Date.UTC(2026, 10, 17, 9, 0, 0);
   const msg = (i: number, text: string, over: Record<string, unknown> = {}) => ({ id: `m${i}`, authorKind: 'person', authorName: 'Ed', text, createdAt: stamp + i * 60_000, replyTo: null, ...over });
-  const page = (messages: unknown[], over: Record<string, unknown> = {}) => ({ ok: true, channel: 'issue-1035', messages, older: null, ...over });
 
   test('a public channel is addressed by its name, in the same places general and group are', () => {
     expect(channelAddress('issue-1035')).toBe('channel:issue-1035');

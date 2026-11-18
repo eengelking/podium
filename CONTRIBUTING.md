@@ -56,7 +56,8 @@ Its output, `dist-dev/`, is git-ignored. `npm run plugin:build` and `plugin:dev`
 ```sh
 npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
-npm run build          # UI and server build, scripts type-check
+npm run build          # UI and server build, scripts type-check; also fails on an unused import or local (`noUnusedLocals`, tests included)
+npm run knip           # fails on an unused file, dependency or export, and names it (CI runs it on every PR)
 npm run plugin:build    # build dist-dev/<harness>/ with the dev stamp, for trying the reporter from your checkout; fails if it is not self-contained
 npm run plugin:build:release  # the release build: empties dist/ and builds every harness there with no stamp (only release-prep commits it)
 npm run plugin:dist:check     # fails unless the tracked dist/ is exactly what a clean build of plugin/ produces (CI runs it on a PR into main)
@@ -80,6 +81,13 @@ scripts/podium-opencode-demo.sh --help  # `start` checks the reporter certificat
 node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in headless Chrome, save a PNG, optionally run JavaScript in it
 node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
 ```
+
+**Unused code** is checked two ways (#1210). `noUnusedLocals` is on in every `tsconfig.json`, so `npm run build` (and `npm run typecheck:mod:opencode`
+and `:claudecode` for the reporters) fails on an unused import or local, test files included; delete the name, and where the call has an effect
+the test needs, keep the call and drop only the name. `npm run knip` reads `knip.jsonc`, which lists the entry points (a test file is one, so a symbol
+only a test uses counts as used) and reports an unused file, dependency or export with its file and name. Fix a finding by deleting the symbol or dropping
+`export` from it. To keep something on purpose, add it to `knip.jsonc` in the section it belongs to, with the reason on the line above; use it only for a name
+that is reached some way knip cannot follow (a path in a manifest, a module loaded by a string, a host-supplied package), never to silence a finding.
 
 `page-shot.mjs` is how to see a UI change at a narrow width in the built app. Start a throwaway server on its own port and database
 (`PORT=4391 PODIUM_DB=/tmp/x.sqlite PODIUM_TOKEN=secret node server/dist/index.js` after `npm run build`), seed it, and run
