@@ -2,7 +2,7 @@
 // opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
 // of the agent's state when pointed at or focused, the same colors as its icon.
 import type { MouseEvent, ReactNode } from "react";
-import { adminPauseOf, channelTag, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { adminPauseOf, channelTag, MAX_PUBLIC_CHANNELS, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
@@ -57,7 +57,10 @@ export interface SidebarProps {
   onMenu: (key: string | null, by: "button" | "context") => void;
   onClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
-  onChannel: (id: "general" | "group") => void;
+  onChannel: (id: string) => void;
+  /** Opens the New channel and New direct message forms (#1035). */
+  onNewChannel: () => void;
+  onNewDm: () => void;
   onDm: (d: DirectInfo) => void;
   onAgent: (a: ChatAgent) => void;
   /** The person an Admin is reading, or null. While set the sidebar is read only: no unread counts, no People and agents. */
@@ -101,14 +104,14 @@ export function ChatSidebar(p: SidebarProps) {
 
   const channelRow = (c: ChatChannel) => {
     const ro = p.readAs !== null && c.id === "group";
-    const sub = c.id === "general" ? "Everyone signed in to this server" : ro ? `${p.readAs}'s own orchestrators and subagents, read only` : `You and your ${o.agents.length} orchestrator${o.agents.length === 1 ? "" : "s"} and subagents`;
+    const sub = c.id === "general" ? "Everyone signed in to this server" : c.kind === "public" ? c.description || "No description yet." : ro ? `${p.readAs}'s own orchestrators and subagents, read only` : `You and your ${o.agents.length} orchestrator${o.agents.length === 1 ? "" : "s"} and subagents`;
     const readers = ro ? [] : liveReaders(c.adminReading, p.serverNow);
     const pause = c.id === "group" && c.paused && c.pausedByAdmin ? adminPauseOf({ paused: true, pausedByAdmin: c.pausedByAdmin }) : null;
     const badge = ro ? null : c.mentions > 0 ? <span className="unread" aria-label={`${c.mentions} mention${c.mentions === 1 ? "" : "s"} of you`}>@ {c.mentions}</span> : c.unread > 0 ? <span className="unread" aria-label={`${c.unread} new`}>{c.unread}</span> : null;
     const menu = channelMenu(c, ro && p.readAs ? { owner: p.readAs } : undefined);
     return row(`c:${c.id}`, menu.items.length || menu.why ? menu : null, (
       <>
-        {c.id === "general" ? <ChHash /> : <ChGroup />}
+        {c.kind === "public" ? <ChHash /> : <ChGroup />}
         <span className="stack">
           <span className="nm">{c.name}</span>
           <span className="sub">{sub}</span>
@@ -151,11 +154,21 @@ export function ChatSidebar(p: SidebarProps) {
   };
 
   const reading = p.readAs !== null;
+  // The server keeps 50 public channels besides General; at the limit New channel is off and says why (#1035).
+  const capped = o.channels.filter((c) => c.kind === "public" && c.id !== "general").length >= MAX_PUBLIC_CHANNELS;
   return (
     <nav className="ch-side" aria-label="Chat">
       {o.me.admin && <ReadPicker people={o.people.filter((x) => !x.you).map((x) => x.name)} value={p.picked} onChange={p.onReadAs} />}
       <section className="ch-sec" aria-labelledby="sec-ch">
         <h2 id="sec-ch">Channels</h2>
+        <button type="button" className="btn sm ch-new" aria-haspopup="dialog" disabled={capped} aria-describedby={capped ? "cap-why" : undefined} onClick={p.onNewChannel}>
+          New channel
+        </button>
+        {capped && (
+          <p className="hint ch-pad" id="cap-why">
+            This server has {MAX_PUBLIC_CHANNELS} channels, the most it keeps. An Admin can remove one that is no longer used.
+          </p>
+        )}
         <ul className="ch-list">{o.channels.map(channelRow)}</ul>
       </section>
       {reading ? (
@@ -167,6 +180,9 @@ export function ChatSidebar(p: SidebarProps) {
         <>
           <section className="ch-sec" aria-labelledby="sec-dm">
             <h2 id="sec-dm">Direct Messages</h2>
+            <button type="button" className="btn sm ch-new" aria-haspopup="dialog" aria-label="New direct message" onClick={p.onNewDm}>
+              New message
+            </button>
             <ul className="ch-list">
               {(o.approvals ?? 0) > 0 && (
                 <li className="ch-pad">

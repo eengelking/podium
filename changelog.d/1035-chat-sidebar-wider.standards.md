@@ -1,0 +1,1 @@
+Makes the Chat sidebar wider, `clamp(300px, 30%, 360px)` in place of a fixed 280px, so two Direct Message names and four second lines are no longer cut off; the narrow layout is unchanged. The maintainer approved the width in the mockup `mockup/podium-channels.html` (#1035).

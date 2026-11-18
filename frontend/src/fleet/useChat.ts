@@ -97,7 +97,7 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
 }
 
 /** What the open thread is, whichever store it comes from: the channel's id, or a Direct Message's two ids. */
-export type Selection = { kind: "channel"; id: "general" | "group" } | { kind: "dm"; a: string; b: string; key: string };
+export type Selection = { kind: "channel"; id: string } | { kind: "dm"; a: string; b: string; key: string };
 
 export const selKey = (s: Selection | null): string | null => (s === null ? null : s.kind === "channel" ? `c:${s.id}` : `d:${s.key}`);
 
@@ -249,7 +249,7 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
 }
 
 /** What `@` can mean in a channel, read when the box first needs it and again each time it opens, so a new agent shows. */
-export function useAddresses(api: ChatApi, channel: "general" | "group" | null) {
+export function useAddresses(api: ChatApi, channel: string | null) {
   const [list, setList] = useState<Address[]>([]);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {

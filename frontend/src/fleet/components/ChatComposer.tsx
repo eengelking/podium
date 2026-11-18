@@ -23,7 +23,7 @@ export interface ComposerProps {
   sending: boolean;
   onSend: () => void;
   /** The channel `@` is for; null where `@` means nothing (a Direct Message). */
-  channel: "general" | "group" | null;
+  channel: string | null;
   addresses: Address[];
   loadAddresses: () => Promise<void>;
   stateOf: (a: Address) => StateKind | null;

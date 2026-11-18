@@ -1,5 +1,5 @@
 /* Chat (#1034, mockup/podium-chat.html). Colors come from tokens.css; the ch- classes are new. */
-.ch-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.ch-split { display: grid; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
 .ch-sec { padding: 4px 0 8px; }
 .ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
@@ -167,3 +167,46 @@
 .rl h3 + ul li:first-child { border-top: 0; }
 .rl li .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--ink2); }
 .rl li p { margin: 0; max-width: 64ch; }
+
+/* Public channels and the two forms (#1035, mockup/podium-channels.html): New channel and New message sit in their section's heading, a channel
+   shows its description and its link, and the forms are the console's modal. */
+.ch-sec { position: relative; }
+.podium .ch-new { position: absolute; right: 12px; top: 3px; }
+.ch-head .ch-desc { margin-top: 4px; color: var(--ink2); font-size: 13px; overflow-wrap: anywhere; max-width: 80ch; }
+.ch-link { display: inline-flex; gap: 6px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; font-weight: 400; color: var(--ink2); white-space: nowrap; }
+.ch-link svg { width: 12px; height: 12px; flex: none; }
+.ch-form { display: grid; gap: 12px; }
+.ch-form label { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
+.ch-form .hint, .ch-form p { margin: 0; }
+.ch-form .hint { color: var(--muted); font-size: 12px; }
+/* The modal sits outside .adminv, so its fields are styled here with the same tokens as .adminv .field. */
+.podium .ch-form .field { width: 100%; min-width: 0; box-sizing: border-box; min-height: 32px; padding: 0 10px; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; color: var(--ink); font: inherit; }
+.podium .ch-form textarea.field { min-height: 72px; padding: 8px 10px; resize: vertical; }
+.podium .ch-form .field:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.podium .ch-form .field[aria-invalid="true"] { border-color: var(--crit-text); }
+.podium .ch-form .field:disabled { color: var(--muted); }
+.ch-form .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; }
+.ch-form .count { justify-self: end; margin-top: -8px; font-size: 11px; color: var(--muted); }
+.ch-form .acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.ch-form .dm-set { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; }
+.podium .modal .mb .dm-pick { box-sizing: border-box; width: 100%; max-width: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; max-height: 232px; overflow: auto; list-style: none; }
+.dm-pick li { margin: 0; }
+.dm-pick h3 { margin: 0; padding: 6px 12px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.dm-pick label { display: flex; gap: 10px; align-items: center; padding: 8px 12px; cursor: pointer; color: var(--ink); font-size: 13px; }
+.dm-pick label:hover { background: var(--hover); }
+.dm-pick label:has(input:checked) { background: var(--sel); font-weight: 600; }
+.dm-pick label:has(input:focus-visible) { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.dm-pick label[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
+.dm-pick label[aria-disabled="true"]:hover { background: transparent; }
+.dm-pick .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.dm-pick .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
+.dm-pick .none { padding: 12px; color: var(--muted); }
+.podium .dm-pick .si { width: 16px; height: 16px; flex: none; }
+.podium .dm-pick .si-running { color: var(--good-text); }
+.podium .dm-pick .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .dm-pick .si-bg, .podium .dm-pick .si-deleg { color: var(--deleg-text); }
+.podium .dm-pick .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.podium .dm-pick .si-done { color: var(--ink2); }
+@media (max-width: 760px) {
+  .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
+}

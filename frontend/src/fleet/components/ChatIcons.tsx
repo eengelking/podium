@@ -107,3 +107,10 @@ export const ChWarn = () => (
     <path d="M8 2.2L14.2 13H1.8zM8 6.5v3M8 11.3v.1" />
   </svg>
 );
+
+/** A channel's link to an issue, a milestone or a project (#1035). */
+export const ChLink = () => (
+  <Ic>
+    <path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.6.6M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.6-.6" />
+  </Ic>
+);

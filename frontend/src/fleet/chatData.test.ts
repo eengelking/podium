@@ -1,8 +1,9 @@
 // Chat's words and small rules (#1034): the tags, the delivery lines, the `@` query and the message parts, without drawing.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   type AdminReadKind,
   addressMatches,
+  chatApi,
   adminPauseOf,
   adminWho,
   liveReaders,
@@ -56,7 +57,11 @@ const dm = (a: Party, b: Party, over: Partial<DirectInfo> = {}): DirectInfo => (
 });
 const chan = (over: Partial<ChatChannel> = {}): ChatChannel => ({
   id: "general",
+  kind: "public",
   name: "General",
+  description: "",
+  link: null,
+  openedBy: null,
   thread: "public",
   unread: 0,
   mentions: 0,
@@ -64,7 +69,7 @@ const chan = (over: Partial<ChatChannel> = {}): ChatChannel => ({
   paused: false,
   pausedForEveryone: false,
   disconnected: false,
-  can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false },
+  can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: false, removeChannel: false },
   ...over,
 });
 const cm = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
@@ -336,5 +341,42 @@ describe("a reason without its closing full stop", () => {
     const t0 = Date.now();
     expect(plain(". ".repeat(25_000) + "x")).toBe(". ".repeat(25_000) + "x");
     expect(Date.now() - t0).toBeLessThan(500);
+  });
+});
+
+// ---- The calls of public channels and of New direct message (#1035) ----------------------------------------------------------
+
+describe("the calls for public channels and the direct message picker (#1035)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ ok: true, targets: [] }) }));
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
+  const last = (f: ReturnType<typeof stub>) => {
+    const [url, init] = f.mock.calls[f.mock.calls.length - 1] as unknown as [string, RequestInit];
+    return { url, method: init.method, body: init.body ? JSON.parse(init.body as string) : undefined, headers: init.headers as Record<string, string> };
+  };
+
+  it("opens a channel with its name, description and link, with the respond header", async () => {
+    const f = stub();
+    await chatApi.createChannel("staging-incident", "What broke.", { kind: "issue", ref: "#1035" });
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels", method: "POST", body: { name: "staging-incident", description: "What broke.", link: { kind: "issue", ref: "#1035" } }, headers: { "X-Podium-Respond": "1" } });
+  });
+
+  it("changes a description, removes a channel, and encodes a channel's name", async () => {
+    const f = stub();
+    await chatApi.describeChannel("a b", "new");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b", method: "PATCH", body: { description: "new" } });
+    await chatApi.removeChannel("a b");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b", method: "DELETE" });
+  });
+
+  it("asks for the people it may message, narrowed by what is typed", async () => {
+    const f = stub();
+    await chatApi.directTargets();
+    expect(last(f).url).toBe("/api/fleet/respond/chat/direct-targets");
+    await chatApi.directTargets("doc s");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/direct-targets?q=doc%20s", method: "GET" });
   });
 });

@@ -6,7 +6,7 @@ import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, typ
 import { ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
-export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open";
+export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open" | "edit" | "remove-channel";
 
 export interface MenuItem {
   act: MenuAct;
@@ -74,19 +74,23 @@ export function dmMenu(d: DirectInfo, owns: boolean, readOnly = false): MenuSpec
   return { label, items };
 }
 
-/** A channel's stop buttons. Pause holds and keeps access, Disconnect takes the agents' access away, Remove all deletes the history. */
+/** A channel's stop buttons. Pause holds and keeps access, Disconnect takes the agents' access away, Remove all deletes the history. A public channel adds Edit description and Remove channel (#1035). */
 export function channelMenu(c: ChatChannel, reading?: { owner: string }): MenuSpec {
   const general = c.id === "general";
-  const mine = general ? "my agents in General" : reading ? `every agent in ${reading.owner}'s group` : "every agent in the group";
+  const pub = c.kind === "public";
+  const mine = pub ? `my agents in ${c.name}` : reading ? `every agent in ${reading.owner}'s group` : "every agent in the group";
   const heldByMe = c.paused && !c.pausedForEveryone;
   // An Admin's pause on a group is the Admin's to lift: its person sees the item and the reason, and nothing happens.
-  const held = !general && !reading && heldByMe && c.pausedByAdmin ? `Paused by ${adminWho(c.pausedByAdmin)}. Only an Admin can resume it.` : null;
+  const held = !pub && !reading && heldByMe && c.pausedByAdmin ? `Paused by ${adminWho(c.pausedByAdmin)}. Only an Admin can resume it.` : null;
   const items: MenuItem[] = [];
   if (c.can.pause) items.push({ act: "pause", label: `${heldByMe ? "Resume" : "Pause"} ${mine}`, icon: heldByMe ? <ChPlay /> : <ChPause />, ...(held ? { disabled: held } : {}) });
   if (c.can.disconnect) items.push({ act: "disconnect", label: `${c.disconnected ? "Reconnect" : "Disconnect"} ${mine}`, icon: <ChPause /> });
-  if (general && c.can.pauseEveryone) items.push({ act: "pause-all", label: c.pausedForEveryone ? "Resume General for everyone" : "Pause General for everyone", icon: <ChPause /> });
+  if (pub && c.can.pauseEveryone) items.push({ act: "pause-all", label: `${c.pausedForEveryone ? "Resume" : "Pause"} ${c.name} for everyone`, icon: <ChPause /> });
+  if (c.can.editDescription) items.push({ act: "edit", label: "Edit description…", icon: <ChMsg /> });
+  if (c.can.removeChannel) items.push({ act: "remove-channel", label: "Remove channel…", icon: <ChTrash />, danger: true });
   if (c.can.removeAll) items.push({ act: "clear", label: "Remove all messages…", icon: <ChTrash />, danger: true });
-  return { label: `Actions for ${c.name}`, items, ...(general && !c.can.removeAll ? { why: "Only an Admin can pause General for everyone or remove its messages." } : {}) };
+  const why = general && !c.can.removeAll ? "Only an Admin can pause General for everyone or remove its messages." : pub && !general && !c.can.removeAll ? `Only an Admin can pause ${c.name} for everyone or remove its messages or the channel.` : null;
+  return { label: `Actions for ${c.name}`, items, ...(why ? { why } : {}) };
 }
 
 /** An agent's menu, in People and agents and on a thread's participants: start a message, or open its orchestration page. */
