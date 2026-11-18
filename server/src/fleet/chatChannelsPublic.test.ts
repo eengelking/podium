@@ -741,3 +741,60 @@ describe('starting a Direct Message from the picker (#1035)', () => {
     expect((await w.edB.post(`${CH}/dm/me/sess-nobody/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
   });
 });
+
+describe('an agent lists the channels (#1035)', () => {
+  const list = (s: S, sid: string, token?: string) => request(s.app).get(`/api/fleet/sessions/${sid}/chat/channels`).set('X-Podium-Token', token ?? s.ed.token);
+
+  it('answers General first and then every public channel by name, with metadata and counts and never a message', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'zeta', description: 'Last by name.' });
+    await open(w.alexB, { name: 'issue-1035', description: 'The channels issue.', link: { kind: 'issue', ref: '#1035' } });
+    await say(w.edB, 'issue-1035', 'SECRET-BODY-TEXT');
+    await say(w.edB, 'issue-1035', 'second');
+    await say(w.edB, 'general', 'hello everyone');
+    const r = await list(w, 'sess-dev');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.channels.map((c: { name: string }) => c.name)).toEqual(['general', 'issue-1035', 'zeta']);
+    expect(r.body.channels[0]).toEqual({ name: 'general', description: '', link: null, openedBy: null, messages: 1, paused: false, disconnected: false });
+    expect(r.body.channels[1]).toEqual({ name: 'issue-1035', description: 'The channels issue.', link: { kind: 'issue', ref: '#1035' }, openedBy: 'Alex', messages: 2, paused: false, disconnected: false });
+    expect(JSON.stringify(r.body)).not.toContain('SECRET-BODY-TEXT');
+    expect(JSON.stringify(r.body)).not.toMatch(/group/i);
+  });
+
+  it('flags a channel disconnected or paused for this person only', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'quiet' });
+    expect((await w.edB.put(`${CH}/channels/quiet/disconnect`).set(H).send({ disconnected: true })).status).toBe(200);
+    expect((await w.edB.put(`${CH}/channels/quiet/pause`).set(H).send({ paused: true })).status).toBe(200);
+    const mine = (await list(w, 'sess-dev')).body.channels.find((c: { name: string }) => c.name === 'quiet');
+    expect(mine).toMatchObject({ disconnected: true, paused: true });
+    const theirs = (await list(w, 'sess-alex', w.alex.token)).body.channels.find((c: { name: string }) => c.name === 'quiet');
+    expect(theirs).toMatchObject({ disconnected: false, paused: false });
+  });
+
+  it('lists only General when nobody has opened a channel', async () => {
+    const w = await world();
+    expect((await list(w, 'sess-dev')).body.channels.map((c: { name: string }) => c.name)).toEqual(['general']);
+  });
+
+  it('refuses the admin secret, another person\'s agent, a browser sign-in, no credential, an unknown session and messaging off', async () => {
+    const w = await world();
+    expect((await list(w, 'sess-dev', SECRET)).status).toBe(403);
+    expect((await list(w, 'sess-dev', w.alex.token)).status).toBe(403);
+    expect((await list(w, 'sess-unknown')).status).toBe(404);
+    const bare = await request(w.app).get('/api/fleet/sessions/sess-dev/chat/channels');
+    expect([401, 403]).toContain(bare.status);
+    const viaCookie = await w.edB.get('/api/fleet/sessions/sess-dev/chat/channels');
+    expect([401, 403]).toContain(viaCookie.status);
+    expect(viaCookie.body).not.toHaveProperty('channels');
+    const off = await setup({ flag: false });
+    expect((await list(off, 'sess-dev')).status).toBe(403);
+  });
+
+  it('refuses a session whose reporter has messaging off', async () => {
+    const w = await world();
+    expect((await dev(w, { status: 'running', waitReason: null, peers: false })).status).toBe(200);
+    expect((await list(w, 'sess-dev')).status).toBe(403);
+  });
+});

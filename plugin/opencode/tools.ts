@@ -59,8 +59,7 @@ export function podiumTools(reporter: Reporter): PodiumTool[] {
       description: TOOL_DESCRIPTIONS.chatRead,
       input: {
         type: 'object',
-        properties: { channel: { type: 'string', enum: ['general', 'group'], description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
-        required: ['channel'],
+        properties: { channel: { type: 'string', description: CHAT_READ_CHANNEL_DESCRIPTION }, before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION } },
       },
       execute: peerTool('podium_chat_read'),
     },

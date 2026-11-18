@@ -32,6 +32,7 @@ const ROUTES: { file: string; method: string; path: string; audience: 'dm' | 'ch
   { file: 'chatDmRoutes.ts', method: 'post', path: '/chat/dm/:a/:b/reading', audience: 'dm' },
   { file: 'chatDmRoutes.ts', method: 'put', path: '/chat/dm/:a/:b/link', audience: 'dm' },
   { file: 'chatDmRoutes.ts', method: 'delete', path: '/chat/dm/:a/:b', audience: 'dm' },
+  { file: 'chatAgentRoutes.ts', method: 'get', path: '/sessions/:id/chat/channels', audience: 'agent' },
   { file: 'chatAgentRoutes.ts', method: 'post', path: '/sessions/:id/chat/channels/:channel/messages', audience: 'agent' },
   { file: 'chatAgentRoutes.ts', method: 'get', path: '/sessions/:id/chat/channels/:channel/messages', audience: 'agent' },
 ];

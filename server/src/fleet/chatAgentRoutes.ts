@@ -10,6 +10,7 @@ import { peersEnabled, type PeerDeps } from './peerRoutes.js';
 import { agentMessageView } from './chatChannels.js';
 import type { Fail } from './chatTypes.js';
 import type { LiveOrchestrator } from './peerTypes.js';
+import type { PublicChannel } from '../storage/types.js';
 
 export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
@@ -47,6 +48,28 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     return channel;
   };
   const failed = (req: Request, res: Response, f: Fail) => refuse(req, res, f.status, f.error);
+
+  /** The channels an agent can use (#1035): General and every public channel, as the catalogue says them (decision 69), never My group and never a message. The flags are this person's. */
+  router.get('/sessions/:id/chat/channels', d.requireToken, asyncHandler(async (req, res) => {
+    const o = await session(req, res);
+    if (!o) return;
+    const person = nameKey(o.owner);
+    const entry = async (name: string, meta: PublicChannel | null) => {
+      const flags = await fleet.chat.channels.flagsOf(name, null, person);
+      return {
+        name,
+        description: meta?.description ?? '',
+        link: meta?.link ?? null,
+        openedBy: meta ? meta.createdByName || null : null,
+        messages: await fleet.chat.channels.total(name, null),
+        paused: flags.paused,
+        disconnected: flags.disconnected,
+      };
+    };
+    const channels = [await entry('general', null)];
+    for (const c of await fleet.chat.core.store.channels.list()) channels.push(await entry(c.name, c));
+    res.json({ ok: true, channels });
+  }));
 
   router.post('/sessions/:id/chat/channels/:channel/messages', d.requireToken, json, asyncHandler(async (req, res) => {
     const o = await session(req, res);
