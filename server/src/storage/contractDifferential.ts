@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { ID_MAX, PeopleError } from './rows.js';
 import { session } from './contract.js';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import type { KnownDefect } from './contractAdapter.js';
 import type { Storage } from './types.js';
 
 /** A small seeded generator (mulberry32): the same seed gives the same program on every machine. */
@@ -200,6 +201,33 @@ function trackedCase(o: Openers, id: string, body: (s: Storage, adapter: string)
   };
 }
 
+export type Divergence = NonNullable<Awaited<ReturnType<typeof firstDivergence>>>;
+
+/** The listed defect (`known` with an `input`) of one of these adapters whose input is in the arguments of these steps. */
+function trackedBy(o: Openers, adapters: string[], steps: Step[]): KnownDefect | undefined {
+  if (STRICT) return undefined;
+  return o.adapters.filter((x) => adapters.includes(x.name)).flatMap((x) => x.known).find((k) => k.input && steps.some((step) => anyValue(step.args, k.input!)));
+}
+
+/**
+ * Says what a divergence is. A call that carries an input a `known` list names is a known difference and costs the comparison that found it (#1201): shrinking
+ * it would open a database on every adapter for every trial, and 39 of 40 random programs reach one. Any other divergence is shrunk, so a new defect still
+ * reports the fewest calls that show it; a shrunk program that holds a listed input is still listed.
+ */
+export async function settleDivergence(o: Openers, steps: Step[], d: Divergence, replaySeed: number): Promise<{ tracked: KnownDefect | undefined; report: string }> {
+  const at = steps.slice(0, d.at + 1);
+  const early = trackedBy(o, [d.a, d.b], [steps[d.at]!]);
+  const small = early ? at : await shrink(o, at);
+  const e = early ? d : (await firstDivergence(o, small))!;
+  const report = [
+    `${e.a} and ${e.b} disagree (seed ${replaySeed}, replay with PODIUM_DIFF_SEED=${replaySeed}), after ${small.length} call(s)${early ? ' (not shrunk: a listed difference)' : ''}:`,
+    ...small.map((x, i) => `  ${i === e.at ? '>' : ' '} ${x.target}(${x.args.map(show).join(', ')})`),
+    `  ${e.a}: ${show(e.want)}`,
+    `  ${e.b}: ${show(e.got)}`,
+  ].join('\n');
+  return { tracked: early ?? trackedBy(o, [e.a, e.b], small.slice(0, e.at + 1)), report };
+}
+
 export function differentialCases(o: Openers): void {
   describe('differential', () => {
     const seed = seedOf();
@@ -211,15 +239,7 @@ export function differentialCases(o: Openers): void {
         const steps = program(seed + n, LENGTH);
         const d = await firstDivergence(o, steps);
         if (!d) continue;
-        const small = await shrink(o, steps.slice(0, d.at + 1));
-        const e = (await firstDivergence(o, small))!;
-        const tracked = STRICT ? undefined : o.adapters.filter((x) => x.name === e.a || x.name === e.b).flatMap((x) => x.known).find((k) => k.input && small.slice(0, e.at + 1).some((step) => anyValue(step.args, k.input!)));
-        const report = [
-          `${e.a} and ${e.b} disagree (seed ${seed + n}, replay with PODIUM_DIFF_SEED=${seed + n}), after ${small.length} call(s):`,
-          ...small.map((x, i) => `  ${i === e.at ? '>' : ' '} ${x.target}(${x.args.map(show).join(', ')})`),
-          `  ${e.a}: ${show(e.want)}`,
-          `  ${e.b}: ${show(e.got)}`,
-        ].join('\n');
+        const { tracked, report } = await settleDivergence(o, steps, d, seed + n);
         if (tracked) { console.warn(`TRACKED by ${tracked.issue} (${tracked.why}):\n${report}`); continue; }
         throw new Error(report);
       }
