@@ -865,6 +865,8 @@ body.modal-open #root { filter: blur(5px); }
 .podium .banner .bt-wrap { flex: 0 1 auto; min-width: 0; max-width: max(260px, min(50%, calc(100% - 690px))); min-height: 28px; display: flex; align-items: center; gap: 6px; }
 .podium .banner .bt-wrap.full { max-width: calc(100% - 40px); }
 .podium .banner .bt { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* While the (i) is not there the text keeps its room (24 px button and 6 px gap), so a text that just fits is not cut when the (i) appears after the fit. */
+.podium .banner .bt-wrap:not(:has(button.info)) .bt { margin-right: 30px; }
 .podium .banner .bt-wrap button.info { display: inline-flex; order: 0; margin-left: 0; cursor: pointer; }
 .podium .banner .bt-wrap button.info .tip { right: auto; left: 0; }
 .podium .banner .bt-wrap button.info[aria-expanded="true"] { color: var(--ink); background: var(--sel); }

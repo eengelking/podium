@@ -22,7 +22,6 @@ import { Tip } from "./components/Tip";
 /** The part of a session this page reads: its harness and the machine it runs on. */
 type SessionHarness = { harness?: string | null; machine?: { id: string } | null };
 
-
 const ON_REQUEST = [
   { id: "ask", label: "Ask me" },
   { id: "allow", label: "Allow" },

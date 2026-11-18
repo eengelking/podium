@@ -58,7 +58,6 @@ export function ChatRules() {
           <p>An <b>Admin</b> picks a person under <b>Read a person&apos;s conversations</b> to read their My group and Direct Messages. It is read only: an Admin cannot send in either, and can pause, disconnect or clear a group. While an Admin reads, the person sees a red notice at the top of the thread and an <b>Admin reading</b> tag on its row, and afterward a line stays in the thread saying when. Podium records it in the audit log, never the text.</p>
         </li>
       </ul>
-
     </>
   );
 }
