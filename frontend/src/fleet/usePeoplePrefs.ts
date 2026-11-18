@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { readJson, writeJson } from "./storage";
 import { GROUP_BYS, UNIT_ORDERS, type GroupBy, type UnitOrder } from "./people";
 
-export const PREFS_KEY = "podium.people";
+const PREFS_KEY = "podium.people";
 
 export interface PeoplePrefs {
   groupBy: GroupBy;

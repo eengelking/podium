@@ -13,7 +13,7 @@ const OUTPUT_FLAG = "activity-output";
 const BACKGROUND_FLAG = "background-output";
 
 /** The warning under the Bash output flag (#431, mockup/podium-feed-expand-admin.html): what output holds, and who can read it. Shown while the switch is on. */
-export function OutputWarning() {
+function OutputWarning() {
   return (
     <div className="warnbar" role="note">
       <WarnIcon />

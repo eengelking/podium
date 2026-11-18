@@ -12,7 +12,7 @@ import { ServingRenewer, SERVING_DEFAULTS, type ServingSettings } from './tlsRen
 import { caCanOverlap, retireCa, rotateCa, TrustStore } from './tlsRotation.js';
 import { tlsDir } from './tlsStorage.js';
 
-export const DEFAULT_TLS_PORT = 4318;
+const DEFAULT_TLS_PORT = 4318;
 
 export interface StartTlsOptions {
   env: NodeJS.ProcessEnv;

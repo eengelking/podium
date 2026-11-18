@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { PEER_LIMITS } from '../../fleet/protocol.js';
 import { type PeerLimits, type PeerServerSettings, PEER_DEFAULTS, KEYS, peerSettingError } from '../settings.js';
 
 const KEY = 'peer_settings';

@@ -6,7 +6,7 @@ import { Modal } from "./Modal";
 // reporter's userName and token options. The same form sits in the Activity modal's answer panel and in the top bar's
 // small dialog. The token field is cleared after a wrong try and never kept.
 
-export const SIGN_HINT = "Signs in this browser. An Admin can use the name Admin with the admin secret.";
+const SIGN_HINT = "Signs in this browser. An Admin can use the name Admin with the admin secret.";
 
 const ERRORS: Record<Exclude<SignInResult, "ok">, string> = {
   wrong: "That name and token don't match. Check the userName and token options in podium-reporter.",

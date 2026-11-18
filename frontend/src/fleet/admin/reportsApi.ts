@@ -285,7 +285,7 @@ export function isNumericColumn(col: ReportColumn, sample: unknown): boolean {
   return (sample === null || sample === undefined) && (kind === "usd" || kind === "tokens" || kind === "seconds" || kind === "percent");
 }
 
-export function whenAt(t: number): string {
+function whenAt(t: number): string {
   return new Date(t).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 

@@ -5,7 +5,7 @@ import { serverVersion } from '../fleet/compat.js';
 import { createLogger, parseFormat, parseLevel, type Level, type LogFormat, type Logger } from './logger.js';
 import { displayUrl, LogShipper, parseShipHeaders, shipUrl } from './shipper.js';
 
-export interface LoggingSettings {
+interface LoggingSettings {
   level: Level;
   format: LogFormat;
   shipping: boolean;
@@ -22,7 +22,7 @@ export interface ServerLogging {
   close(maxMs?: number): Promise<void>;
 }
 
-export const DEFAULT_SHIP_BUFFER = 2000;
+const DEFAULT_SHIP_BUFFER = 2000;
 const MAX_SHIP_BUFFER = 100_000;
 
 export function createServerLogging(

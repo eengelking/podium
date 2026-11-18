@@ -29,7 +29,7 @@ const KEEP_ALIVE_MS = 15_000;
 const GENERAL: Selection = { kind: "channel", id: "general" };
 
 /** What an error of a send says: the server's own words for 429, 409 and 422, and what to do for the rest. */
-export function sendFailure(err: unknown): string {
+function sendFailure(err: unknown): string {
   if (err instanceof RespondError && (err.status === 429 || err.status === 409 || err.status === 422)) return err.message;
   return `Could not send: ${plain(failReason(err))}. Nothing was sent. Try again.`;
 }
@@ -290,7 +290,6 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   }
 
   const own = (c: ChatChannel): boolean => ro && c.id === "group";
-  const owns = (d: DirectInfo) => o.me.person && d.owner.toLowerCase() === o.me.name.toLowerCase();
   const startAgent = (a: ChatAgent) => {
     const existing = ownDmWith(o.directs, a.sessionId);
     if (existing) return select({ kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: dmKey(existing) });

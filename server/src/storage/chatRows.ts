@@ -5,8 +5,8 @@ import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
 import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal } from './types.js';
 
-export const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
-export const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
+const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
+const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
 
 /** The `settings` key that holds this server's scope, minted once. */
 export const CHAT_SCOPE_KEY = 'chat_scope';
@@ -73,7 +73,7 @@ export function holdsHeld(m: ChannelMessage, sessionId?: string): boolean {
   return m.mentions.some((x) => x.state === 'held' && (sessionId === undefined || x.sessionId === sessionId));
 }
 
-export function parseMentions(json: string): ChannelMention[] {
+function parseMentions(json: string): ChannelMention[] {
   return JSON.parse(json) as ChannelMention[];
 }
 
@@ -117,8 +117,8 @@ export const emptyReadState = (person: string, thread: string): { person: string
 });
 
 /** What the Admin's Chat settings are until changed, and the whole numbers each takes. */
-export const CHAT_DEFAULTS: ChatSettings = { retainDays: 30, graceHours: 24, maxChars: 4000, perMinute: 6 };
-export const CHAT_RANGES: Record<keyof ChatSettings, { min: number; max: number }> = {
+const CHAT_DEFAULTS: ChatSettings = { retainDays: 30, graceHours: 24, maxChars: 4000, perMinute: 6 };
+const CHAT_RANGES: Record<keyof ChatSettings, { min: number; max: number }> = {
   retainDays: { min: 1, max: 365 },
   graceHours: { min: 1, max: 720 },
   maxChars: { min: 1, max: 20_000 },

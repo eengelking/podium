@@ -6,15 +6,13 @@ export type { ModelUsage };
 
 export const PRICES_AS_OF = '2026-10-13';
 /** Upper bound for one price, USD per million tokens: catches a typo, not a real price. */
-export const MAX_PRICE = 1000;
-/** A request whose prompt (input + cache reads + cache writes) is over this pays a model's `long` tier. */
-export const LONG_PROMPT_TOKENS = 100_000;
+const MAX_PRICE = 1000;
 
 export type PriceSet = ModelPriceSet;
 
 export interface ModelPrice {
   std: PriceSet;
-  /** Higher prices for a prompt over `LONG_PROMPT_TOKENS`; only some models (Haiku 5.5) have one. */
+  /** Higher prices for a prompt over 100,000 tokens (the reporters decide the tier); only some models (Haiku 5.5) have one. */
   long?: PriceSet;
 }
 

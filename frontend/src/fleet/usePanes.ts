@@ -5,8 +5,8 @@
 import { useCallback, useState } from "react";
 import { readJson, writeJson } from "./storage";
 
-export type Pane = "left" | "right" | "top";
-export type Collapsed = Record<Pane, boolean>;
+type Pane = "left" | "right" | "top";
+type Collapsed = Record<Pane, boolean>;
 /** The console page the flags belong to: each keeps its own. */
 export type PanesPage = "fleet" | "board" | "reporters" | "usage" | "chat";
 const ALL: Collapsed = { left: true, right: true, top: true };

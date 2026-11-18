@@ -90,9 +90,9 @@ export interface ReportReply {
   [extra: string]: unknown;
 }
 
-export const MAX_SPAN_DAYS = 400;
+const MAX_SPAN_DAYS = 400;
 const NAME_MAX = 200;
-export const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload' | 'costs' | 'harness', readonly string[]> = {
+const BREAKDOWNS: Record<'spend' | 'sessions' | 'failures' | 'tools' | 'sessiontime' | 'workload' | 'costs' | 'harness', readonly string[]> = {
   spend: ['none', 'person', 'group', 'model', 'project'],
   sessions: ['outcome', 'model', 'effort', 'plan'],
   failures: ['class', 'tool', 'person'],
@@ -216,7 +216,7 @@ const harnessVersionOf = (r: Raw): HarnessVersionDay => ({ day: String(r.day), h
 const select = (db: FleetStore, table: RollupTable, from: string, to: string): Promise<RollupRaw[]> => db.rollupRows(table, from, to);
 
 /** The first day the rollups hold, or today when they hold none yet (today is always read live). */
-export async function oldestRollupDay(db: FleetStore, today: string): Promise<string> {
+async function oldestRollupDay(db: FleetStore, today: string): Promise<string> {
   let oldest = today;
   for (const t of ROLLUP_TABLES) {
     const d = await db.rollupOldestDay(t);
@@ -232,7 +232,7 @@ export async function oldestRollupDay(db: FleetStore, today: string): Promise<st
 export interface Scope {
   readonly owner: string | null;
 }
-export const FLEET: Scope = { owner: null };
+const FLEET: Scope = { owner: null };
 export function personScope(owner: string): Scope {
   if (owner.trim() === '') throw new Error('a person scope needs the person');
   return { owner };
@@ -578,7 +578,7 @@ function harnessFilter(q: Query): string | null {
 }
 
 /** An MCP tool is `mcp__<server>__<tool>`; every other name has no server. */
-export function mcpSplit(name: string): { server: string; tool: string } {
+function mcpSplit(name: string): { server: string; tool: string } {
   if (!name.startsWith('mcp__')) return { server: '', tool: name };
   const end = name.indexOf('__', 5);
   return end > 5 && end + 2 < name.length ? { server: name.slice(5, end), tool: name.slice(end + 2) } : { server: '', tool: name };
@@ -870,7 +870,6 @@ async function toolsReport(deps: ReportDeps, q: Query, cost: CostOf, scope: Scop
 // ---- session time and workload (#722) ------------------------------------------------------------------
 
 const TIME_TABLES: readonly RollupTable[] = ['session_time_daily', 'agents_daily'];
-const WORKLOAD_TABLES: readonly RollupTable[] = ['person_sessions_daily', 'hour_peaks_daily'];
 
 /** The oldest day any of `tables` covers, or today when none does yet: they started later than the other rollups, and a gap is never drawn as zeros. */
 async function oldestDayOf(db: FleetStore, tables: readonly RollupTable[], today: string): Promise<string> {
@@ -901,7 +900,7 @@ const waitOf = (r: SessionTimeDay, k: Reason): { s: number; n: number } => (k ==
 const ANSWER_KINDS = ['permission', 'question', 'plan', 'message'] as const;
 type AnswerKind = (typeof ANSWER_KINDS)[number];
 /** The row `writeRollups` leaves for each day it ran, so "recorded since" is the day Podium began counting and not the day of the first answer. It holds no answer. */
-export const ANSWER_MARKER = 'none';
+const ANSWER_MARKER = 'none';
 const answerOf = (r: Raw): Omit<AnswerDay, 'kind'> & { kind: string } => ({ day: String(r.day), harness: String(r.harness), kind: String(r.kind), bucket: Number(r.bucket), answers: Number(r.count) });
 
 /**
@@ -1627,8 +1626,8 @@ function reportOf(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportR
 
 // ---- projection (#483) -----------------------------------------------------------------------------
 
-export const PROJECTION_MIN_DAYS = 7;
-export const PROJECTION_MIN_ACTIVE_DAYS = 3;
+const PROJECTION_MIN_DAYS = 7;
+const PROJECTION_MIN_ACTIVE_DAYS = 3;
 const HORIZONS = ['month', '30d'] as const;
 const WINDOWS = [7, 14, 30] as const;
 

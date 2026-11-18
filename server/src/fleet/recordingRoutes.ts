@@ -27,7 +27,7 @@ export const recordingEnabled = (fleet: Fleet, token: string | null): boolean =>
 
 
 /** The Admin log row and the server log line for one recording event, never any text of the recording. */
-export async function logRecording(people: PeopleStoreApi | null, logger: Logger, now: number, kind: string, detail: string, source: string, actor: string | null, fields: Record<string, string | number | boolean | null>): Promise<void> {
+async function logRecording(people: PeopleStoreApi | null, logger: Logger, now: number, kind: string, detail: string, source: string, actor: string | null, fields: Record<string, string | number | boolean | null>): Promise<void> {
   await people?.log(kind, detail, source, now, actor);
   logger.info(`recording.${kind.replace(/^recording_/, '')}`, `podium: ${detail}`, { ...fields, source });
 }

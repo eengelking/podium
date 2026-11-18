@@ -73,7 +73,7 @@ export function EffortMeter({ effort }: { effort: string | null }) {
 
 export type StatusKind = "running" | "waiting" | "stale" | "done" | "failed" | "queued" | "aborted";
 
-export const STATUS_LABEL: Record<StatusKind, string> = {
+const STATUS_LABEL: Record<StatusKind, string> = {
   running: "running",
   done: "done",
   failed: "failed",
@@ -83,7 +83,7 @@ export const STATUS_LABEL: Record<StatusKind, string> = {
   aborted: "aborted",
 };
 
-export function StatusIcon({ status }: { status: StatusKind }) {
+function StatusIcon({ status }: { status: StatusKind }) {
   if (status === "running") return <i className="dot running" aria-hidden="true" />;
   if (status === "done") return <IconCheck />;
   if (status === "failed" || status === "aborted") return <IconX />;
@@ -298,5 +298,3 @@ export function PlanBar({ pct }: { pct: number }) {
     </div>
   );
 }
-
-export { IconX };

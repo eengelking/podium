@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter } from './routes.js';
 import { fixtureReport } from './testing.js';

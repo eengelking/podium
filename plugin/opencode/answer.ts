@@ -11,7 +11,7 @@ export type PermissionReply = 'once' | 'reject';
 export const permissionReply = (kind: Delivery['kind']): PermissionReply | null => (kind === 'allow-once' ? 'once' : kind === 'deny' || kind === 'reply' ? 'reject' : null);
 
 /** What the reporter says when Podium denies a tool without a reason. The same words as the Claude Code reporter. */
-export const DENIED_FROM_PODIUM = 'Denied from Podium.';
+const DENIED_FROM_PODIUM = 'Denied from Podium.';
 
 /** The message that goes with a rejection: the reason or reply typed in Podium, or `DENIED_FROM_PODIUM` when there is none. Never sent with `once`. */
 export const rejectMessage = (d: Pick<Delivery, 'text'>): string => (d.text ?? '').trim().slice(0, RESPOND_LIMITS.answer) || DENIED_FROM_PODIUM;
@@ -67,9 +67,6 @@ export function formAnswer(fields: readonly FormField[], answers: readonly Quest
   }
   return Object.keys(out).length ? out : null;
 }
-
-/** A short summary of an answer for the recording and the transcript: the values joined with "; ". */
-export const answerSummary = (answer: Record<string, string | string[]>): string => clip(Object.values(answer).map((v) => (Array.isArray(v) ? v.join(', ') : v)).join('; '), RESPOND_LIMITS.answer);
 
 /**
  * The text a message reaches the model as. OpenCode hands a prompt over as an ordinary user message with no marker, so the

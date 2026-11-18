@@ -136,7 +136,7 @@ export interface Summary {
 }
 
 /** How long after a callout was offered to the TUI part, with no word that it was shown, it is offered again. A report goes out every few seconds, so this is a few reports. */
-export const ADMIN_OFFER_AGAIN_MS = 10_000;
+const ADMIN_OFFER_AGAIN_MS = 10_000;
 
 export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 

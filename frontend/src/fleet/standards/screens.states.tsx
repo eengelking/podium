@@ -112,7 +112,6 @@ const railPaged = (sessions: SessionView[], after: (body: HTMLElement) => Promis
   return { make: () => { fakeRailLayout(); return base.make(); }, act: base.act, cleanup: restoreRailLayout };
 };
 const pick = (b: HTMLElement, id: string) => void fireEvent.click(b.querySelector(`[data-session="${id}"]`)!);
-const many = Array.from({ length: 30 }, (_, i) => ({ path: `src/module-${String(i).padStart(2, "0")}/file.ts`, status: "modified" as const, added: i + 1, removed: i, from: null }));
 const crowded = makeSession({ id: "s5", name: "many-files", effort: "high", git: { branch: "main", detached: false, isWorktree: false, worktreePath: null, ahead: 0, behind: 0, dirty: 0 }, blowouts: { orchestrator: 1, agents: 1, total: 2, level: 1, loopsHit: 1, loopsTotal: 3, log: [{ t: 1_900_000, agentId: null, kind: "compact", tokensBefore: 900_000, tokensAfter: 100_000 }] }, files: { files: Array.from({ length: 45 }, (_, i) => ({ path: `src/module-${String(i).padStart(2, "0")}/file.ts`, status: "modified" as const, added: i + 1, removed: i, from: null })), total: 45, added: 465, removed: 435, since: "start" }, agents: [makeAgent({ id: "a1", description: "Watch me", activityFeed: true } as never)] });
 
 export const STATE_SCREENS: Record<string, Screen> = {

@@ -11,7 +11,7 @@ import type { PersonCertRow } from './tlsClientAuth.js';
 import type { PersonCertsApi } from './storage/types.js';
 
 export const REPORTER_DAYS = 90;
-export const CONFIG_HEADER = '# podium-reporter-config v1';
+const CONFIG_HEADER = '# podium-reporter-config v1';
 
 export interface IssuedPersonCert {
   /** PEM text of the certificate (public). */
@@ -147,7 +147,7 @@ export interface PersonIssuer {
 }
 
 /** The address a reporter should use: the name the Admin reached this server by, on the HTTPS port. */
-export function serverUrlFor(host: string | undefined, port: number): string {
+function serverUrlFor(host: string | undefined, port: number): string {
   const h = hostnameOf(host) ?? 'localhost';
   return `https://${h.includes(':') ? `[${h}]` : h}:${port}`;
 }

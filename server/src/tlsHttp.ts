@@ -29,7 +29,7 @@ export const isReporterRoute = (method: string, path: string): boolean => {
 export const isRenewRoute = (path: string): boolean => trimTrailingSlashes(path.toLowerCase()) === '/api/reporter/renew';
 
 /** Whether a request came in over the HTTPS listener (the socket, never a forwarded header). */
-export const isEncrypted = (req: Pick<Request, 'socket'>): boolean => (req.socket as { encrypted?: boolean }).encrypted === true;
+const isEncrypted = (req: Pick<Request, 'socket'>): boolean => (req.socket as { encrypted?: boolean }).encrypted === true;
 
 /** Whether a request is one the gate can refuse: plain HTTP from an address that is not loopback. Loopback and HTTPS are never refused, so they are not counted as on HTTP. */
 export const refusableOverHttp = (req: Pick<Request, 'socket' | 'ip'>): boolean => !isEncrypted(req) && !isLoopback((req.ip ?? '').replace(/^::ffff:/, ''));
@@ -68,7 +68,7 @@ export interface ReporterHttpGateOptions {
   rejected?: (source: string | null, reason: string) => void;
 }
 
-export const HTTP_REFUSED = 'reporters must use a reporter config over HTTPS; the Admin has turned off reporters over HTTP';
+const HTTP_REFUSED = 'reporters must use a reporter config over HTTPS; the Admin has turned off reporters over HTTP';
 
 export function reporterHttpGate(o: ReporterHttpGateOptions): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {

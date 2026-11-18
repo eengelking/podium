@@ -7,7 +7,7 @@ import { sourceAddress } from '../storage/rows.js';
 import type { Logger } from './logger.js';
 
 /** `/api/fleet/sessions/:id` for a request a router matched, or null (static files, 404s). */
-export function routeOf(req: Request): string | null {
+function routeOf(req: Request): string | null {
   const pattern = (req.route as { path?: unknown } | undefined)?.path;
   if (typeof pattern !== 'string') return null;
   // A router's mount point is gone from req.baseUrl once the response has finished, so take it from the path:

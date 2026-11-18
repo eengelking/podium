@@ -42,7 +42,7 @@ export interface ChannelInfo {
   can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean; editDescription: boolean; removeChannel: boolean };
 }
 
-export interface AgentInfo {
+interface AgentInfo {
   sessionId: string;
   name: string;
   machine: string;

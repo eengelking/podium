@@ -6,7 +6,7 @@ import { LEVEL_KINDS } from "../../../plugin/core/protocol";
 import type { AskDetail, AskKind, AskSummary, Delivery, QuestionAnswer, RespondKind, RespondMe, SessionView } from "./types";
 
 /** The ask the band and the modal are about: the newest open one, the main loop's first. */
-export function openAsk(s: Pick<SessionView, "asks">): AskSummary | null {
+function openAsk(s: Pick<SessionView, "asks">): AskSummary | null {
   const open = s.asks.filter((a) => a.state !== "closed");
   const pick = (list: AskSummary[]) => list.slice().sort((a, b) => b.openedAt - a.openedAt)[0] ?? null;
   return pick(open.filter((a) => a.agentId === null)) ?? pick(open);
@@ -18,7 +18,7 @@ export function shownAsk(s: Pick<SessionView, "asks">): AskSummary | null {
 }
 
 /** What answering an ask of this kind needs the session to accept; a turn that ended needs `message`. */
-export function neededKinds(kind: AskKind | null): RespondKind[] {
+function neededKinds(kind: AskKind | null): RespondKind[] {
   if (kind === "question") return ["question"];
   if (kind === "plan") return ["plan-approve", "plan-feedback"];
   if (kind === "permission") return ["permission"];
@@ -108,7 +108,7 @@ export function askLead(kind: AskKind | null): string {
 export const PLAN_LABELS = { auto: "Yes, and use auto mode", acceptEdits: "Yes, auto-accept edits", default: "Yes, manually approve edits" } as const;
 
 /** A question's answers as the panel quotes them: each answered question's options (", ") or text, joined with "; ". */
-export function questionAnswers(detail: Pick<AskDetail, "ask">, answers: readonly QuestionAnswer[], harness?: string | null): string {
+function questionAnswers(detail: Pick<AskDetail, "ask">, answers: readonly QuestionAnswer[], harness?: string | null): string {
   return (detail.ask.questions ?? [])
     .map((q, i) => {
       const a = answers[i];

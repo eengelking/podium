@@ -167,7 +167,7 @@ export interface PlaceDay {
 }
 
 /** The names a day's feature rows use for the sessions there were, so a share can be read: of the sessions that sent signals, of the sessions with tool counts. */
-export const FEATURE_BASE = { signals: 'signals', tools: 'tools' } as const;
+const FEATURE_BASE = { signals: 'signals', tools: 'tools' } as const;
 
 /** How many reporters ran one version of one harness on a day (#720). */
 export interface HarnessVersionDay {

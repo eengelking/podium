@@ -42,7 +42,7 @@ function grouped<T extends { session_id: string }>(ids: readonly string[], rows:
 /** The tables a session owns rows in, in the order a delete takes them. */
 const SESSION_CHILDREN = ['events', 'blowouts', 'samples', 'agents', 'agent_texts'] as const;
 
-export class MariaFleetStore implements FleetStoreApi {
+class MariaFleetStore implements FleetStoreApi {
   constructor(private readonly db: MariaDbConn) {}
 
   // ---- sessions -------------------------------------------------------------------------------
@@ -506,7 +506,7 @@ export class MariaFleetStore implements FleetStoreApi {
   async samplesSinceOf(sessionIds: string[], fromT: number): Promise<Map<string, SampleRow[]>> {
     const rows: SampleRow[] = [];
     for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
-      rows.push(...(await this.db.all<SampleRow>(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t`, [...part, fromT])));
+      rows.push(...(await this.db.all<SampleRow>(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t, session_id`, [...part, fromT])));
     }
     return grouped(sessionIds, rows);
   }

@@ -71,11 +71,6 @@ export interface ActivityHistoryState {
   authOn: boolean;
 }
 
-/** `POST /api/admin/activity-history/preview` request: what saving these settings would remove now. */
-export interface ActivityHistoryPreviewBody {
-  settings: ActivityHistorySettings;
-}
-
 /**
  * Its reply. For a keep policy: what saving would remove now, and `stopsCapturing` false. For `default` nothing is removed:
  * `entries`, `bytes` and `sessions` are what is stored now, and `stopsCapturing` is true when anything is stored.

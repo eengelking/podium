@@ -25,7 +25,6 @@ import {
   type RecordingLimit,
   type RecordingLoopInfo,
   type RecordingRow,
-  type RecordingSettings,
   type RecordingState,
   type RecordingView,
 } from '../../fleet/protocol.js';

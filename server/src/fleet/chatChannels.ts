@@ -5,7 +5,7 @@ import { nameKey } from '../storage/rows.js';
 import { peerShortId, type LiveOrchestrator } from './peerTypes.js';
 import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
-import { ChatCore, type AcrossUpdate, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
+import { ChatCore, type AcrossUpdate, type ChatLimits } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { CHANNEL_NAME } from '../storage/chatRows.js';
 import {
@@ -25,17 +25,17 @@ export function cutForAgent(text: string): string {
   return text.slice(0, shown) + note(shown);
 }
 /** The window an agent may read: fixed here, never chosen by the caller. */
-export const AGENT_READ_WINDOW_MS = 60 * 60 * 1000;
+const AGENT_READ_WINDOW_MS = 60 * 60 * 1000;
 /** How many pages of 100 are searched for the call into a channel: far more than a channel gets in an hour. */
 const CALLED_PAGES = 30;
 /** The longest id a reply or a mark-read may name; a message id is far shorter. */
 const MAX_ID = 64;
 /** The mention states in which the agent was in fact called: it has the message, is working on it or answered it. */
 const CALLED: ReadonlySet<MentionState> = new Set<MentionState>(['waiting', 'working', 'done']);
-export const NOT_CALLED = 'You were not called into this channel in the last hour.';
+const NOT_CALLED = 'You were not called into this channel in the last hour.';
 const NOT_YET = 'Agents addressing each other in a channel arrive in a later release, so this was not delivered.';
 
-export interface MentionView {
+interface MentionView {
   typed: string;
   sessionId: string | null;
   state: MentionState;
@@ -82,7 +82,7 @@ export function messageView(m: ChannelMessage, viewer: string | null, owners: Re
 }
 
 /** Whether a stored mention is of this agent: its session, else the same reporter and name (as delivery resolves it). */
-export function mentionsAgent(m: ChannelMention, o: LiveOrchestrator): boolean {
+function mentionsAgent(m: ChannelMention, o: LiveOrchestrator): boolean {
   return m.sessionId === o.sessionId || (m.peerKey === o.reporterKey && nameKey(m.typed.split('@')[0] ?? '') === nameKey(o.name));
 }
 
@@ -119,7 +119,7 @@ export interface ChannelState {
 type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump: string | null; deliver: LiveOrchestrator | null };
 
 /** The refusal when an Admin tries to write in a group that is not their own. */
-export const ADMIN_NO_WRITE = 'An Admin can read and stop a person\'s group but cannot write in it.';
+const ADMIN_NO_WRITE = 'An Admin can read and stop a person\'s group but cannot write in it.';
 
 export class ChannelChat {
   constructor(

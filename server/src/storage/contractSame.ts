@@ -8,7 +8,7 @@ import type { ContractAdapter } from './contractAdapter.js';
 import type { Storage } from './types.js';
 
 /** Records one value of a scenario's trace. Resolves with it, so a scenario can use the value it records. */
-export type Rec = <T>(label: string, value: T | Promise<T>) => Promise<T>;
+type Rec = <T>(label: string, value: T | Promise<T>) => Promise<T>;
 
 /** What a scenario is: calls on a storage, each result handed to `rec`. */
 export type Scenario = (s: Storage, rec: Rec) => Promise<void>;

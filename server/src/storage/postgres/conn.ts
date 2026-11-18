@@ -15,7 +15,7 @@ const NUMERIC = 1700;
  * `bigint` and `numeric` come back from `pg` as strings. The app expects numbers, so they are converted here, and a whole number
  * beyond `Number.MAX_SAFE_INTEGER` is an error and not a silent loss of its low digits.
  */
-export function toSafeNumber(text: string): number {
+function toSafeNumber(text: string): number {
   const n = Number(text);
   if (/^-?\d+$/.test(text) && !Number.isSafeInteger(n)) throw new RangeError(`PostgreSQL returned ${text}, which a JavaScript number cannot hold exactly`);
   return n;
@@ -32,7 +32,7 @@ const types = {
  * Turns the placeholders the SQLite stores use (`?` in order, `:name`) into PostgreSQL's `$n`, leaving quoted text alone. A name
  * used twice binds once. Returns the SQL and the values in `$n` order.
  */
-export function numbered(sql: string, params: Params | undefined): { text: string; values: Param[] } {
+function numbered(sql: string, params: Params | undefined): { text: string; values: Param[] } {
   const values: Param[] = [];
   const named = new Map<string, number>();
   const list = Array.isArray(params) ? (params as readonly Param[]) : null;
@@ -79,7 +79,7 @@ export function numbered(sql: string, params: Params | undefined): { text: strin
  * NULL, PostgreSQL would keep it as a number that is not NULL), and a NUL is removed from text (PostgreSQL refuses it, SQLite keeps it;
  * the report validator already strips it, so this changes only input that never arrives over HTTP).
  */
-export function bound(v: Param): Param {
+function bound(v: Param): Param {
   if (v === undefined || (typeof v === 'number' && Number.isNaN(v))) return null;
   return typeof v === 'string' && v.includes('\0') ? v.replaceAll('\0', '') : v;
 }
@@ -241,6 +241,3 @@ export class PgDb {
     await this.pool.end();
   }
 }
-
-/** The rows of one `COUNT`-like column as a number; PostgreSQL returns the count of an empty table as 0, so this only narrows the type. */
-export const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));

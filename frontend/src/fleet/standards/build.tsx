@@ -6,7 +6,7 @@ import { render, cleanup, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
 import { atWall } from "../testState";
-import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
+import { esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
 import { SAMPLES, type Sample } from "./samples";
 import { scalePage, themesPage, tokensPage } from "./pages";
 import { accessibilityPage, patternsPage, processPage, voicePage, type Entry } from "./prose";
@@ -95,5 +95,3 @@ export async function buildPages(): Promise<Record<string, string>> {
     "process.html": processPage(readEntries<Entry>(DEFERRED).map((d) => ({ file: `${d.file} ${(d as unknown as { text: string }).text}`, reason: d.reason }))),
   };
 }
-
-export { classesIn };

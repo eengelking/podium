@@ -51,7 +51,7 @@ const DROP_WHY: Record<string, string> = {
 };
 
 /** The longest issue, project or milestone a post may carry, in characters. */
-export const MAX_LABEL = 200;
+const MAX_LABEL = 200;
 
 export class ChatCore {
   /** Replaced by the routes, so an event reaches the Admin log and the server log. */

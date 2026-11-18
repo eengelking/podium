@@ -4,7 +4,7 @@
 import type { SectionSpec } from "./html";
 
 /** One rendering of a component: a part (the selector) cut out of a screen (a key of SCREENS in screens*.tsx). */
-export interface Case {
+interface Case {
   label: string;
   screen: string;
   selector: string;

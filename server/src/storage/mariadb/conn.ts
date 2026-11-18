@@ -132,7 +132,7 @@ export function bound(v: Param): Param {
  * Whether the connection that ran a failed statement is no longer good. The driver marks those errors `fatal` (a lost socket, a killed
  * connection, a broken packet); an error the caller threw, or a statement the server refused, leaves the connection as good as it was.
  */
-export function isFatal(err: unknown): boolean {
+function isFatal(err: unknown): boolean {
   return (err as { fatal?: unknown } | null)?.fatal === true;
 }
 
@@ -311,9 +311,6 @@ export class MariaDbConn {
     await this.pool.end();
   }
 }
-
-/** The rows of one `COUNT`-like column as a number. */
-export const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
 
 /**
  * ASCII-only lowercase of a SQL expression, as SQLite's `lower()` folds and PostgreSQL's `podium_lower` does: MariaDB's `LOWER()` also

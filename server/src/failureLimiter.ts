@@ -16,9 +16,9 @@ export interface FailureLimiterOptions {
 }
 
 export const FAILURE_LIMIT = 300;
-export const FAILURE_WINDOW_MS = 60_000;
+const FAILURE_WINDOW_MS = 60_000;
 /** Page fetches one address may make in a window; far above a person reloading, and no API call counts. */
-export const PAGE_LIMIT = 600;
+const PAGE_LIMIT = 600;
 
 /** Reads PODIUM_FAILURE_LIMIT: a whole number of at least 1, or the default when unset. Throws on anything else, so a typo stops the server at start. */
 export function parseFailureLimit(raw: string | undefined): number {

@@ -15,7 +15,7 @@ import { NoticeStack, UPDATE_NOTICE_ID, type NoticeItem } from "./NoticeStack";
 
 const COST_TODAY_TITLE = "What the fleet has spent since midnight on the server, counting only the part of a session that came after midnight.";
 
-export function KpiStrip({ kpis, split }: { kpis: Kpis | null; split: Split }) {
+function KpiStrip({ kpis, split }: { kpis: Kpis | null; split: Split }) {
   const k = kpis;
   const lvl2 = k?.sessionsAtLevel2 ?? 0;
   return (
@@ -62,7 +62,7 @@ export function KpiStrip({ kpis, split }: { kpis: Kpis | null; split: Split }) {
   );
 }
 
-export function Toolbar(props: {
+function Toolbar(props: {
   filter: { status: StatusFilter; q: string };
   onFilter: (f: { status: StatusFilter; q: string }) => void;
   sort: SortKey;

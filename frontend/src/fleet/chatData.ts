@@ -182,7 +182,7 @@ export interface GoneRead {
   with: string;
 }
 
-export type MentionState = "waiting" | "working" | "done" | "not-delivered" | "held" | "dropped";
+type MentionState = "waiting" | "working" | "done" | "not-delivered" | "held" | "dropped";
 
 export interface Mention {
   typed: string;
@@ -210,7 +210,7 @@ export interface ChannelMessage {
   mentions: Mention[];
 }
 
-export type DirectState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";
+type DirectState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";
 
 export interface DirectMessage {
   id: string;

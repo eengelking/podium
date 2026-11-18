@@ -45,7 +45,7 @@ export function markWords(r: RecordingRow): string {
 }
 
 /** What an answer or approval sent from Podium did: "Answered a question", "Sent a plan back", "Denied a tool". */
-export function decisionLabel(r: RecordingRow): string {
+function decisionLabel(r: RecordingRow): string {
   if (r.name === "question") return "Answered a question";
   if (r.name === "plan") return r.failed ? "Sent a plan back" : "Approved a plan";
   if (r.name === "permission") return r.failed ? "Denied a tool" : "Allowed a tool once";

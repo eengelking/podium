@@ -384,7 +384,6 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `planProgress` | Steps done out of steps total. In `frontend/src/fleet/logic.ts`. |
 | Console | `useFleet` | Loads /state, then follows /stream. In `frontend/src/fleet/useFleet.ts`. |
 | Console | `fleetReducer` | Applies each stream message to the state. In `frontend/src/fleet/store.ts`. |
-| Console | `visibleSessions` | What the current filter shows. In `frontend/src/fleet/store.ts`. |
 | Console | `OrchestratorDetail` | Plan, files, agents and activity for one orchestrator. In `frontend/src/fleet/components/OrchestratorDetail.tsx`. |
 | Console | `readEvery` | How often the activity feed polls. In `frontend/src/fleet/useActivityFeed.ts`. |
 | Console | `class DiffPreloader` | Loads every changed file's diff in page memory, 2 at a time. In `frontend/src/fleet/diffPreload.ts`. |

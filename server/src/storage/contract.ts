@@ -6,7 +6,7 @@
 // An adapter whose database hands back bigints, 0/1 for flags, undefined for NULL, or sorts text with another collation,
 // fails here and not in a screen.
 import { describe, it, expect } from 'vitest';
-import type { MessageRow, PeerReporterLookup } from '../fleet/peerTypes.js';
+import type { MessageRow } from '../fleet/peerTypes.js';
 import { ACTIVITY_HISTORY_DEFAULTS } from '../fleet/activityHistoryTypes.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingAdminRow, type RecordingBatch, type Report } from '../fleet/protocol.js';
 import { fixtureReport } from '../fleet/testing.js';
@@ -35,11 +35,6 @@ export function session(over: Partial<SessionRow> = {}): SessionRow {
     ...over,
   };
 }
-
-const seen: ReporterSeen = {
-  kind: 'mod', machineId: 'm1', machineName: 'box', source: '127.0.0.1', owner: 'ed', credential: 'person',
-  version: '0.1.0', engineVersion: null, sessionId: 's1',
-};
 
 
 /** What a field holds in JavaScript. A `?` kind is also allowed to be `null`; no kind is ever `undefined`. */

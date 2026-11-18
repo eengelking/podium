@@ -14,7 +14,6 @@ import { shortId } from './protocol.js';
 import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery, ReporterCompat } from './protocol.js';
 import type { PeerLimits, ReporterState } from '../storage/rows.js';
 
-export type { PeerLimits } from '../storage/rows.js';
 
 /** `<a>|<b>` with the two keys sorted, so a link has one name whichever way a message goes. */
 export function linkKey(a: string, b: string): string {
@@ -28,8 +27,6 @@ export function linkKey(a: string, b: string): string {
  */
 export const isPersonKey = (k: string): boolean => k.startsWith('person:');
 
-/** Whether a level allows sending, and how. */
-export const canSee = (l: PeerLevel): boolean => l !== 'none';
 export const canSend = (l: PeerLevel): boolean => l === 'ask' || l === 'send';
 
 /** A refusal: the HTTP status the route answers with, and the reason in plain words, said to the person or the model as is. */
@@ -122,7 +119,6 @@ export interface RightRow {
 
 /** Who paused a link between a person and another person's agent (#1034). Only they, or an Admin, can resume it. */
 export type LinkPauser = 'sender' | 'owner' | 'admin';
-export const LINK_PAUSERS: readonly LinkPauser[] = ['sender', 'owner', 'admin'];
 
 /** The right that applies now: `send` under Trust, else the stored level; `paused` from the stored row. */
 export interface EffectiveRight {
@@ -137,7 +133,6 @@ export interface EffectiveRight {
 export const CROSS_PENDING_MAX = 5;
 
 export type PersonLinkOp = 'allow' | 'pause' | 'resume' | 'remove';
-export const PERSON_LINK_OPS: readonly PersonLinkOp[] = ['allow', 'pause', 'resume', 'remove'];
 
 export interface PeerRequestRow {
   id: string;

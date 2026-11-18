@@ -85,7 +85,7 @@ export function backgroundStatus(b: BackgroundWait): string {
 }
 
 /** At most this many characters of a task description; the callout cuts there and ends with " ...". */
-export const BACKGROUND_DETAIL_LIMIT = 64;
+const BACKGROUND_DETAIL_LIMIT = 64;
 
 /** The description row of the callout: "Shell: nightly build", several tasks joined by " · ", cut at the limit. */
 export function backgroundDetail(b: BackgroundWait): string | null {

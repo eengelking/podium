@@ -14,7 +14,7 @@ import { Choice, Panel, Section } from "./Page";
 import type { ReportsClient } from "./reportsApi";
 import { SpendBreakdown, type OpenBreakdown } from "./SpendBreakdown";
 
-export const SPEND_KEY = "podium.adminSpend";
+const SPEND_KEY = "podium.adminSpend";
 type By = "people" | "group";
 type View = "chart" | "table";
 interface Prefs {
@@ -25,7 +25,7 @@ interface Prefs {
 const DEFAULTS: Prefs = { groupBy: "people", view: "chart", pageSize: PAGE_SIZES[0]! };
 
 /** Stored choices, with anything unreadable or unknown replaced by its default. */
-export function parseSpendPrefs(v: unknown): Prefs {
+function parseSpendPrefs(v: unknown): Prefs {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
   return {
     groupBy: o.groupBy === "group" ? "group" : "people",

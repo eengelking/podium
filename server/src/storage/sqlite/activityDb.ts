@@ -8,9 +8,6 @@ import { cleanBinds } from './bind.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 
-/** The schema version, kept in `PRAGMA user_version`. Raise it and add a step to `STEPS` to change the schema. */
-export const ACTIVITY_SCHEMA_VERSION = 5;
-
 /** The size of one stored entry as the Stored activity table counts it: its text, a Bash command (#431) and labels, plus 48 bytes of row overhead. `a` is a table alias with its dot, or ''. */
 export const entryBytesSql = (a = '', command = true): string =>
   `(length(${a}text) + length(${a}kind) + length(${a}loop) + COALESCE(length(${a}"by"), 0) + COALESCE(length(${a}note), 0) + COALESCE(length(${a}ref), 0) + ${command ? `COALESCE(length(${a}command), 0) + ` : ''}48)`;

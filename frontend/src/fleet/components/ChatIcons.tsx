@@ -54,7 +54,7 @@ export const ChClock = () => (
     <path d="M8 4.6V8l2.4 1.4" />
   </Ic>
 );
-export const ChOk = () => (
+const ChOk = () => (
   <Ic>
     <path d="M3 8.5l3 3 7-7" />
   </Ic>
@@ -65,7 +65,7 @@ export const ChNo = () => (
     <path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" />
   </Ic>
 );
-export const ChQueue = () => (
+const ChQueue = () => (
   <Ic>
     <path d="M3 4h10M3 8h10M3 12h6" />
   </Ic>

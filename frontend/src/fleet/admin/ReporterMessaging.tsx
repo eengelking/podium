@@ -28,7 +28,7 @@ interface Effective {
  * The reporter, and every pair between its owner's reporters, in one read: GET /api/admin/reporters/:key/peers
  * (SPEC 7.1).
  */
-export interface AdminPeers {
+interface AdminPeers {
   reporter: PeerRef;
   peers: PeerRef[];
   rights: PeerRight[];
@@ -41,7 +41,7 @@ export interface AdminPeers {
 /** Whether a reporter can take part at all, as the server decides it: a person's token, and not the admin secret. */
 export const eligible = (r: Pick<PeerRef, "adminSecret" | "owner">): boolean => !r.adminSecret && r.owner !== null && r.owner.toLowerCase() !== ADMIN.toLowerCase();
 
-export const loadAdminPeers = (api: AdminApi, key: string): Promise<AdminPeers> => api<AdminPeers>("GET", `/reporters/${encodeURIComponent(key)}/peers`);
+const loadAdminPeers = (api: AdminApi, key: string): Promise<AdminPeers> => api<AdminPeers>("GET", `/reporters/${encodeURIComponent(key)}/peers`);
 
 /** Asks again while the page is visible, as the rest of the reporter's detail does. */
 function useEvery(ms: number, run: () => void, enabled: boolean) {

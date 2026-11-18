@@ -7,7 +7,7 @@ import { parseBuild } from './parseBuild.js';
 import { stripFormat } from '../storage/peerText.js';
 import { resumeWindowDays } from '../../../plugin/core/resumeWindow.js';
 import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
-import { CAPABILITY_KEYS, ToolStat, TIME_BUCKETS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundItem, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
+import { CAPABILITY_KEYS, ToolStat, TIME_BUCKETS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskKind, BackgroundItem, BackgroundWait, ContextFill, CostSource, Delivery, DeliveryResult, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FilesReport, FileStatus, GitInfo, LEVEL_KINDS, LoopReport, MachineInfo, ModelUsage, PEER_LIMITS, Plan, PlanStep, RECORDING_LIMITS, RecordingBatch, RecordingEntry, RecordingKind, RecordingStartRequest, RecordingView, Report, ReporterName, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, SessionReport, TokenCounts } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
 
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
@@ -216,7 +216,7 @@ export interface AskSummary {
 export type AskOutcome = 'podium' | 'terminal' | 'closed' | 'ended';
 
 /** One delivery as the modal reads it back: what was sent, by whom, and what became of it. */
-export interface DeliveryView extends Delivery {
+interface DeliveryView extends Delivery {
   result: DeliveryResult | null;
   /** Whether the signed-in person sent it. */
   mine: boolean;
