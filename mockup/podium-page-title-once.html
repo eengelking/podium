@@ -168,8 +168,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   // The proposed banner: the text is filled in by fit(), which decides how many whole sentences show and whether the (i) is needed.
   function newBanner(k) {
     var chat = k === 'chat';
-    return '<div class="banner has-picker" role="region" aria-label="Display settings"><span class="bt-wrap"><span class="bt" data-k="' + k + '"></span>' +
-      '<button type="button" class="info" data-more="' + k + '"' + (chat ? '' : ' hidden') + ' aria-haspopup="dialog" aria-label="' + (chat ? 'Chat privacy and controls' : 'Read the full description') + '"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg><span class="tip" aria-hidden="true">' + (chat ? 'Click to learn about chat privacy and controls' : 'Click to read the full description') + '</span></button></span><div data-wo></div></div>';
+    return '<div class="banner has-picker" role="region" aria-label="Display settings"><span class="bt-wrap">' +
+      '<button type="button" class="info" data-more="' + k + '"' + (chat ? '' : ' hidden') + ' aria-haspopup="dialog" aria-label="' + (chat ? 'Chat privacy and controls' : 'Read the full description') + '"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg><span class="tip" aria-hidden="true">' + (chat ? 'Click to learn about chat privacy and controls' : 'Click to read the full description') + '</span></button><span class="bt" data-k="' + k + '"></span></span><div data-wo></div></div>';
   }
   function oldBanner(k) { return '<div class="banner has-picker" role="region" aria-label="Display settings"><span>' + OLD[k] + '</span><div data-wo></div></div>'; }
   function fr(k, ver, chip, bodyHtml) { return '<div class="po-frame">' + top(chip || D[k][0]) + (ver === 'new' ? newBanner(k) : oldBanner(k)) + (bodyHtml || '') + '</div>'; }

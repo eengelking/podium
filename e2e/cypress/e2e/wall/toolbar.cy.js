@@ -4,7 +4,7 @@ describe('wall: toolbar', () => {
   beforeEach(() => cy.openConsole('#/'));
 
   it('shows "N shown, M cleared today"', () => {
-    cy.get('button.info').should('have.attr', 'aria-label', '12 shown, 0 cleared today');
+    cy.get('.toolbar button.info').should('have.attr', 'aria-label', '12 shown, 0 cleared today');
   });
 
   it('narrows the wall with the status segments', () => {
@@ -30,7 +30,7 @@ describe('wall: toolbar', () => {
     cy.card('docs').should('exist');
     cy.get('input[aria-label="Filter orchestrators"]').clear().type('no-such-thing');
     cy.get('.none').should('contain.text', 'No orchestrators match');
-    cy.get('button.info').should('have.attr', 'aria-label', '0 shown, 0 cleared today');
+    cy.get('.toolbar button.info').should('have.attr', 'aria-label', '0 shown, 0 cleared today');
   });
 
   const flat = () => cy.contains('.people button', /^All$/).click();

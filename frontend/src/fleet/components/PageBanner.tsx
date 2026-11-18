@@ -6,7 +6,7 @@ import { WallOptions } from "./WallOptions";
 /**
  * The banner under the top bar (#1209, mockup/podium-page-title-once.html): the page's description on one line, and the Wall options drawer at its right.
  * The page's name is the chip in the top bar and is not repeated here. The line is never more than one: the text stops at the middle of the banner
- * (or before the open drawer, whichever is nearer) and shows only whole sentences, as many as fit. When some are left out a (i) appears; hovering or
+ * (or before the open drawer, whichever is nearer) and shows only whole sentences, as many as fit. When some are left out a (i) appears before the text (at the left edge, clear of the top bar's collapse tab that hangs into the middle of the banner); hovering or
  * focusing it shows the standard tip and a click opens the modal, under the (i), with the full description. The drawer opens over the banner and never
  * makes it taller. `more` is extra content for the modal that also keeps the (i) always on (Chat's rules); `moreLabel` names the (i) then.
  */
@@ -60,7 +60,6 @@ export function PageBanner(props: {
   return (
     <div className="banner has-picker" role="region" aria-label="Display settings">
       <div className="bt-wrap">
-        <span className="bt" ref={text} />
         {showInfo && (
           <button type="button" className="info" ref={info} aria-haspopup="dialog" aria-expanded={open} aria-label={label} onClick={() => setOpen(true)}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -72,11 +71,12 @@ export function PageBanner(props: {
             </span>
           </button>
         )}
+        <span className="bt" ref={text} />
       </div>
       <WallOptions {...props.wall} />
       {open && (
         <Modal titleId="about-h" title={`About ${props.name}`} onClose={close} anchor={info.current}>
-          <div className="mb rl">
+          <div className={`mb${more ? " rl" : ""}`}>
             <p>{description}</p>
             {more && (
               <>

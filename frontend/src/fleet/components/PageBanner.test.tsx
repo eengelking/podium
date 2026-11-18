@@ -145,6 +145,11 @@ describe("every page's banner holds its description alone (#1209)", () => {
     expect(screen.getByRole("region", { name: "Display settings" }).querySelector("b")).toBeNull();
   });
 
+  it("has no visible title of its own in the Board's body, which the chip already says", () => {
+    render(<FleetView board state={stateFrom()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Board" })).toHaveClass("vh");
+  });
+
   it("names every page in the chip with the same words the description is filed under", () => {
     render(<FleetView state={stateFrom()} />);
     expect(screen.getByTestId("page-pill")).toHaveTextContent(PAGE_INFO.fleet.name);

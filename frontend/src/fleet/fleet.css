@@ -527,7 +527,7 @@ body.modal-open #root { filter: blur(5px); }
    sides, 18 px, which is the header's own left padding. */
 .podium .scrim.anchor { display: block; }
 .podium .modal.anchor { position: absolute; width: min(440px, calc(100% - 32px)); max-height: min(78vh, 760px); }
-.podium .modal.anchor .mb { padding: 18px; }
+.podium .modal.anchor .mb, .podium .modal.anchor .mb.rl { padding: 18px; }
 .podium .modal.anchor .mb > :last-child { margin-bottom: 0; }
 .podium .modal.anchor .mb p { max-width: none; margin: 0 0 12px; }
 .podium .modal.anchor .mb h3 { margin: 16px 0 4px; }
@@ -862,7 +862,7 @@ body.modal-open #root { filter: blur(5px); }
 .podium .banner.has-picker > span:first-child { flex: 1 1 220px; min-width: 0; }
 /* The page's description, on one line (#1209): at most to the middle of the banner or before the open drawer, whichever is nearer, and only whole sentences
    (PageBanner fits them). A first sentence longer than that takes the whole row (`.full`) instead of being cut. */
-.podium .banner .bt-wrap { flex: 0 1 auto; min-width: 0; max-width: max(260px, min(50%, calc(100% - 690px))); display: flex; align-items: center; gap: 6px; }
+.podium .banner .bt-wrap { flex: 0 1 auto; min-width: 0; max-width: max(260px, min(50%, calc(100% - 690px))); min-height: 28px; display: flex; align-items: center; gap: 6px; }
 .podium .banner .bt-wrap.full { max-width: calc(100% - 40px); }
 .podium .banner .bt { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .podium .banner .bt-wrap button.info { display: inline-flex; order: 0; margin-left: 0; cursor: pointer; }

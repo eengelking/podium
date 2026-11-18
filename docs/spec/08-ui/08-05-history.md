@@ -20,8 +20,9 @@ for an opened session. The frame it shares with the other pages (top bar, info r
 - The browser tab's title is "Podium history". The page has one `h1`, "History", which is visually hidden; an
   opened session's own name is the `h1` instead.
 - The page draws the shared top bar with its page pill reading "History" and no History button
-  ([8.1](08-01-what-the-ui-must-do.md)), then the info row. The info row says "Past sessions. Read-only: built
-  from what the server stored. Cost is an estimate, not a bill." and ends in the Wall options drawer
+  ([8.1](08-01-what-the-ui-must-do.md)), then the info row. The info row says "Past sessions, read-only. They are built
+  from what the server stored. Cost is an estimate, not a bill." (the page's description, with no name before it,
+  [8.1](08-01-what-the-ui-must-do.md)) and ends in the Wall options drawer
   ([8.1](08-01-what-the-ui-must-do.md)), with all four display controls.
 - Below the info row is the day's list. When a session is open, the list gives way to that session (below) and
   comes back on Back.
