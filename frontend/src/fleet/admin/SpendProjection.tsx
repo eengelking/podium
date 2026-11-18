@@ -132,60 +132,59 @@ export function SpendProjection({ client, onLocked }: { client: ReportsClient; o
               Straight run rate: weekdays, trends and price changes are not allowed for. Not a budget.{" "}
               {unpriced > 0 ? `${unpriced} ${unpriced === 1 ? "session" : "sessions"} on models without a price ${unpriced === 1 ? "is" : "are"} left out.` : "Models without a price are left out."}
             </div>
-            {rows.length === 0 ? (
-              <div className="empty">Nothing was spent in this window yet.</div>
-            ) : (
-              <>
-                <div className="tw2">
-                  <table className="ptab" aria-label={`Projection by ${byGroup ? "group" : "person"}`}>
-                    <thead>
-                      <tr>
-                        <th scope="col">{byGroup ? "Group" : "Person"}</th>
-                        <th scope="col" className="n">
-                          Run rate per day
-                        </th>
-                        <th scope="col" className="n">
-                          So far this month
-                        </th>
-                        <th scope="col" className="n">
-                          Projected to {end.date}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {shown.map((r) => (
-                        <tr key={r.key}>
-                          <td className="who">{r.key === "-" ? (byGroup ? "No group" : "No owner") : r.key}</td>
-                          <td className={`n mono${r.runRatePerDay === null ? " muted" : ""}`}>{fmtMoney(r.runRatePerDay)}</td>
-                          <td className="n mono">{fmtMoney(r.spentThisMonth)}</td>
-                          {r.projected === null ? (
-                            <td className="n mono muted" title="Too few days of spend in the window to project from.">
-                              Not enough history
-                            </td>
-                          ) : (
-                            <td className="n mono">{fmtMoney(r.projected)}</td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                    {total && (
-                      <tfoot>
-                        <tr>
-                          <th scope="row">Total</th>
-                          <td className="n mono">{fmtMoney(total.runRatePerDay)}</td>
-                          <td className="n mono">{fmtMoney(total.spentThisMonth)}</td>
-                          <td className="n mono">{known ? fmtMoney(total.projected) : DASH}</td>
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
-                <Pager id="admin-proj" page={page} pageSize={prefs.pageSize} total={rows.length} onPage={setPage} onSize={(pageSize) => setPrefs({ pageSize })} />
-              </>
-            )}
+            {rows.length === 0 && <div className="empty">Nothing was spent in this window yet.</div>}
           </>
         )}
       </Panel>
+      {data && rows.length > 0 && (
+        <Panel>
+          <div className="tw2">
+            <table className="ptab" aria-label={`Projection by ${byGroup ? "group" : "person"}`}>
+              <thead>
+                <tr>
+                  <th scope="col">{byGroup ? "Group" : "Person"}</th>
+                  <th scope="col" className="n">
+                    Run rate per day
+                  </th>
+                  <th scope="col" className="n">
+                    So far this month
+                  </th>
+                  <th scope="col" className="n">
+                    Projected to {end.date}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r) => (
+                  <tr key={r.key}>
+                    <td className="who">{r.key === "-" ? (byGroup ? "No group" : "No owner") : r.key}</td>
+                    <td className={`n mono${r.runRatePerDay === null ? " muted" : ""}`}>{fmtMoney(r.runRatePerDay)}</td>
+                    <td className="n mono">{fmtMoney(r.spentThisMonth)}</td>
+                    {r.projected === null ? (
+                      <td className="n mono muted" title="Too few days of spend in the window to project from.">
+                        Not enough history
+                      </td>
+                    ) : (
+                      <td className="n mono">{fmtMoney(r.projected)}</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+              {total && (
+                <tfoot>
+                  <tr>
+                    <th scope="row">Total</th>
+                    <td className="n mono">{fmtMoney(total.runRatePerDay)}</td>
+                    <td className="n mono">{fmtMoney(total.spentThisMonth)}</td>
+                    <td className="n mono">{known ? fmtMoney(total.projected) : DASH}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+          <Pager id="admin-proj" page={page} pageSize={prefs.pageSize} total={rows.length} onPage={setPage} onSize={(pageSize) => setPrefs({ pageSize })} />
+        </Panel>
+      )}
     </section>
   );
 }

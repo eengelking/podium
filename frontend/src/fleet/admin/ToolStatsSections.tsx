@@ -129,122 +129,126 @@ export function FailuresSection({ r, reply }: { r: ReportState; reply: ReportRep
   );
   return (
     <>
-      <div className="tool alone">
-        <div className="sum left">
-          <div>
-            <span className="big mono">{fig(failed)}</span>
-            <span className="cap">failed calls</span>
-          </div>
-          <div>
-            <span className="big mono">{rate(failed, calls)}</span>
-            <span className="cap">of {fig(calls)} calls</span>
-          </div>
-          {top && (top.n.failed ?? 0) > 0 && (
+      <Panel>
+        <div className="tool alone">
+          <div className="sum left">
             <div>
-              <span className="big mono">{rate(top.n.failed ?? 0, top.n.calls ?? 0)}</span>
-              <span className="cap">
-                {top.name}, the most failures: {fig(top.n.failed ?? 0)} of {fig(top.n.calls ?? 0)}
-              </span>
+              <span className="big mono">{fig(failed)}</span>
+              <span className="cap">failed calls</span>
             </div>
-          )}
+            <div>
+              <span className="big mono">{rate(failed, calls)}</span>
+              <span className="cap">of {fig(calls)} calls</span>
+            </div>
+            {top && (top.n.failed ?? 0) > 0 && (
+              <div>
+                <span className="big mono">{rate(top.n.failed ?? 0, top.n.calls ?? 0)}</span>
+                <span className="cap">
+                  {top.name}, the most failures: {fig(top.n.failed ?? 0)} of {fig(top.n.calls ?? 0)}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-      {failed > 0 && (
-        <ul className="hb" aria-label="Failed calls by tool, most first">
-          {entries
-            .filter((e) => (e.n.failed ?? 0) > 0)
-            .slice(0, 5)
-            .map((e) => (
-              <li key={e.key} aria-label={`${e.name}, ${fig(e.n.failed ?? 0)} failed of ${fig(e.n.calls ?? 0)} calls, ${rate(e.n.failed ?? 0, e.n.calls ?? 0)}`}>
-                <span className="lbl">{label(e)}</span>
-                <span className="trk" aria-hidden="true">
-                  <i style={{ width: `${Math.max(1.5, ((e.n.failed ?? 0) / max) * 100)}%` }} />
-                </span>
-                <span className="val mono" aria-hidden="true">
-                  {fig(e.n.failed ?? 0)}
-                </span>
-                <span className="shr mono" aria-hidden="true">
-                  {rate(e.n.failed ?? 0, e.n.calls ?? 0)}
-                </span>
-              </li>
-            ))}
-        </ul>
-      )}
-      <div className="tw2">
-        <table className="ptab" aria-label="Failures by tool">
-          <thead>
-            <tr>
-              <th scope="col">Tool</th>
-              <th scope="col" className="n">
-                Calls
-              </th>
-              <th scope="col" className="n">
-                Failures
-              </th>
-              <th scope="col" className="n">
-                Failure rate
-              </th>
-              <th scope="col">History</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((e) => {
-              const figures = (x: ToolSum) => (
-                <>
-                  <td className="n mono">{fig(x.n.calls ?? 0)}</td>
-                  <td className="n mono">{fig(x.n.failed ?? 0)}</td>
-                  <td className="n mono">{rate(x.n.failed ?? 0, x.n.calls ?? 0)}</td>
-                </>
-              );
-              if (e.server === "") {
-                return (
-                  <tr key={e.key}>
-                    <td className="who mono">{e.name}</td>
-                    {figures(e)}
-                    <HistoryCell e={e} failed={e.n.failed ?? 0} older={older} />
-                  </tr>
+        {failed > 0 && (
+          <ul className="hb" aria-label="Failed calls by tool, most first">
+            {entries
+              .filter((e) => (e.n.failed ?? 0) > 0)
+              .slice(0, 5)
+              .map((e) => (
+                <li key={e.key} aria-label={`${e.name}, ${fig(e.n.failed ?? 0)} failed of ${fig(e.n.calls ?? 0)} calls, ${rate(e.n.failed ?? 0, e.n.calls ?? 0)}`}>
+                  <span className="lbl">{label(e)}</span>
+                  <span className="trk" aria-hidden="true">
+                    <i style={{ width: `${Math.max(1.5, ((e.n.failed ?? 0) / max) * 100)}%` }} />
+                  </span>
+                  <span className="val mono" aria-hidden="true">
+                    {fig(e.n.failed ?? 0)}
+                  </span>
+                  <span className="shr mono" aria-hidden="true">
+                    {rate(e.n.failed ?? 0, e.n.calls ?? 0)}
+                  </span>
+                </li>
+              ))}
+          </ul>
+        )}
+      </Panel>
+      <Panel>
+        <div className="tw2">
+          <table className="ptab" aria-label="Failures by tool">
+            <thead>
+              <tr>
+                <th scope="col">Tool</th>
+                <th scope="col" className="n">
+                  Calls
+                </th>
+                <th scope="col" className="n">
+                  Failures
+                </th>
+                <th scope="col" className="n">
+                  Failure rate
+                </th>
+                <th scope="col">History</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((e) => {
+                const figures = (x: ToolSum) => (
+                  <>
+                    <td className="n mono">{fig(x.n.calls ?? 0)}</td>
+                    <td className="n mono">{fig(x.n.failed ?? 0)}</td>
+                    <td className="n mono">{rate(x.n.failed ?? 0, x.n.calls ?? 0)}</td>
+                  </>
                 );
-              }
-              return (
-                <Fragment key={e.key}>
-                  <tr>
-                    <td className="who">
-                      <button type="button" className="rowbtn" aria-expanded={open.has(e.key)} aria-controls={open.has(e.key) ? e.tools.map((t) => `fail-${t.key}`).join(" ") : undefined} onClick={() => toggle(e.key)}>
-                        <Chevron />
-                        <span className="mono">{e.name}</span>
-                        <ServerNote tools={e.tools.length} />
-                      </button>
-                    </td>
-                    {figures(e)}
-                    <td />
-                  </tr>
-                  {open.has(e.key) &&
-                    e.tools.map((t) => (
-                      <tr key={t.key} id={`fail-${t.key}`} className="mtool">
-                        <td className="mono">{t.name}</td>
-                        {figures(t)}
-                        <HistoryCell e={t} failed={t.n.failed ?? 0} older={older} />
-                      </tr>
-                    ))}
-                </Fragment>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row">Total</th>
-              <td className="n mono">{fig(calls)}</td>
-              <td className="n mono">{fig(failed)}</td>
-              <td className="n mono">{rate(failed, calls)}</td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <div className="note-line">
-        Sorted by failures. <b>Open</b> lists the failures in History, which keeps sessions for 30 days; an older one has counts only. A person without access to a session sees counts and no link. Failures by class, person and cause stay on the Failures page.
-      </div>
-      <Pager id="rep-tools-fail" page={page} pageSize={prefs.pageSize} total={entries.length} onPage={r.setPage} onSize={(pageSize) => r.setPrefs({ pageSize })} />
+                if (e.server === "") {
+                  return (
+                    <tr key={e.key}>
+                      <td className="who mono">{e.name}</td>
+                      {figures(e)}
+                      <HistoryCell e={e} failed={e.n.failed ?? 0} older={older} />
+                    </tr>
+                  );
+                }
+                return (
+                  <Fragment key={e.key}>
+                    <tr>
+                      <td className="who">
+                        <button type="button" className="rowbtn" aria-expanded={open.has(e.key)} aria-controls={open.has(e.key) ? e.tools.map((t) => `fail-${t.key}`).join(" ") : undefined} onClick={() => toggle(e.key)}>
+                          <Chevron />
+                          <span className="mono">{e.name}</span>
+                          <ServerNote tools={e.tools.length} />
+                        </button>
+                      </td>
+                      {figures(e)}
+                      <td />
+                    </tr>
+                    {open.has(e.key) &&
+                      e.tools.map((t) => (
+                        <tr key={t.key} id={`fail-${t.key}`} className="mtool">
+                          <td className="mono">{t.name}</td>
+                          {figures(t)}
+                          <HistoryCell e={t} failed={t.n.failed ?? 0} older={older} />
+                        </tr>
+                      ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Total</th>
+                <td className="n mono">{fig(calls)}</td>
+                <td className="n mono">{fig(failed)}</td>
+                <td className="n mono">{rate(failed, calls)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div className="note-line">
+          Sorted by failures. <b>Open</b> lists the failures in History, which keeps sessions for 30 days; an older one has counts only. A person without access to a session sees counts and no link. Failures by class, person and cause stay on the Failures page.
+        </div>
+        <Pager id="rep-tools-fail" page={page} pageSize={prefs.pageSize} total={entries.length} onPage={r.setPage} onSize={(pageSize) => r.setPrefs({ pageSize })} />
+      </Panel>
     </>
   );
 }
@@ -255,70 +259,74 @@ export function PromptsSection({ reply }: { reply: ReportReply }) {
   const asked = num(t.asked);
   return (
     <>
-      <div className="tool alone">
-        <div className="sum left">
-          <div>
-            <span className="big mono">{fig(asked)}</span>
-            <span className="cap">asks, {rate(asked, num(t.calls))} of calls</span>
-          </div>
-          <div>
-            <span className="big mono">{fig(num(t.allowed))}</span>
-            <span className="cap">allowed</span>
-          </div>
-          <div>
-            <span className="big mono">{fig(num(t.denied))}</span>
-            <span className="cap">denied</span>
-          </div>
-          <div>
-            <span className="big mono">{fig(num(t.podium))}</span>
-            <span className="cap">answered in Podium</span>
+      <Panel>
+        <div className="tool alone">
+          <div className="sum left">
+            <div>
+              <span className="big mono">{fig(asked)}</span>
+              <span className="cap">asks, {rate(asked, num(t.calls))} of calls</span>
+            </div>
+            <div>
+              <span className="big mono">{fig(num(t.allowed))}</span>
+              <span className="cap">allowed</span>
+            </div>
+            <div>
+              <span className="big mono">{fig(num(t.denied))}</span>
+              <span className="cap">denied</span>
+            </div>
+            <div>
+              <span className="big mono">{fig(num(t.podium))}</span>
+              <span className="cap">answered in Podium</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="tw2">
-        <table className="ptab" aria-label="Permission prompts by tool">
-          <thead>
-            <tr>
-              <th scope="col">Tool</th>
-              {["Asked", "Of its calls", "Allowed", "Denied", "No answer", "Answered in Podium"].map((h) => (
-                <th key={h} scope="col" className="n">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.key}>
-                <td className="who">
-                  <span className="mono">{e.name}</span>
-                  {e.server !== "" && <ServerNote />}
-                </td>
-                <td className="n mono">{fig(e.n.asked ?? 0)}</td>
-                <td className="n mono">{rate(e.n.asked ?? 0, e.n.calls ?? 0)}</td>
-                <td className="n mono">{fig(e.n.allowed ?? 0)}</td>
-                <td className="n mono">{fig(e.n.denied ?? 0)}</td>
-                <td className="n mono">{fig(e.n.noAnswer ?? 0)}</td>
-                <td className="n mono">{fig(e.n.podium ?? 0)}</td>
+      </Panel>
+      <Panel>
+        <div className="tw2">
+          <table className="ptab" aria-label="Permission prompts by tool">
+            <thead>
+              <tr>
+                <th scope="col">Tool</th>
+                {["Asked", "Of its calls", "Allowed", "Denied", "No answer", "Answered in Podium"].map((h) => (
+                  <th key={h} scope="col" className="n">
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th scope="row">Total</th>
-              <td className="n mono">{fig(asked)}</td>
-              <td className="n mono">{rate(asked, num(t.calls))}</td>
-              <td className="n mono">{fig(num(t.allowed))}</td>
-              <td className="n mono">{fig(num(t.denied))}</td>
-              <td className="n mono">{fig(num(t.noAnswer))}</td>
-              <td className="n mono">{fig(num(t.podium))}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <div className="note-line">
-        Allowed, Denied and No answer add up to Asked. <b>Answered in Podium</b> counts the asks answered from the console, whether allowed or denied; the rest were answered in the terminal. No answer means the session ended or the ask was withdrawn first. A tool a person has already allowed does not ask, so it is not counted.
-      </div>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.key}>
+                  <td className="who">
+                    <span className="mono">{e.name}</span>
+                    {e.server !== "" && <ServerNote />}
+                  </td>
+                  <td className="n mono">{fig(e.n.asked ?? 0)}</td>
+                  <td className="n mono">{rate(e.n.asked ?? 0, e.n.calls ?? 0)}</td>
+                  <td className="n mono">{fig(e.n.allowed ?? 0)}</td>
+                  <td className="n mono">{fig(e.n.denied ?? 0)}</td>
+                  <td className="n mono">{fig(e.n.noAnswer ?? 0)}</td>
+                  <td className="n mono">{fig(e.n.podium ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Total</th>
+                <td className="n mono">{fig(asked)}</td>
+                <td className="n mono">{rate(asked, num(t.calls))}</td>
+                <td className="n mono">{fig(num(t.allowed))}</td>
+                <td className="n mono">{fig(num(t.denied))}</td>
+                <td className="n mono">{fig(num(t.noAnswer))}</td>
+                <td className="n mono">{fig(num(t.podium))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div className="note-line">
+          Allowed, Denied and No answer add up to Asked. <b>Answered in Podium</b> counts the asks answered from the console, whether allowed or denied; the rest were answered in the terminal. No answer means the session ended or the ask was withdrawn first. A tool a person has already allowed does not ask, so it is not counted.
+        </div>
+      </Panel>
     </>
   );
 }
@@ -383,11 +391,11 @@ export function DurationSection({ reply }: { reply: ReportReply }) {
   );
 }
 
-/** A section of the Tools page with the same heading, help and panel as the others. */
-export function ToolSection({ id, title, help, children }: { id: string; title: string; help: string; children: React.ReactNode }) {
+/** A section of the Tools page with the same heading, help and panel as the others. With `split`, the children are their own panels (#1136). */
+export function ToolSection({ id, title, help, split = false, children }: { id: string; title: string; help: string; split?: boolean; children: React.ReactNode }) {
   return (
     <Section id={id} title={title} help={help}>
-      <Panel>{children}</Panel>
+      {split ? children : <Panel>{children}</Panel>}
     </Section>
   );
 }

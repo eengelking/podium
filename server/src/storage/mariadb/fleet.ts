@@ -506,7 +506,7 @@ class MariaFleetStore implements FleetStoreApi {
   async samplesSinceOf(sessionIds: string[], fromT: number): Promise<Map<string, SampleRow[]>> {
     const rows: SampleRow[] = [];
     for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
-      rows.push(...(await this.db.all<SampleRow>(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t`, [...part, fromT])));
+      rows.push(...(await this.db.all<SampleRow>(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t, session_id`, [...part, fromT])));
     }
     return grouped(sessionIds, rows);
   }
