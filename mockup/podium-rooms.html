@@ -1,0 +1,256 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Rooms</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #1035: Rooms, shared places in Chat that every authenticated party on the server can read and post to.
+   It extends the Chat page (mockup/podium-chat.html, #1034) with one new sidebar section, Rooms, above the others:
+     Rooms   General (always there, now the built-in room) and one room per project, milestone or issue a person or an Admin opened.
+             Up to 50 rooms; a second room for the same link is refused and points to the first.
+   A room is public: every signed-in person, every reporter and every Admin reads it, so an Admin reading a room raises no
+   notice (the text was never private). A person and a person's orchestrator can post; a subagent cannot (it hands its
+   finding to its orchestrator). An agent reads a room when it chooses to or when its turn ends; a post never interrupts a turn.
+   Everything else reuses Chat: the thread is the Activity feed (.feed), text is drawn as text, never as HTML, and the
+   message box, "Showing N of M" pager, .ch-nav banner and .confirm come from the Chat page and fleet.css.
+   New classes, all prefixed rm-: rm-link (the "Linked to" chip in a room's header), rm-new (the "New room" row at the top
+   of the Rooms section), rm-form (the create form's fields) and rm-who (the small "orchestrator of Ed" tag on an agent's post).
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Example data only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
+.stage .podium .adminv .apage { overflow: visible; }
+.stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+.podium .tb-who { margin-right: 8px; }
+
+/* The Chat page's own layout, repeated so this file stands alone (the same rules as podium-chat.html). */
+.ch-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
+.ch-sec { padding: 4px 0 8px; }
+.ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ch-list { list-style: none; margin: 0; padding: 0; }
+.ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
+.ch-item:hover { background: var(--hover); }
+.ch-item.on { background: var(--sel); }
+.podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 20px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.podium .ch-item.on .ch-row { font-weight: 600; }
+.podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
+.ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-row .unread { flex: none; min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 650; text-align: center; }
+.ch-pad { padding: 6px 20px; }
+.ch-thread { min-width: 0; display: flex; flex-direction: column; }
+.ch-head { padding: 12px 16px 8px; border-bottom: 1px solid var(--grid); }
+.ch-head h2 { margin: 0; font-size: 15px; font-weight: 650; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ch-head h2 .nm { overflow-wrap: anywhere; }
+.ch-head .sub { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 12px; }
+.ch-body { flex: 1; min-height: 0; overflow-y: auto; max-height: 460px; padding: 8px 16px; }
+.ch-earlier { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 0 12px; color: var(--muted); font-size: 12px; }
+.ch-body .feed { height: auto; max-height: none; }
+.ch-body .feed .body { white-space: pre-wrap; color: var(--ink); overflow-wrap: anywhere; }
+.ch-body .feed .who { display: block; font-weight: 600; color: var(--ink); white-space: normal; }
+.ch-body .feed li.mine .body { border-left: 2px solid var(--sonnet); padding-left: 8px; }
+.ch-composer { display: grid; gap: 6px; padding: 10px 16px 12px; border-top: 1px solid var(--grid); }
+.ch-composer label { font-size: 12px; color: var(--ink2); }
+.ch-composer .row { display: flex; gap: 8px; align-items: flex-end; }
+.ch-composer textarea { flex: 1; min-height: 44px; resize: vertical; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+.ch-composer textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.ch-composer .note { font-size: 12px; color: var(--muted); }
+.ch-composer .note.warn { color: var(--warn-text); }
+.ch-nav { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12px; color: var(--ink2); }
+.ch-nav.ro { display: flex; gap: 8px; align-items: flex-start; margin: 10px 16px 0; }
+.ch-nav.ro svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.ch-blank { padding: 40px 24px; text-align: center; color: var(--ink2); }
+.ch-thread .ch-back { display: none; }
+.stage.narrow .ch-split { grid-template-columns: minmax(0, 1fr); }
+.stage.narrow .ch-side { border-right: 0; max-height: none; }
+.stage.narrow .ch-split[data-pane="side"] .ch-thread { display: none; }
+.stage.narrow .ch-split[data-pane="thread"] .ch-side { display: none; }
+.stage.narrow .ch-thread .ch-back { display: inline-flex; justify-self: start; margin: 8px 16px 0; }
+@media (max-width: 760px) { .ch-split { grid-template-columns: minmax(0, 1fr); } .ch-side { border-right: 0; max-height: none; } }
+
+/* New in #1035. */
+.rm-new { padding: 4px 20px 8px; }
+.rm-link { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; color: var(--ink2); }
+.rm-link svg { width: 12px; height: 12px; flex: none; }
+.rm-who { font-weight: 400; color: var(--muted); }
+.rm-form { display: grid; gap: 10px; margin: 10px 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
+.rm-form label { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
+.rm-form input, .rm-form select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+.rm-form input:focus-visible, .rm-form select:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.rm-form .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Rooms (#1035)</b>
+  <span class="grp" role="group" aria-label="Viewer">Viewer
+    <button type="button" data-viewer="owner" aria-pressed="true">Ed, signed in</button>
+    <button type="button" data-viewer="admin" aria-pressed="false">Admin</button>
+  </span>
+  <span class="grp" role="group" aria-label="Case">Case
+    <button type="button" data-case="full" aria-pressed="true">Busy</button>
+    <button type="button" data-case="empty" aria-pressed="false">Nothing yet</button>
+    <button type="button" data-case="error" aria-pressed="false">Send failed</button>
+    <button type="button" data-case="cap" aria-pressed="false">Room limit reached</button>
+    <button type="button" data-case="long" aria-pressed="false">Long names</button>
+  </span>
+  <span class="grp" role="group" aria-label="New room form">New room
+    <button type="button" data-form="off" aria-pressed="true">Closed</button>
+    <button type="button" data-form="on" aria-pressed="false">Open</button>
+    <button type="button" data-form="dup" aria-pressed="false">Open, room exists</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app"></div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  'use strict';
+  var I = {
+    logo: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle></svg>',
+    me: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"></circle><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"></path></svg>',
+    hash: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 2.5L5 13.5M11 2.5L10 13.5M2.8 6h10.4M2.3 10h10.4"/></svg>',
+    room: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="2"/><path d="M2.5 6.5h11"/></svg>',
+    link: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.6.6M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.6-.6"/></svg>',
+    msg: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>',
+    globe: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/></svg>'
+  };
+  function esc(s) { var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+
+  // Rooms. `link` is what a room is about; General has none. `n` is the stored count, `msgs` the page shown (newest 30,000 characters at most).
+  var ROOMS = [
+    { id: 'r-gen', name: 'General', sub: 'Everyone signed in to this server', n: 58, unread: 0, msgs: [
+      { f: 'Maya', t: 'Mon 09:05', tx: 'Heads up: the staging server restarts at 17:00.' },
+      { f: 'claude-dashboard', of: 'Ed', t: 'Mon 09:12', tx: 'Acknowledged. Ed\'s orchestrators will pause until it is back.' },
+      { f: 'Ed', me: true, t: 'Mon 09:14', tx: 'Thanks both.' } ] },
+    { id: 'r-i', name: '#1035 Rooms', link: 'Issue #1035', sub: 'Issue #1035', n: 17, unread: 3, msgs: [
+      { f: 'Ed', me: true, t: 'Mon 13:40', tx: 'Decision: a subagent hands its finding to its orchestrator, and only the orchestrator posts here.' },
+      { f: 'docs-writer', of: 'Maya', t: 'Mon 13:52', tx: 'Reading this room before I draft the user guide page. Is the room limit 50?' },
+      { f: 'claude-dashboard', of: 'Ed', t: 'Mon 14:03', tx: 'Yes, 50 rooms. The token for the staging box is [redacted], I removed it before posting.' } ] },
+    { id: 'r-m', name: 'v1.7', link: 'Milestone v1.7', sub: 'Milestone v1.7', n: 6, unread: 0, msgs: [
+      { f: 'Maya', t: 'Sun 16:10', tx: 'Pre-release prep starts after Rooms merges.' } ] },
+    { id: 'r-p', name: 'podium', link: 'Project podium', sub: 'Project podium', n: 4, unread: 0, msgs: [
+      { f: 'Ed', me: true, t: 'Fri 11:20', tx: 'Use this room for anything about the podium repo as a whole.' } ] }
+  ];
+  var S = { viewer: 'owner', kase: 'full', form: 'off', sel: 'r-gen', pane: 'thread', sendErr: false, draft: '' };
+
+  function announce(t) { document.getElementById('announce').textContent = t; }
+  function isAdmin() { return S.viewer === 'admin'; }
+  function item(id) { return ROOMS.filter(function (r) { return r.id === id; })[0]; }
+  function name(r) { return S.kase === 'long' && r.id !== 'r-gen' ? r.name + ' and the long discussion about how every harness should deliver a message to a running turn' : r.name; }
+
+  function topBar() {
+    var me = isAdmin() ? '<span class="tb-me"><span class="tb-who">' + I.me + 'Signed in as <b>Root</b> (Admin)</span><button type="button" class="btn">Sign out</button></span>'
+      : '<span class="tb-me"><span class="tb-who">' + I.me + 'Signed in as <b>Ed</b></span><button type="button" class="btn">Sign out</button></span>';
+    return '<header class="top" id="podium-top"><a class="logo" href="#/" aria-label="Podium, fleet">' + I.logo + 'Podium</a>' +
+      '<span class="pill">Chat</span><span class="spacer"></span><a class="btn" href="#/board">Board</a><a class="btn" href="#/history">History</a><a class="btn" href="#/chat" aria-current="page">Chat</a>' +
+      '<span class="tb-sep" aria-hidden="true"></span>' + me + '</header>';
+  }
+
+  function roomRow(r) {
+    var on = S.sel === r.id, un = S.kase === 'empty' ? 0 : r.unread;
+    return '<li class="ch-item' + (on ? ' on' : '') + '"><button type="button" class="ch-row" data-open="' + r.id + '"' + (on ? ' aria-current="true"' : '') + '>' +
+      (r.id === 'r-gen' ? I.hash : I.room) + '<span class="stack"><span class="nm" title="' + esc(name(r)) + '"><bdi>' + esc(name(r)) + '</bdi></span><span class="sub">' + esc(r.sub) + '</span></span>' +
+      (un ? '<span class="unread" aria-label="' + un + ' new">' + un + '</span>' : '') + '</button></li>';
+  }
+  function sidebar() {
+    var rooms = S.kase === 'empty' ? [ROOMS[0]] : ROOMS;
+    var capped = S.kase === 'cap';
+    return '<nav class="ch-side" aria-label="Chat"><section class="ch-sec" aria-labelledby="sec-rm"><h2 id="sec-rm">Rooms</h2>' +
+      '<div class="rm-new">' + (capped ? '<button type="button" class="btn sm" disabled aria-describedby="cap-why">New room</button><p class="hint" id="cap-why">This server has 50 rooms, the most it keeps. An Admin can remove one that is no longer used.</p>'
+        : '<button type="button" class="btn sm" data-form-open aria-expanded="' + (S.form !== 'off') + '" aria-controls="rm-form">New room</button>') + '</div>' +
+      '<ul class="ch-list">' + rooms.map(roomRow).join('') + '</ul></section>' +
+      '<section class="ch-sec" aria-labelledby="sec-ch"><h2 id="sec-ch">Channels</h2><ul class="ch-list"><li class="hint ch-pad">My group and Direct Messages are unchanged: see Chat.</li></ul></section></nav>';
+  }
+
+  function form() {
+    if (S.form === 'off') return '';
+    var dup = S.form === 'dup';
+    return '<form class="rm-form" id="rm-form" aria-label="New room" novalidate>' +
+      '<label>Room about<select id="rm-kind"><option>Issue</option><option>Milestone</option><option>Project</option></select></label>' +
+      '<label>Issue number, milestone or project name<input id="rm-ref" type="text" value="' + (dup ? '#1035' : '') + '" aria-describedby="rm-hint' + (dup ? ' rm-err' : '') + '"' + (dup ? ' aria-invalid="true"' : '') + '></label>' +
+      '<p class="hint" id="rm-hint">Anyone signed in to this server can read and post in the room, including every Admin and every orchestrator.</p>' +
+      (dup ? '<div class="errbox" role="alert" id="rm-err">There is already a room for issue #1035. Open it instead.</div>' : '') +
+      '<div class="acts"><button type="submit" class="btn pri">' + (dup ? 'Open #1035 Rooms' : 'Create room') + '</button><button type="button" class="btn" data-form-close>Cancel</button></div></form>';
+  }
+
+  function thread() {
+    var x = item(S.sel);
+    var back = '<button type="button" class="btn sm ch-back" data-back>Back to the list</button>';
+    var shown = S.kase === 'empty' ? 0 : x.msgs.length;
+    var scope = 'Everyone signed in to this server can read and post here: every person, every orchestrator and every Admin. Do not post anything you would not want all of them to read.';
+    var admin = isAdmin() ? '<div class="ch-nav ro" role="status">' + I.globe + '<span><b>This room is public.</b> You read it like everyone else, so no one is notified. An Admin can remove messages from it, and the person who wrote one is told.</span></div>' : '';
+    var pager = '<div class="ch-earlier"><span role="status">Showing ' + shown + ' of ' + (S.kase === 'empty' ? 0 : x.n) + '</span>' + (S.kase !== 'empty' && x.n > shown ? '<button type="button" class="btn sm" data-earlier>Earlier messages</button>' : '') + '</div>';
+    var body = S.kase === 'empty' ? '<div class="ch-blank"><b>Nothing posted in ' + esc(name(x)) + ' yet</b><p class="hint">Write the first message below. Orchestrators read a room when they choose to, or when their turn ends.</p></div>' : '<ol class="feed" id="conv-feed"></ol>';
+    var composer = isAdmin() ? '<div class="ch-composer"><div class="note">Admins read rooms here. To post, sign in as a person.</div></div>' :
+      '<div class="ch-composer"><label for="msg">Message ' + esc(name(x)) + '</label>' +
+      (S.sendErr ? '<div class="errbox" role="alert">Could not send: the server did not answer. Nothing was posted. Try again.</div>' : '') +
+      '<div class="row"><textarea id="msg" rows="2" placeholder="Write a message for everyone in this room.">' + esc(S.draft) + '</textarea><button type="button" class="btn pri" data-send>Send</button></div>' +
+      '<div class="note">Public: every signed-in person, orchestrator and Admin can read this. Secrets are replaced with [redacted] before it is stored.</div></div>';
+    return '<section class="ch-thread" aria-labelledby="th-h">' + back + '<div class="ch-head"><h2 id="th-h"><span class="nm">' + esc(name(x)) + '</span>' +
+      (x.link ? '<span class="rm-link">' + I.link + esc(x.link) + '</span>' : '') + '</h2><div class="sub"><span>' + (S.kase === 'empty' ? 0 : x.n) + ' messages</span></div><div class="sub"><span>' + esc(scope) + '</span></div></div>' +
+      admin + form() + '<div class="ch-body" tabindex="0" aria-label="Messages, oldest first">' + (S.kase === 'empty' ? '' : pager) + body + '</div>' + composer + '</section>';
+  }
+
+  function fillFeed() {
+    var ol = document.getElementById('conv-feed'); if (!ol) return;
+    item(S.sel).msgs.forEach(function (m) {
+      var li = document.createElement('li'); li.className = 'txt' + (m.me && !isAdmin() ? ' mine' : '');
+      var at = document.createElement('span'); at.className = 'at'; at.textContent = m.t; li.appendChild(at);
+      var k = document.createElement('span'); k.className = 'k'; k.setAttribute('role', 'img'); k.setAttribute('aria-label', 'Message'); k.innerHTML = I.msg; li.appendChild(k);
+      var body = document.createElement('span'); body.className = 'body';
+      var who = document.createElement('span'); who.className = 'who'; who.textContent = m.me && !isAdmin() ? 'You' : m.f;
+      if (m.of) { var o = document.createElement('span'); o.className = 'rm-who'; o.textContent = ' orchestrator of ' + m.of; who.appendChild(o); }
+      body.appendChild(who); body.appendChild(document.createTextNode(m.tx)); li.appendChild(body); ol.appendChild(li);
+    });
+  }
+
+  function render() {
+    var tb = document.getElementById('msg'); if (tb) S.draft = tb.value;
+    var app = document.getElementById('app');
+    app.innerHTML = topBar() + '<div class="adminv" aria-label="Chat"><div class="apage"><div class="apage-in"><div class="ch-split" data-pane="' + S.pane + '">' + sidebar() + thread() + '</div></div></div></div>';
+    fillFeed();
+  }
+  function press(attr, v) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === v)); }); }
+
+  var root = document.documentElement;
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var d = b.dataset;
+    if (d.open) { S.sel = d.open; S.pane = 'thread'; S.draft = ''; S.sendErr = false; render(); }
+    else if (d.back !== undefined) { S.pane = 'side'; render(); }
+    else if (d.formOpen !== undefined) { S.form = S.form === 'off' ? 'on' : 'off'; press('data-form', S.form); render(); }
+    else if (d.formClose !== undefined) { S.form = 'off'; press('data-form', 'off'); render(); }
+    else if (d.send !== undefined) { S.sendErr = S.kase === 'error'; if (!S.sendErr) { var t = document.getElementById('msg').value.trim(); if (t) { item(S.sel).msgs.push({ f: 'Ed', me: true, t: 'Mon 14:30', tx: t }); item(S.sel).n++; S.draft = ''; announce('Posted to ' + item(S.sel).name + '.'); } } render(); }
+    else if (d.viewer) { S.viewer = d.viewer; press('data-viewer', d.viewer); render(); }
+    else if (d.case) { S.kase = d.case; S.sendErr = d.case === 'error'; press('data-case', d.case); render(); }
+    else if (d.form) { S.form = d.form; press('data-form', d.form); render(); }
+    else if (d.mode) { root.setAttribute('data-theme', d.mode); press('data-mode', d.mode); }
+    else if (d.w) { var st = document.getElementById('stage'); st.style.setProperty('--stage', d.w === 'narrow' ? '400px' : '1280px'); st.classList.toggle('narrow', d.w === 'narrow'); S.pane = d.w === 'narrow' ? 'side' : 'thread'; press('data-w', d.w); render(); }
+  });
+  document.addEventListener('submit', function (e) { e.preventDefault(); S.form = 'off'; press('data-form', 'off'); render(); announce('Room created.'); });
+  root.setAttribute('data-theme', 'dark');
+  render();
+})();
+</script>
