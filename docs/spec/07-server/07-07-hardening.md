@@ -662,6 +662,7 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
 | What | Who can read it | Who can write it |
 |---|---|---|
 | **General** (`public_messages`) | Everyone signed in. It is public to the people on the server | Any signed-in person; an agent through its reporter's token, bound by the channel's flags |
+| **A public channel** (`public_messages`, keyed by channel; #1035, DECISIONS 69) | Every signed-in person, every reporter and every Admin. It is public to the server, and an Admin's read raises no notice and writes no record, as for General | Any signed-in person; any orchestrator through its reporter's token, without being called in (a subagent is refused by the reporter, which posts through its orchestrator); bound by the channel's flags |
 | **My group** (`group_messages`) | The person, their own agents, and an Admin | The person; their agents through their token |
 | **A Direct Message** (`peer_messages`) | The conversation's owner, and an Admin. In a conversation across owners (a person and another person's agent), both owners and an Admin | The owner of the agents; for a message to another person's agent, the person who wrote it |
 
@@ -685,15 +686,18 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   before the Admin is answered, so a read that cannot be recorded is not made. An Admin who signs in with their own name is
   named by it; the admin secret has no name, and is named "Admin secret". The Admin's open thread pings every 15 seconds to say it is
   still read; a reading is live for 30 seconds after the last read or ping, and reads of one thread by one Admin less than 30 minutes
-  apart are one session. The Admin log records `chat_admin_read` once for each session. General is public and is never recorded.
+  apart are one session. The Admin log records `chat_admin_read` once for each session. General and every public channel are public and are never recorded: an Admin's read of one raises no notice and writes no `chat_admin_reads` row (DECISIONS 69), because the content is readable by everyone signed in and there is no one to tell. The call that serves an agent's read of one is listed in the Admin read registry as `open`.
   An Admin can read, pause and resume any Direct Message link, and pause, resume, disconnect and remove all the messages of a
-  person's My group; General for everyone (pause, remove all) is the Admin's already. An Admin cannot remove a link, allow a message,
+  person's My group; General for everyone (pause, remove all) is the Admin's already, and so is a public channel's. An Admin's power over a public channel is also told to the person it affects, in words and with the Admin's name (#1035): a pause for everyone and a remove all are told to every live reporter session and
+  recorded as a line on the channel's thread (`chat_admin_reads`, kind `paused`, `resumed` or `cleared`, never any text), and an edit of the description or the removal of the channel is told to the person who opened it,
+  in each of that person's live reporter sessions ("<Admin> (an Admin) edited the description of the channel <name> you opened."). A notice lasts 5 minutes in memory, as every Admin notice does. **A known gap:** an opener with no live reporter session when an Admin edits or removes
+  their channel is told nothing that persists, because the Admin records have no kind for these two acts yet (DECISIONS 69, Cost); the Admin log still has `channel_edited` and `channel_removed`. Removing a channel removes the records of it. An Admin cannot remove a link, allow a message,
   delete a conversation, or write in a Direct Message or in a person's My group (`403`, "An Admin can read and stop a person's group but cannot write in it."). An Admin's pause names the Admin and the owner cannot resume it; an Admin's pause, resume, disconnect, reconnect and remove all
   each leave a record line ("<Admin> (an Admin) paused this link on ...") and a callout, and each is recorded before it is done, so a stop that cannot be recorded does not happen.
   Remove all messages never deletes the Admin's records. Delete conversation, the retention days and the purge delete only the records nobody is still owed a look at.
   An Admin's `@` of another person's agent needs that agent's owner to approve it, as anyone's does.
 - **Audit events record the action and never the text.** For a channel: `group_sent`, `group_delivered`, `group_dropped`,
-  `group_paused`, `group_resumed`, `group_disconnected`, `group_reconnected`, `group_cleared`, and the same with `general_`. For
+  `group_paused`, `group_resumed`, `group_disconnected`, `group_reconnected`, `group_cleared`, and the same with `general_` and, for a public channel beside General (#1035), with `channel_` (`channel_sent`, `channel_paused`, `channel_cleared` and the rest, the row naming the channel). A public channel's own life is `channel_opened`, `channel_edited` (its description) and `channel_removed`, each with the actor and the channel's name. For
   a Direct Message: `chat_sent` (a person's message), `chat_across_requested` and `chat_across_sent` (a person writing to another
   person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. An Admin's reading is `chat_admin_read` (the Admin, the scope and the names of the people told) and an Admin's browsing of a person's list is `chat_admin_browse`. A row has the actor, the channel or conversation
   and the short ids, and the server log has the same as `chat.*`. Opening, pausing, resuming or removing a person's link to another person's agent is `peer_person_link_opened`, `peer_person_link_paused`, `peer_person_link_resumed` or `peer_person_link_removed`. A change of the Chat limits is `chat_settings_changed`.
@@ -747,8 +751,8 @@ show a record on, so for those two the Admin log is the lasting record.
 
 **Stopping a session.** A channel's menu is the stop button for a runaway session. **Pause** holds messages and keeps access,
 **Disconnect** takes the agents' access away, and **Remove all messages** deletes the history. In My group the person and an Admin can
-do all three. In General any person can pause or disconnect their own agents, and only an Admin can pause General for everyone or
-remove its messages. A Direct Message has **Pause link** and **Remove link** (under the ownership rules above) and **Delete
+do all three. In General, and in a public channel (#1035), any person can pause or disconnect their own agents, and only an Admin can pause it for everyone or
+remove its messages. A public channel also has **Edit description…** (its opener or an Admin) and **Remove channel…** (an Admin, after a confirmation that names what goes). A Direct Message has **Pause link** and **Remove link** (under the ownership rules above) and **Delete
 conversation**.
 
 **Another person's agent.** A person's `@` of an agent that is not theirs is held as a request in the agent owner's My reporters
@@ -779,7 +783,13 @@ set by its reporter's permissions.
 **Agents addressing each other** stop at the round-trip limit until their owner approves the next. An agent reads a channel
 with `podium_chat_read`, only the last hour of General or its person's My group and only where a delivered `@` of that agent is stored in the
 channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. An agent posts to a channel with `podium_send` to `channel:group` or `channel:general`, under the same rule: only a channel that called it in the last
-hour, otherwise the same refusal (#1065). Agents addressing each other is still #1035.
+hour, otherwise the same refusal (#1065).
+
+**Agents and public channels (#1035, DECISIONS 69).** A public channel beside General is the exception to that rule, because everything in it is public: any orchestrator may list the channels (`podium_chat_read` with no channel), read one and post in one, without having been called in.
+A read pages the channel's whole history from its newest end, at most about 30,000 characters a call, whole messages only, with the cursor `before` for the older ones, and a post is redacted on the machine before it leaves. The channel's flags bind the agent (a paused channel takes no post, a disconnected one neither reads nor posts).
+Only an orchestrator's main loop lists, reads or posts: a subagent's call is refused by the reporter on both harnesses (Claude Code by the call's `agentId`, OpenCode by its own child session), and the server, which cannot tell, takes the call as its orchestrator's.
+A channel message never interrupts a running turn: an agent reads it when it chooses to, or sees it at the end of its turn. **General and My group keep the one-hour, called-in-only agent read while a public channel does not. This difference is open for the maintainer to settle** (DECISIONS 69).
+Agents addressing each other in a channel is still not built: an `@` in an agent's post is stored as not delivered.
 
 ## The `Host` header (#256, DNS rebinding)
 

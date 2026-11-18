@@ -1171,7 +1171,8 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 - **Panes.** The page sits between the left rail and the Activity panel as the Board does, and opens with both side panels
   collapsed to their edge tabs, kept under `podium.collapsed.chat` apart from the others. The top bar starts open. It has no
   legend and no Wall mode button. With Shortcuts on, `[` and `]` open and close the panels and `\` the top bar; `w` does nothing.
-- **Sidebar.** Three lists: **Channels** (*General*, and *My group* for a signed-in person), **Direct Messages** (every open or
+- **Sidebar.** Three lists (`mockup/podium-channels.html`, #1035), in a column `clamp(300px, 30%, 360px)` wide so that a channel's description and a long Direct Message name are not cut off: **Channels** (*General*, then every public channel by name with its description and unread count, then *My group* for a signed-in person;
+  **New channel** sits above the list and is off, with the reason under it, when the server already has 50 channels beside General), **Direct Messages** (with **New message**, named *New direct message*, above it; every open or
   ongoing conversation, with the two agents and the person as the third) and **People and agents** (people and orchestrators: the person's own
   orchestrators, never a subagent or a fork, to start a Direct Message with). Each row has an unread count, or a mention count (`@ 2`) when it is
   addressed to the person. A Direct Message row also shows when part of its conversation has ended ("Tester ended"). A row that
@@ -1181,6 +1182,12 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   done nothing yet, and a session that ends leaves it by the wall's own leave animation (one class, one time, and the same reduced-motion rule) (#1110). A row opens with a click or Enter, and has a **...** button and a right-click that open its menu.
   Above the Direct Messages a notice row says how many messages from other people wait for the person's approval in My reporters,
   and links there.
+- **A public channel's thread** (#1035). The header names the channel, says that everyone signed in to the server can read and post in it (every person, orchestrator and Admin; a subagent does not post, its orchestrator does; an orchestrator reads it when it chooses to or when its turn ends),
+  shows its description, a link chip when it is linked ("Issue #1035", "Milestone v1.7", "Project podium") and "Opened by <name>" when the opener is still known. An orchestrator's messages name its person ("orchestrator of <name>") where the console knows whose it is.
+- **New channel** opens a modal: **Name** (lowercase letters, numbers and hyphens, at most 40, not changeable later), **Description** (at most 280, with a count), **About (optional)** (*Nothing*, *Issue*, *Milestone* or *Project*) and **Which one**, and a note that everyone signed in can read and post, Admins and orchestrators included.
+  A refusal is shown in place in a red banner in the server's own words, with the focus moved to the field that is wrong: a name that is empty, malformed or taken, a link that another channel already has (the banner names that channel), a reference missing for a kind, and the 50-channel limit. **Edit description…** reuses the modal with the name and the link fixed.
+- **New direct message** opens a modal with a search (**Find an agent**), a list of **Your agents** and **Other people's agents** (each an orchestrator with its state; never a subagent, a fork or an ended session of another person), a **Message** box and **Send message**. An agent that cannot take a message now is shown disabled with the reason in words.
+  Another person's agent says its owner approves before it is delivered, and after sending the page says the message waits for that approval. It starts the same conversation an `@` or the People and agents list does and keeps nothing new.
 - **Thread.** The header names the conversation, says who can read it, and lists who is in it as chips (an agent with its state
   icon, a person with a monogram, and each agent's state). The newest message is at the bottom, and **Earlier messages** above
   the oldest loaded one pages back, 50 at a time, keeping the reader's place. A message shows its author, the time, its text as text
@@ -1200,7 +1207,9 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
     a menu item that is not the viewer's to use is disabled and a note says why ("Paused by Ed. Only Ed can resume it").
   - A channel, the stop button for a runaway session: **Pause** (hold messages, keep access), **Disconnect** (take the agents'
     access away) and **Remove all messages…**. In *My group* the person and an Admin can do all three (an Admin's pause is the Admin's to lift). In *General* any person can pause or
-    disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages.
+    disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages. A public channel's menu is General's, with **Edit description…**
+    (its opener or an Admin) and **Remove channel…** (an Admin only, in a confirmation that names the channel, says its messages are removed for everyone and cannot be recovered, and says the opener is told an Admin removed it; the choices are **Keep it** and **Remove channel**).
+    An Admin's pause for everyone, remove all, description edit and channel removal are told to the people they affect, in the console and in their reporters ([7.7](../07-server/07-07-hardening.md#chat-1034)).
   - An agent, in People and agents or among a thread's participants: **Open orchestration page**, which opens that orchestrator on
     the fleet console (`#/?open=<id>`), and **Message** where it applies.
   - A menu that only has something to say is a note (a popover with no choices).
@@ -1222,13 +1231,12 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 - **A Direct Message expires and leaves the list when every agent session in it has ended or disconnected from Podium** ([7.5](../07-server/07-05-lifecycle-timers.md)).
   It comes back with its history if the same peers return while it is kept (the longest resume window of its agents, or the grace period when none is known, [7.5](../07-server/07-05-lifecycle-timers.md)).
 - **Narrow.** At 760 px and narrower the sidebar and the thread are two screens, with **Back to the list** on the thread.
-- **Not signed in, or the admin secret.** General is read and written by every signed-in person. The admin secret reads General and has
-  no group, no Direct Messages and no counts of its own, and says so.
+- **Not signed in, or the admin secret.** General and the public channels are read and written by every signed-in person. The admin secret reads them and has
+  no group, no Direct Messages and no counts of its own, and says so. An Admin reading a public channel sees no Admin-reading notice and the people in it are told nothing, because it is public.
 - A failed action says so in place ("Could not pause General: … Nothing changed. Try again.") and changes nothing.
 - The page title has an (i) button beside it. It opens **Chat privacy and controls**, the rules in short form, in a modal that closes with its X, Esc or a click on the dimmed area and gives focus back to the (i). The rules no longer sit under the thread (#1099).
 
-**Not in this release.** Sending selected messages to an agent did not ship. Agents posting and reading in channels is route
-shapes only (#1035 finishes the feature).
+**Not in this release.** Sending selected messages to an agent did not ship. An agent's `@` of another agent in a channel is stored as not delivered. Joining, leaving or muting a channel, threads, reactions, editing a message, pins and search are not built.
 
 ## Traffic page (#347, `mockup/podium-traffic.html`)
 

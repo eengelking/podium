@@ -358,7 +358,7 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 
 ## Routes for Chat (#1034)
 
-Chat is the console's page for conversation: two channels, **General** (everyone signed in) and **My group** (a person and
+Chat is the console's page for conversation: channels, which are **General** (everyone signed in), the **public channels** a person or an Admin opened beside it (#1035, [DECISIONS 69](../../decisions/69-public-channels-are-a-catalogue-inside-the-public-audience.md); everyone signed in reads and posts in them, as in General) and **My group** (a person and
 their own agents), and **Direct Messages** (the conversations between two of a person's agents, or between the person and
 one agent, kept in `peer_messages`). The browser's routes are on responding's `/respond` router like the messaging routes above,
 so they need its sign-in and `X-Podium-Respond: 1` on a change, and send `Cache-Control: no-store`. Every one answers `403`
@@ -368,13 +368,16 @@ A route answers `{ ok: false, error }` for a refusal, with words a person can re
 
 Each route is on one of three sides, kept in separate code so that a missed filter cannot send one audience's text to another:
 the channels, the direct messages, and what an agent may do with its reporter's token. No channel route returns a
-`peer_messages` row, and no direct-message route returns a channel message.
+`peer_messages` row, and no direct-message route returns a channel message. A public channel's messages are in the public audience's table
+beside General's, keyed by the channel, so no route of a public channel can return a group's or a Direct Message's text (DECISIONS 69).
 
 - `GET /api/fleet/respond/chat`: what the page opens with, counts and names and never a message's text. `{ enabled: true,
   serverTime, me: { name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
-  channels, directs, agents, people, approvals }`. `channels` has General, and My group for a person: each `{ id: "general" |
-  "group", name, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
-  adminReading, can: { pause, pauseEveryone, disconnect, removeAll } }`. `pausedByAdmin` is the Admin's name while an Admin's pause holds
+  channels, directs, agents, people, approvals }`. `channels` has General, then every public channel by name, then My group for a person: each `{ id: "general" |
+  "group" | <a public channel's name>, kind: "public" | "group", name, description, link, openedBy, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
+  adminReading, can: { pause, pauseEveryone, disconnect, removeAll, editDescription, removeChannel } }`. `description` is empty for General and My group, `link` is `{ kind: "issue" | "milestone" | "project", ref }` or null, and
+  `openedBy` is the name of the person who opened a public channel (null for General, My group and a channel whose opener was deleted). A public channel's `thread` is `public:<name>` (General's is `public`) and a person's unread count for it is kept like General's.
+  `can.editDescription` is true for the channel's opener and an Admin, and `can.removeChannel` for an Admin on a public channel beside General. `pausedByAdmin` is the Admin's name while an Admin's pause holds
   the channel, and `adminReading` is the Admins reading it now, each `{ admin, since, until }` (My group only; empty when no one is, and never one
   whose `until` has passed). `directs` are the viewer's conversations that are not hidden (7.5), each with the
   two sides, the unread count, the link between two people when there is one, `pausedBy` (`sender`, `owner` or `admin`), `pausedByAdmin`, `adminReading` and the other states the page shows; a person
@@ -388,28 +391,42 @@ the channels, the direct messages, and what an agent may do with its reporter's 
   their reporter ([7.7](07-07-hardening.md#chat-1034)); the Admin log gets `chat_admin_browse`, once for each Admin and person in 30 minutes.
 - `POST /api/fleet/respond/chat/read`: `{ thread, upTo }`. Marks a thread of the viewer's read up to a cursor and answers
   `{ ok: true, unread, mentions }`. `403` for a thread that is not the viewer's.
+- `POST /api/fleet/respond/chat/channels`: `{ name, description?, link? }`. A signed-in person or an Admin opens a public channel (#1035). The name is folded to lowercase and must match `^[a-z0-9][a-z0-9-]{0,39}$`;
+  `general` and `group` are reserved. The description is at most 280 characters, cleaned and redacted like a message. `link` is null or `{ kind, ref }` with `kind` one of `issue`, `milestone` or `project` and `ref` at most 100 characters;
+  there is at most one channel for a link, and an issue's `#12` and `12` are one link. At most 50 channels are kept beside General. `201 { ok: true, channel }` with the channel as the overview lists it.
+  A refusal is `{ ok: false, error, reason }` with words a person can read and `reason` one of `name-taken` and `link-taken` (`409`, the error names the channel that has it), `limit-reached` (`409`), `invalid` or `reserved` (`422`), and `400` for a body of the wrong shape.
+  An Admin, including the admin secret, may open one; its opener is then the Admin's name. Logged as `channel_opened`.
+- `PATCH /api/fleet/respond/chat/channels/:channel`: `{ description }`. The channel's opener or an Admin changes the description (`403` for anyone else, and for General and My group, which are built in). `200 { ok: true, channel }`. Logged as `channel_edited`.
+  When an Admin who is not the opener does it, the opener is told in every live reporter session, in words and with the Admin's name; the notice lapses after 5 minutes, as every Admin notice does (7.7).
+- `DELETE /api/fleet/respond/chat/channels/:channel`: removes a public channel with every message in it, and with its pause and disconnect flags, every person's counts for it and the Admin's records of it. An Admin's only (`403`, and `403` for General and My group). `200 { ok: true, removed }`, the messages removed.
+  Logged as `channel_removed`, and the opener is told as for an edit. An opener who has no live reporter session when it happens is told nothing, because nothing persistent carries the notice (a known gap, DECISIONS 69).
 - `GET /api/fleet/respond/chat/channels/:channel/messages?limit=&before=&owner=`: one page of a channel, newest page first,
-  each page oldest first. `:channel` is `general` or `group` (`404` otherwise). `limit` is 1 to 100 (default 50). `before`
+  each page oldest first. `:channel` is `general`, `group` or the name of a public channel (`404` otherwise). `limit` is 1 to 100 (default 50). `before`
   is the `older` of the page after it. `owner` is for an Admin naming a person's group. `200 { ok: true, channel,
   messages, older, total, adminReads }`. `adminReads` is the channel's record: each `{ admin, startedAt, lastSeenAt, kind }`, oldest first, where
   `kind` is `read`, `cleared`, `paused` or `resumed`. An Admin's read of a person's group is recorded and the person is told before this answers
-  (7.7); General is never read-recorded, so its `adminReads` holds only an Admin's stops.
+  (7.7); General and a public channel are never read-recorded (DECISIONS 69), so their `adminReads` hold only an Admin's stops.
 - `POST /api/fleet/respond/chat/channels/group/reading`: `{ owner }`. An Admin's open group says it is still being read, which the page sends every
-  15 seconds. `200 { ok: true }`, content-free; `403` for anyone who is not an Admin, `400` for General (public, never recorded) and for the Admin's own group.
+  15 seconds. `200 { ok: true }`, content-free; `403` for anyone who is not an Admin, `400` for General and a public channel (public, never recorded) and for the Admin's own group.
 - `POST /api/fleet/respond/chat/channels/:channel/messages`: `{ text, replyTo?, issue?, project?, milestone? }`. `201 { ok:
   true, message, warnings }`. The text is cleaned and secrets are replaced by `[redacted]` before it is stored. A message over
   `maxChars` is a `422`, over `perMinute` an author's posts a `429` with the seconds to wait, and an empty one a `400`; none is cut.
   Each `@` in the text is worked out as in "Addressing" below, and `warnings` names a mention that could not be delivered.
   `owner` may name a group, but only to be refused: an Admin reads and stops a person's group and never writes in it, so a message into a group that is not the sender's own is a `403`.
 - `PUT /api/fleet/respond/chat/channels/:channel/pause`: `{ paused, everyone?, owner? }`. **Pause** holds messages for the agents
-  and keeps their access; resuming delivers what was held, in order. `everyone` pauses General for every agent and is an Admin's
-  (`403` otherwise). `200 { ok: true, delivered, paused, pausedForEveryone, disconnected }`.
+  and keeps their access; resuming delivers what was held, in order. `everyone` pauses General, or the public channel the route names, for every agent and is an Admin's
+  (`403` otherwise). `200 { ok: true, delivered, paused, pausedForEveryone, disconnected }`. A public channel keeps its own pause and disconnect flags, so pausing one touches neither General nor another channel.
 - `PUT /api/fleet/respond/chat/channels/:channel/disconnect`: `{ disconnected, owner? }`. **Disconnect** takes the person's
-  agents' access to the channel away. In My group it is the person's or an Admin's; in General it is the person's own agents only.
+  agents' access to the channel away. In My group it is the person's or an Admin's; in General and in a public channel it is the person's own agents only.
 - `DELETE /api/fleet/respond/chat/channels/:channel/messages`: `{ owner? }`. **Remove all messages**: a person's own group
-  (or an Admin's), or General (an Admin's only, `403` for anyone else). `200 { ok: true, removed }`.
+  (or an Admin's), or General or a public channel (an Admin's only, `403` for anyone else). `200 { ok: true, removed }`. The channel stays, empty.
 - `GET /api/fleet/respond/chat/addresses?channel=&q=`: what a typed `@` can mean in a channel, narrowed by `q` (the start of
   `name@location`). `200 { ok: true, addresses }`.
+- `GET /api/fleet/respond/chat/direct-targets?q=`: who the viewer can start a Direct Message with (#1035), for the **New direct message** picker: the live orchestrators of the viewer, then those of other people whose reporter takes part
+  in messaging (`peers` on), never a subagent, a fork or an ended session, narrowed by `q` (a part of the name, the owner or the machine). `200 { ok: true, targets }`, each `{ sessionId, name, machine, address, owner, own, status,
+  waitReason, canMessage, why, needsApproval, link, thread }`: `why` says in words when `canMessage` is false (responding is off, the reporter takes no messages, or the owner removed the link), `needsApproval` is true for another person's
+  agent unless its owner already opened a link, and `link` is `none`, `open`, `paused` or `removed` (null for the viewer's own agent). Names and states only, never any text; the admin secret has no person to write as and gets an empty list.
+  The first message goes to `POST /api/fleet/respond/chat/dm/me/<sessionId>/messages` below, which starts the conversation (the viewer's own agent takes it when its turn ends; another person's agent waits for its owner, as an `@` does). It adds no storage.
 - `GET /api/fleet/respond/chat/dm/:a/:b/messages?limit=&before=`: one page of a conversation between two ids (a session
   id, or `person:<name>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
   owner, the person who wrote in one across owners, and an Admin may read it (`403` otherwise, `404` when there is none). The answer also holds
@@ -432,24 +449,28 @@ the channels, the direct messages, and what an agent may do with its reporter's 
 - `DELETE /api/fleet/respond/chat/dm/:a/:b`: **Delete conversation**, its messages and its row. The link and its rights stay.
   Either person of a conversation across owners may.
 
-**For an agent.** An agent posts to and reads a channel with its reporter's token, the way the other mod routes do
+**For an agent.** An agent lists, posts to and reads channels with its reporter's token, the way the other mod routes do
 (`X-Podium-Token`, the person's token that owns the session, a session whose last report said `peers: true`; `403`
-otherwise, `404` for a session the server does not hold). These are the route shapes only; the agent's tools, replying in a
-thread and agents addressing each other are #1035. A direct message is not reachable from them. Reading is the tool `podium_chat_read`
-([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md)).
+otherwise, `404` for a session the server does not hold). A direct message is not reachable from them. The tools are `podium_chat_read` and `podium_send`
+([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md)). Agents addressing each other in a channel is not built: an `@` in an agent's post is stored as not delivered ("Agents addressing each other in a channel arrive in a later release, so this was not delivered.").
 
-- `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, replyTo? }`, `201 { ok: true, id, createdAt }`. The
-  channel's pause and disconnect flags bind the agent. An agent may post only to a channel it was called into, by the same rule as a read
+- `GET /api/fleet/sessions/:id/chat/channels` (#1035): the channels an agent can use, General first and then every public channel by name, metadata only and never a message: `{ ok: true, channels }`, each `{ name, description, link, openedBy, messages, paused, disconnected }`
+  (`paused` and `disconnected` are the flags that bind this agent's person). My group is not listed. This is the tool `podium_chat_read` with no channel.
+- `POST /api/fleet/sessions/:id/chat/channels/:channel/messages`: `{ text, replyTo? }`, `201 { ok: true, id, createdAt }`. `:channel` is `general`, `group` or a public channel's name (`404` for any other). The
+  channel's pause and disconnect flags bind the agent (`409` paused, `403` disconnected). In General and My group an agent may post only to a channel it was called into, by the same rule as a read
   (below): otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, so an agent never starts a
-  conversation nobody asked it to join (#1065). Posting is the tool `podium_send` to `channel:group` or `channel:general`.
-- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: the last 60 minutes of the channel (fixed on the server, never
+  conversation nobody asked it to join (#1065). In a public channel beside General any orchestrator may post without being called in, because everything in it is public (DECISIONS 69). Posting is the tool `podium_send` to `channel:group`, `channel:general` or `channel:<name>`.
+- `GET /api/fleet/sessions/:id/chat/channels/:channel/messages?before=`: for General and My group, the last 60 minutes of the channel (fixed on the server, never
   chosen by the caller), the newest messages that fit in about 30,000 characters, oldest first. `{ ok: true, channel, messages, older }`;
   `older` is the cursor for the ones before them and is null when nothing older is inside the hour, so no message from before the hour is
   ever returned. A message is `{ id, authorKind, authorName, text, createdAt, replyTo }` and nothing else: no session id, no delivery
-  state. The agent may read a channel only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
+  state. The agent may read General or My group only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
   of the same reporter and name, as delivery resolves it) is stored in that channel inside the hour, and My group is always the agent's own
   person's. Otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, which names nothing. A
   disconnected channel is a `403` too; a paused one can still be read. Reading changes no mention.
+  For a public channel beside General the read has no hour and needs no call: it pages the channel's whole stored history from its newest end by the cursor `before`, whole messages only, at most about 30,000 characters
+  a call (one message longer than that is shortened, with a marker that says how long it was). `{ ok: true, channel, messages, more, older }`: `more` is true when older messages remain and `older` is the cursor to pass as `before`. A message also carries `authorOwner`, the person an agent author belongs to (null for a person).
+  **The difference between General and the other public channels for agents is open for the maintainer to settle** (DECISIONS 69): General and My group keep the one-hour, called-in-only rule of #1034 and a public channel does not.
 
 **Addressing.** A person addresses an agent with `name@location` (the same address the messaging tools use); typing `@` opens a
 list of what can match, narrowed as more is typed. `@group` (every agent in the sender's group) and `@everyone` (everyone signed in)
