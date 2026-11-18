@@ -22,6 +22,8 @@
        another person's agent, and write the first message. Your own agent opens a conversation at once. Another person's agent waits in
        that person's My reporters list ("Waiting for <owner> to approve"), exactly as an @-address does today. A subagent is never offered.
        New classes: dm-pick (the list of who you can message in that modal).
+     - The sidebar is wider: clamp(300px, 30%, 360px) in place of a fixed 280px. At 280px two Direct Message names and four second lines were cut
+       off; at 360px no name is, and only the longest descriptions are. Wider than 360px gains nothing and takes room from the thread.
    Original header of the #1034 mockup follows.
    Mockup for #1034: Chat, a console page laid out like Slack or Teams. It replaces Traffic (#347), whose Pause link and
    Remove link move onto each Direct Message as a context menu (right-click, and a "..." button for keyboard and touch).
@@ -49,7 +51,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .podium .tb-who { margin-right: 8px; }
 .stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
 
-.ch-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.ch-split { display: grid; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 .ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
 .ch-sec { padding: 4px 0 8px; }
 .ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
