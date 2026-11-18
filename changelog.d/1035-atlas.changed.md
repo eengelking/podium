@@ -1,0 +1,1 @@
+The atlas describes public channels in Chat: the `channel` column on `public_messages` and the `public_channels` table (SQLite migration 45, PostgreSQL and MariaDB step 21), the channel routes, the reporter's channel list and paged read, `channel:<name>` posts, the `channel_*` Admin log events and the limit of 50 channels (#1035).
