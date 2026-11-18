@@ -18,6 +18,10 @@
        An orchestrator reads a channel when it chooses to or when its turn ends; a post never interrupts a turn.
      - New classes: ch-new (the "New channel" button in the Channels header), ch-desc (a channel's description in its header), ch-link
        (the "Linked to" chip), and ch-form (the fields in the New channel modal, which is the existing .scrim and .modal).
+     - Direct Messages gets a "New direct message" button, the same shape as New channel: a modal where you pick one of your own agents or
+       another person's agent, and write the first message. Your own agent opens a conversation at once. Another person's agent waits in
+       that person's My reporters list ("Waiting for <owner> to approve"), exactly as an @-address does today. A subagent is never offered.
+       New classes: dm-pick (the list of who you can message in that modal).
    Original header of the #1034 mockup follows.
    Mockup for #1034: Chat, a console page laid out like Slack or Teams. It replaces Traffic (#347), whose Pause link and
    Remove link move onto each Direct Message as a context menu (right-click, and a "..." button for keyboard and touch).
@@ -186,6 +190,16 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .ch-form .count { justify-self: end; font-size: 11px; color: var(--muted); }
 .ch-form .acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .podium .banner[hidden] { display: none; }
+.podium .modal .mb .dm-pick { box-sizing: border-box; width: 100%; max-width: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; max-height: 232px; overflow: auto; list-style: none; }
+.dm-pick h3 { margin: 0; padding: 6px 12px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.dm-pick label { display: flex; gap: 10px; align-items: center; padding: 8px 12px; cursor: pointer; color: var(--ink); font-size: 13px; }
+.dm-pick label:hover { background: var(--hover); }
+.dm-pick label:has(input:checked) { background: var(--sel); font-weight: 600; }
+.dm-pick label:has(input:focus-visible) { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.dm-pick .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.dm-pick .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
+.dm-pick .none { padding: 12px; color: var(--muted); }
+.ch-sec > .ch-new.dm { top: 3px; }
 .stage.narrow .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
 </style>
 
@@ -234,6 +248,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <span class="grp" role="group" aria-label="New channel form">New channel form
     <button type="button" data-form="open">Open</button>
     <button type="button" data-form="err">Open, with an error</button>
+  </span>
+  <span class="grp" role="group" aria-label="New direct message form">New direct message
+    <button type="button" data-dmform="open">Open</button>
+    <button type="button" data-dmform="err">Open, with an error</button>
   </span>
   <span class="grp" role="group" aria-label="Mode">Mode
     <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
@@ -387,7 +405,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     { id: 'p4', name: 'explore-1', role: 'Subagent of claude-dashboard', st: 'running' },
     { id: 'p5', name: 'arm64-check', role: 'Orchestrator', st: 'stale' },
     { id: 'p6', owner: 'Maya', name: 'docs-writer', role: 'Orchestrator', st: 'running' },
-    { id: 'p7', owner: 'Maya', name: 'link-check', role: 'Orchestrator', st: 'done' }
+    { id: 'p7', owner: 'Maya', name: 'link-check', role: 'Orchestrator', st: 'done' },
+    { id: 'p8', owner: 'Maya', name: 'release-bot', role: 'Orchestrator', st: 'waiting' }
   ];
 
   var S = { viewer: 'owner', kase: 'full', sel: 'c-i1035', menu: null, removing: false, clearing: false, deleting: false, pick: {}, nav: '', msgMenu: null, sendTo: false, errText: '', readAs: '', groupAt: false, readingId: '', record: false, stopping: false, keep: null, sendErr: false, pane: 'thread', earlier: false, draft: '', delCh: false };
@@ -404,7 +423,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function isPub(x) { return !!x && (x.kind === 'general' || x.kind === 'public'); }
   function isDm(x) { return x && !isPub(x) && x.kind !== 'group'; }
   function me() { return S.viewer === 'other' ? 'Maya' : 'Ed'; }
-  function dmName(d) { return d.kind === 'people' ? (S.viewer === 'other' ? d.a : d.b) : d.kind === 'me' ? nm(d.b) : nm(d.a) + ', ' + nm(d.b); }
+  function dmName(d) { return d.kind === 'people' ? (S.viewer === 'other' ? d.a : d.b) : d.kind === 'me' ? nm(d.b) + (d.cross ? ' (' + d.cross + '\'s)' : '') : nm(d.a) + ', ' + nm(d.b); }
   function mi(m, x) { return x.also ? m.f === me() : !!m.me; }
   // Who is told: an owner (and, in a shared conversation, the other person) while an Admin reads. General is public, so never.
   function beingRead(x) { return !!x && !isPub(x) && S.readingId === x.id && (S.viewer === 'owner' || S.viewer === 'other') && visible(x); }
@@ -500,6 +519,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     return '<button type="button" class="btn sm ch-new" data-newch aria-haspopup="dialog"' + (cap ? ' disabled aria-describedby="cap-why"' : '') + '>New channel</button>' +
       (cap ? '<p class="hint" id="cap-why" style="padding:0 20px 6px">This server has 50 channels, the most it keeps. An Admin can remove one that is no longer used.</p>' : '');
   }
+  function newDmBtn() { return '<button type="button" class="btn sm ch-new dm" data-newdm aria-haspopup="dialog" aria-label="New direct message">New message</button>'; }
   function sidebar() {
     var owner = canSee();
     function chRow(c) {
@@ -511,7 +531,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       var label = dmName(d);
       var un = d.unread && !ro(d) ? '<span class="unread" aria-label="' + d.unread + ' new">' + d.unread + '</span>' : '';
       return '<li class="ch-item' + (S.sel === d.id ? ' on' : '') + '" data-ctx="' + d.id + '"><button type="button" class="ch-row" data-open="' + d.id + '"' + (S.sel === d.id ? ' aria-current="true"' : '') + '>' +
-        I.dm + '<span class="stack"><span class="nm" title="' + esc(label) + '">' + esc(label) + '</span><span class="sub">' + esc(ro(d) ? (d.kind === 'me' ? ownerOf(d) + ' and one agent' : d.kind === 'people' ? ownerOf(d) + ' and ' + d.also : 'Two agents, and ' + ownerOf(d)) + ', read only' : d.kind === 'me' ? 'You and one agent' : d.kind === 'people' ? 'You and ' + dmName(d) : 'Two agents, and you') + '</span><span class="tags">' + stateTag(d) + adminTags(d) + '</span></span>' + un + '</button>' +
+        I.dm + '<span class="stack"><span class="nm" title="' + esc(label) + '">' + esc(label) + '</span><span class="sub">' + esc(ro(d) ? (d.kind === 'me' ? ownerOf(d) + ' and one agent' : d.kind === 'people' ? ownerOf(d) + ' and ' + d.also : 'Two agents, and ' + ownerOf(d)) + ', read only' : d.kind === 'me' ? (d.cross ? 'You and ' + d.cross + '\'s agent' : 'You and one agent') : d.kind === 'people' ? 'You and ' + dmName(d) : 'Two agents, and you') + '</span><span class="tags">' + stateTag(d) + adminTags(d) + '</span></span>' + un + '</button>' +
         '<button type="button" class="ch-more" data-more="' + d.id + '" aria-haspopup="menu" aria-expanded="' + (S.menu === d.id) + '" aria-label="Actions for ' + esc(label) + '">' + I.dots + '</button>' +
         (S.menu === d.id ? menu(d) : '') + '</li>';
     }
@@ -529,7 +549,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       '<p class="hint">' + (S.readAs ? 'Showing ' + esc(S.readAs) + '\'s My group and Direct Messages. ' : 'Pick a person to see their My group and Direct Messages. ') + 'Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text.</p></div></section>';
     return '<nav class="ch-side" aria-label="Chat">' + readSec +
       '<section class="ch-sec" aria-labelledby="sec-ch"><h2 id="sec-ch">Channels</h2>' + newBtn() + '<ul class="ch-list">' + CHANNELS.filter(visible).filter(function (c) { return S.kase !== 'empty' || c.kind !== 'public'; }).map(chRow).join('') + '</ul></section>' +
-      ((owner || S.viewer === 'other') && (!adm || S.readAs) ? '<section class="ch-sec" aria-labelledby="sec-dm"><h2 id="sec-dm">Direct Messages</h2><ul class="ch-list">' + dms + '</ul></section>' : '') +
+      ((owner || S.viewer === 'other') && (!adm || S.readAs) ? '<section class="ch-sec" aria-labelledby="sec-dm"><h2 id="sec-dm">Direct Messages</h2>' + (!adm ? newDmBtn() : '') + '<ul class="ch-list">' + dms + '</ul></section>' : '') +
       (owner && !adm ? '<section class="ch-sec" aria-labelledby="sec-pe"><h2 id="sec-pe">People and agents</h2><ul class="ch-list">' + people + '</ul></section>' : '') +
       '</nav>';
   }
@@ -557,6 +577,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var scope = x.kind === 'public' ? 'Everyone signed in to this server can read and post here: every person, orchestrator and Admin. A subagent does not post here; its orchestrator does. An orchestrator reads it when it chooses to or when its turn ends.' : x.kind === 'general' ? 'Everyone signed in to this server can read and post here.'
       : x.kind === 'group' ? (ro(x) ? 'Only ' + ownerOf(x) + ' and ' + ownerOf(x) + '\'s own orchestrators, subagents and forks can post here. You are reading it as an Admin.' : 'Only you and your own orchestrators, subagents and forks can read and post here.')
       : x.kind === 'people' ? (ro(x) ? 'Only ' + ownerOf(x) + ', ' + x.also + ' and an Admin can read this.' : 'Only you, ' + dmName(x) + ' and an Admin can read this.')
+      : x.cross ? 'Only you, ' + x.cross + ' and an Admin can read this. ' + x.cross + ' approves before anything is delivered to ' + nm(x.b) + '.'
       : (ro(x) ? 'Only ' + ownerOf(x) + ' and an Admin can read this.' : 'Only you and an Admin can read this. The two agents and you are the only ones in it.');
     var shown = S.earlier ? x.msgs.length + 2 : x.msgs.length;
     var pager = '<div class="ch-earlier"><span role="status">Showing ' + shown + ' of ' + x.n + '</span>' + (S.earlier ? '' : '<button type="button" class="btn sm" data-earlier>Earlier messages</button>') + '</div>';
@@ -706,6 +727,51 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     (edit ? desc : name).focus();
     if (errors) { check(); }
   }
+  var dmWrap = null, dmFrom = null;
+  function closeDmForm() { if (!dmWrap) return; dmWrap.remove(); dmWrap = null; document.body.classList.remove('modal-open'); if (dmFrom && document.body.contains(dmFrom)) dmFrom.focus(); dmFrom = null; }
+  function openDmForm(errors) {
+    closeDmForm(); closeChForm(); dmFrom = document.activeElement;
+    var mine = S.kase === 'empty' ? [] : PEOPLE.filter(function (p) { return !p.owner && !GONE[p.name] && p.role === 'Orchestrator'; });
+    var theirs = S.kase === 'empty' ? [] : PEOPLE.filter(function (p) { return p.owner && p.st !== 'done' && p.role === 'Orchestrator'; });
+    function opt(p) {
+      var other = !!p.owner;
+      return '<li data-q="' + esc((p.name + ' ' + (p.owner || '')).toLowerCase()) + '"><label><input type="radio" name="dm-to" value="' + p.id + '">' + si(p.st) + '<span class="stack"><span>' + esc(nm(p.name)) + (other ? ' (' + esc(p.owner) + '\'s)</span>' : '') + '</span><span class="sub">' + (other ? 'Orchestrator, ' + esc(WORD[p.st].toLowerCase()) + '. ' + esc(p.owner) + ' approves before it is delivered.' : 'Your orchestrator, ' + esc(WORD[p.st].toLowerCase())) + '</span></span></label></li>';
+    }
+    dmWrap = document.createElement('div'); dmWrap.className = 'podium podium-modal'; dmWrap.setAttribute('data-theme', root.getAttribute('data-theme'));
+    dmWrap.innerHTML = '<div class="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="dm-h"><div class="mh"><div class="ttl"><h2 id="dm-h">New direct message</h2></div><button type="button" class="x" data-dm-x aria-label="Close (Esc)">\u2715</button></div><div class="mb">' +
+      '<form class="ch-form" novalidate><p class="hint">A Direct Message is read only by you, the agent\'s owner and an Admin. A subagent or a fork is not offered: message its orchestrator.</p>' +
+      '<label>Find an agent<input class="field" id="dm-q" type="search" autocomplete="off" placeholder="Search by agent or person"></label>' +
+      '<fieldset style="display:block;width:100%;border:0;margin:0;padding:0;min-width:0"><legend class="vh">To</legend><ul class="dm-pick" id="dm-list">' +
+      (mine.length ? '<li><h3>Your agents</h3></li>' + mine.map(opt).join('') : '') + (theirs.length ? '<li><h3>Other people\'s agents</h3></li>' + theirs.map(opt).join('') : '') +
+      (!mine.length && !theirs.length ? '<li class="none">No orchestrator is reporting yet.</li>' : '') + '<li class="none" id="dm-none" hidden>No agent matches that.</li></ul></fieldset>' +
+      '<label>Message<textarea class="field" id="dm-msg" rows="3" placeholder="Write the first message."></textarea></label>' +
+      '<p class="hint" id="dm-note">Secrets are replaced before a message leaves this machine. Another person\'s agent gets it only after its owner approves, in their My reporters.</p>' +
+      '<div class="banner bad" role="alert" id="dm-err" hidden></div>' +
+      '<div class="acts"><button type="button" class="btn" data-dm-x>Cancel</button><button type="submit" class="btn pri">Send message</button></div></form></div></div></div>';
+    document.body.appendChild(dmWrap); document.body.classList.add('modal-open');
+    var form = dmWrap.querySelector('form'), q = dmWrap.querySelector('#dm-q'), msg = dmWrap.querySelector('#dm-msg'), err = dmWrap.querySelector('#dm-err');
+    q.addEventListener('input', function () {
+      var v = q.value.trim().toLowerCase(), shown = 0;
+      Array.prototype.forEach.call(dmWrap.querySelectorAll('#dm-list li[data-q]'), function (li) { var on = !v || li.dataset.q.indexOf(v) >= 0; li.hidden = !on; if (on) shown++; });
+      dmWrap.querySelector('#dm-none').hidden = shown > 0 || (!mine.length && !theirs.length);
+    });
+    function fail(text, el) { err.hidden = false; err.textContent = text; el.focus(); }
+    form.addEventListener('submit', function (e) {
+      e.preventDefault(); err.hidden = true;
+      var pick = dmWrap.querySelector('input[name="dm-to"]:checked');
+      if (!pick) { fail('Choose who to message.', q); return; }
+      if (!msg.value.trim()) { fail('Write the first message.', msg); return; }
+      var p = PEOPLE.filter(function (x) { return x.id === pick.value; })[0], cross = p.owner || null;
+      var d = DMS.filter(function (x) { return x.kind === 'me' && x.b === p.name && (x.cross || null) === cross && !x.owner; })[0];
+      var m = { f: 'Ed', me: true, t: 'Mon 14:42', ds: cross ? ['clock', 'Waiting for ' + cross + ' to approve it, in My reporters.'] : ['queue', 'Waiting: ' + p.name + ' is ' + WORD[p.st].toLowerCase() + '. It gets this when its turn ends.'], tx: msg.value.trim() };
+      if (d) { d.msgs.push(m); d.n += 1; } else { d = { id: 'd' + Date.now(), kind: 'me', a: 'Ed', b: p.name, cross: cross, mach: 'ed-mbp', st: cross ? 'waiting' : 'active', n: 1, unread: 0, msgs: [m] }; DMS.unshift(d); }
+      S.sel = d.id; S.pane = 'thread'; S.draft = ''; closeDmForm(); render(); announce(cross ? 'Sent. It waits for ' + cross + ' to approve it.' : 'Sent to ' + p.name + '.');
+    });
+    dmWrap.addEventListener('click', function (e) { if (e.target.closest('[data-dm-x]') || e.target.classList.contains('scrim')) closeDmForm(); });
+    dmWrap.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); closeDmForm(); } });
+    q.focus();
+    if (errors) { msg.value = 'Can you run the upgrade notes through link-check?'; fail('Choose who to message.', q); }
+  }
   function open(id) { var tb = document.getElementById('msg'); if (tb) tb.value = ''; S.sel = id; S.menu = null; S.removing = false; S.clearing = false; S.deleting = false; S.sendErr = false; S.earlier = false; S.draft = ''; S.pane = 'thread'; var x = item(id); if (x && S.viewer !== 'admin') { if (x.unread) x.unread = 0; if (x.ment) x.ment = 0; } S.pick = {}; S.msgMenu = null; S.sendTo = false; S.errText = ''; render(); announce('Showing ' + (isDm(x) ? 'the conversation ' + dmName(x) : gname(x)) + '.'); var h = document.getElementById('th-h'); if (h) { h.setAttribute('tabindex', '-1'); h.focus(); } }
   function setRead(who) {
     S.readAs = who; S.menu = null; S.removing = S.clearing = S.deleting = false; S.sendErr = false; S.pick = {}; S.msgMenu = null; S.sendTo = false; S.earlier = false; S.draft = '';
@@ -716,6 +782,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     function each(sel, fn) { Array.prototype.forEach.call(app.querySelectorAll(sel), fn); }
     each('[data-open]', function (b) { b.addEventListener('click', function () { open(b.dataset.open); }); });
     each('#read-as', function (sel) { sel.addEventListener('change', function () { setRead(sel.value); }); });
+    each('[data-newdm]', function (b) { b.addEventListener('click', function () { openDmForm(false); }); });
     each('[data-newch]', function (b) { b.addEventListener('click', function () { openChForm(null, false); }); });
     each('[data-back]', function (b) { b.addEventListener('click', function () { S.pane = 'side'; render(); }); });
     each('[data-earlier]', function (b) { b.addEventListener('click', function () { S.earlier = true; render(); announce('Earlier messages loaded.'); }); });
@@ -842,6 +909,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       if (!item(S.sel)) S.sel = 'c-gen';
       render(); announce(on ? names.join(' and ') + ' ended. A conversation with no live agent left is removed from the list.' : 'Sessions restored.');
     }
+    if (b.dataset.dmform) { openDmForm(b.dataset.dmform === 'err'); }
     if (b.dataset.form) { openChForm(null, b.dataset.form === 'err'); }
     if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
     if (b.dataset.w) {
