@@ -74,5 +74,5 @@ the footer lines, the scroll that follows the newest row and its "Jump to latest
 <!-- nav:start -->
 ---
 
-Previous: [67. A PR adds a changelog fragment, and release-prep assembles the fragments](67-a-pr-adds-a-changelog-fragment-and-release-prep-assembles-them.md) · Up: [Decisions](README.md)
+Previous: [67. A PR adds a changelog fragment, and release-prep assembles the fragments](67-a-pr-adds-a-changelog-fragment-and-release-prep-assembles-them.md) · Up: [Decisions](README.md) · Next: [69. Public channels are a catalogue inside the public audience (#1035)](69-public-channels-are-a-catalogue-inside-the-public-audience.md)
 <!-- nav:end -->

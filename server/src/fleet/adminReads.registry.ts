@@ -8,7 +8,7 @@
  * - `told`: the read is recorded before anything is sent and the person is told in the console and in `podium-reporter`. `via` is the call that records it,
  *   found in `viaFile` (the route file when that is omitted), and `case` names the test that signs in as an Admin, reads, and asserts the notice.
  * - `owner-only`: an Admin is refused, so there is nothing to tell. `case` names the test that shows the refusal.
- * - `open`: anyone who can load the console may read it, as how the wall looks. It needs the decision that says so (`decision`) or an open issue (`issue`).
+ * - `open`: anyone who can load the console may read it, as how the wall looks. It needs the decision that says so (`decision`) or an open issue (`issue`), and may name a `case` that shows who is kept out.
  */
 export type AdminReadNotice = 'told' | 'owner-only' | 'open';
 
@@ -40,7 +40,7 @@ const told = (w: Where, via: string, c: Case, viaFile?: string): AdminReadEntry 
 /** An Admin is refused, and the case shows it. */
 const ownerOnly = (w: Where, c: Case): AdminReadEntry => ({ ...w, notice: 'owner-only', case: { file: c[0], title: c[1] } });
 /** Anyone who can load the console may read it, by the decision that says so. */
-const open = (w: Where, decision: number, covers?: string[]): AdminReadEntry => ({ ...w, notice: 'open', decision, ...(covers ? { covers } : {}) });
+const open = (w: Where, decision: number, covers?: string[], c?: Case): AdminReadEntry => ({ ...w, notice: 'open', decision, ...(covers ? { covers } : {}), ...(c ? { case: { file: c[0], title: c[1] } } : {}) });
 
 const AGENT_READ: Case = ['fleet/agentReadNotice.test.ts', 'serves an Admin, records one read and one Admin log line however many fetches, and tells the owner without any text'];
 
@@ -78,6 +78,10 @@ export const ADMIN_READS: AdminReadEntry[] = [
   ownerOnly({ call: 'channels.agentRead', files: ['fleet/chatAgentRoutes.ts'], what: "the last hour of a channel, read by the person's own agent with its reporter token; the admin secret and any other person are refused" }, [
     'fleet/chatRoutes.test.ts',
     "refuses an ended agent, another person's agent and the admin secret",
+  ]),
+  open({ call: 'channels.agentReadPublic', files: ['fleet/chatAgentRoutes.ts'], what: "a public channel besides General, paged through its whole history by an agent with its token (#1035); every signed-in person, reporter and Admin may read it, and an Admin's read of it raises no notice" }, 69, undefined, [
+    'fleet/chatChannelsPublic.test.ts',
+    "refuses a public channel's agent read to anyone but the person's own live agent: the admin secret, another person's agent, an ended agent, a browser sign-in and no credential",
   ]),
   open({ call: 'fleet.view', files: ['fleet/routes.ts'], what: "a session's card: names, states, counts and the event lines the wall shows (R7)" }, 62),
   open({ call: 'fleet.events', files: ['fleet/routes.ts'], what: 'the event lines the wall shows (R7)' }, 62, ['listEvents']),

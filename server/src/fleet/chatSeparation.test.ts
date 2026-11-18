@@ -16,6 +16,9 @@ const code = (f: string): string => read(f).replace(/\/\*[\s\S]*?\*\//g, '').rep
 const ROUTES: { file: string; method: string; path: string; audience: 'dm' | 'channel' | 'agent' | 'counts' }[] = [
   { file: 'chatRoutes.ts', method: 'get', path: '/chat', audience: 'counts' },
   { file: 'chatRoutes.ts', method: 'post', path: '/chat/read', audience: 'counts' },
+  { file: 'chatChannelRoutes.ts', method: 'post', path: '/chat/channels', audience: 'channel' },
+  { file: 'chatChannelRoutes.ts', method: 'patch', path: '/chat/channels/:channel', audience: 'channel' },
+  { file: 'chatChannelRoutes.ts', method: 'delete', path: '/chat/channels/:channel', audience: 'channel' },
   { file: 'chatChannelRoutes.ts', method: 'get', path: '/chat/channels/:channel/messages', audience: 'channel' },
   { file: 'chatChannelRoutes.ts', method: 'post', path: '/chat/channels/:channel/messages', audience: 'channel' },
   { file: 'chatChannelRoutes.ts', method: 'post', path: '/chat/channels/:channel/reading', audience: 'channel' },
@@ -23,6 +26,7 @@ const ROUTES: { file: string; method: string; path: string; audience: 'dm' | 'ch
   { file: 'chatChannelRoutes.ts', method: 'put', path: '/chat/channels/:channel/disconnect', audience: 'channel' },
   { file: 'chatChannelRoutes.ts', method: 'delete', path: '/chat/channels/:channel/messages', audience: 'channel' },
   { file: 'chatChannelRoutes.ts', method: 'get', path: '/chat/addresses', audience: 'channel' },
+  { file: 'chatDmRoutes.ts', method: 'get', path: '/chat/direct-targets', audience: 'counts' },
   { file: 'chatDmRoutes.ts', method: 'get', path: '/chat/dm/:a/:b/messages', audience: 'dm' },
   { file: 'chatDmRoutes.ts', method: 'post', path: '/chat/dm/:a/:b/messages', audience: 'dm' },
   { file: 'chatDmRoutes.ts', method: 'post', path: '/chat/dm/:a/:b/reading', audience: 'dm' },
@@ -50,7 +54,7 @@ describe('Chat keeps a direct message\'s text apart from a channel\'s (#1034)', 
   it('keeps the channel, agent and shared files from reading or writing a direct message', () => {
     // The live directory (`peers.messages.live`) is memory and holds no text; every other member of `peers.messages` reads a conversation.
     const direct = /peer_messages|sendFromPerson|ownerConversations|\.conversation\(|\.conversations\(|deleteConversation|hideConversation|showConversation|purgeHidden|\bMessageRow\b|peers\.messages(?!\.live\b)/;
-    for (const file of ['chatChannels.ts', 'chatChannelRoutes.ts', 'chatAgentRoutes.ts', 'chatCore.ts', 'chatMentions.ts', 'chatTypes.ts']) {
+    for (const file of ['chatChannels.ts', 'chatPublic.ts', 'chatChannelRoutes.ts', 'chatAgentRoutes.ts', 'chatCore.ts', 'chatMentions.ts', 'chatTypes.ts']) {
       expect(code(file), file).not.toMatch(direct);
     }
   });
@@ -58,6 +62,15 @@ describe('Chat keeps a direct message\'s text apart from a channel\'s (#1034)', 
   it('keeps the direct-message files from reading or writing a channel', () => {
     const channel = /\.group\.|\.public\.|group_messages|public_messages|ChannelChat|ChannelStoreApi|ChannelMessage\b|readState\.(?:bump|post)/;
     for (const file of ['chatDirect.ts', 'chatDmRoutes.ts']) expect(code(file), file).not.toMatch(channel);
+  });
+
+  it('keeps a public channel to the public audience: its routes name no group or conversation store, and a channel route resolves its name before any store (#1035)', () => {
+    // A public channel is read by everyone signed in, so nothing that serves one may name a group's or a conversation's store, and every route that takes a channel
+    // goes through `resolve`, which answers only General, My group or a channel that exists.
+    const group = /\.group\.|group_messages|ownerConversations|peer_messages/;
+    for (const file of ['chatPublic.ts', 'chatAgentRoutes.ts']) expect(code(file), file).not.toMatch(group);
+    for (const file of ['chatChannelRoutes.ts', 'chatAgentRoutes.ts']) expect(code(file), file).toMatch(/\.resolve\(/);
+    expect(code('chatChannelRoutes.ts') + code('chatAgentRoutes.ts')).not.toMatch(/\bchannelOf\(/);
   });
 
   it('answers a conversation\'s text from no route but the direct-message ones', () => {

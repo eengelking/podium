@@ -10,14 +10,25 @@ import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
 import type { MessageTrail } from './peerTypes.js';
-import { CHANNEL_NAMES, fail, isPersonId, personId, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
+import { PublicChannels } from './chatPublic.js';
+import { GENERAL, GROUP, channelName, channelOfThread, channelThread, fail, isPersonId, personId, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
+import type { ChannelFlags, PublicChannel } from '../storage/types.js';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
 export interface ChannelInfo {
-  id: 'general' | 'group';
+  /** `general`, `group`, or a public channel's name (#1035). */
+  id: string;
+  /** `public` for General and a channel someone opened, `group` for My group. */
+  kind: 'public' | 'group';
   name: string;
+  /** What the channel is for; empty for General and My group, which have none. */
+  description: string;
+  /** What a public channel is about (an issue, a milestone or a project), or null. */
+  link: { kind: 'issue' | 'milestone' | 'project'; ref: string } | null;
+  /** The person who opened a public channel, as written; null for General and My group, and for a channel nobody opened. */
+  openedBy: string | null;
   thread: string;
   unread: number;
   mentions: number;
@@ -28,7 +39,7 @@ export interface ChannelInfo {
   disconnected: boolean;
   /** The Admins reading this channel now (My group only; General is never read-recorded). Empty when no one is. */
   adminReading: AdminReading[];
-  can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean };
+  can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean; editDescription: boolean; removeChannel: boolean };
 }
 
 export interface AgentInfo {
@@ -89,6 +100,8 @@ const CURSOR_SHAPE = /^[A-Za-z0-9._:-]{1,64}$/;
 export class ChatService {
   readonly core: ChatCore;
   readonly channels: ChannelChat;
+  /** Opening, describing and removing a public channel (#1035). */
+  readonly publicChannels: PublicChannels;
   readonly direct: DirectChat;
   readonly adminReads: AdminReads;
 
@@ -96,6 +109,7 @@ export class ChatService {
     this.core = new ChatCore(host, store);
     this.adminReads = new AdminReads(this.core);
     this.channels = new ChannelChat(this.core, this.adminReads);
+    this.publicChannels = new PublicChannels(this.core, this.adminReads);
     this.direct = new DirectChat(this.core, this.adminReads);
     this.adminReads.resolve = (thread) => this.direct.subjectOf(thread);
     // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
@@ -164,6 +178,44 @@ export class ChatService {
     return persons.map((p) => ({ name: p.name, you: false, directs: counts[p.name] ?? 0 }));
   }
 
+  /** One channel as the overview lists it. `meta` is the public channel's row, null for General and My group. */
+  private async info(
+    viewer: ChatViewer,
+    id: string,
+    meta: PublicChannel | null,
+    ctx: { who: string; key: string; flagPerson: boolean; counts: Map<string, { unread: number; mentions: number }>; known: Record<string, ChannelFlags> | undefined },
+  ): Promise<ChannelInfo> {
+    const isGroup = id === GROUP;
+    const thread = isGroup ? groupThread(ctx.who) : channelThread(id);
+    const flags = await this.channels.flagsOf(id, isGroup ? ctx.key : null, ctx.flagPerson ? ctx.key : null, ctx.known);
+    const c = ctx.counts.get(thread);
+    const person = viewer.personId !== null;
+    return {
+      id,
+      kind: isGroup ? 'group' : 'public',
+      name: channelName(id),
+      description: meta?.description ?? '',
+      link: meta?.link ?? null,
+      openedBy: meta ? meta.createdByName || null : null,
+      thread,
+      unread: c?.unread ?? 0,
+      mentions: c?.mentions ?? 0,
+      messages: await this.channels.total(id, isGroup ? ctx.key : null),
+      ...flags,
+      adminReading: [],
+      can: isGroup
+        ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: true, editDescription: false, removeChannel: false }
+        : { pause: person, pauseEveryone: viewer.admin, disconnect: person, removeAll: viewer.admin, editDescription: meta !== null && this.publicChannels.canEdit(viewer, meta), removeChannel: meta !== null && viewer.admin },
+    };
+  }
+
+  /** A public channel as the viewer sees it in the overview: the reply to opening or describing one (#1035). */
+  async channelEntry(viewer: ChatViewer, c: PublicChannel): Promise<ChannelInfo> {
+    const person = viewer.personId !== null;
+    const counts = new Map((person ? await this.core.store.readState.list(viewer.name) : []).map((r) => [r.thread, r]));
+    return this.info(viewer, c.name, c, { who: viewer.name, key: nameKey(viewer.name), flagPerson: person, counts, known: undefined });
+  }
+
   async overview(viewer: ChatViewer, browsing?: string): Promise<Overview> {
     const person = viewer.personId !== null;
     const host = this.core.host;
@@ -171,22 +223,8 @@ export class ChatService {
     const key = nameKey(who);
     const limits = await this.core.limits();
     const counts = new Map((person && !browsing ? await this.core.store.readState.list(viewer.name) : []).map((r) => [r.thread, r]));
-    const channel = async (id: 'general' | 'group'): Promise<ChannelInfo> => {
-      const thread = id === 'general' ? publicThread : groupThread(who);
-      const flags = await this.channels.flagsOf(id, id === 'group' ? key : null, person || browsing ? key : null);
-      const c = counts.get(thread);
-      return {
-        id,
-        name: CHANNEL_NAMES[id],
-        thread,
-        unread: c?.unread ?? 0,
-        mentions: c?.mentions ?? 0,
-        messages: await this.channels.total(id, id === 'group' ? key : null),
-        ...flags,
-        adminReading: [],
-        can: id === 'group' ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: true } : { pause: person, pauseEveryone: viewer.admin, disconnect: person, removeAll: viewer.admin },
-      };
-    };
+    const known = await this.core.store.settings.allFlags();
+    const entry = (id: string, meta: PublicChannel | null) => this.info(viewer, id, meta, { who, key, flagPerson: person || !!browsing, counts, known });
     const agents: AgentInfo[] = person || browsing
       ? host.liveIds().flatMap((id) => {
           const o = host.peers.messages.live(id);
@@ -195,13 +233,15 @@ export class ChatService {
             : [];
         })
       : [];
-    const channels = [await channel('general'), ...(person || browsing ? [await channel('group')] : [])];
+    const channels = [await entry(GENERAL, null)];
+    for (const c of await this.core.store.channels.list()) channels.push(await entry(c.name, c));
+    if (person || browsing) channels.push(await entry(GROUP, null));
     const directs = browsing ? await this.direct.listAbout(viewer, who) : await this.direct.list(viewer);
     // The Admins reading right now, named, for the people in the thread. A reading whose time has passed is never reported.
     const list = person || browsing ? listThread(who) : null;
     const hidden = person || browsing ? await this.direct.hiddenOf(viewer, who, browsing !== undefined) : [];
     const live = await this.adminReads.liveFor([...(person || browsing ? [groupThread(who)] : []), ...(list ? [list] : []), ...directs.map((d) => d.thread), ...hidden.map((d) => d.thread)]);
-    for (const c of channels) if (c.id === 'group') c.adminReading = live.get(c.thread) ?? [];
+    for (const c of channels) if (c.id === GROUP) c.adminReading = live.get(c.thread) ?? [];
     for (const d of directs) d.adminReading = live.get(d.thread) ?? [];
     // A conversation that left the list (every agent in it has ended) is still read by an Admin who opened it, so it comes back while that is live (#1051).
     for (const d of hidden) {
@@ -285,10 +325,12 @@ export class ChatService {
     if (typeof thread !== 'string' || (upTo !== null && upTo !== undefined && typeof upTo !== 'string')) return fail(400, 'thread must be a string and upTo a string or null.');
     // What was read up to is a cursor (`<ms>.<seq>`) or a message id: short, and made of letters, digits and . : _ - only (#1051).
     if (typeof upTo === 'string' && !CURSOR_SHAPE.test(upTo)) return fail(400, 'upTo must be the cursor or id of a message, at most 64 characters.');
-    const mine = thread === publicThread || thread === groupThread(viewer.name) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread)));
+    // A public channel's thread is `public:<name>`, and only one that exists (a name in the exact form the channel is kept under) is a thread of anyone's (#1035).
+    const named = channelOfThread(thread);
+    const mine = thread === publicThread || thread === groupThread(viewer.name) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
     const row = await this.core.store.readState.markRead(viewer.name, thread, upTo ?? null);
-    this.core.signal({ scope: thread === publicThread ? 'public' : thread.startsWith('dm:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
+    this.core.signal({ scope: thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }
 

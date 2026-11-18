@@ -6,7 +6,7 @@ import { asyncHandler } from './asyncHandler.js';
 import { mountChatAgentRoutes } from './chatAgentRoutes.js';
 import { mountChatChannelRoutes, type ChatBrowserDeps } from './chatChannelRoutes.js';
 import { mountChatDmRoutes } from './chatDmRoutes.js';
-import { CHANNEL_NAMES, type ChatEvent, type ChatViewer, type Fail } from './chatTypes.js';
+import { channelName, type ChatEvent, type ChatViewer, type Fail } from './chatTypes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress } from '../storage/rows.js';
 import { peersEnabled, type BrowserHelpers, type PeerDeps } from './peerRoutes.js';
 import type { Fleet } from './fleet.js';
@@ -28,8 +28,8 @@ export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
       case 'sent':
       case 'delivered':
       case 'dropped': {
-        const prefix = e.channel === 'group' ? 'group' : 'general';
-        const where = `${CHANNEL_NAMES[e.channel]}${e.owner ? `, ${e.owner}'s` : ''}`;
+        const prefix = e.channel === 'group' ? 'group' : e.channel === 'general' ? 'general' : 'channel';
+        const where = `${channelName(e.channel)}${e.owner ? `, ${e.owner}'s` : ''}`;
         const words = e.kind === 'sent' ? 'Message posted' : e.kind === 'delivered' ? 'Message delivered to an agent' : `Message not delivered${e.why ? `: ${e.why}` : ''}`;
         row(`${prefix}_${e.kind}`, `${words} in ${where} [${short(e.messageId)}]${e.sessionId ? ` (${short(e.sessionId)})` : ''}`, actorName(e.by), { channel: e.channel, owner: e.owner, message_id: short(e.messageId), by: e.by });
         break;
@@ -39,9 +39,9 @@ export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
       case 'disconnected':
       case 'reconnected':
       case 'cleared': {
-        const prefix = e.channel === 'group' ? 'group' : 'general';
+        const prefix = e.channel === 'group' ? 'group' : e.channel === 'general' ? 'general' : 'channel';
         const what = e.kind === 'cleared' ? `all ${e.count} messages removed` : `${e.kind}${e.everyone ? ' for everyone' : ''}${e.count ? `, ${e.count} held messages delivered` : ''}`;
-        row(`${prefix}_${e.kind}`, `${CHANNEL_NAMES[e.channel]}${e.owner ? `, ${e.owner}'s` : ''}: ${what}`, actorName(e.by), { channel: e.channel, owner: e.owner, everyone: e.everyone, count: e.count });
+        row(`${prefix}_${e.kind}`, `${channelName(e.channel)}${e.owner ? `, ${e.owner}'s` : ''}: ${what}`, actorName(e.by), { channel: e.channel, owner: e.owner, everyone: e.everyone, count: e.count });
         break;
       }
       case 'dm_sent':
@@ -61,6 +61,13 @@ export function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
       case 'admin_browse':
         row('chat_admin_browse', `${e.by} browsed the list of ${e.person}'s conversations (names and counts only)`, actorName(e.by), { person: e.person, by: e.by });
         break;
+      case 'channel_opened':
+      case 'channel_edited':
+      case 'channel_removed': {
+        const words = e.kind === 'channel_opened' ? 'opened' : e.kind === 'channel_edited' ? 'changed the description of' : `removed${e.messages ? ` (with ${e.messages} messages)` : ''}`;
+        row(e.kind, e.kind === 'channel_removed' ? `Public channel ${e.channel} ${words}` : `${words.replace(/^./, (c) => c.toUpperCase())} public channel ${e.channel}`, actorName(e.by), { channel: e.channel, by: e.by });
+        break;
+      }
       case 'purged':
         row('chat_purged', `Chat retention removed ${e.channelMessages} channel messages and ${e.directMessages} messages of hidden conversations`, 'sweeper', { channel_messages: e.channelMessages, direct_messages: e.directMessages });
         break;
@@ -77,7 +84,7 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
 
   const refuse = (req: Request, res: Response, f: Fail) => {
     logger.warn('chat.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceAddress(req.ip)}: ${f.error}`, { status: f.status, reason: f.error, source: sourceAddress(req.ip) });
-    res.status(f.status).json({ ok: false, error: f.error });
+    res.status(f.status).json({ ok: false, error: f.error, ...(f.reason ? { reason: f.reason } : {}) });
   };
 
   const viewer = async (req: Request, res: Response): Promise<ChatViewer | null> => {

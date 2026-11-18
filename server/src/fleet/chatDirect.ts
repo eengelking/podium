@@ -46,6 +46,30 @@ export interface DirectInfo {
   cross: CrossInfo | null;
 }
 
+/** One orchestrator in the New direct message picker (#1035). */
+export interface DirectTarget {
+  sessionId: string;
+  name: string;
+  machine: string;
+  /** `name@machine`, which is also how an @ addresses it. */
+  address: string;
+  /** The person who owns the agent, as written. */
+  owner: string;
+  /** Whether the viewer owns it. */
+  own: boolean;
+  status: 'running' | 'waiting' | 'done';
+  waitReason: 'permission' | 'input' | null;
+  /** Whether a message can be handed over now; `why` says in words when it cannot. */
+  canMessage: boolean;
+  why: string | null;
+  /** True for another person's agent unless its owner already opened a link: the first message waits in the owner's My reporters. */
+  needsApproval: boolean;
+  /** Where the link between the viewer and another person's agent stands; null for the viewer's own agent. */
+  link: 'none' | 'open' | 'paused' | 'removed' | null;
+  /** The thread of the conversation, which exists once a message was sent: `POST /chat/dm/me/<sessionId>/messages` starts or continues it. */
+  thread: string;
+}
+
 /** The two people of a conversation across owners: the person who writes, the owner of the agent, and where their link stands. */
 export interface CrossInfo {
   person: string;
@@ -199,6 +223,52 @@ export class DirectChat {
     if (viewer.personId !== null && nameKey(c.owner) === nameKey(viewer.name)) return 'owner';
     if (viewer.personId !== null && (c.a.sessionId === personId(viewer.name) || c.b.sessionId === personId(viewer.name))) return 'sender';
     return viewer.admin ? 'admin' : null;
+  }
+
+  /**
+   * The live orchestrators a person can start a Direct Message with (#1035), for the New direct message picker: their own, then other people's whose reporter takes part
+   * in messaging (`newWith` is what the first message goes through, so this lists exactly what it accepts). `q` narrows by name, owner or machine. Each says whether it can
+   * take a message now and why not in words, and whether the first message waits for its owner's approval (another person's agent without an open link). Names and
+   * states only, never any text. The admin secret has no person to write as, so it is offered none.
+   */
+  async targets(viewer: ChatViewer, q: string): Promise<DirectTarget[]> {
+    if (viewer.personId === null) return [];
+    const me = nameKey(viewer.name);
+    const want = q.trim().toLowerCase();
+    const out: DirectTarget[] = [];
+    for (const id of this.core.host.liveIds()) {
+      const o = this.liveOf(id);
+      if (!o) continue;
+      const own = nameKey(o.owner) === me;
+      if (!own && o.peers !== true) continue;
+      if (want && !`${o.name} ${o.owner} ${o.machine}`.toLowerCase().includes(want)) continue;
+      const row = own ? null : await this.peerStore.rights.personLink(personId(viewer.name), o.reporterKey);
+      const link: DirectTarget['link'] = own ? null : row === null ? 'none' : row.level === 'none' ? 'removed' : row.paused ? 'paused' : 'open';
+      const refused = own ? this.ownRefusal(o.sessionId, o.name) : await this.acrossTarget(o.sessionId);
+      out.push({
+        sessionId: o.sessionId,
+        name: o.name,
+        machine: o.machine,
+        address: `${o.name}@${o.machine}`,
+        owner: o.owner,
+        own,
+        status: o.status,
+        waitReason: o.waitReason,
+        canMessage: refused === null && link !== 'removed',
+        why: refused ? refused.error : link === 'removed' ? `${o.owner} removed the link to ${o.name}, so it takes no messages from you.` : null,
+        needsApproval: !own && link !== 'open',
+        link,
+        thread: dmThread(personId(viewer.name), o.sessionId),
+      });
+    }
+    return out.sort((a, b) => Number(b.own) - Number(a.own) || a.owner.localeCompare(b.owner) || a.address.localeCompare(b.address));
+  }
+
+  /** Why a person's own agent cannot take a message from Podium now, in words; null when it can. The same checks the delivery makes. */
+  private ownRefusal(sessionId: string, name: string): Fail | null {
+    if (!this.core.host.respondFlagsOn()) return fail(403, 'Responding is off, so Podium cannot hand a message to an agent. An Admin turns it on in Admin > Settings.');
+    if (!this.core.host.respond.info(sessionId)?.accepts.includes('message')) return fail(422, `${name}'s reporter does not take messages from Podium. Turn on its respond option on that machine.`);
+    return null;
   }
 
   /** The viewer's conversations, without hidden ones. Never any text. */
