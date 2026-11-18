@@ -562,6 +562,14 @@ export interface ChatStoreOptions {
   now: () => number;
 }
 
+/** The public audience's store: a channel store with two reads across every channel, each one query, so the server never loops over up to 51 channels (#1213). */
+export type PublicStoreApi = ChannelStoreApi<[string]> & {
+  /** The message count of General and of every public channel, in one grouped query. A channel with no message is absent. */
+  counts(): Promise<Record<string, number>>;
+  /** The person-written messages of every channel that hold a mention of `sessionId` in one of `states`, oldest first (time, then insertion number), each with its `channel`. One query, whichever channels the mentions are in. */
+  mentionsAcross(filter: { sessionId: string; states: MentionState[] }): Promise<ChannelMessage[]>;
+};
+
 /** The Chat page's channel stores and read state (#1034). Built per server, since its clock is its own. */
 export interface ChatStoreApi {
   /** This server's scope: 8 hex digits minted once and kept in `settings`, the middle part of every channel message id. */
@@ -569,7 +577,7 @@ export interface ChatStoreApi {
   /** The group channel (`group_messages`): a person and their own orchestrators, subagents and forks. */
   readonly group: ChannelStoreApi<[GroupScope]>;
   /** The public audience (`public_messages`): every signed-in user and reporter. The first argument is the channel's key: `general`, or a channel of `channels` (#1035). A message of any other audience never lands here. */
-  readonly public: ChannelStoreApi<[string]>;
+  readonly public: PublicStoreApi;
   /** The public channels beside General (`public_channels`, #1035). */
   readonly channels: PublicChannelsApi;
   readonly readState: ChatReadStateApi;

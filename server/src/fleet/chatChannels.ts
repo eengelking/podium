@@ -465,19 +465,15 @@ export class ChannelChat {
   /** What became of a person's message to another person's agent (#1034): the oldest mention of that agent in General by that person, in one of the states it may move from, moves. */
   async acrossUpdate(u: AcrossUpdate): Promise<void> {
     // The person may have written it in General or in any public channel (#1035): the oldest such mention of that agent, in any of them, is the one that moves.
+    // One read for all of them: the person's messages that mention that agent in one of the states it may move from, oldest first, each carrying its channel (#1213).
     let hit: { channel: ChannelId; message: ChannelMessage; index: number } | null = null;
-    for (const channel of await this.publicIds()) {
-      const h = this.handle(channel, null);
-      let before: string | null = null;
-      const found: { message: ChannelMessage; index: number }[] = [];
-      for (let i = 0; i < HELD_PAGES; i++) {
-        const page: ChannelPage = await h.page({ before, limit: HELD_PAGE });
-        found.unshift(...page.messages.flatMap((message) => (message.authorKind === 'person' && nameKey(message.authorRef) === u.person ? message.mentions.flatMap((m, index) => (m.sessionId === u.sessionId && u.from.includes(m.state) ? [{ message, index }] : [])) : [])));
-        if (!page.older) break;
-        before = page.older;
+    for (const message of await this.store.public.mentionsAcross({ sessionId: u.sessionId, states: u.from })) {
+      if (message.authorKind !== 'person' || nameKey(message.authorRef) !== u.person) continue;
+      const index = message.mentions.findIndex((m) => m.sessionId === u.sessionId && u.from.includes(m.state));
+      if (index >= 0) {
+        hit = { channel: message.channel as ChannelId, message, index };
+        break;
       }
-      const first = found[0];
-      if (first && (!hit || first.message.createdAt < hit.message.createdAt)) hit = { channel, ...first };
     }
     if (!hit) return;
     await this.handle(hit.channel, null).setMention(hit.message.id, hit.index, { state: u.state, why: u.why });

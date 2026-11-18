@@ -878,3 +878,95 @@ describe('an agent lists the channels (#1035)', () => {
     expect((await list(w, 'sess-dev')).status).toBe(403);
   });
 });
+
+describe('Chat reads in batches, not one query per channel (#1213)', () => {
+  it('counts every public channel with one query for an overview read, and shows the same numbers', async () => {
+    const w = await world();
+    const names = Array.from({ length: 50 }, (_, i) => `chan-${i}`);
+    for (const n of names) expect((await open(w.edB, { name: n })).status).toBe(201);
+    await say(w.alexB, 'general', 'one in general');
+    await say(w.alexB, 'general', 'two in general');
+    await say(w.alexB, 'chan-0', 'a');
+    await say(w.alexB, 'chan-17', 'b');
+    await say(w.alexB, 'chan-17', 'c');
+    await say(w.alexB, 'chan-49', 'd');
+    const pub = w.fleet.chat.core.store.public;
+    const want: Record<string, number> = {};
+    for (const id of ['general', ...names]) want[id] = await pub.count(id);
+    expect(want).toMatchObject({ general: 2, 'chan-0': 1, 'chan-17': 2, 'chan-49': 1, 'chan-1': 0 });
+    const counts = vi.spyOn(pub, 'counts');
+    const count = vi.spyOn(pub, 'count');
+    const res = await w.edB.get(CH);
+    expect(res.status).toBe(200);
+    expect(counts).toHaveBeenCalledTimes(1);
+    expect(count).not.toHaveBeenCalled();
+    const rows = res.body.channels as { id: string; kind: string; messages: number; unread: number }[];
+    for (const id of ['general', ...names]) expect(rows.find((c) => c.id === id)?.messages, id).toBe(want[id]);
+    expect(rows.find((c) => c.id === 'chan-17')).toMatchObject({ messages: 2, unread: 2 });
+    expect(rows.find((c) => c.id === 'group')).toMatchObject({ messages: 0 });
+    counts.mockRestore();
+    count.mockRestore();
+  });
+
+  /** Ed @-addresses Alex's agent in General and in three channels, oldest first: each waits for Alex to approve. */
+  async function addressed() {
+    const w = await world();
+    for (const n of ['one', 'two', 'three']) await open(w.edB, { name: n });
+    w.tick(1000);
+    await say(w.edB, 'two', '@review@alex-box first, in two');
+    w.tick(1000);
+    await say(w.edB, 'general', '@review@alex-box second, in general');
+    w.tick(1000);
+    await say(w.edB, 'three', '@review@alex-box third, in three');
+    w.tick(1000);
+    await say(w.edB, 'one', '@Tester@ci-runner-01 not Alex\'s agent');
+    // Podium keeps one request to an agent open at a time, so the later two were refused: put every one of them where the first is.
+    for (const c of ['general', 'three']) {
+      const m = (await read(w.edB, c)).body.messages.at(-1) as { id: string };
+      await w.fleet.chat.core.store.public.setMention(c, m.id, 0, { state: 'approval', why: 'Waiting for Alex to approve' });
+    }
+    return w;
+  }
+  const stateIn = async (w: W, channel: string) => (await read(w.edB, channel)).body.messages.flatMap((m: { mentions: { sessionId: string; state: string }[] }) => m.mentions.filter((x) => x.sessionId === 'sess-alex').map((x) => x.state));
+
+  it('finds the oldest mention of an approved agent in any public channel with one query, and moves only that one', async () => {
+    const w = await addressed();
+    expect(await stateIn(w, 'two')).toEqual(['approval']);
+    const pub = w.fleet.chat.core.store.public;
+    const across = vi.spyOn(pub, 'mentionsAcross');
+    const page = vi.spyOn(pub, 'page');
+    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
+    expect(across).toHaveBeenCalledTimes(1);
+    expect(page).not.toHaveBeenCalled();
+    page.mockClear();
+    expect(await stateIn(w, 'two')).toEqual(['working']);
+    expect(await stateIn(w, 'general')).toEqual(['approval']);
+    expect(await stateIn(w, 'three')).toEqual(['approval']);
+    page.mockClear();
+    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['approval'], state: 'dropped', why: 'no' });
+    expect(page).not.toHaveBeenCalled();
+    expect(await stateIn(w, 'general')).toEqual(['dropped']);
+    expect(await stateIn(w, 'two')).toEqual(['working']);
+    across.mockRestore();
+    page.mockRestore();
+  });
+
+  it('moves nothing when no mention matches the person, the agent and the state', async () => {
+    const w = await addressed();
+    const pub = w.fleet.chat.core.store.public;
+    const setMention = vi.spyOn(pub, 'setMention');
+    const across = vi.spyOn(pub, 'mentionsAcross');
+    await w.fleet.chat.channels.acrossUpdate({ person: 'alex', sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-other', from: ['approval'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['held'], state: 'working', why: null });
+    expect(across).toHaveBeenCalledTimes(3);
+    expect(setMention).not.toHaveBeenCalled();
+    expect(await stateIn(w, 'two')).toEqual(['approval']);
+    // The positive control: the same call with the right person, agent and state does find one, so the three misses above are not a store that finds nothing.
+    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
+    expect(setMention).toHaveBeenCalledTimes(1);
+    expect(await stateIn(w, 'two')).toEqual(['working']);
+    setMention.mockRestore();
+    across.mockRestore();
+  });
+});

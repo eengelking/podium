@@ -6,9 +6,9 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
 const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
@@ -106,6 +106,18 @@ class Channel {
     const likes = heldLikes(filter.sessionId);
     const rows = this.stmt(`SELECT ${this.cols} FROM ${this.table} WHERE ${w.sql} AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`).all(...w.args, ...likes) as unknown as DbChannelRow[];
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
+  }
+
+  /** The messages of every channel with a mention of `sessionId` in one of `states`, written by a person, oldest first (#1213). */
+  mentionsAcross(filter: { sessionId: string; states: MentionState[] }): ChannelMessage[] {
+    const rows = this.stmt(`SELECT ${this.cols} FROM ${this.table} WHERE author_kind = 'person' AND mentions_json LIKE ? ORDER BY created_at, seq`).all(mentionLike(filter.sessionId)) as unknown as DbChannelRow[];
+    return rows.map(toChannelMessage).filter((m) => holdsMention(m, filter.sessionId, filter.states));
+  }
+
+  /** How many messages each channel holds, in one query; a channel with none is absent (#1213). */
+  counts(): Record<string, number> {
+    const rows = this.stmt(`SELECT channel, COUNT(*) AS n FROM ${this.table} GROUP BY channel ORDER BY channel`).all() as unknown as { channel: string; n: number }[];
+    return Object.fromEntries(rows.map((r) => [r.channel, Number(r.n)]));
   }
 
   clear(scope: Scope): number {
@@ -426,7 +438,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     purge: (olderThan) => step(() => group.purge(olderThan)),
   };
   const inChannel = (c: string): { channel: string } => ({ channel: channelKey(c) });
-  const publicApi: ChannelStoreApi<[string]> = {
+  const publicApi: PublicStoreApi = {
     post: (c, input) => step(() => pub.post(inChannel(c), input)),
     page: (c, o) => step(() => pub.page(inChannel(c), o)),
     setMention: (c, id, index, patch) => step(() => pub.setMention(inChannel(c), id, index, patch)),
@@ -434,6 +446,8 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     clear: (c) => step(() => pub.clear(inChannel(c))),
     count: (c) => step(() => pub.count(inChannel(c))),
     purge: (olderThan) => step(() => pub.purge(olderThan)),
+    counts: () => step(() => pub.counts()),
+    mentionsAcross: (filter) => step(() => pub.mentionsAcross(filter)),
   };
   const channelsApi: PublicChannelsApi = {
     create: (input, at) => step(() => channels.create(input, at)),

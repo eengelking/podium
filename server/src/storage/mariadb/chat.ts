@@ -5,9 +5,9 @@
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 import type { MariaDbConn } from './conn.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
@@ -103,6 +103,18 @@ class MariaChannel {
       [...w.args, ...likes],
     );
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
+  }
+
+  /** The messages of every channel with a mention of `sessionId` in one of `states`, written by a person, oldest first (#1213). */
+  async mentionsAcross(filter: { sessionId: string; states: MentionState[] }): Promise<ChannelMessage[]> {
+    const rows = await this.db.all<DbChannelRow>(`SELECT ${this.cols} FROM ${this.table} WHERE author_kind = 'person' AND mentions_json LIKE ? ORDER BY created_at, seq`, [mentionLike(filter.sessionId)]);
+    return rows.map(toChannelMessage).filter((m) => holdsMention(m, filter.sessionId, filter.states));
+  }
+
+  /** How many messages each channel holds, in one query; a channel with none is absent (#1213). */
+  async counts(): Promise<Record<string, number>> {
+    const rows = await this.db.all<{ channel: string; n: number | string | bigint }>(`SELECT channel, COUNT(*) AS n FROM ${this.table} GROUP BY channel ORDER BY channel`);
+    return Object.fromEntries(rows.map((r) => [r.channel, Number(r.n)]));
   }
 
   clear(scope: Scope): Promise<number> {
@@ -417,7 +429,7 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     purge: (olderThan) => group.purge(olderThan),
   };
   const inChannel = (c: string): { channel: string } => ({ channel: channelKey(c) });
-  const publicApi: ChannelStoreApi<[string]> = {
+  const publicApi: PublicStoreApi = {
     post: (c, input) => pub.post(inChannel(c), input),
     page: (c, o) => pub.page(inChannel(c), o),
     setMention: (c, id, index, patch) => pub.setMention(inChannel(c), id, index, patch),
@@ -425,6 +437,8 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     clear: (c) => pub.clear(inChannel(c)),
     count: (c) => pub.count(inChannel(c)),
     purge: (olderThan) => pub.purge(olderThan),
+    counts: () => pub.counts(),
+    mentionsAcross: (filter) => pub.mentionsAcross(filter),
   };
   const channels = new MariaPublicChannels(db);
   const channelsApi: PublicChannelsApi = {
