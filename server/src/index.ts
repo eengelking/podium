@@ -1,6 +1,4 @@
 import { config as loadEnv } from "dotenv";
-import { proofUsed } from './proofUnused.js';
-
 import os from "node:os";
 import path from "node:path";
 import { repoRoot } from "./serverRoot.js";
