@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./admin/admin.css";
 import "./chat.css";
-import { PageHeader, Panel, Section } from "./admin/Page";
+import { Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
 import { rightsModel } from "./peers";
@@ -119,10 +119,6 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
   const [view, setView] = useState<View>(initialView);
   const traffic = useTraffic(api, peersOn, range);
   const links = traffic.data?.enabled ? traffic.data.conversations : [];
-  const owners = [...new Set(links.map((l) => l.owner))];
-  let lead = "Messages between orchestrators, on every machine that reports here.";
-  if (owners.length === 1) lead = `Messages between ${owners[0]}'s orchestrators, on every machine that reports here.`;
-  else if (owners.length > 1) lead = "Messages between each person's own orchestrators, on every machine that reports here.";
 
   let body: React.ReactNode;
   if (!peersOn || traffic.data?.enabled === false) {
@@ -156,7 +152,7 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
     <main className="adminv" aria-label="Traffic">
       <div className="apage">
         <div className="apage-in">
-          <PageHeader title="Traffic" lead={lead} />
+          <h1 className="vh">Traffic</h1>
           <div className="ch-nav" role="note" data-testid="traffic-deprecated">
             <b>Traffic is retired.</b> Chat replaces it: the same conversations are Direct Messages there, and Pause link and Remove link are in the menu on each one. <a href="#/chat">Open Chat</a>
           </div>

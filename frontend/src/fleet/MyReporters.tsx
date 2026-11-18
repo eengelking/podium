@@ -5,7 +5,7 @@
 // message waiting for approval) is drawn as text nodes.
 import { useCallback, useState } from "react";
 import "./admin/admin.css";
-import { PageHeader, Panel, Section } from "./admin/Page";
+import { Panel, Section } from "./admin/Page";
 import { ago, StateBadge, Version } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
 import { PEER_LIMIT_FIELDS, PeerLimits, type PeerLimitAction, type PeerLimitField, type PeerLimitKey } from "./components/PeerLimits";
@@ -22,7 +22,6 @@ import { Tip } from "./components/Tip";
 /** The part of a session this page reads: its harness and the machine it runs on. */
 type SessionHarness = { harness?: string | null; machine?: { id: string } | null };
 
-const LEAD = "The machines that report your sessions to this server, and which of them may message each other.";
 
 const ON_REQUEST = [
   { id: "ask", label: "Ask me" },
@@ -107,7 +106,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
               <div>{props.notice}</div>
             </div>
           )}
-          <PageHeader title="My reporters" lead={peers.data?.reporters.length ? `${LEAD} Only your own reporters are here. A person using Chat who wants to message one of your agents asks you below first.` : LEAD} />
+          <h1 className="vh">My reporters</h1>
           {body}
         </div>
       </div>

@@ -523,6 +523,15 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modal .mb blockquote { margin: 0 0 10px; padding: 2px 12px; border-left: 2px solid var(--axis); color: var(--ink2); }
 .podium .modal .mb a { color: var(--ink); text-underline-offset: 2px; }
 .podium .modal .mb .muted, .podium .modal .mb .mnote { color: var(--muted); }
+/* A modal that opens under the control that asked for it, as wide as its text needs (#1209): the (i) in the banner. The padding is the same on all four
+   sides, 18 px, which is the header's own left padding. */
+.podium .scrim.anchor { display: block; }
+.podium .modal.anchor { position: absolute; width: min(440px, calc(100% - 32px)); max-height: min(78vh, 760px); }
+.podium .modal.anchor .mb { padding: 18px; }
+.podium .modal.anchor .mb > :last-child { margin-bottom: 0; }
+.podium .modal.anchor .mb p { max-width: none; margin: 0 0 12px; }
+.podium .modal.anchor .mb h3 { margin: 16px 0 4px; }
+.podium .modal.anchor .mb h3:first-child { margin-top: 0; }
 /* The word Shortcuts as a button while the switch is On (#828, mockup/podium-shortcuts-help.html): the dotted underline of a help term, but it acts. */
 .podium .kbd-link { appearance: none; background: none; border: 0; border-bottom: 1px dotted var(--muted); border-radius: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 .podium .kbd-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
@@ -849,14 +858,25 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modeseg button:hover { background: var(--sel); }
 .podium .modeseg button[aria-checked="true"] { background: var(--sel); color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
 .podium .modeseg button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
-.podium .banner.has-picker { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; }
+.podium .banner.has-picker { display: flex; align-items: center; gap: 8px 16px; flex-wrap: nowrap; position: relative; }
 .podium .banner.has-picker > span:first-child { flex: 1 1 220px; min-width: 0; }
+/* The page's description, on one line (#1209): at most to the middle of the banner or before the open drawer, whichever is nearer, and only whole sentences
+   (PageBanner fits them). A first sentence longer than that takes the whole row (`.full`) instead of being cut. */
+.podium .banner .bt-wrap { flex: 0 1 auto; min-width: 0; max-width: max(260px, min(50%, calc(100% - 690px))); display: flex; align-items: center; gap: 6px; }
+.podium .banner .bt-wrap.full { max-width: calc(100% - 40px); }
+.podium .banner .bt { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.podium .banner .bt-wrap button.info { display: inline-flex; order: 0; margin-left: 0; cursor: pointer; }
+.podium .banner .bt-wrap button.info .tip { right: auto; left: 0; }
+.podium .banner .bt-wrap button.info[aria-expanded="true"] { color: var(--ink); background: var(--sel); }
+.podium .banner .bt-wrap button.info:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
 .podium .banner.has-picker .sel, .podium .banner.has-picker .modeseg button { padding-block: 3px; }
 /* Wall options (#1129, mockup/podium-wall-options.html): the banner's display controls in one drawer, the same on every page. The
    drawer keeps one border box shut and open, so opening it where the row has room never moves the page below. The pill keeps the
    drawer's top-left corner and only the controls wrap, inside their own box, so the pill never sits alone on a line. */
 .podium .wallopts { margin-left: auto; display: inline-flex; align-items: flex-start; gap: 12px; max-width: 100%; padding: 1px; border: 1px solid transparent; border-radius: 8px; }
 .podium .wallopts.open { border-color: var(--border); background: var(--surface); }
+/* Open, the drawer lies over the banner and never makes it taller (#1209). */
+.podium .banner .wallopts.open { position: absolute; right: 16px; top: 3px; z-index: 6; max-width: calc(100% - 32px); box-shadow: 0 6px 20px var(--grid); }
 /* The pill is an EdgeTab in the row rather than on an edge. Its tip lines up with the side it is on, so it stays on screen. */
 .podium .edge-tab-opts { position: relative; flex: none; }
 .podium .edge-tab-opts svg { width: 12px; height: 12px; }

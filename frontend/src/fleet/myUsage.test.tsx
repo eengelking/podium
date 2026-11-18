@@ -142,6 +142,15 @@ describe("a signed-in person's page", () => {
     expect(screen.getByText(/Only your own sessions\./)).toBeInTheDocument();
   });
 
+  it("has no title or description of its own in the body, and keeps Export in a row of its own at the top (#1209)", async () => {
+    const { container } = render(<MyUsagePage me={ME} on client={fake().client} />);
+    await screen.findByRole("table", { name: "Spend" });
+    expect(screen.getByRole("heading", { level: 1, name: "My usage" })).toHaveClass("vh");
+    expect(container.querySelector(".page-h")).toBeNull();
+    expect(screen.queryByText(/Only you can see this page/)).toBeNull();
+    expect(within(container.querySelector(".page-tools") as HTMLElement).getAllByRole("button").length).toBeGreaterThan(0);
+  });
+
   it("asks for the period, the grouping and a breakdown and nothing that names a person, a group, a model or an id", async () => {
     const f = fake();
     render(<MyUsagePage me={ME} on client={f.client} />);
