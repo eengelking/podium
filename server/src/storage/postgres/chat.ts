@@ -5,7 +5,7 @@
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, keyList, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -105,14 +105,10 @@ class PgChannel {
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
   }
 
-  /** The messages of every channel with a held mention (of `sessionId`, when given), written by a person, oldest first (#1213). */
-  async heldMentionsAcross(filter: { sessionId?: string }): Promise<ChannelMessage[]> {
-    const likes = heldLikes(filter.sessionId);
-    const rows = await this.db.all<DbChannelRow>(
-      `SELECT ${this.cols} FROM ${this.table} WHERE author_kind = 'person' AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`,
-      likes,
-    );
-    return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
+  /** The messages of every channel with a mention of `sessionId` in one of `states`, written by a person, oldest first (#1213). */
+  async mentionsAcross(filter: { sessionId: string; states: MentionState[] }): Promise<ChannelMessage[]> {
+    const rows = await this.db.all<DbChannelRow>(`SELECT ${this.cols} FROM ${this.table} WHERE author_kind = 'person' AND mentions_json LIKE ? ORDER BY created_at, seq`, [mentionLike(filter.sessionId)]);
+    return rows.map(toChannelMessage).filter((m) => holdsMention(m, filter.sessionId, filter.states));
   }
 
   /** How many messages each channel holds, in one query; a channel with none is absent (#1213). */
@@ -442,7 +438,7 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     count: (c) => pub.count(inChannel(c)),
     purge: (olderThan) => pub.purge(olderThan),
     counts: () => pub.counts(),
-    heldMentionsAcross: (filter) => pub.heldMentionsAcross(filter),
+    mentionsAcross: (filter) => pub.mentionsAcross(filter),
   };
   const channels = new PgPublicChannels(db);
   const channelsApi: PublicChannelsApi = {

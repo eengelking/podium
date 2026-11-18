@@ -68,6 +68,16 @@ export function heldLikes(sessionId?: string): string[] {
   return likes;
 }
 
+/** The `LIKE` pattern that cuts the rows down to the ones that can hold a mention of `sessionId`: a candidate filter, and `holdsMention` decides. An id with a backslash or a quote is left to `holdsMention`. */
+export function mentionLike(sessionId: string): string {
+  return /^[\w.:@-]+$/.test(sessionId) ? `%"sessionId":"${sessionId}"%` : '%"sessionId":"%';
+}
+
+/** Whether the message has a mention of `sessionId` in one of `states`. */
+export function holdsMention(m: ChannelMessage, sessionId: string, states: readonly MentionState[]): boolean {
+  return m.mentions.some((x) => x.sessionId === sessionId && states.includes(x.state));
+}
+
 /** Whether the message has a mention in the `held` state (of `sessionId`, when given). */
 export function holdsHeld(m: ChannelMessage, sessionId?: string): boolean {
   return m.mentions.some((x) => x.state === 'held' && (sessionId === undefined || x.sessionId === sessionId));

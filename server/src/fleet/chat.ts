@@ -183,7 +183,7 @@ export class ChatService {
     viewer: ChatViewer,
     id: string,
     meta: PublicChannel | null,
-    ctx: { who: string; key: string; flagPerson: boolean; counts: Map<string, { unread: number; mentions: number }>; known: Record<string, ChannelFlags> | undefined },
+    ctx: { who: string; key: string; flagPerson: boolean; counts: Map<string, { unread: number; mentions: number }>; totals?: Record<string, number>; known: Record<string, ChannelFlags> | undefined },
   ): Promise<ChannelInfo> {
     const isGroup = id === GROUP;
     const thread = isGroup ? groupThread(ctx.who) : channelThread(id);
@@ -200,7 +200,7 @@ export class ChatService {
       thread,
       unread: c?.unread ?? 0,
       mentions: c?.mentions ?? 0,
-      messages: await this.channels.total(id, isGroup ? ctx.key : null),
+      messages: !isGroup && ctx.totals ? (ctx.totals[id] ?? 0) : await this.channels.total(id, isGroup ? ctx.key : null),
       ...flags,
       adminReading: [],
       can: isGroup
@@ -224,7 +224,9 @@ export class ChatService {
     const limits = await this.core.limits();
     const counts = new Map((person && !browsing ? await this.core.store.readState.list(viewer.name) : []).map((r) => [r.thread, r]));
     const known = await this.core.store.settings.allFlags();
-    const entry = (id: string, meta: PublicChannel | null) => this.info(viewer, id, meta, { who, key, flagPerson: person || !!browsing, counts, known });
+    // Every public channel's message count in one query (#1213); group keeps its own.
+    const totals = await this.core.store.public.counts();
+    const entry = (id: string, meta: PublicChannel | null) => this.info(viewer, id, meta, { who, key, flagPerson: person || !!browsing, counts, totals, known });
     const agents: AgentInfo[] = person || browsing
       ? host.liveIds().flatMap((id) => {
           const o = host.peers.messages.live(id);

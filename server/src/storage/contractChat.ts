@@ -3,7 +3,7 @@
 // a channel's text is never kept with, copied into or returned with a direct message's (`peer_messages`), and the reverse.
 import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
-import type { ChannelMessage, ChannelPage, ChannelPostInput } from './types.js';
+import type { ChannelMessage, ChannelPage, ChannelPostInput, MentionState } from './types.js';
 import { setUp } from './contractPeers.js';
 
 const T0 = 1_800_000_000_000;
@@ -854,8 +854,8 @@ export function chatCases(o: Openers): void {
     expect(t.get('counts (purged)')).toEqual({});
   });
 
-  it('agrees on every adapter for the held mentions across General and every channel (#1213): oldest first, one session, only a person, only held', async () => {
-    const held = (sessionId: string, state: 'held' | 'working' = 'held'): ChannelPostInput['mentions'] => [{ sessionId, peerKey: 'k', typed: `${sessionId}@box`, state }];
+  it('agrees on every adapter for the mentions of one session across General and every channel (#1213): oldest first, the asked states, only a person', async () => {
+    const held = (sessionId: string, state: MentionState = 'held'): ChannelPostInput['mentions'] => [{ sessionId, peerKey: 'k', typed: `${sessionId}@box`, state }];
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const chat = s.chat({ now: () => clock.now });
@@ -868,22 +868,28 @@ export function chatCases(o: Openers): void {
       await pub.post('beta', input('beta same moment', { mentions: held('sa') }));
       clock.now += 3;
       await pub.post('alpha', input('another session', { mentions: held('sb') }));
-      await pub.post('alpha', input('not held', { mentions: held('sa', 'working') }));
+      await pub.post('alpha', input('working', { mentions: held('sa', 'working') }));
+      await pub.post('general', input('approval', { mentions: held('sa', 'approval') }));
+      await pub.post('beta', input('waiting', { mentions: held('sa', 'waiting') }));
       await pub.post('beta', input('by an agent', { authorKind: 'orchestrator', authorRef: 'sx', authorName: 'x', mentions: held('sa') }));
       await pub.post('beta', input('plain'));
-      await rec('every held', pub.heldMentionsAcross({}));
-      await rec('held for sa', pub.heldMentionsAcross({ sessionId: 'sa' }));
-      await rec('held for sb', pub.heldMentionsAcross({ sessionId: 'sb' }));
-      await rec('held for nobody', pub.heldMentionsAcross({ sessionId: 'nobody' }));
+      await rec('held for sa', pub.mentionsAcross({ sessionId: 'sa', states: ['held'] }));
+      await rec('held for sb', pub.mentionsAcross({ sessionId: 'sb', states: ['held'] }));
+      await rec('held for nobody', pub.mentionsAcross({ sessionId: 'nobody', states: ['held'] }));
+      await rec('approval or waiting for sa', pub.mentionsAcross({ sessionId: 'sa', states: ['approval', 'waiting'] }));
+      await rec('dropped for sa', pub.mentionsAcross({ sessionId: 'sa', states: ['dropped'] }));
+      await rec('no state', pub.mentionsAcross({ sessionId: 'sa', states: [] }));
     });
     const names = (k: string): string[] => (t.get(k) as ChannelMessage[]).map((m) => `${m.channel}:${m.text}`);
-    expect(names('every held')).toEqual(['alpha:alpha first', 'general:general second', 'beta:beta same moment', 'alpha:another session']);
     expect(names('held for sa')).toEqual(['alpha:alpha first', 'general:general second', 'beta:beta same moment']);
     expect(names('held for sb')).toEqual(['alpha:another session']);
     expect(t.get('held for nobody')).toEqual([]);
+    expect(names('approval or waiting for sa')).toEqual(['general:approval', 'beta:waiting']);
+    expect(t.get('dropped for sa')).toEqual([]);
+    expect(t.get('no state')).toEqual([]);
   });
 
-  onEachAdapter(o, 'finds the held mentions across channels without reading the pages of a large history (#1213)', async (s) => {
+  onEachAdapter(o, 'finds the mentions across channels without reading the pages of a large history (#1213)', async (s) => {
     const clock = { now: T0 };
     const chat = s.chat({ now: () => clock.now });
     const pub = chat.public;
@@ -893,7 +899,7 @@ export function chatCases(o: Openers): void {
       let best = Infinity;
       for (let r = 0; r < 3; r++) {
         const t0 = performance.now();
-        for (let i = 0; i < 20; i++) await pub.heldMentionsAcross({ sessionId: 'sa' });
+        for (let i = 0; i < 20; i++) await pub.mentionsAcross({ sessionId: 'sa', states: ['held'] });
         best = Math.min(best, performance.now() - t0);
       }
       return best;
@@ -905,8 +911,8 @@ export function chatCases(o: Openers): void {
     await pub.post('general', input('held late', { mentions: held('sa') }));
     await pub.post('alpha', input('held for another', { mentions: held('sb') }));
     const large = await cost();
-    expect((await pub.heldMentionsAcross({ sessionId: 'sa' })).map((x) => x.text)).toEqual(['held early', 'held late']);
-    expect((await pub.heldMentionsAcross({})).length).toBe(3);
+    expect((await pub.mentionsAcross({ sessionId: 'sa', states: ['held'] })).map((x) => x.text)).toEqual(['held early', 'held late']);
+    expect((await pub.mentionsAcross({ sessionId: 'sb', states: ['held'] })).length).toBe(1);
     expect(large).toBeLessThan(Math.max(small * 5, 250));
   }, 300_000);
 

@@ -566,8 +566,8 @@ export interface ChatStoreOptions {
 export type PublicStoreApi = ChannelStoreApi<[string]> & {
   /** The message count of General and of every public channel, in one grouped query. A channel with no message is absent. */
   counts(): Promise<Record<string, number>>;
-  /** Like `heldMentions` with no channel filter: the person-written messages of every channel that hold a mention still in the `held` state (of `sessionId`, when given), oldest first (time, then insertion number), each with its `channel`. */
-  heldMentionsAcross(filter: { sessionId?: string }): Promise<ChannelMessage[]>;
+  /** The person-written messages of every channel that hold a mention of `sessionId` in one of `states`, oldest first (time, then insertion number), each with its `channel`. One query, whichever channels the mentions are in. */
+  mentionsAcross(filter: { sessionId: string; states: MentionState[] }): Promise<ChannelMessage[]>;
 };
 
 /** The Chat page's channel stores and read state (#1034). Built per server, since its clock is its own. */

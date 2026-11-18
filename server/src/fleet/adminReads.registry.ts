@@ -94,7 +94,7 @@ export const NOT_A_READ: Record<string, string> = {
   post: 'a write: answers the message the person just posted',
   setMention: 'a write: answers the message the person just changed',
   heldMentions: 'the server reads the held mentions of a channel to deliver or drop them; no route returns the rows, so no person reads another\'s text through it (#1046)',
-  heldMentionsAcross: 'the server reads the held mentions of every channel at once to deliver or drop them; no route returns the rows, so no person reads another\'s text through it (#1213)',
+  mentionsAcross: 'the server reads the mentions of one agent in every channel at once to move them when its owner answers; no route returns the rows, so no person reads another\'s text through it (#1213)',
   agentPost: 'a write: an agent posts into a channel and is answered the message it posted',
   adminNoticesFor: "the notice told to the person: it names the Admin and holds none of the person's text",
   noticesFor: "the notice told to the person: it names the Admin and holds none of the person's text",
