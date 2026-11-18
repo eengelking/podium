@@ -11,7 +11,7 @@ import { Version } from "./ReportersTab";
 import { useList } from "./useList";
 
 /** The page is read once it opens and every half minute after, since reporters come and go. */
-export const ABOUT_REFRESH_MS = 30_000;
+const ABOUT_REFRESH_MS = 30_000;
 
 function Facts({ label, rows }: { label: string; rows: [string, string][] }) {
   return (

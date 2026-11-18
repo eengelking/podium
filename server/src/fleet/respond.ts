@@ -679,7 +679,7 @@ export function commandOf(text: string): { command: PodiumCommand } | { refused:
 }
 
 /** Checks a new message or command from the browser. */
-export function parseMessage(body: unknown, accepts: readonly RespondKind[], commands: readonly string[] | null = null): Parsed {
+function parseMessage(body: unknown, accepts: readonly RespondKind[], commands: readonly string[] | null = null): Parsed {
   if (!isObj(body)) return bad('expected an object', '$');
   if (body.command !== undefined) {
     if (body.command !== 'clear' && body.command !== 'compact') return bad('/clear and /compact are the only commands', '$.command');

@@ -17,7 +17,7 @@ const rate = (part: number, whole: number): string => (whole > 0 ? `${((part / w
 const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** How long a call took, as a person reads it: 40 ms, 1.8 s, 4 min 12 s. */
-export function fmtMs(ms: number): string {
+function fmtMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const s = ms / 1000;
   if (s < 60) return `${Number(s.toFixed(1))} s`;
@@ -38,7 +38,7 @@ export interface ToolSum {
 }
 
 /** The rows of a breakdown added up by tool, an MCP server's tools under it; the most of `order` first, then the most calls, then by name. */
-export function sumByTool(rows: ReportRow[], fields: string[], order: string): ToolSum[] {
+function sumByTool(rows: ReportRow[], fields: string[], order: string): ToolSum[] {
   const top = new Map<string, ToolSum>();
   const make = (key: string, name: string, server: string): ToolSum => ({ key, name, server, n: Object.fromEntries(fields.map((f) => [f, 0])), links: [], stored: 0, tools: [] });
   const add = (e: ToolSum, row: ReportRow): void => {

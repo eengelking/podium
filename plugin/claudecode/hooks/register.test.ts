@@ -283,7 +283,7 @@ describe('podium-reporter end to end', () => {
 
     // the report of a session that ends goes at once even when only counters moved since the last one
     await stepOnce($, { turnId: 'td', index: 0, model: 'claude-sonnet-5-5', messageCount: 3, agentId: 'many-4' })
-    await $.session.end({ reason: 'exit', sessionId: SID })
+    await $.session.end({ reason: 'other', sessionId: SID, resume: { id: SID } })
     expect(w.posts.length).toBe(first + 3)
     expect(w.posts.at(-1)!.session.status).toBe('done')
   })

@@ -11,7 +11,7 @@ import { hostnameOf } from './hostCheck.js';
 
 const run = promisify(execFile);
 
-export const CA_YEARS = 10;
+const CA_YEARS = 10;
 export const SERVING_DAYS = 365;
 
 /** Names the serving certificate is valid for. `dns` and `ip` are lower-case and already checked, so safe in a config file. */

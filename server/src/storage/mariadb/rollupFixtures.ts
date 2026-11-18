@@ -32,7 +32,7 @@ export function session(over: Partial<SessionRow> & { id: string }): SessionRow 
   };
 }
 
-export function agent(sessionId: string, id: string, over: Partial<AgentRow> = {}): AgentRow {
+function agent(sessionId: string, id: string, over: Partial<AgentRow> = {}): AgentRow {
   return {
     session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look around', model: 'claude-haiku-4-5',
     effort: null, effort_source: null, status: 'done', started_at: at(0, 9), ended_at: at(0, 10), context_tokens: null, context_window: null,
@@ -42,7 +42,7 @@ export function agent(sessionId: string, id: string, over: Partial<AgentRow> = {
   };
 }
 
-export const failure = (cls: string, tool: string | null): string =>
+const failure = (cls: string, tool: string | null): string =>
   JSON.stringify({ class: cls, at: 1, tool, call: 'secret command line', exitCode: 1, outputTail: ['secret output'], evidence: [], explanation: null, retriedAs: null });
 
 export interface World {

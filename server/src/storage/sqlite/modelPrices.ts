@@ -4,7 +4,7 @@ import { BUILTIN_LABELS, BUILTIN_PRICES, PRICES_AS_OF, Pricing, validatePriceSet
 
 const KEY = 'model_prices';
 /** How many models the Admin can add beyond the built-in rows. */
-export const MAX_CUSTOM_MODELS = 100;
+const MAX_CUSTOM_MODELS = 100;
 const MAX_KEY = 120;
 
 const FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite', 'cacheWrite1h'] as const;

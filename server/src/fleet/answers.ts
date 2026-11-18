@@ -10,7 +10,7 @@ import { localDay, type AnswerDay } from './rollups.js';
 export type AnswerKind = AnswerDay['kind'];
 
 /** The wait class of an answer that has no wait: a message goes to a session that is not waiting. */
-export const NO_WAIT = -1;
+const NO_WAIT = -1;
 
 /**
  * Counts one answer sent from Podium. `waitedMs` is how long the ask had been open (null for a message). A write that fails is logged and never fails the answer:

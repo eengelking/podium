@@ -456,8 +456,7 @@ export interface ChatSettingsApi {
  */
 export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName;
 /** An Admin's stop or delete of something of a person's, kept on the person's `act:` thread (#1078). */
-export type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed';
-export const ADMIN_READ_KINDS: readonly AdminReadKind[] = ['read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted', 'reporter_removed'];
+type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed';
 
 export interface AdminReadRow {
   admin: string;
@@ -619,13 +618,13 @@ export interface WallSettingsApi {
 }
 
 /** What the Activity history needs from the server that opens it. The rest of its options are plain values and memory reads. */
-export interface ActivityHistoryOptions extends Omit<ActivityHistoryOpts, 'agentsOf' | 'step'> {
+interface ActivityHistoryOptions extends Omit<ActivityHistoryOpts, 'agentsOf' | 'step'> {
   /** The ids of the session's running agents, for the loops the server asks the mod to send. Read from the fleet store, so it is async. */
   agentsOf: (sessionId: string) => Promise<string[]>;
 }
 
 /** What the session recordings need from the server that opens them. */
-export interface RecordingsOptions extends Omit<RecordingsOpts, 'loopsOf' | 'exclusive' | 'compact' | 'step'> {
+interface RecordingsOptions extends Omit<RecordingsOpts, 'loopsOf' | 'exclusive' | 'compact' | 'step'> {
   /** Every loop of the session with the name the layer shows. Read from the fleet store, so it is async. */
   loopsOf: (sessionId: string) => Promise<{ loop: string; name: string }[]>;
 }
@@ -757,8 +756,6 @@ export interface SessionRecordingsApi {
   /** `exists` says whether the main database still holds the session; it is asked again just before the recording's state goes. */
   dropMissingSessions(exists: (sessionId: string) => Promise<boolean>): Promise<number>;
 }
-
-export type { RecordingMeta };
 
 /** The two services over the activity file. */
 export interface ActivityStorage {

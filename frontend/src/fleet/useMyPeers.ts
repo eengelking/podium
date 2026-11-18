@@ -7,8 +7,8 @@ import { RespondError, type PeersApi } from "./respondApi";
 import type { PeersRead } from "./peers";
 
 /** How often the read is asked again: often on My reporters, rarely elsewhere, where only the count shows. */
-export const PAGE_MS = 10_000;
-export const BAR_MS = 30_000;
+const PAGE_MS = 10_000;
+const BAR_MS = 30_000;
 
 export interface MyPeers {
   data: PeersRead | null;

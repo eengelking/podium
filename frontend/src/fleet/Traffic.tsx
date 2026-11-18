@@ -114,7 +114,7 @@ function StateTag({ link, paused = link.paused === true }: { link: TrafficLink; 
 const initialView = (): View => (globalThis.matchMedia?.("(max-width: 640px)")?.matches ? "table" : "map");
 
 export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; sessions: Record<string, SessionView>; peers: MyPeers; api: TrafficApi; now: number }) {
-  const { me, peersOn, api } = props;
+  const { peersOn, api } = props;
   const [range, setRange] = useState<TrafficRange>("live");
   const [view, setView] = useState<View>(initialView);
   const traffic = useTraffic(api, peersOn, range);

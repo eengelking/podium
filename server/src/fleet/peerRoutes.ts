@@ -13,7 +13,7 @@ import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, LEVEL_WORDS, type PersonRow, type PeerReply, type SessionRow } from '../storage/rows.js';
-import type { PeopleStoreApi, PeerStoreApi } from '../storage/types.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
@@ -64,7 +64,7 @@ function send(res: Response, out: Refusal): void {
  * Writes every right and message event to the Admin log and the server log, never a message's text. Returns the
  * wrapper the routes use so a row names the address of the request that caused it ('server' for a sweep or a report).
  */
-export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
+function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
   // The peer calls run later, under the storage lock, so the address is carried with the call and not in a variable
   // the caller resets as soon as it has started them.
   const sources = new AsyncLocalStorage<string>();

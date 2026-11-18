@@ -49,7 +49,7 @@ export function keptWords(days: number | undefined): string {
   return days === 1 ? "for 1 day" : `for ${days} days`;
 }
 
-export type MessageState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";
+type MessageState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";
 
 /** One message of a conversation, with its text, for its owner or an Admin. */
 export interface PeerMessage {
@@ -215,7 +215,7 @@ export function canManage(viewer: { signedIn: boolean; name: string | null } | n
 
 // ---- The map's layout ---------------------------------------------------------------------------------------------
 
-export const MAP_W = 900;
+const MAP_W = 900;
 const COL_X = [30, 600] as const;
 const BOX_W = 270;
 const TOP = 30;
@@ -226,7 +226,7 @@ const BOX_GAP = 40;
 export const NODE_R = 22;
 const PILL_H = 22;
 
-export interface MapMachine {
+interface MapMachine {
   key: string;
   name: string;
   x: number;
@@ -235,7 +235,7 @@ export interface MapMachine {
   h: number;
 }
 
-export interface MapNode {
+interface MapNode {
   sessionId: string;
   name: string;
   machine: string;
@@ -243,7 +243,7 @@ export interface MapNode {
   y: number;
 }
 
-export interface MapEdge {
+interface MapEdge {
   id: string;
   link: TrafficLink;
   /** The path from a to b, so an arrow at its end points at b. */

@@ -15,7 +15,7 @@ import { CHANNEL_NAMES, fail, isPersonId, personId, type AdminReading, groupThre
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
-export interface ChannelInfo {
+interface ChannelInfo {
   id: 'general' | 'group';
   name: string;
   thread: string;
@@ -31,7 +31,7 @@ export interface ChannelInfo {
   can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean };
 }
 
-export interface AgentInfo {
+interface AgentInfo {
   sessionId: string;
   name: string;
   machine: string;

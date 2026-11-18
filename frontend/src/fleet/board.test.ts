@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeSession } from "./fixtures";
 import { BOARD_COLUMNS, buildBoard, columnOf, groupBySession, orderCards, planFigures, sessionFinished, waitWhy } from "./board";
-import type { PlanStep, RespondMe, SessionView } from "./types";
+import type { PlanStep, SessionView } from "./types";
 
 const step = (id: string, state: PlanStep["state"], over: Partial<PlanStep> = {}): PlanStep => ({ id, text: `step ${id}`, state, activeText: null, ownerAgentId: null, ownerLabel: null, ...over });
 const withSteps = (over: Partial<SessionView>, ...steps: PlanStep[]) => makeSession({ ...over, plan: { title: "t", source: "TaskCreate", steps } });

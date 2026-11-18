@@ -93,7 +93,7 @@ const SWEEP_IDS_LOGGED = 10;
 const MAX_REPORTERS = 1000;
 
 /** How many events /state returns and the UI keeps. */
-export const STATE_EVENTS = 150;
+const STATE_EVENTS = 150;
 
 interface LiveEntry {
   /** Reported since this server process started. */

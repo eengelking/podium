@@ -45,19 +45,19 @@ export function peopleActive(sessions: readonly SessionView[]): boolean {
   return sessions.some((s) => isPerson(s.owner));
 }
 
-export function isPerson(owner: string | null | undefined): owner is string {
+function isPerson(owner: string | null | undefined): owner is string {
   return !!owner && owner !== ADMIN;
 }
 
 const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 /** The person band a session goes in. */
-export function personKey(owner: string | null): string {
+function personKey(owner: string | null): string {
   return owner === null ? "unassigned" : owner === ADMIN ? "admin" : `p:${owner}`;
 }
 
 /** The group band a session goes in. Admin and unowned sessions have no group. */
-export function groupKey(s: Pick<SessionView, "owner" | "ownerGroup">): string {
+function groupKey(s: Pick<SessionView, "owner" | "ownerGroup">): string {
   return isPerson(s.owner) && s.ownerGroup ? `g:${s.ownerGroup}` : "nogroup";
 }
 

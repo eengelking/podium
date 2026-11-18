@@ -89,7 +89,7 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
 }
 
 /** Orchestrators and subagents live, running and waiting, the plans, and the cards (#450). The orchestrator and subagent figures are the ones the server derives for the Fleet page (Kpis), so the two pages cannot disagree; the plan and card figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
-export function RunningCounts({ id, hidden, kpis, filtered, plans }: { id?: string; hidden?: boolean; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
+function RunningCounts({ id, hidden, kpis, filtered, plans }: { id?: string; hidden?: boolean; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
   const tiles: { label: string; value: number | undefined; cap: string }[] = [
     { label: "Orchestrators live", value: kpis?.live, cap: "forks excluded" },
     { label: "Orchestrators running", value: kpis?.running, cap: "" },
@@ -119,7 +119,7 @@ function KpiTab(props: { collapsed: boolean; controls: string; onToggle: () => v
 }
 
 /** What the page says when no card is on it, in each mode (#426). */
-export function blankText(sessions: number, plansOnly: boolean): string {
+function blankText(sessions: number, plansOnly: boolean): string {
   if (!sessions) return "No sessions are active.";
   return plansOnly ? `None of the ${sessions} active sessions has open steps. Switch to All to list them.` : `None of the ${sessions} active sessions has a task list yet. They are listed below.`;
 }

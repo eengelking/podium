@@ -14,7 +14,7 @@ export interface SseSink {
  * a healthy client room for the snapshot and several seconds of messages; at the large fleet's 70 MB a minute a client that
  * reads nothing passes it in about 7 s once the kernel's own buffers are full.
  */
-export const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
 
 export type SseEventName = 'snapshot' | 'session' | 'activity' | 'removed' | 'tick' | 'wall' | 'chat' | 'reads' | 'replay';
 

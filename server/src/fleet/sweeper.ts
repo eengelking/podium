@@ -15,7 +15,7 @@ export interface SweeperIntervals {
   activityPurgeMs?: number;
 }
 
-export const DEFAULT_INTERVALS: SweeperIntervals & { activityPurgeMs: number } = { sweepMs: 1000, tickMs: 2000, retentionMs: 3600_000, activityPurgeMs: 300_000 };
+const DEFAULT_INTERVALS: SweeperIntervals & { activityPurgeMs: number } = { sweepMs: 1000, tickMs: 2000, retentionMs: 3600_000, activityPurgeMs: 300_000 };
 
 /** The stores whose purge is running now, so a tick that fires before it finishes skips instead of stacking. */
 const purging = new WeakSet<ActivityHistoryApi>();

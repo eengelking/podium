@@ -12,7 +12,7 @@ import { parseBuild } from '../fleet/parseBuild.js';
 
 export type Runtime = 'container' | 'standalone';
 
-export interface AboutReporter {
+interface AboutReporter {
   reporterName: string;
   version: string;
   machines: number;

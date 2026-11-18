@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from '../storage/sqlite/activityDb.js';
+import { ACTIVITY_SCHEMA_STEPS, openActivityDb, recomputeAggregates } from '../storage/sqlite/activityDb.js';
 import { ActivityHistory, type SqliteActivityHistoryOpts } from '../storage/sqlite/activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
@@ -70,7 +70,6 @@ const entryBytes = () => '(length(text) + length(kind) + length(loop) + COALESCE
 
 describe('schema v2', () => {
   it('is the current version', () => {
-    expect(ACTIVITY_SCHEMA_VERSION).toBe(5);
     expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(5);
   });
 

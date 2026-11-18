@@ -4,7 +4,7 @@
 
 import type { Capabilities } from "../../../plugin/core/protocol";
 
-export type HarnessShape = "square" | "diamond";
+type HarnessShape = "square" | "diamond";
 
 export interface HarnessDisplay {
   id: string;

@@ -25,9 +25,9 @@ export type FetchActivity = (sessionId: string, loop: string, every: number) => 
 export const EVERY_CHOICES = [5, 10, 20, 30, 60] as const;
 export const EVERY_KEY = "podium.activityEvery";
 /** Entries shown, as the server keeps. */
-export const FEED_KEPT = 20;
+const FEED_KEPT = 20;
 /** Live entries kept in the window once stored history is loaded; older ones are in the stored pages. */
-export const LIVE_KEPT = 500;
+const LIVE_KEPT = 500;
 
 const defaultFetch: FetchActivity = async (sessionId, loop, every) => {
   const res = await fetch(`/api/fleet/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(loop)}/activity?every=${every}`);
@@ -53,7 +53,7 @@ export type FetchHistory = (sessionId: string, loop: string, before?: number | n
 export type FeedEntry = ActivityEntryView & { key?: string; live?: true };
 
 /** What the window says about the stored history of its loop; null under the default policy. */
-export interface StoredInfo {
+interface StoredInfo {
   total: number;
   since: number | null;
   keptUntil: number | null;

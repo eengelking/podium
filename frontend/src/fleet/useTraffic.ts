@@ -7,7 +7,7 @@ import { ReadGate } from "./readGate";
 import { failReason } from "./useMyPeers";
 
 /** How often Traffic reads again while it is open. */
-export const TRAFFIC_MS = 10_000;
+const TRAFFIC_MS = 10_000;
 
 export interface TrafficData {
   data: TrafficRead | null;

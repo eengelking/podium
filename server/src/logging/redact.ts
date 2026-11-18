@@ -18,12 +18,12 @@ const DENIED = new Set([
 const PERSON_TOKEN = /pdm_[0-9a-f]{12}_[0-9a-f]{16,}/gi;
 
 /** Longest string value kept, in characters. */
-export const MAX_VALUE = 500;
+const MAX_VALUE = 500;
 
 /** A secret shorter than this is not scrubbed: it would match ordinary text, and an empty one means auth is off. */
 const MIN_SECRET = 8;
 
-export const REDACTED = '[redacted]';
+const REDACTED = '[redacted]';
 
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
@@ -194,7 +194,7 @@ function scrubPatternsWindowed(value: string): string {
 }
 
 /** True for a field name the logger refuses whatever its value. */
-export function deniedField(name: string): boolean {
+function deniedField(name: string): boolean {
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/);
   return words.some((w) => DENIED.has(w));
 }

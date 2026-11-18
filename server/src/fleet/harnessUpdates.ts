@@ -24,7 +24,7 @@ export interface VersionFacts {
   reporters: number;
 }
 
-export type FeatureKind = 'hook' | 'field' | 'tool';
+type FeatureKind = 'hook' | 'field' | 'tool';
 
 export interface Stopped {
   harness: string;

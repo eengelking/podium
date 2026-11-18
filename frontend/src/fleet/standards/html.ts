@@ -3,7 +3,7 @@
 import { byCodeUnit } from "../../../../scripts/standards-inventory";
 import { THEMES } from "../themes";
 
-export const FONTS_HREF = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap";
+const FONTS_HREF = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap";
 
 export interface PageLink {
   file: string;

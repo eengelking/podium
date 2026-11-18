@@ -17,7 +17,7 @@ const LABELS: Record<Field, string> = { keepHours: 'Keep a recording for', budge
 const UNITS: Record<Field, string> = { keepHours: 'hours', budgetMb: 'megabytes', sessionMb: 'megabytes' };
 
 /** The error for one field's value, or null when it is acceptable. */
-export function recordingFieldError(field: Field, v: unknown): string | null {
+function recordingFieldError(field: Field, v: unknown): string | null {
   const { min, max } = RECORDING_RANGES[field];
   return isWhole(v, min, max) ? null : `${LABELS[field]} must be a whole number of ${UNITS[field]} from ${min} to ${max}`;
 }

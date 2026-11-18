@@ -6,9 +6,9 @@ import { FilesList } from "./FilesList";
 import { PageNav } from "./PageNav";
 
 /** The first reporter version that sends the changed files (SPEC 6.2). */
-export const FILES_MIN_REPORTER = "0.6.0";
+const FILES_MIN_REPORTER = "0.6.0";
 /** Steps shown per page; a plan of this many or fewer has no pager. */
-export const STEPS_PER_PAGE = 10;
+const STEPS_PER_PAGE = 10;
 export type PlanTab = "plan" | "files";
 const TABS: PlanTab[] = ["plan", "files"];
 

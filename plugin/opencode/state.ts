@@ -32,7 +32,7 @@ export interface Tokens {
   cacheWrite: number;
 }
 
-export interface Call {
+interface Call {
   id: string;
   tool: string;
   input: Record<string, unknown>;
@@ -46,11 +46,11 @@ export interface Call {
   refused?: boolean;
 }
 
-export type SessEnd = 'running' | 'done' | 'failed' | 'aborted';
+type SessEnd = 'running' | 'done' | 'failed' | 'aborted';
 
 /** One OpenCode session: the root, or a child it launched. */
 /** One background shell OpenCode started (#897). Its output file is the one OpenCode reported; the reporter reads it only while a viewer has the loop open. */
-export interface Shell {
+interface Shell {
   id: string;
   command: string;
   /** The `.out` file OpenCode writes the shell's output to, as `shell.created` reported it; null when it reported none. */

@@ -63,7 +63,7 @@ const toPerson = (r: DbPerson): PersonRow => ({
 });
 
 
-export class MariaPeopleStore implements PeopleStoreApi {
+class MariaPeopleStore implements PeopleStoreApi {
   constructor(private readonly db: MariaDbConn) {}
 
   // ---- people ---------------------------------------------------------------------------------

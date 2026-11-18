@@ -13,8 +13,8 @@ export interface ChatBrowserDeps {
   refuse: (req: Request, res: Response, f: Fail) => void;
 }
 
-export const PAGE_DEFAULT = 50;
-export const PAGE_MAX = 100;
+const PAGE_DEFAULT = 50;
+const PAGE_MAX = 100;
 
 /** A page size from a query: 1 to 100, 50 when absent. Null for anything else. */
 export function limitOf(raw: unknown): number | null {

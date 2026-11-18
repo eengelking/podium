@@ -109,7 +109,7 @@ export interface ThreadMessage {
   direct: DirectMessage | null;
 }
 
-export interface ThreadHead {
+interface ThreadHead {
   a?: Party;
   b?: Party;
   owner?: string;

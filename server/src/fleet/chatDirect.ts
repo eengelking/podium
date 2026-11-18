@@ -62,7 +62,7 @@ export interface CrossInfo {
   canResume: boolean;
 }
 
-export interface DirectMessageView {
+interface DirectMessageView {
   id: string;
   author: 'agent' | 'person';
   from: { kind: 'agent' | 'person'; sessionId: string | null; name: string; machine: string };
@@ -83,7 +83,7 @@ export interface DirectMessageView {
 const rank = (s: MessageState): number => (s === 'dropped' || s === 'declined' ? 3 : s === 'delivered' ? 0 : 1);
 
 /** A conversation's messages as the page shows them: a person's text that went to both agents of a conversation is shown once. */
-export function directMessages(rows: MessageRow[]): DirectMessageView[] {
+function directMessages(rows: MessageRow[]): DirectMessageView[] {
   const out: DirectMessageView[] = [];
   for (const m of rows) {
     const target = { sessionId: m.toSession, name: m.toName, machine: m.toMachine, state: m.state, why: m.why };
@@ -115,7 +115,7 @@ export function directMessages(rows: MessageRow[]): DirectMessageView[] {
 }
 
 /** A declined or dropped message's reason in words, for the person who wrote it. */
-export function reasonOf(m: Pick<MessageRow, 'state' | 'why' | 'owner' | 'toName'>): string | null {
+function reasonOf(m: Pick<MessageRow, 'state' | 'why' | 'owner' | 'toName'>): string | null {
   if (m.state === 'declined') return `${m.owner} declined it.`;
   if (m.state !== 'dropped' || !m.why) return null;
   if (m.why === 'receiver-ended') return `${m.toName} ended before it got the message.`;

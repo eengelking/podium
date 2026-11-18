@@ -42,7 +42,7 @@ function grouped<T extends { session_id: string }>(ids: readonly string[], rows:
 /** The tables a session owns rows in, in the order a delete takes them. */
 const SESSION_CHILDREN = ['events', 'blowouts', 'samples', 'agents', 'agent_texts'] as const;
 
-export class PgFleetStore implements FleetStoreApi {
+class PgFleetStore implements FleetStoreApi {
   constructor(private readonly db: PgDb) {}
 
   // ---- sessions -------------------------------------------------------------------------------
