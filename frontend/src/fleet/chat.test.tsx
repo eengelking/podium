@@ -2900,7 +2900,7 @@ describe("the New direct message form", () => {
   const openForm = async (chat = withTargets()) => {
     const p = page({ chat });
     await flush();
-    const btn = screen.getByRole("button", { name: "New direct message" });
+    const btn = screen.getByRole("button", { name: "New message" });
     btn.focus();
     fireEvent.click(btn);
     await flush();
@@ -2910,10 +2910,11 @@ describe("the New direct message form", () => {
   const dlg = () => within(screen.getByRole("dialog", { name: "New direct message" }));
   const sendBtn = () => dlg().getByRole("button", { name: "Send message" });
 
-  it("puts a New message button, named New direct message, in the Direct Messages heading", async () => {
+  it("puts a New message button, named by its visible words and with no aria-label, in the Direct Messages heading", async () => {
     page({ chat: withTargets() });
     await flush();
-    const b = screen.getByRole("button", { name: "New direct message" });
+    const b = screen.getByRole("button", { name: "New message" });
+    expect(b).not.toHaveAttribute("aria-label");
     expect(b).toHaveTextContent("New message");
     expect(b.closest("section")).toContainElement(screen.getByRole("heading", { name: "Direct Messages" }));
   });
@@ -3063,7 +3064,7 @@ describe("the New direct message form", () => {
     fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
     await flush();
     expect(screen.getByRole("heading", { name: "Direct Messages" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "New direct message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New message" })).toBeNull();
   });
 
   it("passes the axe rules jsdom can judge, with an error showing", async () => {

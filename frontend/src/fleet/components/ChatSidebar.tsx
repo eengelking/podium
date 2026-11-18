@@ -180,7 +180,7 @@ export function ChatSidebar(p: SidebarProps) {
         <>
           <section className="ch-sec" aria-labelledby="sec-dm">
             <h2 id="sec-dm">Direct Messages</h2>
-            <button type="button" className="btn sm ch-new" aria-haspopup="dialog" aria-label="New direct message" onClick={p.onNewDm}>
+            <button type="button" className="btn sm ch-new" aria-haspopup="dialog" onClick={p.onNewDm}>
               New message
             </button>
             <ul className="ch-list">
