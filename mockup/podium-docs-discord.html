@@ -1,0 +1,316 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Docs Site: Discord invitations</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>
+/* Mockup for #1221: ways the docs site (podium.engelking.dev) invites people into the Discord.
+   It adds to mockup/podium-docs-site.html (#688) and changes nothing else on those screens.
+   Four places: a secondary button in the homepage hero, a "Join the community" section on the homepage,
+   a Discord link in the top bar, and a short invitation at the end of every docs page, with a link in the footer.
+   Colors and fonts come from tokens.css; this file defines no tokens of its own. No brand color is used for
+   Discord: the site's own accent carries it, so the site stays one family. The primary button on each view stays
+   "Get started" (one primary per view); every Discord control is a secondary button or a link.
+   Only the demo chrome (.demo, .stage, .notes) is this mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ---------- demo chrome ---------- */
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; max-width: 100%; background: var(--bg); position: relative; container-type: inline-size; container-name: frame; }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+
+/* ---------- the site (same derived variables as mockup/podium-docs-site.html) ---------- */
+.site { --accent: var(--sonnet); --accent-text: color-mix(in srgb, var(--sonnet) 62%, var(--ink)); --tint: color-mix(in srgb, var(--sonnet) 16%, var(--bg)); --tint2: color-mix(in srgb, var(--sonnet) 9%, var(--bg));
+  background: var(--bg); color: var(--ink); font-size: 15px; line-height: 1.6; }
+.site a { color: inherit; }
+.site :focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; border-radius: 4px; }
+.scr[hidden] { display: none; }
+.ico { width: 16px; height: 16px; flex: none; }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--axis); background: var(--raised); }
+.brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; text-decoration: none; }
+.brand svg { width: 20px; height: 20px; }
+.nav { display: flex; gap: 4px; margin-left: 8px; }
+.nav a { padding: 4px 10px; border-radius: 6px; text-decoration: none; color: var(--ink2); font-size: 13px; font-weight: 500; }
+.nav a:hover { background: var(--hover); color: var(--ink); }
+.nav a[aria-current="page"] { color: var(--accent-text); background: var(--tint); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); border-radius: 6px 6px 0 0; }
+.top .sp { flex: 1; }
+.tbtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; font-weight: 500; text-decoration: none; }
+.tbtn:hover { background: var(--tint); border-color: var(--accent); }
+.tbtn.disc { color: var(--accent-text); }
+.tbtn.ghost { color: var(--ink2); }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; text-decoration: none; }
+.btn:hover { background: var(--sel); }
+.btn.pri { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.pri:hover { background: color-mix(in srgb, var(--ink) 85%, var(--bg)); }
+.btn .ico { color: var(--accent-text); }
+
+/* homepage */
+.hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 40px; padding: 48px 40px 40px; align-items: center; background: linear-gradient(135deg, var(--tint) 0%, var(--bg) 70%); }
+.hero h1 { margin: 0 0 14px; font-size: 28px; line-height: 1.2; font-weight: 700; text-wrap: balance; }
+.hero .lede { margin: 0 0 22px; color: var(--ink2); max-width: 46ch; }
+.acts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.hero .join { margin: 0; color: var(--ink2); font-size: 13px; max-width: 46ch; }
+.hero .join a { color: var(--accent-text); font-weight: 600; }
+.shot { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.shot .ph { aspect-ratio: 1922 / 936; display: grid; place-items: center; color: var(--muted); font-size: 12px; background: repeating-linear-gradient(135deg, var(--surface) 0 14px, var(--raised) 14px 28px); }
+.sect { padding: 36px 40px 40px; border-top: 1px solid var(--axis); background: var(--bg); }
+.sect.alt { background: var(--surface); }
+.sect h2 { margin: 0 0 4px; font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 10px; }
+.sect h2::before { content: ""; width: 4px; height: 18px; border-radius: 2px; background: var(--accent); flex: none; }
+.sect > p.sub { margin: 0 0 18px; color: var(--ink2); max-width: 62ch; }
+.faux { color: var(--muted); font-size: 12.5px; border: 1px dashed var(--axis); border-radius: 6px; padding: 10px 14px; }
+
+/* community section: the one new block on the homepage */
+.comm { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 40px; align-items: start; }
+.comm .lead p { margin: 0 0 16px; color: var(--ink2); max-width: 46ch; }
+.comm .lead small { display: block; margin-top: 10px; color: var(--muted); font-size: 12.5px; max-width: 46ch; }
+.comm .lead small a { color: var(--accent-text); }
+.give { margin: 0; display: grid; gap: 10px; }
+.give div { padding: 12px 16px 12px 14px; border-top: 1px solid var(--axis); border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 6px 6px 0; }
+.give dt { font-weight: 650; margin: 0 0 2px; color: var(--accent-text); }
+.give dd { margin: 0; color: var(--ink2); font-size: 14px; max-width: 54ch; }
+
+/* docs page */
+.docs { display: grid; grid-template-columns: 230px minmax(0, 1fr); }
+.side { padding: 18px 12px 24px 20px; border-right: 1px solid var(--axis); background: var(--surface); display: grid; align-content: start; gap: 14px; font-size: 13px; }
+.side h2 { margin: 0 0 2px; padding: 0 8px; font-size: 12px; font-weight: 650; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.side h2::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: none; }
+.side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.side a { display: block; padding: 4px 8px; border-radius: 6px; text-decoration: none; color: var(--ink2); }
+.side a[aria-current="page"] { background: var(--tint); color: var(--accent-text); font-weight: 650; box-shadow: inset 3px 0 0 var(--accent); }
+.main { padding: 26px 40px 32px; min-width: 0; }
+.crumbs { color: var(--accent-text); font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.main h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; font-weight: 700; }
+.main .desc { margin: 0 0 14px; color: var(--ink2); max-width: 66ch; }
+.prose { max-width: 70ch; }
+.prose h2 { margin: 28px 0 10px; padding: 9px 16px; font-size: 20px; line-height: 1.25; font-weight: 700; background: var(--tint); border-left: 5px solid var(--accent); border-radius: 0 6px 6px 0; }
+.prose p { margin: 0 0 10px; }
+
+/* the invitation at the end of every docs page */
+.ask { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; max-width: 70ch; margin: 36px 0 0; padding: 14px 16px; border: 1px solid var(--axis); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; background: var(--surface); }
+.ask .ico { width: 22px; height: 22px; color: var(--accent-text); }
+.ask b { display: block; font-size: 14px; font-weight: 650; }
+.ask span { display: block; color: var(--ink2); font-size: 13.5px; }
+.ask span a { color: var(--accent-text); }
+
+/* footer */
+.foot { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 14px 40px; border-top: 1px solid var(--axis); background: var(--raised); color: var(--ink2); font-size: 12px; }
+.foot a { color: var(--accent-text); }
+.foot .sp { flex: 1; }
+
+/* the site answers its frame, not the viewport */
+@container frame (max-width: 800px) {
+  .hero, .comm { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-left: 24px; padding-right: 24px; }
+  .sect { padding-left: 24px; padding-right: 24px; }
+  .docs { grid-template-columns: minmax(0, 1fr); }
+  .side { display: none; }
+  .nav, .tbtn.disc, .tbtn.ghost { display: none; }
+  .main { padding: 22px 24px 28px; }
+  .foot { padding: 14px 24px; }
+}
+@container frame (max-width: 520px) {
+  .hero { padding: 28px 16px 24px; }
+  .sect { padding: 24px 16px; }
+  .main { padding: 20px 16px 24px; }
+  .foot { padding: 14px 16px; }
+  .ask { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .ask .ico { display: none; }
+  .ask .btn { justify-self: start; }
+}
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Docs site: Discord invitations (#1221)</b>
+  <span class="grp" role="group" aria-label="Screen">
+    <button type="button" data-scr="home" aria-pressed="true">Homepage</button>
+    <button type="button" data-scr="page" aria-pressed="false">A docs page</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">
+    <button type="button" data-w="wide" aria-pressed="true">1180 px</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="chat" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.5 5.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-3.5 3v-3a2 2 0 0 1-2-2z"></path>
+    <path d="M7 7.5h6M7 10h3.5"></path>
+  </symbol>
+</svg>
+
+<div class="stage">
+  <div class="frame wide" id="frame">
+    <div class="site">
+
+      <!-- top bar: shared by both screens -->
+      <header class="top">
+        <a class="brand" href="#" onclick="return false">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false">
+            <circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle>
+            <path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"></path>
+          </svg>
+          Podium
+        </a>
+        <nav class="nav" aria-label="Main">
+          <a href="#" onclick="return false" id="nav-docs">Docs</a>
+          <a href="#" onclick="return false">User guide</a>
+          <a href="#" onclick="return false">Reporter</a>
+          <a href="#" onclick="return false">Changelog <span aria-hidden="true">&#8599;</span></a>
+        </nav>
+        <span class="sp"></span>
+        <a class="tbtn ghost" href="#" onclick="return false">GitHub</a>
+        <a class="tbtn disc" href="#" onclick="return false" aria-label="Join the Podium Discord (opens Discord)">
+          <svg class="ico" aria-hidden="true"><use href="#chat"></use></svg>Discord
+        </a>
+      </header>
+
+      <!-- screen 1: homepage -->
+      <main class="scr" id="scr-home">
+        <section class="hero">
+          <div>
+            <h1>See every Claude Code session on one screen.</h1>
+            <p class="lede">Podium shows each session's model, cost, context and branch, the agents it launched, and why anything failed. Run several sessions without clicking through every terminal.</p>
+            <div class="acts">
+              <a class="btn pri" href="#" onclick="return false">Get started</a>
+              <a class="btn" href="#" onclick="return false">Read the docs</a>
+              <a class="btn" href="#" onclick="return false"><svg class="ico" aria-hidden="true"><use href="#chat"></use></svg>Join the Discord</a>
+            </div>
+            <p class="join">Stuck on setup? <a href="#" onclick="return false">Ask in the Discord</a> and get an answer from people who run Podium.</p>
+          </div>
+          <figure class="shot"><div class="ph" role="img" aria-label="Placeholder for the console screenshot, unchanged">the console screenshot, unchanged</div></figure>
+        </section>
+
+        <section class="sect alt"><h2>What you see for every session</h2><p class="faux">Unchanged: the four facts.</p></section>
+        <section class="sect"><h2>Start in three steps</h2><p class="faux">Unchanged: the three install steps.</p></section>
+
+        <!-- new: between the steps and "Where to go next" -->
+        <section class="sect alt" id="community">
+          <h2>Join the community</h2>
+          <p class="sub">Podium has a Discord server. It is the quickest place to get unstuck, and where release news lands first.</p>
+          <div class="comm">
+            <div class="lead">
+              <p>Setting up the server or the reporter, reading a card you did not expect, or running Podium for a team: ask, and show how you run it.</p>
+              <a class="btn pri" href="#" onclick="return false"><svg class="ico" aria-hidden="true" style="color:inherit"><use href="#chat"></use></svg>Join the Discord</a>
+              <small>Bugs and feature requests still go to <a href="#" onclick="return false">GitHub Issues</a>. A security problem never goes in Discord: <a href="#" onclick="return false">report it privately</a>.</small>
+            </div>
+            <dl class="give">
+              <div><dt>Ask</dt><dd>Questions about setup, tokens, TLS, the reporter, and what a number on the wall means.</dd></div>
+              <div><dt>Show</dt><dd>How you run several sessions, what your wall looks like, and what you wish it showed.</dd></div>
+              <div><dt>Hear first</dt><dd>Release news and what is coming, before it reaches the changelog.</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="sect"><h2>Where to go next</h2><p class="faux">Unchanged: User guide, Server, Design decisions.</p></section>
+      </main>
+
+      <!-- screen 2: a docs page -->
+      <main class="scr" id="scr-page" hidden>
+        <div class="docs">
+          <nav class="side" aria-label="Docs"><h2>User guide</h2><ul><li><a href="#" onclick="return false">Set it up</a></li><li><a href="#" onclick="return false" aria-current="page">Something is wrong</a></li><li><a href="#" onclick="return false">Updating the mod</a></li></ul></nav>
+          <article class="main">
+            <div class="crumbs">User guide</div>
+            <h1>When something is wrong</h1>
+            <p class="desc">What to check when a session does not show up, or the console says offline.</p>
+            <div class="prose">
+              <h2>The console says offline</h2>
+              <p>Open the console at the address the server printed and check that the mod's server URL names the same host. A config issued while the console was opened as <code>localhost</code> will not reach another machine.</p>
+              <h2>A session does not show up</h2>
+              <p>Check the token, then the reporter's status line. It says whether it is connected and why not.</p>
+            </div>
+
+            <!-- new: the end of every docs page, above the footer -->
+            <aside class="ask" aria-label="Get help">
+              <svg class="ico" aria-hidden="true"><use href="#chat"></use></svg>
+              <div>
+                <b>Still stuck, or want to see how others run Podium?</b>
+                <span>Ask in the Discord. Bugs go to <a href="#" onclick="return false">GitHub Issues</a>.</span>
+              </div>
+              <a class="btn" href="#" onclick="return false">Join the Discord</a>
+            </aside>
+          </article>
+        </div>
+      </main>
+
+      <footer class="foot">
+        <span>Podium 1.7 &middot; &copy; 2026 Ed Engelking</span>
+        <span class="sp"></span>
+        <a href="#" onclick="return false">Discord</a>
+        <a href="#" onclick="return false">MIT license</a>
+        <a href="#" onclick="return false">Security policy</a>
+        <a href="#" onclick="return false">Contributing</a>
+        <a href="#" onclick="return false">Report a docs issue</a>
+        <a href="#" onclick="return false">GitHub</a>
+      </footer>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>What changes, and why</h2>
+  <ul>
+    <li><b>Homepage hero:</b> "Join the Discord" is a third, secondary button. "Get started" stays the only primary button in the hero, and a one-line "Stuck on setup?" link sits under the buttons for the reader who has not decided yet.</li>
+    <li><b>Homepage, "Join the community":</b> a new section after the install steps, where a reader who just tried to install is most likely to need help. It says what the server is for in three plain lines (ask, show, hear first), and says where bugs and security reports go instead, so Discord does not become the place for filing work. Its button is the primary button of that section. It makes no claim about how many people are there.</li>
+    <li><b>Top bar:</b> a "Discord" link beside "GitHub", with the same chip shape and a chat icon. It is hidden at narrow width like the rest of the bar's links; the page strip below and the footer carry it there.</li>
+    <li><b>Every docs page:</b> a short strip at the end of the page, above the footer. It is where a reader who did not find the answer ends up. It reuses the wall's left-accent shape and no new color. It is the page's only Discord button, and it is secondary.</li>
+    <li><b>Footer:</b> a "Discord" link first in the list.</li>
+    <li><b>Source of the link:</b> one constant in <code>site/src/components/siteMeta.ts</code>, so a changed invite is one edit.</li>
+    <li><b>Not done on purpose:</b> no Discord brand color, no logo, no live member count or widget (that needs the server's widget on and a third-party request from every visitor), no pop-up or banner.</li>
+  </ul>
+  <h2>Standards used</h2>
+  <ul>
+    <li>Tokens only, from <code>tokens.css</code>; no root-level token block; light and dark; 400 px frame uses container queries as <code>podium-docs-site.html</code> does.</li>
+    <li>Buttons: ink-fill primary and the plain secondary from the site mockup. Links and buttons are real elements with a visible focus ring; the icon is decorative (<code>aria-hidden</code>) and the header link has a name that says it opens Discord.</li>
+    <li>Copy: a button says what happens ("Join the Discord"); one name for the thing; sentence case.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var frame = document.getElementById("frame");
+  function press(sel, attr, val) {
+    document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === val)); });
+  }
+  document.querySelectorAll("[data-scr]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var s = b.getAttribute("data-scr");
+      document.getElementById("scr-home").hidden = s !== "home";
+      document.getElementById("scr-page").hidden = s !== "page";
+      var docs = document.getElementById("nav-docs");
+      if (s === "page") docs.setAttribute("aria-current", "page"); else docs.removeAttribute("aria-current");
+      press("[data-scr]", "data-scr", s);
+    });
+  });
+  document.querySelectorAll("[data-th]").forEach(function (b) {
+    b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); });
+  });
+  document.querySelectorAll("[data-w]").forEach(function (b) {
+    b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); });
+  });
+  root.setAttribute("data-theme", "dark");
+})();
+</script>
