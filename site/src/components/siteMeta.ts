@@ -22,6 +22,9 @@ export const hasPage = (slug: string) => !pages || pages.includes(slug);
 export const docsHome = `${base}${hasPage("introduction") ? "introduction" : "user-guide"}/`;
 export const repoUrl = `https://github.com/${REPO}`;
 
+/** The Discord invite. It never expires (docs/COMMUNITY.md); change it here and nowhere else on the site. */
+export const discordUrl = "https://discord.gg/3EMEUMEucY";
+
 /** The GitHub page that lists what this version changed. */
 export const releaseUrl = !current || current.latest ? `${repoUrl}/releases/latest` : `${repoUrl}/releases/tag/${current.ref}`;
 

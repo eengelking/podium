@@ -1,8 +1,12 @@
 ---
 import Default from "@astrojs/starlight/components/Footer.astro";
-import { current, repoFile, repoUrl } from "./siteMeta";
+import ChatIcon from "./ChatIcon.astro";
+import { base, current, discordUrl, repoFile, repoUrl } from "./siteMeta";
 
+// The homepage has its own community section, so the strip is for the docs pages.
+const onHome = Astro.url.pathname === base || Astro.url.pathname === `${base}index.html`;
 const links = [
+  { label: "Discord", href: discordUrl },
   { label: "MIT license", href: repoFile("LICENSE") },
   { label: "Security policy", href: repoFile(".github/SECURITY.md") },
   { label: "Contributing", href: repoFile("CONTRIBUTING.md") },
@@ -11,6 +15,22 @@ const links = [
 ];
 ---
 
+{
+  !onHome && (
+    <aside class="ask" aria-label="Get help">
+      <ChatIcon />
+      <div>
+        <b>Still stuck, or want to see how others run Podium?</b>
+        <span>
+          Ask in the Discord. Bugs go to <a href={`${repoUrl}/issues`}>GitHub Issues</a>.
+        </span>
+      </div>
+      <a class="btn" href={discordUrl} target="_blank" rel="noopener">
+        Join the Discord<span class="sr-only"> (opens Discord)</span>
+      </a>
+    </aside>
+  )
+}
 <Default {...Astro.props}><slot /></Default>
 <div class="foot">
   <span>Podium {current?.label} &middot; &copy; 2026 Ed Engelking</span>
@@ -22,4 +42,18 @@ const links = [
   .foot { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 2rem; padding: 14px 0 0; border-top: 1px solid var(--axis); color: var(--ink2); font-size: 0.75rem; }
   .foot a { color: var(--accent-text); }
   .sp { flex: 1; }
+  .ask { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; margin: 2.5rem 0 1.5rem; padding: 14px 16px; border: 1px solid var(--axis); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; background: var(--surface); }
+  .ask { --ico: 22px; color: var(--accent-text); }
+  .ask div { color: var(--ink); }
+  .ask b { display: block; font-size: 0.875rem; font-weight: 650; color: var(--ink); }
+  .ask span { display: block; color: var(--ink2); font-size: 0.84rem; }
+  .ask span a { color: var(--accent-text); }
+  .btn { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); font-size: 0.8125rem; font-weight: 500; text-decoration: none; }
+  .btn:hover { background: var(--sel); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (max-width: 40rem) {
+    .ask { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .ask :global(.ico) { display: none; }
+    .btn { justify-self: start; }
+  }
 </style>

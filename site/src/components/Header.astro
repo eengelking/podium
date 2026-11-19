@@ -2,7 +2,8 @@
 import Search from "virtual:starlight/components/Search";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import VersionSelect from "./VersionSelect.astro";
-import { base, docsHome, releaseUrl, repoUrl } from "./siteMeta";
+import ChatIcon from "./ChatIcon.astro";
+import { base, discordUrl, docsHome, releaseUrl, repoUrl } from "./siteMeta";
 
 const path = Astro.url.pathname;
 const onHome = path === base || path === `${base}index.html`;
@@ -31,6 +32,7 @@ const nav = [
   <div class="srch"><Search /></div>
   <VersionSelect />
   <a class="gh" href={repoUrl} aria-label="Podium on GitHub">GitHub</a>
+  <a class="gh disc" href={discordUrl} target="_blank" rel="noopener" aria-label="Join the Podium Discord (opens Discord)"><ChatIcon />Discord</a>
   <div class="theme"><ThemeSelect /></div>
 </div>
 
@@ -43,8 +45,9 @@ const nav = [
   .nav a:hover { background: var(--hover); color: var(--ink); }
   .nav a[aria-current="page"] { color: var(--accent-text); background: var(--tint); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
   .sp { flex: 1; }
-  .gh { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font-size: 0.75rem; font-weight: 500; text-decoration: none; }
+  .gh { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font-size: 0.75rem; font-weight: 500; text-decoration: none; }
   .gh:hover { background: var(--tint); border-color: var(--accent); }
+  .gh.disc { color: var(--accent-text); }
   .srch { display: flex; }
   .theme { display: flex; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
