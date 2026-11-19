@@ -18,6 +18,7 @@ official MariaDB connector. Each is loaded only when `PODIUM_DB` chooses its kin
 (`server/src/storage/neutral.test.ts`). Both are plain JavaScript, so `npm ci --ignore-scripts` needs no install script for them.
 
 `astro`, `@astrojs/starlight` and `starlight-links-validator` in `site/`, for the docs site (#688). They are build tools for the site only and are not part of the server, the UI or the mod.
+`knip` at the root (#1210), a dev dependency that finds unused files, exports and dependencies in CI. Its settings are in `knip.jsonc`.
 
 <!-- nav:start -->
 ---

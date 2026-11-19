@@ -144,6 +144,7 @@ interface AgentReport {
   promptText?: string;                  // the whole task prompt, redacted, line breaks kept, ≤ 20,000 chars then "[cut off at 20,000 characters]". Only with the fullPrompts option (0.10.0 and later), and only in the first accepted report that has it
   answerText?: string;                  // the same for the final answer, sent once when the agent finishes (again if a later answer replaces it)
   activity?: ActivityEntry[];           // this agent's activity feed, sent only while the reply's `watch` lists its id (6.4)
+  backgroundItems?: BackgroundItem[];   // this agent's or fork's background shells and monitors (#897); see below
   failure: Failure | null;
 }
 

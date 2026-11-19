@@ -14,7 +14,7 @@ order: 59
 though the file is found: the `Home folder:` line is there, and `TLS:` does not say `config unreadable`. The `TLS:` line gives no reason, because the mod words certificate problems and has nothing to say about a server it cannot reach.
 
 **Why:** The reporter sends to the address in the config file's `# server:` line, and ignores the `serverUrl` option once a file is found. A file
-issued while the console was opened as `https://localhost:4318` says `localhost`, which on the other machine is itself, where nothing listens. The
+issued while the console was opened as `http://localhost:4317` names `https://localhost:4318`, and `localhost` on the other machine is itself, where nothing listens. The
 helper's connection is refused and it answers 502 (the same shows over a socket on macOS and Linux). The address must also be one the server
 certificate covers: the certificate names `localhost`, `127.0.0.1` and the machine's address when the server was started with it.
 

@@ -197,8 +197,8 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `CHANGELOG.md` | One entry per release |
 
 Update the docs that describe your change in the same PR. For anything a user would notice, add a changelog fragment:
-a file `changelog.d/<issue-or-slug>.<type>.md` that holds the text of one entry (`added`, `changed`, `deprecated`, `removed` or
-`fixed`; see `changelog.d/README.md`). Do not edit `CHANGELOG.md` in a feature or fix PR. Two PRs then never touch the same file,
+a file `changelog.d/<issue-or-slug>.<type>.md` that holds the text of one entry (`added`, `changed`, `deprecated`, `removed`,
+`fixed` or `standards`; see `changelog.d/README.md`). Do not edit `CHANGELOG.md` in a feature or fix PR. Two PRs then never touch the same file,
 and the release-prep PR folds the fragments into it (DECISIONS 67).
 
 A change to the UI also follows the standards in `docs/standards/`, and starts with a mockup that links

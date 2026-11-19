@@ -20,7 +20,6 @@ The operator uses shorthand in place of typing a full request out. Case-insensit
 | `wni` | "What is the next GitHub issue to resolve?" |
 | `pri` | "Please review the following Github issue and begin implementation." |
 | `prm` | "PR has been merged into its base branch. Confirm `state: MERGED`, close and verify each `Closes #N` issue (GitHub ignores it for a PR into `development`), remove the worktree, delete the branch locally and on the remote, prune, then check out the base branch and pull it." |
-| `cii` | "Please review outstanding docs/ISSUES.md and create GitHub issues for anything not yet tracked. Let me know when done." |
 | `pnb` | "Please process the next batch of queued items." |
 
 ## Do Not
@@ -32,7 +31,7 @@ The operator uses shorthand in place of typing a full request out. Case-insensit
 - Start implementing an issue just because it (or you) filed it — filing and authorization are separate steps.
 - Create a new standing doc when an existing one can hold the content.
 - Document architecture in this file — use `docs/architecture/`.
-- Record current-state facts or status narrative in this file — facts belong in `CHANGELOG.md`; narrative belongs in commit history, PR descriptions, or `docs/ISSUES.md`.
+- Record current-state facts or status narrative in this file — facts belong in `CHANGELOG.md`; narrative belongs in commit history or PR descriptions.
 - Silently pick a reading, or "fix" it in passing, when code and `docs/spec/` disagree — flag the contradiction and ask.
 - Re-invoke `/code-review` a second time on the same diff "to confirm" a fix. There's no defined stopping rule for a fix→review→fix cycle, and the review skill's own finder/verifier fan-out is not guaranteed to converge on a repeat run — it can spawn a large batch of sub-agents and stall indefinitely. Verify fixes by running the project's own test/lint suite directly instead (see the Review (pre-PR) row below); if that fails, stop and ask rather than looping back into another review round.
 

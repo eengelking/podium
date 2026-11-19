@@ -156,6 +156,7 @@ five plugin options at the end of the table. `/podium config` changes four of th
 | `PODIUM_REPORTER_CONFIG`, `PODIUM_REPORTER_CONTEXT` | empty | Which reporter config file to use over TLS (see [Over TLS](#over-tls)) |
 | `PODIUM_ACTIVITY_FEED` | off | The activity feed, as for Claude Code's `activityFeed` option. Answering needs it too |
 | `PODIUM_ACTIVITY_OUTPUT` | off | A shell call's output in the feed. Needs the feed on |
+| `PODIUM_BACKGROUND_OUTPUT` | off | As for `backgroundOutput`. Needs `PODIUM_ACTIVITY_FEED`, and the Admin's Background shell output switch |
 | `PODIUM_FULL_PROMPTS` | off | Whole task prompts and final answers, as for `fullPrompts` |
 | `PODIUM_SESSION_RECORDING` | off | Allow session recording, as for `sessionRecording`. The person is told through a toast when a recording starts or stops |
 | `PODIUM_FILE_DIFF` | off | Send a changed file's diff on request, as for `fileDiff`. The list of changed files is always sent |
@@ -557,7 +558,7 @@ variables and from `~/.podium/config.env`. They are never read from `opencode.js
 if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin options still read are
 `idleSeconds`, `flushIntervalMs`, `heartbeatMs`, `sessionName` and `fileDiffPreload`, which gain an attacker nothing. A consent option is on only when it is exactly `true`
 (`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
-`PODIUM_FILE_DIFF`, `PODIUM_EXPLAIN_FAILURES`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
+`PODIUM_BACKGROUND_OUTPUT`, `PODIUM_FILE_DIFF`, `PODIUM_EXPLAIN_FAILURES`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
 The same holds for which reporter config file is used: `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT` come from those two places only, and `plugin/opencode/tls.test.ts` shows that an `opencode.json` that names a file, a context or a server changes none of them.
 
 **The key file.** A reporter config file (#948) holds your private key. The reporter reads it from `~/.podium/` (or the path `PODIUM_REPORTER_CONFIG` or the current context gives), and nothing in a

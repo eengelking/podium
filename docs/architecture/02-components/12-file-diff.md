@@ -30,7 +30,7 @@ diffs against the same base as the list (`resolveRef`, shared with `readChanges`
 2,000 lines or 200,000 bytes, then `redactDiff` replaces anything that looks like a secret. Cutting comes first, so
 the redaction count is for what is sent.
 
-**Tests.** The Claude Code mod's own tests need Claude Code (`npm run test:mod:claudecode`), so CI cannot run them. The shared code in `plugin/core/` and the OpenCode reporter's tests run under the server's vitest and in CI (`npm run test:core`, `npm run test:mod:opencode`), and a few of the Claude Code hooks' tests that need no engine (`fileDiffMod`, `transport`, `peers`) run there too, through an alias for
+**Tests.** The Claude Code mod's own tests need Claude Code (`npm run test:mod:claudecode`), so CI cannot run them. The shared code in `plugin/core/` and the OpenCode reporter's tests run under the server's vitest and in CI (`npm run test:core`, `npm run test:mod:opencode`), and a few of the Claude Code hooks' tests that need no engine (`transport`, `peers`) run there too, through an alias for
 `claude-code/testing` in `server/vitest.config.ts`, so SonarCloud's coverage gate sees the pure modules.
 
 **Server.** `DiffBroker` is the only holder of a diff, and only while a browser waits. The sign-in routes stay

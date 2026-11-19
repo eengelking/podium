@@ -293,7 +293,7 @@ The tables, the method, the caveats and the maintainer's decision are in [6.4](s
 
 ## Open follow-ups
 
-Not yet tracked as GitHub issues; they are in [ISSUES.md](ISSUES.md):
+Not yet tracked as GitHub issues:
 
 - The redactor is quadratic on long lines, so the mod redacts in pieces and a secret straddling a cut can be missed.
 - Claude Code hides a Bash or MCP result of about 90 KB from the mod (it hands over a short stub), so a recording of a very
