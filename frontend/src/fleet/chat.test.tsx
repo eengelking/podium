@@ -3,7 +3,7 @@
 // what it is told.
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import axe from "axe-core";
-import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, within, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { PAGE_INFO } from "./pageInfo";
 import { makeSession } from "./fixtures";
@@ -3186,7 +3186,7 @@ describe("the New direct message form", () => {
     expect(within(d).getByLabelText(/claude-dashboard/)).toBeEnabled();
     expect(d).toHaveTextContent("Your orchestrator, running");
     expect(d).toHaveTextContent("Maya approves before it is delivered.");
-    expect(dlg().getByLabelText("Find an agent")).toHaveFocus();
+    expect(dlg().getByLabelText("Find an agent or person")).toHaveFocus();
     expect(d).toHaveTextContent("A Direct Message is read only by you, the agent's owner and an Admin.");
     expect(d).toHaveTextContent("Another person's agent gets it only after its owner approves, in their My reporters.");
   });
@@ -3200,12 +3200,12 @@ describe("the New direct message form", () => {
 
   it("searches as it is typed, asking the server, and says when nothing matches", async () => {
     const { chat } = await openForm();
-    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "docs" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "docs" } });
     await flush();
     expect(chat.api.directTargets).toHaveBeenLastCalledWith("docs");
     expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
     expect(screen.queryByRole("heading", { level: 3, name: "Your agents" })).toBeNull();
-    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "zzz" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "zzz" } });
     await flush();
     expect(screen.getByRole("dialog")).toHaveTextContent("No agent matches that.");
   });
@@ -3227,7 +3227,7 @@ describe("the New direct message form", () => {
     fireEvent.click(sendBtn());
     await flush();
     expect(dlg().getByRole("alert")).toHaveTextContent("Choose who to message.");
-    expect(dlg().getByLabelText("Find an agent")).toHaveFocus();
+    expect(dlg().getByLabelText("Find an agent or person")).toHaveFocus();
     fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
     fireEvent.click(sendBtn());
     await flush();
@@ -3321,9 +3321,9 @@ describe("the New direct message form", () => {
       return { ok: true as const, targets: TARGETS.filter((t) => t.name.includes(q)) };
     });
     await openForm(chat);
-    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "a" } });
-    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "b" } });
-    fireEvent.change(dlg().getByLabelText("Find an agent"), { target: { value: "docs" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "a" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "b" } });
+    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "docs" } });
     await flush();
     expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
     await act(async () => {
@@ -3770,16 +3770,49 @@ describe("the redesigned sidebar", () => {
     fireEvent.click(rowBtn("p:Maya"));
     await flush();
     const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
-    expect(dlg.getByLabelText("Find an agent")).toHaveValue("Maya");
+    expect(dlg.getByLabelText("Find an agent or person")).toHaveValue("Maya");
     expect(chat.api.directTargets).toHaveBeenLastCalledWith("Maya");
     expect(dlg.getAllByRole("radio").map((x) => (x as HTMLInputElement).value)).toEqual(["s-docs", "s-blocked"]);
+    // Her one orchestrator that takes a message is chosen, the one that cannot is not, and the message box has the focus.
+    expect(dlg.getByRole("radio", { name: /docs-writer/ })).toBeChecked();
+    expect(dlg.getByRole("radio", { name: /release-bot/ })).not.toBeChecked();
+    await waitFor(() => expect(dlg.getByLabelText("Message")).toHaveFocus());
+    fireEvent.change(dlg.getByLabelText("Message"), { target: { value: "half a draft" } });
     fireEvent.click(dlg.getByRole("button", { name: "Cancel" }));
     await flush();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(within(row("p:Maya")).getByRole("button", { name: "Actions for Maya" }));
     fireEvent.click(within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name: "Message Maya" }));
     await flush();
-    expect(within(screen.getByRole("dialog")).getByLabelText("Find an agent")).toHaveValue("Maya");
+    expect(within(screen.getByRole("dialog")).getByLabelText("Find an agent or person")).toHaveValue("Maya");
+    // Closing reset the draft: this dialog starts with an empty message box.
+    expect(within(screen.getByRole("dialog")).getByLabelText("Message")).toHaveValue("");
+  });
+
+  it("chooses nothing and keeps the focus on the search when a person has two orchestrators that take a message", async () => {
+    const w = world();
+    w.targets = [TARGETS[1], { ...TARGETS[1], sessionId: "s-two", name: "docs-two", thread: "dm:person:ed|s-two" }];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("p:Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    expect(dlg.getAllByRole("radio")).toHaveLength(2);
+    for (const r of dlg.getAllByRole("radio")) expect(r).not.toBeChecked();
+    await waitFor(() => expect(dlg.getByLabelText("Find an agent or person")).toHaveFocus());
+  });
+
+  it("does not choose over a pick the person made after the dialog opened", async () => {
+    const w = world();
+    w.targets = TARGETS;
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("p:Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    fireEvent.change(dlg.getByLabelText("Find an agent or person"), { target: { value: "docs" } });
+    await flush();
+    expect(dlg.getByRole("radio", { name: /docs-writer/ })).toBeChecked();
   });
 
   it("still offers Message on a person with no orchestrator that takes one, and the dialog says why", async () => {

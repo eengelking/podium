@@ -253,6 +253,23 @@
   .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* The two dialogs (#1237, mockup/podium-chat-redesign.html): a 520 px Modal (.ch-dlg), fields in 13 px type, the agent picker with avatars and
+   13 px sentence-case group titles, and Cancel and the primary button pinned to the bottom of the body while the form scrolls. */
+.podium .modal.ch-dlg { width: min(520px, 100%); }
+.podium .ch-dlg .ch-form label { font-size: 13px; color: var(--ink); font-weight: 600; }
+.podium .ch-dlg .ch-form label .cr-opt { display: inline; font-weight: 400; color: var(--muted); }
+.podium .ch-dlg .ch-form .ch-nav.ro { margin: 0; max-width: none; font-size: 12.5px; }
+.podium .ch-dlg .ch-form .hint { max-width: none; font-size: 12.5px; }
+.podium .ch-dlg .ch-form textarea.field { min-height: 56px; }
+.podium .ch-dlg .ch-form .acts { position: sticky; bottom: -22px; z-index: 1; margin: 0 -20px -22px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--surface); }
+.podium .modal.ch-dlg .mb .dm-pick { max-height: 320px; }
+.podium .ch-dlg .dm-pick h3 { padding: 6px 12px 2px; font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--ink2); }
+.podium .ch-dlg .dm-pick label { gap: 12px; padding: 5px 12px; }
+.podium .ch-dlg .dm-pick .stack > span:first-child { font-size: 14px; }
+.podium .ch-dlg .dm-pick .sub { font-size: 12px; }
+.podium .ch-dlg .dm-pick input[type="radio"] { margin: 0; accent-color: var(--ink); }
+.podium .ch-dlg .dm-pick label[aria-disabled="true"] .ch-av { opacity: .55; }
+
 /* The avatar (#1231, mockup/podium-chat-redesign.html; ChatAvatar.tsx). Shape says the kind, color the model, a state mark what an agent is doing.
    An agent is a tile in its model's color (--c, set from the wall's FAMILY_COLOR). A person is never a hue (color means model and status, see
    Monogram): a ring, a gap and a disc. You are the same disc turned inside out. Sizes are the five Chat draws; the text sizes and radii are on
