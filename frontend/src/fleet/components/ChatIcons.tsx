@@ -114,3 +114,12 @@ export const ChLink = () => (
     <path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.6.6M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.6-.6" />
   </Ic>
 );
+
+/** The agent avatar's glyph (#1231, mockup/podium-chat-redesign.html): a chip. It says "agent" by shape, so the tile is never color alone. */
+export const ChChip = () => (
+  <svg className="ch-av-chip" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
+    <rect x="10" y="10" width="4" height="4" rx=".6" fill="currentColor" stroke="none" />
+  </svg>
+);

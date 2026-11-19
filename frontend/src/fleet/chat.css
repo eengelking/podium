@@ -222,3 +222,34 @@
 @media (max-width: 760px) {
   .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* The avatar (#1231, mockup/podium-chat-redesign.html; ChatAvatar.tsx). Shape says the kind, color the model, a state mark what an agent is doing.
+   An agent is a tile in its model's color (--c, set from the wall's FAMILY_COLOR). A person is never a hue (color means model and status, see
+   Monogram): a ring, a gap and a disc. You are the same disc turned inside out. Sizes are the five Chat draws; the text sizes and radii are on
+   docs/standards/scale.html. The state colors are the ones the sidebar's agent list already uses (.si-* above). */
+.podium .ch-av { --gap: 2px; position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; font-weight: 650; letter-spacing: .01em; line-height: 1; user-select: none; }
+.podium .ch-av.s22 { width: 22px; height: 22px; font-size: 10.5px; --gap: 1.5px; }
+.podium .ch-av.s28 { width: 28px; height: 28px; font-size: 11px; }
+.podium .ch-av.s30 { width: 30px; height: 30px; font-size: 12px; }
+.podium .ch-av.s40 { width: 40px; height: 40px; font-size: 13px; }
+.podium .ch-av.s44 { width: 44px; height: 44px; font-size: 15px; }
+.podium .ch-av.person { border-radius: 50%; border: 1.5px solid var(--ink2); background: color-mix(in srgb, var(--ink) 14%, var(--surface)); color: var(--ink); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.podium .ch-av.me { border-radius: 50%; border: 1.5px solid var(--ink); background: var(--ink); color: var(--bg); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.podium .ch-av.agent { border-radius: 8px; border: 1.5px solid var(--c, var(--other)); background: color-mix(in srgb, var(--c, var(--other)) 20%, var(--surface)); color: var(--ink); }
+.podium .ch-av.agent.s22 { border-radius: 6px; }
+.podium .ch-av .ch-av-chip { width: 58%; height: 58%; }
+.podium .ch-av .ch-av-st { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--surface); box-sizing: border-box; color: var(--ink2); }
+.podium .ch-av.s22 .ch-av-st, .podium .ch-av.s28 .ch-av-st { width: 11px; height: 11px; padding: 0; }
+.podium .ch-av .ch-av-st svg { width: 100%; height: 100%; display: block; }
+.podium .ch-av .ch-av-st .si-running, .podium .ch-av .ch-av-st .si-deleg { color: var(--good-text); }
+.podium .ch-av .ch-av-st .si-waiting, .podium .ch-av .ch-av-st .si-bg { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .ch-av .ch-av-st .si-stale { color: var(--muted); }
+.podium .ch-av .ch-av-st .si-done { color: var(--ink2); }
+/* Two parties: the first sits top left, the second bottom right, with a ring of the surface between them. */
+.podium .ch-av-pair { position: relative; flex: none; display: inline-block; width: 38px; height: 30px; }
+.podium .ch-av-pair .ch-av { position: absolute; }
+.podium .ch-av-pair .ch-av:first-child { left: 0; top: 0; z-index: 1; }
+.podium .ch-av-pair .ch-av:last-child { right: 0; bottom: 0; box-shadow: 0 0 0 2px var(--raised); }
+.podium .ch-av-pair .ch-av.person:last-child, .podium .ch-av-pair .ch-av.me:last-child { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--raised); }
+/* An avatar that opens a menu is a real button around the same tile; `.podium button` carries padding that would squeeze it, so it is cleared here. */
+.podium .ch-av-btn { display: inline-flex; flex: none; padding: 0; margin: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; color: inherit; }
