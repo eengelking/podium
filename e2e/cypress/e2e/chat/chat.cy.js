@@ -423,3 +423,73 @@ describe('chat: at 400 px', () => {
     });
   });
 });
+
+describe('chat: messages drawn as rows (#1232)', () => {
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  const LONG = `const longLine = "${'x'.repeat(240)}";`;
+
+  const seedRows = () => {
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).should('exist');
+    post('general', 'hello from Alex');
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).should('exist');
+    post('general', 'first from Ed');
+    post('general', 'second from Ed');
+    post('general', `see this:\n\`\`\`js\n${LONG}\n\`\`\`\nand \`inline\` code <script>window.__pwned = 1</script>`);
+    cy.reload();
+    cy.tid('chat-message').should('have.length', 4);
+  };
+
+  it('groups a run under one name, right-aligns your own messages in the same bubble, and dates the day', () => {
+    seedRows();
+    cy.tid('chat-message').eq(0).should('have.class', 'first').and('not.have.class', 'mine').and('contain.text', 'hello from Alex');
+    cy.tid('chat-message').eq(1).should('have.class', 'first').and('have.class', 'mine');
+    cy.tid('chat-message').eq(2).should('have.class', 'cont').and('have.class', 'mine').and('contain.text', 'second from Ed');
+    cy.tid('chat-message').eq(2).find('.who').should('not.exist');
+    cy.tid('chat-message').eq(3).should('have.class', 'cont').and('have.class', 'mine');
+    cy.tid('chat-message').eq(0).find('.ch-tx').invoke('attr', 'class').then((theirs) => {
+      cy.tid('chat-message').eq(1).find('.ch-tx').should('have.attr', 'class', theirs);
+    });
+    cy.get('ol.ch-msgs li.ch-day').should('have.length', 1).and('contain.text', 'Today');
+  });
+
+  it('draws a fenced block as text in a focusable pre, and a script tag as text', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.tid('chat-code').should('have.length', 1).within(() => {
+      cy.get('pre[tabindex=0] code').should('contain.text', 'const longLine');
+      cy.get('.ch-code-lang').should('have.text', 'js');
+      cy.contains('button', 'Copy').should('be.visible');
+    });
+    cy.tid('chat-message').last().find('code.ch-inline').should('have.text', 'inline');
+    cy.tid('chat-message').last().should('contain.text', '<script>window.__pwned = 1</script>');
+    cy.tid('chat-message').last().find('script').should('not.exist');
+    cy.window().its('__pwned').should('be.undefined');
+  });
+
+  it('keeps the page from scrolling sideways at 400 px while the code block scrolls inside itself', () => {
+    cy.atWidth(400);
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
+    cy.tid('chat-code').scrollIntoView().should('be.visible');
+    cy.document().should((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.eq(doc.documentElement.clientWidth));
+    cy.tid('chat-code').then(($c) => {
+      expect($c[0].getBoundingClientRect().right, 'the block is inside the window').to.be.at.most(400);
+    });
+    cy.tid('chat-code').find('pre').should(($p) => expect($p[0].scrollWidth, 'the pre scrolls sideways').to.be.greaterThan($p[0].clientWidth));
+  });
+
+  it('is a polite log of additions once it has settled', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('[role=log][aria-label=Messages]').should('have.attr', 'aria-relevant', 'additions').and('have.attr', 'aria-live', 'polite');
+    cy.get('[role=log][aria-label=Messages] ol.ch-msgs').should('exist');
+  });
+});
