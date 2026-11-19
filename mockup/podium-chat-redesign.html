@@ -65,6 +65,14 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
 .ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .ch-row .nm .nm-own { font-weight: 400; color: var(--muted); }
+/* A conversation with two parties shows both, overlapped, like a group conversation in Slack: the other person first, then the agent. */
+.ch-row .ch-pair { position: relative; flex: none; width: 32px; height: 28px; }
+.ch-row .ch-pair .ch-av { position: absolute; width: 21px; height: 21px; font-size: 8px; --gap: 1px; }
+.ch-row .ch-pair .ch-av:first-child { left: 0; top: 0; }
+.ch-row .ch-pair .ch-av:last-child { right: 0; bottom: 0; box-shadow: 0 0 0 2px var(--raised); }
+.ch-row .ch-pair .ch-av.person:last-child { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--raised); }
+.ch-row .ch-pair .st { display: none; }
+.ch-item.on .ch-pair .ch-av:last-child { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 8%, var(--raised)); }
 .ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-item.un .ch-row .nm { font-weight: 650; }
@@ -292,6 +300,60 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .cr-modal .dm-pick input[type="radio"] { margin: 0; accent-color: var(--ink); }
 .cr-modal .dm-pick label[aria-disabled="true"] .ch-av { opacity: .55; }
 .cr-modal .ch-form .field[aria-invalid="true"] + .ferr, .cr-modal .ferr { display: block; margin-top: 4px; font-size: 12px; font-weight: 500; color: var(--crit-text); }
+
+/* The thread is anchored to the bottom: the newest message sits just above the composer, and a short or empty thread grows upward from there
+   (as Slack and Mattermost do). margin-top:auto does it without breaking scrolling. */
+.ch-scroll { display: flex; flex-direction: column; }
+.ch-flow { margin-top: auto; }
+.ch-flow-dm, .ch-intro, .ch-fail, .ch-recline, .dm-t, .dm-only { display: none; }
+/* A code block inside a message: monospace on a darker step of the bubble, scrolls sideways, never wraps, and has a Copy button. */
+.ch-code { margin: 8px 0 2px; border-radius: 8px; background: light-dark(color-mix(in srgb, var(--ink) 9%, transparent), color-mix(in srgb, var(--bg) 55%, transparent)); overflow: hidden; }
+.ch-code-h { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 0 12px; font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+.ch-code pre { margin: 0; padding: 6px 12px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: var(--ink); white-space: pre; tab-size: 2; }
+.ch-code pre:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-code code { all: unset; font: inherit; white-space: inherit; }
+.podium .ch-copy { padding: 2px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink2); font: inherit; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.podium .ch-copy:hover { background: var(--hover); color: var(--ink); }
+/* The first thing in an empty thread, at the bottom. */
+.stage.case-empty .ch-flow-ch > :not(.ch-intro) { display: none; }
+.stage.case-empty .ch-intro { display: block; padding: 24px 24px 20px; }
+.ch-intro-av { display: flex; margin-bottom: 12px; }
+.ch-intro-av .ch-av { width: 44px; height: 44px; margin-left: -8px; box-shadow: 0 0 0 3px var(--surface); }
+.ch-intro-av .ch-av:first-child { margin-left: 0; }
+.ch-intro h3 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+.ch-intro p { margin: 0; max-width: 52ch; color: var(--ink2); font-size: 14px; line-height: 1.5; }
+/* A send that failed: the message stays, says it was not delivered, and the box says why and keeps the draft. */
+.stage.case-fail .ch-fail { display: block; }
+.stage.case-fail .cr-err { display: block; }
+.cr-err { display: none; margin: 0 0 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--crit-text) 55%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--crit) 16%, var(--raised)); color: var(--ink); font-size: 12.5px; }
+.cr-err[hidden] { display: none; }
+.stage.case-fail .cr-err[hidden] { display: none; }
+.ch-msg .ch-st .s.bad { color: var(--crit-text); }
+.cr-cmderr { margin: 0 0 8px; font-size: 12.5px; color: var(--crit-text); }
+.cr-cmderr[hidden] { display: none; }
+.podium .ch-composer .confirm { margin: 0 0 8px; }
+.podium .ch-composer .confirm[hidden] { display: none; }
+.podium .btn.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); background: transparent; }
+.cr-wrap .typeahead { left: 0; right: auto; width: min(440px, 100%); bottom: calc(100% + 8px); }
+.cr-wrap .typeahead[hidden] { display: none; }
+/* An Admin is reading: the red tag on the row and under the title, and the quiet record line a visit leaves. */
+.stage:not(.reading) .cr-head .sub .tag.crit.rd-tag, .stage:not(.reading) .ch-row .tags.rd-tag { display: none; }
+.stage:not(.conv-dm) .dm-only { display: none; }
+.stage.reading .ch-row .tags.rd-tag { display: flex; }
+.stage.reading .cr-head .tag.rd-tag { display: inline-flex; }
+.ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.ch-row .tag, .cr-head .tag { gap: 4px; align-items: center; white-space: nowrap; }
+.ch-row .tag.crit, .cr-head .sub .tag.crit { display: inline-flex; margin: 2px 0 0 8px; color: var(--crit-text); font-size: 11px; font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; }
+.ch-row .tags .tag.crit { margin: 1px 0 0; }
+.ch-row .tag svg, .cr-head .tag svg { width: 12px; height: 12px; flex: none; }
+.stage.record .ch-recline { display: block; }
+.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; list-style: none; user-select: none; }
+.ch-rec svg { width: 12px; height: 12px; flex: none; }
+/* A direct message with your own agent: its own title, no members stack, no @ list, and / opens its commands. */
+.stage.conv-dm .ch-flow-ch, .stage.conv-dm .ch-t, .stage.conv-dm .ch-stack, .stage.conv-dm .ch-only { display: none; }
+.stage.conv-dm .ch-flow-dm, .stage.conv-dm .dm-t { display: block; }
+.stage.conv-dm .dm-only { display: inline-flex; }
+.dm-t h2 { gap: 10px; }
 @media (prefers-reduced-motion: reduce) { .ch-sec > h2 .fold svg { transition: none; } }
 </style>
 
@@ -312,6 +374,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   <symbol id="m-play" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.8 5.6v4.8l3.6-2.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
   <symbol id="m-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="m-msg" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="m-eye" viewBox="0 0 16 16"><path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
   <symbol id="m-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
   <symbol id="m-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4M8 4.8v.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
   <!-- state marks: shape + word + color. running = filled play triangle in a ring, waiting = clock, done = check, off = ring -->
@@ -330,6 +393,16 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   <span class="grp" role="group" aria-label="Viewer">Viewer
     <button type="button" data-viewer="owner" aria-pressed="true">Ed, a person</button>
     <button type="button" data-viewer="admin" aria-pressed="false">Root, an Admin</button>
+  </span>
+  <span class="grp" role="group" aria-label="Conversation">Conversation
+    <button type="button" data-conv="ch" aria-pressed="true">My group</button>
+    <button type="button" data-conv="dm" aria-pressed="false">DM with Tester</button>
+  </span>
+  <span class="grp" role="group" aria-label="Thread">Thread
+    <button type="button" data-case="busy" aria-pressed="true">Busy</button>
+    <button type="button" data-case="empty" aria-pressed="false">Nothing yet</button>
+    <button type="button" data-case="fail" aria-pressed="false">Send failed</button>
+    <button type="button" data-case="long" aria-pressed="false">Long names</button>
   </span>
   <span class="grp" role="group" aria-label="Dialogs">Dialogs
     <button type="button" data-dlg="m-ch">New channel</button>
@@ -353,6 +426,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   <span class="grp" role="group" aria-label="Admin reading">An Admin is reading
     <button type="button" data-read="off" aria-pressed="true">No</button>
     <button type="button" data-read="on" aria-pressed="false">Yes</button>
+    <button type="button" data-read="left" aria-pressed="false">They left</button>
   </span>
   <span class="grp" role="group" aria-label="Mode">Mode
     <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
@@ -381,16 +455,16 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     <section class="ch-sec" id="sec-ch"><h2><button type="button" class="fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Channels <span class="n">3</span></button><button type="button" class="add" aria-label="New channel" data-tip="Create a channel" data-open="m-ch" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
       <ul class="ch-list">
         <li class="ch-item " data-key="c:general"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">General</span><span class="sub">Everyone signed in to this server</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for General" data-tip="Actions for General"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
-        <li class="ch-item on grp-row" data-key="c:group"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-group"/></svg></span><span class="stack"><span class="nm">My group</span><span class="sub own">You and your 3 orchestrators and subagents</span><span class="sub ro"><bdi class="rn">Ed</bdi>'s own orchestrators and subagents, read only</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for My group" data-tip="Actions for My group"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item on grp-row" data-key="c:group"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-group"/></svg></span><span class="stack"><span class="nm">My group</span><span class="sub own">You and your 3 orchestrators and subagents</span><span class="tags rd-tag"><span class="tag crit"><svg aria-hidden="true"><use href="#m-eye"/></svg><span>Admin reading</span></span></span><span class="sub ro"><bdi class="rn">Ed</bdi>'s own orchestrators and subagents, read only</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for My group" data-tip="Actions for My group"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item un" data-key="c:release"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">release-1-7</span><span class="sub">Release checklist for v1.7</span></span><span class="unread" aria-label="3 new">3</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for release-1-7" data-tip="Actions for release-1-7"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
       </ul></section>
     <p class="ch-hint hint-admin">Direct Messages and People and agents belong to a person. Sign in with a person's name to message your own agents.</p>
     <section class="ch-sec sec-dm" id="sec-dm"><h2><button type="button" class="fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Direct messages <span class="n">4</span></button><button type="button" class="add " aria-label="New direct message" data-tip="Start a direct message" data-open="m-dm" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
       <ul class="ch-list">
-        <li class="ch-item un" data-key="d:tester"><button type="button" class="ch-row" ><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">Orchestrator on ed-mbp, waiting for you</span></span><span class="unread" aria-label="1 new">1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
-        <li class="ch-item " data-key="d:main"><button type="button" class="ch-row" ><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">podium-main</span><span class="sub">Orchestrator on ed-mbp, running</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for podium-main" data-tip="Actions for podium-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
-        <li class="ch-item " data-key="d:maya"><button type="button" class="ch-row" ><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">maya-main <span class="nm-own">(Maya Kim's)</span></span><span class="sub">Across owners, Maya Kim approves</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for maya-main" data-tip="Actions for maya-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
-        <li class="ch-item " data-key="d:notes"><button type="button" class="ch-row" ><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-done"><svg><use href="#s-done"/></svg></span></span><span class="stack"><span class="nm">infra-notes</span><span class="sub">Orchestrator on ed-mbp, done</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for infra-notes" data-tip="Actions for infra-notes"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item un" data-key="d:tester"><button type="button" class="ch-row" ><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">You and one agent</span></span><span class="unread" aria-label="1 new">1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:main"><button type="button" class="ch-row" ><span class="ch-pair" aria-hidden="true"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">podium-main, release-bot</span><span class="sub">Two agents, and you</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for podium-main, release-bot" data-tip="Actions for podium-main, release-bot"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:maya"><button type="button" class="ch-row" ><span class="ch-pair" aria-hidden="true"><span class="ch-av person">MK</span><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">Maya Kim, maya-main</span><span class="sub">You and Maya Kim's agent</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim, maya-main" data-tip="Actions for Maya Kim, maya-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:notes"><button type="button" class="ch-row" ><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-done"><svg><use href="#s-done"/></svg></span></span><span class="stack"><span class="nm">infra-notes</span><span class="sub">You and one agent</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for infra-notes" data-tip="Actions for infra-notes"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
       </ul></section>
     <section class="ch-sec sec-pe o-only" id="sec-pe"><h2><button type="button" class="fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n">7</span></button></h2>
       <ul class="ch-list">
@@ -408,7 +482,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     <div class="cr-blank"><p>Choose General or a channel to read it.<br>To read a person's conversations, choose a person under Read as an Admin.</p></div>
     <header class="cr-head">
       <button type="button" class="back ch-back" aria-label="Back to conversations" id="back"><svg><use href="#i-back"/></svg></button>
-      <div class="ttl"><h2><svg aria-hidden="true"><use href="#i-group"/></svg><span class="nm">My group</span></h2><div class="sub">You and your own agents. Only you and an Admin can read this.</div></div>
+      <div class="ttl ch-t"><h2><svg aria-hidden="true"><use href="#i-group"/></svg><span class="nm">My group</span></h2><div class="sub">You and your own agents. Only you and an Admin can read this.<span class="tag crit rd-tag"><svg aria-hidden="true"><use href="#m-eye"/></svg>Admin reading</span></div></div>
+      <div class="ttl dm-t"><h2><span class="ch-av agent sonnet" aria-hidden="true" style="width:28px;height:28px"><svg><use href="#i-chip"/></svg></span><span class="nm">Tester</span></h2><div class="sub">You and one agent. Only you, its owner and an Admin can read this.</div></div>
       <button type="button" class="ch-stack" id="stack" aria-expanded="false" aria-controls="mem" aria-label="Members, 9. Show the list">
         <span class="av" aria-hidden="true"><span class="ch-av me">E</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="ch-av person">MK</span></span>9</button>
     </header>
@@ -416,6 +491,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     <div class="ch-banner person" role="status"><svg aria-hidden="true"><use href="#i-eye"/></svg><span><b>Root (an Admin) is reading this conversation.</b> Everything in it is visible to them now. They cannot send.</span></div>
 
     <div class="ch-scroll" tabindex="0" aria-label="Messages">
+      <div class="ch-flow">
+      <div class="ch-flow-ch">
       <div class="ch-day">Yesterday</div>
       <ul class="ch-msgs">
         <li class="ch-msg first"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-done"><svg><use href="#s-done"/></svg></span></span>
@@ -477,12 +554,43 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
           <div class="col"><div class="tx">It will also need the same check on PostgreSQL, which I expect to pass without a change.</div></div></li>
         <li class="ch-msg cont"><span class="gut">9:44</span>
           <div class="col"><div class="tx">Ready when you are.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:45</span>
+          <div class="col"><div class="tx">Here is the change I would make to the MariaDB list query:<div class="ch-code"><div class="ch-code-h"><span>ts</span><button type="button" class="ch-copy" aria-label="Copy code">Copy</button></div><pre tabindex="0"><code>// server/src/storage/mariadb/people.ts
+const rows = await db.query(
+  "SELECT id, name, created_at FROM people ORDER BY created_at DESC, id DESC LIMIT ?",
+  [limit],
+); // ORDER BY now names a tiebreaker so MariaDB and PostgreSQL return the same order
+return rows.map(toPerson);</code></pre></div></div></div></li>
       </ul>
+    
+      <div class="ch-intro"><div class="ch-intro-av"><span class="ch-av me">E</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent haiku"><svg><use href="#i-chip"/></svg></span></div>
+        <h3>This is the start of My group</h3><p>You and your 3 orchestrators and subagents. Say something, or type @ to hand work to an agent.</p></div>
+      <ul class="ch-msgs ch-fail" aria-label="Not delivered">
+        <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span>
+          <div class="col"><div class="who"><span class="at">9:47 AM</span><b>You</b></div>
+          <div class="tx">Retry once, then send me the log if it fails again.</div>
+          <div class="ch-st"><span class="s bad"><svg class="si" aria-hidden="true"><use href="#i-x"/></svg>Not delivered to Tester. Its reporter is not taking messages now.</span></div></div></li>
+      </ul>
+      <ul class="ch-msgs ch-recline"><li class="ch-rec"><svg aria-hidden="true"><use href="#m-eye"/></svg><span>Root (an Admin) read this conversation on Nov 19, 9:50 AM.</span></li></ul>
+      </div>
+      <div class="ch-flow-dm">
+        <div class="ch-day">Today</div>
+        <ul class="ch-msgs">
+          <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span><div class="col"><div class="who"><span class="at">9:05 AM</span><b>You</b></div><div class="tx">Run the e2e suite on every adapter and report the counts.</div></div></li>
+          <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-wait"><svg><use href="#s-wait"/></svg></span></span><div class="col"><div class="who"><b>Tester</b><span class="ch-tag sonnet"><i></i>Agent · Sonnet</span><span class="at">9:06 AM</span></div><div class="tx">Started. SQLite passed: 312 of 312.</div></div></li>
+          <li class="ch-msg cont"><span class="gut">9:21</span><div class="col"><div class="tx">MariaDB failed 2 specs in <code>admin-people</code>. Retry, or stop here?</div><div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for your answer</span></div></div></li>
+        </ul>
+      </div>
+    </div>
     </div>
 
     <form class="ch-composer" onsubmit="return false">
       <label class="vh" for="msg">Message My group</label>
+      <div class="cr-err" id="cr-err" role="alert" hidden>Could not send: Tester's reporter is not taking messages now. Nothing was sent, and your message is still here. Try again.</div>
+      <div class="confirm" id="cr-confirm" role="alertdialog" aria-label="Clear the conversation?" hidden><span><b>Clear the conversation?</b> Tester starts over with an empty context. Podium shows the cleared part as its own session in History, linked to this one.</span><span class="acts"><button class="btn" type="button" id="cl-no">Cancel</button><button class="btn bad" type="button" id="cl-yes">Clear conversation</button></span></div>
+      <div class="cr-cmderr" id="cr-cmderr" role="alert" hidden></div>
       <div class="cr-wrap">
+        <div class="typeahead" id="cmdlist" role="listbox" aria-label="Commands" hidden><button type="button" role="option" aria-selected="true" class="on" data-cmd="/clear"><span class="cn">/clear</span><span class="cd">Start over with an empty conversation</span></button><button type="button" role="option" aria-selected="false" data-cmd="/compact"><span class="cn">/compact</span><span class="cd">Summarize the conversation to free context</span></button><div class="tf">Other commands run only in the terminal.</div></div>
         <ul class="ch-ac" id="ac" role="listbox" aria-label="Mention someone" hidden>
           <li role="option" id="ac-0" data-typed="Tester@ed-mbp" aria-selected="true"><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="t"><b>@Tester@ed-mbp</b><span>Orchestrator</span></span><span class="stw"><svg class="st-wait"><use href="#s-wait"/></svg>Waiting</span></li>
           <li role="option" id="ac-1" data-typed="podium-main@ed-mbp" aria-selected="false"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="t"><b>@podium-main@ed-mbp</b><span>Orchestrator</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Running</span></li>
@@ -494,7 +602,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <div class="ch-box">
           <textarea id="msg" rows="1" role="combobox" aria-autocomplete="list" aria-controls="ac" aria-expanded="false" placeholder="Message My group"></textarea>
           <div class="cr-tools">
-            <button type="button" class="tool" id="t-at" aria-label="Mention someone" title="Mention someone"><svg><use href="#i-at"/></svg></button>
+            <button type="button" class="tool ch-only" id="t-at" aria-label="Mention someone" title="Mention someone"><svg><use href="#i-at"/></svg></button>
+            <button type="button" class="tool dm-only" id="t-slash" aria-label="Session commands" title="Session commands (/clear, /compact)"><svg><use href="#i-slash"/></svg></button>
             <span class="hint"><kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> for a new line</span>
             <button type="submit" class="btn pri ch-send" id="send" aria-label="Send message" title="Send message" disabled><svg aria-hidden="true"><use href="#i-send"/></svg></button>
           </div>
@@ -588,9 +697,11 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     b.addEventListener('click', function () {
       if (b.dataset.mem) mem(b.dataset.mem === 'open');
       if (b.dataset.comp) { setComp(b.dataset.comp); press('data-comp', b.dataset.comp); }
+      if (b.dataset.conv) setConv(b.dataset.conv);
+      if (b.dataset.case) { setCase(b.dataset.case); press('data-case', b.dataset.case); }
       if (b.dataset.bub) { stage.classList.toggle('all', b.dataset.bub === 'all'); press('data-bub', b.dataset.bub); }
       if (b.dataset.own) { stage.classList.toggle('plain', b.dataset.own === 'plain'); press('data-own', b.dataset.own); }
-      if (b.dataset.read) { stage.classList.toggle('reading', b.dataset.read === 'on'); press('data-read', b.dataset.read); }
+      if (b.dataset.read) { stage.classList.toggle('reading', b.dataset.read === 'on'); stage.classList.toggle('record', b.dataset.read !== 'off'); press('data-read', b.dataset.read); }
       if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
       if (b.dataset.w) { stage.classList.toggle('narrow', b.dataset.w === 'narrow'); stage.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : 'none'); press('data-w', b.dataset.w); }
     });
@@ -701,6 +812,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   // What the codebase does (chatData.addressMatches, ChatComposer.pick): the list is what starts with what is typed, in any case, in the
   // order the server gave; picking writes "@" + the full address + a space; an entry that is off is listed but cannot be picked.
   function acSync() {
+    if (stage.classList.contains('conv-dm')) { ac.hidden = true; ta.setAttribute('aria-expanded', 'false'); cmdSync(); return; }
+    cmdSync();
     acRange = acQuery();
     var shown = [];
     if (acRange) {
@@ -737,7 +850,12 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!send.disabled) send.click(); }
   });
   $('#t-at').addEventListener('click', function () { if (!acQuery()) { ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + '@'; } ta.focus(); grow(); acSync(); });
-  send.addEventListener('click', function () { $('#announce').textContent = 'Sent (mockup)'; ta.value = ''; grow(); acSync(); press('data-comp', 'empty'); });
+  send.addEventListener('click', function () {
+    if (isDm() && ta.value.trim() === '/clear') { $('#cr-confirm').hidden = false; $('#cl-yes').focus(); return; }
+    $('#announce').textContent = (isDm() && ta.value.trim() === '/compact' ? 'Compact sent. ' : 'Sent. ') + '(mockup)';
+    $('#cr-err').hidden = true; stage.classList.remove('case-fail'); press('data-case', 'busy');
+    ta.value = ''; grow(); acSync(); press('data-comp', 'empty');
+  });
   // ---- The row menus (ChatMenu.tsx): a ... button and a right-click open the same menu; arrows move, Esc closes and puts the focus back,
   // and a menu offers only what the viewer may do. What each row offers is what menuFor() says, from the app's own rules.
   var IC = function (n) { return '<svg aria-hidden="true"><use href="#m-' + n + '"/></svg>'; };
@@ -753,7 +871,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     if (key === 'c:release') return adm ? { label: 'Actions for release-1-7', items: [it('pause-all', 'Pause release-1-7 for everyone', 'pause'), it('edit', 'Edit description…', 'msg'), it('remove-channel', 'Remove channel…', 'trash', { danger: true }), it('clear', 'Remove all messages…', 'trash', { danger: true })] }
       : { label: 'Actions for release-1-7', items: [it('pause', 'Pause my agents in release-1-7', 'pause'), it('disconnect', 'Disconnect my agents in release-1-7', 'pause'), it('edit', 'Edit description…', 'msg')], why: P };
     if (key.indexOf('d:') === 0) {
-      var nm = { 'd:tester': 'Tester', 'd:main': 'podium-main', 'd:maya': 'maya-main', 'd:notes': 'infra-notes' }[key], link = key === 'd:main' || key === 'd:maya', lab = 'Actions for ' + nm;
+      var nm = { 'd:tester': 'Tester', 'd:main': 'podium-main, release-bot', 'd:maya': 'Maya Kim, maya-main', 'd:notes': 'infra-notes' }[key], link = key === 'd:main' || key === 'd:maya', lab = 'Actions for ' + nm;
       if (rd) return link ? { label: lab, items: [it('pause-link', 'Pause link', 'pause')], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + " removes the link or deletes the conversation. An Admin can pause all of a reporter's links in Admin > Reporters." }
         : { label: lab, items: [], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + ' deletes the conversation.' };
       var items = []; if (link) { items.push(it('pause-link', 'Pause link', 'pause')); items.push(it('remove-link', 'Remove link…', 'trash', { danger: true })); }
@@ -868,6 +986,65 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   $('#read-as').addEventListener('change', function () { setReading(this.value); });
   $('#stop-read').addEventListener('click', function () { setReading(null); $('#read-as').focus(); });
   document.querySelectorAll('[data-viewer]').forEach(function (b) { b.addEventListener('click', function () { setViewer(b.dataset.viewer); }); });
+  // ---- Commands in a direct message with your own agent (SlashCommands.tsx): / opens the list, Tab or Enter picks, a command is sent on its
+  // own, /clear asks first, and anything else that starts with / says what it can do from here.
+  var CMDS = ['/clear', '/compact'], cmdList = $('#cmdlist'), cmdBtns = Array.from(cmdList.querySelectorAll('[data-cmd]')), cmdAt = 0;
+  function isDm() { return stage.classList.contains('conv-dm'); }
+  function cmdState() {
+    var v = ta.value; if (!isDm() || v.charAt(0) !== '/') return { matches: [], problem: null };
+    var slash = v.split(/\s/)[0], known = CMDS.indexOf(slash) > -1, matches = v.indexOf(' ') < 0 && !known ? CMDS.filter(function (c) { return c.indexOf(slash) === 0; }) : [], problem = null;
+    if (!known && v.length > 1 && !matches.length) problem = slash + ' runs only in the terminal. From here you can send /clear and /compact.';
+    else if (known && v.trim() !== slash) problem = slash + ' takes nothing after it from here. Send ' + slash + ' on its own, or use the terminal.';
+    return { matches: matches, problem: problem };
+  }
+  function cmdSync() {
+    var st = cmdState(); cmdList.hidden = !st.matches.length;
+    cmdBtns.forEach(function (b) { b.hidden = st.matches.indexOf(b.dataset.cmd) < 0; });
+    var vis = cmdBtns.filter(function (b) { return !b.hidden; }); if (cmdAt >= vis.length) cmdAt = 0;
+    vis.forEach(function (b, i) { b.classList.toggle('on', i === cmdAt); b.setAttribute('aria-selected', String(i === cmdAt)); });
+    var e = $('#cr-cmderr'); e.hidden = !st.problem; e.textContent = st.problem || '';
+    send.disabled = !ta.value.trim() || !!st.problem;
+  }
+  cmdBtns.forEach(function (b) { b.addEventListener('mousedown', function (e) { e.preventDefault(); ta.value = b.dataset.cmd; grow(); acSync(); ta.focus(); }); });
+  ta.addEventListener('keydown', function (e) {
+    if (!isDm() || cmdList.hidden) return;
+    var vis = cmdBtns.filter(function (b) { return !b.hidden; });
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); cmdAt = (cmdAt + (e.key === 'ArrowDown' ? 1 : vis.length - 1)) % vis.length; cmdSync(); }
+    else if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); ta.value = vis[cmdAt].dataset.cmd; cmdAt = 0; grow(); acSync(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cmdList.hidden = true; }
+  }, true);
+  $('#t-slash').addEventListener('click', function () { if (ta.value.charAt(0) !== '/') ta.value = '/'; ta.focus(); grow(); acSync(); });
+  $('#cl-no').addEventListener('click', function () { $('#cr-confirm').hidden = true; ta.focus(); });
+  $('#cl-yes').addEventListener('click', function () { $('#cr-confirm').hidden = true; ta.value = ''; grow(); acSync(); $('#announce').textContent = 'Conversation cleared. (mockup)'; ta.focus(); });
+  $('#cr-confirm').addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); $('#cl-no').click(); } });
+  // ---- Which conversation, and which case of its thread.
+  function toBottom() { var sc = $('.ch-scroll'); sc.scrollTop = sc.scrollHeight; }
+  function setConv(c) {
+    var dm = c === 'dm'; stage.classList.toggle('conv-dm', dm); press('data-conv', c); closeMenu(false); $('#cr-confirm').hidden = true;
+    document.querySelectorAll('.ch-item.on').forEach(function (x) { x.classList.remove('on'); }); (document.querySelector(dm ? '[data-key="d:tester"]' : '[data-key="c:group"]')).classList.add('on');
+    ta.value = ''; ta.placeholder = dm ? 'Write a message, or type / for a command.' : 'Message My group'; ta.setAttribute('aria-expanded', 'false'); grow(); acSync(); toBottom();
+    $('.ch-thread').setAttribute('aria-label', dm ? 'Tester' : 'My group');
+  }
+  var LONG = { 'Tester': 'release-candidate-verification-orchestrator-eu-west-2', 'Maya Kim': 'Alexandria Montgomery-Featherstonehaugh', 'release-1-7': 'release-candidate-verification-board', 'podium-main': 'podium-main-orchestrator-with-a-very-long-session-name' };
+  function setLong(on) {
+    document.querySelectorAll('.ch-msg .who b, .ch-row .nm, .ch-mem .t b, .cr-head h2 .nm, .ch-ac .t b').forEach(function (el) {
+      if (el.children.length) return; if (el.dataset.short === undefined) el.dataset.short = el.textContent;
+      var t = el.dataset.short; if (on) Object.keys(LONG).forEach(function (k) { t = t.split(k).join(LONG[k]); }); el.textContent = t;
+    });
+  }
+  function setCase(c) {
+    var was = stage.classList.contains('case-fail');
+    ['empty', 'fail', 'long'].forEach(function (k) { stage.classList.toggle('case-' + k, k === c); });
+    setLong(c === 'long'); $('#cr-err').hidden = c !== 'fail';
+    if (c === 'fail') { ta.value = 'Retry once, then send me the log if it fails again.'; } else if (was) { ta.value = ''; }
+    grow(); acSync(); toBottom();
+  }
+  // Copy on a code block: the clipboard can be refused (a sandboxed page), so the words say what happened.
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('.ch-copy'); if (!b) return; var pre = b.closest('.ch-code').querySelector('pre');
+    var done = function (t) { b.textContent = t; setTimeout(function () { b.textContent = 'Copy'; }, 1600); };
+    try { navigator.clipboard.writeText(pre.innerText).then(function () { done('Copied'); }, function () { done('Select and copy'); }); } catch (x) { done('Select and copy'); }
+  });
   root.setAttribute('data-theme', 'dark');
   var sc = $('.ch-scroll'); sc.scrollTop = sc.scrollHeight;
 })();
