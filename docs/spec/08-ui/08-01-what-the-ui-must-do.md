@@ -87,7 +87,7 @@ pages, responding, the orchestrator page and the right panel.
 - It sets how often the fleet page redraws: the browser keeps receiving every event, but shows the newest
   state once per interval, and the elapsed times and clock move on the same interval.
 - A change shows at once when it is a change of connection phase, a session that newly reaches waiting or
-  stale, or an agent that newly has a failure.
+  stale, an agent that newly has a failure, a change in Chat, a change to the wall's settings or flags, or a session that left.
 - The pulse and blink beat (`useHeartbeat`) is not affected. History and Admin show and save the setting but do
   not redraw on it yet, and the activity feed has its own.
 - It goes with the info row when the top bar is collapsed, and the red disconnect banners replace the info
@@ -517,8 +517,8 @@ menu and the page scroll on their own.
     content of the old Admin > Activity > Spend page: *Spend today, by person* and *by group* as Chart or Table,
     now the first section of this page with its `podium.adminSpend` choices unchanged, above the report. Figures
     are estimated from tokens, not a bill, and a model without a price shows a dash. A session counts on the day it
-    was last seen, so a session that runs past midnight is not split. The page has three sections, in this order:
-    *Spend today* (with the breakdown below), *Projection* and *Spend over time*.
+    was last seen, so a session that runs past midnight is not split. The page has four sections, in this order:
+    *Spend today* (with the breakdown below), *Projection*, *Spend over time* and *Tokens and cache hit rate* (#723).
     - **Breakdown (#482).** A row in *Spend today, by person* is a button (Enter and Space work). It opens the
       person's breakdown under the list, with a **Close** button, and focus moves to its heading. The breakdown
       is of the same "since midnight" figure as the row, cut three ways, each adding up to the row:
@@ -542,8 +542,7 @@ menu and the page scroll on their own.
         month's spend so far, today included, plus the run rate for each day left after today. *Next 30 days* is
         30 times the run rate. It does not allow for weekdays, a trend or a price change.
       - Shown: the projected total, and beside it the window ("14 days, 2026-10-06 to 2026-10-19"), the run rate
-        per day, and the assumptions in one line ("Straight run rate. Models without a price are left out.
-        Not a budget."). Per person or group when **Group by** says so, each with its own run rate.
+        per day, and the assumptions in one line ("Based on the 14 days 2026-10-06 to 2026-10-19. Straight run rate: weekdays, trends and price changes are not allowed for. Not a budget. Models without a price are left out."). Per person or group when **Group by** says so, each with its own run rate.
       - With fewer than 7 complete days of history in the window (the server has less, or a person has been
         active on fewer than 3 of them), it shows "Not enough history to project. Podium has N days so far" in
         place of the number, never a guess. A person under that rule is listed with a dash.
@@ -867,7 +866,7 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
   ([6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)).
   - Its X is "Close notice: Update available". It hides the release the notice names, for everyone
     (`POST /api/fleet/update-notice/close`), not the notice: a newer release shows it again. The confirmation is titled
-    **Notice dismissed**, says `“Update available” will show again when a release newer than 0.15.0 comes out`, and
+    **Notice dismissed**, says `“Update available” will show again when a release newer than 0.15.0 comes out. You can turn the release check off in Admin > Settings.`, and
     links to Admin > Settings as the others do.
   - Its switch is the **Release check** flag under Feature flags, because turning the notice off for good means
     stopping the check. It has no row under Wall notices.
@@ -1268,7 +1267,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 Chat at once, so the console never rests on the page and its top bar has no Traffic link ([DEPRECATIONS](../../DEPRECATIONS.md)). The read
 `GET /api/fleet/peers/traffic` keeps working until 1.9. The rest of this section describes the page as it was built, and as its code still draws it.
 
-Built (#417). A console page, `#/traffic`, reached from **Traffic** in the top bar after History while the flag is
+Built (#417). A console page, `#/traffic`, that was reached from **Traffic** in the top bar after History while the flag was
 on (left off the bar on the Traffic page itself). It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
 still hides and shows the top bar.
 

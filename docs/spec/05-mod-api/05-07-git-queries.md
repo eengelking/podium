@@ -11,14 +11,13 @@ order: 7
 Run from the session's `cwd`. Poll every 10 s and on `session.start`, never per event.
 
 ```
-git rev-parse --abbrev-ref HEAD                  → branch ("HEAD" means detached; report the short sha instead). In a repo with no commits it falls back to `git symbolic-ref --short HEAD` (#1013)
-git rev-parse --git-dir ; git rev-parse --git-common-dir
+git rev-parse --git-dir --git-common-dir --show-toplevel HEAD --abbrev-ref HEAD   → one call (#753) for the branch, the git directories, the top level and the head commit; branch ("HEAD" means detached; report the short sha instead). In a repo with no commits it falls back to `git symbolic-ref --short HEAD` (#1013)
         → isWorktree = (resolve(git-dir) !== resolve(git-common-dir))
-git rev-parse --show-toplevel                    → worktreePath (when isWorktree)
+        → worktreePath (when isWorktree)
 git status --porcelain=v1 -b                     → first line "## branch...origin/branch [ahead N, behind M]"; remaining lines = modified count (dirty)
 ```
 
-If any call exits non-zero (not a repo), report `git: null`. Cache the result; send it with every report.
+If the `rev-parse` call exits non-zero (not a repo), report `git: null`; a failed `git status` reports ahead 0, behind 0 and dirty 0. Cache the result; send it with every report.
 
 ## Changed files
 
@@ -37,7 +36,7 @@ git diff --numstat -z -M <base>                  → added and removed lines per
 git ls-files -z --others --exclude-standard --full-name   → untracked files
 git --literal-pathspecs grep --no-index -I -c -z '' -- <paths>       → their line counts, one process per 100 files; it leaves out empty and binary files
 git diff --no-index --numstat -- /dev/null <path> → those left-out files, one process each, for at most 20 per read
-git hash-object -- <paths>                       → each listed file's content hash (`rev`, #631), one process per 100 files; a deleted file has none
+git hash-object -- <paths>                       → each listed file's content hash (`rev`, #631), one process per 100 files, or one per file (at most 20 per read) when a chunk fails; a deleted file has none
 ```
 
 Only paths, counts and a hash of each file's content (`rev`, which lets the console see an edit that leaves the counts alone) are read, never file contents or diff text. The one exception is a file's diff opened or loaded ahead from the console (#319, #631, [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), which is off unless two switches are on.

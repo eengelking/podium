@@ -12,7 +12,7 @@ Modules: `ingest.ts` and `derive.ts`.
 
 On a valid report, in one transaction:
 
-1. Upsert the session (`last_seen_at = serverTime`, never the reporter's clock; store clock skew `sentAt − serverTime` for debugging). A report with `status: 'done'` sets `ended_at`. `started_at` is set once, when the session is first stored: from a report, the reporter's `startedAt` if it is within 2 minutes of `serverTime`, otherwise `serverTime`; from a settings hook, `serverTime`. Later reports never change it, and rows stored before this rule keep their value. Under Claude Code's background daemon the engine's `usage().startedAt` can be one shared host-level value, so sessions that began minutes apart reported the same start (#43).
+1. Upsert the session (`last_seen_at = serverTime`, never the reporter's clock; store clock skew `sentAt − serverTime` for debugging). A report with `status: 'done'` sets `ended_at` the first time; a later one keeps it. `started_at` is set once, when the session is first stored: from a report, the reporter's `startedAt` if it is within 2 minutes of `serverTime`, otherwise `serverTime`; from a settings hook, `serverTime`. Later reports never change it, and rows stored before this rule keep their value. Under Claude Code's background daemon the engine's `usage().startedAt` can be one shared host-level value, so sessions that began minutes apart reported the same start (#43).
 2. Upsert every agent. An agent absent from a later report is **not** deleted (a reload may lose it); it stays as last reported, and if it was `running` and the session is `done`, mark it `aborted`.
 3. Insert events with `INSERT OR IGNORE` on `id`. Insert a `blowouts` row for each `blow` event carrying `data.kind`.
 4. Sample: compute `tokens_total` (main loop tokens + Σ agent tokens), `tokens_delta` against the previous sample (≥ 0), `peak_context = max(session context %, max over running agents' context %) / 100`, `running_agents`. At most one sample per session per second.
@@ -37,7 +37,8 @@ sends them as blowouts, so it shows no pill.
 
 - Live orchestrators.
 - Counts running, waiting and stale. A waiting session idle on background work (#119) is not in `waiting`.
-- Subagents running and agents total.
+- Subagents running and agents total, and the agents waiting (`agentsWaiting`, queued agents).
+- The sessions whose model has no price (`unpricedSessions`, a non-Claude model nobody priced).
 - Plan steps done/total across live sessions.
 - Est. cost today: the sum of what each session, live or ended, spent since local midnight on the server
   (#139).

@@ -8,12 +8,12 @@ order: 10
 
 # 10. Rules for the implementing agent
 
-*These rules were written for the original build. Where they differ from `.claude/CLAUDE.md` (for example the branch name and the push and PR rules below), that file governs now.*
+*These rules were written for the original build. Where they differ from `.claude/CLAUDE.md` (for example the branch name below), that file governs now.*
 
 ## 10.1 Repository rules (from this repo's `.claude/CLAUDE.md`)
 
 - Work on a branch, never on `main` or `development`; `.claude/CLAUDE.md` says how.
-- Commit on this branch after each task (section 9). **Do not push, open a PR, merge, tag, or rewrite history.** The coordinating session does that after review.
+- Commit on this branch after each task (section 9). When the change is complete and has passed its pre-PR review and checks, push the branch and open the PR yourself. **Never merge, tag, force-push or rewrite history;** merging is the maintainer's call.
 - Do not commit secrets. Do not commit `data/`, `.env`, `node_modules/`, or SQLite files.
 - Do not spawn forks. If you need help, use a fresh non-fork sub-agent and state its authority in its prompt (report only, no commits). Prefer doing the work yourself, in order.
 - When fixing a bug in code, first write a test that reproduces it and watch it fail for the expected reason.
