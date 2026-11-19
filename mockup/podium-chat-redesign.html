@@ -905,7 +905,14 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   });
   // ---- The row menus (ChatMenu.tsx): a ... button and a right-click open the same menu; arrows move, Esc closes and puts the focus back,
   // and a menu offers only what the viewer may do. What each row offers is what menuFor() says, from the app's own rules.
-  var IC = function (n) { return '<svg aria-hidden="true"><use href="#m-' + n + '"/></svg>'; };
+  // A menu item: the icon is a fixed svg made here, and the words are a text node. Text from a conversation (a name) is never read as HTML.
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function itemContent(b, icon, label) {
+    var svg = document.createElementNS(SVGNS, 'svg'); svg.setAttribute('aria-hidden', 'true');
+    var use = document.createElementNS(SVGNS, 'use'); use.setAttribute('href', '#m-' + icon); svg.appendChild(use);
+    var span = document.createElement('span'); span.textContent = label;
+    b.appendChild(svg); b.appendChild(span);
+  }
   var openMenu = null;
   function menuFor(key) {
     var adm = stage.classList.contains('is-admin'), rd = stage.classList.contains('is-reading'), who = readName || 'Ed';
@@ -943,7 +950,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
       spec.items.forEach(function (x) {
         var b = document.createElement(x.href ? 'a' : 'button'); if (!x.href) b.type = 'button'; else b.href = x.href;
         b.setAttribute('role', 'menuitem'); if (x.danger) b.className = 'dng'; b.dataset.act = x.act; b.dataset.label = x.label;
-        b.innerHTML = IC(x.icon) + '<span>' + x.label.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>'; el.appendChild(b);
+        itemContent(b, x.icon, x.label); el.appendChild(b);
       });
       if (spec.why) { var w = document.createElement('div'); w.className = 'why'; w.textContent = spec.why; el.appendChild(w); }
     }
@@ -994,7 +1001,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     var el = document.createElement('div'); el.className = 'ch-menu fixed'; el.setAttribute('role', 'menu'); el.setAttribute('aria-label', 'Actions for ' + name); el.tabIndex = -1;
     items.forEach(function (x) {
       var b = document.createElement(x[0] === 'open' ? 'a' : 'button'); if (x[0] === 'open') b.href = '#'; else b.type = 'button';
-      b.setAttribute('role', 'menuitem'); b.dataset.act = x[0]; b.dataset.label = x[1]; b.dataset.who = name; b.innerHTML = IC(x[2]) + '<span>' + x[1] + '</span>'; el.appendChild(b);
+      b.setAttribute('role', 'menuitem'); b.dataset.act = x[0]; b.dataset.label = x[1]; b.dataset.who = name; itemContent(b, x[2], x[1]); el.appendChild(b);
     });
     $('.stage > .podium').appendChild(el); av.setAttribute('aria-expanded', 'true'); openMenu = { li: null, kebab: av, el: el };
     // Where the pointer was, as any context menu does; from the keyboard it hangs under the avatar. It is kept inside the window.
