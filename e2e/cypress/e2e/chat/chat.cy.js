@@ -133,7 +133,9 @@ describe('chat: the page', () => {
     cy.openConsole('#/chat');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.get('#th-h').should('contain.text', 'invoice-v2').and('contain.text', 'Tester');
-    cy.get('[aria-label="In this conversation"]').should('contain.text', 'invoice-v2').and('contain.text', 'Tester').and('contain.text', 'Ed');
+    // A Direct Message has two parties, named by the avatars before the title, and no members stack or panel (#1236).
+    cy.get('.ch-head h2 .ch-av-pair').should('exist');
+    cy.get('button[aria-controls="ch-members"]').should('not.exist');
     cy.tid('chat-message').should('have.length', 4);
     cy.tid('chat-thread').should('contain.text', 'Please run the unit tests on this branch.').and('contain.text', '2 of 14 failed on Ubuntu 24.04.');
     cy.tid('chat-thread').should('contain.text', 'Waiting: Tester is working. It gets this when its turn ends.');

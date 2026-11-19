@@ -152,3 +152,14 @@ export const ChPlus = () => (
     <path d="M8 3v10M3 8h10" />
   </Ic>
 );
+export const ChSearch = () => (
+  <Ic>
+    <circle cx="7" cy="7" r="4.5" />
+    <path d="M10.5 10.5L14 14" />
+  </Ic>
+);
+export const ChX = () => (
+  <Ic>
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </Ic>
+);

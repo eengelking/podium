@@ -1243,6 +1243,13 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
   Escape closes. `@group` and `@everyone` are listed but cannot be picked while the Admin has them off. A box that cannot send
   is disabled and says why under it: Paused, Disconnected, "has ended and will not receive this", or a link that was removed. A sent
   message to an agent shows Waiting until the agent has taken it, and the page does not promise an immediate reply.
+- **Members** (#1236). The header of *My group* and of a channel has an avatar stack (up to four avatars, then the count; one button, named "Members, 9.
+  Show the list") that opens a panel on the right, closed when a conversation opens and not remembered. The panel has a search ("Find a member"), the filters
+  All, Waiting N and Running N, People then Agents with counts (an agent's state is a shape and a word; a person has none, because the page has no presence
+  for them), and a footer "Showing N of M" with "Show N more". Escape or the close button closes it and the focus returns to the stack; on a narrow window it
+  is a sheet over the thread. It is built from what the page already has: in My group, the person (the one an Admin reads as) and their orchestrators with
+  the subagents and forks the console knows; in a channel, the people and agents the overview lists, which is not everyone who can read it, and the panel
+  says so. There is no route that lists a large channel. A Direct Message has two parties, named by avatars before its title, and has no stack or panel.
 - **Menus.** Right-click and the **...** button open the same menu, which opens on arrow keys, closes on Escape and offers
   only what the viewer may do.
   - A Direct Message: **Pause link** or **Resume link**, **Remove link…** (a confirmation that names what goes) and **Delete
@@ -1254,7 +1261,7 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
     disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages. A public channel's menu is General's, with **Edit description…**
     (its opener or an Admin) and **Remove channel…** (an Admin only, in a confirmation that names the channel, says its messages are removed for everyone and cannot be recovered, and says the opener is told an Admin removed it; the choices are **Keep it** and **Remove channel**).
     An Admin's pause for everyone, remove all, description edit and channel removal are told to the people they affect, in the console and in their reporters ([7.7](../07-server/07-07-hardening.md#chat-1034)).
-  - An agent, in People and agents or among a thread's participants: **Open orchestration page**, which opens that orchestrator on
+  - An agent, in People and agents or in the members panel: **Open orchestration page**, which opens that orchestrator on
     the fleet console (`#/?open=<id>`), and **Message** where it applies.
   - A menu that only has something to say is a note (a popover with no choices).
 - **An Admin reading, and the person told** (#1034, [7.7](../07-server/07-07-hardening.md#chat-1034)). An Admin sees **Read as an Admin** at the top of

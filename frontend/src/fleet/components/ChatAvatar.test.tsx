@@ -33,6 +33,12 @@ describe("ChatAvatar", () => {
     expect(el.getAttribute("style")).toBeNull();
   });
 
+  it("draws the initials from CSS when asked, so the page's text holds none", () => {
+    const { container } = render(<ChatAvatar kind="person" name="Ed Engelking" size={22} css />);
+    expect(first(container).textContent).toBe("");
+    expect(first(container).getAttribute("data-i")).toBe("EE");
+  });
+
   it("draws you as the inverted disc with your initials", () => {
     const { container } = render(<ChatAvatar kind="you" name="Ed" size={40} />);
     expect(first(container).className).toContain("ch-av me");

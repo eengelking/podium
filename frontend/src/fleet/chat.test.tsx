@@ -605,12 +605,10 @@ describe("the thread", () => {
     const t = thread();
     expect(t).toHaveTextContent("Only you and an Admin can read this.");
     expect(t).toHaveTextContent("Agents addressing each other: 3 of 10 round trips.");
-    const who = within(t).getByLabelText("In this conversation");
-    expect(within(who).getByRole("button", { name: /claude-dashboard/ })).toBeInTheDocument();
-    expect(within(who).getByRole("button", { name: /Tester/ })).toHaveAttribute("title", "Tester, waiting for you. Actions");
-    expect(who).toHaveTextContent("Ed");
-    expect(who.querySelector(".you")).toHaveTextContent("you");
-    expect(who.querySelector(".mono-g")).not.toBeNull();
+    // The two parties are named by avatars before the title, and a Direct Message has no stack or panel (#1236).
+    expect(within(t).queryByLabelText("In this conversation")).toBeNull();
+    expect(within(t).queryByRole("button", { name: /^Members,/ })).toBeNull();
+    expect(t.querySelector(".ch-head h2 .ch-av-pair")).not.toBeNull();
     const msgs = within(t).getAllByTestId("chat-message");
     expect(within(msgs[0]!).getByText(/Delivered at \d\d:\d\d\./)).toBeInTheDocument();
     expect(within(msgs[1]!).getByText("[redacted]")).toHaveClass("rd");
@@ -1340,15 +1338,46 @@ describe("the menus", () => {
     expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("Tester");
   });
 
-  it("gives a participant chip the orchestration page and no Message", async () => {
+  it("lists you and your orchestrators behind the stack in My group, and an orchestrator's row has the orchestration page and no Message (#1236)", async () => {
     page();
     await flush();
-    await open("d:dm:s-dash|s-tester");
-    const who = within(thread()).getByLabelText("In this conversation");
-    fireEvent.click(within(who).getByRole("button", { name: /claude-dashboard/ }));
+    await open("c:group");
+    const stack = within(thread()).getByRole("button", { name: /^Members, \d+\. Show the list$/ });
+    expect(screen.queryByTestId("chat-members")).toBeNull();
+    fireEvent.click(stack);
+    const panel = screen.getByTestId("chat-members");
+    expect(within(panel).getByRole("heading", { name: /^People 1$/ })).toBeInTheDocument();
+    expect(within(panel).getByText("Ed").closest("b")).toHaveTextContent("Ed (you)");
+    fireEvent.click(within(panel).getByRole("button", { name: "Actions for claude-dashboard" }));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
     expect(items.map((i) => i.textContent)).toEqual(["Open orchestration page"]);
     expect(items[0]).toHaveAttribute("href", "#/?open=s-dash");
+  });
+
+  it("closes the members panel from its own button, and Message on a person in a channel opens New direct message with their name searched (#1236)", async () => {
+    page();
+    await flush();
+    await open("c:general");
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    fireEvent.click(within(screen.getByTestId("chat-members")).getByRole("button", { name: "Close members" }));
+    expect(screen.queryByTestId("chat-members")).toBeNull();
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    fireEvent.click(within(screen.getByTestId("chat-members")).getByRole("button", { name: "Actions for Maya" }));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Message Maya" }));
+    await flush();
+    expect(screen.getByTestId("dm-form")).toBeInTheDocument();
+  });
+
+  it("keeps the members panel closed when a conversation opens, and closes it when another one does (#1236)", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    expect(screen.getByTestId("chat-split")).toHaveClass("mem-open");
+    await open("c:general");
+    expect(screen.queryByTestId("chat-members")).toBeNull();
+    expect(screen.getByTestId("chat-split")).not.toHaveClass("mem-open");
+    expect(within(thread()).getByRole("button", { name: /Show the list$/ })).toHaveAttribute("aria-expanded", "false");
   });
 });
 
@@ -1374,6 +1403,11 @@ describe("accessibility", () => {
     fireEvent.change(box(), { target: { value: "@te" } });
     await flush();
     expect((await run(true)).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+    // The members panel, open beside the thread with a row's menu open (#1236).
+    fireEvent.change(box(), { target: { value: "" } });
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    fireEvent.click(within(screen.getByTestId("chat-members")).getByRole("button", { name: "Actions for claude-dashboard" }));
+    expect((await run()).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
   });
 });
 

@@ -21,9 +21,11 @@ export interface AvatarProps {
   family?: ModelFamily;
   /** An agent's state, drawn with the wall's own shapes at the tile's corner. */
   state?: StateKind;
+  /** Draw the initials from CSS, so they are not text in the page. The members stack is one button whose name must hold all its visible text, and an initial is not in it. */
+  css?: boolean;
 }
 
-function Tile({ kind, name, family = "other", state, size }: AvatarProps & { size: AvatarSize }) {
+function Tile({ kind, name, family = "other", state, size, css }: AvatarProps & { size: AvatarSize }) {
   const cls = `ch-av ${kind === "you" ? "me" : kind} s${size}`;
   if (kind === "agent") {
     return (
@@ -37,6 +39,7 @@ function Tile({ kind, name, family = "other", state, size }: AvatarProps & { siz
       </span>
     );
   }
+  if (css) return <span className={cls} data-i={initials(name)} aria-hidden="true" />;
   return (
     <span className={cls} aria-hidden="true">
       {initials(name)}
@@ -44,11 +47,11 @@ function Tile({ kind, name, family = "other", state, size }: AvatarProps & { siz
   );
 }
 
-export function ChatAvatar(props: AvatarProps & { size: AvatarSize; onMenu?: () => void }) {
-  const { onMenu, ...tile } = props;
+export function ChatAvatar(props: AvatarProps & { size: AvatarSize; onMenu?: () => void; /** The menu's key, so the page can put the focus back on the button. */ more?: string; expanded?: boolean }) {
+  const { onMenu, more, expanded, ...tile } = props;
   if (!onMenu) return <Tile {...tile} />;
   return (
-    <button type="button" className="ch-av-btn" aria-haspopup="menu" aria-label={`Actions for ${props.name}`} onClick={onMenu}>
+    <button type="button" className="ch-av-btn" aria-haspopup="menu" aria-expanded={expanded ?? false} aria-label={`Actions for ${props.name}`} data-more={more} onClick={onMenu}>
       <Tile {...tile} />
     </button>
   );
