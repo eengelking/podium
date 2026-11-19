@@ -35,7 +35,7 @@ function world(on: On) {
   on('ui.log', () => ({ value: undefined }))
   on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('http.fetch', (_$, e) => {
-    const body = JSON.parse(e.init?.body ?? '{}') as Report
+    const body = JSON.parse(typeof e.init?.body === 'string' ? e.init.body : '{}') as Report
     // Responding adds calls of its own (an ask's announcement, its answer poll): only the report is a report.
     if (!new URL(e.url).pathname.endsWith('/report')) return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true }) } }
     posts.push(body)

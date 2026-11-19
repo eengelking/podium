@@ -181,7 +181,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
     if (fetchMode.mode === 'down') throw new Error('ECONNREFUSED')
     fetched.push({ url: e.url, socketPath: e.init?.socketPath })
     if (fetchMode.mode === 'denied') return { value: { status: 401, ok: false, headers: {}, text: '{"ok":false,"error":"client certificate refused"}' } }
-    const body = JSON.parse(e.init?.body ?? '{}') as Report
+    const body = JSON.parse(typeof e.init?.body === 'string' ? e.init.body : '{}') as Report
     if (fetchMode.mode === 'hang') return new Promise(() => {})
     posts.push(body)
     headers.push(e.init?.headers ?? {})
