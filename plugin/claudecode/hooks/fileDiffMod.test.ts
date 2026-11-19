@@ -59,7 +59,7 @@ function world(on: On) {
   on('http.fetch', (_$, e) => {
     const url = new URL(e.url)
     const method = e.init?.method ?? 'GET'
-    const body = e.init?.body ? JSON.parse(e.init.body) : undefined
+    const body = typeof e.init?.body === 'string' ? JSON.parse(e.init.body) : undefined
     calls.push({ method, path: url.pathname, body })
     if (url.pathname === '/api/fleet/report') {
       posts.push(body as Report)

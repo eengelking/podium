@@ -47,10 +47,10 @@
   },
   "devDependencies": {
     "@typescript/typescript6": "^6.0.2",
-    "@vitest/coverage-v8": "^5.1.0",
+    "@vitest/coverage-v8": "^5.1.1",
     "concurrently": "^10.0.7",
-    "knip": "^6.46.0",
-    "vitest": "^5.0.5"
+    "knip": "^6.46.1",
+    "vitest": "^5.1.1"
   },
   "bin": {
     "podiumctl": "bin/podiumctl"
