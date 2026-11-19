@@ -123,3 +123,22 @@ export const ChChip = () => (
     <rect x="10" y="10" width="4" height="4" rx=".6" fill="currentColor" stroke="none" />
   </svg>
 );
+
+/** The composer's icons (#1233, mockup/podium-chat-redesign.html): Send, the @ tool and the / tool. Decorative; each button carries its own name. */
+const tool = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, focusable: false } as const;
+export const ChSend = () => (
+  <svg {...tool} strokeWidth={2.2}>
+    <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />
+  </svg>
+);
+export const ChAt = () => (
+  <svg {...tool} strokeWidth={1.8}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+  </svg>
+);
+export const ChSlash = () => (
+  <svg {...tool} strokeWidth={2}>
+    <path d="M16 4 8 20" />
+  </svg>
+);
