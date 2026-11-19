@@ -31,7 +31,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `GET /api/health` | `{ status: "ok" }`. Any other path under `/api` that no route answers gets the JSON `404 { error: "Not found" }`. |
 | `GET /api/fleet/health` | `{ ok, dbPath, dbKind, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
 | `POST /api/fleet/hook` | Phase 5: classic settings-hook payloads. |
-| `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations, retainDays, serverTime }`. Counts and states, never the text. No token, like the other reads. Details under the messaging routes below. |
+| `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations, retainDays, serverTime }`. Counts and states, never the text. No token, like the other reads. A conversation with a person at either end is that person's Chat and is left out. Details under the messaging routes below. |
 
 **`GET /api/fleet/state`**
 - Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, build, reporterSupport }, wall, features }`.
@@ -327,7 +327,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   says the link is paused either way). `retainDays` is the Admin's setting for how long a conversation is kept, so
   Traffic can name it, and `serverTime` the clock Traffic counts "ago" by (#417). `live` (the
   default) keeps conversations with a live orchestrator; `24h` and `30d` those with a message in that time. While
-  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range.
+  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range. A conversation with a person at either end (a session id `person:<name>`) is that person's Chat, not for everyone who can read the console, so it is left out of the list.
 
 ## Browser routes for orchestrator messaging
 
@@ -343,13 +343,13 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
   can tell apart two machines that share a name) and `messageId`, and `fromPerson`, true for a person's message to
   this owner's agent from Chat (`fromKey` is then `person:<name>`, not a reporter; see Chat below). The mod's
   `peerRequests` carry the `PeerRequest` alone.
-- `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `200 { ok: true, right }`. `403` when
+- `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `level` is `none`, `see`, `ask` or `send`; `none` takes the right away. `400` for any other level (`level must be none, see, ask or send`) and for a `from` or `to` that is not a reporter key. `200 { ok: true, right }`. `403` when
   either reporter is another person's, on the admin secret, or the two belong to different people.
 - `PUT /api/fleet/respond/peers/links`: `{ a, b, paused }`, Pause link or Resume link, both directions.
 - `DELETE /api/fleet/respond/peers/links`: `{ a, b }`, Remove link. A message still waiting on it is dropped.
 - `PUT /api/fleet/respond/peers/defaults`: any of `{ trust, onRequest: "ask" | "allow" | "decline", newSend: "ask" |
   "send", limits: { roundTrips?, perMinute?, maxChars? } }`. A limit above the Admin's is a `400`; `null` removes one.
-- `POST /api/fleet/respond/peers/requests/:requestId`: `{ answer }`, as the mod's route.
+- `POST /api/fleet/respond/peers/requests/:requestId`: `{ answer }`, as the mod's route, except that the reply is `{ ok: true, outcome }` and never carries `level` or `paused`: those name the right and the link for `/podium allow` and `/podium deliver` in a session, and the page already shows both.
 - `GET /api/fleet/respond/peers/conversations?range=`: the person's conversations, as Traffic's read.
 - `GET /api/fleet/respond/peers/conversations/:a/:b`: one conversation's messages with their text, oldest first, for its
   owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
@@ -596,7 +596,7 @@ On responding's `/respond` router, with its sign-in and `X-Podium-Respond: 1` on
 
 - **`GET /api/fleet/respond/session-reads`**: `{ ok, serverTime, readers }`, where `readers` is `{ <kind>: { <sessionId>: [{ admin, since, until }] } }` for the signed-in person's own sessions only: the Admins who read in the last 30 seconds. The console reads it when the stream's `reads` event, which carries a counter and nothing else, moves.
 - **`GET /api/fleet/respond/sessions/:id/admin-reads/:kind`**: the session's owner only (`403` for anyone else, an Admin included). `{ ok, serverTime, adminReads, adminReading }`: the records of that kind (every loop for `activity`), oldest first, and who reads now. Loading it is the owner seeing the records: every record of that kind for the session is marked seen when the owner's console loads it, whether or not the console shows it (it shows three lines, and a close button hides one in that browser). This is the chosen guarantee (#1102), the same as Chat's: Podium sent the record to the person's console.
-- **`POST /api/fleet/respond/sessions/:id/admin-reads/:kind/reading`**: an Admin's open read pings this every 15 seconds so the owner keeps seeing it. Body `{ loop }` for `activity`, `text` and `live` (one loop id, no colon), none for `ask`. It records the read if it has not begun, and answers `404` (nothing recorded) for a `loop` the session does not have (`main` or one of its agents). Only a read that begins wakes the consoles with the `reads` event; a ping does not, since a console re-reads when the end it holds passes. Admin only (`403`); an Admin's own session tells no one.
+- **`POST /api/fleet/respond/sessions/:id/admin-reads/:kind/reading`**: an Admin's open read pings this every 15 seconds so the owner keeps seeing it. Body `{ loop }` for `activity`, `text` and `live` (one loop id, no colon), none for `ask`. It records the read if it has not begun, and answers `404` (nothing recorded) for a `loop` the session does not have. `main` is the orchestrator's loop and is a loop of the session for `activity` and `live`; for kind `text` (an agent's whole prompt and answer) there is no orchestrator agent, so `main` is a `404` there. Only a read that begins wakes the consoles with the `reads` event; a ping does not, since a console re-reads when the end it holds passes. Admin only (`403`); an Admin's own session tells no one.
 
 ## Admin API
 
@@ -625,8 +625,8 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
       `oldestDay` is the first day the rollups hold (today when there are none yet). `partial` is `true` whenever `from` is
       before it: a period wholly before it has `rows: []`, and one that straddles it returns the rows from `oldestDay`
       on, so the page says so instead of drawing zeros. `basedOn` is `rollups`, `rollups and live` or `admin log`. A figure that is unknown is `null`, not 0.
-    - `format=csv` returns the same `columns` and `rows` as text (RFC 4180, a header row, a cell that starts with
-      `=`, `+`, `-` or `@` prefixed with `'`), `Content-Disposition: attachment`. The page's JSON export is the
+    - `format=csv` returns the same `columns` and `rows` as text (RFC 4180; the header row is each column's `label`, not its `key`; a cell that starts with
+      `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'`, except the placeholder `-`), `Content-Disposition: attachment`. The page's JSON export is the
       reply itself, so an export always matches the screen.
     - Today is read from the live tables, and every earlier day from the rollups.
     - **Columns.** Every report's `rows` are objects, and `columns` names their keys in order. `period` is the bucket's
@@ -833,8 +833,8 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`; `409` for a level at or below
     the stored right, since a proposal only raises one), `PUT reporters/:key/peers/pause`
     (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once). Pause all links records the Admin as the pauser of each link it pauses (`pausedBy` `admin`, `pausedByAdmin` the Admin's name), so only an Admin resumes it. A pause, resume or removal is never quiet: every live reporter session of the person gets one `adminNotices` callout naming the Admin, once for a bulk change, and the Admin log gets `peer_links_paused`, `peer_links_resumed` or `peer_link_removed` with who and whose reporter, never text.
-  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner. Reading one conversation's text is never quiet (#1072): the read is recorded on the conversation's `dm:` thread before the text is answered (a record that cannot be written stops the read), the Admin log gets `chat_admin_read` with who and whose and never text, and the owner is told in the console and in their reporter sessions, as for an Admin's read in Chat.
-  - `GET log`.
+  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner. An Admin's read of a conversation with a person at one end is refused with `403` (that is the person's Chat, read in Chat); when the server has no way to record the read, `GET peers/conversations/:a/:b` answers `503` (`conversations cannot be read here: the read cannot be recorded`) and sends nothing. Reading one conversation's text is never quiet (#1072): the read is recorded on the conversation's `dm:` thread before the text is answered (a record that cannot be written stops the read), the Admin log gets `chat_admin_read` with who and whose and never text, and the owner is told in the console and in their reporter sessions, as for an Admin's read in Chat.
+  - `GET log`: one page of the Admin log, `{ total, page, pageSize, rows }`, and, when the server knows how long it keeps the log, `retainMs`, the keep time in milliseconds, so the Admin log page can say how far back it goes.
 - The people, groups and reporters lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return
   `{ total, page, pageSize, rows }`. The stored-activity and recordings lists take `page` and `pageSize` too, but default to 25 and allow at most 200, and answer `400` for a value out of range. The reporters list also takes `state`, `sort` and `dir` and adds `counts`
   and `serverTime`.

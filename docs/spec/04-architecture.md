@@ -62,7 +62,8 @@ server/src/storage/                  the async interfaces the server calls, and 
 frontend/src/fleet/
   FleetApp.tsx, useFleet.ts (SSE + reducer), store.ts, format.ts
   components/…                       see section 8.2
-  fleet.css                          tokens and layout ported from the mockup
+  fleet.css, chat.css                layout and component styles, ported from the mockup
+  tokens.css                         every color token, the one source (8.3); a color is never written outside it
   *.test.tsx
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
@@ -79,7 +80,7 @@ Containerfile, .containerignore      the server and UI as a container image (4.4
 .dockerignore                        the same rules as .containerignore, for a Docker build (4.4)
 ```
 
-`server/src/index.ts` mounts the fleet router and starts the sweeper. `frontend/src/main.tsx` renders:
+`server/src/index.ts` mounts the fleet router and starts the sweeper. `frontend/src/main.tsx` only renders `Root.tsx`, which picks the page from the address with `route.ts` (`routeFor`) and renders:
 
 - `FleetApp` for `#/` (the default);
 - `FleetApp` for `#/board` (the same console with the kanban board in the middle, [8.1](08-ui/08-01-what-the-ui-must-do.md));
