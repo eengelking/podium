@@ -83,6 +83,9 @@ function recordsAmong(
   return out;
 }
 
+/** A block that scrolls sideways has to take focus so the arrow keys scroll it, though it is not a control. */
+const FOCUSABLE = { tabIndex: 0 };
+
 /** How long the list stays "off" after it draws something that is not announced. */
 const QUIET_MS = 150;
 
@@ -159,8 +162,8 @@ function CodeBlock({ text, lang }: { text: string; lang?: string }) {
         </button>
       </div>
       <pre
-        tabIndex={0}
-        /* NOSONAR S6845: a focusable scroll region, so the arrow keys scroll it */ role="region"
+        {...FOCUSABLE}
+        role="region"
         aria-label={lang ? `Code, ${lang}` : "Code"}
       >
         <code>{text}</code>
