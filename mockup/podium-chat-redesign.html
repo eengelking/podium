@@ -212,6 +212,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .ch-box .cr-tool[aria-pressed="true"] { background: var(--sel); color: var(--ink); }
 .ch-box .cr-tool svg { width: 18px; height: 18px; }
 .ch-box .sep { width: 1px; height: 18px; margin: 0 6px; background: var(--grid); }
+/* admin.css caps .hint at 66ch; the composer's hint has to grow so the send button ends at the box's right edge. */
+.adminv .ch-box .hint { max-width: none; }
 .ch-box .hint { flex: 1; min-width: 0; padding: 0 12px; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ch-box .hint kbd { font: inherit; font-weight: 600; color: var(--ink2); }
 .podium .btn.ch-send { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; }
