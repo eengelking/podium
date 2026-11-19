@@ -270,6 +270,8 @@ export function ChatThread(p: ThreadProps) {
   const also = cross ? (cross.viewerIs === "sender" ? cross.owner : cross.person) : null;
   // Where an author runs: the overview's agent when it lists it, else the console's session; null when neither does (an ended session).
   const machineOf = (ref: string): string | null => o.agents.find((x) => x.sessionId === ref)?.machine ?? p.sessions[ref]?.machine?.name ?? null;
+  // Who is in the conversation, for the introduction a thread with no messages shows; the viewer, or the person an Admin reads as, is always one of them.
+  const introWho = [...new Set([ro ? ownerName : o.me.name, ...(p.sel.kind === "dm" ? parties.map((x) => x.name) : p.sel.id === "group" ? o.agents.slice(0, 3).map((x) => x.name) : [])])];
   const items = recordsAmong(t.messages, t.reads, t.older !== null);
 
   return (
@@ -362,7 +364,7 @@ export function ChatThread(p: ThreadProps) {
         {!t.loaded ? (
           <div className="hint">Loading…</div>
         ) : (
-          <>
+          <div className="ch-flow">
             <div className="ch-earlier">
               <span role="status">
                 Showing {t.messages.length} of {total}
@@ -382,7 +384,6 @@ export function ChatThread(p: ThreadProps) {
               )}
             </div>
             <ol className="feed" aria-label="Messages">
-              {t.messages.length === 0 && <li className="empty">No messages yet. Write the first one below.</li>}
               {items.map((it) =>
                 it.rec ? (
                   <RecordLine key={`rec-${it.rec.admin}-${it.rec.startedAt}-${it.rec.kind ?? "read"}`} r={it.rec} />
@@ -391,7 +392,23 @@ export function ChatThread(p: ThreadProps) {
                 ),
               )}
             </ol>
-          </>
+            {t.messages.length === 0 && (
+              <div className="ch-intro" data-testid="chat-intro">
+                <div className="ch-intro-av" aria-hidden="true">
+                  {introWho.map((n) => (
+                    <Monogram key={n} name={n} size="lg" />
+                  ))}
+                </div>
+                <h3>
+                  This is the start of <bdi>{title}</bdi>
+                </h3>
+                <p>
+                  {sub && p.sel.kind === "channel" ? `${sub}.` : scope}
+                  {p.sel.kind === "channel" && !ro ? " Say something, or type @ to hand work to an agent." : ""}
+                </p>
+              </div>
+            )}
+          </div>
         )}
       </div>
       {p.composer}

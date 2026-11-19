@@ -2532,12 +2532,14 @@ describe("a public channel's thread", () => {
     expect(thread()).not.toHaveTextContent("Opened by");
   });
 
-  it("says an empty channel is empty, and posts to it by its name", async () => {
+  it("starts an empty channel with an introduction above the composer, and posts to it by its name", async () => {
     const chat = fakeChat(chanWorld());
     page({ chat });
     await flush();
     await open("c:mine-chan");
-    expect(within(thread()).getByText("No messages yet. Write the first one below.")).toBeInTheDocument();
+    const intro = within(thread()).getByTestId("chat-intro");
+    expect(intro).toHaveTextContent("This is the start of");
+    expect(intro).toHaveTextContent("Say something, or type @ to hand work to an agent.");
     fireEvent.change(box(), { target: { value: "first" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await flush();

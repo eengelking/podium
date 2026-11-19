@@ -155,7 +155,7 @@ describe('chat: People and agents', () => {
     cy.chatRow('a:e2e-s-arm64-check').find('button.ch-row').should('have.attr', 'title', 'Message arm64-check').click();
     cy.get('#th-h').should('have.text', 'arm64-check');
     cy.get('label').contains('Message arm64-check');
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
     cy.tid('chat-box').should('have.attr', 'placeholder', 'Write a message, or type / for a command.').type('Is the arm64 build ready?{enter}');
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'Is the arm64 build ready?').and('contain.text', 'Waiting:');
     cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');

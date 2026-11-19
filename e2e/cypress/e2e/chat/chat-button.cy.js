@@ -22,7 +22,7 @@ describe('chat: Chat with Agent on an orchestrator page', () => {
     cy.location('hash').should('eq', `#/chat?with=${ARM}`);
     cy.get('#th-h').should('have.text', 'arm64-check');
     cy.get('label').contains('Message arm64-check');
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
     cy.chatRow(DM).should('not.exist');
     // Opening one's own conversation raises no Admin notice.
     cy.tid('chat-reading-banner').should('not.exist');
