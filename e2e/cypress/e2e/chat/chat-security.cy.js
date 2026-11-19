@@ -47,6 +47,9 @@ describe('chat: slash commands in a message to your own agent', () => {
     cy.tid('chat-message').should('not.exist');
     cy.tid('chat-box').clear();
     cy.get('[role=alert]').should('not.exist');
+    // Send is muted while the box is empty (#1233), and on again once there is a message.
+    cy.tid('chat-send').should('be.disabled');
+    cy.tid('chat-box').type('hello');
     cy.tid('chat-send').should('not.be.disabled');
   });
 

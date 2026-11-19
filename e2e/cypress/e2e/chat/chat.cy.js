@@ -168,6 +168,37 @@ describe('chat: the page', () => {
     cy.tid('chat-box').clear();
   });
 
+  it('draws the message box as one box with a Send icon that ends at its edge, grows with its text, and has an @ tool and Tab to pick (#1233)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.get('.ch-composer label').should('have.text', 'Message General').and('have.class', 'vh');
+    cy.tid('chat-send').should('have.attr', 'aria-label', 'Send message').and('be.disabled');
+    cy.tid('chat-box').type('hello');
+    cy.tid('chat-send').should('not.be.disabled');
+    // Send ends at the box's right edge, within the box's padding.
+    cy.get('.ch-box').then(($box) => {
+      cy.tid('chat-send').should(($send) => {
+        const gap = $box[0].getBoundingClientRect().right - $send[0].getBoundingClientRect().right;
+        expect(gap).to.be.within(0, 12);
+      });
+    });
+    // One line to start; it grows with its text and stops at 180 px.
+    cy.tid('chat-box').clear().type('a{shift}{enter}{enter}{enter}{enter}{enter}{enter}{enter}');
+    cy.tid('chat-box').should(($b) => expect($b[0].getBoundingClientRect().height).to.be.within(100, 181));
+    cy.tid('chat-box').clear();
+    cy.tid('chat-box').should(($b) => expect($b[0].getBoundingClientRect().height).to.be.below(60));
+    // The @ tool writes an @ and opens the list; Tab picks the first entry, and an entry that is off is not picked.
+    cy.tid('chat-tool-at').click();
+    cy.tid('chat-box').should('have.value', '@').and('have.attr', 'role', 'combobox').and('have.attr', 'aria-expanded', 'true');
+    cy.tid('chat-listbox').should('be.visible');
+    cy.tid('chat-box').type('inv').trigger('keydown', { key: 'Tab' });
+    cy.tid('chat-box').should('have.value', '@invoice-v2@ed-mbp ');
+    cy.tid('chat-box').clear().type('@gr').trigger('keydown', { key: 'Tab' });
+    cy.tid('chat-box').should('have.value', '@gr');
+    cy.tid('chat-listbox').should('be.visible');
+    cy.tid('chat-box').clear();
+  });
+
   it('shows an addressed agent waiting for its turn, with the @ as a chip in the message', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');

@@ -492,11 +492,13 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const waitNote = cross ? crossNote(cross) : null;
   const note =
     waitNote ??
-    (sel.kind === "dm" ? (ended.length ? `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended and will not receive this. ` : "") + "It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. " : "Secrets are replaced before a message leaves this machine. ") + "Enter sends; Shift+Enter adds a line.";
+    (sel.kind === "dm" ? (ended.length ? `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended and will not receive this. ` : "") + "It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. " : "Secrets are replaced before a message leaves this machine. ").trimEnd();
   const stateOf = (a: Address) => {
     const agent = o.agents.find((x) => x.sessionId === a.sessionId);
     return a.sessionId ? agentState(sessions, a.sessionId, agent?.status ?? null, agent !== undefined) : null;
   };
+
+  const familyOf = (a: Address) => (a.sessionId ? sessions[a.sessionId]?.modelFamily : undefined);
 
   const alert = (
     <>
@@ -579,6 +581,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
               addresses={addrs.list}
               loadAddresses={addrs.load}
               stateOf={stateOf}
+              familyOf={familyOf}
               commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
             />
             )

@@ -812,7 +812,7 @@ describe("the box", () => {
     await flush();
     expect(box()).toBeDisabled();
     expect(box()).toHaveAttribute("placeholder", "Paused");
-    const why = document.getElementById(box().getAttribute("aria-describedby")!)!;
+    const why = document.getElementById(box().getAttribute("aria-describedby")!.split(" ")[0]!)!;
     expect(why).toHaveTextContent("Paused: messages are held. Resume from the menu to send.");
     expect(box()).not.toHaveAttribute("role");
     await open("c:group");
@@ -857,8 +857,10 @@ describe("the @ combobox", () => {
       "@group",
       "@everyone",
     ]);
-    expect(box()).not.toHaveAttribute("aria-expanded");
+    expect(box()).toHaveAttribute("role", "combobox");
+    expect(box()).toHaveAttribute("aria-expanded", "true");
     expect(box()).toHaveAttribute("aria-controls", list.id);
+    expect(box().getAttribute("aria-activedescendant")).toBe(options()[0]!.id);
     expect(screen.getByTestId("chat-matches")).toHaveTextContent("7 people and agents. Use the arrow keys.");
     expect(screen.getByTestId("chat-matches")).toHaveAttribute("role", "status");
     type("hi @tes");
@@ -949,6 +951,196 @@ describe("the @ combobox", () => {
     await flush();
     expect(screen.queryByRole("listbox", { hidden: false })).toBeNull();
     expect(p.chat.api.addresses).not.toHaveBeenCalled();
+  });
+});
+
+describe("the message box, its tools and its keys (#1233, mockup/podium-chat-redesign.html)", () => {
+  const OWN = "d:dm:person:ed|s-notes";
+  const type = (v: string) => fireEvent.change(box(), { target: { value: v } });
+  const send = () => screen.getByTestId("chat-send");
+  const commands = () => screen.queryByRole("listbox", { name: "Commands" });
+  /** jsdom has no layout, so a textarea's content height is set by hand. */
+  const contentHeight = (px: number) => Object.defineProperty(box(), "scrollHeight", { configurable: true, value: px });
+
+  it("is one line with an accessible name and no visible label, and grows with its text up to 180 px", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    expect(box()).toHaveAttribute("rows", "1");
+    expect(screen.getByLabelText("Message My group")).toBe(box());
+    expect(box().closest(".ch-composer")!.querySelector("label")).toHaveClass("vh");
+    contentHeight(60);
+    type("two\nlines");
+    expect(box().style.height).toBe("60px");
+    contentHeight(500);
+    type("two\nlines\nand a long way more");
+    expect(box().style.height).toBe("180px");
+    contentHeight(0);
+    type("x");
+    expect(box().style.height).toBe("");
+  });
+
+  it("has Send as one icon button, named, muted until there is text, and off while a command has a problem", async () => {
+    page();
+    await flush();
+    expect(send()).toHaveAccessibleName("Send message");
+    expect(send()).toHaveClass("btn", "pri", "ch-send");
+    expect(send()).toHaveTextContent("");
+    expect(send()).toBeDisabled();
+    type("   ");
+    expect(send()).toBeDisabled();
+    type("hello");
+    expect(send()).toBeEnabled();
+    await open(OWN);
+    type("/x");
+    expect(send()).toBeDisabled();
+    type("/compact");
+    expect(send()).toBeEnabled();
+  });
+
+  it("puts the hint beside Send in the tools row, after the tools", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    const tools = box().closest(".ch-box")!.querySelector(".cr-tools")!;
+    expect(tools).toHaveTextContent("Enter to send · Shift+Enter for a new line");
+    expect([...tools.children].map((c) => c.className)).toEqual(["cr-tool", "hint", "btn pri ch-send"]);
+  });
+
+  it("sends on Enter, adds a line on Shift+Enter, and leaves Tab to move focus when no list is open", async () => {
+    const p = page();
+    await flush();
+    await open("c:group");
+    type("hello");
+    expect(fireEvent.keyDown(box(), { key: "Enter", shiftKey: true })).toBe(true);
+    expect(p.chat.api.post).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(box(), { key: "Tab" })).toBe(true);
+    expect(box().value).toBe("hello");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    expect(p.chat.api.post).toHaveBeenCalledWith("group", "hello");
+  });
+
+  it("offers the @ tool only in a channel, and the / tool only in a message to your own agent", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    expect(screen.getByTestId("chat-tool-at")).toHaveAccessibleName("Mention someone");
+    expect(screen.queryByTestId("chat-tool-slash")).toBeNull();
+    await open(OWN);
+    expect(screen.getByTestId("chat-tool-slash")).toHaveAccessibleName("Session commands");
+    expect(screen.queryByTestId("chat-tool-at")).toBeNull();
+    await open("d:dm:s-dash|s-tester");
+    expect(screen.queryByTestId("chat-tool-at")).toBeNull();
+    expect(screen.queryByTestId("chat-tool-slash")).toBeNull();
+  });
+
+  it("opens the @ list from the @ tool, after a space when the draft does not end in one, and keeps focus in the box", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    fireEvent.click(screen.getByTestId("chat-tool-at"));
+    await flush();
+    expect(box().value).toBe("@");
+    expect(options().length).toBeGreaterThan(0);
+    expect(box()).toHaveFocus();
+    fireEvent.keyDown(box(), { key: "Escape" });
+    type("hi");
+    fireEvent.click(screen.getByTestId("chat-tool-at"));
+    expect(box().value).toBe("hi @");
+    type("hi ");
+    fireEvent.click(screen.getByTestId("chat-tool-at"));
+    expect(box().value).toBe("hi @");
+    expect(fireEvent.mouseDown(screen.getByTestId("chat-tool-at"))).toBe(false);
+  });
+
+  it("opens the command list from the / tool on an empty box, and does nothing to a box with a message in it", async () => {
+    page();
+    await flush();
+    await open(OWN);
+    fireEvent.click(screen.getByTestId("chat-tool-slash"));
+    expect(box().value).toBe("/");
+    expect(commands()).not.toBeNull();
+    // The list is open, so the box is a combobox that names the option the arrow keys are on.
+    expect(box()).toHaveAttribute("role", "combobox");
+    expect(box()).toHaveAttribute("aria-expanded", "true");
+    expect(box()).toHaveAttribute("aria-controls", commands()!.id);
+    const options = within(commands()!).getAllByRole("option");
+    expect(box().getAttribute("aria-activedescendant")).toBe(options[0]!.id);
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    expect(box().getAttribute("aria-activedescendant")).toBe(options[1]!.id);
+    fireEvent.click(screen.getByTestId("chat-tool-slash"));
+    expect(box().value).toBe("/");
+    type("a message");
+    expect(screen.getByTestId("chat-tool-slash")).toBeDisabled();
+    type("/cl");
+    expect(screen.getByTestId("chat-tool-slash")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("chat-tool-slash"));
+    expect(box()).toHaveFocus();
+  });
+
+  it("draws each @ entry with its avatar, its address in bold, its role and its state in a word, and Tab picks it", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    type("@te");
+    await flush();
+    const first = options()[0]!;
+    expect(first.querySelector(".ch-av.agent")).not.toBeNull();
+    expect(first.querySelector("b.h")).toHaveTextContent("@Tester@ci-runner-01");
+    expect(first.querySelector(".r")).toHaveTextContent("Orchestrator");
+    expect(first.querySelector(".stw")).not.toBeNull();
+    type("@ma");
+    expect(options()[0]!.querySelector(".ch-av.person")).not.toBeNull();
+    expect(options()[0]!.querySelector(".r")).toHaveTextContent("Person");
+    expect(options()[0]!.querySelector(".stw")).toBeNull();
+    type("@gr");
+    expect(options()[0]!.querySelector(".ch-av.person svg")).not.toBeNull();
+    type("@pod");
+    await flush();
+    type("hi @tes");
+    fireEvent.keyDown(box(), { key: "Tab" });
+    expect(box().value).toBe("hi @Tester@ci-runner-01 ");
+  });
+
+  it("does nothing on Tab or Enter for an entry that is off, and keeps the list open", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    type("@every");
+    await flush();
+    expect(options()[0]).toHaveAttribute("aria-disabled", "true");
+    expect(fireEvent.keyDown(box(), { key: "Tab" })).toBe(false);
+    expect(box().value).toBe("@every");
+    expect(options()).toHaveLength(1);
+  });
+
+  it("disables the box and its tools while it is off, and says why in the placeholder", async () => {
+    const w = world();
+    w.overview.channels = [channelOf("general"), channelOf("group", { paused: true })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:group");
+    expect(box()).toBeDisabled();
+    expect(box()).toHaveAttribute("placeholder", "Paused");
+    expect(screen.getByTestId("chat-tool-at")).toBeDisabled();
+    expect(send()).toBeDisabled();
+  });
+
+  it("keeps a failed send's draft in the box and shows the server's words in a red box above it", async () => {
+    const chat = fakeChat();
+    page({ chat });
+    await flush();
+    type("keep me");
+    chat.w.postError = new RespondError(429, { error: "You are sending too fast. Wait 12 seconds." });
+    fireEvent.click(send());
+    await flush();
+    const err = screen.getByTestId("chat-send-error");
+    expect(err).toHaveAttribute("role", "alert");
+    expect(err).toHaveTextContent("You are sending too fast. Wait 12 seconds.");
+    expect(box().value).toBe("keep me");
+    expect(err.compareDocumentPosition(box()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(send()).toBeEnabled();
   });
 });
 
@@ -1164,10 +1356,12 @@ describe("accessibility", () => {
     await flush();
     await open("d:dm:s-dash|s-tester");
     fireEvent.click(screen.getByRole("button", { name: "Actions for claude-dashboard, Tester" }));
-    const run = async () => {
+    // The box is a textarea that carries role=combobox while its @ or / list is open (the spec's "a combobox", #1233), which axe's
+    // `aria-allowed-role` does not list for a textarea; it is judged off only for the pass that has the list open.
+    const run = async (listOpen = false) => {
       const r = await axe.run(container, {
         runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] },
-        rules: { "color-contrast": { enabled: false }, "target-size": { enabled: false }, "scrollable-region-focusable": { enabled: false }, "link-in-text-block": { enabled: false }, region: { enabled: false } },
+        rules: { "aria-allowed-role": { enabled: !listOpen }, "color-contrast": { enabled: false }, "target-size": { enabled: false }, "scrollable-region-focusable": { enabled: false }, "link-in-text-block": { enabled: false }, region: { enabled: false } },
       });
       return { violations: r.violations };
     };
@@ -1176,7 +1370,7 @@ describe("accessibility", () => {
     await open("c:group");
     fireEvent.change(box(), { target: { value: "@te" } });
     await flush();
-    expect((await run()).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+    expect((await run(true)).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
   });
 });
 
@@ -2541,7 +2735,7 @@ describe("a public channel's thread", () => {
     expect(intro).toHaveTextContent("This is the start of");
     expect(intro).toHaveTextContent("Say something, or type @ to hand work to an agent.");
     fireEvent.change(box(), { target: { value: "first" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await flush();
     expect(chat.api.post).toHaveBeenCalledWith("mine-chan", "first");
   });
