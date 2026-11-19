@@ -988,7 +988,7 @@ describe("the menus", () => {
     fireEvent.keyDown(items[2]!, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 200));
     });
     expect(document.activeElement).toBe(more("claude-dashboard, Tester"));
   });
@@ -1129,7 +1129,7 @@ describe("the menus", () => {
     fireEvent.keyDown(note, { key: "Escape" });
     expect(screen.queryByRole("note")).toBeNull();
     await flush();
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 200));
     expect(document.activeElement).toBe(more("General"));
   });
 
@@ -1869,7 +1869,7 @@ describe("the person an Admin reads, told in the console", () => {
     page({ chat: fakeChat(w) });
     await flush();
     await open("d:dm:s-dash|s-tester");
-    const items = [...thread().querySelectorAll("ol.feed > li")].map((li) => (li.classList.contains("ch-rec") ? `rec:${li.textContent}` : `msg:${li.querySelector(".who")?.textContent}`));
+    const items = [...thread().querySelectorAll("ol.ch-msgs > li:not(.ch-day):not(.ch-newline)")].map((li) => (li.classList.contains("ch-rec") ? `rec:${li.textContent}` : `msg:${li.querySelector(".who")?.textContent}`));
     expect(items).toEqual([
       "msg:claude-dashboard",
       "rec:Root (an Admin) read this conversation on Oct 12 at 14:21.",
@@ -1985,7 +1985,7 @@ describe("an Admin reading a person's conversations", () => {
     expect((screen.getByLabelText("Read a person's conversations") as HTMLSelectElement).value).toBe("");
     expect(screen.queryByRole("heading", { name: "Direct Messages" })).toBeNull();
     expect(screen.getByText("Back to your own conversations.")).toBeInTheDocument();
-    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(document.activeElement).toBe(screen.getByLabelText("Read a person's conversations"));
     cleanup();
     page({ chat: fakeChat(world()), me: ED });
@@ -2362,7 +2362,7 @@ describe("opening a thread moves the focus to its heading", () => {
 
 const tick = () =>
   act(async () => {
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 200));
   });
 const OWN_CAN = { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: true, removeChannel: false };
 const ELSE_CAN = { ...OWN_CAN, editDescription: false };
@@ -3210,5 +3210,203 @@ describe("a refusal that is not about a field (#1035)", () => {
     await flush();
     expect(dlg().getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
     expect(dlg().getByLabelText("Name")).toHaveFocus();
+  });
+});
+
+describe("message rows, one bubble, dividers and code blocks (#1232)", () => {
+  const MIN = 60_000;
+  const DAY = 86_400_000;
+  const general = (messages: ChannelMessage[], unread = 0) => {
+    const w = world();
+    w.channels.general = { messages };
+    w.overview.channels = w.overview.channels.map((c) => (c.id === "general" ? { ...c, unread, messages: messages.length } : c));
+    return fakeChat(w);
+  };
+  const maya = (id: string, text: string, at: number, over: Partial<ChannelMessage> = {}) => cmsg(id, text, { mine: false, authorName: "Maya", authorRef: "Maya", createdAt: at, updatedAt: at, ...over });
+  const rows = () => within(thread()).getAllByTestId("chat-message");
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+
+  it("shares one avatar, name and time across a run, and starts another for a new sender, a gap over five minutes or a new day", async () => {
+    page({
+      chat: general([
+        maya("a", "first", T0 - DAY - 5 * MIN),
+        maya("b", "second", T0 - 9 * MIN),
+        maya("c", "third", T0 - 7 * MIN),
+        maya("d", "after a gap", T0 - MIN),
+        cmsg("e", "mine", { createdAt: T0 - 30_000 }),
+      ]),
+    });
+    await flush();
+    await open("c:general");
+    const r = rows();
+    expect(r.map((x) => (x.classList.contains("cont") ? "cont" : "first"))).toEqual(["first", "first", "cont", "first", "first"]);
+    expect(r[1]!.querySelector(".ch-av.person")).not.toBeNull();
+    expect(r[1]!.querySelector(".who")).toHaveTextContent("Maya");
+    expect(r[2]!.querySelector(".ch-av, .who, .at")).toBeNull();
+    expect(r[2]!.querySelector(".ch-gut")).toHaveTextContent(/^\d\d:\d\d$/);
+    expect(r[2]!.querySelector(".ch-tx")).toHaveTextContent("third");
+  });
+
+  it("puts your messages on the right in the same bubble as everyone's, with the inverted disc and You", async () => {
+    page({ chat: general([maya("a", "hello", T0 - 5 * MIN), cmsg("b", "hi back", { createdAt: T0 - 4 * MIN })]) });
+    await flush();
+    await open("c:general");
+    const [theirs, mine] = rows();
+    expect(theirs).not.toHaveClass("mine");
+    expect(mine).toHaveClass("mine");
+    expect(mine!.querySelector(".ch-av.me")).not.toBeNull();
+    expect(mine!.querySelector(".who")).toHaveTextContent("You");
+    expect(mine!.querySelector(".ch-tx")!.className).toBe(theirs!.querySelector(".ch-tx")!.className);
+  });
+
+  it("draws an agent as a tile with its model and state, and says Agent and the model beside the name", async () => {
+    page({ chat: general([cmsg("a", "On it.", { mine: false, authorKind: "orchestrator", authorName: "Tester", authorRef: "s-tester", createdAt: T0 - MIN })]) });
+    await flush();
+    await open("c:general");
+    const m = rows()[0]!;
+    expect(m.querySelector(".ch-av.agent")).not.toBeNull();
+    expect(m.querySelector(".chip.model")).toHaveTextContent(/^Agent · /);
+  });
+
+  it("draws a day divider for Yesterday and Today, and a New line at the first unread message with the word", async () => {
+    page({ chat: general([maya("a", "old", T0 - DAY), maya("b", "read", T0 - 3 * MIN), maya("c", "unread one", T0 - 2 * MIN), maya("d", "unread two", T0 - MIN)], 2) });
+    await flush();
+    await open("c:general");
+    const flow = [...thread().querySelectorAll("ol.ch-msgs > li")].map((li) => (li.classList.contains("ch-day") ? `day:${li.textContent}` : li.classList.contains("ch-newline") ? `new:${li.textContent}` : `msg:${li.querySelector(".ch-tx")?.textContent}`));
+    expect(flow).toEqual(["day:Yesterday", "msg:old", "day:Today", "msg:read", "new:New", "msg:unread one", "msg:unread two"]);
+  });
+
+  it("draws no New line when nothing was unread, and keeps it where it was after the thread is read", async () => {
+    const p = page({ chat: general([maya("a", "one", T0 - 3 * MIN), maya("b", "two", T0 - 2 * MIN), maya("c", "three", T0 - MIN)], 1) });
+    await flush();
+    await open("c:general");
+    expect(thread().querySelectorAll(".ch-newline")).toHaveLength(1);
+    p.chat.w.overview.channels = p.chat.w.overview.channels.map((c) => (c.id === "general" ? { ...c, unread: 0 } : c));
+    p.signal();
+    await flush();
+    expect(thread().querySelectorAll(".ch-newline")).toHaveLength(1);
+    await open("c:group");
+    expect(thread().querySelectorAll(".ch-newline")).toHaveLength(0);
+  });
+
+  it("draws a fenced block as text in a focusable monospace block with its language word, and a tag in a message as text", async () => {
+    const text = "run it:\n```sh\nnpm test <script>alert(1)</script>\n```\ndone `x`";
+    page({ chat: general([maya("a", text, T0 - MIN)]) });
+    await flush();
+    await open("c:general");
+    const block = within(thread()).getByTestId("chat-code");
+    const pre = block.querySelector("pre")!;
+    expect(pre).toHaveAttribute("tabindex", "0");
+    expect(pre.querySelector("code")!.textContent).toBe("npm test <script>alert(1)</script>");
+    expect(block).toHaveTextContent("sh");
+    expect(thread().querySelector("script")).toBeNull();
+    expect(rows()[0]!.querySelector(".ch-inline")).toHaveTextContent("x");
+    // The line break against the block is its edge, not a blank line.
+    expect(rows()[0]!.querySelector(".ch-tx")!.firstChild!.textContent).toBe("run it:");
+  });
+
+  it("copies a block and says Copied, or says Select and copy when the clipboard is refused or missing", async () => {
+    page({ chat: general([maya("a", "```\nls\n```", T0 - MIN)]) });
+    await flush();
+    await open("c:general");
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const copy = () => within(thread()).getByRole("button", { name: /Copy|Copied|Select and copy/ });
+    fireEvent.click(copy());
+    await flush();
+    expect(writeText).toHaveBeenCalledWith("ls");
+    expect(copy()).toHaveTextContent("Copied");
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(copy());
+    await flush();
+    expect(copy()).toHaveTextContent("Select and copy");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    fireEvent.click(copy());
+    await flush();
+    expect(copy()).toHaveTextContent("Select and copy");
+    await settle();
+    await settle();
+  });
+
+  it("shows a message that was not delivered in the critical color with the icon and the words", async () => {
+    page({ chat: general([cmsg("a", "go @Tester@ci-runner-01", { mentions: [{ typed: "Tester@ci-runner-01", sessionId: "s-tester", state: "not-delivered", why: "it ended", stateAt: T0 }] })]) });
+    await flush();
+    await open("c:general");
+    const bad = rows()[0]!.querySelector(".ds.bad")!;
+    expect(bad).toHaveTextContent("Not delivered to Tester");
+    expect(bad.querySelector("svg")).not.toBeNull();
+  });
+
+  describe("the live region", () => {
+    const log = () => within(thread()).getByRole("log", { name: "Messages" });
+    it("is a polite log of additions, and does not announce what loads with the conversation", async () => {
+      page({ chat: general([maya("a", "history", T0 - MIN)]) });
+      await flush();
+      await open("c:general");
+      expect(log()).toHaveAttribute("aria-live", "off");
+      expect(log()).toHaveAttribute("aria-relevant", "additions");
+      expect(log()).toHaveAttribute("aria-atomic", "false");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("announces a message that arrives while the conversation is open", async () => {
+      const p = page({ chat: general([maya("a", "history", T0 - MIN)]) });
+      await flush();
+      await open("c:general");
+      await settle();
+      p.chat.w.channels.general!.messages.push(maya("b", "arrived", T0));
+      p.signal();
+      await flush();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+      expect(rows()).toHaveLength(2);
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("does not announce a message the person has just sent, a record line or earlier messages", async () => {
+      const w = world();
+      w.channels.general = { messages: [maya("a", "history", T0 - MIN)] };
+      const p = page({ chat: fakeChat(w) });
+      await flush();
+      await open("c:general");
+      await settle();
+      w.channels.general!.messages.push(cmsg("m", "mine", { createdAt: T0 }));
+      p.signal();
+      await flush();
+      expect(log()).toHaveAttribute("aria-live", "off");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+    it("does not announce earlier messages a person asks for", async () => {
+      page();
+      await flush();
+      await open("d:dm:s-dash|s-tester");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+      fireEvent.click(within(thread()).getByRole("button", { name: "Earlier messages" }));
+      await flush();
+      expect(within(thread()).getAllByTestId("chat-message")[0]).toHaveTextContent("An older message.");
+      expect(log()).toHaveAttribute("aria-live", "off");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("does not announce a record line an Admin's reading leaves", async () => {
+      const w = world();
+      const p = page({ chat: fakeChat(w) });
+      await flush();
+      await open("d:dm:s-dash|s-tester");
+      await settle();
+      w.reads = { "s-dash|s-tester": [{ admin: "Root", startedAt: T0, lastSeenAt: T0 }] };
+      p.signal();
+      await flush();
+      expect(within(thread()).getByTestId("chat-record")).toBeInTheDocument();
+      expect(log()).toHaveAttribute("aria-live", "off");
+      await settle();
+    });
   });
 });

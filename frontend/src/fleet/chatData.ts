@@ -535,24 +535,92 @@ export function addressMatches(all: readonly Address[], q: string): Address[] {
 }
 
 export interface TextPart {
-  kind: "text" | "mention" | "redacted";
+  kind: "text" | "mention" | "redacted" | "inline" | "code";
   text: string;
+  /** A fenced block's language word, when the fence has one. */
+  lang?: string;
 }
 
 const MENTION = /(@[A-Za-z0-9._-]+@[A-Za-z0-9._-]+(?:#[A-Za-z0-9_-]+)?|@group\b|@everyone\b)/;
+/** A fenced block: three backticks, an optional language word, the code, three backticks. One that is not closed is plain text. */
+const FENCE = /```([A-Za-z0-9_+#.-]*)[ \t]*\r?\n?([\s\S]*?)```/g;
+const INLINE = /`([^`\n]+)`/;
 
-/** A message's text as parts the page draws as text nodes: plain text, a mention, and Podium's own `[redacted]` marker. Never HTML. */
-export function messageParts(text: string): TextPart[] {
-  const out: TextPart[] = [];
-  const bits = text.split("[redacted]");
-  bits.forEach((bit, i) => {
-    if (i > 0) out.push({ kind: "redacted", text: "[redacted]" });
-    for (const seg of bit.split(MENTION)) {
-      if (!seg) continue;
-      out.push({ kind: seg.startsWith("@") && MENTION.test(seg) ? "mention" : "text", text: seg });
+function inlineParts(chunk: string, out: TextPart[]): void {
+  chunk.split(INLINE).forEach((seg, i) => {
+    if (!seg) return;
+    if (i % 2 === 1) {
+      out.push({ kind: "inline", text: seg });
+      return;
+    }
+    for (const bit of seg.split(MENTION)) {
+      if (bit) out.push({ kind: bit.startsWith("@") && MENTION.test(bit) ? "mention" : "text", text: bit });
     }
   });
+}
+
+/**
+ * A message's text as parts the page draws as text nodes: plain text, a mention, an `inline` code run, a fenced `code` block and
+ * Podium's own `[redacted]` marker. Never HTML. A fence with nothing in it, or one that is never closed, stays plain text.
+ */
+export function messageParts(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  const plain = (chunk: string) => {
+    chunk.split("[redacted]").forEach((bit, i) => {
+      if (i > 0) out.push({ kind: "redacted", text: "[redacted]" });
+      inlineParts(bit, out);
+    });
+  };
+  let at = 0;
+  for (const m of text.matchAll(FENCE)) {
+    const body = (m[2] ?? "").replace(/\r?\n$/, "");
+    if (!body.trim()) continue;
+    plain(text.slice(at, m.index));
+    out.push({ kind: "code", text: body, ...(m[1] ? { lang: m[1] } : {}) });
+    at = m.index! + m[0].length;
+  }
+  plain(text.slice(at));
   return out;
+}
+
+// ---- Runs, days and the New line (#1232) --------------------------------------------------------------------------------
+
+/** A message continues the previous run when the same author wrote it within this long of it, on the same day. */
+export const RUN_MS = 5 * 60 * 1000;
+
+export const sameDay = (a: number, b: number): boolean => {
+  const x = new Date(a);
+  const y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
+
+/** Who wrote a message, as one key for grouping: you are always `me`, an agent is its session and name (a name that changes is a new header, so its warnings show), a person their name. */
+export function authorKey(m: { channel: ChannelMessage | null; direct: DirectMessage | null }): string {
+  const c = m.channel;
+  if (c) return c.mine ? "me" : c.authorKind === "person" ? `person:${c.authorName.toLowerCase()}` : `agent:${c.authorRef}:${c.authorName}`;
+  const f = m.direct!.from;
+  return f.kind === "person" ? `person:${f.name.toLowerCase()}` : `agent:${f.sessionId ?? ""}:${f.name}`;
+}
+
+/**
+ * For each row of the thread, in order, whether it continues the run above it. A row is a message (it has an author) or something
+ * between messages (a record line, a divider, the New line: `author` is null). A message continues the run when the row just above
+ * is a message by the same author on the same day, at most five minutes earlier.
+ */
+export function continuesRun(rows: readonly { author: string | null; at: number }[]): boolean[] {
+  return rows.map((r, i) => {
+    const p = rows[i - 1];
+    return r.author !== null && p !== undefined && p.author === r.author && sameDay(p.at, r.at) && r.at - p.at >= 0 && r.at - p.at <= RUN_MS;
+  });
+}
+
+/** "Today", "Yesterday", else "Nov 6" (with the year when it is not this one), for a day divider. */
+export function dayLabel(t: number, now: number): string {
+  if (sameDay(t, now)) return "Today";
+  if (sameDay(t, now - 86_400_000)) return "Yesterday";
+  const d = new Date(t);
+  const base = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  return d.getFullYear() === new Date(now).getFullYear() ? base : `${base}, ${d.getFullYear()}`;
 }
 
 // ---- Times --------------------------------------------------------------------------------------------------------------

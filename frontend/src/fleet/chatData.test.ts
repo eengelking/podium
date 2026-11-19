@@ -27,6 +27,11 @@ import {
   mentionQuery,
   plain,
   messageParts,
+  authorKey,
+  continuesRun,
+  dayLabel,
+  RUN_MS,
+  sameDay,
   stamp,
   type Address,
   type ChannelMessage,
@@ -216,6 +221,87 @@ describe("a message's text parts", () => {
       { kind: "text", text: " <b>x</b>" },
     ]);
     expect(messageParts("@group and @everyone").filter((p) => p.kind === "mention").map((p) => p.text)).toEqual(["@group", "@everyone"]);
+  });
+});
+
+describe("a message's fenced and inline code (#1232)", () => {
+  const F = "```";
+  it("has no parts for an empty message", () => {
+    expect(messageParts("")).toEqual([]);
+  });
+  it("draws a fenced block as one code part, with its language word", () => {
+    expect(messageParts(`run:\n${F}sh\nnpm test\n${F}\ndone`)).toEqual([
+      { kind: "text", text: "run:\n" },
+      { kind: "code", text: "npm test", lang: "sh" },
+      { kind: "text", text: "\ndone" },
+    ]);
+  });
+  it("has no language key when the fence names none, and keeps a block's inner lines", () => {
+    expect(messageParts(`${F}\na\n  b\n${F}`)).toEqual([{ kind: "code", text: "a\n  b" }]);
+  });
+  it("finds two blocks", () => {
+    const parts = messageParts(`${F}a\n1\n${F} and ${F}\n2\n${F}`);
+    expect(parts.filter((p) => p.kind === "code").map((p) => p.text)).toEqual(["1", "2"]);
+  });
+  it("leaves a fence that is never closed, or has nothing in it, as plain text", () => {
+    expect(messageParts(`${F}sh\nnpm test`)).toEqual([{ kind: "text", text: `${F}sh\nnpm test` }]);
+    expect(messageParts(`${F}\n${F}`).every((p) => p.kind === "text")).toBe(true);
+  });
+  it("keeps backticks inside a block as text, and never reads a mention or HTML in it", () => {
+    expect(messageParts(`${F}\nuse \`x\` and \`\`y\`\` @group <b>z</b>\n${F}`)).toEqual([{ kind: "code", text: "use `x` and ``y`` @group <b>z</b>" }]);
+  });
+  it("draws a run between single backticks as inline code, and a mention outside it still as a mention", () => {
+    expect(messageParts("try `npm test` with @group")).toEqual([
+      { kind: "text", text: "try " },
+      { kind: "inline", text: "npm test" },
+      { kind: "text", text: " with " },
+      { kind: "mention", text: "@group" },
+    ]);
+    expect(messageParts("a lone ` stays")).toEqual([{ kind: "text", text: "a lone ` stays" }]);
+  });
+});
+
+describe("runs, days and the author of a message (#1232)", () => {
+  const T = new Date(2026, 10, 19, 12, 0, 0).getTime();
+  const min = 60_000;
+  const rows = (...r: [string | null, number][]) => r.map(([author, at]) => ({ author, at }));
+  it("starts a run at the first message and continues it for the same author within five minutes", () => {
+    expect(continuesRun(rows(["a", T], ["a", T + min], ["a", T + 2 * min]))).toEqual([false, true, true]);
+  });
+  it("breaks at exactly more than five minutes, not at five", () => {
+    expect(continuesRun(rows(["a", T], ["a", T + RUN_MS]))).toEqual([false, true]);
+    expect(continuesRun(rows(["a", T], ["a", T + RUN_MS + 1]))).toEqual([false, false]);
+  });
+  it("breaks at midnight even inside five minutes", () => {
+    const late = new Date(2026, 10, 19, 23, 58).getTime();
+    expect(continuesRun(rows(["a", late], ["a", late + 3 * min]))).toEqual([false, false]);
+  });
+  it("breaks at a record line, a divider or the New line (a row with no author)", () => {
+    expect(continuesRun(rows(["a", T], [null, T + min], ["a", T + 2 * min]))).toEqual([false, false, false]);
+  });
+  it("breaks when the author changes, and an alternation of two authors never continues", () => {
+    expect(continuesRun(rows(["a", T], ["b", T + min], ["a", T + 2 * min], ["b", T + 3 * min]))).toEqual([false, false, false, false]);
+  });
+  it("treats your own messages as one author and a time that runs backwards as a new run", () => {
+    expect(continuesRun(rows(["me", T], ["me", T + min]))).toEqual([false, true]);
+    expect(continuesRun(rows(["me", T], ["me", T - min]))).toEqual([false, false]);
+  });
+  it("keys a channel message by you, the person's name or the agent's session, and a direct message the same way", () => {
+    const base = { id: "1", text: "x", createdAt: 0, updatedAt: 0, replyTo: null, issue: null, project: null, milestone: null, mentions: [], authorRef: "s1", authorName: "Ed", authorKind: "person" as const, mine: false };
+    expect(authorKey({ channel: { ...base, mine: true }, direct: null })).toBe("me");
+    expect(authorKey({ channel: base, direct: null })).toBe("person:ed");
+    expect(authorKey({ channel: { ...base, authorKind: "orchestrator" }, direct: null })).toBe("agent:s1:Ed");
+    const d = (from: DirectMessage["from"]) => ({ channel: null, direct: { from } as DirectMessage });
+    expect(authorKey(d({ kind: "person", sessionId: null, name: "Ed", machine: "" }))).toBe("person:ed");
+    expect(authorKey(d({ kind: "agent", sessionId: "s2", name: "api", machine: "" }))).toBe("agent:s2:api");
+    expect(authorKey(d({ kind: "agent", sessionId: null, name: "api", machine: "" }))).toBe("agent::api");
+  });
+  it("names a day Today, Yesterday, or the date, with the year only when it is another", () => {
+    expect(sameDay(T, T + 5 * min)).toBe(true);
+    expect(dayLabel(T, T)).toBe("Today");
+    expect(dayLabel(T - 86_400_000, T)).toBe("Yesterday");
+    expect(dayLabel(new Date(2026, 10, 6, 9).getTime(), T)).toBe("Nov 6");
+    expect(dayLabel(new Date(2025, 10, 6, 9).getTime(), T)).toBe("Nov 6, 2025");
   });
 });
 

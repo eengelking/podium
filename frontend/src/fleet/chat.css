@@ -72,13 +72,6 @@
 .ch-intro h3 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
 .ch-intro p { margin: 0; max-width: 52ch; color: var(--ink2); font-size: 14px; line-height: 1.5; }
 .ch-earlier { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 0 12px; color: var(--muted); font-size: 12px; }
-.ch-body .feed { height: auto; max-height: none; }
-.ch-body .feed .body { white-space: pre-wrap; color: var(--ink); overflow-wrap: anywhere; }
-.ch-body .feed .who { display: block; font-weight: 600; color: var(--ink); white-space: normal; }
-.ch-body .feed .ds { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; margin-top: 2px; white-space: normal; }
-.ch-body .feed .ds svg { width: 12px; height: 12px; flex: none; }
-.ch-body .feed .ds.wait { color: var(--warn-text); }
-.ch-body .feed li.mine .body { border-left: 2px solid var(--sonnet); padding-left: 8px; }
 .ch-composer { display: grid; gap: 6px; padding: 10px 16px 12px; border-top: 1px solid var(--grid); }
 .ch-composer label { font-size: 12px; color: var(--ink2); }
 .ch-composer .row { display: flex; gap: 8px; align-items: flex-end; }
@@ -87,10 +80,7 @@
 .ch-composer textarea:disabled { color: var(--muted); }
 .ch-composer .note { font-size: 12px; color: var(--muted); }
 .ch-composer .note.warn { color: var(--warn-text); }
-.ch-body .feed li { position: relative; }
 .ch-mention { display: inline-block; padding: 0 5px; border-radius: 4px; background: var(--sel); color: var(--ink); font-weight: 600; }
-.ch-body .feed li.reply .body { border-left: 2px solid var(--axis); padding-left: 8px; margin-left: 14px; }
-.ch-body .feed .who .re { font-weight: 400; color: var(--muted); }
 .ch-st { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .ch-st .s { display: inline-flex; gap: 4px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; font-size: 11.5px; color: var(--ink2); }
 .ch-st .s svg { width: 12px; height: 12px; flex: none; }
@@ -123,9 +113,6 @@
 .ch-nav { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12px; color: var(--ink2); }
 .ch-blank { padding: 40px 24px; text-align: center; color: var(--ink2); }
 .ch-thread .ch-back { display: none; }
-.ch-body .feed li { grid-template-columns: 74px 16px minmax(0, 1fr); }
-.ch-body .feed li .at { white-space: nowrap; }
-.ch-body .feed .ch-st .s.bad { color: var(--crit-text); }
 .ch-ac .ic0:empty { display: none; }
 /* Narrow: the list and the thread are two screens, with "Back to the list" on the thread (data-pane says which one shows). */
 @media (max-width: 760px) {
@@ -162,7 +149,6 @@
 .ch-head .sub .tag svg { width: 12px; height: 12px; flex: none; }
 .ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
 /* The record line an Admin's reading leaves in the thread: not a message, so no checkbox, no delivery line, not selectable. */
-.ch-body .feed li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
 .ch-rec svg { width: 12px; height: 12px; flex: none; }
 .podium .ch-nav .tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; white-space: nowrap; }
 
@@ -256,3 +242,55 @@
 .podium .ch-av-btn { display: inline-flex; flex: none; padding: 0; margin: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; color: inherit; }
 .podium .ch-av-btn:has(.ch-av.person), .podium .ch-av-btn:has(.ch-av.me) { border-radius: 50%; }
 .podium .ch-av-btn:has(.ch-av.agent.s22) { border-radius: 6px; }
+
+/* Messages (#1232, mockup/podium-chat-redesign.html): flat rows with an avatar column, one bubble for everyone (yours on the right), a run of messages
+   from one sender sharing one avatar, name and time. The text has no character cap. Class names carry ch- because Chat renders inside .adminv and
+   .podium, whose .feed, .who, .at and .chip rules would otherwise apply. */
+.podium { --ch-code: color-mix(in srgb, var(--ink) 12%, var(--sel)); }
+:root[data-theme="dark"] .podium { --ch-code: color-mix(in srgb, var(--bg) 55%, var(--sel)); }
+.ch-msgs { list-style: none; margin: 0; padding: 0; height: auto; max-height: none; }
+.ch-msg { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 14px; padding: 3px 0; font-size: 15px; line-height: 1.55; }
+.ch-msg.first { padding-top: 26px; }
+.ch-msg.first:first-child { padding-top: 8px; }
+.ch-gut { grid-column: 1; align-self: start; display: flex; }
+.ch-msg.cont .ch-gut { justify-content: flex-end; font-size: 11px; line-height: 23px; color: transparent; white-space: nowrap; user-select: none; }
+.ch-msg.cont:hover .ch-gut { color: var(--muted); }
+.ch-col { grid-column: 2; min-width: 0; }
+.ch-mh { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; line-height: 22px; margin-bottom: 3px; }
+.ch-msgs .who { font-size: 15px; font-weight: 650; color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
+.ch-msgs .who .re, .ch-msgs .who .chip { font-size: 12px; font-weight: 400; }
+.ch-msgs .who .re { color: var(--muted); }
+.ch-msgs .at { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ch-msgs .ch-mh .chip.model { align-self: center; }
+.ch-tx { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: 10px; background: var(--sel); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ch-tx:empty { display: none; }
+.ch-msg.reply .ch-col { border-left: 2px solid var(--axis); padding-left: 8px; }
+.ch-msg.mine { grid-template-columns: minmax(0, 1fr) 40px; }
+.ch-msg.mine .ch-col { grid-column: 1; grid-row: 1; justify-self: end; max-width: 90%; display: flex; flex-direction: column; align-items: flex-end; }
+.ch-msg.mine .ch-gut { grid-column: 2; grid-row: 1; }
+.ch-msg.mine.cont .ch-gut { justify-content: flex-start; }
+.ch-msg.mine .ch-mh { justify-content: flex-end; }
+.ch-msg.mine .ch-tx { text-align: left; }
+.ch-msg.mine.reply .ch-col { border-left: 0; padding-left: 0; border-right: 2px solid var(--axis); padding-right: 8px; }
+.ch-msg .ch-st { margin-top: 4px; }
+.ch-msg.mine .ch-st { justify-content: flex-end; }
+.ch-msgs .ch-st .s.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); font-weight: 600; }
+.ch-msgs .ch-st .s.ds { white-space: normal; max-width: 100%; }
+.ch-inline { padding: 0 6px; border-radius: 4px; background: var(--ch-code); color: var(--ink); font-family: var(--font-mono); font-size: 13px; font-weight: 600; line-height: 1.4; white-space: pre-wrap; }
+/* Dividers: a day divider and the New line are rows with a rule on each side, or one side for New. */
+.ch-day, .ch-newline { display: flex; align-items: center; gap: 12px; list-style: none; }
+.ch-day { margin: 20px 0 6px; color: var(--ink2); font-size: 12.5px; font-weight: 600; }
+.ch-day::before, .ch-day::after { content: ""; flex: 1; height: 1px; background: var(--grid); }
+.ch-newline { margin: 12px 0 0; gap: 10px; color: var(--crit-text); font-size: 11.5px; font-weight: 650; }
+.ch-newline::before { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--crit-text) 55%, transparent); }
+/* A fenced block: darker than the bubble, never wrapped; it scrolls sideways inside the bubble and the page does not. */
+.ch-code { margin: 6px 0; min-width: 0; max-width: 100%; border-radius: 8px; background: var(--ch-code); white-space: normal; }
+.ch-code:first-child { margin-top: 0; }
+.ch-code:last-child { margin-bottom: 0; }
+.ch-code-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 0 10px; }
+.ch-code-lang { color: var(--ink2); font-size: 12px; font-weight: 600; }
+.podium .ch-copy { margin-left: auto; }
+.ch-code pre { margin: 0; padding: 6px 10px 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; white-space: pre; color: var(--ink); }
+.ch-code pre:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-code code { font: inherit; }
+.ch-msgs li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
