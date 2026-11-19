@@ -89,6 +89,8 @@ CREATE TABLE samples (                                                     -- on
 );
 ```
 
+Migration 43 (#755; PostgreSQL and MariaDB main step 19) adds the index `samples_t` on `samples(t)`, because the fleet-wide token and cost queries and the hourly retention delete read `samples` by time alone.
+
 Migration 6 adds the tables for the Admin section (7.7). A token is never stored: only its SHA-256 (migration 17, #277, dropped the last four characters it used to keep).
 
 ```sql

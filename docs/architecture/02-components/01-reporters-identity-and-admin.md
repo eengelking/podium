@@ -7,7 +7,7 @@ order: 1
 
 # Reporters, identity and Admin
 
-Files: `server/src/fleet/tokens.ts`, `people.ts`, `server/src/admin/adminRouter.ts`. The reasoning is in
+Files: `server/src/fleet/tokens.ts`, `server/src/storage/sqlite/people.ts` (and the PostgreSQL and MariaDB siblings), `server/src/admin/adminRouter.ts`. The reasoning is in
 DECISIONS 20 and 30.
 
 **Who is reporting**
@@ -18,7 +18,7 @@ DECISIONS 20 and 30.
 - The identity gives the session its `owner`, which `ingest.ts` writes into `sessions.owner`. For a person's
   token the report's `userName` must also match, so the token decides who and the name is only a consistency
   check.
-- `people.ts` owns the migration-6 tables (people, groups, person_machines, admin_log, settings) and every paged
+- `storage/sqlite/people.ts` owns the migration-6 tables (people, groups, person_machines, admin_log, settings) and every paged
   query.
 
 **The Admin API**

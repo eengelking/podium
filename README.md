@@ -163,7 +163,7 @@ All the options for both harnesses, what leaves a session, and what each harness
 | [Security](.github/SECURITY.md) | How to report a vulnerability (privately) |
 | [Code of conduct](.github/CODE_OF_CONDUCT.md) | Community expectations |
 | [Community](docs/COMMUNITY.md) | Join the Discord, and how the server is set up and kept safe |
-| [Third-party notices](docs/THIRD_PARTY_NOTICES.md) | Credits and licenses for the color theme palettes |
+| [Third-party notices](docs/THIRD_PARTY_NOTICES.md) | Credits and licenses for the color theme palettes and the docs site's fonts |
 
 ## Community
 

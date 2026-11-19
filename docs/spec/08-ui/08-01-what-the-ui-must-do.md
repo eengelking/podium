@@ -690,10 +690,15 @@ features that can be switched off appear here."
   - **My usage page** (`my-usage`, #726): "Gives each signed-in person a My usage page in the top bar with their own spend,
     sessions, failures and tool calls. Only their own: it never shows another person, and an Administrator sees their own
     figures there too. Needs sign-in on the server. Off by default."
+  - **Background shell output in the activity modal** (`background-output`, #897): "Lets a person open a background shell or
+    monitor in the Activity modal's Background tab to see its whole command and what it printed. Needs the Agent activity
+    feed on, and the reporter's backgroundOutput option on the machine as well. Output is held in memory while the tab is
+    open and is never stored, so an Admin who reads it is recorded and the person is told. Off, the tab still lists each
+    item's state and times." Off by default.
   - **Release check** (`update-check`, #499, [6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml),
     `mockup/podium-update-check-admin.html`): "Asks GitHub once a day for the latest Podium release and says at the
     bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." It is the last row.
-- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output` and `my-usage`, which are off by default.
+- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output`, `my-usage` and `background-output`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
