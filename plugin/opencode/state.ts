@@ -3,7 +3,7 @@
 // sessions it launched are one Root and one report; a child is an agent in that report.
 import { isLaunchId } from '../core/launch.ts';
 import { activityText, clip, whole, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
-import { BACKGROUND_KEPT_FINISHED } from '../core/background.ts';
+import { BACKGROUND_KEPT_FINISHED, loopChain as chainOf } from '../core/background.ts';
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
@@ -277,6 +277,15 @@ function newRoot(id: string, cwd: string | null, at: number): Root {
 /** The loop key of a session in the server's watch list and in a recording: the orchestrator's own, else the child's session id. */
 export const loopKey = (root: Root, s: Sess): string => (s.id === root.id ? MAIN_LOOP : s.id);
 
+/** The loop keys a session sits under (#1242): its own, then each parent session up to the orchestrator, which ends the chain. */
+export function loopChain(root: Root, s: Sess): string[] {
+  return chainOf(loopKey(root, s), (key) => {
+    const parent = root.sessions.get(key)?.parentId;
+    // A parent session this root has not seen is no loop: the child sits directly under the orchestrator.
+    return !parent || parent === root.id || !root.sessions.has(parent) ? null : parent;
+  }, root.sessions.size + 1);
+}
+
 /** The entries of every loop without its `output` once the loop has lost its lease; how a call ended stays (#598). */
 function withoutOutput(list: ActivityEntry[]): ActivityEntry[] {
   return list.map((e) => {
@@ -318,7 +327,7 @@ export function setWatchedBackground(root: Root, ids: readonly string[]): void {
   root.watchedBackground = next;
   if ([...root.sessions.values()].some((s) => s.shells.size > 0)) root.dirty = true;
   for (const s of root.sessions.values()) {
-    if (next.includes(loopKey(root, s))) continue;
+    if (loopChain(root, s).some((l) => next.includes(l))) continue;
     for (const sh of s.shells.values()) {
       sh.output = null;
       sh.outputCutAtStart = false;

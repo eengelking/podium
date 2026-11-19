@@ -401,6 +401,8 @@ export interface BackgroundItem {
   endedAt?: number;
   /** The command's first word, redacted and cut: what the list shows with the output switches off. */
   label: string;
+  /** The loop that started the item, when it is not the loop this list belongs to: a list holds its own loop's items and those of every agent under it (#1242). Absent for the loop's own. */
+  ownerId?: string;
   /** The whole command, redacted, cut with a visible marker. Needs the `backgroundOutput` option and the loop in `watchBackground`. */
   command?: string;
   commandCut?: boolean;

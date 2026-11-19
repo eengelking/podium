@@ -4,7 +4,7 @@
 import { redactBounded } from './diffRedact.ts';
 import { stripControl } from './feed.ts';
 import { cap, clip } from './failures.ts';
-import type { BackgroundItem, BackgroundItemKind, Report } from './protocol.ts';
+import { MAIN_LOOP, type BackgroundItem, type BackgroundItemKind, type Report } from './protocol.ts';
 
 /** Characters of a command or of an output sent, before the cut-off marker, as the activity feed's. */
 export const BACKGROUND_DETAIL_LIMIT = 20_000;
@@ -258,4 +258,20 @@ export function withoutExitLine(text: string): string {
 export function exitCodeOf(text: string): number | null {
   const m = /\[exited with code (-?\d+)\]\s*$/.exec(text);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * The loops an owner sits under (#1242), the owner first and each parent up to the orchestrator (MAIN_LOOP), which ends the chain. `parentOf` gives a loop's
+ * parent, or none for a child of the orchestrator. A loop lists the background items of every owner whose chain holds it, so the one rule is the same for
+ * both harnesses. A cycle, or a chain longer than `limit`, ends at the orchestrator rather than looping.
+ */
+export function loopChain(owner: string, parentOf: (loop: string) => string | null | undefined, limit = 1000): string[] {
+  const chain = [owner];
+  let id = owner;
+  while (id !== MAIN_LOOP && chain.length <= limit) {
+    id = parentOf(id) ?? MAIN_LOOP;
+    if (chain.includes(id)) break;
+    chain.push(id);
+  }
+  return chain;
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import type { BackgroundItem, SessionView } from "../types";
+import type { AgentView, BackgroundItem, SessionView } from "../types";
 import { DESKTOP_OPTIONS, OPENCODE_RESTART, OPENCODE_SETTINGS_FILE, OPTION_CMD, optionVariable } from "../pluginOptions";
 import { BAD, CHEV, CopyButton, Marked, OK, Redacted, useRowAnchor } from "./BashRow";
 
@@ -114,8 +114,16 @@ function whyNoOutput(why: { flagOn: boolean | null; optionOn: boolean | null | u
   return { title: "Output was not collected.", note: "It is read only while this tab is open, from the file the harness writes it to. It may not be readable, or it may not have printed yet." };
 }
 
+/** Who started an item the loop did not start itself (#1242): the agent's name as the console shows it elsewhere, and whether that agent has finished. An agent the session no longer lists reads "another agent", with no finished note. */
+function ownerOf(i: BackgroundItem, agents: readonly AgentView[]): { name: string; done: boolean } | null {
+  if (i.ownerId === undefined) return null;
+  const a = agents.find((x) => x.id === i.ownerId);
+  return a ? { name: a.description, done: a.status !== "running" && a.status !== "queued" } : { name: "another agent", done: false };
+}
+
 function Row(props: {
   item: BackgroundItem;
+  owner: { name: string; done: boolean } | null;
   now: number;
   open: boolean;
   onFlip: (open: boolean, li: HTMLElement | null) => void;
@@ -198,6 +206,12 @@ function Row(props: {
               </>
             )}
           </span>
+          {props.owner && (
+            <span className="bgline" data-testid="bg-owner">
+              Started by <b>{props.owner.name}</b>
+              {props.owner.done ? ", which has finished" : ""}
+            </span>
+          )}
           {quiet && (
             <span className="bgq" title="No output for 5 minutes or more">
               {WARN}Quiet for {Math.floor((now - i.lastOutputAt!) / 60_000)} min
@@ -269,6 +283,8 @@ export function BackgroundList(props: {
   flagOn: boolean | null;
   /** The reporter's `backgroundOutput` option, as the session says. */
   optionOn: boolean | null | undefined;
+  /** The session's agents, to name the one that started an item (#1242). */
+  agents?: readonly AgentView[];
 }) {
   const list = useRef<HTMLOListElement>(null);
   const [following, setFollowing] = useState(true);
@@ -295,6 +311,7 @@ export function BackgroundList(props: {
           <Row
             key={i.id}
             item={i}
+            owner={ownerOf(i, props.agents ?? [])}
             now={props.now}
             open={openIds.has(i.id)}
             why={why}
@@ -355,7 +372,7 @@ export function BackgroundPane(props: { s: SessionView; items: BackgroundItem[];
           <div className="ghost">When {s.name} or one of its agents starts a shell in the background{s.harness === "opencode" ? "" : ", or a monitor,"} it is listed here with its output.</div>
         </div>
       ) : (
-        <BackgroundList items={props.items} now={props.now} harness={s.harness} flagOn={flagOn} optionOn={s.backgroundOutput} />
+        <BackgroundList items={props.items} now={props.now} harness={s.harness} flagOn={flagOn} optionOn={s.backgroundOutput} agents={s.agents} />
       )}
       {n > 0 && (
         <div className="feedfoot stat">

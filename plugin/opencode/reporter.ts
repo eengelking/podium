@@ -18,7 +18,7 @@ import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedBackground, setWatchedOutput, sweep, setBackground, loopKey, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
+import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedBackground, setWatchedOutput, sweep, setBackground, loopChain, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -550,9 +550,10 @@ export class Reporter {
     const o = this.opts;
     if (o.activityFeed !== true || !root.watched.length) return;
     for (const s of root.sessions.values()) {
-      const loop = loopKey(root, s);
-      if (!root.watched.includes(loop)) continue;
-      const detail = o.backgroundOutput === true && root.watchedBackground.includes(loop);
+      // A shell is read for any loop above its session that is watched: its output shows in that loop's list too (#1242).
+      const chain = loopChain(root, s);
+      if (!chain.some((l) => root.watched.includes(l))) continue;
+      const detail = o.backgroundOutput === true && chain.some((l) => root.watchedBackground.includes(l));
       for (const sh of s.shells.values()) {
         if (!sh.file || !path.isAbsolute(sh.file) || !sh.file.endsWith('.out') || (sh.exited && sh.settled && (!detail || sh.output !== null))) continue;
         const dir = path.dirname(sh.file);

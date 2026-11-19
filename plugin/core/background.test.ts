@@ -10,6 +10,7 @@ import {
   exitCodeOf,
   keepBackground,
   labelOf,
+  loopChain,
   outputTimes,
   readTail,
   WHOLE_FILE_MAX_BYTES,
@@ -19,7 +20,7 @@ import {
   type OutputStat,
   type RawBackgroundItem,
 } from './background.ts'
-import type { BackgroundItem, Report } from './protocol.ts'
+import { MAIN_LOOP, type BackgroundItem, type Report } from './protocol.ts'
 
 const SECRET = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
 const T0 = 1_791_648_000_000
@@ -310,5 +311,25 @@ describe('the exit code a Claude Code output file ends with (#897)', () => {
     expect(exitCodeOf('[exited with code -1]')).toBe(-1)
     expect(exitCodeOf('[exited with code 3]\nmore output')).toBeNull()
     expect(exitCodeOf('still running')).toBeNull()
+  })
+})
+
+describe('the loops an owner sits under (#1242)', () => {
+  const parents: Record<string, string | null> = { K: 'A', A: null, B: null }
+  const of = (id: string) => parents[id]
+
+  test('is the owner, each parent and the orchestrator last', () => {
+    expect(loopChain('K', of)).toEqual(['K', 'A', MAIN_LOOP])
+    expect(loopChain('B', of)).toEqual(['B', MAIN_LOOP])
+    expect(loopChain(MAIN_LOOP, of)).toEqual([MAIN_LOOP])
+  })
+
+  test('an owner nobody knows sits directly under the orchestrator', () => {
+    expect(loopChain('gone', of)).toEqual(['gone', MAIN_LOOP])
+  })
+
+  test('a cycle, or a chain past the limit, ends instead of looping', () => {
+    expect(loopChain('X', (id) => (id === 'X' ? 'Y' : 'X'))).toEqual(['X', 'Y'])
+    expect(loopChain('n0', (id) => `n${Number(id.slice(1)) + 1}`, 3)).toEqual(['n0', 'n1', 'n2', 'n3'])
   })
 })

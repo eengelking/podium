@@ -1200,6 +1200,7 @@ function backgroundItems(v: unknown, path: string): { backgroundItems?: Backgrou
         startedKnown: bool(o.startedKnown, `${p}.startedKnown`),
         label: str(o.label, `${p}.label`, LIMITS.backgroundLabel),
       };
+      if (o.ownerId !== undefined && o.ownerId !== null) item.ownerId = str(o.ownerId, `${p}.ownerId`, LIMITS.id);
       if (o.exitCode !== undefined && o.exitCode !== null) item.exitCode = whole(o.exitCode, `${p}.exitCode`);
       if (o.lastOutputAt !== undefined && o.lastOutputAt !== null) item.lastOutputAt = whole(o.lastOutputAt, `${p}.lastOutputAt`);
       if (o.endedAt !== undefined && o.endedAt !== null) item.endedAt = whole(o.endedAt, `${p}.endedAt`);

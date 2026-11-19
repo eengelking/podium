@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
 <link rel="stylesheet" href="../frontend/src/fleet/chat.css">
 <style>
-/* Mockup for #897. No :root block and no color of its own: every color is a token from tokens.css, reached through
+/* Mockup for #897, extended for #1242 (owner line, tree scope). No :root block and no color of its own: every color is a token from tokens.css, reached through
    fleet.css. The shell is the Activity modal as it is on development (Respond.tsx): .modal.modal-feed.modal-respond,
    with the .tabs / [role=tab] control Board.tsx and PlanPanel.tsx already use. The Admin read notice is the existing
    .ch-nav.ro.crit line (SessionReadNotes.tsx).
@@ -75,6 +75,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <button type="button" data-s="many" aria-pressed="false">23 items</button>
     <button type="button" data-s="out" aria-pressed="false">Output tab</button>
     <button type="button" data-s="sub" aria-pressed="false">Subagent</button>
+    <button type="button" data-s="kid" aria-pressed="false">Subagent's child</button>
+    <button type="button" data-s="fork" aria-pressed="false">Fork</button>
     <button type="button" data-s="oc" aria-pressed="false">OpenCode</button>
     <button type="button" data-s="admin" aria-pressed="false">Admin reading</button>
     <button type="button" data-s="empty" aria-pressed="false">Nothing running</button>
@@ -113,7 +115,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li><b>A second tab in the Activity modal</b>, Output | Background. The existing feed becomes the Output tab, unchanged. The count on Background is the items the reporter holds for this agent. Both tabs sit in the one modal: same size (it is the modal's own height, 760 px at most), same Refresh every select, same message box under the list in an orchestrator's modal, same footer lines. The "Output tab" and "Background" screens switch between them.</li>
     <li><b>The list behaves as the feed does.</b> It is oldest first and newest last, scrolls inside its box, follows the newest item, and shows "Jump to latest" when you scroll up (the "23 items" screen). When there are few items the box stays full height and the rest is empty, as the feed's box does. Below it are the same status line ("Showing the newest N of N", "updated"), the same fixed line, and the same arrangement.</li>
     <li><b>What differs, and why:</b> there is no "Show older". The feed's older entries are stored history. Background items and their output are held in memory only, so there is nothing older to fetch. The reporter keeps every running item and the 20 latest finished ones for this agent, and the footer says so once the list is longer than that. Say if you want a different number.</li>
-    <li><b>One agent at a time.</b> The modal is opened for one orchestrator, subagent or fork, and Background lists only what that agent started, as the feed lists only its own activity. There is no owner line and no filter. Open a subagent's modal (the "Subagent" screen) to see its shells.</li>
+    <li><b>A loop lists what it started and what everything under it started (#1242).</b> The orchestrator's tab lists its own items and those of every subagent and fork it launched, nested ones included, and never another orchestrator's. A subagent's or fork's tab lists its own and its own children's, and never its parent's or a sibling's. The "Orchestrator" screen shows all three kinds, the "Subagent" screen one agent with its child, and the "Subagent's child" and "Fork" screens only their own.</li>
+    <li><b>An item another agent started says so</b>, in one line under its state: "Started by Port invoice endpoints", and ", which has finished" when that agent is done while its shell still runs. An item the loop started itself has no such line. It reuses the row's own <code>.bgline</code>: no new class, no new color. The name is the one the console already uses for that agent (its task description).</li>
     <li><b>Rows are the feed's rows</b> (time, shape, body, the #431 open and close). The time is when the shell started, the command is cut to one line, and under it come the state, the run time and the last output. A shell with no output for 5 minutes or more gets a warning line under its state.</li>
     <li><b>Opening a row</b> shows the whole command and its Output, each with Copy. Output follows its own reporter option and Admin flag, both off by default.</li>
     <li><b>Live:</b> state, run time, last-output age and output update on the stream while a viewer has the modal open. This page does not tick.</li>
@@ -132,7 +135,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <h2>Decisions for the maintainer</h2>
   <div class="tw3"><table class="decisions">
     <tr><th>Question</th><th>This mockup</th></tr>
-    <tr><td>Scope</td><td>Per agent, as the feed is. This changes the issue's "every owner" requirement, so the issue body is edited to match once you accept.</td></tr>
+    <tr><td>Scope</td><td>A loop and everything under it: the orchestrator lists the whole session's items, an agent its own and its descendants'. Never another orchestrator's, never a parent's or sibling's. This replaces the per-agent scope this mockup first proposed, and DECISIONS 68 and SPEC 8 change to match.</td></tr>
+    <tr><td>Owner line</td><td>"Started by <i>name</i>" under the state, only on an item the loop did not start. Says so when its agent has finished. Reuses <code>.bgline</code>.</td></tr>
     <tr><td>Quiet limit</td><td>5 minutes, fixed, stated in the footer. Say if it should be a setting.</td></tr>
     <tr><td>Does the list (no output) ride the Activity option?</td><td>Yes: the list needs "Activity feed" on, and only the command and output need the new option. With the feed off, the tab says why.</td></tr>
     <tr><td>Finished items</td><td>Kept with every running item, the 20 latest finished per agent, oldest first and newest last as the feed is, so an exit code can be read afterward. No "Show older", because nothing is stored.</td></tr>
@@ -164,8 +168,9 @@ const all = {
     { id: 1, kind: 'Shell', cmd: 'npm run test:e2e -- --spec "e2e/checkout/**"', s: 'run', t: '17:01', ran: '5:12', last: 'quiet', min: 12 },
   ],
   b: [
-    fin(6, '16:50', './scripts/seed.sh --rows 50000', 'bad', '1:48', 'last output 6 min ago'),
-    fin(5, '17:03', 'cargo build --release', 'run', '3:05', 'last output 1 s ago'),
+    { ...fin(6, '16:50', './scripts/seed.sh --rows 50000', 'bad', '1:48', 'last output 6 min ago'), own: 'F' },
+    { ...fin(5, '17:03', 'cargo build --release', 'run', '3:05', 'last output 1 s ago'), own: 'A' },
+    { ...fin(8, '17:05', 'psql -f db/migrate.sql', 'run', '0:20', 'last output 2 s ago'), own: 'K' },
   ],
 };
 // 20 finished and 3 running, for the long list.
@@ -179,6 +184,10 @@ const outText = {
   5: 'Compiling serde v1.0.210\nCompiling tokio v1.40.0\nCompiling invoice-api v0.4.1',
   6: 'seeding rows 1-10000 ... ok\nseeding rows 10001-20000 ... ok\nERROR: duplicate key value violates unique constraint "invoice_pkey"\n[exited with code 2]',
 };
+// #1242: who started an item. Orchestrator items carry no owner. A = Port invoice endpoints (a subagent, finished), K = Check migrations (A's child, running), F = Draft schema (a fork, finished).
+const WHO = { A: { name: 'Port invoice endpoints', done: true }, K: { name: 'Check migrations', done: false }, F: { name: 'Draft schema', done: true } };
+// A list shows an item's owner only when the loop being looked at did not start it itself.
+const seen = (arr, viewer) => arr.map((it) => ({ ...it, by: it.own && it.own !== viewer ? WHO[it.own] : null }));
 let openIds = new Set();
 let cmdOnly = false;
 let ocStart = false;
@@ -188,6 +197,7 @@ function row(it) {
   const o = openIds.has(it.id);
   const cmd = cmdOnly ? it.cmd.split(' ')[0] + ' …' : it.cmd;
   const out = cmdOnly ? undefined : outText[it.id];
+  const by = it.by ? '<span class="bgline">Started by <b>' + esc(it.by.name) + '</b>' + (it.by.done ? ', which has finished' : '') + '</span>' : '';
   const sub = it.last === 'quiet' ? '' : '<span class="bgline">' + it.last + '</span>';
   const q = it.last === 'quiet' ? '<span class="bgq" title="No output for 5 minutes or more">' + warn + 'Quiet for ' + it.min + ' min</span>' : '';
   const first = ocStart ? '' : ', first seen ' + it.t + ' (Claude Code does not report a start time)';
@@ -197,7 +207,7 @@ function row(it) {
   else outBox = '<pre class="code xout" aria-label="Output">' + out + '</pre>';
   return '<li data-id="' + it.id + '" class="tool can' + (o ? ' open' : '') + '"><span class="at"' + (ocStart ? '' : ' title="First seen ' + it.t + '"') + '>' + it.t + '</span><span class="k ' + it.s + '" role="img" aria-label="' + word[it.s] + '" title="' + word[it.s] + '">' + ic[it.s] + '</span><span class="body">' +
     '<button type="button" class="tgl" aria-expanded="' + o + '">' + I.chev + '<span class="name">' + it.kind + '</span> <span class="arg">' + esc(cmd) + '</span>' +
-    '<span class="bgline"><span class="bgs ' + it.s + '">' + word[it.s] + '</span> · <span class="mono">' + it.ran + '</span></span>' + q + sub + '</button>' +
+    '<span class="bgline"><span class="bgs ' + it.s + '">' + word[it.s] + '</span> · <span class="mono">' + it.ran + '</span></span>' + by + q + sub + '</button>' +
     (o ? '<div class="xp"><div><div class="xh"><span>Command' + first + '</span><button type="button" class="btn">Copy command</button></div><pre class="code xcmd" aria-label="Whole command">' + esc(cmd) + '</pre></div>' +
       '<div><div class="xh"><span>Output</span>' + exitChip(it) + (out ? '<button type="button" class="btn">Copy output</button>' : '') + '</div>' + outBox + '</div>' +
       '<div class="foot"><button type="button" class="btn" data-collapse>Collapse</button></div></div>' : '') + '</span></li>';
@@ -217,15 +227,18 @@ const outFeed = () => '<div class="feedwrap"><ol class="feed hours" aria-label="
   '<div class="feedfoot stat older"><span class="count">Showing the newest 23</span><button type="button" class="btn sm">Show older</button></div>' +
   '<div class="feedfoot stat"><span class="count">113 stored entries since 2026-11-17</span><span class="when">Updated 1s ago</span></div>' +
   '<div class="feedfoot"><span>Kept until the session ends, then removed. Only the owner and the Admin can open it. Secrets are removed before they leave the session.</span></div>';
+const sorted = (a) => [...a].sort((x, y) => x.t.localeCompare(y.t));
 const ORCH = 'Silverbolt · orchestrator · Opus 5.5', SUB = 'general-purpose · Port invoice endpoints';
 // compose: the message box sits under both tabs in the orchestrator's modal, as it does in the real one (Respond.tsx)
 const screens = {
-  list: () => ({ ct: 4, sub: ORCH, orch: true, html: list(all.a) }),
-  open: () => { openIds = new Set([1, 2]); return { ct: 4, sub: ORCH, orch: true, html: list(all.a) }; },
+  list: () => ({ ct: 7, sub: ORCH, orch: true, html: list(seen(sorted([...all.a, ...all.b]), null)) }),
+  open: () => { openIds = new Set([1, 5]); return { ct: 7, sub: ORCH, orch: true, html: list(seen(sorted([...all.a, ...all.b]), null)) }; },
   many: () => ({ ct: 23, sub: ORCH, orch: true, scrollTop: true, html: list(all.many, cap) }),
   out: () => ({ ct: 4, sub: ORCH, orch: true, tab: 'out', html: outFeed() }),
-  sub: () => ({ ct: 2, sub: SUB, orch: false, html: list(all.b) }),
-  oc: () => { ocStart = true; return { ct: 2, sub: 'Cedric · orchestrator · OpenCode', orch: true, html: note('OpenCode has no monitors, so none are listed.') + list([{ ...all.b[1], t: '17:03' }, { ...all.a[1], t: '16:40' }]) }; },
+  sub: () => ({ ct: 2, sub: SUB, orch: false, html: list(seen(sorted(all.b.filter((i) => i.own === 'A' || i.own === 'K')), 'A')) }),
+  kid: () => ({ ct: 1, sub: 'general-purpose · Check migrations', orch: false, html: list(seen(all.b.filter((i) => i.own === 'K'), 'K')) }),
+  fork: () => ({ ct: 1, sub: 'fork · Draft schema', orch: false, html: list(seen(all.b.filter((i) => i.own === 'F'), 'F')) }),
+  oc: () => { ocStart = true; return { ct: 2, sub: 'Cedric · orchestrator · OpenCode', orch: true, html: note('OpenCode has no monitors, so none are listed.') + list([{ ...all.b[1], own: undefined, t: '17:03' }, { ...all.a[1], t: '16:40' }]) }; },
   admin: () => ({ ct: 4, sub: ORCH, orch: true, html: adminNote + list(all.a) }),
   empty: () => ({ ct: 0, sub: ORCH, orch: true, html: msg('No background shells or monitors', 'When Silverbolt starts a shell in the background, or a monitor, it is listed here with its output.') + fixed }),
   off: () => { cmdOnly = true; return { ct: 4, sub: ORCH, orch: true, html: note('Output is off. This list shows each item’s state and times only. The person can turn output on in podium-reporter, and an Admin must allow it in Admin &gt; Settings.') + list(all.a) }; },
@@ -266,7 +279,7 @@ document.getElementById('body').addEventListener('click', (e) => {
   if (!li || (e.target.closest('.xp') && !e.target.closest('[data-collapse]'))) return;
   const id = Number(li.dataset.id);
   openIds.has(id) ? openIds.delete(id) : openIds.add(id);
-  const it = [...all.a, ...all.b, ...all.many].find((i) => i.id === id);
+  const it = seen([...all.a, ...all.b, ...all.many].filter((i) => i.id === id), cur === 'sub' ? 'A' : cur === 'kid' ? 'K' : cur === 'fork' ? 'F' : null)[0];
   const tmp = document.createElement('div');
   tmp.innerHTML = row(it);
   li.replaceWith(tmp.firstChild);

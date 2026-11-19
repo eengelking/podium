@@ -126,12 +126,19 @@ interface Store {
   denied: boolean;
 }
 
+/** How many more times a finished loop is asked, to catch the items the reporter sends with its first report after the lease (#1242). */
+const FINISHED_ASKS_AFTER = 3;
+
 export function useActivityFeed(opts: {
   sessionId: string;
   loop: string;
   /** The reporter can send a feed: the option is on (or not known to be off) and the mod is new enough. */
   enabled: boolean;
-  /** The loop is still working. A finished one is fetched once more, for its last entries, and then left alone. */
+  /**
+   * The loop is still working. A finished one is still asked while its own Background list holds a running item (a shell can outlive the agent that
+   * started it, #1242) and for a few more answers, because the first answer after the lease only starts the lease and the reporter sends the items with its
+   * next report. Then it is left alone.
+   */
   active: boolean;
   every: number;
   /**
@@ -162,6 +169,8 @@ export function useActivityFeed(opts: {
   const epoch = useRef(0);
   // The highest `seq` already taken, and the lease it belongs to. Null until the first answer for this loop.
   const cursor = useRef<{ since: number | null; seq: number } | null>(null);
+  /** Whether the newest answer listed a running background item: a finished loop keeps being asked while it does (#1242). */
+  const runningBg = useRef(false);
 
   useEffect(() => {
     cursor.current = null;
@@ -236,6 +245,7 @@ export function useActivityFeed(opts: {
         // happened before this viewer was watching, so it is skipped rather than backfilled.
         if (!c || c.since !== r.since) {
           cursor.current = { since: r.since, seq: top };
+          runningBg.current = (r.background ?? []).some((i) => i.state === "running");
           setState((st) => ({ ...st, background: r.background ?? [], fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false, refused: null }));
           return;
         }
@@ -247,6 +257,7 @@ export function useActivityFeed(opts: {
         const bySeq = new Map(r.entries.map((e) => [e.seq, e]));
         const low = r.entries.length ? r.entries[0]!.seq : Infinity;
         const synced = (list: ActivityEntryView[]) => list.filter((e) => e.kind !== "podium" || e.seq < low || bySeq.has(e.seq)).map((e) => (e.kind === "podium" || e.kind === "tool" ? (bySeq.get(e.seq) ?? e) : e));
+        runningBg.current = (r.background ?? []).some((i) => i.state === "running");
         setState((st) => ({
           // With stored history the cap is far wider: what is trimmed is still stored, and stays one page away.
           entries: [...synced(st.entries), ...fresh].slice(-(loaded.current === "done" ? LIVE_KEPT : FEED_KEPT)),
@@ -270,7 +281,15 @@ export function useActivityFeed(opts: {
       }
     };
     void tick();
-    const timer = active ? setInterval(() => void tick(), every * 1000) : null;
+    // A finished loop is asked FINISHED_ASKS_AFTER more times, and for as long as its own list holds a running item (#1242).
+    let spare = FINISHED_ASKS_AFTER;
+    const timer = setInterval(() => {
+      if (!active && !runningBg.current && spare-- <= 0) {
+        clearInterval(timer);
+        return;
+      }
+      void tick();
+    }, every * 1000);
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);

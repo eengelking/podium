@@ -10,7 +10,7 @@ import { reportStats } from '../core/toolStats.ts';
 import { reportSignals } from '../core/signals.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
-import { loopKey, type Root, type Sess } from './state.ts';
+import { loopChain, loopKey, type Root, type Sess } from './state.ts';
 
 const HARNESS_ID = 'opencode';
 const MAX_AGENTS = 200;
@@ -93,7 +93,9 @@ function backgroundOf(root: Root, s: Sess, meta: ReportMeta): { backgroundItems?
   const loop = loopKey(root, s);
   if (meta.activity !== true || !root.watched.includes(loop)) return {};
   const detail = meta.backgroundOutput === true && root.watchedBackground.includes(loop);
-  const items = [...s.shells.values()].map((sh) => {
+  // A loop lists its own shells and those of every session under it (#1242); one a descendant started names its owner.
+  const owned = [...root.sessions.values()].filter((o) => loopChain(root, o).includes(loop)).flatMap((o) => [...o.shells.values()].map((sh) => ({ sh, owner: loopKey(root, o) })));
+  const items = owned.map(({ sh, owner }) => {
     const raw: RawBackgroundItem = {
       id: sh.id,
       kind: 'shell',
@@ -109,7 +111,9 @@ function backgroundOf(root: Root, s: Sess, meta: ReportMeta): { backgroundItems?
       raw.output = sh.output;
       raw.outputCutAtStart = sh.outputCutAtStart;
     }
-    return backgroundItem(raw, detail);
+    const item = backgroundItem(raw, detail);
+    if (owner !== loop) item.ownerId = owner;
+    return item;
   });
   return { backgroundItems: keepBackground(items) };
 }

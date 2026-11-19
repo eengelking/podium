@@ -160,13 +160,57 @@ describe("Activity feed", () => {
     expect(screen.queryByText("Activity")).toBeNull();
   });
 
-  it("for a finished agent fetches once, offers no interval, and says no more will come", async () => {
+  it("for a finished agent asks a few times for the last entries, offers no interval, and says no more will come", async () => {
     const { fetchActivity } = show({ active: false });
     await flush();
     await wait(60_000);
-    expect(fetchActivity).toHaveBeenCalledTimes(1);
+    const settled = fetchActivity.mock.calls.length;
+    expect(settled).toBeGreaterThan(1);
+    expect(settled).toBeLessThanOrEqual(6);
+    await wait(60_000);
+    expect(fetchActivity).toHaveBeenCalledTimes(settled);
     expect(screen.queryByRole("combobox", { name: "Refresh interval" })).toBeNull();
     expect(screen.getByText("Agent finished, no more updates")).toBeInTheDocument();
+  });
+
+});
+
+describe("A finished agent whose background shell still runs (#1242)", () => {
+  const shell = { id: "bg1", kind: "shell" as const, state: "running" as const, startedAt: T0, startedKnown: false, label: "for" };
+  const opened: Partial<SessionView> = { reporterVersion: "1.7.0", backgroundOutput: false };
+
+  it("keeps asking after the agent finishes while its own list holds a running item, so the shell it left running is listed when the reporter sends it", async () => {
+    // The first answer takes the lease and holds nothing yet; the reporter sends the item with its next report.
+    const { fetchActivity } = show({ active: false, session: opened, fetch: fetcher(reply([]), reply([], { background: [shell] })) });
+    await flush();
+    await wait(10_000);
+    const afterItem = fetchActivity.mock.calls.length;
+    expect(afterItem).toBeGreaterThan(1);
+    // still running: it keeps being asked, long after the short wait for the first report
+    await wait(60_000);
+    expect(fetchActivity.mock.calls.length).toBeGreaterThan(afterItem + 5);
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    await wait(0);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("tab", { name: /Background/ }));
+    expect(within(screen.getByRole("dialog")).getByText(/Shell/)).toBeInTheDocument();
+  });
+
+  it("does not depend on the session being idle: a finished agent is asked while the orchestrator works", async () => {
+    const { fetchActivity } = show({ active: false, session: { ...opened, background: null }, fetch: fetcher(reply([]), reply([], { background: [shell] })) });
+    await flush();
+    await wait(30_000);
+    expect(fetchActivity.mock.calls.length).toBeGreaterThan(3);
+  });
+
+  it("stops asking a short while after the agent finishes when its list holds nothing running", async () => {
+    const { fetchActivity } = show({ active: false, session: opened });
+    await flush();
+    await wait(60_000);
+    const settled = fetchActivity.mock.calls.length;
+    expect(settled).toBeGreaterThan(1);
+    expect(settled).toBeLessThanOrEqual(6);
+    await wait(60_000);
+    expect(fetchActivity).toHaveBeenCalledTimes(settled);
   });
 });
 
