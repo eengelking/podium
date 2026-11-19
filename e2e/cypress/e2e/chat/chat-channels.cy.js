@@ -230,9 +230,9 @@ describe('chat: public channels', () => {
     // Nothing chosen and nothing written are refused where they are.
     cy.contains('[role=dialog] button', 'Send message').click();
     cy.tid('dm-form-error').should('have.text', 'Choose who to message.');
-    cy.contains('label', /^\s*Find an agent/).find('input').type('zzzz');
+    cy.contains('label', /^\s*Find an agent or person/).find('input').type('zzzz');
     cy.tid('dm-form').contains('No agent matches that.');
-    cy.contains('label', /^\s*Find an agent/).find('input').clear().type('invoice');
+    cy.contains('label', /^\s*Find an agent or person/).find('input').clear().type('invoice');
     cy.tid('dm-form').find('input[type=radio]').should('have.length', 1);
     cy.tid('dm-form').contains('label', 'invoice-v2').find('input[type=radio]').check();
     cy.contains('[role=dialog] button', 'Send message').click();
