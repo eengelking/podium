@@ -11,6 +11,7 @@ Checks, on --bg and --surface:
   text     ink, ink2, muted, good-text, crit-text,
            deleg-text, admin-text, serious-text                       need 4.5:1
                                                            (serious-text is fleet.css's 60% serious + 40% ink)
+  avatar   initials on the person and you discs, the glyph on each model's tinted tile  need 4.5:1; the waiting mark  need 3:1
   marks    good, warn, serious, crit, deleg, opus,
            sonnet, haiku, fable                                    need 3:1, or Podium's own ratio for the
                                                            same mode when that is lower (parity)
@@ -103,6 +104,12 @@ for (const [name, t] of Object.entries({ ...base, ...others() })) {
     add(name, `serious-text on ${bgName}`, ratio(mixHex(t.serious, t.ink, 0.6), bg), 4.5);
     for (const k of MARKS) add(name, `${k} on ${bgName}`, ratio(t[k], bg), Math.min(3, Math.floor(ratio(ref[k], ref[bgName]) * 100) / 100));
   }
+  // The Chat avatar (#1231, ChatAvatar.tsx): initials on a person's disc (14% ink into surface), the page-colored initials on yours (an ink disc),
+  // the agent's glyph on its model's tinted tile (20% of the model color into surface), and the waiting state mark on the surface.
+  add(name, 'avatar person initials', ratio(t.ink, mixHex(t.ink, t.surface, 0.14)), 4.5);
+  add(name, 'avatar you initials', ratio(t.bg, t.ink), 4.5);
+  for (const k of [...MARKS.slice(5), 'other'].filter((k) => /^#[0-9a-f]{3,6}$/i.test(t[k] ?? ''))) add(name, `avatar ${k} glyph`, ratio(t.ink, mixHex(t[k], t.surface, 0.2)), 4.5);
+  add(name, 'avatar waiting mark', ratio(mixHex(t.warn, t.ink, 0.6), t.surface), 3);
   const m = ['opus', 'sonnet', 'haiku', 'fable'];
   for (let i = 0; i < m.length; i++) for (let j = i + 1; j < m.length; j++) add(name, `${m[i]} vs ${m[j]}`, dist(t[m[i]], t[m[j]]), 0.08);
 }
