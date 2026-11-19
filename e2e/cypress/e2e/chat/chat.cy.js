@@ -117,6 +117,20 @@ describe('chat: the page', () => {
     cy.chatRow('p:Alex').should('contain.text', 'Person').find('button.ch-row').click();
     cy.get('[role=dialog]').should('contain.text', 'New direct message');
     cy.get('[role=dialog] input[type=search]').should('have.value', 'Alex');
+    // None of Alex's orchestrators can take a message from Ed, so nothing is chosen and the search keeps the focus (#1237).
+    cy.tid('dm-form').find('input[type=radio]:checked').should('not.exist');
+    cy.get('[role=dialog] input[type=search]').should('have.focus');
+  });
+
+  it('opens New direct message from a person with several orchestrators that can take a message and chooses none, the search keeping the focus (#1237)', () => {
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow('p:Ed').find('button.ch-row').click();
+    cy.get('[role=dialog] input[type=search]').should('have.value', 'Ed');
+    // Ed has three orchestrators Alex may message, so none is chosen for Alex.
+    cy.tid('dm-form').find('input[type=radio]').should('have.length', 3);
+    cy.tid('dm-form').find('input[type=radio]:checked').should('not.exist');
+    cy.get('[role=dialog] input[type=search]').should('have.focus');
   });
 
   it('colors a People and agents row by the agent\'s state when it is pointed at, with the state said in words', () => {

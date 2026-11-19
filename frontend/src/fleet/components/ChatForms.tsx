@@ -3,7 +3,8 @@
 // is drawn as HTML, and the person's text is only ever sent, never kept.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
-import { StateIcon } from "./Chips";
+import { ChatAvatar } from "./ChatAvatar";
+import { ChEye } from "./ChatIcons";
 import { agentState, STATE_WORD } from "./ChatSidebar";
 import { plain, type ChannelLink, type ChannelLinkKind, type ChatApi, type ChatChannel, type DirectTarget } from "../chatData";
 import { RespondError } from "../respondApi";
@@ -88,10 +89,13 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
   };
   const bad = (f: "name" | "ref" | "desc") => (error?.field === f ? true : undefined);
   return (
-    <Modal titleId="nc-h" title={edit ? "Edit description" : "New channel"} onClose={props.onClose}>
+    <Modal titleId="nc-h" title={edit ? "Edit description" : "New channel"} className="ch-dlg" onClose={props.onClose}>
       <div className="mb">
         <form className="ch-form" noValidate onSubmit={(e) => void submit(e)} data-testid="channel-form">
-          <p className="hint">Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in. Do not put anything here you would not want all of them to read.</p>
+          <p className="ch-nav ro">
+            <ChEye />
+            <span>Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in. Do not put anything here you would not want all of them to read.</span>
+          </p>
           <label>
             Name
             <input className="field" ref={nameEl} maxLength={40} autoComplete="off" value={name} placeholder="staging-incident" disabled={!!edit} aria-describedby="nc-name-hint" aria-invalid={bad("name")} onChange={(e) => setName(e.target.value.toLowerCase())} />
@@ -111,7 +115,9 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
           ) : (
             <div className="row2">
               <label>
-                About (optional)
+                <span>
+                  About <span className="cr-opt">(optional)</span>
+                </span>
                 <select className="field" value={kind} onChange={(e) => setKind(e.target.value as "" | ChannelLinkKind)}>
                   <option value="">Nothing</option>
                   <option value="issue">Issue</option>
@@ -144,7 +150,11 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
   );
 }
 
-/** `person` is a person chosen in the sidebar's People and agents: their name is searched, and when none of their orchestrators can take a message the list says so. */
+/**
+ * `person` is a person chosen in the sidebar's People and agents, a menu or the members panel: their name is searched, their orchestrator is chosen when
+ * exactly one can take a message (the message box then has the focus), and when none can the list says why and chooses nothing. The state lives in the
+ * dialog, so closing it resets the search, the chosen agent and the draft.
+ */
 export function DirectModal(props: { api: ChatApi; sessions: Record<string, SessionView>; person?: string; onClose: () => void; onDone: (t: DirectTarget, said: string) => void | Promise<void> }) {
   const [q, setQ] = useState(props.person ?? "");
   const [targets, setTargets] = useState<DirectTarget[] | null>(null);
@@ -156,6 +166,8 @@ export function DirectModal(props: { api: ChatApi; sessions: Record<string, Sess
   const qEl = useRef<HTMLInputElement>(null);
   useFirstFocus(qEl);
   const msgEl = useRef<HTMLTextAreaElement>(null);
+  // A person's orchestrator is chosen once, from the first answer for their name, never again over what the person picked since.
+  const preset = useRef(!!props.person);
   // The list is asked for as the person types; an answer to an older question never replaces a newer one.
   const asked = useRef(0);
   useEffect(() => {
@@ -166,6 +178,18 @@ export function DirectModal(props: { api: ChatApi; sessions: Record<string, Sess
         if (asked.current !== mine) return;
         setTargets(r.targets);
         setLoadError(null);
+        if (preset.current) {
+          preset.current = false;
+          const only = q === props.person ? r.targets.filter((t) => (t.own || t.status !== "done") && t.canMessage) : [];
+          if (only.length === 1) {
+            setTo(only[0].sessionId);
+            // The focus moves only while it is still on the search or nowhere, never off a field the person went to.
+            setTimeout(() => {
+              const at = document.activeElement;
+              if (!at || at === document.body || at === qEl.current) msgEl.current?.focus();
+            }, 0);
+          }
+        }
       })
       .catch((err) => {
         if (asked.current !== mine) return;
@@ -203,7 +227,7 @@ export function DirectModal(props: { api: ChatApi; sessions: Record<string, Sess
       <li key={t.sessionId}>
         <label aria-disabled={!t.canMessage ? true : undefined}>
           <input type="radio" name="dm-to" value={t.sessionId} checked={to === t.sessionId} disabled={!t.canMessage} onChange={() => setTo(t.sessionId)} />
-          <StateIcon kind={kind} />
+          <ChatAvatar kind="agent" name={t.name} family={props.sessions[t.sessionId]?.modelFamily} state={kind} size={30} />
           <span className="stack">
             <span>
               <bdi>{t.name}</bdi>
@@ -223,12 +247,12 @@ export function DirectModal(props: { api: ChatApi; sessions: Record<string, Sess
     );
   };
   return (
-    <Modal titleId="dm-h" title="New direct message" onClose={props.onClose}>
+    <Modal titleId="dm-h" title="New direct message" className="ch-dlg" onClose={props.onClose}>
       <div className="mb">
         <form className="ch-form" noValidate onSubmit={(e) => void submit(e)} data-testid="dm-form">
           <p className="hint">A Direct Message is read only by you, the agent&apos;s owner and an Admin. A subagent or a fork is not offered: message its orchestrator.</p>
           <label>
-            Find an agent
+            Find an agent or person
             <input className="field" ref={qEl} type="search" autoComplete="off" value={q} placeholder="Search by agent or person" aria-invalid={error?.field === "q" ? true : undefined} onChange={(e) => setQ(e.target.value)} />
           </label>
           <fieldset className="dm-set">
