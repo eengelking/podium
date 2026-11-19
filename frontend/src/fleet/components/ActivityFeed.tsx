@@ -311,7 +311,10 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<ActivityTab>("output");
   const opener = useRef<HTMLButtonElement>(null);
+  // A shell or monitor can outlive the agent that started it (#1242): while this loop's own list holds a running item it is still being asked.
   const feed = useActivityFeed({ sessionId: s.id, loop: props.loop, enabled, active, every, adminOn: props.adminOn, fetchActivity: props.fetchActivity, fetchHistory: props.fetchHistory });
+  // Asked still: the loop works, or its own list holds a running item. The footer and the interval picker follow that, not the agent's status alone.
+  const polling = active || feed.background.some((i) => i.state === "running");
   const respond = useRespond();
   // An Admin whose stored view of another person's Activity stays open keeps that person's notice alive (#1074); the read itself was recorded by the route.
   const me = respond?.me;
@@ -371,7 +374,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
       : `${props.isMain ? "The session has ended" : "This agent has finished"}. Activity is kept only while someone watches it run.`;
   const empty = feed.refused ? refusedEmpty(feed.refused, s.owner) : feedEmpty(feed, respond?.me ? respond.me.signedIn : null, emptyBase);
   // Date.now() rather than `now` for "Updated": fetchedAt is this browser's time. `now` ticking re-renders it.
-  const [count, when] = footer(feed, active, !!props.isMain, Date.now());
+  const [count, when] = footer(feed, polling, !!props.isMain, Date.now());
 
   // The modal stays in one place in the tree, so one that is open when the flag flips keeps its focus and only swaps
   // its content for the note.
@@ -399,7 +402,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
                 Expand
               </button>
             </span>
-            {active && <EverySelect id={`every-${props.loop}`} every={every} onChange={pick} />}
+            {polling && <EverySelect id={`every-${props.loop}`} every={every} onChange={pick} />}
           </div>
           <FeedList feed={feed} startedAt={props.startedAt} empty={empty} machineOutput={s.activityOutput} active={active} />
           <OlderRow feed={feed} />
@@ -410,7 +413,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
         </>
       )}
       {open && (
-        <Modal titleId="activityTitle" title="Activity" sub={props.title} onClose={close} className="modal-feed" actions={active && !adminOff ? <EverySelect id={`every-m-${props.loop}`} every={every} onChange={pick} /> : undefined}>
+        <Modal titleId="activityTitle" title="Activity" sub={props.title} onClose={close} className="modal-feed" actions={polling && !adminOff ? <EverySelect id={`every-m-${props.loop}`} every={every} onChange={pick} /> : undefined}>
           <ActivityTabs tab={tab} onTab={setTab} count={s.backgroundOutput == null ? null : feed.background.length} idPrefix={`act-${props.loop}`} />
           <div className="mb feedmb" role="tabpanel" id={`act-${props.loop}-panel`} aria-labelledby={`act-${props.loop}-tab-${tab}`}>
             {tab === "background" ? (

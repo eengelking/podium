@@ -10,7 +10,7 @@ import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { Reporter } from './reporter.ts';
-import { apply, EVENT_TYPES, newStore, setWatched, setWatchedBackground, type BusEvent } from './state.ts';
+import { apply, EVENT_TYPES, loopChain, newStore, setWatched, setWatchedBackground, type BusEvent } from './state.ts';
 import { VERSION } from './version.ts';
 
 let n = 0;
@@ -111,10 +111,39 @@ describe('what a report carries', () => {
     const root = s.roots.get(ROOT)!;
     setWatched(root, [MAIN_LOOP, KID]);
     const r = buildReport(root, [], META);
-    expect(r.session.backgroundItems).toEqual([{ id: 'sh1', kind: 'shell', state: 'running', startedAt: 500, startedKnown: true, label: 'npm' }]);
+    // the orchestrator lists its own and its child's (#1242), the child's naming its owner
+    expect(r.session.backgroundItems).toEqual([{ id: 'sh1', kind: 'shell', state: 'running', startedAt: 500, startedKnown: true, label: 'npm' }, { id: 'sh2', kind: 'shell', state: 'running', startedAt: 600, startedKnown: true, label: 'make', ownerId: KID }]);
     expect(r.agents[0]!.backgroundItems).toEqual([{ id: 'sh2', kind: 'shell', state: 'running', startedAt: 600, startedKnown: true, label: 'make' }]);
     expect(JSON.stringify(r)).not.toContain(SECRET);
     expect(r.session).toMatchObject({ backgroundOutput: false });
+  });
+
+  it('lists, for a loop, the shells of the loop and of every session under it, naming the owner of each (#1242)', () => {
+    const s = setup();
+    const root = s.roots.get(ROOT)!;
+    // a grandchild of the orchestrator, under KID, and a sibling of KID, each with a shell
+    for (const e of [ev('session.created', { sessionID: 'ses_gk', parentID: KID }, 3), ev('session.created', { sessionID: 'ses_sib', parentID: ROOT }, 4)]) apply(s, e, e.created ?? 0);
+    apply(s, created('ses_gk', 'sh3', 'deep run', null, 700), 700);
+    apply(s, created('ses_sib', 'sh4', 'sibling run', null, 800), 800);
+    setWatched(root, [MAIN_LOOP, KID, 'ses_sib']);
+    const r = buildReport(root, [], META);
+    expect(r.session.backgroundItems!.map((i) => i.id)).toEqual(['sh1', 'sh2', 'sh3', 'sh4']);
+    expect(r.session.backgroundItems!.map((i) => i.ownerId)).toEqual([undefined, KID, 'ses_gk', 'ses_sib']);
+    const kid = r.agents.find((a) => a.id === KID)!;
+    expect(kid.backgroundItems!.map((i) => i.id)).toEqual(['sh2', 'sh3']);
+    expect(kid.backgroundItems![0]).not.toHaveProperty('ownerId');
+    expect(r.agents.find((a) => a.id === 'ses_sib')!.backgroundItems!.map((i) => i.id)).toEqual(['sh4']);
+  });
+
+  it('puts a shell whose parent session is gone directly under the orchestrator, naming no loop that does not exist (#1242)', () => {
+    const s = setup();
+    const root = s.roots.get(ROOT)!;
+    apply(s, ev('session.created', { sessionID: 'ses_gk', parentID: KID }, 3), 3);
+    apply(s, created('ses_gk', 'sh9', 'deep run', null, 900), 900);
+    root.sessions.delete(KID);
+    expect(loopChain(root, root.sessions.get('ses_gk')!)).toEqual(['ses_gk', MAIN_LOOP]);
+    setWatched(root, [MAIN_LOOP]);
+    expect(buildReport(root, [], META).session.backgroundItems!.find((i) => i.id === 'sh9')).toMatchObject({ ownerId: 'ses_gk' });
   });
 
   it('carries only the watched loop’s shells', () => {

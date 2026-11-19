@@ -170,6 +170,13 @@ describe("the whole tab", () => {
       </BackgroundOutputFlag.Provider>,
     );
 
+  it("names the agent that started an item a child started, and says when that agent has finished (#1242)", () => {
+    const agents = [makeAgent({ id: "a1", description: "Port invoice endpoints", status: "done" }), makeAgent({ id: "a2", description: "Check migrations", status: "running" })];
+    const { container } = pane(session({ agents }), [item({ id: "own" }), item({ id: "k1", ownerId: "a1" }), item({ id: "k2", ownerId: "a2" }), item({ id: "k3", ownerId: "gone" })]);
+    const lines = [...container.querySelectorAll('[data-testid="bg-row"]')].map((r) => r.querySelector("[data-testid=bg-owner]")?.textContent ?? null);
+    expect(lines).toEqual([null, "Started by Port invoice endpoints, which has finished", "Started by Check migrations", "Started by another agent"]);
+  });
+
   it("says an older reporter does not send background items, and where the Output tab stays as it was", () => {
     const { container } = pane(session({ backgroundOutput: null }), []);
     expect(container.textContent).toContain("This reporter does not send background items.");

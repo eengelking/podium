@@ -132,7 +132,7 @@ is logged and never passed on, so a bug in Podium cannot fail a tool call.
 | Reporter | `skill.prompt` | Records a skill loading, unless a `Skill` tool call or a running agent already accounts for it. |
 | Reporter | `classic.Notification`, `classic.Stop` | A notification from Claude Code, and the list of background work and scheduled wake-ups still running when a turn stops. The same list feeds the Background tab (#897): its shells and monitors, with the folder their output files are in. |
 | Reporter | `classic.SubagentStop` | A subagent's stop lists the same session-wide background tasks (#897); one it started that was not seen starting is kept against that subagent. |
-| Reporter | Background timer | A timer every 3 s (`BACKGROUND_POLL_MS`, #897) that reads the output files of a watched loop's background tasks, through `$.fs`, for when each last printed, the exit code its last line states and, with the option and the Admin flag on and a viewer on the Background tab, its newest output. |
+| Reporter | Background timer | A timer every 3 s (`BACKGROUND_POLL_MS`, #897) that reads the output files of the background tasks of a watched loop and of every agent under it (#1242), through `$.fs`, for when each last printed, the exit code its last line states and, with the option and the Admin flag on and a viewer on the Background tab, its newest output. |
 
 ### Server
 

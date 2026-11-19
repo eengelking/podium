@@ -19,11 +19,11 @@ describe('activity modal: Background tab', () => {
     item('bg-quiet', { label: 'tail', kind: 'monitor', command: 'tail -f build.log', output: 'compiling', lastOutputAt: LONG_AGO }),
   ];
   const push = (over, list) => cy.reportAgain('invoice', over, { 'e2e-a-port': list === undefined ? {} : { backgroundItems: list } });
-  const openModal = () => {
+  const openModal = (agent = 'e2e-a-port') => {
     cy.openConsole('#/');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
-    cy.get('#row-e2e-a-port').click();
+    cy.get(`#row-${agent}`).click();
     cy.get('#podium-side-body').contains('button', 'Expand').click();
     return cy.get('[role=dialog]');
   };
@@ -102,5 +102,33 @@ describe('activity modal: Background tab', () => {
     rows().eq(0).find('button.tgl').click();
     rows().eq(0).contains('Output is off.');
     rows().eq(0).contains('backgroundOutput');
+  });
+
+  // #1242: an agent's tab lists the items its descendants started, each with the agent that started it; its own carry no such line.
+  it('names the agent that started an item, and says when that agent has finished', () => {
+    const own = item('bg-own', { label: 'npm', command: 'npm run watch' });
+    const byChild = item('bg-child', { label: 'make', ownerId: 'e2e-a-pdf', command: 'make pdf' });
+    const byDone = item('bg-done', { label: 'tail', kind: 'monitor', ownerId: 'e2e-a-map', command: 'tail -f pdf.log' });
+    cy.reportAgain('invoice', { backgroundOutput: true }, { 'e2e-a-port': {} });
+    openModal();
+    background().click();
+    cy.reportAgain('invoice', { backgroundOutput: true }, { 'e2e-a-port': { backgroundItems: [own, byChild, byDone] } });
+    rows().should('have.length', 3);
+    rows().eq(0).should('not.contain.text', 'Started by');
+    rows().eq(0).find('[data-testid="bg-owner"]').should('not.exist');
+    rows().eq(1).find('[data-testid="bg-owner"]').should('have.text', 'Started by Rewrite PDF renderer');
+    rows().eq(2).find('[data-testid="bg-owner"]').should('have.text', 'Started by Map invoice call sites, which has finished');
+  });
+
+  // #1242: a finished agent's tab is still asked while the session has a shell running, so it lists a shell that outlived the agent.
+  it('lists the running shell of a finished agent', () => {
+    const shell = item('bg-held', { label: 'npm', command: 'npm run watch' });
+    const over = { backgroundOutput: true, background: { tasks: [{ type: 'shell', description: 'npm run watch', status: 'running' }], wakeAt: null } };
+    cy.reportAgain('invoice', over, { 'e2e-a-map': {} });
+    openModal('e2e-a-map');
+    background().click();
+    cy.reportAgain('invoice', over, { 'e2e-a-map': { backgroundItems: [shell] } });
+    rows().should('have.length', 1);
+    rows().eq(0).should('contain.text', 'npm').and('contain.text', 'Running');
   });
 });

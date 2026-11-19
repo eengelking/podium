@@ -1,6 +1,6 @@
 ---
 title: "68. A loop's background shells and monitors have a Background tab in the Activity modal (#897)"
-description: "The Activity modal lists the shells and monitors one loop started, with output behind its own switches, held in memory only and read for a live viewer."
+description: "The Activity modal lists the shells and monitors a loop and its agents started, with output behind switches, held in memory only and read for a viewer."
 group: "Project internals"
 number: 68
 date: "2026-11-17"
@@ -16,13 +16,18 @@ research (the comment on #897, Claude Code 2.1.326 and OpenCode 2.2.5, each chec
 state, owner and an output file; OpenCode also reports a start time and an exit event; Claude Code has monitors and OpenCode has none.
 
 **Decision.** The Activity modal gets a second tab, **Output | Background**. Output is the existing feed, unchanged. Background lists the shells and
-monitors **one loop** started, in the feed's own rows, and is mirrored on the feed everywhere else: the one modal and its height, the Refresh every select,
+monitors **a loop and everything under it** started (amended 2026-11-19, #1242), in the feed's own rows, and is mirrored on the feed everywhere else: the one modal and its height, the Refresh every select,
 the footer lines, the scroll that follows the newest row and its "Jump to latest", and the message box only in an orchestrator's modal.
 
-- **Scope is per agent, not per owner.** The modal is opened for one orchestrator, subagent or fork and lists what that agent started. There is no owner line
-  and no owner filter. The reporter still attributes each item to the agent that started it (Claude Code: `agentId` on the starting call, or the hook's
-  agent for a task it did not see start; OpenCode: the session in `shell.created`), because that is how an item reaches the right agent's modal. This
-  replaces the issue's first "every owner" wording.
+- **Scope is a loop and everything under it** (amended 2026-11-19, #1242; the first wording was "per agent, not per owner"). The modal is opened for one
+  orchestrator, subagent or fork. An orchestrator's tab lists the items of the orchestrator and of every subagent and fork it launched, nested ones included,
+  and never another orchestrator's. A subagent's or fork's tab lists what it started and what its own children started, and never its parent's or a sibling's.
+  The rule is one walk of the agent tree (`parentId`): a tab lists the items owned by that loop or any descendant of it. The reporter does the walk, for each
+  watched loop, and sends an item a descendant started with `ownerId`, the loop that started it. An item the loop started itself carries none. The row says
+  "Started by *name*" for an item with an `ownerId`, and ", which has finished" when that agent is done while its shell still runs, which the console keeps
+  asking about until nothing under the loop runs. The reporter attributes each item to the agent that started it (Claude Code: `agentId` on the starting call,
+  or the hook's agent for a task it did not see start; OpenCode: the session in `shell.created`). This replaces the issue's first "every owner" wording and
+  the per-agent scope this entry first set.
 - **Switches.** The list (label, state and times) rides `activityFeed`, as the feed does. The whole command and the output have their own reporter option,
   `backgroundOutput`, and their own Admin flag, `background-output`, both off by default, and are sent only for a loop in the reply's `watchBackground`, the
   loops under a live viewer lease. A separate field, as DECISIONS 41 did, because the lease loops and the keep-policy loops must stay apart.
@@ -53,7 +58,8 @@ the footer lines, the scroll that follows the newest row and its "Jump to latest
 
 **Alternatives.**
 
-- Every owner's items in one list with an owner filter. Rejected by the maintainer: the Activity modal is per loop, and the filter implied one window over everything.
+- Every owner's items in one list with an owner filter. Rejected by the maintainer: the Activity modal is per loop, and the filter implied one window over everything. Another orchestrator's items are never listed; a parent lists its own children's, which is the tree scope above.
+- Per agent only, with no owner line (this entry's first scope). Replaced by the maintainer (#1242): an orchestrator that started a subagent could not see what that subagent left running.
 - Storing finished items. Rejected: it would put a person's command output in a database for an Admin's retention to account for.
 - Extending `background` (#119). Rejected: it is built for the waiting state, holds 20 tasks and 120 characters, and never carries a command.
 

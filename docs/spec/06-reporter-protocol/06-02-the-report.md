@@ -283,7 +283,9 @@ What changes inside the v1 fields when `v` is 2:
 
 ### Background items (#897)
 
-A loop's background shells and monitors, in `session.backgroundItems` (the orchestrator's) and `agents[].backgroundItems` (an agent's or fork's). A list is a
+A loop's background shells and monitors, in `session.backgroundItems` (the orchestrator's) and `agents[].backgroundItems` (an agent's or fork's). A loop's list holds
+the items the loop started and those of every agent under it, nested ones included (#1242, DECISIONS 68): the orchestrator's holds the whole session's, an agent's
+its own and its descendants', and never another orchestrator's, a parent's or a sibling's. A list is a
 snapshot: the newest report that carries one replaces the server's held list, and an empty array is a loop with none. A report omits the field for a loop the
 reply does not list in `watch`. The server holds the list in memory with the loop's activity lease and never stores it.
 
@@ -298,6 +300,7 @@ BackgroundItem {
   lastOutputAt?: number;       // epoch ms, from the output file's modification time
   endedAt?: number;            // epoch ms, when the reporter learned it ended; only with "exited"
   label: string;               // the command's first word, redacted, at most 80 characters
+  ownerId?: string;            // the loop that started it, when that is not the loop whose list this is (#1242); absent for the loop's own
   command?: string;            // the whole command, redacted, line breaks kept, cut at 20,000 characters with a marker. Only with the backgroundOutput option and the loop in `watchBackground`
   commandCut?: boolean;
   output?: string;             // the newest 20,000 characters of what it printed, redacted; a cut at the start begins with a marker. Same switches as `command`. "" is an item that printed nothing

@@ -1,7 +1,7 @@
 // A session's background shells and monitors in the Claude Code reporter (#897). Pure: each function takes a SessionState and returns the next one. The
 // register module finds the tasks (a Bash call with `run_in_background`, a Monitor call, the Stop and SubagentStop hooks' `background_tasks`) and reads
 // their output files through `$.fs`; this file holds what it learned and turns it into the items a report carries.
-import { backgroundItem, exitCodeOf, keepBackground, outputTimes, readTail, withoutExitLine, type OutputFs, type RawBackgroundItem } from '../../core/background.ts';
+import { backgroundItem, exitCodeOf, keepBackground, loopChain, outputTimes, readTail, withoutExitLine, type OutputFs, type RawBackgroundItem } from '../../core/background.ts';
 import { MAIN_LOOP, type BackgroundItem } from '../../core/protocol.ts';
 import { ARTIFACT_WATCHER, TASK_DONE, type BgTask, type SessionState } from './state.ts';
 
@@ -9,6 +9,9 @@ import { ARTIFACT_WATCHER, TASK_DONE, type BgTask, type SessionState } from './s
 const MAX_TASKS = 200;
 
 const loopOf = (t: BgTask): string => t.agentId ?? MAIN_LOOP;
+
+/** The loops a task's owner sits under (#1242): the owner, each parent up to the orchestrator. */
+const chainOf = (s: SessionState, owner: string): string[] => loopChain(owner, (id) => s.agents[id]?.parentId, MAX_TASKS);
 
 const trimTasks = (bg: BgTask[]): BgTask[] => {
   if (bg.length <= MAX_TASKS) return bg;
@@ -90,8 +93,8 @@ export function bgFile(s: SessionState, id: string, patch: BgFilePatch): Session
 export function setWatchedBackground(s: SessionState, ids: readonly string[]): SessionState {
   const next = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
   if (next.length === s.watchedBackground.length && next.every((id, i) => id === s.watchedBackground[i])) return s;
-  const keep = new Set(next);
-  const bg = s.bg.map((t) => (keep.has(loopOf(t)) || (t.output === null && !t.settled) ? t : { ...t, output: null, outputCutAtStart: false, settled: false }));
+  // A task keeps its output while its owner, or any loop above its owner, is on the list (#1242): that loop's list carries it too.
+  const bg = s.bg.map((t) => (chainOf(s, loopOf(t)).some((l) => next.includes(l)) || (t.output === null && !t.settled) ? t : { ...t, output: null, outputCutAtStart: false, settled: false }));
   return { ...s, watchedBackground: next, bg, dirty: s.bg.length > 0 ? true : s.dirty };
 }
 
@@ -112,10 +115,14 @@ export function setTasksDir(s: SessionState, dir: string | null): SessionState {
   return { ...s, tasksDir: dir };
 }
 
-/** The items a loop's tasks make in a report: the label, state and times always, the whole command and the output with `detail` (#897). */
+/**
+ * The items a loop's list makes in a report: the label, state and times always, the whole command and the output with `detail` (#897). A loop lists
+ * what it started and what every agent under it started, nested ones included (#1242), so the orchestrator lists the whole session's and never another
+ * orchestrator's. An item a descendant started carries its owner's id; one the loop started itself carries none. An owner that has finished keeps its items.
+ */
 export function bgItems(s: SessionState, loop: string, detail: boolean): BackgroundItem[] {
   const items = s.bg
-    .filter((t) => loopOf(t) === loop)
+    .filter((t) => chainOf(s, loopOf(t)).includes(loop))
     .map((t) => {
       const raw: RawBackgroundItem = {
         id: t.id,
@@ -132,7 +139,9 @@ export function bgItems(s: SessionState, loop: string, detail: boolean): Backgro
         raw.output = t.output;
         raw.outputCutAtStart = t.outputCutAtStart;
       }
-      return backgroundItem(raw, detail);
+      const item = backgroundItem(raw, detail);
+      if (loopOf(t) !== loop) item.ownerId = loopOf(t);
+      return item;
     });
   return keepBackground(items);
 }
@@ -165,9 +174,10 @@ export async function readBackground(fs: OutputFs, s: SessionState, backgroundOu
   if (!dir) return out;
   const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
   for (const t of s.bg) {
-    const loop = loopOf(t);
-    if (!TASK_ID.test(t.id) || !s.watched.includes(loop)) continue;
-    const detail = backgroundOutput && s.watchedBackground.includes(loop);
+    // A task is read for any loop above its owner that is watched: its output shows in that loop's list too (#1242).
+    const chain = chainOf(s, loopOf(t));
+    if (!TASK_ID.test(t.id) || !chain.some((l) => s.watched.includes(l))) continue;
+    const detail = backgroundOutput && chain.some((l) => s.watchedBackground.includes(l));
     if (t.settled && (!detail || t.output !== null)) continue;
     const file = `${dir}${sep}${t.id}.output`;
     const seen = await outputTimes(fs, file, dir);

@@ -103,6 +103,17 @@ describe('the validator', () => {
     if (out.ok) expect(out.report.agents[0]!.backgroundItems).toEqual([detailed()]);
   });
 
+  it('keeps the owner of an item a child started (#1242), cut at the id limit, and none when the loop started it', () => {
+    const out = validateReport(body([item({ id: 'k1', ownerId: 'a-kid' }), item({ id: 'o1' }), item({ id: 'k2', ownerId: 'x'.repeat(LIMITS.id + 50) })]));
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      const items = out.report.agents[0]!.backgroundItems!;
+      expect(items[0]!.ownerId).toBe('a-kid');
+      expect(items[1]).not.toHaveProperty('ownerId');
+      expect(items[2]!.ownerId!.length).toBeLessThanOrEqual(LIMITS.id);
+    }
+  });
+
   it('drops the command and the output when the session says its backgroundOutput option is off', () => {
     const out = validateReport(body([detailed({ commandCut: true, outputCut: true })], false));
     expect(out.ok).toBe(true);
