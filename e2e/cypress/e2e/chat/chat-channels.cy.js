@@ -38,7 +38,7 @@ const fillChannel = (name, desc, link) => {
   });
 };
 const openNewChannel = () => {
-  cy.get('nav[aria-label=Chat]').contains('button', 'New channel').click();
+  cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').click();
   cy.get('[role=dialog]').should('be.visible').and('contain.text', 'New channel');
 };
 const openChat = (who) => {
@@ -52,7 +52,7 @@ describe('chat: public channels', () => {
 
   it('opens a channel from New channel with a description and an issue, and selects it', () => {
     openChat('Ed');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New channel').should('not.be.disabled');
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').should('not.be.disabled');
     openNewChannel();
     cy.get('[role=dialog]').should('contain.text', 'Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in.');
     fillChannel(CH, DESC, ['Issue', '#12']);
@@ -220,8 +220,8 @@ describe('chat: public channels', () => {
   it('opens a Direct Message from New direct message to one of the person\'s own agents, and filters the list as they type', () => {
     openChat('Ed');
     // Its accessible name is its visible text: an aria-label that does not contain it fails axe's label-content-name-mismatch.
-    cy.get('nav[aria-label=Chat]').contains('button', 'New direct message').should('not.have.attr', 'aria-label');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New direct message').click();
+    cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').should('have.attr', 'aria-haspopup', 'dialog');
+    cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').click();
     cy.get('[role=dialog]').should('contain.text', 'New direct message').and('contain.text', 'A Direct Message is read only by you, the agent\'s owner and an Admin.');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Your orchestrator');
@@ -248,7 +248,7 @@ describe('chat: public channels', () => {
 
   it('opens a Direct Message to another person\'s agent, and it waits for that person\'s approval', () => {
     openChat('Alex');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New direct message').click();
+    cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').click();
     cy.tid('dm-form').contains('h3', 'Other people\'s agents');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Ed').and('contain.text', 'Ed approves before it is delivered.').find('input[type=radio]').check();
@@ -373,13 +373,13 @@ describe('chat: the 50 channels a server keeps', () => {
       expect(r.body.error).to.contain('This server has 50 channels besides General, the most it keeps.');
     });
     cy.openConsole('#/chat');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New channel').should('be.disabled');
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').should('be.disabled');
     cy.get('nav[aria-label=Chat]').contains('This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.');
     cy.signIn('Admin');
     call('DELETE', '/channels/fill-50').its('status').should('eq', 200);
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.get('nav[aria-label=Chat]').contains('button', 'New channel').should('not.be.disabled');
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').should('not.be.disabled');
     cy.chatRow('c:fill-50').should('not.exist');
     create('now-it-fits', '', null).its('status').should('eq', 201);
   });

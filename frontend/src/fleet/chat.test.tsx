@@ -443,12 +443,15 @@ describe("the panes, as the Board has them", () => {
   });
 });
 
+/** The words of each section title in the sidebar (a title is a fold button holding the words and a count, and may be followed by a "+"). */
+const titles = (nav: { getAllByRole: (role: string) => HTMLElement[] }) => nav.getAllByRole("heading").map((h) => h.querySelector(".ch-fold > span")?.textContent ?? h.textContent);
+
 describe("the sidebar", () => {
   it("lists Channels, Direct Messages with their tags and unread counts, and People and agents with state and role", async () => {
     page();
     await flush();
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Channels", "Direct Messages", "People and agents"]);
+    expect(titles(nav)).toEqual(["Channels", "Direct Messages", "People and agents"]);
     expect(row("c:general")).toHaveTextContent("General");
     expect(row("c:group")).toHaveTextContent("My group");
     expect(within(row("c:group")).getByLabelText("1 mention of you")).toHaveTextContent("@ 1");
@@ -509,7 +512,7 @@ describe("the sidebar", () => {
     page({ chat: fakeChat(w), me: ROOT });
     await flush();
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels"]);
+    expect(titles(nav)).toEqual(["Read as an Admin", "Channels"]);
     expect(nav.getByText(/belong to a person/)).toBeInTheDocument();
   });
 });
@@ -1775,7 +1778,7 @@ describe("the person an Admin reads, told in the console", () => {
     expect(banner).toHaveTextContent("Root, Alex and 2 more Admins are reading this conversation.");
     expect(banner).toHaveTextContent("after the last of them stops");
     const trigger = within(banner).getByText("Who is reading");
-    const tip = screen.getByRole("tooltip", { hidden: true });
+    const tip = within(trigger.closest("[aria-describedby]") as HTMLElement).getByRole("tooltip", { hidden: true });
     expect(trigger.closest("[aria-describedby]")).toHaveAttribute("aria-describedby", tip.id);
     expect(tip).toHaveTextContent("Reading now: Root since 14:28, Alex since 14:29, Sam since 14:29, Kim since 14:29.");
     expect(tip).not.toBeVisible();
@@ -2172,12 +2175,12 @@ describe("an Admin reading a person's conversations", () => {
     expect(stop).toHaveTextContent("Stop reading");
     const picker = screen.getByLabelText("Read a person's conversations") as HTMLSelectElement;
     expect(picker.value).toBe("Maya");
-    expect(screen.getByRole("heading", { name: "Direct Messages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Direct Messages/ })).toBeInTheDocument();
     fireEvent.click(stop);
     await flush();
     expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
     expect((screen.getByLabelText("Read a person's conversations") as HTMLSelectElement).value).toBe("");
-    expect(screen.queryByRole("heading", { name: "Direct Messages" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Direct Messages/ })).toBeNull();
     expect(screen.getByText("Back to your own conversations.")).toBeInTheDocument();
     await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(document.activeElement).toBe(screen.getByLabelText("Read a person's conversations"));
@@ -2239,7 +2242,7 @@ describe("an Admin reading a person's conversations", () => {
     await pickPerson();
     expect(p.chat.api.overview).toHaveBeenLastCalledWith("Maya");
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels", "Direct Messages"]);
+    expect(titles(nav)).toEqual(["Read as an Admin", "Channels", "Direct Messages"]);
     expect(row("c:group")).toHaveTextContent("read only");
     expect(row("d:dm:m-1|m-2")).toHaveTextContent("Two agents, and Maya, read only");
     expect(row("d:dm:m-1|m-2")).toHaveTextContent("maya-api, maya-ui");
@@ -2609,15 +2612,17 @@ describe("public channels in the sidebar", () => {
     expect(row("c:general").querySelector(".sub")).toHaveTextContent("Everyone signed in to this server");
   });
 
-  it("puts each section's heading and its New button in one row, heading first, so the button can wrap under the heading", async () => {
+  it("puts each section's title and its + in one row: the fold button first, with its count, then the + with its tip", async () => {
     page({ chat: fakeChat(chanWorld()) });
     await flush();
-    for (const [h, b] of [["Channels", "New channel"], ["Direct Messages", "New direct message"]] as const) {
-      const heading = screen.getByRole("heading", { level: 2, name: h });
+    for (const [h, b, tip] of [["Channels", "New channel", "Create a channel"], ["Direct Messages", "New direct message", "Start a direct message"]] as const) {
+      const heading = screen.getByRole("heading", { level: 2, name: new RegExp(`^${h}`) });
       const btn = screen.getByRole("button", { name: b });
-      expect(heading.parentElement).toHaveClass("ch-sec-h");
-      expect(btn.parentElement).toBe(heading.parentElement);
-      expect(heading.nextElementSibling).toBe(btn);
+      expect(heading).toContainElement(btn);
+      expect(btn).toHaveAttribute("aria-haspopup", "dialog");
+      expect(btn).toHaveAccessibleDescription(tip);
+      expect(heading.firstElementChild).toBe(within(heading).getByRole("button", { name: new RegExp(`^${h}`) }));
+      expect(heading.querySelector(".ch-fold .ch-count")).toHaveTextContent(/^\d+$/);
     }
   });
 
@@ -2655,7 +2660,7 @@ describe("public channels in the sidebar", () => {
     await flush();
     const btn = screen.getByRole("button", { name: "New channel" });
     expect(btn).toBeDisabled();
-    expect(btn).toHaveAccessibleDescription("This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.");
+    expect(btn).toHaveAccessibleDescription(/This server has 50 channels besides General, the most it keeps\. An Admin can remove one that is no longer used\./);
     fireEvent.click(btn);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -3127,13 +3132,14 @@ describe("the New direct message form", () => {
   const dlg = () => within(screen.getByRole("dialog", { name: "New direct message" }));
   const sendBtn = () => dlg().getByRole("button", { name: "Send message" });
 
-  it("puts a New direct message button, named by its visible words and with no aria-label, in the Direct Messages heading", async () => {
+  it("puts a + named New direct message, with the tip Start a direct message and no visible words, in the Direct Messages title", async () => {
     page({ chat: withTargets() });
     await flush();
     const b = screen.getByRole("button", { name: "New direct message" });
-    expect(b).not.toHaveAttribute("aria-label");
-    expect(b).toHaveTextContent("New direct message");
-    expect(b.closest("section")).toContainElement(screen.getByRole("heading", { name: "Direct Messages" }));
+    expect(b).toHaveAttribute("aria-label", "New direct message");
+    expect(b).toHaveTextContent("");
+    expect(b).toHaveAccessibleDescription("Start a direct message");
+    expect(b.closest("section")).toContainElement(screen.getByRole("heading", { name: /^Direct Messages/ }));
   });
 
   it("lists your agents, then other people's, hides an ended agent of another person and focuses the search", async () => {
@@ -3315,7 +3321,7 @@ describe("the New direct message form", () => {
     await flush();
     fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
     await flush();
-    expect(screen.getByRole("heading", { name: "Direct Messages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Direct Messages/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New direct message" })).toBeNull();
   });
 
@@ -3601,6 +3607,182 @@ describe("message rows, one bubble, dividers and code blocks (#1232)", () => {
       expect(within(thread()).getByTestId("chat-record")).toBeInTheDocument();
       expect(log()).toHaveAttribute("aria-live", "off");
       await settle();
+    });
+  });
+});
+
+// ---- The sidebar redesign (#1234, mockup/podium-chat-redesign.html) ---------------------------------------------------------
+describe("the redesigned sidebar", () => {
+  const nav = () => screen.getByRole("navigation", { name: "Chat" });
+  const section = (id: string) => nav().querySelector(`section:has(#sec-${id})`) as HTMLElement;
+  const fold = (id: string) => within(section(id)).getAllByRole("button")[0]!;
+
+  it("folds a section from its title: aria-expanded flips, the count stays, and the others do not move", async () => {
+    page();
+    await flush();
+    const f = fold("ch");
+    expect(f).toHaveAttribute("aria-expanded", "true");
+    expect(f).toHaveAttribute("aria-controls", "list-ch");
+    expect(nav().querySelector("#list-ch")).toBeInTheDocument();
+    fireEvent.click(f);
+    expect(f).toHaveAttribute("aria-expanded", "false");
+    expect(section("ch")).toHaveClass("shut");
+    expect(section("dm")).not.toHaveClass("shut");
+    expect(f.querySelector(".ch-count")).toHaveTextContent("2");
+    fireEvent.click(f);
+    expect(f).toHaveAttribute("aria-expanded", "true");
+    expect(section("ch")).not.toHaveClass("shut");
+  });
+
+  it("counts the rows of each section in its title", async () => {
+    page();
+    await flush();
+    expect(fold("ch").querySelector(".ch-count")).toHaveTextContent("2");
+    expect(fold("dm").querySelector(".ch-count")).toHaveTextContent("3");
+    // three orchestrators and the one other person
+    expect(fold("pe").querySelector(".ch-count")).toHaveTextContent("4");
+  });
+
+  it("shows the + tip on hover and on keyboard focus, takes no tab stop of its own, and hides it on blur", async () => {
+    page();
+    await flush();
+    const btn = screen.getByRole("button", { name: "New channel" });
+    const wrap = btn.closest(".ch-addwrap") as HTMLElement;
+    expect(wrap).not.toHaveAttribute("tabindex");
+    const tip = within(wrap).getByRole("tooltip", { hidden: true });
+    expect(tip).toHaveTextContent("Create a channel");
+    expect(tip).not.toBeVisible();
+    fireEvent.mouseEnter(wrap);
+    expect(tip).toBeVisible();
+    fireEvent.mouseLeave(wrap);
+    expect(tip).not.toBeVisible();
+    fireEvent.focus(btn);
+    expect(tip).toBeVisible();
+    fireEvent.blur(btn);
+    expect(tip).not.toBeVisible();
+    expect(btn).toHaveAttribute("aria-describedby", expect.stringContaining(tip.id));
+  });
+
+  it("gives an Admin who reads a person no + in Direct Messages and a + in Channels", async () => {
+    const w = world();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    expect(screen.getByRole("button", { name: "New channel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New direct message" })).toBeNull();
+  });
+
+  it("draws one agent's tile for a conversation with one agent, and an overlapped pair for two parties", async () => {
+    const w = world();
+    const across = direct({ ...ME, sessionId: "person:maya", name: "Maya Kim" }, agent("s-mb", "maya-main", "maya-mbp"), { thread: "dm:person:maya|s-mb", owner: "Ed", cross: { person: "Maya Kim", owner: "Ed", link: "open", viewerIs: "owner" } });
+    w.overview.directs = [...w.overview.directs, across];
+    page({ chat: fakeChat(w) });
+    await flush();
+    const own = rowBtn("d:dm:person:ed|s-notes");
+    expect(own.querySelector(".ch-av-pair")).toBeNull();
+    expect(own.querySelector(".ch-av.agent .ch-av-st")).toBeInTheDocument();
+    const link = rowBtn("d:dm:s-dash|s-tester");
+    expect(link.querySelectorAll(".ch-av-pair .ch-av.agent")).toHaveLength(2);
+    const cross = rowBtn("d:dm:person:maya|s-mb");
+    const kinds = [...cross.querySelectorAll(".ch-av-pair .ch-av")].map((e) => (e.classList.contains("person") ? "person" : "agent"));
+    expect(kinds).toEqual(["person", "agent"]);
+    expect(cross.querySelector(".nm")).toHaveTextContent("Maya Kim, maya-main");
+    expect(cross.querySelector(".sub")).toHaveTextContent("Maya Kim and your agent");
+  });
+
+  it("draws a plain conversation icon for a conversation with no agent in it", async () => {
+    const w = world();
+    w.overview.directs = [direct(ME, { ...ME, sessionId: "person:x", name: "Xi" }, { thread: "dm:person:ed|person:x" })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    const r = rowBtn("d:dm:person:ed|person:x");
+    expect(r.querySelector(".ic-wrap svg")).toBeInTheDocument();
+    expect(r.querySelector(".ch-av")).toBeNull();
+  });
+
+  it("marks a row with unread messages or mentions so its name is bold", async () => {
+    page();
+    await flush();
+    expect(row("d:dm:s-dash|s-tester")).toHaveClass("un");
+    expect(row("c:group")).toHaveClass("un");
+    expect(row("c:general")).not.toHaveClass("un");
+    expect(row("d:dm:person:ed|s-notes")).not.toHaveClass("un");
+  });
+
+  it("lists the other people in People and agents, not you, each with a menu that offers Message", async () => {
+    page();
+    await flush();
+    expect(screen.queryByTestId("chat-row-p:Ed")).toBeNull();
+    const r = row("p:Maya");
+    expect(r.closest("section")).toContainElement(screen.getByRole("heading", { name: /^People and agents/ }));
+    expect(r).toHaveTextContent("Maya");
+    expect(r).toHaveTextContent("Person");
+    expect(r.querySelector(".ch-av.person")).toBeInTheDocument();
+    fireEvent.click(within(r).getByRole("button", { name: "Actions for Maya" }));
+    const menu = screen.getByTestId("chat-menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Message Maya"]);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    fireEvent.contextMenu(r);
+    expect(screen.getByTestId("chat-menu")).toBeInTheDocument();
+  });
+
+  it("opens New direct message with the person's name searched, from the row and from its menu", async () => {
+    const w = world();
+    w.targets = TARGETS;
+    const chat = fakeChat(w);
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("p:Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    expect(dlg.getByLabelText("Find an agent")).toHaveValue("Maya");
+    expect(chat.api.directTargets).toHaveBeenLastCalledWith("Maya");
+    expect(dlg.getAllByRole("radio").map((x) => (x as HTMLInputElement).value)).toEqual(["s-docs", "s-blocked"]);
+    fireEvent.click(dlg.getByRole("button", { name: "Cancel" }));
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(within(row("p:Maya")).getByRole("button", { name: "Actions for Maya" }));
+    fireEvent.click(within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name: "Message Maya" }));
+    await flush();
+    expect(within(screen.getByRole("dialog")).getByLabelText("Find an agent")).toHaveValue("Maya");
+  });
+
+  it("still offers Message on a person with no orchestrator that takes one, and the dialog says why", async () => {
+    const w = world();
+    w.targets = [];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("p:Maya"));
+    await flush();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Maya has no orchestrator that takes a message now.");
+  });
+
+  describe("a row's menu placement", () => {
+    const rects = (menuBottom: number) =>
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        const r = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+        if (this.classList.contains("ch-side")) return r(0, 100);
+        if (this.classList.contains("ch-menu")) return r(menuBottom - 40, menuBottom);
+        if (this.classList.contains("ch-item")) return r(menuBottom - 70, menuBottom - 40);
+        return r(0, 0);
+      });
+    afterEach(() => vi.restoreAllMocks());
+
+    it("opens under the row", async () => {
+      rects(60);
+      page();
+      await flush();
+      fireEvent.click(within(row("c:general")).getByRole("button", { name: "Actions for General" }));
+      expect(screen.getByTestId("chat-menu")).not.toHaveClass("up");
+    });
+
+    it("flips up when it would run past the bottom of the sidebar", async () => {
+      rects(300);
+      page();
+      await flush();
+      fireEvent.click(within(row("c:general")).getByRole("button", { name: "Actions for General" }));
+      expect(screen.getByTestId("chat-menu")).toHaveClass("up");
     });
   });
 });

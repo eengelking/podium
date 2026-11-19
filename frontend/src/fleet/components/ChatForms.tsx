@@ -144,8 +144,9 @@ export function ChannelModal(props: { api: ChatApi; edit: ChatChannel | null; on
   );
 }
 
-export function DirectModal(props: { api: ChatApi; sessions: Record<string, SessionView>; onClose: () => void; onDone: (t: DirectTarget, said: string) => void | Promise<void> }) {
-  const [q, setQ] = useState("");
+/** `person` is a person chosen in the sidebar's People and agents: their name is searched, and when none of their orchestrators can take a message the list says so. */
+export function DirectModal(props: { api: ChatApi; sessions: Record<string, SessionView>; person?: string; onClose: () => void; onDone: (t: DirectTarget, said: string) => void | Promise<void> }) {
+  const [q, setQ] = useState(props.person ?? "");
   const [targets, setTargets] = useState<DirectTarget[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [to, setTo] = useState("");
@@ -245,7 +246,7 @@ export function DirectModal(props: { api: ChatApi; sessions: Record<string, Sess
                 </li>
               )}
               {theirs.map(option)}
-              {targets !== null && shown.length === 0 && <li className="none">{q.trim() ? "No agent matches that." : "No orchestrator is reporting yet."}</li>}
+              {targets !== null && shown.length === 0 && <li className="none">{props.person && q === props.person ? `${props.person} has no orchestrator that takes a message now.` : q.trim() ? "No agent matches that." : "No orchestrator is reporting yet."}</li>}
               {targets === null && !loadError && <li className="none">Loading…</li>}
             </ul>
           </fieldset>
