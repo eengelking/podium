@@ -215,7 +215,7 @@ describe('chat: the page', () => {
     cy.openConsole('#/chat');
     cy.chatRow(GROUP).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 0);
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
     cy.chatRow(GENERAL).find('button.ch-row').click();
     cy.tid('chat-thread').should('not.contain.text', 'group note');
   });
@@ -325,7 +325,7 @@ describe('chat: the stop buttons of a channel', () => {
     openMenu(GENERAL).contains('[role=menuitem]', 'Remove all messages…').click();
     cy.tid('chat-confirm').contains('button', 'Remove all messages').click();
     cy.tid('chat-message').should('have.length', 0);
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
   });
 
   it('lets a person remove all the messages of My group after a confirmation', () => {
@@ -402,5 +402,24 @@ describe('chat: at 400 px', () => {
     cy.contains('button', 'Back to the list').click();
     cy.tid('chat-split').should('have.attr', 'data-pane', 'side');
     cy.chatRow(DM).should('be.visible');
+  });
+  it('fills the window with a 16 px gutter on every side, at two heights, with the box always in view', () => {
+    cy.signIn('Ed');
+    [700, 1100].forEach((h) => {
+      cy.viewport(1440, h);
+      cy.openConsole('#/chat');
+      cy.tid('chat-split').should('exist');
+      cy.tid('chat-split').then(($s) => {
+        const r = $s[0].getBoundingClientRect();
+        const page = $s[0].closest('.apage').getBoundingClientRect();
+        expect(r.top - page.top, 'top gutter').to.eq(16);
+        expect(r.left - page.left, 'left gutter').to.eq(16);
+        expect(page.right - r.right, 'right gutter').to.eq(16);
+        expect(page.bottom - r.bottom, 'bottom gutter').to.eq(16);
+        expect(Math.round(page.bottom), 'the page ends at the window').to.eq(h);
+      });
+      cy.get('.ch-composer textarea').should('be.visible');
+      cy.document().should((doc) => expect(doc.documentElement.scrollHeight, 'the page does not scroll').to.be.at.most(doc.documentElement.clientHeight));
+    });
   });
 });

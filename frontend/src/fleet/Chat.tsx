@@ -41,8 +41,8 @@ export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessio
   else body = <ChatBody {...props} />;
   return (
     <main className="adminv" aria-label="Chat" id="podium-main">
-      <div className="apage">
-        <div className="apage-in">
+      <div className="apage ch-fill">
+        <div className="apage-in ch-page">
           <h1 className="vh">Chat</h1>
           {body}
         </div>
@@ -510,7 +510,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   );
 
   return (
-    <section className="asec" aria-label="Chat">
+    <section className="asec ch-asec" aria-label="Chat">
       {overview.loadError && (
         <div className="errbox" role="alert">
           Could not read Chat again: {overview.loadError}. What is shown may be out of date. It reads again when something changes.
