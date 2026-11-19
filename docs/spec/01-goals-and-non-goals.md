@@ -120,7 +120,7 @@ it as an estimate. Never present it as an invoice.
   ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md)). Whether the call has finished and how it ended (`done`, `failed`,
   `exitCode`) is not output: it goes with the entry whenever the call finishes, with or without output (#598).
 - With orchestrator messaging on (#347), the text of a message one orchestrator sends another goes to the
-  server and is kept there for 30 days, with secrets replaced on the sending machine. Only its owner and an
+  server and is kept there for 30 days by default (an Admin setting), with secrets replaced on the sending machine. Only its owner and an
   Admin can read it ([7.7](07-server/07-07-hardening.md#orchestrator-messaging-347)).
 - With session recording on (#353, `mockup/podium-recording.html`), everything one session's orchestrator and its
   chosen agents do goes to the server whole: prompts, the model's text, tool inputs and their results, file contents

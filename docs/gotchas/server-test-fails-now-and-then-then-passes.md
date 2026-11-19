@@ -32,8 +32,6 @@ about 7% of runs, and none of 60 failed after. Keep it to three loops.
   hundred).
 - A run opens about 3,000 connections and macOS has about 16,000 ephemeral ports. With vitest 5, six loops run out of
   them and fail with `listen EADDRNOTAVAIL 127.0.0.1` all over the suite. That is the machine, not a test.
-- One real timing flake remains: `shipper.test.ts` "sends a full batch on its own" waits a fixed 20 ms for a gzip to
-  finish and fails now and then under load, on vitest 2 as well.
 
 <!-- nav:start -->
 ---

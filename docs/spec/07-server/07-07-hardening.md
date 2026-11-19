@@ -337,6 +337,81 @@ A file's diff is source code. Reads are open by design, so this is one of the fe
   `recording_settings_changed` and `recording_purged`, never text; [7.7](#session-recording-353)), each with the source
   address.
 
+**Every Admin route**
+
+Paths are under `/api/admin`. Every route needs an open session except `GET /session`, `GET /notice` and the two unlocks, and every change (`POST`, `PUT`,
+`DELETE`) needs the header above. The shapes are in [7.1](07-01-endpoints.md#admin-api). A route that writes the admin log
+names its kind; `none` means it writes none. A route whose part is off (TLS, reporters, messaging, Activity history,
+recording) answers `404`.
+
+| Method and path | Purpose | Admin log kind |
+|---|---|---|
+| `GET /session` | Whether Admin is on and this browser is unlocked, with the server's version and build. Open to anyone. | none |
+| `GET /notice` | The count the top bar shows an unlocked Admin of features that stopped after a harness update. `{ unlocked: false }` to anyone else. Does not count as activity, so it never holds off the idle lock. | none |
+| `POST /unlock` | Sign in with a name and a token. | `unlock`; `unlock_failed` on a wrong pair |
+| `POST /unlock/from-respond` | Sign in with no second prompt from a browser signed in to respond as an Administrator. | `unlock` |
+| `POST /lock` | End the session and hold this browser's sign-in to respond shut. | none |
+| `GET /people` | List people, paged and searchable. | none |
+| `POST /people` | Add a person. Answers the token once, and the config file once when TLS is on. | `person_created`; `certificate_issued` with TLS |
+| `POST /people/:id/rotate` | Give the person a new token and end the old one. Answers the new token once. | `token_rotated` |
+| `POST /people/:id/revoke` | Revoke the person's token, and their certificate with it. Refused for the last Administrator. | `token_revoked` |
+| `POST /people/:id/certificate/reissue` | Issue a new config file, once. Restores a revoked person. | `certificate_issued`; `person_restored` when it restored one |
+| `POST /people/:id/certificate/revoke` | Revoke only the person's certificate. | `certificate_revoked` |
+| `POST /people/:id/revoke-all` | Revoke the certificate and the token. Refused for the last Administrator. | `revoked_all` |
+| `GET /people/:id/certificate.pem` | The person's certificate and the CA, public halves only. | none |
+| `POST /people/delete` | Delete 1 to 500 people, all or none (`{ ids }`). Refused for the person who is signed in to Admin. | `person_deleted`, one per person |
+| `PUT /people/:id/group` | Move a person to a group, or to none (`{ groupId }`). | `group_assigned` |
+| `GET /groups` | List groups, paged. | none |
+| `POST /groups` | Create a group. | `group_created` |
+| `DELETE /groups/:id` | Delete a group. A built-in group is refused. | `group_deleted` |
+| `GET /about` | What the server and its reporters are running. Read-only, with no token, address or machine name. | none |
+| `GET /reporters` | List reporters, paged, filtered and sorted. | none |
+| `POST /reporters/remove` | Take reporters off the list by `keys`, by `state` or by a `match` filter. | `reporter_removed` |
+| `GET /reporters/ignores` | List the ignore rules. | none |
+| `POST /reporters/ignores` | Add an ignore rule (`{ kind, pattern }`), which also drops the reporters it matches. | `reporter_ignore_added` |
+| `DELETE /reporters/ignores/:id` | Remove an ignore rule. | `reporter_ignore_removed` |
+| `GET /reporters/:key` | One reporter's detail. | none |
+| `DELETE /reporters/:key` | Take one reporter off the list. | `reporter_removed` |
+| `GET /reporters/:key/peers` | The reporter's messaging links, trust and pending proposals. | none |
+| `POST /reporters/:key/peers/propose` | Propose a messaging level between two reporters (`{ from?, to, level }`). The owner must accept it. Answers `202`. | none here; the messaging trail records it |
+| `PUT /reporters/:key/peers/pause` | Pause or resume all of the reporter's messaging links (`{ paused }`). The person is told. | `peer_links_paused` or `peer_links_resumed` |
+| `DELETE /reporters/:key/peers/:other` | Remove the messaging link between two reporters. The person is told. | `peer_link_removed` |
+| `GET /peers/conversations` | The conversations between agents in a range (`live`, `24h` or `30d`), names and counts. | none |
+| `GET /peers/conversations/:a/:b` | Read one conversation's text. Recorded before it is answered, and its owners are told. A person's Chat is refused (`403`). | `chat_admin_read` |
+| `GET /settings` | Every setting the Admin page shows. | none |
+| `PUT /settings` | Change one setting per call (the body's one key says which). | See the table below |
+| `POST /activity-history/preview` | What a policy would delete, before it is saved (`{ settings }`). Changes nothing. | none |
+| `GET /stored-activity` | The stored sessions of the Activity history, or of the recordings with `source=recordings`, paged and filtered. | none |
+| `POST /stored-activity/delete` | Delete stored sessions by `ids`, a `match` filter or `all`. The owners are told. | `activity_deleted`; `recording_deleted` for recordings |
+| `GET /certificates` | The CA, the serving certificate and the settings (TLS on). | none |
+| `GET /certificates/ca.pem` | The CA certificate. | none |
+| `PUT /certificates` | Change the `tls.*` settings. | `tls_settings_changed`; `tls_http_changed` for the HTTP switch |
+| `POST /certificates/renew` | Renew the serving certificate now. | `tls_serving_renewed`; `tls_serving_renew_failed` |
+| `POST /certificates/rotate-ca` | Rotate the CA (`{ endOverlap }`). | `tls_ca_rotated` |
+| `POST /certificates/retire-ca` | Retire the old CA. | `tls_ca_retired` |
+| `GET /recordings` | List recordings, paged, by `state` and `q`. | none |
+| `POST /recordings/:sessionId/stop` | Stop a session's recording. The owner is told. | `recording_stopped` |
+| `DELETE /recordings/:sessionId` | Delete a session's recording. The owner is told. | `recording_deleted` |
+| `GET /reports/retention`, `GET /reports/spend/projection`, `GET /reports/spend/today/:owner`, `GET /reports/:report` | The Reporting reports ([7.1](07-01-endpoints.md)). Read-only. | none |
+| `GET /log` | The admin log, paged. | none |
+
+`PUT /settings` takes one key per call. Each is logged under its own kind:
+
+| Key | Admin log kind |
+|---|---|
+| `allowAdminSecretReporting` | `admin_reporting_changed` |
+| `forgetReporters` | `reporters_forget_changed` |
+| `peerMessaging` | `peer_limits_changed` |
+| `chat` | `chat_settings_changed` |
+| `activityHistory` | `activity_history_changed` |
+| `recording` | `recording_settings_changed` |
+| `showBackgroundSessions` | `wall_background_changed` |
+| `cardTitleMachine` | `wall_card_title_changed` |
+| `features` | `feature_changed`, one per feature |
+| `notices` | `wall_notice_changed`, one per notice |
+| `modelPrice` | `model_price_changed`; none when the values did not change |
+| `resetModelPrice` | `model_price_reset`; none when nothing was overridden |
+
 **Names**
 - A name is 1 to 48 characters and a group name 1 to 24, with no control characters, both unique
   case-insensitively.

@@ -10,7 +10,7 @@ order: 11
 
 The design must not preclude these.
 
-- A terminal pane or band inside Claude Code that shows the same fleet (the mod's `$.ui.open` and `ui.render` can draw it later; keep `state.ts` UI-free so a pane can read it).
+- A terminal pane or band inside Claude Code that shows the same fleet (the `/podium config` settings window is the one pane that ships) (the mod's `$.ui.open` and `ui.render` can draw it later; keep `state.ts` UI-free so a pane can read it).
 - Remote or multi-machine fleets beyond one shared server: a named reporter already sends `machine` (6.2), and the people view groups by person and machine (8.1).
 - Alerts and notifications (a blowout at level 2 pushes a desktop notification): `session.blowouts.level` and `$.ui.notify` are the hooks for it.
 - Budgets, comparisons between runs, cost per plan step. (A spend projection for the period shipped in #483.)

@@ -74,7 +74,7 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 - A sample draws a `position: fixed` part (the toast, a tip, a modal's backdrop) in place, and an Admin `main` as a `div`.
   Those are the only differences between a sample and the app. The parity pass fails when a class that `fleet.css` or
   `admin.css` fixes has no in-place rule under `.s-sample` in `docs/standards/standards.css` (a hand-written file the pages
-  link). The rule for the row Actions menu arrives with the release's standards update (#700).
+  link).
 
 Two project skills and an agent keep it honest: `/podium-standards-check`, `/podium-standards-update` and
 `podium-ui-auditor` (`.claude/`).

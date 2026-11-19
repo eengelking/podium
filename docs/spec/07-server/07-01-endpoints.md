@@ -28,7 +28,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `PUT /api/fleet/wall/background-sessions` | Body `{ show: boolean }`: the Show them / Hide them link on the background-sessions note changes this setting. No token. 400 unless `show` is a boolean. |
 | `POST /api/fleet/sessions/:id/drop` | Remove a heartbeat-lost session from the live view now: the same exit as the automatic drop ([7.5](07-05-lifecycle-timers.md)). No token. 404 if the session is not live, 409 if it is not `stale`. |
 | `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured; a person's token works only on that person's own sessions (`403` otherwise). |
-| `GET /api/health` | `{ status: "ok" }`. Any other path under `/api` that no route answers gets the JSON `404 { error: "Not found" }`. |
+| `GET /api/health` | `{ status: "ok" }`. Any other path under `/api` that no route answers gets the JSON `404 { error: "Not found" }`, except under `/api/fleet`, where it is `404 { ok: false, error: "not found", path: "$" }`. |
 | `GET /api/fleet/health` | `{ ok, dbPath, dbKind, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
 | `POST /api/fleet/hook` | Phase 5: classic settings-hook payloads. |
 | `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations, retainDays, serverTime }`. Counts and states, never the text. No token, like the other reads. A conversation with a person at either end is that person's Chat and is left out. Details under the messaging routes below. |
@@ -235,7 +235,7 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
 
 **`DELETE /api/fleet/respond/deliveries/:deliveryId`**: "Discard my answer".
 - Drops an answer or message the mod has not been handed yet. Its sender or an Admin.
-- `200 { ok: true }`. `409 { ok: false, error: "handed over" }` once the mod has it. `404` when it's gone.
+- `200 { ok: true }`. `409 { ok: false, error: "handed over" }` once the mod has it. `404` when it's gone. `403` when the delivery is neither the caller's nor an Admin's ("not your answer"), when responding is off, or when the caller is not signed in.
 
 **`POST /api/fleet/respond/sessions/:id/messages`**: sends a new message or a command.
 - Body: `{ text }` or `{ command: "clear" | "compact" }`. Owner or Admin, with `message` (or `command`) in the
@@ -509,7 +509,7 @@ need the unlocked Admin session like the rest of the Admin API.
 | `POST /api/admin/certificates/rotate-ca` | Rotate the CA. Body `{ endOverlap }`: false is a planned rotation with an overlap, true is the hard cutover. |
 | `POST /api/admin/certificates/retire-ca` | Retire the old CA after a planned rotation. Answers `409` when there is none. The reply names how many reporters were still on it (`refused`) and how many connections it closed. |
 | `GET /api/admin/certificates/ca.pem` | The CA certificate, for a person who wants to check it. No key. The page no longer links it (#665). |
-| `GET /api/admin/people` | Also answers `tls` (whether TLS is on) and, on each row, `certificate`: `{ notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
+| `GET /api/admin/people` | Also answers `tls` (whether TLS is on) and, on each row, `certificate`: `{ notBefore, notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
 | `POST /api/admin/people` | Also returns the reporter config file, once, with the token. It cannot be fetched again. |
 | `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. A revoked person is restored (their token is unchanged), since a certificate for a revoked person is refused. |
 | `POST /api/admin/people/:id/certificate/revoke` | Revoke the person's certificate. Their token and console sign-in are unchanged. |
@@ -524,8 +524,8 @@ Needs `X-Podium-Token` from the session's owner ([7.7](07-07-hardening.md)), lik
 
 **`POST /api/fleet/sessions/:id/recording`**: the mod's batch of recorded entries ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)).
 - Body: one `RecordingBatch`, `{ v: 1, sentAt, entries }`, at most 200 entries. Each entry is `{ loop, seq, at, kind,
-  text, name?, callSeq?, failed?, cut?, lost? }` with `kind` one of `prompt`, `text`, `tool`, `result`, `thinking`,
-  `clear`, `compact`, `gap` (`stopped` and `limit` are written by the server and refused). `text` keeps its line
+  text, name?, callSeq?, failed?, cut?, lost?, by? }` with `kind` one of `prompt`, `text`, `tool`, `result`, `thinking`,
+  `clear`, `compact`, `decision`, `gap` (`stopped` and `limit` are written by the server and refused). `decision` is an answer or approval sent from Podium and taken by Claude Code, and its optional `by` (also allowed on `clear` and `compact`) says who sent it. `text` keeps its line
   breaks and is clipped to 100,000 characters plus the cut-off marker.
 - `200 { ok: true, stored, recording }`: `stored` is how many entries were new (an entry held already, by
   `(loop, seq)`, is dropped and not an error) and `recording` is the `RecordingGrant` after the batch, so a limit
@@ -537,7 +537,7 @@ Needs `X-Podium-Token` from the session's owner ([7.7](07-07-hardening.md)), lik
   replay's order of storing.
 - `403 { ok: false, error: "recording is off" }` while the three yes answers are not all true for this session,
   except for that late batch of a stopped recording; also for a recording stopped by a limit or the budget, and one
-  that was deleted (nothing is stored, and the mod stops capturing). `404` for a session that is not live and has no recording, `400`
+  that was deleted (nothing is stored, and the mod stops capturing). `404` for an unknown session, or an ended one that holds no recording, `409 { error: "the session has ended" }` for an ended session that still holds one, `400`
   for a body that fails validation, `401` for a missing or wrong credential, `409` as for a report, `413` above
   512 KB.
 - A session that has ended is not accepted again: its recording is kept as it is.
@@ -577,7 +577,7 @@ as the Activity history, [7.7](07-07-hardening.md#activity-history-432)): `401` 
 - **`PUT /api/fleet/respond/sessions/:id/recording`**: start, or change which loops are recorded. Body:
   `RecordingStartRequest`, `{ loops }`, 1 or more loop ids of the session. `200 { ok: true, grant }`. Loops added
   later are recorded from that moment on; nothing before it is kept. `409` when the disk budget has no headroom (7.7) or the
-  recording has stopped for its limit (`DELETE` it first to start again), `400` for a loop the session does not have.
+  recording has stopped for its limit (`DELETE` it first to start again), `409 { error: "the session is not running" }` for an ended session, `409` while the last recording of the session is still being deleted, `400` for a loop the session does not have.
   It does not need the reporter's option: it records the choice, and the reply's `grant.consent.owner` says whether
   the owner has allowed it, so the picker can tell the person.
 - **`POST /api/fleet/respond/sessions/:id/recording/stop`**: stop capture, keep what was recorded. `200 { ok: true,
@@ -624,7 +624,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
     - Reply: `{ report, from, to, by, tz, basedOn, oldestDay, columns: [{ key, label, unit }], rows, total }`.
       `oldestDay` is the first day the rollups hold (today when there are none yet). `partial` is `true` whenever `from` is
       before it: a period wholly before it has `rows: []`, and one that straddles it returns the rows from `oldestDay`
-      on, so the page says so instead of drawing zeros. `basedOn` is `rollups`, `rollups and live` or `admin log`. A figure that is unknown is `null`, not 0.
+      on, so the page says so instead of drawing zeros. `basedOn` is `rollups`, `rollups and live`, `admin log`, `reporters heard from in the last 30 days` (harness and platform) or `your stored sessions` (My usage). A figure that is unknown is `null`, not 0.
     - `format=csv` returns the same `columns` and `rows` as text (RFC 4180; the header row is each column's `label`, not its `key`; a cell that starts with
       `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'`, except the placeholder `-`), `Content-Disposition: attachment`. The page's JSON export is the
       reply itself, so an export always matches the screen.

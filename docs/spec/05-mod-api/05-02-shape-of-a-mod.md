@@ -17,7 +17,7 @@ A mod is three files plus optional extras:
 Rules the module must obey:
 
 - Runs in its own sandbox: **no DOM, no Node, no `import()`**. Everything outside is reached through `$`.
-- Every file the plugin imports must be `.ts`, `.tsx`, `.jsx`, `.js`, `.mjs`, `.cjs`, `.mts` or `.cts` and is an ES module. Import with `import` declarations only. **Assumption:** relative imports may need explicit extensions (`./state.ts`); try `validate` and keep whichever form it accepts.
+- Every file the plugin imports must be `.ts`, `.tsx`, `.jsx`, `.js`, `.mjs`, `.cjs`, `.mts` or `.cts` and is an ES module. Import with `import` declarations only. Relative imports carry the `.ts` extension (`./state.ts`), as the reporter's own imports do.
 - A hook is `($, e, next)`.
   - `next(e)` runs the plugins beneath and then the engine, resolving to the event's result.
   - Returning without `next` answers for yourself (never do this in the reporter except for the commands and

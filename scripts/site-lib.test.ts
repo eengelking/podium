@@ -93,7 +93,7 @@ describe("rewriteTarget", () => {
     const old = { ...ctx, ref: "v1.2.2" };
     expect(rewriteTarget("../server/src/db.ts", old)).toBe("https://github.com/eengelking/podium/blob/v1.2.2/server/src/db.ts");
     expect(rewriteTarget("../plugin/", old)).toBe("https://github.com/eengelking/podium/tree/v1.2.2/plugin");
-    expect(rewriteTarget("ISSUES.md#a", old)).toBe("https://github.com/eengelking/podium/blob/v1.2.2/docs/ISSUES.md#a");
+    expect(rewriteTarget("NOTES.md#a", old)).toBe("https://github.com/eengelking/podium/blob/v1.2.2/docs/NOTES.md#a");
     expect(rewriteTarget("fixtures", old)).toBe("https://github.com/eengelking/podium/tree/v1.2.2/docs/fixtures");
   });
   it("leaves a path that climbs out of the repository", () => {
@@ -114,8 +114,8 @@ describe("rewriteLinks", () => {
     expect(rewriteLinks("[docs/SERVER.md](../docs/SERVER.md)", ctx)).toBe("[Server](/server/)");
   });
   it("keeps link text that is not a bare file name, or whose file is not a page", () => {
-    expect(rewriteLinks("[the server guide](SERVER.md) and [ISSUES.md](ISSUES.md) and [x.md](https://x.test/x.md) and [SERVER.md](#top)", ctx)).toBe(
-      "[the server guide](/server/) and [ISSUES.md](https://github.com/eengelking/podium/blob/main/docs/ISSUES.md) and [x.md](https://x.test/x.md) and [SERVER.md](#top)",
+    expect(rewriteLinks("[the server guide](SERVER.md) and [NOTES.md](NOTES.md) and [x.md](https://x.test/x.md) and [SERVER.md](#top)", ctx)).toBe(
+      "[the server guide](/server/) and [NOTES.md](https://github.com/eengelking/podium/blob/main/docs/NOTES.md) and [x.md](https://x.test/x.md) and [SERVER.md](#top)",
     );
   });
   it("does not touch code spans or fenced blocks", () => {

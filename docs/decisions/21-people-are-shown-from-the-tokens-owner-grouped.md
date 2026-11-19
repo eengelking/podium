@@ -10,7 +10,7 @@ order: 21
 
 # 21. People are shown from the token's owner, grouped in the browser, and machines carry a random id
 
-*Amended by 55 (#967): the machine id is read from the reporter's own file, then its store, then the shared `~/.podium/machine-id`, and the winner is written to the shared file.*
+*Amended by 55 (#967): the machine id is read from the reporter's own file, then its store, then the shared `~/.podium/machine-id`, and the winner is written to the shared file. The pinned machine name is shared the same way, in `~/.podium/machine-name`.*
 
 **Decision.** The people view (#34) groups sessions by `sessions.owner`, which the server sets from the token
 (decision 20), not by the `userName` a report carries.

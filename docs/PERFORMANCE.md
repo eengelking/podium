@@ -33,7 +33,7 @@ validation.
 
 ## How to measure
 
-Four scripts in `scripts/` take the numbers on this page. Each starts its own throwaway server on a free port with a temporary database and
+Five scripts in `scripts/` take the numbers on this page. Each starts its own throwaway server on a free port with a temporary database and
 stops everything it started. None of them touches a server you use. Build first with `npm run build`.
 
 | Script | Measures |

@@ -11,7 +11,7 @@ order: 4
 ```
  Claude Code session A  ──┐   POST /api/fleet/report (JSON, ~1/s while changing, heartbeat every 5 s)
  Claude Code session B  ──┼──────────────────────────────►  Podium server (Express, 127.0.0.1:4317)
- Claude Code session C  ──┘   (reporter mod, via $.http.fetch)     │  validate → upsert → derive → persist (SQLite)
+ Claude Code session C  ──┘   (reporter mod, via $.http.fetch)     │  validate → upsert → derive → persist (storage adapter)
                                                                    │
  Browser tab  ◄──────────  GET /api/fleet/stream (SSE)  ◄──────────┘  sweeper: stale / done / dropped
               ───────────► GET /api/fleet/state (first paint + resync)
@@ -36,7 +36,7 @@ plugin/core/                         code every harness shares (#927); a harness
 plugin/claudecode/                   the Claude Code mod (what is specific to that harness)
   .claude-plugin/plugin.json
   hooks/hooks.json
-  hooks/register.ts                  wiring only: registers hooks, no logic
+  hooks/register.ts                  registers the hooks and runs what drives them; pure rules are in state.ts, respond.ts and plugin/core/
   hooks/state.ts                     in-memory session model and pure reducers
   hooks/report.ts                    builds a Report from state
   hooks/models.ts                    model family, context windows, price table
@@ -127,7 +127,7 @@ of two modes: `container` (the default when Podman or Docker is installed) or `s
 Container mode uses Podman when it is installed and Docker otherwise; `--engine podman|docker` chooses.
 
 - Commands: `build`, `start`, `stop`, `restart`, `status`, `logs`, `health`, `url`, `token`, `config`,
-  `enable`, `disable`, `shell`, `rm` and `run`, and a `--help`.
+  `enable`, `disable`, `shell`, `rm`, `run` and `context`, and a `--help`.
 - `status` exits 3 when the server is stopped.
 - `--mode`, `--engine`, `--port` and `--bind` are saved in `~/.podium/config.env` (mode 0600, home overridable with
   `PODIUMCTL_HOME`).

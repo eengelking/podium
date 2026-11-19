@@ -115,7 +115,7 @@ for an opened session. The frame it shares with the other pages (top bar, info r
   owner or an Admin), and stored Activity history ([8.1](08-01-what-the-ui-must-do.md)), which only the owner or an
   Admin may read.
 - The top bar's **Sign in** is shown only while at least one thing needs it: responding, file diffs, peer messaging,
-  stored Activity history or session recording is on. With all of them off there is no Sign in and the page does not
+  stored Activity history, session recording or My usage is on. With all of them off there is no Sign in and the page does not
   ask who is signed in. Its dialog's wording follows what is on ([8.1](08-01-what-the-ui-must-do.md)).
 - A viewer who signs in or out sees the day read again, so rows gain or lose the recording line at once.
 
