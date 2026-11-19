@@ -64,6 +64,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 4px 6px 8px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
 .ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ch-row .nm .nm-own { font-weight: 400; color: var(--muted); }
 .ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-item.un .ch-row .nm { font-weight: 650; }
@@ -388,16 +389,18 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
       <ul class="ch-list">
         <li class="ch-item un" data-key="d:tester"><button type="button" class="ch-row" ><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">Orchestrator on ed-mbp, waiting for you</span></span><span class="unread" aria-label="1 new">1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item " data-key="d:main"><button type="button" class="ch-row" ><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">podium-main</span><span class="sub">Orchestrator on ed-mbp, running</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for podium-main" data-tip="Actions for podium-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
-        <li class="ch-item " data-key="d:maya"><button type="button" class="ch-row" ><span class="ch-av person" aria-hidden="true">MK</span><span class="stack"><span class="nm">Maya Kim</span><span class="sub">Across owners, Maya Kim approves</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim" data-tip="Actions for Maya Kim"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:maya"><button type="button" class="ch-row" ><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">maya-main <span class="nm-own">(Maya Kim's)</span></span><span class="sub">Across owners, Maya Kim approves</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for maya-main" data-tip="Actions for maya-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item " data-key="d:notes"><button type="button" class="ch-row" ><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-done"><svg><use href="#s-done"/></svg></span></span><span class="stack"><span class="nm">infra-notes</span><span class="sub">Orchestrator on ed-mbp, done</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for infra-notes" data-tip="Actions for infra-notes"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
       </ul></section>
-    <section class="ch-sec sec-pe o-only" id="sec-pe"><h2><button type="button" class="fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n">5</span></button></h2>
+    <section class="ch-sec sec-pe o-only" id="sec-pe"><h2><button type="button" class="fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n">7</span></button></h2>
       <ul class="ch-list">
         <li class="ch-item hl-waiting" data-key="a:tester" data-name="Tester"><button type="button" class="ch-row" title="Message Tester"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">Orchestrator on ed-mbp, waiting for you</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item hl-running" data-key="a:main" data-name="podium-main"><button type="button" class="ch-row" title="Message podium-main"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">podium-main</span><span class="sub">Orchestrator on ed-mbp, running</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for podium-main" data-tip="Actions for podium-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item hl-running" data-key="a:bot" data-name="release-bot"><button type="button" class="ch-row" title="Message release-bot"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">release-bot</span><span class="sub">Orchestrator on ed-mbp, running</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for release-bot" data-tip="Actions for release-bot"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item hl-done" data-key="a:notes" data-name="infra-notes"><button type="button" class="ch-row" title="Message infra-notes"><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-done"><svg><use href="#s-done"/></svg></span></span><span class="stack"><span class="nm">infra-notes</span><span class="sub">Orchestrator on ed-mbp, done</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for infra-notes" data-tip="Actions for infra-notes"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item hl-stale" data-key="a:docs" data-name="docs-sweeper"><button type="button" class="ch-row" title="Message docs-sweeper"><span class="ch-av agent fable" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="st st-off"><svg><use href="#s-off"/></svg></span></span><span class="stack"><span class="nm">docs-sweeper</span><span class="sub">Orchestrator on ed-mbp, heartbeat lost</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for docs-sweeper" data-tip="Actions for docs-sweeper"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+      <li class="ch-item" data-key="p:maya" data-name="Maya Kim" data-person="1"><button type="button" class="ch-row" title="Message Maya Kim"><span class="ch-av person" aria-hidden="true">MK</span><span class="stack"><span class="nm">Maya Kim</span><span class="sub">Person, online</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim" data-tip="Actions for Maya Kim"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item" data-key="p:jo" data-name="Jo Okafor" data-person="1"><button type="button" class="ch-row" title="Message Jo Okafor"><span class="ch-av person" aria-hidden="true">JO</span><span class="stack"><span class="nm">Jo Okafor</span><span class="sub">Person, away</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Jo Okafor" data-tip="Actions for Jo Okafor"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
       </ul></section>
   </nav>
 
@@ -628,6 +631,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   }
   function dlgClose() {
     if (!openId) return; var sc = document.getElementById(openId); sc.hidden = true; openId = null;
+    if (sc.id === 'm-dm') { $('#dm-q').value = ''; $('#dm-q').dispatchEvent(new Event('input')); sc.querySelectorAll('input[name=dm-to]').forEach(function (x) { x.checked = false; }); $('#dm-msg').value = ''; }
     sc.querySelectorAll('.ferr').forEach(function (e) { e.hidden = true; e.textContent = ''; });
     sc.querySelectorAll('[aria-invalid]').forEach(function (e) { e.removeAttribute('aria-invalid'); });
     if (openedBy && openedBy.focus) openedBy.focus();
@@ -659,6 +663,12 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   $('#dm-q').addEventListener('input', function () {
     var q = this.value.trim().toLowerCase(), any = false;
     document.querySelectorAll('#dm-list li[data-n]').forEach(function (li) { var show = !q || li.dataset.n.indexOf(q) > -1; li.hidden = !show; any = any || show; });
+    // A group's title goes when none of its agents match.
+    var lis = Array.from(document.querySelectorAll('#dm-list > li')), head = null, count = 0;
+    lis.concat([null]).forEach(function (li) {
+      if (li === null || li.querySelector('h3')) { if (head) head.hidden = count === 0; head = li; count = 0; }
+      else if (li.dataset.n && !li.hidden) count++;
+    });
     $('#dm-none').hidden = any;
   });
   $('#f-dm').addEventListener('submit', function (e) {
@@ -743,12 +753,13 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     if (key === 'c:release') return adm ? { label: 'Actions for release-1-7', items: [it('pause-all', 'Pause release-1-7 for everyone', 'pause'), it('edit', 'Edit description…', 'msg'), it('remove-channel', 'Remove channel…', 'trash', { danger: true }), it('clear', 'Remove all messages…', 'trash', { danger: true })] }
       : { label: 'Actions for release-1-7', items: [it('pause', 'Pause my agents in release-1-7', 'pause'), it('disconnect', 'Disconnect my agents in release-1-7', 'pause'), it('edit', 'Edit description…', 'msg')], why: P };
     if (key.indexOf('d:') === 0) {
-      var nm = { 'd:tester': 'Tester', 'd:main': 'podium-main', 'd:maya': 'Maya Kim', 'd:notes': 'infra-notes' }[key], link = key === 'd:main' || key === 'd:maya', lab = 'Actions for ' + nm;
+      var nm = { 'd:tester': 'Tester', 'd:main': 'podium-main', 'd:maya': 'maya-main', 'd:notes': 'infra-notes' }[key], link = key === 'd:main' || key === 'd:maya', lab = 'Actions for ' + nm;
       if (rd) return link ? { label: lab, items: [it('pause-link', 'Pause link', 'pause')], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + " removes the link or deletes the conversation. An Admin can pause all of a reporter's links in Admin > Reporters." }
         : { label: lab, items: [], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + ' deletes the conversation.' };
       var items = []; if (link) { items.push(it('pause-link', 'Pause link', 'pause')); items.push(it('remove-link', 'Remove link…', 'trash', { danger: true })); }
       items.push(it('delete-dm', 'Delete conversation…', 'trash', { danger: true })); return { label: lab, items: items };
     }
+    if (key.indexOf('p:') === 0) { var pn = document.querySelector('[data-key="' + key + '"]').dataset.name; return { label: 'Actions for ' + pn, items: [it('message', 'Message ' + pn, 'msg'), it('mention', 'Mention ' + pn, 'msg')] }; }
     if (key.indexOf('a:') === 0) { var an = document.querySelector('[data-key="' + key + '"]').dataset.name; return { label: 'Actions for ' + an, items: [it('message', 'Message ' + an, 'msg'), it('open', 'Open orchestration page', 'play', { href: '#' })] }; }
     return { label: 'Actions', items: [] };
   }
@@ -778,6 +789,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   document.querySelectorAll('.ch-item').forEach(function (li) {
     li.addEventListener('contextmenu', function (e) { e.preventDefault(); showMenu(li, 'context'); });
     li.querySelector('.ch-more').addEventListener('click', function (e) { e.stopPropagation(); showMenu(li, 'button'); });
+    if (li.dataset.person) li.querySelector('.ch-row').addEventListener('click', function () { runAct('message', li.dataset.name, 'Message ' + li.dataset.name); });
     li.querySelector('.ch-row').addEventListener('click', function () { document.querySelectorAll('.ch-item.on').forEach(function (x) { x.classList.remove('on'); }); li.classList.add('on'); li.classList.remove('un'); var u = li.querySelector('.unread'); if (u) u.remove(); });
   });
   document.addEventListener('mousedown', function (e) { if (openMenu && !e.target.closest('.ch-menu, .ch-more, .ch-av[aria-haspopup]')) closeMenu(false); });
@@ -791,35 +803,46 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     else if (all.length && e.key === 'Home') { e.preventDefault(); all[0].focus(); }
     else if (all.length && e.key === 'End') { e.preventDefault(); all[all.length - 1].focus(); }
   }, true);
+  // What a menu item does. Message opens the New direct message dialog (a person is messaged through their orchestrator), Mention writes
+  // the address into the message box, and anything else only says what it would do.
+  function runAct(act, who, label) {
+    closeMenu(true);
+    if (act === 'message') {
+      dlgOpen('m-dm', document.activeElement);
+      var rb = document.querySelector('input[name=dm-to][value="' + who + '"]');
+      if (!rb) { var q = $('#dm-q'); q.value = who; q.dispatchEvent(new Event('input')); var ok = Array.from(document.querySelectorAll('#dm-list li[data-n]:not([hidden]) input:not([disabled])')); rb = ok.length === 1 ? ok[0] : null; }
+      if (rb) rb.checked = true; $('#dm-msg').focus(); $('#announce').textContent = 'New direct message to ' + who + '. (mockup)'; return;
+    }
+    if (act === 'mention') { var tag = { 'Maya Kim': '@Maya@console ', 'Jo Okafor': '@Jo@console ' }[who] || '@' + who + ' '; ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + tag; ta.focus(); grow(); $('#announce').textContent = 'Mentioned ' + who; return; }
+    $('#announce').textContent = label + ' (mockup)';
+  }
   document.addEventListener('click', function (e) {
     var b = e.target.closest('.ch-menu [role=menuitem]'); if (!b) return; if (b.tagName === 'A') e.preventDefault();
-    var act = b.dataset.act, who = b.dataset.who || (b.dataset.label || '').replace(/^Message /, '');
-    closeMenu(true);
-    if (act === 'message') { dlgOpen('m-dm', document.activeElement); var rb = document.querySelector('input[name=dm-to][value="' + who + '"]'); if (rb && !rb.disabled) rb.checked = true; $('#dm-msg').focus(); $('#announce').textContent = 'New direct message to ' + who + '. (mockup)'; return; }
-    if (act === 'mention') { var tag = { 'Maya Kim': '@Maya@console ', 'Jo Okafor': '@Jo@console ' }[who] || '@' + who + ' '; ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + tag; ta.focus(); grow(); $('#announce').textContent = 'Mentioned ' + who; return; }
-    $('#announce').textContent = b.dataset.label + ' (mockup)';
+    runAct(b.dataset.act, b.dataset.who || (b.dataset.label || '').replace(/^(Message|Mention) /, ''), b.dataset.label);
   });
   // ---- The same menus from a sender's avatar (thread and members list): right-click, click, Enter or the menu key. An agent offers what its
   // row in People and agents offers; a person offers Mention (channels address people by @). You have no menu on your own avatar.
-  function showAvMenu(av, name, isAgent) {
+  function showAvMenu(av, name, isAgent, pt) {
     if (openMenu && openMenu.kebab === av) return closeMenu(true);
     closeMenu(false); hideTip();
-    var items = isAgent ? [['message', 'Message ' + name, 'msg'], ['open', 'Open orchestration page', 'play']] : [['mention', 'Mention ' + name, 'msg']];
+    var items = isAgent ? [['message', 'Message ' + name, 'msg'], ['open', 'Open orchestration page', 'play']] : [['message', 'Message ' + name, 'msg'], ['mention', 'Mention ' + name, 'msg']];
     var el = document.createElement('div'); el.className = 'ch-menu fixed'; el.setAttribute('role', 'menu'); el.setAttribute('aria-label', 'Actions for ' + name); el.tabIndex = -1;
     items.forEach(function (x) {
       var b = document.createElement(x[0] === 'open' ? 'a' : 'button'); if (x[0] === 'open') b.href = '#'; else b.type = 'button';
       b.setAttribute('role', 'menuitem'); b.dataset.act = x[0]; b.dataset.label = x[1]; b.dataset.who = name; b.innerHTML = IC(x[2]) + '<span>' + x[1] + '</span>'; el.appendChild(b);
     });
-    document.body.appendChild(el); av.setAttribute('aria-expanded', 'true'); openMenu = { li: null, kebab: av, el: el };
+    $('.stage > .podium').appendChild(el); av.setAttribute('aria-expanded', 'true'); openMenu = { li: null, kebab: av, el: el };
+    // Where the pointer was, as any context menu does; from the keyboard it hangs under the avatar. It is kept inside the window.
     var r = av.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
-    el.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
-    el.style.top = (r.bottom + 4 + h > innerHeight - 8 ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
+    var x = pt ? pt.x : r.left, y = pt ? pt.y : r.bottom + 4;
+    el.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
+    el.style.top = (y + h > innerHeight - 8 ? Math.max(8, (pt ? y : r.top - 4) - h) : y) + 'px';
     el.querySelector('[role=menuitem]').focus();
   }
   function wireAv(av, name, isAgent) {
     av.removeAttribute('aria-hidden'); av.setAttribute('role', 'button'); av.tabIndex = 0; av.setAttribute('aria-haspopup', 'menu'); av.setAttribute('aria-expanded', 'false'); av.setAttribute('aria-label', 'Actions for ' + name);
-    av.addEventListener('contextmenu', function (e) { e.preventDefault(); showAvMenu(av, name, isAgent); });
-    av.addEventListener('click', function (e) { e.stopPropagation(); showAvMenu(av, name, isAgent); });
+    av.addEventListener('contextmenu', function (e) { e.preventDefault(); showAvMenu(av, name, isAgent, { x: e.clientX, y: e.clientY }); });
+    av.addEventListener('click', function (e) { e.stopPropagation(); showAvMenu(av, name, isAgent, e.detail ? { x: e.clientX, y: e.clientY } : null); });
     av.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showAvMenu(av, name, isAgent); } });
   }
   document.querySelectorAll('.ch-msg > .ch-av.agent, .ch-msg > .ch-av.person').forEach(function (av) {
@@ -827,7 +850,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   });
   document.querySelectorAll('.ch-mem li > .ch-av.agent, .ch-mem li > .ch-av.person').forEach(function (av) {
     var li = av.parentElement; wireAv(av, li.querySelector('.t b').textContent, av.classList.contains('agent'));
-    li.addEventListener('contextmenu', function (e) { if (e.target.closest('.ch-av')) return; e.preventDefault(); showAvMenu(av, li.querySelector('.t b').textContent, av.classList.contains('agent')); });
+    li.addEventListener('contextmenu', function (e) { if (e.target.closest('.ch-av')) return; e.preventDefault(); showAvMenu(av, li.querySelector('.t b').textContent, av.classList.contains('agent'), { x: e.clientX, y: e.clientY }); });
   });
   // ---- The viewer, and what an Admin reads (ReadPicker): Read only, the person is told, the sidebar loses what is the person's alone.
   var readName = null;
