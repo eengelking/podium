@@ -142,3 +142,13 @@ export const ChSlash = () => (
     <path d="M16 4 8 20" />
   </svg>
 );
+export const ChChev = () => (
+  <Ic>
+    <path d="M3.5 6l4.5 4.5L12.5 6" />
+  </Ic>
+);
+export const ChPlus = () => (
+  <Ic>
+    <path d="M8 3v10M3 8h10" />
+  </Ic>
+);

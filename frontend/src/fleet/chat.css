@@ -1,31 +1,51 @@
 /* Chat (#1034, mockup/podium-chat.html). Colors come from tokens.css; the ch- classes are new. */
 .ch-split { display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
-.ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; }
-.ch-sec { padding: 4px 0 8px; }
-.ch-sec h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.ch-list { list-style: none; margin: 0; padding: 0; }
-.ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
+/* Sidebar (#1234, mockup/podium-chat-redesign.html): today's type (13 px rows with an 11 px muted line), capital 12 px section titles that stick and fold,
+   a hairline between sections, a "+" in a title, and a "..." button on every row, over the sidebar's own tone. */
+.ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 4px 0 8px; overflow-y: auto; background: var(--raised); }
+.ch-sec { padding: 0; border-top: 1px solid var(--grid); }
+.ch-sec:first-child { border-top: 0; }
+.ch-sec > h2 { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; margin: 0; padding: 4px 8px 0 8px; background: var(--raised); font-size: 12px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--ink2); }
+.podium .ch-sec > h2 .ch-fold { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; min-height: 34px; margin: 0; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.podium .ch-sec > h2 .ch-fold:hover { background: var(--hover); }
+.podium .ch-sec > h2 .ch-fold:focus-visible, .podium .ch-sec > h2 .ch-add:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.ch-fold svg { width: 12px; height: 12px; flex: none; transition: transform .12s; }
+.ch-sec.shut .ch-fold svg { transform: rotate(-90deg); }
+.ch-sec.shut .ch-list { display: none; }
+.ch-sec > h2 .ch-count { font-weight: 500; letter-spacing: 0; color: var(--muted); }
+/* The "+": 28 px, with the shared Tip around it. `.podium button` pads an icon-only button to nothing, so the padding is cleared here. A disabled one lets the pointer through to the Tip. */
+.ch-addwrap { flex: none; display: inline-flex; align-self: center; }
+.podium .ch-sec > h2 .ch-add { width: 28px; height: 28px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.podium .ch-sec > h2 .ch-add:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.podium .ch-sec > h2 .ch-add:disabled { color: var(--muted); cursor: not-allowed; pointer-events: none; }
+.ch-add svg { width: 16px; height: 16px; }
+.ch-list { list-style: none; margin: 0; padding: 0 0 8px; }
+.ch-item { position: relative; display: flex; align-items: center; margin: 0 8px; padding-right: 0; border-radius: 6px; }
 .ch-item:hover { background: var(--hover); }
-.ch-item.on { background: var(--sel); }
+.ch-item.on { background: var(--sel); box-shadow: inset 3px 0 0 var(--sonnet); }
 /* People and agents: the hover (and keyboard focus) highlight takes the color of the agent's state, the same colors as its icon. */
 .ch-item.hl-running:hover, .ch-item.hl-running:focus-within { background: color-mix(in srgb, var(--good-text) 16%, transparent); }
 .ch-item.hl-waiting:hover, .ch-item.hl-waiting:focus-within { background: color-mix(in srgb, var(--warn) 20%, transparent); }
 .ch-item.hl-deleg:hover, .ch-item.hl-deleg:focus-within, .ch-item.hl-bg:hover, .ch-item.hl-bg:focus-within { background: color-mix(in srgb, var(--deleg-text) 16%, transparent); }
 .ch-item.hl-stale:hover, .ch-item.hl-stale:focus-within { background: color-mix(in srgb, var(--serious) 18%, transparent); }
 .ch-item.hl-done:hover, .ch-item.hl-done:focus-within { background: color-mix(in srgb, var(--ink2) 14%, transparent); }
-.podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 20px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.podium .ch-item.on .ch-row { font-weight: 600; }
-.podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 0; }
+.podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 4px 6px 8px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.podium .ch-item.on .ch-row .nm, .podium .ch-item.un .ch-row .nm { font-weight: 650; }
+.podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 6px; }
 .ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
+.ch-row .ic-wrap { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
 .ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-row .tag { font-size: 11px; font-weight: 500; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+/* admin.css puts a dot before every .tag; a row's tag already has an icon. */
+.adminv .ch-row .tag::before { display: none; }
 .ch-row .tag svg { width: 12px; height: 12px; flex: none; }
 .ch-row .tag.warn { color: var(--warn-text); }
 .ch-row .unread { flex: none; min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 650; text-align: center; }
-.podium .ch-more { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.podium .ch-more { flex: none; width: 28px; height: 28px; margin-right: 2px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
 .podium .ch-more:hover { background: var(--hover); border-color: var(--border); }
+.podium .ch-more[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
 .ch-more svg { width: 16px; height: 16px; }
 .ch-menu { position: absolute; right: 8px; top: 100%; z-index: 10; min-width: 190px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); }
 .podium .ch-menu button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
@@ -35,6 +55,8 @@
 .ch-menu svg { width: 14px; height: 14px; flex: none; }
 .ch-menu .why { padding: 6px 10px; font-size: 11px; color: var(--muted); }
 .ch-menu { max-width: min(320px, calc(100vw - 32px)); }
+/* A row's menu opens under the row and flips up when there is no room below it. */
+.ch-item .ch-menu.up { top: auto; bottom: 100%; }
 .ch-menu .sub { display: block; font-size: 11px; color: var(--muted); white-space: normal; }
 .podium .ch-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
 .podium .ch-menu button[aria-disabled="true"]:hover { background: transparent; }
@@ -205,9 +227,6 @@
 
 /* Public channels and the two forms (#1035, mockup/podium-channels.html): New channel and New direct message sit in their section's heading, a channel
    shows its description and its link, and the forms are the console's modal. */
-/* A section's heading and its button share one row. The button sits at the right; when it does not fit beside the heading it wraps under it, at the rows' left padding. */
-.ch-sec-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
-.podium .ch-sec-h .ch-new { margin: 0 12px 4px 20px; }
 .ch-head .ch-desc { margin-top: 4px; color: var(--ink2); font-size: 13px; overflow-wrap: anywhere; max-width: 80ch; }
 .ch-link { display: inline-flex; gap: 6px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; font-weight: 400; color: var(--ink2); white-space: nowrap; }
 .ch-link svg { width: 12px; height: 12px; flex: none; }

@@ -101,6 +101,24 @@ describe('chat: the page', () => {
     closed();
   });
 
+  it('folds a section from its title, tips the + buttons, and opens New direct message from a person with their name searched (#1234)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    const fold = () => cy.get('nav[aria-label=Chat] #sec-ch .ch-fold');
+    fold().should('have.attr', 'aria-expanded', 'true').click().should('have.attr', 'aria-expanded', 'false');
+    cy.chatRow(GENERAL).should('not.be.visible');
+    fold().click().should('have.attr', 'aria-expanded', 'true');
+    cy.chatRow(GENERAL).should('be.visible');
+    // The + takes the shared tip on hover and on keyboard focus.
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').focus();
+    cy.contains('[role=tooltip]', 'Create a channel').should('be.visible');
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').blur();
+    // A person is a row in People and agents; Message opens New direct message with their name in the search.
+    cy.chatRow('p:Alex').should('contain.text', 'Person').find('button.ch-row').click();
+    cy.get('[role=dialog]').should('contain.text', 'New direct message');
+    cy.get('[role=dialog] input[type=search]').should('have.value', 'Alex');
+  });
+
   it('colors a People and agents row by the agent\'s state when it is pointed at, with the state said in words', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');

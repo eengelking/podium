@@ -78,7 +78,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [sent, setSent] = useState(0);
   const [busy, setBusy] = useState(false);
   // The New channel form (`edit` is the channel whose description it changes) and the New direct message form (#1035).
-  const [form, setForm] = useState<{ kind: "channel"; edit: ChatChannel | null } | { kind: "dm" } | null>(null);
+  const [form, setForm] = useState<{ kind: "channel"; edit: ChatChannel | null } | { kind: "dm"; person?: string } | null>(null);
   const formFrom = useRef<HTMLElement | null>(null);
   const formFallback = useRef<string | null>(null);
   // Counts the times a thread was opened; each one asks for the focus to move to its heading (see the effect below).
@@ -262,6 +262,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setMenu(null);
     const [kind, ...rest] = rowKey.split(":");
     const id = rest.join(":");
+    if (kind === "p") {
+      if (a === "message") openForm({ kind: "dm", person: id }, `p:${id}`);
+      return;
+    }
     if (kind === "a" || kind === "h") {
       const agent = o.agents.find((x) => x.sessionId === id);
       if (a === "message" && agent) startAgent(agent);
@@ -532,6 +536,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onChannel={(id) => select({ kind: "channel", id })}
           onNewChannel={() => openForm({ kind: "channel", edit: null })}
           onNewDm={() => openForm({ kind: "dm" })}
+          onPerson={(name) => openForm({ kind: "dm", person: name }, `p:${name}`)}
           onDm={openDm}
           onAgent={startAgent}
           readAs={ro ? readAs : null}
@@ -607,6 +612,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         <DirectModal
           api={api}
           sessions={sessions}
+          person={form.person}
           onClose={() => closeForm()}
           onDone={async (t: DirectTarget, say) => {
             await overview.reload();

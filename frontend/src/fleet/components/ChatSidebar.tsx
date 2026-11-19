@@ -1,13 +1,15 @@
-// Chat's sidebar (#1034, mockup/podium-chat.html): Channels, Direct Messages, and People and agents. One row is a button that
-// opens it and a "..." button that opens its menu; a right-click opens the same menu. A People and agents row takes the color
-// of the agent's state when pointed at or focused, the same colors as its icon.
-import type { MouseEvent, ReactNode } from "react";
+// Chat's sidebar (#1034, #1234, mockup/podium-chat-redesign.html): Channels, Direct Messages, and People and agents, each a sticky, collapsible
+// section with a "+" in its title. One row is a button that opens it and a "..." button that opens its menu; a right-click opens the same
+// menu. A People and agents row takes the color of the agent's state when pointed at or focused, the same colors as its avatar's mark.
+import { useState, type MouseEvent, type ReactNode } from "react";
 import { adminPauseOf, channelTag, MAX_PUBLIC_CHANNELS, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
-import { ChDm, ChDots, ChGroup, ChHash, TagGlyph } from "./ChatIcons";
-import { ChatMenu, agentMenu, channelMenu, dmMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
-import { StateIcon, stateKind, type StateKind } from "./Chips";
+import { ChatAvatar, ChatAvatarPair, type AvatarProps } from "./ChatAvatar";
+import { ChChev, ChDm, ChDots, ChGroup, ChHash, ChPlus, TagGlyph } from "./ChatIcons";
+import { ChatMenu, agentMenu, channelMenu, dmMenu, personMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
+import { stateKind, type StateKind } from "./Chips";
+import { Tip } from "./Tip";
 import { useLeaving } from "../useLeaving";
 
 export const STATE_WORD: Record<StateKind, string> = {
@@ -25,6 +27,42 @@ export function agentState(sessions: Record<string, SessionView>, sessionId: str
   if (s) return stateKind(s);
   if (!live) return "done";
   return status === "waiting" ? "waiting" : status === "running" ? "running" : status === "done" ? "done" : "stale";
+}
+
+/** One sidebar section: a sticky title with a chevron that collapses it, a muted count and, where there is one, a "+" with a tip. */
+function Sec(p: { id: string; title: string; count: number; shut: boolean; onToggle: () => void; add?: { label: string; tip: string; onClick: () => void; disabled?: boolean; describedBy?: string }; className?: string; children: ReactNode }) {
+  return (
+    <section className={`ch-sec${p.shut ? " shut" : ""}${p.className ? ` ${p.className}` : ""}`} aria-labelledby={`sec-${p.id}`}>
+      <h2 id={`sec-${p.id}`}>
+        <button type="button" className="ch-fold" aria-expanded={!p.shut} aria-controls={`list-${p.id}`} onClick={p.onToggle}>
+          <ChChev />
+          <span>{p.title}</span>
+          <span className="ch-count">{p.count}</span>
+        </button>
+        {p.add && (
+          <Tip bare className="ch-addwrap" text={p.add.tip}>
+            {(tip) => (
+              <button type="button" className="ch-add" aria-label={p.add!.label} aria-haspopup="dialog" aria-describedby={[tip, p.add!.describedBy].filter(Boolean).join(" ")} disabled={p.add!.disabled} onClick={p.add!.onClick}>
+                <ChPlus />
+              </button>
+            )}
+          </Tip>
+        )}
+      </h2>
+      {p.children}
+    </section>
+  );
+}
+
+/** A Direct Message's avatar: one agent's tile, or both parties overlapped (the other person first, then the agent; or two agents). */
+function dmAvatar(d: DirectInfo, sessions: Record<string, SessionView>): ReactNode {
+  const agentOf = (x: DirectInfo["a"]): AvatarProps => ({ kind: "agent", name: x.name, family: sessions[x.sessionId]?.modelFamily });
+  const agents = [d.a, d.b].filter((x) => x.kind === "agent");
+  if (d.cross && agents[0]) return <ChatAvatarPair a={{ kind: "person", name: d.cross.person }} b={agentOf(agents[0])} />;
+  if (agents.length === 2) return <ChatAvatarPair a={agentOf(agents[0]!)} b={agentOf(agents[1]!)} />;
+  const one = agents[0];
+  if (!one) return <span className="ic-wrap"><ChDm /></span>;
+  return <ChatAvatar {...agentOf(one)} state={agentState(sessions, one.sessionId, one.status, one.live)} size={28} />;
 }
 
 function TagLine({ tag }: { tag: Tag | null }) {
@@ -63,6 +101,8 @@ export interface SidebarProps {
   onNewDm: () => void;
   onDm: (d: DirectInfo) => void;
   onAgent: (a: ChatAgent) => void;
+  /** A person's row: opens New direct message with their name searched. */
+  onPerson: (name: string) => void;
   /** The person an Admin is reading, or null. While set the sidebar is read only: no unread counts, no People and agents. */
   readAs: string | null;
   /** What the picker is set to, which can run ahead of `readAs` while the person's list is read. */
@@ -77,7 +117,9 @@ export function ChatSidebar(p: SidebarProps) {
   const person = o.me.person;
   // An agent whose session ended leaves with the wall's own animation, and is not offered while it does (#1110).
   const agentRows = useLeaving(o.agents, (a) => a.sessionId);
-  const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean; leaving?: boolean }) => {
+  const [shut, setShut] = useState<Record<string, boolean>>({});
+  const fold = (id: string) => () => setShut((m) => ({ ...m, [id]: !m[id] }));
+  const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean; leaving?: boolean; unread?: boolean }) => {
     const on = p.selected === key;
     const ctx = (e: MouseEvent) => {
       if (!spec) return;
@@ -85,7 +127,7 @@ export function ChatSidebar(p: SidebarProps) {
       p.onMenu(key, "context");
     };
     return (
-      <li key={key} className={`ch-item${on ? " on" : ""}${opts.cls ? ` ${opts.cls}` : ""}`} onContextMenu={ctx} data-testid={`chat-row-${key}`}>
+      <li key={key} className={`ch-item${on ? " on" : ""}${opts.unread ? " un" : ""}${opts.cls ? ` ${opts.cls}` : ""}`} onContextMenu={ctx} data-testid={`chat-row-${key}`}>
         <button type="button" className="ch-row" disabled={opts.leaving} onClick={opts.open} aria-current={on ? "true" : undefined} title={opts.title}>
           {content}
         </button>
@@ -111,7 +153,7 @@ export function ChatSidebar(p: SidebarProps) {
     const menu = channelMenu(c, ro && p.readAs ? { owner: p.readAs } : undefined);
     return row(`c:${c.id}`, menu.items.length || menu.why ? menu : null, (
       <>
-        {c.kind === "public" ? <ChHash /> : <ChGroup />}
+        <span className="ic-wrap">{c.kind === "public" ? <ChHash /> : <ChGroup />}</span>
         <span className="stack">
           <span className="nm">{c.name}</span>
           <span className="sub">{sub}</span>
@@ -119,7 +161,7 @@ export function ChatSidebar(p: SidebarProps) {
         </span>
         {badge}
       </>
-    ), { open: () => p.onChannel(c.id), aria: `Actions for ${c.name}` });
+    ), { open: () => p.onChannel(c.id), aria: `Actions for ${c.name}`, unread: !ro && c.unread + c.mentions > 0 });
   };
 
   const dmRow = (d: DirectInfo) => {
@@ -129,7 +171,7 @@ export function ChatSidebar(p: SidebarProps) {
     const readers = ro ? [] : liveReaders(d.adminReading, p.serverNow);
     return row(key, dmMenu(d, true, ro), (
       <>
-        <ChDm />
+        {dmAvatar(d, p.sessions)}
         <span className="stack">
           <span className="nm" title={name}><bdi>{name}</bdi></span>
           <span className="sub">{dmSub(d, ro)}</span>
@@ -137,14 +179,14 @@ export function ChatSidebar(p: SidebarProps) {
         </span>
         {!ro && d.unread > 0 && <span className="unread" aria-label={`${d.unread} new`}>{d.unread}</span>}
       </>
-    ), { open: () => p.onDm(d), aria: `Actions for ${name}` });
+    ), { open: () => p.onDm(d), aria: `Actions for ${name}`, unread: !ro && d.unread + d.mentions > 0 });
   };
 
   const agentRow = ({ item: a, leaving }: { item: ChatAgent; leaving: boolean }) => {
     const kind = agentState(p.sessions, a.sessionId, a.status);
     return row(`a:${a.sessionId}`, agentMenu(a.name, a.sessionId, kind, true), (
       <>
-        <StateIcon kind={kind} />
+        <ChatAvatar kind="agent" name={a.name} family={p.sessions[a.sessionId]?.modelFamily} state={kind} size={28} />
         <span className="stack">
           <span className="nm" title={a.address}><bdi>{a.name}</bdi></span>
           <span className="sub">Orchestrator on <bdi>{a.machine}</bdi>, {STATE_WORD[kind]}</span>
@@ -153,41 +195,42 @@ export function ChatSidebar(p: SidebarProps) {
     ), { open: () => p.onAgent(a), aria: `Actions for ${a.name}`, leaving, cls: `hl-${kind}${leaving ? " leave" : ""}`, title: `Message ${a.name}` });
   };
 
+  const personRow = (name: string) => {
+    const key = `p:${name}`;
+    return row(key, personMenu(name), (
+      <>
+        <ChatAvatar kind="person" name={name} size={28} />
+        <span className="stack">
+          <span className="nm" title={name}><bdi>{name}</bdi></span>
+          <span className="sub">Person</span>
+        </span>
+      </>
+    ), { open: () => p.onPerson(name), aria: `Actions for ${name}`, title: `Message ${name}` });
+  };
+  const others = o.people.filter((x) => !x.you);
+
   const reading = p.readAs !== null;
   // The server keeps 50 public channels besides General; at the limit New channel is off and says why (#1035).
   const capped = o.channels.filter((c) => c.kind === "public" && c.id !== "general").length >= MAX_PUBLIC_CHANNELS;
   return (
     <nav className="ch-side" aria-label="Chat">
       {o.me.admin && <ReadPicker people={o.people.filter((x) => !x.you).map((x) => x.name)} value={p.picked} onChange={p.onReadAs} />}
-      <section className="ch-sec" aria-labelledby="sec-ch">
-        <div className="ch-sec-h">
-          <h2 id="sec-ch">Channels</h2>
-          <button type="button" className="btn sm ch-new" aria-haspopup="dialog" disabled={capped} aria-describedby={capped ? "cap-why" : undefined} onClick={p.onNewChannel}>
-            New channel
-          </button>
-        </div>
+      <Sec id="ch" title="Channels" count={o.channels.length} shut={!!shut.ch} onToggle={fold("ch")} add={{ label: "New channel", tip: "Create a channel", onClick: p.onNewChannel, disabled: capped, describedBy: capped ? "cap-why" : undefined }}>
         {capped && (
           <p className="hint ch-pad" id="cap-why">
             This server has {MAX_PUBLIC_CHANNELS} channels besides General, the most it keeps. An Admin can remove one that is no longer used.
           </p>
         )}
-        <ul className="ch-list">{o.channels.map(channelRow)}</ul>
-      </section>
+        <ul className="ch-list" id="list-ch">{o.channels.map(channelRow)}</ul>
+      </Sec>
       {reading ? (
-        <section className="ch-sec" aria-labelledby="sec-dm">
-          <h2 id="sec-dm">Direct Messages</h2>
-          <ul className="ch-list">{o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">{p.readAs} has no Direct Messages.</li>}</ul>
-        </section>
+        <Sec id="dm" title="Direct Messages" count={o.directs.length} shut={!!shut.dm} onToggle={fold("dm")}>
+          <ul className="ch-list" id="list-dm">{o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">{p.readAs} has no Direct Messages.</li>}</ul>
+        </Sec>
       ) : person ? (
         <>
-          <section className="ch-sec" aria-labelledby="sec-dm">
-            <div className="ch-sec-h">
-              <h2 id="sec-dm">Direct Messages</h2>
-              <button type="button" className="btn sm ch-new" aria-haspopup="dialog" onClick={p.onNewDm}>
-                New direct message
-              </button>
-            </div>
-            <ul className="ch-list">
+          <Sec id="dm" title="Direct Messages" count={o.directs.length} shut={!!shut.dm} onToggle={fold("dm")} add={{ label: "New direct message", tip: "Start a direct message", onClick: p.onNewDm }}>
+            <ul className="ch-list" id="list-dm">
               {(o.approvals ?? 0) > 0 && (
                 <li className="ch-pad">
                   <a className="ch-notice" href="#/me/reporters">
@@ -197,13 +240,13 @@ export function ChatSidebar(p: SidebarProps) {
               )}
               {o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Start one from People and agents.</li>}
             </ul>
-          </section>
-          <section className="ch-sec" aria-labelledby="sec-pe">
-            <h2 id="sec-pe">People and agents</h2>
-            <ul className="ch-list">
+          </Sec>
+          <Sec id="pe" title="People and agents" count={agentRows.length + others.length} shut={!!shut.pe} onToggle={fold("pe")}>
+            <ul className="ch-list" id="list-pe">
               {agentRows.length ? agentRows.map(agentRow) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
+              {others.map((x) => personRow(x.name))}
             </ul>
-          </section>
+          </Sec>
         </>
       ) : (
         <section className="ch-sec" aria-label="Direct Messages">

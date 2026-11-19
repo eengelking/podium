@@ -1,7 +1,7 @@
 // The menus of Chat (#1034, mockup/podium-chat.html): a Direct Message's (the controls Traffic had, on the row), a channel's stop
 // buttons, and an agent's. They open on right-click and on the "..." button, move with the arrow keys, close on Escape (the
 // caller puts the focus back) and offer only what the viewer may do, as the overview's `can` flags say.
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
 import { ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
@@ -101,9 +101,25 @@ export function agentMenu(name: string, sessionId: string, state: StateKind, wit
   return { label: `Actions for ${name}`, items };
 }
 
+/** A person's menu, in People and agents: Message is always offered, never hidden; when no orchestrator can take it the New direct message form opens and says why (#1229, decision 12). */
+export function personMenu(name: string): MenuSpec {
+  return { label: `Actions for ${name}`, items: [{ act: "message", label: `Message ${name}`, icon: <ChMsg /> }] };
+}
+
 export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void; onClose: (restoreFocus: boolean) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+  // A row's menu opens under the row and flips up when it would run past the bottom of the sidebar's scroll area.
+  const [up, setUp] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const side = el?.closest(".ch-side");
+    const item = el?.closest(".ch-item");
+    if (!el || !side || !item) return;
+    const below = el.getBoundingClientRect().bottom > side.getBoundingClientRect().bottom;
+    const room = item.getBoundingClientRect().top - side.getBoundingClientRect().top >= el.getBoundingClientRect().height;
+    setUp(below && room);
+  }, []);
   const noteOnly = props.spec.items.length === 0;
   useEffect(() => {
     // A menu with no items is a note: it takes the focus itself so the keyboard can reach and close it.
@@ -135,14 +151,14 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
   if (noteOnly) {
     return (
       // A reason with nothing to choose is not a menu: a plain note that takes the focus and closes on Escape.
-      <div className="ch-menu ch-note" role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
+      <div className={`ch-menu ch-note${up ? " up" : ""}`} role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
         {props.spec.why}
       </div>
     );
   }
   return (
     // The keys belong to the menu's own items, which take the focus.
-    <div className="ch-menu" role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
+    <div className={`ch-menu${up ? " up" : ""}`} role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
       {props.spec.items.map((it) =>
         it.href ? (
           <a key={it.act} role="menuitem" href={it.href} data-act={it.act} onClick={() => props.onClose(false)}>
