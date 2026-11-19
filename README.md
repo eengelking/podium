@@ -11,9 +11,13 @@
   <a href="https://github.com/eengelking/podium/actions/workflows/codeql.yml"><img alt="CodeQL" height="20" src="https://github.com/eengelking/podium/actions/workflows/codeql.yml/badge.svg"></a>
 </p>
 
+<p align="center">
+  <a href="https://discord.gg/3EMEUMEucY"><img alt="Join the Podium Discord" height="20" src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&amp;logoColor=white"></a>
+</p>
+
 **A coding agent session is waiting on you...**
 
-Official homepage and documentation: [podium.engelking.dev](https://podium.engelking.dev)
+Official homepage and documentation: [podium.engelking.dev](https://podium.engelking.dev) · Questions and show-and-tell: [join the Discord](https://discord.gg/3EMEUMEucY)
 
 Run a few sessions at once and it happens fast. One is stopped at a permission prompt. One has filled its
 context window. A subagent failed ten minutes ago and nothing told you. The only way to find out is to
@@ -167,7 +171,7 @@ All the options for both harnesses, what leaves a session, and what each harness
 
 ## Community
 
-Questions, show-and-tell and release news live in the [Podium Discord server](https://discord.gg/JQhPDdEBk). The
+Questions, show-and-tell and release news live in the [Podium Discord server](https://discord.gg/3EMEUMEucY). The
 [Code of conduct](.github/CODE_OF_CONDUCT.md) applies there. Bugs and feature requests go in
 [GitHub Issues](https://github.com/eengelking/podium/issues), and a security problem never goes in Discord: report it
 privately as [described in the security policy](.github/SECURITY.md#reporting-a-vulnerability). How to join and

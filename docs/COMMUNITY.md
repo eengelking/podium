@@ -14,7 +14,6 @@ Contents:
 - [Joining the Discord](#joining-the-discord)
 - [Setting up the server](#setting-up-the-server)
   - [The invite link](#the-invite-link)
-  - [Renewing the link](#renewing-the-link)
   - [Secure configuration](#secure-configuration)
   - [If the invite is abused](#if-the-invite-is-abused)
   - [Checking that it works](#checking-that-it-works)
@@ -22,7 +21,7 @@ Contents:
 
 ## Joining the Discord
 
-Join with the [invite link](https://discord.gg/JQhPDdEBk). It opens `welcome-and-rules`, where the server's rules are.
+Join with the [invite link](https://discord.gg/3EMEUMEucY). It opens `welcome-and-rules`, where the server's rules are.
 
 - **A short wait.** New members accept the rules and are then approved by hand, so you may not be able to post for a
   little while after you join.
@@ -44,47 +43,16 @@ this page in the same PR.
 
 ### The invite link
 
-The README and this page link one invite. An invite that expires leaves both pointing at nothing, so the aim is one
-that never expires. Discord does not offer **Never** to a small server like this one yet, so for now the link does
-expire and has to be renewed (see below).
-
-1. Open Server Settings > Invites, or the **Invite People** dialog on a channel, and edit the invite link's settings.
-2. **Expire After:** Never when Discord offers it, otherwise the longest option it does.
-3. **Max Number of Uses:** No limit. A cap makes the link fail for the next person without any warning.
-4. **Grant Temporary Membership:** off. A temporary member is removed when they go offline unless they are given a
-   role, so someone who joins from the README would vanish.
-5. **Channel:** `welcome-and-rules`, not a busy one. A new member sees the rules first.
-6. Put the link in the [README](../README.md#community) and in the first line of "Joining the Discord" above.
-
-What can still go wrong:
-
-- An invite can be deleted. Server Settings > Invites lists every invite, and a deleted code cannot be created again.
-- Discord can revoke an invite it judges abusive, and a server has a limit on how many members it can hold.
-- A vanity URL such as `discord.gg/podium` needs the server to be boosted to a high boost level. This server is not
-  there, so the link is a `discord.gg/<code>` one. Look under Server Settings > Overview to see whether it has become
-  eligible, and if it has, claim the name and update the README.
-
-### Renewing the link
-
-The link now in the README expires on **2026-11-18**. Anyone can read an invite's expiry from Discord's public invite
-lookup. Replace `<code>` with the part of the link after `discord.gg/`:
+The README and this page link one invite, `discord.gg/3EMEUMEucY`, which never expires. Anyone can check that from Discord's
+public invite lookup, where `expires_at` is `null`:
 
 ```sh
-curl -s 'https://discord.com/api/v10/invites/<code>?with_expiration=true'
+curl -s 'https://discord.com/api/v10/invites/3EMEUMEucY?with_expiration=true'
 ```
 
-Read `expires_at` in the reply. `null` means it never expires, and a dead invite answers with an error message instead.
-
-About a week before the date (2026-11-11 for the current link):
-
-1. Create a new invite with the settings above.
-2. Open it in a private window and check that it lands in `welcome-and-rules`.
-3. Put it in the README and in "Joining the Discord" above, and update the expiry date in this section, in one PR.
-4. `main` is what people read on GitHub, and it only moves with a release, so ship the change as a patch release.
-5. Delete the old invite once the release is out.
-
-When Discord offers **Never**, make that invite, replace the link once more, and replace this section with a line
-saying the link does not expire.
+A dead invite answers with an error message instead. If Discord revokes it, make a new one with **Expire After: Never**, check
+that it opens `welcome-and-rules` in a private window, and replace the link in the README and in "Joining the Discord" above
+in one PR.
 
 ### Secure configuration
 
