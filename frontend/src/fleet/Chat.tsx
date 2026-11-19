@@ -67,6 +67,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
   const [menu, setMenu] = useState<{ key: string } | null>(null);
+  // The members panel is closed when a conversation opens and is not remembered (#1236).
+  const [members, setMembers] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   // /clear in a message to the person's own agent asks first (#1051); the question belongs to the open conversation.
   const [clearAsk, setClearAsk] = useState(false);
@@ -91,6 +93,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   // A channel an Admin removed leaves the list, and the page falls back to General.
   if (o && picked?.kind === "channel" && !o.channels.some((c) => c.id === picked.id)) sel = GENERAL;
   const key = selKey(sel)!;
+  useEffect(() => setMembers(false), [key, readAs]);
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
   // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
   const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
@@ -175,7 +178,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   useEffect(() => {
     if (!menu) return;
     const away = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".ch-menu, .ch-more, .ch-chipwrap .m")) setMenu(null);
+      if (!(e.target as Element | null)?.closest?.(".ch-menu, .ch-more, .ch-mem .ch-av-btn")) setMenu(null);
     };
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
@@ -262,7 +265,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setMenu(null);
     const [kind, ...rest] = rowKey.split(":");
     const id = rest.join(":");
-    if (kind === "p") {
+    if (kind === "p" || kind === "mp") {
       if (a === "message") openForm({ kind: "dm", person: id }, `p:${id}`);
       return;
     }
@@ -524,7 +527,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
       )}
       {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
       {!ro && <GoneRecordLines reads={gone} />}
-      <div className="ch-split" data-pane={pane} data-testid="chat-split">
+      <div className={`ch-split${members ? " mem-open" : ""}`} data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}
           sessions={sessions}
@@ -558,7 +561,12 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onMenu={(k) => setMenu(k ? { key: k } : null)}
           onClose={closeMenu}
           onPick={pick}
-          onBack={() => setPane("side")}
+          members={members}
+          onMembers={setMembers}
+          onBack={() => {
+            setMembers(false);
+            setPane("side");
+          }}
           readAs={ro ? readAs : null}
           serverNow={serverNow}
           composer={

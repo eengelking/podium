@@ -49,13 +49,14 @@ import {
   TagGlyph,
 } from "./ChatIcons";
 import { linkWords } from "./ChatForms";
-import { ChatMenu, agentMenu, type MenuAct } from "./ChatMenu";
-import { agentState, STATE_WORD } from "./ChatSidebar";
-import { ChatAvatar } from "./ChatAvatar";
+import type { MenuAct } from "./ChatMenu";
+import { agentState } from "./ChatSidebar";
+import { ChatAvatar, ChatAvatarPair } from "./ChatAvatar";
+import { ChatMembersPanel, ChatMembersStack, membersOf } from "./ChatMembers";
 import { ModelChip, StateIcon } from "./Chips";
 import { familyName } from "../logic";
 import { hm } from "../trafficData";
-import { Monogram, YouTag } from "./People";
+import { Monogram } from "./People";
 import { channelTag, dmTag } from "../chatData";
 
 /** The messages and the Admin's records in time order: a record comes after every message sent before it. Earlier pages not loaded hide the records older than the oldest message shown. */
@@ -404,6 +405,9 @@ export interface ThreadProps {
   onClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
   onBack: () => void;
+  /** Whether the members panel is open, and the way to open or close it (#1236). */
+  members: boolean;
+  onMembers: (open: boolean) => void;
   /** The person an Admin reads, or null. The thread is read only while it is set. */
   readAs: string | null;
   /** The server's clock now, for hiding a reading whose time has passed. */
@@ -554,14 +558,6 @@ export function ChatThread(p: ThreadProps) {
   const publicChannel = p.sel.kind === "channel" && p.sel.id !== "group";
   const ro = p.readAs !== null && !publicChannel;
   const ownerName = dmHead?.owner ?? p.direct?.owner ?? p.readAs ?? o.me.name;
-  // A conversation between two agents has the viewer in it as the third person; one with the person has them as a party.
-  const person =
-    parties.find((x) => x.kind === "person") ??
-    (ro
-      ? ({ name: ownerName } as Party)
-      : o.me.person
-        ? ({ name: o.me.name } as Party)
-        : undefined);
   const machines = [...new Set(agents.map((x) => x.machine))];
   const tag = p.channel
     ? channelTag(p.channel)
@@ -652,7 +648,28 @@ export function ChatThread(p: ThreadProps) {
     ),
   );
 
+  // Who is in the thread (#1236): My group and a channel get an avatar stack and a panel; a Direct Message has two parties and neither.
+  const list =
+    p.sel.kind === "channel"
+      ? membersOf(o, p.sessions, {
+          group: p.sel.id === "group",
+          person: ro ? p.readAs : o.me.person ? o.me.name : null,
+        })
+      : null;
+  // A Direct Message names its parties with their avatars before the title: the two agents overlapped, a person and the agent, or one agent.
+  const dmAvatar =
+    p.sel.kind === "dm" && parties.length > 0 ? (
+      cross && agents[0] ? (
+        <ChatAvatarPair a={{ kind: "person", name: cross.person }} b={{ kind: "agent", name: agents[0].name }} />
+      ) : agents.length === 2 ? (
+        <ChatAvatarPair a={{ kind: "agent", name: agents[0]!.name }} b={{ kind: "agent", name: agents[1]!.name }} />
+      ) : agents[0] ? (
+        <ChatAvatar kind="agent" name={agents[0].name} size={28} family={p.sessions[agents[0].sessionId]?.modelFamily} state={agentState(p.sessions, agents[0].sessionId, agents[0].status, agents[0].live)} />
+      ) : null
+    ) : null;
+
   return (
+    <>
     <section
       className="ch-thread"
       aria-labelledby="th-h"
@@ -660,17 +677,21 @@ export function ChatThread(p: ThreadProps) {
     >
       {back}
       <div className="ch-head">
-        <h2 id="th-h" tabIndex={-1}>
-          <span className="nm">
-            <bdi>{title}</bdi>
-          </span>
-          {p.channel?.link && (
-            <span className="ch-link" data-testid="chat-link-chip">
-              <ChLink />
-              {linkWords(p.channel.link)}
+        <div className="ch-head-top">
+          <h2 id="th-h" tabIndex={-1}>
+            {dmAvatar}
+            <span className="nm">
+              <bdi>{title}</bdi>
             </span>
-          )}
-        </h2>
+            {p.channel?.link && (
+              <span className="ch-link" data-testid="chat-link-chip">
+                <ChLink />
+                {linkWords(p.channel.link)}
+              </span>
+            )}
+          </h2>
+          {list && <ChatMembersStack members={list.members} open={p.members} controls="ch-members" onToggle={() => p.onMembers(!p.members)} />}
+        </div>
         <div className="sub">
           {sub && <span>{sub}</span>}
           <span>{plural(total, "message")}</span>
@@ -703,55 +724,6 @@ export function ChatThread(p: ThreadProps) {
             </div>
           )}
       </div>
-      {p.sel.kind === "dm" && parties.length > 0 && (
-        <div className="ch-who" aria-label="In this conversation">
-          {agents.map((a) => {
-            const kind = agentState(p.sessions, a.sessionId, a.status, a.live);
-            const key = `h:${a.sessionId}`;
-            return (
-              <span
-                className="ch-chipwrap"
-                key={key}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  p.onMenu(key, "context");
-                }}
-              >
-                <button
-                  type="button"
-                  className="m"
-                  data-more={key}
-                  aria-haspopup="menu"
-                  aria-expanded={p.menu === key}
-                  title={`${a.name}, ${STATE_WORD[kind]}. Actions`}
-                  onClick={() =>
-                    p.onMenu(p.menu === key ? null : key, "button")
-                  }
-                >
-                  <StateIcon kind={kind} />
-                  <bdi>{a.name}</bdi>
-                </button>
-                {p.menu === key && (
-                  <ChatMenu
-                    spec={agentMenu(a.name, a.sessionId, kind, false)}
-                    onPick={(act) => p.onPick(key, act)}
-                    onClose={p.onClose}
-                  />
-                )}
-              </span>
-            );
-          })}
-          {person && (
-            <span className="m">
-              <Monogram name={person.name} size="sm" />
-              <bdi>{person.name}</bdi>{" "}
-              {person.name.toLowerCase() === o.me.name.toLowerCase() && (
-                <YouTag kind="person" />
-              )}
-            </span>
-          )}
-        </div>
-      )}
       {ro && (
         <ReadOnlyBanner
           owner={cross ? cross.owner : ownerName}
@@ -876,5 +848,20 @@ export function ChatThread(p: ThreadProps) {
       </div>
       {p.composer}
     </section>
+    {list && p.members && (
+      <ChatMembersPanel
+        key={threadKey}
+        id="ch-members"
+        label={title}
+        members={list.members}
+        partial={list.partial}
+        menu={p.menu}
+        onMenu={p.onMenu}
+        onMenuClose={p.onClose}
+        onPick={p.onPick}
+        onClose={() => p.onMembers(false)}
+      />
+    )}
+    </>
   );
 }

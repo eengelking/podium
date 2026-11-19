@@ -177,15 +177,29 @@ describe('chat: People and agents', () => {
     cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
   });
 
-  it('opens an agent\'s orchestration page from its menu among the people in a thread', () => {
+  it('opens an agent\'s orchestration page from its row in the members panel of My group (#1236)', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow(DM).find('button.ch-row').click();
-    cy.get('[aria-label="In this conversation"] button.m').first().click();
+    cy.chatRow('c:group').find('button.ch-row').click();
+    cy.get('button[aria-controls="ch-members"]').click();
+    cy.tid('chat-members').should('be.visible').and('contain.text', 'invoice-v2').and('contain.text', 'Ed (you)');
+    cy.tid('chat-members').find('button[aria-label="Actions for invoice-v2"]').click();
     cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').click();
-    cy.location('hash').should('match', /^#\/\?open=e2e-s-(invoice|tester)$/);
+    cy.location('hash').should('eq', '#/?open=e2e-s-invoice');
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
+  });
+
+  it('searches the members panel, closes it on Escape and puts the focus back on the stack (#1236)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow('c:group').find('button.ch-row').click();
+    cy.get('button[aria-controls="ch-members"]').click();
+    cy.get('input[aria-label="Find a member"]').type('tester');
+    cy.tid('chat-members').find('li').should('have.length', 1).and('contain.text', 'Tester');
+    cy.get('input[aria-label="Find a member"]').type('{esc}');
+    cy.tid('chat-members').should('not.exist');
+    cy.focused().should('have.attr', 'aria-controls', 'ch-members');
   });
 });
 

@@ -1,5 +1,5 @@
 /* Chat (#1034, mockup/podium-chat.html). Colors come from tokens.css; the ch- classes are new. */
-.ch-split { display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.ch-split { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
 /* Sidebar (#1234, mockup/podium-chat-redesign.html): today's type (13 px rows with an 11 px muted line), capital 12 px section titles that stick and fold,
    a hairline between sections, a "+" in a title, and a "..." button on every row, over the sidebar's own tone. */
 .ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 4px 0 8px; overflow-y: auto; background: var(--raised); }
@@ -74,9 +74,6 @@
 .ch-head h2 .nm { overflow-wrap: anywhere; }
 /* `.adminv .sub { display: block }` (admin.css) is as specific as `.ch-head .sub`, and the Chat page renders inside .adminv, so the header's line names .adminv too. */
 .adminv .ch-head .sub { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 12px; }
-.ch-who { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px 0; }
-.ch-who .m { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--ink2); }
-.ch-who .m svg { width: 12px; height: 12px; }
 .ch-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; }
 /* The page fills the window (#1230): the same gutter on all four sides, the chat takes the height left under the banners, and only the
    sidebar and the message list scroll. The thread is anchored to the bottom: .ch-flow's margin-top:auto puts a short thread just above the
@@ -161,10 +158,6 @@
 .podium .ch-split .si-stale, .podium .dm-pick .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
 .podium .ch-split .si-done, .podium .dm-pick .si-done { color: var(--ink2); }
 .ch-st .s .si { width: 12px; height: 12px; }
-.ch-chipwrap { position: relative; display: inline-flex; }
-.podium .ch-chipwrap .m { cursor: pointer; background: transparent; color: var(--ink2); }
-.podium .ch-chipwrap .m:hover { background: var(--hover); }
-.ch-chipwrap .ch-menu { top: calc(100% + 4px); left: 0; right: auto; min-width: 220px; white-space: nowrap; }
 .ch-nav { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12px; color: var(--ink2); }
 .ch-blank { padding: 40px 24px; text-align: center; color: var(--ink2); }
 .ch-thread .ch-back { display: none; }
@@ -362,3 +355,56 @@
 .ch-code pre:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
 .ch-code code { font: inherit; }
 .ch-msgs li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
+
+/* The members stack in the thread header and the panel it opens (#1236, mockup/podium-chat-redesign.html). Names are prefixed ch-mem and
+   ch-stack; `.podium button` (fleet.css) zeroes padding, border and background at 0,1,1, so every button rule here names .podium. */
+.ch-head-top { display: flex; align-items: flex-start; gap: 12px; }
+.ch-head-top h2 { flex: 1; min-width: 0; }
+.ch-head h2 .ch-av-pair { flex: none; }
+.podium .ch-stack { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px 4px 6px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--ink2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.podium .ch-stack:hover, .podium .ch-stack[aria-expanded="true"] { background: var(--sel); border-color: var(--axis); }
+.ch-stack-av { display: inline-flex; align-items: center; }
+.podium .ch-av[data-i]::before { content: attr(data-i); }
+.ch-stack-av > span { display: inline-flex; margin-left: -6px; }
+.ch-stack-av > span:first-child { margin-left: 0; }
+.podium .ch-stack-av .ch-av.person, .podium .ch-stack-av .ch-av.me { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--surface); }
+.podium .ch-stack-av .ch-av.agent { box-shadow: 0 0 0 2px var(--surface); }
+.ch-split.mem-open { grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr) 300px; }
+.ch-mem { display: flex; min-width: 0; min-height: 0; flex-direction: column; border-left: 1px solid var(--grid); background: var(--surface); }
+.ch-mem-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--grid); }
+.ch-mem-h h3 { flex: 1; margin: 0; font-size: 14px; font-weight: 650; }
+.ch-mem-h h3 .n, .ch-mem h4 .n { font-weight: 500; color: var(--muted); }
+.podium .ch-mem-x { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--ink2); }
+.podium .ch-mem-x:hover { background: var(--hover); }
+.ch-mem-x svg { width: 14px; height: 14px; }
+.ch-mem-q { display: grid; gap: 8px; padding: 10px 12px 6px; }
+.ch-mem-srch { position: relative; display: block; }
+.ch-mem-srch svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; margin-top: -7px; color: var(--muted); pointer-events: none; }
+.podium .ch-mem-srch input { width: 100%; box-sizing: border-box; height: 32px; padding: 0 10px 0 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; }
+.ch-mem-filt { display: flex; flex-wrap: wrap; gap: 4px; }
+.podium .ch-mem-filt button { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--ink2); font-size: 12px; }
+.podium .ch-mem-filt button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); color: var(--ink); font-weight: 600; }
+.ch-mem-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.ch-mem h4 { margin: 0; padding: 12px 16px 4px; font-size: 12px; font-weight: 650; color: var(--ink2); }
+.ch-mem ul { margin: 0; padding: 0 8px; list-style: none; }
+.podium .ch-mem-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; font-size: 14px; }
+.podium .ch-mem-row:hover { background: var(--hover); }
+.ch-mem-t { flex: 1; min-width: 0; display: grid; }
+.ch-mem-t b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-t span { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-st { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--ink2); font-size: 11.5px; }
+.ch-mem-st svg { width: 12px; height: 12px; }
+.ch-mem-st .si-running { color: var(--good-text); }
+.ch-mem-st .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.ch-mem-st .si-bg, .ch-mem-st .si-deleg { color: var(--deleg-text); }
+.ch-mem-st .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.ch-mem .ch-menu { top: calc(100% - 2px); left: 8px; right: auto; min-width: 220px; white-space: nowrap; }
+.adminv .ch-mem-none { padding: 8px 16px; }
+.ch-mem-more { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; padding: 8px 16px; border-top: 1px solid var(--grid); color: var(--muted); font-size: 12px; }
+.podium .ch-mem-more button { color: var(--ink); font-weight: 600; text-decoration: underline; }
+.ch-mem-note { flex-basis: 100%; }
+/* Narrow: the panel is a sheet over the thread, one layer above its header. */
+@media (max-width: 760px) {
+  .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
+  .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 7; border-left: 0; }
+}
