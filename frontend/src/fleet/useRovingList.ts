@@ -1,7 +1,7 @@
 // One keyboard stop for a long list (#1231): Chat's message list is a single tab stop however many messages it holds. The message that
 // holds the stop has tabindex 0 and the rest -1 (a roving tabindex); Up and Down, Home and End move between messages; Enter, the
 // ContextMenu key or Shift+F10 on a message asks for its sender's menu (`onMenu`, issue #1235); Escape inside a message returns focus to it.
-// The pattern is written up in docs/PATTERNS.md (UI code).
+// It is not on docs/PATTERNS.md yet: the maintainer approves it as a pattern in the PR for #1231.
 import { useCallback, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 
 const ITEM = "data-roving";

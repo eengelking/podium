@@ -241,9 +241,10 @@
 .podium .ch-av .ch-av-st { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--surface); box-sizing: border-box; color: var(--ink2); }
 .podium .ch-av.s22 .ch-av-st, .podium .ch-av.s28 .ch-av-st { width: 11px; height: 11px; padding: 0; }
 .podium .ch-av .ch-av-st svg { width: 100%; height: 100%; display: block; }
-.podium .ch-av .ch-av-st .si-running, .podium .ch-av .ch-av-st .si-deleg { color: var(--good-text); }
-.podium .ch-av .ch-av-st .si-waiting, .podium .ch-av .ch-av-st .si-bg { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
-.podium .ch-av .ch-av-st .si-stale { color: var(--muted); }
+.podium .ch-av .ch-av-st .si-running { color: var(--good-text); }
+.podium .ch-av .ch-av-st .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .ch-av .ch-av-st .si-bg, .podium .ch-av .ch-av-st .si-deleg { color: var(--deleg-text); }
+.podium .ch-av .ch-av-st .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
 .podium .ch-av .ch-av-st .si-done { color: var(--ink2); }
 /* Two parties: the first sits top left, the second bottom right, with a ring of the surface between them. */
 .podium .ch-av-pair { position: relative; flex: none; display: inline-block; width: 38px; height: 30px; }
@@ -253,3 +254,5 @@
 .podium .ch-av-pair .ch-av.person:last-child, .podium .ch-av-pair .ch-av.me:last-child { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--raised); }
 /* An avatar that opens a menu is a real button around the same tile; `.podium button` carries padding that would squeeze it, so it is cleared here. */
 .podium .ch-av-btn { display: inline-flex; flex: none; padding: 0; margin: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; color: inherit; }
+.podium .ch-av-btn:has(.ch-av.person), .podium .ch-av-btn:has(.ch-av.me) { border-radius: 50%; }
+.podium .ch-av-btn:has(.ch-av.agent.s22) { border-radius: 6px; }
