@@ -34,9 +34,9 @@ describe("ChatAvatar", () => {
   });
 
   it("draws the initials from CSS when asked, so the page's text holds none", () => {
-    const { container } = render(<ChatAvatar kind="person" name="Ed Engelking" size={22} css />);
+    const { container } = render(<ChatAvatar kind="person" name="Ada Lovelace" size={22} css />);
     expect(first(container).textContent).toBe("");
-    expect(first(container).getAttribute("data-i")).toBe("EE");
+    expect(first(container).getAttribute("data-i")).toBe("AL");
   });
 
   it("draws you as the inverted disc with your initials", () => {
