@@ -709,7 +709,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
           <div class="cr-tools">
             <button type="button" class="cr-tool ch-only" id="t-at" aria-label="Mention someone" title="Mention someone"><svg><use href="#i-at"/></svg></button>
             <button type="button" class="cr-tool dm-only" id="t-slash" aria-label="Session commands" title="Session commands (/clear, /compact)"><svg><use href="#i-slash"/></svg></button>
-            <span class="hint"><kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> for a new line</span>
+            <span class="hint"><kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> for a new line &middot; <kbd>&uarr;</kbd> to edit yours</span>
             <button type="submit" class="btn pri ch-send" id="send" aria-label="Send message" title="Send message" disabled><svg aria-hidden="true"><use href="#i-send"/></svg></button>
           </div>
         </div>
@@ -1188,9 +1188,39 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function openMenu(id) { closeMenus(); var m = $('#' + id); m.hidden = false; var b = m.parentNode.querySelector('.ch-more'); if (b) b.setAttribute('aria-expanded', 'true'); }
   function said(t) { $('#ed-said').hidden = !t; $('#ed-said-t').textContent = t || ''; $('#ed-live').textContent = t || ''; }
   function look(el) { el.scrollIntoView({ block: 'center' }); }
-  var target = null;
+  var orig = {}; ['m-ed', 'm-gone'].forEach(function (id) { orig[id] = $('#' + id + ' .tx').innerHTML; });
+  var target = null, cur = null, editing = null;
+  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  // Your messages that are on screen in the open conversation, oldest first.
+  function own() { return $$('.ch-msg.own').filter(function (r) { return r.offsetParent !== null; }); }
+  // Why a message cannot be edited or deleted, or '' when it can.
+  function why(row) {
+    if (row.querySelector('.ed-del')) return 'This message was deleted, so there is nothing to change.';
+    return row.querySelector('.ed-menu [aria-disabled]') ? 'Tester already has this message, so it can no longer be changed.' : '';
+  }
+  // The focused message is marked, and a screen reader hears it, its state and the keys that work on it.
+  function select(row) {
+    $$('.ch-msg.sel').forEach(function (r) { r.classList.remove('sel'); });
+    cur = row; row.classList.add('sel'); row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'center' });
+    var body = row.querySelector('.ed-del') || row.querySelector('.tx'), st = row.querySelector('.ch-st'), at = row.querySelector('.at, .gut'), w = why(row);
+    said('Your message, ' + (at ? at.textContent.trim() : '') + ': ' + body.textContent.trim().replace(/[.!?]$/, '') + '. ' + (st && !st.hidden ? st.textContent.trim() + '. ' : '') + (w || 'Press E to edit or Delete to delete.'));
+  }
+  function leave() { if (cur) cur.classList.remove('sel'); cur = null; said(''); $('#msg').focus(); }
+  function startEdit(row) {
+    closeMenus(); endEdit(false, true);
+    var col = row.querySelector('.col'), tx = col.querySelector('.tx'), box = $('#ed-box'), ta = $('#ed-ta');
+    col.insertBefore(box, tx.nextSibling); ta.value = tx.textContent.trim(); tx.hidden = true; box.hidden = false; editing = row; cur = row;
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
+  function endEdit(save, quiet) {
+    if (!editing) return;
+    var row = editing, tx = row.querySelector('.tx'); editing = null; $('#ed-box').hidden = true; tx.hidden = false;
+    if (save) tx.innerHTML = esc($('#ed-ta').value.trim()).replace(/@(\w+)/g, '<span class="ch-mention">@$1</span>') + '<span class="ed-edited">edited 9:46 AM</span>';
+    if (!quiet) select(row);
+  }
   function reset() {
-    closeMenus(); $('#m-del').hidden = true; $('#ed-box').hidden = true; $('#ed-tx').hidden = false; $('#ed-tx').innerHTML = TXT; said(''); target = null;
+    closeMenus(); $('#m-del').hidden = true; said(''); target = null; cur = null; endEdit(false, true);
+    Object.keys(orig).forEach(function (id) { $('#' + id + ' .tx').innerHTML = orig[id]; });
     $$('.ch-msg.sel').forEach(function (r) { r.classList.remove('sel'); });
     $$('.ed-del').forEach(function (d) { d.remove(); });
     $$('.ch-msg [data-gone]').forEach(function (c) { c.hidden = false; c.removeAttribute('data-gone'); });
@@ -1212,12 +1242,12 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     if (st === 'menu') openMenu('mn-ed');
     if (st === 'locked') { look($('#m-lk')); openMenu('mn-lk'); }
     if (st === 'confirm') ask($('#m-gone'));
-    if (st === 'edit') { $('#ed-tx').hidden = true; $('#ed-box').hidden = false; $('#ed-ta').focus(); }
+    if (st === 'edit') startEdit($('#m-ed'));
     if (st === 'done') {
       $('#ed-tx').innerHTML = '<span class="ch-mention">@Tester</span> also run the migration tests on MariaDB and PostgreSQL.<span class="ed-edited">edited 9:46 AM</span>';
       remove($('#m-gone'));
     }
-    if (st === 'kbd') { $('#m-ed').classList.add('sel'); said('Your message, 9:41 AM: @Tester also run the migration tests on MariaDB. Waiting for Tester to take it. Press E to edit or Delete to delete.'); }
+    if (st === 'kbd') select($('#m-ed'));
   }
   $$('.demo [data-ed]').forEach(function (b) { b.addEventListener('click', function () { setState(b.dataset.ed); }); });
   $$('.ch-msg.own').forEach(function (li) {
@@ -1230,12 +1260,37 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     if (!a) { if (!e.target.closest('.ed-menu, .ch-more, .demo')) closeMenus(); return; }
     var k = a.dataset.act;
     if (k === 'ask-delete') ask(a.closest('.ch-msg'));
-    if (k === 'cancel-del') $('#m-del').hidden = true;
-    if (k === 'do-del') { $('#m-del').hidden = true; if (target) remove(target); target = null; }
-    if (k === 'edit') setState('edit');
-    if (k === 'cancel-edit') setState('rest');
-    if (k === 'save-edit') { $('#ed-box').hidden = true; $('#ed-tx').hidden = false; $('#ed-tx').innerHTML = '<span class="ch-mention">@Tester</span> also run the migration tests on MariaDB and PostgreSQL.<span class="ed-edited">edited 9:46 AM</span>'; }
+    if (k === 'cancel-del') { $('#m-del').hidden = true; if (cur) cur.focus(); }
+    if (k === 'do-del') { $('#m-del').hidden = true; var gone = target; target = null; if (gone) { remove(gone); select(gone); } }
+    if (k === 'edit') startEdit(a.closest('.ch-msg'));
+    if (k === 'cancel-edit') endEdit(false);
+    if (k === 'save-edit') endEdit(true);
   });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (!$('#m-del').hidden) $('#m-del').hidden = true; closeMenus(); } });
+  // The composer: Up in an empty composer moves to your latest message (not while a list of @ or / choices is open).
+  $('#msg').addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowUp' || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || this.value !== '' || !$('#ac').hidden || !$('#cmdlist').hidden) return;
+    var list = own(); if (!list.length) return;
+    e.preventDefault(); e.stopPropagation(); select(list[list.length - 1]);
+  });
+  // The editor: Enter saves, Shift+Enter adds a line, Escape cancels (below).
+  $('#ed-ta').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); endEdit(true); } });
+  // On a focused message of your own: Up and Down move between your messages, E edits, Delete (Backspace on a Mac) deletes, Enter or the
+  // ContextMenu key opens its menu, Escape returns to the composer. A message that cannot change ignores the key and says why.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (!$('#m-del').hidden) { $('#m-del').hidden = true; if (cur) cur.focus(); return; }
+      if ($$('.ed-menu').some(function (m) { return !m.hidden; })) { closeMenus(); if (cur) cur.focus(); return; }
+      if (editing) { endEdit(false); return; }
+      if (cur) leave(); return;
+    }
+    if (!cur || editing || !$('#m-del').hidden || e.altKey || e.metaKey || e.ctrlKey) return;
+    if (document.activeElement !== cur) return;
+    var list = own(), i = list.indexOf(cur), w = why(cur);
+    if (e.key === 'ArrowUp') { e.preventDefault(); if (i > 0) select(list[i - 1]); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); if (i < list.length - 1) select(list[i + 1]); else leave(); }
+    else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); if (w) said(w); else startEdit(cur); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (w) said(w); else ask(cur); }
+    else if (e.key === 'Enter' || e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); var more = cur.querySelector('.ch-more'); if (more) openMenu(more.getAttribute('aria-controls')); }
+  });
 })();
 </script>
