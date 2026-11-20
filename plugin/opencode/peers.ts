@@ -99,9 +99,10 @@ export class Peers {
       if (isAccessAnswer(d.text)) void this.d.prompt(root.id, d.id, noticePrompt(d.text)).catch((err) => this.warn('a notice from Podium', err));
       return;
     }
-    const text = peerPrompt(d);
+    const busy = [...root.sessions.values()].some((s) => s.executing);
+    const text = peerPrompt(d, busy);
     if (!text) return this.result(root, d.id, 'refused');
-    if ([...root.sessions.values()].some((s) => s.executing)) this.result(root, d.id, 'queued');
+    if (busy) this.result(root, d.id, 'queued');
     void this.d.prompt(root.id, d.id, text).then(
       () => {
         if (d.from) this.d.notify?.(deliveredLine(d.from));

@@ -127,10 +127,10 @@ describe('PeerMessages: sending', () => {
     expect(trails[0]).toMatchObject({ kind: 'sent', state: 'sent', approvalWhy: null, message: { id: r.id, owner: 'Ed', link: linkKey('r-mbp', 'r-ci'), fromName: 'claude-dashboard', toName: 'Tester', sentAt: T0 } });
   });
 
-  it('says turn when the receiver is working or at a permission prompt', () => {
+  it('says sent while the receiver is working (#1252) and turn only at a permission prompt', () => {
     const { s, set } = setup();
     set('r-ci', 'r-pi', 'send');
-    expect(ok(s.send('s-ci', 'arm64-check@build-pi', 'hi')).state).toBe('turn');
+    expect(ok(s.send('s-ci', 'arm64-check@build-pi', 'hi')).state).toBe('sent');
     s.note({ ...CI, waitReason: 'permission' });
     expect(ok(s.send('s-mbp', 'Tester@ci-runner-01', 'hi')).state).toBe('turn');
   });
@@ -299,7 +299,7 @@ describe('PeerMessages: sending', () => {
     expect(trails.at(-1)).toMatchObject({ kind: 'sent', state: 'approval', approvalWhy: 'round-trips' });
     expect(s.approve(held.id, { name: 'Ed', admin: false })).toBe(true);
     const next = back('s-ci', 'claude-dashboard@ed-mbp');
-    expect(next).toMatchObject({ state: 'turn', approvalWhy: null, roundTrips: { used: 1, cap: 2 } });
+    expect(next).toMatchObject({ state: 'sent', approvalWhy: null, roundTrips: { used: 1, cap: 2 } });
   });
 });
 

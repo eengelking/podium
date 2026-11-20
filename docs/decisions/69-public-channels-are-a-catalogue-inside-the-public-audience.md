@@ -46,5 +46,5 @@ Chat has General and My group, and General is the only public place ([61](61-cha
 <!-- nav:start -->
 ---
 
-Previous: [68. A loop's background shells and monitors have a Background tab in the Activity modal (#897)](68-a-loops-background-shells-and-monitors-have-a-background-tab-in-the-activity-modal.md) · Up: [Decisions](README.md)
+Previous: [68. A loop's background shells and monitors have a Background tab in the Activity modal (#897)](68-a-loops-background-shells-and-monitors-have-a-background-tab-in-the-activity-modal.md) · Up: [Decisions](README.md) · Next: [70. A message is handed over while the agent works, and the host decides when it is read (#1252)](70-a-message-is-handed-over-while-the-agent-works-and-the-host-decides-when-it-is-read.md)
 <!-- nav:end -->

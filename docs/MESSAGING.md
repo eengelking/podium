@@ -51,7 +51,7 @@ What it is not:
 - Not Claude Code's own `SendMessage`. Podium carries the text itself, through the reporter and the server.
 - Not a way to answer a question, approve a plan or a permission, or run a command in another session. A message is
   only ever a new turn, marked as another agent's text.
-- Not a way to interrupt. A message waits until the receiving orchestrator's turn ends.
+- Not a way to interrupt. A message is handed over within seconds, but the harness holds it until the receiving orchestrator's running turn ends, and the agent then decides whether it matters more than what it was doing.
 
 ## How the parts fit
 
@@ -69,7 +69,7 @@ What it is not:
 
 | Part | What it does there |
 |---|---|
-| The server | Holds the **Orchestrator messaging** flag (`peer-messaging`), the limits, the rights between reporters, the open requests and the messages. It checks every send against the right, the limits and the owner, and hands a message over only when the receiver reports itself idle |
+| The server | Holds the **Orchestrator messaging** flag (`peer-messaging`), the limits, the rights between reporters, the open requests and the messages. It checks every send against the right, the limits and the owner, and hands a message over in the receiver's next report, unless a permission prompt is open there |
 | podium-reporter, on each machine | With its `peers` option on, gives the orchestrator four tools (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`), submits a received message under Podium's opening line, and shows the owner's requests as a toast that `/podium allow\|decline\|deliver <id>` answers |
 | My reporters (`#/me/reporters`) | The owner's page: their reporters, the requests waiting for them, their defaults and stricter limits, and the Grid or Board of who can message whom |
 | Admin | Turns the flag on and sets the limits (Admin > Settings). On Admin > Reporters > a reporter, sees the owner's rights, proposes a right and pauses every link of that reporter at once |
@@ -161,10 +161,10 @@ A change saves at once. If it cannot be saved, the page says so and shows the le
 1. In one session, ask the orchestrator to run `podium_peers`. It lists the orchestrators it can see, each as
    `name@machine` with its system, project, status and whether it can send there. A `Not listed:` line names your
    machines it left out and why.
-2. Ask it to send a short message to one of them with `podium_send`. It answers sent, waiting for the receiver's
-   turn to end, or waiting for your approval.
-3. In the receiving session, a new turn starts once it is idle, under Podium's opening line. The terminal logs
-   `a message from <name> on <machine>, delivered now that this turn has ended.`
+2. Ask it to send a short message to one of them with `podium_send`. It answers sent, waiting for the receiver
+   to answer a permission prompt, or waiting for your approval.
+3. In the receiving session, a new turn starts once its running turn has ended, under Podium's opening line. The terminal logs
+   `a message from <name> on <machine>, delivered.`
 4. Open **Chat**. The conversation between the two orchestrators is a Direct Message in its list. Select it to read it.
 
 ## Rights and approval
@@ -273,7 +273,7 @@ written for the model and for the person reading the transcript.
 | Tool | What it answers |
 |---|---|
 | `podium_peers` | The orchestrators it can see, each with its machine, system, status, project and whether it can send there; a `Not listed:` line for your machines it left out, with the reason (messaging off there, reporter too old, no right to see it, no orchestrator running) |
-| `podium_send(to, text)` | `Sent to …` when the receiver was idle; `Waiting for … It is working, and gets the message when its turn ends`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
+| `podium_send(to, text)` | `Sent to … Podium hands it over within seconds. If … is in the middle of a turn, it reads the message when that turn ends`; `Waiting for … It is at a permission prompt, and gets the message once that is answered`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
 | `podium_request_access(to, right, reason)` | Asked, allowed or declined, by the owner's default. An asked request's answer arrives later as a notice that starts a turn |
 | `podium_chat_read(channel?, before?)` | With no channel, lists the channels: General and every public channel, with each one's description, link, opener and message count. With `general`, `group` or a public channel's name, the last hour of the channel it was called into with an `@`, for context, a page at a time (about 30,000 characters, oldest first, ending with the `before` value for the older ones inside the hour); a channel it was not called into in that hour is refused. Read only (see [The reporter mod](REPORTER.md#messaging-your-other-orchestrators)) |
 
@@ -291,8 +291,11 @@ written for the model and for the person reading the transcript.
   Podium can read a public channel, so an agent posts nothing there that it would not say to all of them. Only the orchestrator's main loop lists, reads or posts. A channel message never interrupts a running turn: the agent sees it when it reads the channel or when its turn ends.
 ### How a message arrives
 
-A message waits until the receiving orchestrator reports itself idle: not during a turn, and not while a permission
-prompt is open. Agents still running in the background do not hold it back. It then starts a new turn, submitted by
+Podium hands a message over within seconds of the receiver's next report, unless a permission prompt is open there.
+Agents still running in the background do not hold it back. The harness then queues it behind the running turn, and it
+starts a new turn when that turn ends (#1252). A message handed over while the agent was working ends with a short note
+from Podium that says so and lets the agent decide whether to stop for it. Podium cannot make an agent read a message in
+the middle of a turn: neither Claude Code nor OpenCode takes one in then. It starts a new turn, submitted by
 the plugin, never as the person's own words. Claude Code shows it as "The podium-reporter plugin sent a message:",
 and Podium's line comes first:
 
@@ -366,7 +369,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | A machine never appears at all, not even under `Not listed:` | It reports as another person, or with the admin secret. Messaging is only between one person's own reporters | Set that machine's `token` and `userName` to yours. See the wrong-person row below |
 | "Waiting for Ed to approve it" | The link has **Can send, with approval** | Deliver it on My reporters, or `/podium deliver <id>` in your session on the receiving machine. Or raise the right to **Can send** |
 | "Waiting for Ed. You and X have had N round trips, the limit on this link" | The round-trip limit | Approve it the same way; the count starts again. The owner can raise their own limit up to the Admin's, and the Admin can raise theirs |
-| "Waiting for X. It is working, and gets the message when its turn ends" | The receiver is in a turn, or a permission prompt is open there | Nothing. It arrives when that turn ends |
+| "Waiting for X. It is at a permission prompt, and gets the message once that is answered" | A permission prompt is open there | Answer the prompt. The message is handed over at once |
 | The answer says "The link is paused" | The owner paused the link in Chat, or an Admin used Pause all links | **Resume link** in Chat, or **Resume all links** on Admin > Reporters > that reporter |
 | "There have been N messages between … in the last minute" | The messages-per-minute limit | Wait a minute and send again. Nothing was stored |
 | "The message is N characters, over the limit" | The longest-message limit | Send a shorter message, or a file path instead of the file |

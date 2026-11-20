@@ -131,20 +131,28 @@ describe('the report reply (#412)', () => {
 });
 
 describe('a message between two of one owner’s orchestrators (#412)', () => {
-  it('is held while the receiver works, handed over when it reports idle, and its result recorded', async () => {
+  it('is handed over while the receiver works (#1252), held only at a permission prompt, and its result and wait recorded', async () => {
     const s = await linked('send');
     await testerReport(s, { status: 'running', waitReason: null });
     const sent = await send(s, 'Please run the systemd unit tests');
     expect(sent.status).toBe(202);
-    expect(sent.body).toMatchObject({ ok: true, state: 'turn', paused: false, to: { name: 'Tester', machine: 'ci-runner-01' } });
-    expect((await testerReport(s, { status: 'running', waitReason: null })).body.peerDeliveries).toEqual([]);
-    const idle = await testerReport(s);
-    expect(idle.body.peerDeliveries).toEqual([
+    expect(sent.body).toMatchObject({ ok: true, state: 'sent', paused: false, to: { name: 'Tester', machine: 'ci-runner-01' } });
+    const prompt = await send(s, 'After the prompt');
+    expect(prompt.body).toMatchObject({ ok: true, state: 'sent' });
+    await testerReport(s, { status: 'waiting', waitReason: 'permission' });
+    const held = await send(s, 'While the prompt is open');
+    expect(held.body).toMatchObject({ ok: true, state: 'turn' });
+    expect((await testerReport(s, { status: 'waiting', waitReason: 'permission' })).body.peerDeliveries).toEqual([]);
+    s.tick(4000);
+    const working = await testerReport(s, { status: 'running', waitReason: null });
+    expect(working.body.peerDeliveries[0]).toEqual(
       { id: sent.body.id, kind: 'message', at: expect.any(Number), from: { name: 'dev', machine: 'ed-mbp', owner: 'Ed', id: 'sess-dev' }, text: 'Please run the systemd unit tests' },
-    ]);
+    );
+    expect(working.body.peerDeliveries).toHaveLength(3);
     const took = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/deliveries/${sent.body.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took', at: 1 });
     expect(took.status).toBe(200);
-    expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
+    await logKinds(s);
+    expect(s.lines.filter((l) => l.includes('peers.delivered')).some((l) => (JSON.parse(l) as { waited_ms?: number }).waited_ms === 4000)).toBe(true);
     expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_sent', 'peer_delivered', 'peer_right_set']));
   });
 

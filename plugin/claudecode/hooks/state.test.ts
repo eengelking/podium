@@ -3,7 +3,7 @@ import { agentReport, buildReport } from './report.ts'
 import { timeBucket } from '../../core/protocol.ts'
 import { scriptedReport, scriptedState, T0 } from './scripted.ts'
 import { MAIN_LOOP } from '../../core/protocol.ts'
-import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, permissionAsked, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
+import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, permissionAsked, permissionRequest, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
 
 // The key sets of docs/fixtures/report.sample.json, so a built Report has the shared fixture's shape.
 const REPORT_KEYS = ['adminNotices', 'agents', 'events', 'reporter', 'sentAt', 'session', 'v']
@@ -235,6 +235,18 @@ describe('reducers', () => {
   test('an agent the engine lists before its spawn hook keeps the parent the list gives', () => {
     const s = reconcile(base(), [{ id: 'g', description: 'grandchild', type: 'general-purpose', status: 'running', parentId: 'c' }], T0)
     expect(s.agents.g!.parentId).toBe('c')
+  })
+
+  test("a permission wait a subagent raised ends when that subagent's own call ends, not only when the main loop acts (#1252)", () => {
+    let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
+    s = { ...s, mainIdle: true }
+    s = permissionRequest(s, 'Bash', { command: 'sleep 6' }, T0 + 1, 'a')
+    expect(s).toMatchObject({ status: 'waiting', waitReason: 'permission' })
+    // Another loop's call does not end it; the same subagent's call does, and the card goes back to running, not to a stale wait.
+    expect(toolStarted(s, 'other', 'Read', T0 + 2).waitReason).toBe('permission')
+    const after = toolResult(s, { agentId: 'a', tool: 'Bash', input: { command: 'sleep 6' }, result: {} }, T0 + 3)
+    expect(after.waitReason).toBeNull()
+    expect(after.status).toBe('running')
   })
 
   test('a candidate is discarded when the loop answers', () => {
