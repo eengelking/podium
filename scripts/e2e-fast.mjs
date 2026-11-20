@@ -25,6 +25,7 @@ The shard count is the smallest of ${MAX_SHARDS}, the engine's CPUs, and its mem
 
 /**
  * The shard count for a machine. cpus and memGb are numbers or undefined (not read); override is a whole number or undefined.
+ * @param {{ cpus?: number, memGb?: number, override?: number }} machine
  * @returns {{ shards: number, reason: string }}
  */
 export function chooseShards({ cpus, memGb, override }) {
