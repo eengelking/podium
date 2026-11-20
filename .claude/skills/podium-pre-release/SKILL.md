@@ -46,7 +46,7 @@ The prep is one `release-prep/<version>` worktree branch and one PR into `develo
 7. **Atlas.** `podium-atlas-update`, or the `podium-atlas-keeper` agent, for the version, date and line counts. `node scripts/atlas-functions.mjs --check` passes.
 8. **Docs site.** `podium-docs-site`: `node site/scripts/build.mjs` builds every version and no link breaks.
 9. **Live test.** `podium-live-test` on every harness, when anything in the harness contract changed since the last release. Say the model and that it spends tokens before you start. A release that changed none says so.
-10. **End to end.** `podium-e2e-update`, or the `podium-e2e-keeper` agent, then `npm run e2e` on every registered database with no failure and no retry, and `node scripts/e2e-map.mjs` reports the coverage map true.
+10. **End to end.** `podium-e2e-update`, or the `podium-e2e-keeper` agent, then `npm run e2e:fast -- --db "sqlite postgres mariadb"` (every registered database, once) with no failure and no retry, and `node scripts/e2e-map.mjs` reports the coverage map true.
 11. **Tests.** `npm test`, `npm run build`, `scripts/test-db.sh` (every adapter, never `PODIUM_TEST_ONLY`), `npm run test:core`, and each harness's `test:mod:<harness>` and `typecheck:mod:<harness>`.
 12. **Last: `dist/`.** `npm run plugin:build:release`, then `npm run plugin:dist:check`. Nothing else merges into `development` after this commit and before the PR merges, or `dist/` is stale again.
 13. **Archives.** The zip check from `podium-release` for both harnesses.

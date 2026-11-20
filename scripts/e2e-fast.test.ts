@@ -23,6 +23,20 @@ describe("chooseShards", () => {
     expect(r.shards).toBe(3);
     expect(r.reason).toContain("cap of 3");
   });
+  it("counts the databases: three on 6 CPUs and 16 GB is 2 shards, because CPUs / 3 = 2", () => {
+    const r = chooseShards({ cpus: 6, memGb: 15.6, databases: 3 });
+    expect(r.shards).toBe(2);
+    expect(r.reason).toContain("CPUs");
+    expect(r.reason).toContain("3 databases");
+  });
+  it("limits by memory times databases, and one database is the count it always was", () => {
+    expect(chooseShards({ cpus: 16, memGb: 12, databases: 2 }).shards).toBe(3);
+    const m = chooseShards({ cpus: 16, memGb: 8, databases: 2 });
+    expect(m.shards).toBe(2);
+    expect(m.reason).toContain("memory");
+    expect(chooseShards({ cpus: 6, memGb: 15.6, databases: 1 })).toEqual(chooseShards({ cpus: 6, memGb: 15.6 }));
+    expect(chooseShards({ cpus: 2, memGb: 64, databases: 3 }).shards).toBe(1);
+  });
   it("falls back to one shard and says why when the machine only supports one", () => {
     for (const m of [{ cpus: 1, memGb: 16 }, { cpus: 8, memGb: 3 }, { cpus: 8, memGb: 0.5 }]) {
       const r = chooseShards(m);
@@ -42,13 +56,13 @@ describe("chooseShards", () => {
 
 describe("parseArgs", () => {
   it("defaults to sqlite, then $E2E_DB, then --db", () => {
-    expect(parseArgs([], {})).toMatchObject({ db: "sqlite", override: undefined, pass: [] });
+    expect(parseArgs([], {})).toMatchObject({ db: "sqlite", dbs: ["sqlite"], override: undefined, pass: [] });
     expect(parseArgs([], { E2E_DB: "postgres" }).db).toBe("postgres");
     expect(parseArgs(["--db", "mariadb"], { E2E_DB: "postgres" }).db).toBe("mariadb");
   });
   it("reads --shards, --out, --no-build and keeps what follows -- for Cypress", () => {
     expect(parseArgs(["--shards", "2", "--out", "/o", "--no-build", "--", "--headed"], {})).toEqual({
-      db: "sqlite", override: 2, pass: ["--out", "/o", "--no-build", "--", "--headed"],
+      db: "sqlite", dbs: ["sqlite"], override: 2, pass: ["--out", "/o", "--no-build", "--", "--headed"],
     });
   });
   it("refuses a bad count, a missing value, an unknown option and a bad database", () => {
@@ -56,7 +70,19 @@ describe("parseArgs", () => {
     expect(parseArgs(["--shards", "x"], {}).error).toContain("whole number");
     expect(parseArgs(["--shards"], {}).error).toContain("needs a value");
     expect(parseArgs(["--nope"], {}).error).toContain("unknown option");
-    expect(parseArgs(["--db", "a b"], {}).error).toContain("not a database");
+    expect(parseArgs(["--db", "a!"], {}).error).toContain("not a database");
+  });
+  it("takes a space list, a comma list and an $E2E_DB list, in the order given", () => {
+    expect(parseArgs(["--db", "sqlite postgres mariadb"], {})).toMatchObject({ db: "sqlite postgres mariadb", dbs: ["sqlite", "postgres", "mariadb"] });
+    expect(parseArgs(["--db", "sqlite,postgres"], {})).toMatchObject({ db: "sqlite postgres", dbs: ["sqlite", "postgres"] });
+    expect(parseArgs([], { E2E_DB: "postgres, mariadb" })).toMatchObject({ db: "postgres mariadb" });
+  });
+  it("refuses a kind named twice and an invalid kind in a list, naming it", () => {
+    expect(parseArgs(["--db", "sqlite sqlite"], {}).error).toContain('"sqlite" is named twice');
+    expect(parseArgs(["--db", "sqlite,postgres,sqlite"], {}).error).toContain("named twice");
+    expect(parseArgs(["--db", "sqlite My"], {}).error).toContain('not a database kind: "My"');
+    expect(parseArgs(["--db", "sqlite 9x"], {}).error).toContain('"9x"');
+    expect(parseArgs(["--db", " , "], {}).error).toContain("at least one");
   });
   it("answers --help", () => {
     expect(parseArgs(["-h"], {})).toEqual({ help: true });
@@ -93,6 +119,18 @@ describe("main", () => {
     expect(calls[0].slice(1)).toEqual(["--databases", "sqlite", "--shards", "3", "--out", "/o"]);
     expect(main(["--shards", "1", "--db", "postgres"], {}, run)).toBe(1);
     expect(calls[1].slice(1)).toEqual(["--databases", "postgres", "--shards", "1"]);
+  });
+  it("hands e2e-all.sh the whole list, counts it in the shards, and starts nothing for a bad list", () => {
+    const calls: string[][] = [];
+    const run = ((c: string, a: string[]) => {
+      if (c === "bash") { calls.push(a); return { status: 0 }; }
+      return { status: 0, stdout: a[0] === "--version" ? "" : "6 16777216000" };
+    }) as never;
+    expect(main(["--db", "sqlite,postgres,mariadb"], { E2E_ENGINE: "podman" }, run)).toBe(0);
+    expect(calls[0].slice(1)).toEqual(["--databases", "sqlite postgres mariadb", "--shards", "2"]);
+    expect(main(["--db", "sqlite sqlite"], {}, run)).toBe(2);
+    expect(main(["--db", "sqlite mysql!"], {}, run)).toBe(2);
+    expect(calls).toHaveLength(1);
   });
   it("returns 2 when the script gives no status", () => {
     expect(main(["--shards", "2"], {}, (() => ({ status: null })) as never)).toBe(2);

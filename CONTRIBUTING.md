@@ -66,11 +66,10 @@ npm run test:core                 # the tests in plugin/core/, with no harness C
 npm run test:mod:claudecode       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
 npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
-npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
-npm run e2e:fast       # the same suite on one database split into shards at once (count chosen from the machine, at most 3; --shards N overrides)
-E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs every database)
-E2E_DB=mariadb npm run e2e   # the same suite with MariaDB behind the server
-bash scripts/e2e-all.sh --shards 2 --out <folder outside the repo>  # every database at once, each split into 2 runs (--help says how to choose the count)
+npm run e2e:fast       # the Cypress suite, in containers (Podman or Docker), split into shards at once; the run to use. Installs nothing
+npm run e2e:fast -- --db "sqlite postgres mariadb"  # the same on several databases at once (the shard count follows the machine and the databases, at most 3; --shards N overrides)
+npm run e2e            # the serial reference run: one server, every spec in turn, for a failure that only shows sharded
+# scripts/e2e-all.sh is what e2e:fast calls (one run per database and shard); scripts/e2e-up.sh is the engine it starts for each
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
@@ -96,8 +95,8 @@ that is reached some way knip cannot follow (a path in a manifest, a module load
 
 **The end-to-end suite** (`e2e/`, decision 48) drives the built console in a real browser. `npm run e2e` builds Podium's image, starts it on a
 private container network beside the pinned `cypress/included` container, seeds it with fixed data, runs every spec and removes every container,
-network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). `npm run e2e:fast` is the same suite split into shards that run side by side, chosen from your machine (at most 3, at most the engine's CPUs, at most its memory in GB divided by 2; it prints the count and why, and `--shards N` overrides it): use it for a local run, and keep the serial `npm run e2e` for a failure that only shows sharded or a machine too small to shard. Run
-one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. It runs `scripts/e2e-all.sh --shards 3` on every database at once, about 15 minutes in all (`docs/e2e/COVERAGE.md`, "Read a CI failure", says how to read a failing shard). To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
+network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). `npm run e2e:fast` is the same suite split into shards that run side by side, and the run to use: the count is chosen from your machine and the number of databases (at most 3, at most the engine's CPUs divided by the databases, at most its memory in GB divided by 2 times the databases; it prints the count and why, and `--shards N` overrides it), and `--db "sqlite postgres mariadb"` runs several databases at once. Keep the serial `npm run e2e` for a failure that only shows sharded or a machine too small to shard. Run
+one spec with `npm run e2e:fast -- --db sqlite --shards 1 -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. It runs `scripts/e2e-all.sh --shards 3` on every database at once, about 15 minutes in all (`docs/e2e/COVERAGE.md`, "Read a CI failure", says how to read a failing shard). To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `/podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
