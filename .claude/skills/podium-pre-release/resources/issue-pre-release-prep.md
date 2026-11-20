@@ -30,7 +30,7 @@ The issue before the last of milestone v<X.Y>. Every other v<X.Y> issue, the doc
 ## Validation
 
 - `npm test`, `npm run build`, `npm run plugin:dist:check`, `npm run standards:parity`
-- `scripts/test-db.sh` on every adapter, and `npm run e2e` on every registered database
+- `scripts/test-db.sh` on every adapter, and `npm run e2e:fast -- --db "sqlite postgres mariadb"` (every registered database)
 - `node scripts/atlas-functions.mjs --check`, `node site/scripts/build.mjs`
 - The evidence checks in the run record
 
