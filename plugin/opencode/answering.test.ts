@@ -199,6 +199,14 @@ describe('host: answering inside OpenCode', () => {
     expect(seen[0]).toMatch(/^s msg_[0-9a-f]{12}[0-9A-Za-z]{14} hello$/);
   });
 
+  it('passes the delivery mode on to OpenCode when one is given, and none when it is not (#1264)', async () => {
+    const seen: (string | undefined)[] = [];
+    const send = promptVia({ prompt: async (i) => void seen.push(i.delivery), compact: async () => undefined, permissionReply: async () => undefined }, () => 5);
+    await send('s', 'pd1', 'hello', 'steer');
+    await send('s', 'pd2', 'hello');
+    expect(seen).toEqual(['steer', undefined]);
+  });
+
   it('chooses the channel for a question: the TUI part while attached, else the local service, else none', () => {
     expect(baseDeps().host.formChannel()).toBeNull();
     expect(baseDeps({ hasService: () => true }).host.formChannel()).toBe('http');

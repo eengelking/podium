@@ -51,7 +51,7 @@ What it is not:
 - Not Claude Code's own `SendMessage`. Podium carries the text itself, through the reporter and the server.
 - Not a way to answer a question, approve a plan or a permission, or run a command in another session. A message is
   only ever a new turn, marked as another agent's text.
-- Not a way to interrupt. A message is handed over within seconds, but the harness holds it until the receiving orchestrator's running turn ends, and the agent then decides whether it matters more than what it was doing.
+- Not a way to interrupt. A message is handed over within seconds and read at the receiving orchestrator's next step, after the tool call it is on. It never stops a running tool, and the agent decides whether it matters more than what it was doing.
 
 ## How the parts fit
 
@@ -273,7 +273,7 @@ written for the model and for the person reading the transcript.
 | Tool | What it answers |
 |---|---|
 | `podium_peers` | The orchestrators it can see, each with its machine, system, status, project and whether it can send there; a `Not listed:` line for your machines it left out, with the reason (messaging off there, reporter too old, no right to see it, no orchestrator running) |
-| `podium_send(to, text)` | `Sent to … Podium hands it over within seconds. If … is in the middle of a turn, it reads the message when that turn ends`; `Waiting for … It is at a permission prompt, and gets the message once that is answered`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
+| `podium_send(to, text)` | `Sent to … Podium hands it over within seconds. If … is in the middle of a turn, it reads the message at its next step, after the tool call it is on`; `Waiting for … It is at a permission prompt, and gets the message once that is answered`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
 | `podium_request_access(to, right, reason)` | Asked, allowed or declined, by the owner's default. An asked request's answer arrives later as a notice that starts a turn |
 | `podium_chat_read(channel?, before?)` | With no channel, lists the channels: General and every public channel, with each one's description, link, opener and message count. With `general`, `group` or a public channel's name, the last hour of the channel it was called into with an `@`, for context, a page at a time (about 30,000 characters, oldest first, ending with the `before` value for the older ones inside the hour); a channel it was not called into in that hour is refused. Read only (see [The reporter mod](REPORTER.md#messaging-your-other-orchestrators)) |
 
@@ -292,10 +292,11 @@ written for the model and for the person reading the transcript.
 ### How a message arrives
 
 Podium hands a message over within seconds of the receiver's next report, unless a permission prompt is open there.
-Agents still running in the background do not hold it back. The harness then queues it behind the running turn, and it
-starts a new turn when that turn ends (#1252). A message handed over while the agent was working ends with a short note
-from Podium that says so and lets the agent decide whether to stop for it. Podium cannot make an agent read a message in
-the middle of a turn: neither Claude Code nor OpenCode takes one in then. It starts a new turn, submitted by
+Agents still running in the background do not hold it back. A message handed over while the agent was working ends with a
+short note from Podium that says so and lets the agent decide whether to stop for it (#1252). It is read between tool calls
+(#1264): Claude Code adds it as context to the main loop's next tool result, and OpenCode takes it with `steer` at its next
+step. Neither interrupts a tool that is running, so a long tool call finishes first. The agent still decides: a smaller Claude Code model may take a message inside a tool result for an instruction its person did not give, and carry on (DECISIONS 71). Where the turn ends before a tool result
+comes, Claude Code starts a new turn with it instead. A message handed over to an idle agent starts a new turn, submitted by
 the plugin, never as the person's own words. Claude Code shows it as "The podium-reporter plugin sent a message:",
 and Podium's line comes first:
 

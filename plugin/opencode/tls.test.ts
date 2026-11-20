@@ -939,7 +939,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
     }
   });
 
-  it('delivers a message from another orchestrator with session.prompt, queued, and answers a request typed as /podium', async () => {
+  it('delivers a message from another orchestrator with session.prompt, steered into the running turn (#1264), and answers a request typed as /podium', async () => {
     const calls: { url: string; body: unknown }[] = [];
     const delivery = { id: 'pd9', kind: 'message', at, text: 'hello there', from: { name: 'build-pi', machine: 'pi', owner: 'Ed', id: 'ab12' } };
     const req = { id: 'prq_0123456789abcdef01234567', kind: 'access', at, from: { machine: 'pi', name: 'build-pi' }, to: { machine: 'mac', name: null }, level: 'send', by: 'build-pi', reason: 'r', text: null };
@@ -948,7 +948,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
         const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/t3', sessionEvents('t3'));
         const stop = await setup(ctx);
         await until(() => ctx.prompts.length > 0 && ctx.emitted.some((e) => e.name === 'notice' && String(e.data.message).includes('asks to send')));
-        expect(ctx.prompts[0]).toMatchObject({ sessionID: 'ses_t3', id: expect.stringMatching(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/), delivery: 'queue' });
+        expect(ctx.prompts[0]).toMatchObject({ sessionID: 'ses_t3', id: expect.stringMatching(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/), delivery: 'steer' });
         expect(String((ctx.prompts[0] as { text: string }).text)).toContain('Message from the orchestrator build-pi on pi');
         const command = ctx.commands[0]!;
         await command.execute({ sessionID: 'ses_t3', prompt: { text: '/podium' } });

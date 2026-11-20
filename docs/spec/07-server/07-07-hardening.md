@@ -694,8 +694,9 @@ out of range is refused in place, and the error says nothing was saved and which
   reply to the receiver's next report, within about the report interval, whether the session is running or waiting. It
   holds one only while a permission prompt is open (`waitReason: "permission"`), because the message would answer the
   prompt, and never hands one to a session that is `done`. A running subagent does not hold a message back (#1252).
-- A handed-over message enters the session through the harness's own prompt queue. The harness decides when the agent
-  reads it: both Claude Code and OpenCode hold it until the running turn ends. A message handed over mid-turn ends with
+- A message handed to an idle agent enters the session as a prompt. One handed over while the agent works is read at its
+  next step (#1264): OpenCode takes it as a `steer` prompt, and Claude Code adds it to the main loop's next tool result,
+  or submits it as a prompt when the turn ends first. It ends with
   Podium's own note, after the quoted text, that says it was sent while the agent was working and lets the agent decide
   whether it matters more than what it was doing.
 - When a message was taken, the server log line `peers.delivered` carries `waited_ms`, the time from send to the

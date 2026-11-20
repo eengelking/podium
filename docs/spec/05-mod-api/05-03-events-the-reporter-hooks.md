@@ -561,7 +561,7 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - `/podium allow <id>` names the level Podium applied, which can be higher than the request's because allowing never
   lowers a right, and the request's level when the server does not say. The notice to an orchestrator whose access
   request was allowed names the applied level too.
-- `/podium deliver <id>` says the message reaches its receiver when its turn ends, or, when the answer says the link
+- `/podium deliver <id>` says the message reaches its receiver at its next step, or, when the answer says the link
   is paused, once the link is resumed.
 - A message that could not be delivered (the receiver ended first, the link was removed) is a log line in the
   sender's session that says so and that the message stays in Podium > Traffic.
