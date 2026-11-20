@@ -17,11 +17,12 @@ export { clockOn, timeWithDay, stoppedLine, limitLine } from '../../core/recordi
  * texts the mod submitted and not yet seen back; a match, bare or framed on lines of its own, is taken out of it and returned as
  * sent. Any other text, one that merely contains a sent text included, comes back as it is.
  */
-export function unframeSent(text: string, sent: string[]): string {
-  const i = sent.findIndex((s) => s.length > 0 && (text === s || text.includes(`\n${s}\n`)));
+export function unframeSent(text: string, sent: (string | { framed: string; text: string })[]): string {
+  const framedOf = (s: string | { framed: string }): string => (typeof s === 'string' ? s : s.framed);
+  const i = sent.findIndex((s) => framedOf(s).length > 0 && (text === framedOf(s) || text.includes(`\n${framedOf(s)}\n`) || text.endsWith(`\n${framedOf(s)}`)));
   if (i < 0) return text;
   const [s] = sent.splice(i, 1);
-  return s ?? text;
+  return s === undefined ? text : typeof s === 'string' ? s : s.text;
 }
 
 

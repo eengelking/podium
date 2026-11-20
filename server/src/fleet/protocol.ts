@@ -179,6 +179,8 @@ export interface SessionView {
   fileDiffPreload: boolean | null;
   /** Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory). */
   respond: RespondInfo | null;
+  /** Whether the owner has allowed an Admin to respond to this session (#1251). False until they do; always false for a session with no reporter Podium knows. */
+  adminRespond: boolean;
   /** The session's asks, open or closed in the last 10 minutes, without their content (served only to the owner or an Admin). */
   asks: AskSummary[];
   /** The harness that runs the session; `claude-code` for a session from before it was stored (#851). */

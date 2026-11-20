@@ -95,6 +95,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     fileDiff: null,
     fileDiffPreload: null,
     respond: null,
+    adminRespond: false,
     asks: [],
     clearedFrom: null,
     harness: "claude-code",

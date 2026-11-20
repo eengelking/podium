@@ -135,7 +135,8 @@ describe('respond: answering', () => {
     });
   });
 
-  it('shows another person\'s message as "<Name>, from Podium:" in the owner\'s open feed', () => {
+  it('shows another person\'s message as "<Name>, from Podium:" in the owner\'s open feed, once the owner has allowed an Admin to respond (#1251)', () => {
+    cy.adminMayRespond(true);
     open('idle');
     cy.task('respond:as', { as: 'Admin', path: '/sessions/e2e-s-turn-ended/messages', body: { text: 'from the admin' } }).its('status').should('eq', 202);
     dialog().contains('Admin, from Podium: from the admin', { timeout: 20000 });
@@ -157,7 +158,8 @@ describe('respond: answering', () => {
     dialog().contains('(queued until the session is idle)', { timeout: 20000 });
   });
 
-  it('shows an Admin their own message to someone else\'s session as "You, from Podium:", and the check-in names the Admin as its sender', () => {
+  it('shows an Admin their own message to someone else\'s session as "You, from Podium:", and the check-in names the Admin as its sender, while the owner allows it (#1251)', () => {
+    cy.adminMayRespond(true);
     cy.signIn('Admin');
     cy.openConsole('#/');
     cy.card('idle').parent().find('button.respond').click();
@@ -167,6 +169,8 @@ describe('respond: answering', () => {
     cy.reportAgain('idle').then((checkIn) => {
       expect(checkIn.deliveries.find((d) => d.text === 'from the admin')).to.deep.include({ by: 'Admin', kind: 'message' });
     });
+    // The owner takes the say back, so the tests after this one see the default.
+    cy.adminMayRespond(false);
   });
 
   const refused = (status, words) => {

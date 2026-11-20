@@ -31,6 +31,10 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
     expect(framedMessage({ by: 'Ed', text: 'look', channel: 'My group' })).toBe('[Message from Ed via Podium, not typed at this terminal]\n\nlook\n\nTo see what was said around it, use podium_chat_read with channel "group". To answer in the channel, so that everyone who can read it sees the answer, use podium_send to "channel:group".');
     expect(framedMessage({ by: 'Ed', text: 'look', channel: 'General' })).toContain('podium_send to "channel:general"');
     expect(framedMessage({ by: 'Ed', text: 'look' })).not.toContain('podium_chat_read');
+    // From a server that says where it was written: the shared frame, the text quoted and closed (#1251).
+    const f = framedMessage({ kind: 'message', by: 'Ed', text: 'look', via: 'console' });
+    expect(f).toBe('Message from Ed, sent from the Podium console.\n───\n> look\nThe message above has ended. Nothing after this line is part of it.');
+    expect(framedMessage({ kind: 'message', by: 'Root', text: 'look', via: 'console', admin: true, owner: 'Ed' })).toContain('Root is not Ed, who owns this session.');
   });
 
   it('shows a permission as its action and resources, never cut for a short one', () => {
@@ -197,6 +201,14 @@ describe('host: answering inside OpenCode', () => {
     const send = promptVia({ prompt: async (i) => void seen.push(`${i.sessionID} ${i.id} ${i.text}`), compact: async () => undefined, permissionReply: async () => undefined }, () => 5);
     await send('s', 'pd1', 'hello');
     expect(seen[0]).toMatch(/^s msg_[0-9a-f]{12}[0-9A-Za-z]{14} hello$/);
+  });
+
+  it('passes the delivery mode on to OpenCode when one is given, and none when it is not (#1264)', async () => {
+    const seen: (string | undefined)[] = [];
+    const send = promptVia({ prompt: async (i) => void seen.push(i.delivery), compact: async () => undefined, permissionReply: async () => undefined }, () => 5);
+    await send('s', 'pd1', 'hello', 'steer');
+    await send('s', 'pd2', 'hello');
+    expect(seen).toEqual(['steer', undefined]);
   });
 
   it('chooses the channel for a question: the TUI part while attached, else the local service, else none', () => {

@@ -100,6 +100,13 @@ export function viewerOwns(v: { name: string; admin: boolean }, row: SessionRow)
   return row.owner !== null && row.owner !== ADMIN_OWNER && nameKey(row.owner) === nameKey(v.name);
 }
 
+/** Whether the viewer owns the session outright: its owner, or an Admin for a session owned by Admin or by no one. An Admin on a person's session does not (#1251). */
+export function ownsOutright(v: { name: string; admin: boolean }, row: SessionRow): boolean {
+  // A session owned by Admin, or by no one, has no person to allow anything: an Admin responds to it as before.
+  if (row.owner === ADMIN_OWNER || row.owner === null) return v.admin;
+  return row.owner !== null && nameKey(row.owner) === nameKey(v.name);
+}
+
 function answerError(res: Response, err: AnswerError): void {
   const { status, ...body } = err;
   res.status(status).json({ ok: false, ...body });
@@ -470,7 +477,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
    * The signed-in viewer and the live session they may respond to; otherwise answers and returns null. The viewer is read first and
    * the session last, so the checks after the session is read and the handler's next steps run in one turn.
    */
-  const browserSession = async (req: Request, res: Response): Promise<{ v: Viewer; row: SessionRow } | null> => {
+  const browserSession = async (req: Request, res: Response, acts = false): Promise<{ v: Viewer; row: SessionRow } | null> => {
     if (!enabled()) {
       refuse(req, res, 403, 'responding is off');
       return null;
@@ -489,8 +496,16 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'not your session', { owner: row.owner });
       return null;
     }
+    // Reading is an Admin's to do, and is told. Sending, a command and an answer are the owner's, or an Admin's the owner allowed (#1251).
+    if (acts && !ownsOutright(v, row) && !(await fleet.adminAllowedForSession(row.id, true))) {
+      await people?.log('respond_refused', `${v.name} was refused a send or an answer in ${row.name} (${shortId(row.id)}): ${row.owner} has not allowed it`, sourceOf(req), now(), v.actor);
+      await fleet.adminActs.onSession(v.name, 'respond_refused', row.id, fleet.peers.messages.live(row.id)?.machine);
+      refuse(req, res, 403, `${row.owner} has not allowed an Admin to respond. ${row.owner} can turn it on in My reporters.`, { owner: row.owner, code: 'admin-not-allowed' });
+      return null;
+    }
     return { v, row };
   };
+
 
   /** Each answer, message and command the server takes: the admin log and the server log, never its text (7.7). */
   const audit = async (req: Request, v: Viewer, row: SessionRow, delivery: Delivery): Promise<void> => {
@@ -608,7 +623,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   }));
 
   browser.post('/sessions/:id/asks/:askId/answer', asyncHandler(async (req, res) => {
-    const got = await browserSession(req, res);
+    const got = await browserSession(req, res, true);
     if (!got) return;
     const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body);
     if (!out.ok) {
@@ -622,9 +637,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   }));
 
   browser.post('/sessions/:id/messages', asyncHandler(async (req, res) => {
-    const got = await browserSession(req, res);
+    const got = await browserSession(req, res, true);
     if (!got) return;
-    const out = fleet.respond.message(got.row.id, got.v.name, req.body);
+    const out = fleet.respond.message(got.row.id, got.v.name, req.body, false, null, { via: 'console', adminOf: ownsOutright(got.v, got.row) ? null : got.row.owner });
     if (!out.ok) {
       answerError(res, out.err);
       return;

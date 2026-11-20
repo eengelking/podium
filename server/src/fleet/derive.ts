@@ -243,6 +243,8 @@ export interface SessionInput {
   fileDiffPreload?: boolean | null;
   /** Report.session.respond as last reported (#206), held in memory; null when unknown. */
   respond?: RespondInfo | null;
+  /** The owner's allow for an Admin to respond (#1251); false when not given. */
+  adminRespond?: boolean;
   /** The session's asks without their content, from the respond store. */
   asks?: AskSummary[];
   /** What everyone sees of the session's recording (#353): no text. Null or absent when nothing is chosen or kept. */
@@ -319,6 +321,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     fileDiff: input.fileDiff ?? null,
     fileDiffPreload: input.fileDiffPreload ?? null,
     respond: input.respond ?? null,
+    adminRespond: input.adminRespond ?? false,
     asks: input.asks ?? [],
     ...(input.recording ? { recording: input.recording } : {}),
     clearedFrom: row.cleared_from ?? null,

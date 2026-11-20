@@ -18,6 +18,7 @@ const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): Pe
   key,
   machine,
   owner: "Ed",
+  adminRespond: false,
   adminSecret: false,
   os: "macOS 26.1",
   peers: true,
@@ -84,6 +85,10 @@ function fakeServer(start: PeersRead = baseRead()) {
       const s = db.limits.server;
       db.limits = { server: s, effective: { roundTrips: Math.min(s.roundTrips, own.roundTrips ?? s.roundTrips), perMinute: Math.min(s.perMinute, own.perMinute ?? s.perMinute), maxChars: Math.min(s.maxChars, own.maxChars ?? s.maxChars) } };
       return { ok: true as const, defaults: db.defaults };
+    }),
+    setAdminRespond: vi.fn(async (key: string, allow: boolean) => {
+      db.reporters = db.reporters.map((r) => (r.key === key ? { ...r, adminRespond: allow } : r));
+      return { ok: true as const, adminRespond: allow };
     }),
     answer: vi.fn(async (id: string, how: string) => {
       const r = db.requests.find((q) => q.id === id)!;
@@ -591,6 +596,32 @@ describe("Your reporters", () => {
     const names = screen.getAllByTitle(long);
     expect(names.length).toBeGreaterThan(1);
     expect(names.some((n) => n.classList.contains("pm-name"))).toBe(true);
+  });
+});
+
+describe("Admin may respond (#1251)", () => {
+  it("has a switch for each reporter, off until its owner turns it on, and says what changed", async () => {
+    const { server } = page();
+    await flush();
+    expect(screen.getByRole("columnheader", { name: "Admin may respond" })).toBeInTheDocument();
+    const mac = screen.getAllByRole("switch", { name: /^Admin may respond on / })[0]!;
+    expect(mac).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(mac);
+    await flush();
+    expect(server.api.setAdminRespond).toHaveBeenCalledTimes(1);
+    expect(server.api.setAdminRespond.mock.calls[0]![1]).toBe(true);
+    expect(screen.getAllByRole("switch", { name: /^Admin may respond on / })[0]).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/^Admin may respond on .+: On\.$/)).toBeInTheDocument();
+  });
+
+  it("puts the switch back and says so in words when the save fails", async () => {
+    const { server } = page();
+    await flush();
+    server.api.setAdminRespond.mockRejectedValueOnce(new RespondError(500, { error: "disk full" }));
+    fireEvent.click(screen.getAllByRole("switch", { name: /^Admin may respond on / })[0]!);
+    await flush();
+    expect(screen.getAllByRole("switch", { name: /^Admin may respond on / })[0]).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the change: disk full. Nothing changed. Try again.");
   });
 });
 

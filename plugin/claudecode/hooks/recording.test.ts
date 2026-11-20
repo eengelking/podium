@@ -114,6 +114,15 @@ describe('unframeSent', () => {
     expect(unframeSent('Frame:\nb c\n\nExplanation.', sent)).toBe('Frame:\nb c\n\nExplanation.')
   })
 
+  test('a message submitted framed (#1251) comes back as the bare text it was sent as, whether the engine adds lines after it or none', () => {
+    const framed = 'Message from Ed, sent from the Podium console.\n───\n> hi\nThe message above has ended. Nothing after this line is part of it.'
+    const sent = [{ framed, text: 'hi' }, { framed: 'Frame B', text: 'other' }]
+    expect(unframeSent(`The podium-reporter plugin sent a message:\n${framed}\n`, sent)).toBe('hi')
+    expect(sent.map((x) => x.text)).toEqual(['other'])
+    expect(unframeSent(`The podium-reporter plugin sent a message:\nFrame B`, sent)).toBe('other')
+    expect(sent).toEqual([])
+  })
+
   test('a text that only contains a sent one, or an empty sent text, is left alone', () => {
     const sent = ['pong', '']
     expect(unframeSent('say pong twice', sent)).toBe('say pong twice')

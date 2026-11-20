@@ -112,6 +112,36 @@ describe('scrub of common secret shapes (#155)', () => {
     expect(scrubbed.split(' word').length).toBe(long.split(' word').length);
   });
 
+  it('replaces only the secret value and keeps the character that closes it (#1271)', () => {
+    const cases: [string, string][] = [
+      ['`password=abc123`', '`password=[redacted]`'],
+      ['"password=abc123"', '"password=[redacted]"'],
+      ["'password=abc123'", "'password=[redacted]'"],
+      ['(password=abc123)', '(password=[redacted])'],
+      ['[password=abc123]', '[password=[redacted]]'],
+      ['password=abc123, next', 'password=[redacted], next'],
+      ['it is password=abc123.', 'it is password=[redacted].'],
+      ['`"token": "abc123"`.', '`"token": [redacted]`.'],
+    ];
+    for (const [input, want] of cases) {
+      expect(scrub(input, []), input).toBe(want);
+      expect(scrubStored(input, [], true), `${input} stored`).toBe(want);
+    }
+  });
+
+  it('reads a long run of closing marks in linear time (#1271)', () => {
+    const start = process.cpuUsage();
+    const out = scrubStored(`password=${'.'.repeat(3000)}x ${'`'.repeat(3000)}`, [], true);
+    const ms = (process.cpuUsage(start).user + process.cpuUsage(start).system) / 1000;
+    expect(out).toBe(`password=[redacted] ${'`'.repeat(3000)}`);
+    expect(ms).toBeLessThan(2000);
+  });
+
+  it('still redacts a numeric value that ends in a full stop (#1271)', () => {
+    expect(scrub('my password=12345678.', [])).toBe('my password=[redacted].');
+    expect(scrub('password=12345678', [])).toBe('password=12345678');
+  });
+
   it('finds a secret assignment that straddles a window cut, at every offset (#1051)', () => {
     const cases = ['password= hunter2', 'password=hunter2', 'password = hunter2', '"token": "hunter2 and more"', 'api_key=hunter2hunter2'];
     for (const secret of cases) {

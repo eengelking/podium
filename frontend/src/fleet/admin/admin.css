@@ -94,6 +94,8 @@
 .adminv .ptab td { padding: 10px 16px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
 .adminv .ptab tr:last-child td { border-bottom: 0; }
 .adminv .ptab th.n, .adminv .ptab td.n { text-align: right; }
+/* A column of switches is centered under its heading (#1251, mockup/podium-admin-respond-allow.html). */
+.adminv .ptab th.c, .adminv .ptab td.c { text-align: center; }
 .adminv .ptab tr.revoked td { color: var(--muted); }
 .adminv .who { font-weight: 600; white-space: nowrap; }
 .adminv .who.isadmin { color: var(--admin-text); }

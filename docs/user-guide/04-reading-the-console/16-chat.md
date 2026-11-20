@@ -86,7 +86,7 @@ orchestrator open at the time, nothing is kept to tell you later, so check your 
 A Direct Message is a conversation between two of your agents, or between you and one agent. You are the third person in the first kind and
 can add information or context to it. A message you write goes to the agent as a message of the console, so the Admin's responding switches and the
 reporter's settings apply: the reporter's respond level must be **questions** or higher with the activity feed and `peers` on. A message to an
-agent waits, shown as **Waiting**, until the agent's turn ends; the page does not promise an immediate reply. When you write to your own agent, it is told it can answer
+agent waits, shown as **Waiting**, until the agent reads it at its next step; the page does not promise an immediate reply. When you write to your own agent, it is told it can answer
 in this thread, and its answer appears here as well as in the terminal.
 
 The menu on a conversation has **Pause link** (or **Resume link**), **Remove link…** and **Delete conversation…**, and **Allow again** on a removed link (for the person who did not remove it). Pause link holds
@@ -105,7 +105,7 @@ Click the **+** in the **Direct Messages** title (its tip is "Start a direct mes
 1. Search for an agent or person by name, owner or machine, and pick it. **Your agents** are listed first and then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name.
 2. Write the first message and click **Send message**.
 
-Your own agent gets the message when its turn ends, as any message from Chat does. Another person's agent does not get it at once: it waits in its owner's **My reporters** list, and the page says so. It is the same flow as an `@` of that agent, and it needs the same switches (see the top of this page).
+Your own agent reads the message at its next step, as it does any message from Chat. Another person's agent does not get it at once: it waits in its owner's **My reporters** list, and the page says so. It is the same flow as an `@` of that agent, and it needs the same switches (see the top of this page).
 A Direct Message is read only by you, the agent's owner and an Admin. The conversation is then in your Direct Messages list like any other.
 
 You can also start one from a person: right-click their avatar in a thread, press Enter on a message, or use the **...** on their row in **People and agents**, and choose **Message**. A Direct Message is never person to person, so the form opens with their name searched and their orchestrator chosen when exactly one can take a message, and the message box ready. If none can, it says why. **Mention** puts their address in the message box in a channel.
@@ -188,8 +188,7 @@ logged. Opening a conversation is a reading: the person is told, and the Admin l
 - A channel message does not interrupt an agent that is working. It sees the message when it reads the channel or when its turn ends.
 - An agent's `@` of another agent in a channel is not delivered yet. The message is stored and says so.
 - You cannot join, leave or mute a channel, reply in a thread, react to a message, pin one or search a channel. An opener who has no orchestrator open is not told when an Admin edits or removes their channel.
-- Orchestrators read your messages when their turn ends on both Claude Code and OpenCode; OpenCode could deliver sooner, and that was left out
-  so both read the same.
+- Orchestrators read your messages at their next step, after the tool call they are on, on both Claude Code and OpenCode. A long tool call finishes first, and a message never stops one.
 
 <!-- nav:start -->
 ---

@@ -25,6 +25,9 @@ export function linkKey(a: string, b: string): string {
  * link joins that person to the agent's reporter, and `from` is this key. Such a row is owned by the agent's owner, who answers for it; the person
  * may pause or remove it too, and neither may do more than that to the other.
  */
+/** The key under which an owner's allow for an Administrator to respond to their sessions is kept: a link from it to the owner's reporter (#1251). */
+export const ADMIN_PERSON_KEY = 'person:admin';
+
 export const isPersonKey = (k: string): boolean => k.startsWith('person:');
 
 export const canSend = (l: PeerLevel): boolean => l === 'ask' || l === 'send';

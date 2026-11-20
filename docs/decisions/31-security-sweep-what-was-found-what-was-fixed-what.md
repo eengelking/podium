@@ -33,7 +33,7 @@ time Podium gained responding (#206) and Admin sign-in by name and token (#215).
   sign-in to respond together.
 - Every Admin route sits behind the unlocked-session check. Every change in Admin and respond needs a custom
   header and a same-host `Origin`, with `SameSite=Strict` cookies.
-- A session is answerable only by its owner or an Admin, and the answer's text is never logged.
+- A session is answerable only by its owner or an Admin, and the answer's text is never logged. (From 72, an Admin needs the owner's allow.)
 - The UI has no `dangerouslySetInnerHTML`, and a Markdown link opens only `http(s)` and `mailto`.
 - `podiumctl` passes the token by environment, writes the config at mode 0600 and keeps the token out of the
   boot file. Log lines redact tokens.

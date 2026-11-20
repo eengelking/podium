@@ -157,7 +157,7 @@ describe("the Respond button", () => {
     await flush();
     const b = screen.getByRole("button", { name: /Respond/ });
     expect(b).toBeDisabled();
-    expect(b).toHaveAttribute("title", "Only Alex, who owns this session, or an Admin can respond.");
+    expect(b).toHaveAttribute("title", "Only Alex, who owns this session, or an Admin Alex has allowed, can respond.");
     expect(screen.getByText("Alex's session")).toBeInTheDocument();
   });
 });
@@ -672,6 +672,26 @@ describe("an Admin's read of a waiting ask (#1073)", () => {
     vi.advanceTimersByTime(PING_MS * 2);
     expect(api.sessionReading).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+
+  it("lets an Admin read someone else's ask but not answer it or send to the session until the owner allows it (#1251)", async () => {
+    const api = readingApi(ADMIN);
+    await openWith(api, session({ owner: "Ed", adminRespond: false }));
+    expect(api.ask).toHaveBeenCalled();
+    // The ask is there to read, with the reason in place of the answer controls and the message box.
+    expect(screen.getByText("How many History rows per page?")).toBeInTheDocument();
+    expect(screen.getByText("Ed hasn't allowed an Admin to respond.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Submit answers|Next/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Message to /)).not.toBeInTheDocument();
+  });
+
+  it("gives an Admin the answer controls and the message box once the owner has allowed it, and on a session owned by Admin or no one (#1251)", async () => {
+    for (const s of [session({ owner: "Ed", adminRespond: true }), session({ owner: "Admin" }), session({ owner: null })]) {
+      const r = await openWith(readingApi(ADMIN), s);
+      expect(screen.queryByText(/hasn't allowed an Admin to respond/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/^Message to /)).toBeInTheDocument();
+      r.unmount();
+    }
   });
 
   it("sends no ping for the owner's own ask, and none for an Admin of a session the Admin owns", async () => {

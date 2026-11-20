@@ -154,6 +154,13 @@ function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: My
     document.getElementById(control)?.focus();
   };
 
+  // An Admin's say to respond on one of the owner's reporters (#1251): the switch shows the change at once and the page puts it back if it is not saved.
+  const setAdminRespond = async (key: string, allow: boolean) => {
+    setBack(null);
+    setSaid(`Admin may respond on ${machine(key)}: ${allow ? "On" : "Off"}.`);
+    saved(await peers.change(() => api.setAdminRespond(key, allow), (d) => ({ ...d, reporters: d.reporters.map((r) => (r.key === key ? { ...r, adminRespond: allow } : r)) })));
+  };
+
   const setDefaults = async (patch: Partial<Pick<PeerDefaults, "trust" | "onRequest" | "newSend">>, words: string) => {
     setBack(null);
     setSaid(words);
@@ -230,6 +237,9 @@ function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: My
                   <th>Messaging</th>
                   <th>Reporter version</th>
                   <th>Last report</th>
+                  <th className="c" id="pm-adm-h">
+                    Admin may respond
+                  </th>
                   <th className="n">Live orchestrators</th>
                 </tr>
               </thead>
@@ -271,12 +281,24 @@ function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: My
                         <Version r={r} />
                       </td>
                       <td className="mono muted nowrap">{ago(data.serverTime, r.lastSeenAt)}</td>
+                      <td className="c">
+                        <div className="sw">
+                          <button type="button" role="switch" aria-checked={r.adminRespond} aria-labelledby={`pm-adm-${r.key} pm-adm-s-${r.key}`} onClick={() => void setAdminRespond(r.key, !r.adminRespond)} />
+                          <span id={`pm-adm-s-${r.key}`}>{r.adminRespond ? "On" : "Off"}</span>
+                        </div>
+                        <span id={`pm-adm-${r.key}`} hidden>
+                          Admin may respond on {r.machine}:
+                        </span>
+                      </td>
                       <td className="n mono">{r.live.length}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="pm-note">
+            <p className="hint">Admin may respond: an Admin can send to your sessions on that machine and answer what they ask, as you can. Off by default. Reading, pausing and removing stay an Admin's, and you are told of each.</p>
           </div>
           {tooOld.length + noMessaging.length > 0 && (
             <div className="pm-note">

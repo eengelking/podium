@@ -41,11 +41,11 @@ function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { pro
     if (a === 'throw') throw new Error('network down');
     return { status: a.status, ok: a.status < 300, text: a.text };
   };
-  const prompts: { session: string; id: string; text: string }[] = [];
+  const prompts: { session: string; id: string; text: string; delivery?: string }[] = [];
   const toasts: string[] = [];
   const toastMs: (number | undefined)[] = [];
   const toastOpts: (Record<string, unknown> | undefined)[] = [];
-  const prompt =over.prompt === undefined ? async (session: string, id: string, text: string) => void prompts.push({ session, id, text }) : (over.prompt ?? undefined);
+  const prompt =over.prompt === undefined ? async (session: string, id: string, text: string, delivery?: string) => void prompts.push({ session, id, text, ...(delivery ? { delivery } : {}) }) : (over.prompt ?? undefined);
   const t = { now: 10_000 };
   const r = new Reporter(
     { fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: over.log ?? (() => undefined), notify: (l, o) => void (toasts.push(l), toastMs.push(o?.durationMs), toastOpts.push(o)), ...(over.attached ? { attached: over.attached } : {}), ...(prompt ? { prompt } : {}), ...(over.peerCallMs ? { peerCallMs: over.peerCallMs } : {}) },
@@ -220,6 +220,21 @@ describe('a message for the orchestrator (#969)', () => {
     expect(x.server.calls.filter((c) => c.path.endsWith('/result')).map((c) => c.body.result)).toEqual(['queued', 'took']);
     // Handed over in the middle of the turn, it carries Podium's note so the agent can weigh it (#1252); an idle agent's does not.
     expect(x.prompts[0]!.text.endsWith(MID_TURN_NOTE)).toBe(true);
+    // And steered in, so the agent reads it at its next step and not after the whole turn (#1264).
+    expect(x.prompts[0]!.delivery).toBe('steer');
+  });
+
+  it('tries a refused steer once more as a queued prompt, so the message is not lost (#1264)', async () => {
+    const calls: (string | undefined)[] = [];
+    const x = rig({ PODIUM_PEERS: 'true' }, { prompt: async (_s: string, _i: string, _t: string, delivery?: string) => { calls.push(delivery); if (delivery === 'steer') throw new Error('not running'); } });
+    x.r.handle(ev('session.execution.started', { sessionID: ROOT }));
+    await reported(x);
+    x.server.deliveries = [message()];
+    await x.r.tick();
+    await flushed();
+    await x.r.tick();
+    expect(calls).toEqual(['steer', 'queue']);
+    expect(x.server.calls.filter((c) => c.path.endsWith('/result')).map((c) => c.body.result)).toEqual(['queued', 'took']);
   });
 
   it('adds no mid-turn note when the agent is idle (#1252)', async () => {
@@ -230,6 +245,8 @@ describe('a message for the orchestrator (#969)', () => {
     await flushed();
     await x.r.tick();
     expect(x.prompts[0]!.text).not.toContain(MID_TURN_NOTE);
+    // Nothing runs, so it is an ordinary queued prompt (#1264).
+    expect(x.prompts[0]!.delivery).toBe('queue');
   });
 
   it('refuses a message with no sender it can name, and one OpenCode did not take, and submits nothing for the first', async () => {

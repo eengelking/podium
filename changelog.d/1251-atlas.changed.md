@@ -1,0 +1,1 @@
+The atlas says an Admin on another person's session needs the owner's allow for that reporter to send or answer (a `peer_rights` link from `person:admin`, the My reporters switch, a refused try recorded as `respond_refused`), and that a message from Podium reaches the model in the `podiumPrompt` frame in Claude Code and OpenCode (#1251).

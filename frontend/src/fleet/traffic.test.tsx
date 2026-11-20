@@ -97,6 +97,7 @@ function fakeTraffic(start: TrafficLink[] = baseLinks()) {
 }
 
 const rep = (key: string, machine: string, os: string | null, peers: boolean | null = true): PeerReporter => ({
+  adminRespond: false,
   key,
   machine,
   owner: "Ed",
