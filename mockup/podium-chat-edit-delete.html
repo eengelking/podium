@@ -406,10 +406,12 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
    Deleted   The row keeps its place: "This message was deleted by You at 9:44 AM." The text is gone from the server.
    Edit      The text becomes the composer box with Save and Cancel; a saved edit shows "edited 9:46 AM" after the text.
    Keyboard  Up in the composer, E, Delete, Escape. The focused row has the focus ring; a screen reader hears its text and the keys.
-   Copied from Slack and Teams: menu on right-click, Edit and Delete for your own messages, a confirmation before delete, an "edited" mark with
-   time, a visible trace of a delete, Up arrow to edit your last message. Left out: the hover "..." button (the maintainer asked for none),
-   reactions and reply in the hover bar, edit history, undo. Changed: a locked message keeps its menu items, disabled and explained, and the
-   deleted row says who and when.
+   Compared with Slack and Teams, from their help pages (slack.com/help/articles/202395258, support.microsoft.com "Edit or delete a sent message in
+   Microsoft Teams"): copied from Slack, the words "Edit message" and "Delete message", the confirmation before a delete, and a press and hold on a
+   touch screen. Both put edit and delete in a message's own menu, and Teams offers an Undo after a delete. Differences: here the menu opens on a
+   right-click at the pointer, with no hover "..." button (the maintainer asked for none); there is no undo; and a locked message keeps its menu
+   items, disabled and explained. The "edited" time, the line left where a message was deleted and Up arrow to edit your last message are this
+   project's own design; the sources above do not confirm that Slack or Teams does them.
    New classes (to be added to the standards with the change): ed-box, ed-del, ed-edited, ed-kbd, ed-said. Colors are tokens. Example data only. */
 /* The menu sits inside the message row, which sets 15px text; it is the same menu as the sidebar's, so it takes the sidebar menu's type (13px). */
 .podium .ch-msg .ed-menu { position: fixed; right: auto; bottom: auto; z-index: 30; min-width: 220px; font-size: 13px; line-height: 1.4; font-weight: 400; }
