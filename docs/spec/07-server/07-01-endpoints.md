@@ -420,6 +420,11 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   agents' access to the channel away. In My group it is the person's or an Admin's; in General and in a public channel it is the person's own agents only.
 - `DELETE /api/fleet/respond/chat/channels/:channel/messages`: `{ owner? }`. **Remove all messages**: a person's own group
   (or an Admin's), or General or a public channel (an Admin's only, `403` for anyone else). `200 { ok: true, removed }`. The channel stays, empty.
+- `PATCH /api/fleet/respond/chat/channels/:channel/messages/:id` and `DELETE` the same path (#1269): the person who wrote a message edits or deletes it, in My group, General or a public channel. The body of `PATCH` is `{ text }`, and `owner` may name a group but only the sender's own works. `200 { ok: true, message }`, the message as a read returns it. An edit sends nothing again and may not add or remove an `@`
+  (`422`, "To change who is mentioned, delete this message and send a new one."); it is held to the same `maxChars` (`422`), `perMinute` (`429`) and redaction as a new message, and an empty text is a `400`. A delete leaves a tombstone: the row keeps its place and author, its text is gone and `deletedAt` is set.
+  Refused with `403` for a message that is not the caller's (the author is the person's id, never the name) and for the admin secret, which has no messages of its own, and an Admin has no way to change another person's message; `404` for no such message in that channel; and `409` with `reason`
+  `locked` (Podium has already sent it to an agent: a mention of an agent that is `waiting`, `working` or `done`), `deleted` (already deleted) or `approval` (it waits for another person's approval and no copy of it was kept, as for a message stored before copies were kept). A message that waits for another person's approval with its copy kept is changed together
+  with the copy, which closes that approval request on a delete. A mention of a person never locks. Logged as `group_message_edited`, `group_message_deleted`, and the same with `general_` and `channel_` (7.7).
 - `GET /api/fleet/respond/chat/addresses?channel=&q=`: what a typed `@` can mean in a channel, narrowed by `q` (the start of
   `name@location`). `200 { ok: true, addresses }`.
 - `GET /api/fleet/respond/chat/direct-targets?q=`: who the viewer can start a Direct Message with (#1035), for the **New direct message** picker: the live orchestrators of the viewer, then those of other people whose reporter takes part
@@ -448,6 +453,11 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   one person's own reporters: those are changed on My reporters.
 - `DELETE /api/fleet/respond/chat/dm/:a/:b`: **Delete conversation**, its messages and its row. The link and its rights stay.
   Either person of a conversation across owners may.
+- `PATCH /api/fleet/respond/chat/dm/:a/:b/messages/:id` and `DELETE` the same path (#1269): the person who wrote a message to an agent edits or deletes it, as for a channel message. The body of `PATCH` is `{ text }`, held to the same limits and redaction as a send, and `200 { ok: true, message }`.
+  A message sent to two agents is two rows and is changed as one. It is locked once its state is `queued`, `handed` or `delivered` (`409`, `reason` `locked`); a message that is held, waiting for another person's approval, declined, dropped or not delivered can still be changed. A delete leaves a tombstone, and a message that was still held or waiting for approval ends `dropped`
+  with its approval request closed. Refused with `403` for a message that is not the caller's, for an Admin ("An Admin can read a conversation but cannot change its messages.") and for the admin secret, `404` for no such message, `409` `deleted` for one already deleted, `422` and `429` as for a send. Logged as `chat_message_edited` and `chat_message_deleted` (7.7).
+- A message in the thread views of the channel and Direct Message reads above carries `editedAt` (when the text last changed, or null), `deletedAt` (or null; a deleted message has no text and no mentions), `canChange` (true only for the author, by id, while the message is not locked) and `changeWhy`, the words that say why not when it is locked or waiting for approval.
+  Each edit or delete moves the stream's content-free `chat` signal ([7.6](07-06-sse-stream.md)) as a new message does.
 
 **For an agent.** An agent lists, posts to and reads channels with its reporter's token, the way the other mod routes do
 (`X-Podium-Token`, the person's token that owns the session, a session whose last report said `peers: true`; `403`
@@ -464,7 +474,7 @@ otherwise, `404` for a session the server does not hold). A direct message is no
   chosen by the caller), the newest messages that fit in about 30,000 characters, oldest first. `{ ok: true, channel, messages, older }`;
   `older` is the cursor for the ones before them and is null when nothing older is inside the hour, so no message from before the hour is
   ever returned. A message is `{ id, authorKind, authorName, text, createdAt, replyTo }` and nothing else: no session id, no delivery
-  state. The agent may read a channel only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
+  state. An edited message also has `editedAt`, and a message its author deleted is `{ id, authorKind, authorName, createdAt, replyTo, deleted: true, deletedAt }` with no `text` (#1269). The agent may read a channel only if it was called into it: a delivered `@` of this session (`waiting`, `working` or `done`; or
   of the same reporter and name, as delivery resolves it) is stored in that channel inside the hour, and My group is always the agent's own
   person's. Otherwise `403 { ok: false, error: "You were not called into this channel in the last hour." }`, which names nothing. A
   disconnected channel is a `403` too; a paused one can still be read. Reading changes no mention.

@@ -453,6 +453,17 @@ At most 50 channels are kept beside General, and the limit is checked in the sam
 Deleting a person clears `created_by` of the channels they opened and leaves the channels and their messages. Removing a channel deletes it and every message in it in one step, then the pause and disconnect flags, the read counts and the Admin's records that belonged to it.
 A page of a public channel orders by `created_at, seq` like every other. The retention days apply to a public channel's messages as they do to General's.
 
+Migration 46 (#1269; PostgreSQL and MariaDB main step 22) lets a person edit and delete their own Chat messages. The same three columns go on `group_messages`, `public_messages` and `peer_messages`:
+
+```sql
+ALTER TABLE group_messages ADD COLUMN edited_at INTEGER;    -- when the text last changed; NULL if it never did
+ALTER TABLE group_messages ADD COLUMN deleted_at INTEGER;   -- when the author deleted it; NULL while it shows
+ALTER TABLE group_messages ADD COLUMN author_id INTEGER;    -- the writer's people.id; NULL for an agent's or a reporter's message
+-- the same three columns on public_messages and peer_messages
+```
+
+`author_id` has no foreign key, so a message kept after its person is deleted names nobody and no one can match it. Who may change a message is decided by this id and never by the name. The migration gives each message already stored the id of the person whose current name matches its author, and a message whose author has no current person keeps NULL and cannot be changed. A deleted message stays as a tombstone: its row keeps its id, place, author and links, its `text` is `''`, its mentions are `[]` and `deleted_at` is set, so a page and its cursor do not move. A message is locked, and neither edited nor deleted, once Podium has sent it to an agent: in a channel, when any mention of an agent is `waiting`, `working` or `done`; in a Direct Message, when its state is `queued`, `handed` or `delivered`. A mention of a person never locks. A mention that waits for another person's approval records `copyId`, the id of its Direct Message copy, inside `mentions_json`, so a change reaches the copy too. A message to two agents in a conversation is two rows, and a change is made to both in one step.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql
@@ -477,13 +488,13 @@ Admin log and General keep their name as text.
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
   unchanged later. A direct message keeps its `dlv_` style id.
 - **Author.** `author_kind` is `person`, `orchestrator`, `subagent` or `reporter`; `author_ref` is the person's name, the session id
-  or the reporter key. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
+  or the reporter key. `author_id` is a person's `people.id` (migration 46), the only thing that says a person may change a message. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
   column: the table is the audience. `peer_messages.author` is how a person is a peer in a direct message: a person's message
   has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<name, folded>` in
   `from_session` or `to_session`, and in `from_key` or `to_key` for the link. An agent's answer to such a person is an `agent` message with `to_session`
   and `to_key` `person:<key>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
   `person:` end as a missing session, so neither a person's message nor an answer to one is dropped as an orphan.
-- **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt }` ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
+- **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt, copyId? }` (`copyId` since migration 46) ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
 - **Order.** A page orders by `created_at, seq` in every adapter (`seq` is the insertion number, so a tie is decided the same
   way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
 - **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md). How long it is kept follows the harness's resume window, which `sessions.resume_window_days` holds (NULL when no report has said).
