@@ -131,6 +131,9 @@ function loopsOfAgents(agents: readonly AgentRow[]): { loop: string; name: strin
   return [{ loop: MAIN_LOOP, name: 'Orchestrator' }, ...agents.map((a) => ({ loop: a.id, name: a.name ?? a.type }))];
 }
 
+/** How long a session view may show an owner's allow for an Admin without reading it again (#1251). */
+const ADMIN_ALLOW_TTL_MS = 10_000;
+
 export class Fleet {
   readonly hub = new SseHub();
   /** The wall's notice switches and background-session setting; a change reaches open browsers at once. */
@@ -163,8 +166,8 @@ export class Fleet {
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
   private readonly serial = new Serializer();
-  /** An owner's allow for an Admin to respond, by reporter key, so a session view does not read the store each time (#1251). Set and cleared only through `setAdminAllowed`. */
-  private readonly adminAllow = new Map<string, boolean>();
+  /** An owner's allow for an Admin to respond, by reporter key, so a session view does not read the store each time (#1251). Dropped when the owner changes it and after `ADMIN_ALLOW_TTL_MS`, so a link paused or removed another way shows within seconds. What lets an Admin act never reads it (`fresh`). */
+  private readonly adminAllow = new Map<string, { on: boolean; at: number }>();
   /** Every SSE message goes out through this chain, in the order it was asked for, so a slow read never reorders them (#313). */
   private out: Promise<void> = Promise.resolve();
   /** The Podium-entry writes to the stored activity (an answer, a note, a take-back) go out through this chain, in the order they were asked for, so an entry's update never overtakes its add. */
@@ -604,26 +607,27 @@ export class Fleet {
   // ---- reads ----------------------------------------------------------------------------------
 
   /** Whether the owner of this reporter has allowed an Admin to respond to its sessions: an open link from the Admin to it. False for no reporter (#1251). */
-  async adminAllowedFor(reporterKey: string | undefined): Promise<boolean> {
+  async adminAllowedFor(reporterKey: string | undefined, fresh = false): Promise<boolean> {
     if (!reporterKey) return false;
-    const known = this.adminAllow.get(reporterKey);
-    if (known !== undefined) return known;
+    const known = fresh ? undefined : this.adminAllow.get(reporterKey);
+    if (known && this.now() - known.at < ADMIN_ALLOW_TTL_MS) return known.on;
     const link = await this.peers.rights.personLink(ADMIN_PERSON_KEY, reporterKey);
     const on = link !== null && link.level === 'send' && !link.paused;
-    this.adminAllow.set(reporterKey, on);
+    this.adminAllow.set(reporterKey, { on, at: this.now() });
     return on;
   }
 
   /** The same, for a live session, by the reporter that reports it. */
-  adminAllowedForSession(sessionId: string): Promise<boolean> {
-    return this.adminAllowedFor(this.peers.messages.live(sessionId)?.reporterKey);
+  adminAllowedForSession(sessionId: string, fresh = false): Promise<boolean> {
+    return this.adminAllowedFor(this.peers.messages.live(sessionId)?.reporterKey, fresh);
   }
 
   /** The owner gives or takes back the allow for one of their reporters. Taking back what was never given is the state asked for. */
   async setAdminAllowed(reporterKey: string, allow: boolean, actor: Actor): Promise<{ ok: true } | Refusal> {
     const out = await this.peers.setPersonLink(ADMIN_PERSON_KEY, reporterKey, allow ? 'allow' : 'remove', actor);
     if (!out.ok && !(out.status === 404 && !allow)) return out;
-    this.adminAllow.set(reporterKey, allow);
+    // Read again from the store next time, not assumed from what was asked.
+    this.adminAllow.delete(reporterKey);
     return { ok: true };
   }
 

@@ -69,7 +69,7 @@ function caseOf(detail: AskDetail, stale: boolean): Case {
 function refusedLine(err: RespondError): string {
   if (err.status === 422) return "This session doesn't take that from Podium now. Answer it in the terminal.";
   if (err.status === 429) return "20 messages are already waiting for this session. Send more once it has caught up.";
-  if (err.status === 403 && err.body.owner && err.message.includes("has not allowed")) return err.message;
+  if (err.status === 403 && err.body.code === "admin-not-allowed") return err.message;
   if (err.status === 403) return "Podium won't take this from you: it isn't your session, or responding was turned off.";
   if (err.status === 400) return `Podium couldn't send that: ${err.message}.`;
   return "Podium couldn't send that. Try again.";

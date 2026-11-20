@@ -497,10 +497,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return null;
     }
     // Reading is an Admin's to do, and is told. Sending, a command and an answer are the owner's, or an Admin's the owner allowed (#1251).
-    if (acts && !ownsOutright(v, row) && !(await fleet.adminAllowedForSession(row.id))) {
+    if (acts && !ownsOutright(v, row) && !(await fleet.adminAllowedForSession(row.id, true))) {
       await people?.log('respond_refused', `${v.name} was refused a send or an answer in ${row.name} (${shortId(row.id)}): ${row.owner} has not allowed it`, sourceOf(req), now(), v.actor);
       await fleet.adminActs.onSession(v.name, 'respond_refused', row.id, fleet.peers.messages.live(row.id)?.machine);
-      refuse(req, res, 403, `${row.owner} has not allowed an Admin to respond. ${row.owner} can turn it on in My reporters.`, { owner: row.owner });
+      refuse(req, res, 403, `${row.owner} has not allowed an Admin to respond. ${row.owner} can turn it on in My reporters.`, { owner: row.owner, code: 'admin-not-allowed' });
       return null;
     }
     return { v, row };

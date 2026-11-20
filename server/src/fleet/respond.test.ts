@@ -915,6 +915,11 @@ describe("an Admin acts on another person's session only when its owner allowed 
     expect(own.body.deliveries.find((x: { text?: string }) => x.text === 'mine')).toMatchObject({ by: 'Ed', via: 'console' });
     expect(own.body.deliveries.find((x: { text?: string }) => x.text === 'mine')).not.toHaveProperty('admin');
     expect((await edB.get('/api/fleet/respond/peers')).body.reporters[0].adminRespond).toBe(true);
+    // A link paused another way, with no call to the owner's route, stops the Admin at once: what lets an Admin act is read from the store each time.
+    expect((await fleet.peers.setPersonLink('person:admin', (await edB.get('/api/fleet/respond/peers')).body.reporters[0].key, 'pause', { name: 'Root', admin: true })).ok).toBe(true);
+    const paused = await send(admin);
+    expect(paused.status).toBe(403);
+    expect(paused.body.code).toBe('admin-not-allowed');
     expect((await edB.put(route).set(H).send({ allow: false })).body).toEqual({ ok: true, adminRespond: false });
     expect((await send(admin)).status).toBe(403);
   });
