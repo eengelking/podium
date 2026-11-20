@@ -42,6 +42,7 @@
     "typecheck:mod:opencode": "bash scripts/podium-opencode-typecheck.sh",
     "podiumctl": "node bin/podiumctl",
     "e2e": "bash scripts/e2e-up.sh run",
+    "e2e:fast": "node scripts/e2e-fast.mjs",
     "e2e:down": "bash scripts/e2e-up.sh down",
     "e2e:map": "node scripts/e2e-map.mjs"
   },
