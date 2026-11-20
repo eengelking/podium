@@ -134,7 +134,7 @@ export const agentMessageView = (m: ChannelMessage): AgentMessageView =>
 
 /** Whether two texts name the same @mentions, by what was typed, folded as the stored `typed` is: an edit may not add or remove one (#1269). */
 function sameMentions(before: string, after: string): boolean {
-  const names = (t: string): string[] => parseMentions(t).map((m) => m.typed.toLowerCase()).sort();
+  const names = (t: string): string[] => parseMentions(t).map((m) => m.typed.toLowerCase()).sort((x, y) => x.localeCompare(y));
   const a = names(before);
   const b = names(after);
   return a.length === b.length && a.every((x, i) => x === b[i]);

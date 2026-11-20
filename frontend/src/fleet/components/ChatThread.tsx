@@ -121,7 +121,7 @@ function whyNot(m: ThreadMessage): string {
 }
 /** The note a deleted message leaves in its place. */
 const tombstone = (m: ThreadMessage, me: string): string => `This message was deleted by ${mineOf(m, me) ? "You" : m.channel ? m.channel.authorName : m.direct!.from.name} at ${hm(bodyOf(m).deletedAt ?? 0)}.`;
-const noPeriod = (s: string): string => s.replace(/[.!?]+$/, "");
+const noPeriod = (s: string): string => { let n = s.length; while (n > 0 && ".!?".includes(s[n - 1]!)) n--; return s.slice(0, n); };
 
 /** Who sent a message, for the menu on its avatar: a person, or an agent with its session. You have none. The key is the one the members panel's row for the same sender has, behind `t:`. */
 interface Sender {
