@@ -10,13 +10,13 @@ const row = (over: Partial<MessageRow> = {}): MessageRow => ({
 
 describe('isSentToAgent', () => {
   it.each([
-    ['approval', false], ['ready', false], ['declined', false], ['dropped', false],
-    ['queued', true], ['handed', true], ['delivered', true],
-  ] as [MessageState, boolean][])('says %s is sent to an agent: %s', (state, locked) => {
-    expect(isSentToAgent(state)).toBe(locked);
+    ['approval', false, false], ['approval', true, false], ['ready', false, false], ['ready', true, true], ['declined', false, false], ['declined', true, false], ['dropped', false, false], ['dropped', true, false],
+    ['queued', false, true], ['queued', true, true], ['handed', false, true], ['handed', true, true], ['delivered', false, true], ['delivered', true, true],
+  ] as [MessageState, boolean, boolean][])('says a %s message, approved: %s, is sent to an agent: %s', (state, approved, locked) => {
+    expect(isSentToAgent({ state, approved })).toBe(locked);
   });
 
-  it('is exactly the states LOCKED_STATES names', () => {
+  it('is exactly the states LOCKED_STATES names, and an approved ready message besides', () => {
     expect([...LOCKED_STATES].sort()).toEqual(['delivered', 'handed', 'queued']);
   });
 });
@@ -62,6 +62,12 @@ describe('decideChange', () => {
   it('answers locked for a row sent to an agent, and changes a row that was not', () => {
     for (const state of ['queued', 'handed', 'delivered'] as const) expect(decideChange(row({ state }), [], 7)).toEqual({ ok: false, reason: 'locked' });
     for (const state of ['approval', 'ready', 'declined', 'dropped'] as const) expect(decideChange(row({ state }), [], 7)).toMatchObject({ ok: true });
+  });
+  it('locks a ready message its owner approved, and changes a ready one that needed no approval', () => {
+    expect(decideChange(row({ state: 'ready', approved: true }), [], 7)).toEqual({ ok: false, reason: 'locked' });
+    expect(decideChange(row({ state: 'ready', approved: false }), [], 7)).toMatchObject({ ok: true });
+    const first = row({ state: 'approval' });
+    expect(decideChange(first, [first, row({ id: 'm2', toSession: 'sc', state: 'ready', approved: true })], 7)).toEqual({ ok: false, reason: 'locked' });
   });
   it('takes with the row every sibling the thread merges with it, and locks them all when one is locked', () => {
     const first = row();

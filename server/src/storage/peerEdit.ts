@@ -7,10 +7,11 @@ import { MERGE_MS } from './peerText.js';
 export const LOCKED_STATES: readonly MessageState[] = ['queued', 'handed', 'delivered'];
 
 /**
- * Whether a message in this state has been sent to an agent, so it can no longer be changed. `approval` (waiting for another person to approve), `ready` (approved, not yet fetched), `declined` and `dropped`
- * (it never went) are not.
+ * Whether a message has been sent to an agent, so it can no longer be changed: one in `LOCKED_STATES`, and a `ready` one its owner approved, since the text the owner saw is the text the agent must get and the
+ * agent has only not fetched it yet. A `ready` message that needed no approval (its link was already open) is not, until it is handed over. `approval` (waiting for another person to approve), `declined` and
+ * `dropped` (it never went) are not.
  */
-export const isSentToAgent = (state: MessageState): boolean => LOCKED_STATES.includes(state);
+export const isSentToAgent = (row: Pick<MessageRow, 'state' | 'approved'>): boolean => LOCKED_STATES.includes(row.state) || (row.state === 'ready' && row.approved);
 
 /** The part of a message the thread's merge rule reads. */
 type Mergeable = Pick<MessageRow, 'author' | 'text' | 'sentAt' | 'toSession' | 'fromName'>;
@@ -25,7 +26,7 @@ export const mergesAsOne = (a: Mergeable, b: Mergeable): boolean =>
 /**
  * The decision of `editMessage` and `deleteMessage` on the row asked for and the rows of its conversation, the same in every adapter: the refusal, or the rows to change. The checks run in this order: the
  * row exists; it is a person's message whose `authorId` is this person's id (names are never compared, so an agent's message, another person's and one with no id are `not-yours`); it is not already a
- * tombstone; and it, with every row the thread merges with it (same author id, same text, same sender name, another agent, within `MERGE_MS`), has not been sent to an agent. `pair` is every row of the
+ * tombstone; and it, with every row the thread merges with it (same author id, same text, same sender name, another agent, within `MERGE_MS`), has not been sent to an agent (including an approved message the agent has not fetched yet). `pair` is every row of the
  * conversation `row` is in, the row itself included.
  */
 export function decideChange(row: MessageRow | null, pair: readonly MessageRow[], author: number): { ok: true; group: MessageRow[] } | Extract<PeerChange, { ok: false }> {
@@ -33,7 +34,7 @@ export function decideChange(row: MessageRow | null, pair: readonly MessageRow[]
   if (row.author !== 'person' || row.authorId === null || row.authorId !== author) return { ok: false, reason: 'not-yours' };
   if (row.deletedAt !== null) return { ok: false, reason: 'deleted' };
   const group = [row, ...pair.filter((m) => m.id !== row.id && m.deletedAt === null && m.authorId === author && mergesAsOne(row, m))];
-  if (group.some((m) => isSentToAgent(m.state))) return { ok: false, reason: 'locked' };
+  if (group.some((m) => isSentToAgent(m))) return { ok: false, reason: 'locked' };
   return { ok: true, group };
 }
 

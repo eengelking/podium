@@ -694,6 +694,8 @@ export class ChannelChat {
     const limited = this.busy(`person:${nameKey(viewer.name)}`, limits);
     if (limited) return limited;
     const text = this.core.redact(checked.raw);
+    // The text a post stores is what is left after cleaning, so a text of nothing but characters that draw nothing is as empty as a blank one.
+    if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     const h = this.handle(channel, owner);
     const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
     if (!found) return this.refusal('not-found', null);

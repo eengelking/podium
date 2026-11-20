@@ -140,6 +140,8 @@ describe('a person edits their own channel message (#1269)', () => {
     const id = (await say(w.edB, 'general', 'keep me')).body.message.id as string;
     expect((await edit(w.edB, 'general', id, '   ')).status).toBe(400);
     expect((await edit(w.edB, 'general', id, undefined)).status).toBe(400);
+    // Nothing but characters that draw nothing (U+200B) is empty once cleaned, as it is for a post.
+    expect((await edit(w.edB, 'general', id, '\u200B\u200B')).status).toBe(400);
     expect((await edit(w.edB, 'general', id, 'x'.repeat(4001))).status).toBe(422);
     expect((await read(w.edB, 'general')).body.messages[0]).toMatchObject({ text: 'keep me', editedAt: null });
   });
@@ -483,6 +485,7 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     const w = await world();
     const m = await toAlex(w);
     expect((await dmEdit(w.edB, 'me/sess-alex', m.id, '  ')).status).toBe(400);
+    expect((await dmEdit(w.edB, 'me/sess-alex', m.id, '\u200B')).status).toBe(400);
     expect((await dmEdit(w.edB, 'me/sess-alex', m.id, 'x'.repeat(4001))).status).toBe(422);
     expect((await thread(w.edB)).body.messages[0]).toMatchObject({ text: MSG, editedAt: null });
   });
@@ -511,15 +514,31 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     expect(((await alexOne(w)).body.peerDeliveries ?? []) as unknown[]).toHaveLength(0);
   });
 
-  it('shows an approved message that was not fetched yet as changeable, and the delete is never handed over', async () => {
+  it('locks a message its owner approved before the agent fetched it, for edit and delete, and says so in the thread', async () => {
     const w = await world();
     const m = await toAlex(w);
     const [req] = await requestsOf(w.alexB);
     expect((await w.alexB.post(`/api/fleet/respond/peers/requests/${req!.id}`).set(H).send({ answer: 'deliver' })).status).toBe(200);
-    expect((await thread(w.edB)).body.messages[0]).toMatchObject({ state: 'ready', canChange: true });
-    expect((await dmEdit(w.edB, 'me/sess-alex', m.id, 'edited while ready')).status).toBe(200);
-    expect((await dmDel(w.edB, 'me/sess-alex', m.id)).status).toBe(200);
-    expect(((await alexOne(w)).body.peerDeliveries ?? []) as unknown[]).toHaveLength(0);
+    const words = 'Podium has already sent this message to review, so it can no longer be changed.';
+    expect((await thread(w.edB)).body.messages[0]).toMatchObject({ state: 'ready', canChange: false, changeWhy: words });
+    for (const res of [await dmEdit(w.edB, 'me/sess-alex', m.id, 'edited while ready'), await dmDel(w.edB, 'me/sess-alex', m.id)]) {
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ ok: false, reason: 'locked', error: words });
+    }
+    expect((await thread(w.edB)).body.messages[0]).toMatchObject({ text: MSG, editedAt: null, deletedAt: null });
+    // The agent gets the text the owner approved.
+    expect(((await alexOne(w)).body.peerDeliveries ?? []) as { text: string }[]).toHaveLength(1);
+  });
+
+  it('still changes a ready message that needed no approval, because its link was already open', async () => {
+    const w = await world();
+    await toAlex(w);
+    const [req] = await requestsOf(w.alexB);
+    expect((await w.alexB.post(`/api/fleet/respond/peers/requests/${req!.id}`).set(H).send({ answer: 'deliver' })).status).toBe(200);
+    const second = await toAlex(w, 'A second one, over the open link.');
+    expect(second).toMatchObject({ state: 'ready', canChange: true });
+    expect((await dmEdit(w.edB, 'me/sess-alex', second.id, 'edited while ready')).status).toBe(200);
+    expect((await dmDel(w.edB, 'me/sess-alex', second.id)).status).toBe(200);
   });
 
   it('refuses a message that was handed to an agent, in words that name it, and shows it in the thread', async () => {
@@ -706,6 +725,25 @@ describe('a message that waits for another person\'s approval, and the copy Alex
     }
     expect((await read(w.edB, 'general')).body.messages[0]).toMatchObject({ text: ASK, editedAt: null, deletedAt: null });
     expect((await copies(w.alexB))[0]).toMatchObject({ text: ASK, deletedAt: null });
+  });
+
+  it('refuses a message whose copy its owner approved before the agent fetched it, with the locked words, and changes nothing', async () => {
+    const w = await world();
+    const sent = await say(w.edB, 'general', ASK);
+    const id = sent.body.message.id as string;
+    await approveAll(w.alexB);
+    // The channel's own mention moves to waiting as the answer arrives; put it back to the state it had a moment before, as a race would leave it. The copy was approved and not fetched.
+    await settle();
+    await w.fleet.chat.core.store.public.setMention('general', id, 0, { state: 'approval' });
+    expect((await copies(w.alexB))[0]).toMatchObject({ state: 'ready' });
+    for (const res of [await edit(w.edB, 'general', id, `${ASK} changed`), await del(w.edB, 'general', id)]) {
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ reason: 'locked', error: 'Podium has already sent this message to review, so it can no longer be changed.' });
+    }
+    expect((await read(w.edB, 'general')).body.messages[0]).toMatchObject({ text: ASK, editedAt: null, deletedAt: null });
+    expect((await copies(w.alexB))[0]).toMatchObject({ text: ASK, deletedAt: null });
+    // The agent gets the text its owner approved.
+    expect(((await alexOne(w)).body.peerDeliveries ?? []) as { text: string }[]).toHaveLength(1);
   });
 
   it('puts the first copy back when a later one cannot be changed, so no copy says what the message does not', async () => {

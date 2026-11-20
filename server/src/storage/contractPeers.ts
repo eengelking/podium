@@ -953,6 +953,39 @@ export function peerCases(o: Openers): void {
     expect(t.get('locked rows are as they were (delivered)')).toMatchObject({ text: 'delivered', state: 'delivered', editedAt: null, deletedAt: null });
   });
 
+  it('treats a direct message its owner approved as sent to the agent: locked for edit and delete from the approval on, while a ready message that needed no approval can still be changed, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      const approve = async (id: string): Promise<void> => {
+        const request = (await peers.rights.openRequests('ed')).find((r) => r.messageId === id)!.id;
+        await peers.answer(request, 'ed', 'deliver', ED);
+      };
+      // Approved, not yet fetched by the agent: state ready, approved true.
+      const one = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'approved one', authorId: EVE_ID }));
+      await rec('edit while waiting for approval', m.editMessage(one.id, { author: EVE_ID, text: 'approved one, edited', now: T0 + 5 }));
+      await approve(one.id);
+      await rec('approved: the row', m.message(one.id));
+      await rec('approved: edit', m.editMessage(one.id, { author: EVE_ID, text: 'a different text', now: T0 + 10 }));
+      await rec('approved: delete', m.deleteMessage(one.id, { author: EVE_ID, now: T0 + 11 }));
+      await rec('approved: the row afterwards', m.message(one.id));
+      // A ready message that needed no approval (the link was already open) can still be changed.
+      const open = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'open link', authorId: ED_ID }));
+      await rec('open link: the row', m.message(open.id));
+      await rec('open link: edit', m.editMessage(open.id, { author: ED_ID, text: 'open link, edited', now: T0 + 20 }));
+      await rec('open link: delete', m.deleteMessage(open.id, { author: ED_ID, now: T0 + 21 }));
+    });
+    expect(t.get('edit while waiting for approval')).toMatchObject({ ok: true });
+    expect(t.get('approved: the row')).toMatchObject({ state: 'ready', approved: true, text: 'approved one, edited' });
+    expect(t.get('approved: edit')).toEqual({ ok: false, reason: 'locked' });
+    expect(t.get('approved: delete')).toEqual({ ok: false, reason: 'locked' });
+    expect(t.get('approved: the row afterwards')).toMatchObject({ state: 'ready', approved: true, text: 'approved one, edited', editedAt: T0 + 5, deletedAt: null });
+    expect(t.get('open link: the row')).toMatchObject({ state: 'ready', approved: false });
+    expect(t.get('open link: edit')).toMatchObject({ ok: true, message: { text: 'open link, edited', state: 'ready' } });
+    expect(t.get('open link: delete')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 21 } });
+  });
+
   it('changes a person\'s message to two agents of a conversation in both of the rows it is stored as, and refuses it as a whole when either has been sent to an agent, the same on every adapter (#1269)', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
@@ -1145,7 +1178,8 @@ export function peerCases(o: Openers): void {
             // The hand-over won: the message is locked, whole.
             expect(change, label).toEqual({ ok: false, reason: 'locked' });
             expect(row, label).toMatchObject({ text: subject.text, deletedAt: null });
-            expect(['handed', 'queued'], label).toContain(row.state);
+            // An approval locks the message too, before the agent has fetched it.
+            expect(['handed', 'queued', 'ready'], label).toContain(row.state);
           }
           // Whatever happened, no tombstone is ever handed over afterwards.
           for (const d of (await peers.replyFor('sb', true)).peerDeliveries) expect(d.text, label).not.toBe('');

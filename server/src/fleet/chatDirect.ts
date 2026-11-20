@@ -119,7 +119,7 @@ const rank = (s: MessageState): number => (s === 'dropped' || s === 'declined' ?
 const named = (names: string[]): string => (names.length <= 1 ? (names[0] ?? 'the agent') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 const lockedWords = (rows: MessageRow[]): string => {
   // The rows that were sent name the agents; when the caller knows only that the store said locked, every row it has names one.
-  const sent = rows.filter((r) => isSentToAgent(r.state));
+  const sent = rows.filter((r) => isSentToAgent(r));
   return `Podium has already sent this message to ${named([...new Set((sent.length ? sent : rows).map((r) => r.toName))])}, so it can no longer be changed.`;
 };
 
@@ -127,7 +127,7 @@ const lockedWords = (rows: MessageRow[]): string => {
 function changeOf(rows: MessageRow[], viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
   const first = rows[0]!;
   if (first.deletedAt !== null || viewer === null || viewer.personId === null || first.author !== 'person' || first.authorId === null || first.authorId !== viewer.personId) return { canChange: false, changeWhy: null };
-  return rows.some((r) => isSentToAgent(r.state)) ? { canChange: false, changeWhy: lockedWords(rows) } : { canChange: true, changeWhy: null };
+  return rows.some((r) => isSentToAgent(r)) ? { canChange: false, changeWhy: lockedWords(rows) } : { canChange: true, changeWhy: null };
 }
 
 /** A conversation's rows as the thread shows them, each message with the rows it is made of: a person's text that went to both agents of a conversation is one message. */
@@ -580,7 +580,10 @@ export class DirectChat {
     // The same order as a new message: length, then the person's limit, then the scan for secrets.
     const early = await this.early(viewer, body.text, true);
     if (early) return early;
-    const out = await this.peers.editMessage(id, { author: viewer.personId as number, text: this.core.redact(body.text), now: this.core.host.now() });
+    const text = this.core.redact(body.text);
+    // A send refuses what is empty once cleaned; so does an edit, or it would leave a message with no text that is not a tombstone.
+    if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    const out = await this.peers.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
     if (!out.ok) return this.refused(out, scope);
     await this.changed('message_edited', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
