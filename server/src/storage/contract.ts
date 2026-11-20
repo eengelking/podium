@@ -94,6 +94,7 @@ const REPORTER_SHAPE: Shape<ReporterRow> = {
 const MESSAGE_SHAPE: Shape<MessageRow> = {
   id: 'text', owner: 'text', link: 'text', fromKey: 'text', toKey: 'text', fromSession: 'text', toSession: 'text', fromName: 'text', fromMachine: 'text',
   toName: 'text', toMachine: 'text', text: 'text', sentAt: 'int', state: 'text', stateAt: 'int', why: 'text?', approved: 'bool', author: 'text',
+  authorId: 'int?', editedAt: 'int?', deletedAt: 'int?',
 };
 const RECORDING_SHAPE: Shape<RecordingAdminRow> = {
   sessionId: 'text', name: 'text', owner: 'text?', startedBy: 'text?', state: 'text', limit: 'text?', loops: 'int', label: 'text', bytes: 'int', keptUntil: 'int?',

@@ -26,6 +26,8 @@ import {
   type MessageAuthor,
   type MessagePage,
   type MessageRow,
+  type PeerChange,
+  type PeerMessageEdit,
   type MessageState,
   type OwnerConversation,
   type PersonMessageInput,
@@ -37,6 +39,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
+import { decideChange } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
@@ -67,6 +70,9 @@ interface DbMessage {
   why: string | null;
   approved: number;
   author: string;
+  author_id?: number | null;
+  edited_at?: number | null;
+  deleted_at?: number | null;
   hidden_at?: number | null;
   seq?: number;
 }
@@ -94,13 +100,17 @@ const toRow = (r: DbMessage): MessageRow => ({
   fromMachine: r.from_machine,
   toName: r.to_name,
   toMachine: r.to_machine,
-  text: r.text,
+  // A tombstone has no text, even if a write that should have emptied it went wrong.
+  text: r.deleted_at == null ? r.text : '',
   sentAt: r.sent_at,
   state: r.state as MessageState,
   stateAt: r.state_at,
   why: r.why as DropWhy | null,
   approved: r.approved === 1,
   author: r.author as MessageAuthor,
+  authorId: r.author_id == null ? null : Number(r.author_id),
+  editedAt: r.edited_at == null ? null : Number(r.edited_at),
+  deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
 });
 
 /** Why a held message was let go, as its sender's notice says it. `messaging-off` tells no one, so it has no words. */
@@ -390,7 +400,7 @@ export class MariaPeerMessages {
       const out: PeerDelivery[] = (this.notices.get(sessionId) ?? []).map((n) => ({ id: n.id, kind: 'notice', at: n.at, from: null, text: n.text }));
       const messages: MessageRow[] = [];
       if (takes) {
-        for (const m of await this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') ORDER BY sent_at, seq`, [sessionId])) {
+        for (const m of await this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') AND deleted_at IS NULL ORDER BY sent_at, seq`, [sessionId])) {
           if (!(await this.rights.effective(m.fromKey, m.toKey)).paused) messages.push(m);
         }
       }
@@ -509,7 +519,7 @@ export class MariaPeerMessages {
   async conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]> {
     // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
     const all = await this.rows(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
        FROM peer_messages ORDER BY sent_at, seq`,
     );
     const owner = filter.owner === undefined ? null : nameKey(filter.owner);
@@ -614,9 +624,9 @@ export class MariaPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-      [id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now],
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      [id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null],
     );
     return (await this.row(id)) as MessageRow;
   }
@@ -655,9 +665,9 @@ export class MariaPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-      [id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now],
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      [id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null],
     );
     if (state === 'approval') {
       await this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
@@ -679,6 +689,34 @@ export class MariaPeerMessages {
     return { messages: kept.map(toRow), older: newestFirst.length > limit && oldest ? encodeCursor(oldest.sent_at, oldest.seq as number) : null };
   }
 
+  /** The rows an author's change would touch, or why it is refused (#1269): the one asked for and every row the thread merges with it, decided on one read, inside the transaction the caller holds. */
+  private async changeOf(id: string, author: number): Promise<ReturnType<typeof decideChange>> {
+    const row = await this.row(id);
+    return decideChange(row, row ? await this.conversation(row.fromSession, row.toSession) : [], author);
+  }
+
+  editMessage(id: string, x: PeerMessageEdit): Promise<PeerChange> {
+    return this.db.tx(async () => {
+      const change = await this.changeOf(id, x.author);
+      if (!change.ok) return change;
+      for (const m of change.group) await this.db.run('UPDATE peer_messages SET text = ?, edited_at = ? WHERE id = ?', [x.text, x.now, m.id]);
+      return { ok: true as const, message: (await this.row(id)) as MessageRow };
+    });
+  }
+
+  deleteMessage(id: string, x: { author: number; now: number }): Promise<PeerChange> {
+    return this.db.tx(async () => {
+      const change = await this.changeOf(id, x.author);
+      if (!change.ok) return change;
+      for (const m of change.group) {
+        await this.db.run(`UPDATE peer_messages SET text = '', deleted_at = ? WHERE id = ?`, [x.now, m.id]);
+        // Never approved or handed over now: dropped, with its approval request closed.
+        if (m.state === 'approval' || m.state === 'ready') await this.drop({ ...m, text: '', deletedAt: x.now }, 'deleted');
+      }
+      return { ok: true as const, message: (await this.row(id)) as MessageRow };
+    });
+  }
+
   async deleteConversation(owner: string, a: string, b: string): Promise<number> {
     if (!(await this.ownsPair(owner, a, b))) return 0;
     for (const m of await this.rows(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, [a, b, b, a])) await this.rights.closeMessageRequest(m.id, 'dropped');
@@ -687,7 +725,7 @@ export class MariaPeerMessages {
 
   async conversationOf(a: string, b: string): Promise<ConversationSummary | null> {
     // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
-    const rows = await this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
+    const rows = await this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
     return rows.length > 0 ? this.summary(rows) : null;
   }
 
@@ -700,7 +738,7 @@ export class MariaPeerMessages {
   async ownerConversations(owner: string, opts: { includeHidden?: boolean; pairs?: string[] } = {}): Promise<OwnerConversation[]> {
     if (opts.pairs && opts.pairs.length === 0) return [];
     const all = await this.db.all<DbMessage>(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, hidden_at
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
        FROM peer_messages ORDER BY sent_at, seq`,
     );
     const only = opts.pairs ? new Set(opts.pairs) : null;

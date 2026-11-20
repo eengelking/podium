@@ -45,7 +45,7 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
         await old.run(`INSERT INTO agents (session_id, id, kind, type, description, status, started_at) VALUES (?, ?, 'subagent', 'Explore', 'look', 'done', ?)`, [x.id, x.agent, x.startedAt]);
       }
     }
-    for (const x of messages) {
+    for (const x of messages.filter((m) => !m.written)) {
       await old.run(
         `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
          VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
@@ -87,6 +87,23 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
         await old.run(
           'INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
           [x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq],
+        );
+      }
+    }
+    if (messages.some((m) => m.written)) {
+      // Rows that say who wrote them come from step 1; step 22 gave them an author's id, so they go in at the schema before it, with the people they will be matched to.
+      await migrate(old, MAIN_SCHEMA, MAIN_STEPS.filter((s) => s.version <= 21));
+      for (const name of new Set(messages.flatMap((x) => (x.written?.person ? [x.written.person] : [])))) {
+        if (!(await old.get('SELECT 1 AS x FROM people WHERE name_lower = ?', [nameKey(name)]))) {
+          await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64)]);
+        }
+      }
+      for (const x of messages) {
+        if (!x.written) continue;
+        await old.run(
+          `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+           VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, ?, 'box-a', 'beta', 'box-b', ?, ?, ?, ?, NULL, 0, 0, ?, ?)`,
+          [x.id, x.owner, x.fromSession, x.toSession, x.written.fromName, x.text, x.sentAt, x.written.state, x.sentAt, x.seq, x.written.author],
         );
       }
     }

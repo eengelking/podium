@@ -264,8 +264,8 @@ export interface PeerRightsView {
 export type MessageState = 'approval' | 'ready' | 'handed' | 'queued' | 'delivered' | 'declined' | 'dropped';
 export const HELD_STATES: readonly MessageState[] = ['approval', 'ready', 'handed', 'queued'];
 
-/** Why the server let go of a held message. Each is said to its sender in a notice and written to the logs. */
-export type DropWhy = 'receiver-ended' | 'session-deleted' | 'link-removed' | 'messaging-off' | 'refused';
+/** Why the server let go of a held message. Each is said to its sender in a notice and written to the logs. `deleted`: its author deleted it while it still waited for approval or for its receiver (#1269); nobody is told, since the author did it. */
+export type DropWhy = 'receiver-ended' | 'session-deleted' | 'link-removed' | 'messaging-off' | 'refused' | 'deleted';
 
 /** Who wrote a message: an agent (an orchestrator, over podium_send) or the owning person (from the Chat page, #1034). Every message stored before this was an agent's. */
 export type MessageAuthor = 'agent' | 'person';
@@ -294,7 +294,27 @@ export interface MessageRow {
    * person added to a conversation between two agents, and `person:<owner, folded>` when it is the person with one agent (a conversation of their own).
    */
   author: MessageAuthor;
+  /** The `people.id` of the person who wrote it (#1269); null for an agent's message, and for a person's written before the id was kept whose name matches no person. Authorship is this id, never a name. */
+  authorId: number | null;
+  /** When its author last changed the text (#1269); null for a message never edited. */
+  editedAt: number | null;
+  /** When its author deleted it (#1269); null for a message that stands. A deleted message stays as a tombstone: its text is '', its place, sender, target and `authorId` are kept. */
+  deletedAt: number | null;
 }
+
+/** What a person's edit of their own direct message says (#1269): who, the new text and when. Named, so a store interface that takes it is not itself a row of content. */
+export interface PeerMessageEdit {
+  /** The signed-in person's `people.id`. */
+  author: number;
+  text: string;
+  now: number;
+}
+
+/**
+ * The result of a person changing one of their own direct messages (#1269). `not-yours`: it is an agent's, or another person's, or a person's with no author id. `deleted`: it is already a
+ * tombstone. `locked`: it has been sent to an agent (`queued`, `handed` or `delivered`), in any of the rows a message to two agents is stored as. On success `message` is the row asked for, as it is now.
+ */
+export type PeerChange = { ok: true; message: MessageRow } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
 
 /** One page of a conversation, oldest first within the page. `older` is the cursor for the page before it, or null when this one starts the conversation. */
 export interface MessagePage {
@@ -314,6 +334,8 @@ export interface PersonMessageInput {
   text: string;
   /** `queued` when the caller already handed the text to the agent through the console path, so the peer path never hands it again; absent stores it `ready`. */
   state?: 'queued';
+  /** The `people.id` of the person writing (#1269), kept with the message so only they can change it. Absent keeps none, and nobody can change the message. */
+  authorId?: number | null;
 }
 
 /** What a person writes to another person's agent (#1034). It is held for the agent's owner unless the owner has opened a link to the person. */
@@ -323,6 +345,8 @@ export interface AcrossInput {
   /** The agent that would get it. */
   toSession: string;
   text: string;
+  /** The `people.id` of the person writing (#1269), kept with the message so only they can change it. Absent keeps none, and nobody can change the message. */
+  authorId?: number | null;
 }
 
 /** What podium_send answers when a message was taken. `paused` says the link is paused, so it waits for a resume too. */
@@ -476,6 +500,17 @@ export interface PeerMessagesApi {
    * too many waiting at this owner. Everything it says names only the agent written to, never another of the owner's.
    */
   sendAcross(input: AcrossInput): MessageRow | Refusal;
+  /**
+   * The author changes the text of one of their own messages (#1269), whatever conversation it is in: `id` is a message id and `author` the signed-in person's `people.id`. A message to two agents is stored as one row per
+   * agent and shown as one, so every row the thread merges with the one asked for changes with it, in the same step, and a lock on any of them locks all. The text is stored as given: the caller cleans it and checks its length.
+   * Sets `text` and `editedAt`; the state, the time sent and the place in the conversation stay.
+   */
+  editMessage(id: string, x: PeerMessageEdit): PeerChange;
+  /**
+   * The author deletes one of their own messages (#1269), with the same rows and rules as `editMessage`. Each row stays as a tombstone: `text` '' and `deletedAt` set, its place, sender, target and `authorId` kept. A row that still
+   * waits for approval or for its receiver (`approval`, `ready`) ends `dropped` with the why `deleted` and its approval request closed, so it is never approved or handed over. Rows `declined` or `dropped` keep their state.
+   */
+  deleteMessage(id: string, x: { author: number; now: number }): PeerChange;
   /** Deletes the owner's messages of one conversation. Returns how many. */
   deleteConversation(owner: string, a: string, b: string): number;
   /** The summary of the one conversation between two sessions (either order), or null when they have no messages (#1046). */

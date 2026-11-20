@@ -1,7 +1,7 @@
 // The async storage interfaces (#313). Every method of the stores keeps its name, arguments and result, and returns a Promise.
 // Each interface is written out here and imports nothing from an adapter, so another database implements this file alone; an
 // adapter proves it does by being typed against these interfaces, and a signature that drifts is a compile error there.
-import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListResult, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
+import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, PeerChange, PeerMessageEdit, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListResult, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
 import type { ModelPricesView, PeerAnswer, PeerLevel, PeerResult, RecordingAdminRow, RecordingBatch, RecordingGrant, RecordingLoopInfo, RecordingRow, RecordingSettings, RecordingState, RecordingView, Report, WallSettingsView } from '../fleet/protocol.js';
 import type { ActivityEntryView } from '../fleet/activity.js';
 import type { ActivityHistoryNote, ActivityHistoryPreview, ActivityHistorySettings, LastPurge, StoredActivityList, StoredDeleteBody, StoredDeleteResult, StoredFilter, StoredTotals } from '../fleet/activityHistoryTypes.js';
@@ -277,6 +277,10 @@ export interface PeerStoreApi {
     sendAcross(input: AcrossInput): Promise<MessageRow | Refusal>;
     /** One page of the owner's conversation, the newest page first. `before` is the `older` of the page after it; a page back starts strictly before it, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
     page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
+    /** The author changes the text of one of their own direct messages and of the rows it is merged with (#1269). See `PeerMessagesApi.editMessage`; one step, so a delivery cannot split it. */
+    editMessage(id: string, x: PeerMessageEdit): Promise<PeerChange>;
+    /** The author deletes one of their own direct messages and the rows it is merged with (#1269): each stays as a tombstone, and one that was not yet handed over ends `dropped` (why `deleted`). See `PeerMessagesApi.deleteMessage`. */
+    deleteMessage(id: string, x: { author: number; now: number }): Promise<PeerChange>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
     deleteConversation(owner: string, a: string, b: string): Promise<number>;
     /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
