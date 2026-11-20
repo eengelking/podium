@@ -84,6 +84,13 @@ describe("parseArgs", () => {
     expect(parseArgs(["--db", "sqlite 9x"], {}).error).toContain('"9x"');
     expect(parseArgs(["--db", " , "], {}).error).toContain("at least one");
   });
+  it("refuses a well-formed kind that is not registered, naming it and the registered kinds", () => {
+    const e = parseArgs(["--db", "sqlite mysql"], {}).error;
+    expect(e).toContain('unknown database kind "mysql"');
+    expect(e).toContain("registered: sqlite, postgres, mariadb");
+    expect(parseArgs([], { E2E_DB: "oracle" }).error).toContain('"oracle"');
+    expect(parseArgs(["--db", "mysql"], {}, ["sqlite", "mysql"])).toMatchObject({ dbs: ["mysql"] });
+  });
   it("answers --help", () => {
     expect(parseArgs(["-h"], {})).toEqual({ help: true });
   });
@@ -130,6 +137,7 @@ describe("main", () => {
     expect(calls[0].slice(1)).toEqual(["--databases", "sqlite postgres mariadb", "--shards", "2"]);
     expect(main(["--db", "sqlite sqlite"], {}, run)).toBe(2);
     expect(main(["--db", "sqlite mysql!"], {}, run)).toBe(2);
+    expect(main(["--db", "sqlite mysql"], {}, run)).toBe(2);
     expect(calls).toHaveLength(1);
   });
   it("returns 2 when the script gives no status", () => {

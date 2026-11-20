@@ -7,6 +7,7 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { kinds } from "./db-adapters.mjs";
 
 /** Past 3 shards a 6-CPU, 16 GB machine was no faster and one run hung for 15 minutes (DECISIONS 49, `e2e-all.sh --help`). */
 export const MAX_SHARDS = 3;
@@ -58,8 +59,8 @@ export function readMachine(env = process.env, run = spawnSync) {
   return { cpus: r.status === 0 && c > 0 ? c : undefined, memGb: r.status === 0 && m > 0 ? m / 1024 ** 3 : undefined };
 }
 
-/** Reads the arguments. Returns { error } or { db, dbs, override, pass }, where db is the databases joined by spaces, dbs the list, and pass is the e2e-all.sh options and the Cypress arguments. */
-export function parseArgs(argv, env = process.env) {
+/** Reads the arguments; `known` is the registered e2e kinds (scripts/db-adapters.mjs). Returns { error } or { db, dbs, override, pass }, where db is the databases joined by spaces, dbs the list, and pass is the e2e-all.sh options and the Cypress arguments. */
+export function parseArgs(argv, env = process.env, known = kinds("e2e")) {
   let db = env.E2E_DB || "sqlite";
   let override;
   const pass = [];
@@ -82,6 +83,8 @@ export function parseArgs(argv, env = process.env) {
   for (const k of dbs) if (!/^[a-z][a-z0-9_-]*$/.test(k)) return { error: `not a database kind: "${k}"` };
   const twice = dbs.find((k, i) => dbs.indexOf(k) !== i);
   if (twice) return { error: `database "${twice}" is named twice; the same database is never run twice at once` };
+  const unknown = dbs.find((k) => !known.includes(k));
+  if (unknown) return { error: `unknown database kind "${unknown}" (registered: ${known.join(", ")})` };
   return { db: dbs.join(" "), dbs, override, pass };
 }
 
