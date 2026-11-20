@@ -1,0 +1,1 @@
+The atlas describes the redesigned Chat: the avatar, the menu on it, the members stack and panel, the message list as one tab stop, the live region and the message box, with their source references (#1239).

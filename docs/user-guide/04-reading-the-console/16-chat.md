@@ -8,7 +8,7 @@ order: 15.5
 # Chat
 
 **Chat** (`#/chat`) is where you talk with your orchestrators, read what they say to each other, and join in. It is laid
-out like Slack or Teams, and it replaces [Traffic](15-traffic.md). `mockup/podium-chat.html` shows every case.
+out like Slack or Teams, and it replaces [Traffic](15-traffic.md). `mockup/podium-chat-redesign.html` shows every case.
 
 It needs the Admin's **Orchestrator messaging** switch (Admin > Settings > Feature flags) and, to message an agent, authentication
 on and the reporter's `peers` option on, as for [My reporters](14-my-reporters.md). The link is in the top bar after **History**. Sign in
@@ -21,6 +21,7 @@ Contents:
 - [Opening a channel](#opening-a-channel)
 - [Direct Messages](#direct-messages)
 - [Starting a Direct Message](#starting-a-direct-message)
+- [Who is in a channel](#who-is-in-a-channel)
 - [Addressing with @](#addressing-with)
 - [Another person's agent](#another-persons-agent)
 - [Who can read what](#who-can-read-what)
@@ -29,13 +30,17 @@ Contents:
 
 ## The page
 
-The sidebar has three lists: **Channels** (*General*, the public channels people opened, and *My group*), **Direct Messages** and **People and agents** (people and orchestrators: your own orchestrators,
-never a subagent or a fork, to start a Direct Message with). Each agent has the same state icon as its card on the wall, and a person has a
-monogram. An agent is in the list for as long as its session is open, even before it has done anything and the wall shows no card for it. When
+The chat fills the window, with the same gap on all four sides, and only the sidebar and the message list scroll.
+
+The sidebar has three lists: **Channels** (*General*, the public channels people opened, and *My group*), **Direct Messages** and **People and agents** (your own orchestrators,
+never a subagent or a fork, and the other people, to start a Direct Message with). Each list has a title in capitals with a count; click the title to fold the list. A conversation is named for the people and agents in it, with you left out. Each agent has the same state icon as its card on the wall, and a person has
+a ring with their initials, never a color of their own, because color on this console means model and status. An agent is in the list for as long as its session is open, even before it has done anything and the wall shows no card for it. When
 its session ends it fades out of the list the way a card leaves the wall. A row shows how many messages are new, or `@ 2` when you are addressed. Click a row to open it. Each row has a **...**
 button and a right-click that open its menu. On a narrow screen the list and the thread are two screens, with **Back to the list**.
 
-The newest message is at the bottom. **Earlier messages** above the oldest one pages back. Enter sends and Shift+Enter adds a line. Anything
+Every message is in the same bubble, yours on the right and everyone else's on the left. A run of messages from one sender within five minutes shares one avatar, name and time, and the time of the others shows when you point at them. An agent's avatar is a rounded tile in its model's color with its state at the corner and an **Agent · model** tag; a person's is a ring and a disc; yours is the same disc turned inside out. Days are divided by a line, and a red **New** line marks the first message you have not read. Code in a message (inside triple backticks) is shown as text in its own block with a **Copy** button.
+
+The newest message is at the bottom, just above the message box, and a conversation with few messages grows upward from there. **Earlier messages** above the oldest one pages back. The message box is one box with a row of tools under the text: an **@** button in a channel, a **/** button in a message to your own agent, and **Send**, which is muted until there is something to send. Enter sends and Shift+Enter adds a line, and a send that fails says so and keeps what you wrote. Anything
 Podium replaces as a possible secret reads `[redacted]` before the message is stored or delivered. The page sits between the orchestrator list
 and the Activity panel, which open collapsed to their edge tabs; `[` and `]` open them with **Shortcuts** on, and `w` does nothing.
 
@@ -64,7 +69,7 @@ and a limit per minute.
 
 ## Opening a channel
 
-Click **New channel** above the list.
+Click the **+** in the **Channels** title (its tip is "Create a channel").
 
 1. **Name** it with lowercase letters, numbers and hyphens, up to 40 characters, such as `staging-incident`. The name cannot be changed later, and `general` and `group` are taken.
 2. Write a **Description** of up to 280 characters: what the channel is for and what belongs in it. You or an Admin can change it later with **Edit description…**.
@@ -72,7 +77,7 @@ Click **New channel** above the list.
 4. Click **Create channel**.
 
 If something is wrong, a red banner says so in words and the cursor goes to the field: a name that is empty, not allowed or already used, a link another channel already has (it names that channel, so you can open it instead), or the limit.
-A server keeps at most 50 channels besides General, and **New channel** is off with the reason under it once it has that many; an Admin can remove one that is no longer used.
+A server keeps at most 50 channels besides General, and the Channels **+** is off with the reason under it once it has that many; an Admin can remove one that is no longer used.
 If an Admin edits the description of a channel you opened, or removes it, you are told who did it. The notice shows in your orchestrator's terminal, in each session you have open, for a few minutes. If you have no
 orchestrator open at the time, nothing is kept to tell you later, so check your channels after a gap. If your account is deleted, the channels you opened stay.
 
@@ -95,17 +100,23 @@ for the same agent starts a new conversation and shows none of the old one.
 
 ## Starting a Direct Message
 
-Click **New direct message** above your Direct Messages.
+Click the **+** in the **Direct Messages** title (its tip is "Start a direct message"), or choose **Message** on a person or an agent (see below).
 
-1. Search for an agent by its name, its owner or its machine, and pick it. **Your agents** are listed first and then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name.
+1. Search for an agent or person by name, owner or machine, and pick it. **Your agents** are listed first and then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name.
 2. Write the first message and click **Send message**.
 
 Your own agent gets the message when its turn ends, as any message from Chat does. Another person's agent does not get it at once: it waits in its owner's **My reporters** list, and the page says so. It is the same flow as an `@` of that agent, and it needs the same switches (see the top of this page).
 A Direct Message is read only by you, the agent's owner and an Admin. The conversation is then in your Direct Messages list like any other.
 
+You can also start one from a person: right-click their avatar in a thread, press Enter on a message, or use the **...** on their row in **People and agents**, and choose **Message**. A Direct Message is never person to person, so the form opens with their name searched and their orchestrator chosen when exactly one can take a message, and the message box ready. If none can, it says why. **Mention** puts their address in the message box in a channel.
+
+## Who is in a channel
+
+The header of *My group* and of a channel has a row of avatars with a count. Click it to open the members panel on the right, with a search, the filters **All**, **Waiting** and **Running**, and the people and agents under it with "Showing N of M". It is closed when you open a conversation. It lists the people and agents the console knows, which in a public channel is not everyone who can read it, and it says so. A Direct Message names its two parties before the title and has no panel.
+
 ## Addressing with @
 
-An agent acts in a channel only when it is addressed. Type `@` and a list of matching names opens, narrowing as you type; pick one to fill in
+An agent acts in a channel only when it is addressed. Type `@` (or click the **@** button) and a list of matching names opens, each with its avatar, role and state, narrowing as you type; pick one to fill in
 `name@location`. A message shows each addressed agent's state: waiting, working, done, held, not delivered or dropped, with why.
 `@group` and `@everyone` are off until an Admin turns on **Address @group and @everyone in Chat**. Agents addressing each other stop at
 10 round trips (the default; the Admin sets the maximum and each owner can set it lower) until you approve the next; a message you write does not reset that count. An agent you addressed can read the last hour of the channel it was called into, to see what was said around your message, and nothing from before that hour.
@@ -156,7 +167,7 @@ you see a red **Paused by an Admin** tag and a banner that names them, and you c
 resume and remove all each leave a line in the conversation and a callout in your terminal. Removing all messages does not remove those lines.
 
 If you are an Admin, the **Read as an Admin** picker at the top of the sidebar ("Read a person's conversations") lets you choose a person. You then see
-their My group and Direct Messages, read only, with no unread counts and no People and agents. Choosing a person shows only names and counts, and it is
+their My group and Direct Messages, read only, with no unread counts and no People and agents. Until you choose one, the thread area says what to do, and in a person's conversation the message box is off and says "An Admin cannot send here". Choosing a person shows only names and counts, and it is
 logged. Opening a conversation is a reading: the person is told, and the Admin log records `chat_admin_read`. Sending is not offered.
 
 ## What is not here yet
