@@ -108,7 +108,7 @@ function Harness(p: { members: Member[]; partial?: boolean; onPick?: (k: string,
   return (
     <div>
       <ChatMembersStack members={p.members} open={open} controls="mem" onToggle={() => setOpen(!open)} />
-      {open && <ChatMembersPanel id="mem" label="My group" members={p.members} partial={p.partial ?? false} menu={p.menu ?? null} onMenu={() => {}} onMenuClose={() => {}} onPick={p.onPick ?? (() => {})} onClose={() => setOpen(false)} />}
+      {open && <ChatMembersPanel id="mem" label="My group" members={p.members} partial={p.partial ?? false} menu={p.menu ?? null} onMenu={() => {}} mention={false} reading={false} onMenuClose={() => {}} onPick={p.onPick ?? (() => {})} onClose={() => setOpen(false)} />}
     </div>
   );
 }
@@ -220,7 +220,7 @@ describe("ChatMembersPanel", () => {
   it("offers a menu on a row's avatar and on a right-click anywhere on the row", () => {
     const onMenu = vi.fn();
     const m = many(2);
-    render(<ChatMembersPanel id="mem" label="My group" members={m} partial={false} menu={null} onMenu={onMenu} onMenuClose={() => {}} onPick={() => {}} onClose={() => {}} />);
+    render(<ChatMembersPanel id="mem" label="My group" members={m} partial={false} menu={null} onMenu={onMenu} mention={false} reading={false} onMenuClose={() => {}} onPick={() => {}} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Actions for worker-0" }));
     expect(onMenu).toHaveBeenLastCalledWith("h:w0", "button");
     fireEvent.contextMenu(screen.getByText("worker-1").closest("li")!);
@@ -229,7 +229,7 @@ describe("ChatMembersPanel", () => {
 
   it("opens the agent's menu with Open orchestration page, and runs what is picked", () => {
     const onPick = vi.fn();
-    render(<ChatMembersPanel id="mem" label="My group" members={many(1)} partial={false} menu="h:w0" onMenu={() => {}} onMenuClose={() => {}} onPick={onPick} onClose={() => {}} />);
+    render(<ChatMembersPanel id="mem" label="My group" members={many(1)} partial={false} menu="h:w0" onMenu={() => {}} mention={false} reading={false} onMenuClose={() => {}} onPick={onPick} onClose={() => {}} />);
     const item = screen.getByRole("menuitem", { name: "Open orchestration page" });
     expect(item.getAttribute("href")).toBe("#/?open=w0");
   });
@@ -237,7 +237,7 @@ describe("ChatMembersPanel", () => {
   it("gives you and a subagent no menu", () => {
     const you: Member = { key: "you", kind: "you", name: "Ed", line: "You", state: null, word: null };
     const sub: Member = { key: "g:1", kind: "agent", name: "Map call sites", line: "Haiku · subagent of x", state: "done", word: "Done", family: "haiku" };
-    render(<ChatMembersPanel id="mem" label="My group" members={[you, sub]} partial={false} menu={null} onMenu={() => {}} onMenuClose={() => {}} onPick={() => {}} onClose={() => {}} />);
+    render(<ChatMembersPanel id="mem" label="My group" members={[you, sub]} partial={false} menu={null} onMenu={() => {}} mention={false} reading={false} onMenuClose={() => {}} onPick={() => {}} onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: /^Actions for/ })).toBeNull();
   });
 });

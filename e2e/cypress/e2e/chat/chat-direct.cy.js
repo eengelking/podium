@@ -135,16 +135,16 @@ describe('chat: the controls of a Direct Message', () => {
 describe('chat: People and agents', () => {
   before(() => cy.resetServer({ seedArgs: '--talk' }));
 
-  it('offers Message and Open orchestration page on an agent, from the "..." button and a right-click', () => {
+  it('offers Message, Mention and Open orchestration page on an agent, from the "..." button and a right-click', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     openMenu('a:e2e-s-invoice').should('have.attr', 'aria-label', 'Actions for invoice-v2');
-    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Open orchestration page']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Mention invoice-v2', 'Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').should('have.attr', 'href', '#/?open=e2e-s-invoice');
     cy.focused().type('{esc}');
     cy.tid('chat-menu').should('not.exist');
     cy.chatRow('a:e2e-s-invoice').rightclick();
-    cy.tid('chat-menu').find('[role=menuitem]').should('have.length', 2);
+    cy.tid('chat-menu').find('[role=menuitem]').should('have.length', 3);
     cy.get('body').click(0, 0);
   });
 
@@ -184,7 +184,7 @@ describe('chat: People and agents', () => {
     cy.get('button[aria-controls="ch-members"]').click();
     cy.tid('chat-members').should('be.visible').and('contain.text', 'invoice-v2').and('contain.text', 'Ed (you)');
     cy.tid('chat-members').find('button[aria-label="Actions for invoice-v2"]').click();
-    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Open orchestration page']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Mention invoice-v2', 'Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').click();
     cy.location('hash').should('eq', '#/?open=e2e-s-invoice');
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
@@ -289,5 +289,54 @@ describe('chat: an agent launched and not yet used (#1112)', () => {
     cy.openConsole('#/');
     cy.card('invoice').should('exist');
     cy.get(`button.card.sc[data-session="${ID}"]`).should('not.exist');
+  });
+});
+
+describe('chat: the menu on a sender\'s avatar (#1235)', () => {
+  const ASK = 'Please run the unit tests on invoice-v2.';
+  // Alex's message in General is the one with another person's avatar; Ed reads it. Each test signs in again, so none depends on another.
+  before(() => {
+    cy.resetServer({ seedArgs: '--talk' });
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
+    cy.tid('chat-box').type(`@invoice-v2@ed-mbp ${ASK}{enter}`);
+    cy.tid('chat-message').last().should('contain.text', ASK);
+  });
+  const asEd = () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
+    return cy.tid('chat-message').last().should('contain.text', ASK);
+  };
+
+  it('offers Message and Mention on a right-click of a person\'s avatar, and Message opens New direct message with the name searched', () => {
+    asEd().find('.ch-gut').rightclick();
+    cy.tid('chat-menu').should('be.visible').and('have.class', 'at').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message Alex', 'Mention Alex']));
+    cy.tid('chat-menu').contains('[role=menuitem]', 'Message Alex').click();
+    cy.get('[role=dialog]').should('contain.text', 'New direct message').find('input[type=search]').should('have.value', 'Alex');
+  });
+
+  it('writes the address in the message box on Mention, and puts it at the caret', () => {
+    asEd().find('.ch-gut').rightclick();
+    cy.tid('chat-menu').contains('[role=menuitem]', 'Mention Alex').click();
+    cy.tid('chat-box').should('be.focused').and(($b) => expect($b.val()).to.match(/^@Alex@\S+ $/));
+  });
+
+  it('opens from the keyboard (Enter) on a focused message, moves, and closes on Escape with the focus back on the message', () => {
+    asEd().focus().type('{enter}');
+    cy.tid('chat-menu').should('be.visible');
+    cy.focused().should('have.attr', 'role', 'menuitem');
+    cy.focused().type('{downArrow}');
+    cy.focused().type('{esc}');
+    cy.tid('chat-menu').should('not.exist');
+    cy.focused().should('have.attr', 'data-testid', 'chat-message');
+  });
+
+  it('gives your own avatar no menu', () => {
+    asEd();
+    cy.tid('chat-box').type('A line of my own{enter}');
+    cy.tid('chat-message').last().should('contain.text', 'A line of my own').find('.ch-gut').rightclick();
+    cy.tid('chat-menu').should('not.exist');
   });
 });

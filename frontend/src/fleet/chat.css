@@ -57,6 +57,8 @@
 .ch-menu { max-width: min(320px, calc(100vw - 32px)); }
 /* A row's menu opens under the row and flips up when there is no room below it. */
 .ch-item .ch-menu.up { top: auto; bottom: 100%; }
+/* A sender's menu (#1235) hangs at the pointer or under the avatar, fixed, above the thread and its members panel. */
+.podium .ch-menu.at { position: fixed; right: auto; bottom: auto; z-index: 30; }
 .ch-menu .sub { display: block; font-size: 11px; color: var(--muted); white-space: normal; }
 .podium .ch-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
 .podium .ch-menu button[aria-disabled="true"]:hover { background: transparent; }

@@ -3,10 +3,10 @@
 // caller puts the focus back) and offer only what the viewer may do, as the overview's `can` flags say.
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
-import { ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
+import { ChAt, ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
-export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open" | "edit" | "remove-channel";
+export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "mention" | "open" | "edit" | "remove-channel";
 
 interface MenuItem {
   act: MenuAct;
@@ -93,24 +93,62 @@ export function channelMenu(c: ChatChannel, reading?: { owner: string }): MenuSp
   return { label: `Actions for ${c.name}`, items, ...(why ? { why } : {}) };
 }
 
-/** An agent's menu, in People and agents and on a thread's participants: start a message, or open its orchestration page. */
-export function agentMenu(name: string, sessionId: string, state: StateKind, withMessage: boolean): MenuSpec {
+/** What a sender's menu may offer: Mention only where a channel is open, and nothing that sends while an Admin reads (#1235). */
+export interface SenderOpts {
+  /** The open conversation is a channel, so an @ means something there. */
+  mention?: boolean;
+  /** An Admin is reading as a person: Message and Mention send, so neither is offered. */
+  reading?: boolean;
+}
+
+/** An agent's menu, in People and agents and on a sender's avatar: start a message, mention it where a channel is open, or open its orchestration page. */
+export function agentMenu(name: string, sessionId: string, state: StateKind, withMessage: boolean, opts: SenderOpts = {}): MenuSpec {
   const items: MenuItem[] = [];
-  if (withMessage) items.push({ act: "message", label: `Message ${name}`, icon: <ChMsg /> });
+  if (withMessage && !opts.reading) items.push({ act: "message", label: `Message ${name}`, icon: <ChMsg /> });
+  if (opts.mention && !opts.reading) items.push({ act: "mention", label: `Mention ${name}`, icon: <ChAt /> });
   items.push({ act: "open", label: "Open orchestration page", icon: <StateIcon kind={state} />, href: `#/?open=${encodeURIComponent(sessionId)}` });
   return { label: `Actions for ${name}`, items };
 }
 
-/** A person's menu, in People and agents: Message is always offered, never hidden; when no orchestrator can take it the New direct message form opens and says why (#1229, decision 12). */
-export function personMenu(name: string): MenuSpec {
-  return { label: `Actions for ${name}`, items: [{ act: "message", label: `Message ${name}`, icon: <ChMsg /> }] };
+/**
+ * A person's menu, in People and agents, the members panel and on a sender's avatar. Message is always offered, never hidden; when no
+ * orchestrator can take it the New direct message form opens and says why (#1229, decision 12). Mention is offered where a channel is open.
+ * An Admin reading sends nothing, so a person's menu is then a note that says why.
+ */
+export function personMenu(name: string, opts: SenderOpts = {}): MenuSpec {
+  const label = `Actions for ${name}`;
+  if (opts.reading) return { label, items: [], why: "An Admin reading cannot send, so there is no Message or Mention." };
+  const items: MenuItem[] = [{ act: "message", label: `Message ${name}`, icon: <ChMsg /> }];
+  if (opts.mention) items.push({ act: "mention", label: `Mention ${name}`, icon: <ChAt /> });
+  return { label, items };
 }
 
-export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void; onClose: (restoreFocus: boolean) => void }) {
+/** Where a menu opens when it is not a row's own: the pointer, or the bottom-left of what was focused. `from` gets the focus back on Escape. */
+export interface MenuAt {
+  x: number;
+  y: number;
+  /** The top of the thing the menu hangs under, so a menu near the bottom flips above it rather than over it. */
+  top?: number;
+  from?: HTMLElement | null;
+}
+
+export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void; onClose: (restoreFocus: boolean) => void; at?: MenuAt }) {
   const ref = useRef<HTMLDivElement>(null);
   const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   // A row's menu opens under the row and flips up when it would run past the bottom of the sidebar's scroll area.
   const [up, setUp] = useState(false);
+  // A menu with a place of its own (a sender's avatar) is fixed there and kept inside the window: it flips above when it would run past
+  // the bottom and moves left when it would run past the right edge.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const at = props.at;
+    const el = ref.current;
+    if (!at || !el) return;
+    const r = el.getBoundingClientRect();
+    const left = Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8));
+    const flip = at.y + r.height > window.innerHeight - 8;
+    setPos({ left, top: Math.max(8, flip ? (at.top ?? at.y) - r.height : at.y) });
+  }, [props.at]);
   useLayoutEffect(() => {
     const el = ref.current;
     const side = el?.closest(".ch-side");
@@ -148,17 +186,18 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
       all[all.length - 1]!.focus();
     }
   };
+  const place = props.at ? { left: pos?.left ?? props.at.x, top: pos?.top ?? props.at.y } : undefined;
   if (noteOnly) {
     return (
       // A reason with nothing to choose is not a menu: a plain note that takes the focus and closes on Escape.
-      <div className={`ch-menu ch-note${up ? " up" : ""}`} role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
+      <div className={`ch-menu ch-note${up ? " up" : ""}${props.at ? " at" : ""}`} style={place} role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
         {props.spec.why}
       </div>
     );
   }
   return (
     // The keys belong to the menu's own items, which take the focus.
-    <div className={`ch-menu${up ? " up" : ""}`} role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
+    <div className={`ch-menu${up ? " up" : ""}${props.at ? " at" : ""}`} style={place} role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
       {props.spec.items.map((it) =>
         it.href ? (
           <a key={it.act} role="menuitem" href={it.href} data-act={it.act} onClick={() => props.onClose(false)}>

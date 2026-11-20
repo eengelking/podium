@@ -105,6 +105,8 @@ export interface SidebarProps {
   onPerson: (name: string) => void;
   /** The person an Admin is reading, or null. While set the sidebar is read only: no unread counts, no People and agents. */
   readAs: string | null;
+  /** A channel is open, so a row's menu offers Mention too (#1235). */
+  mention: boolean;
   /** What the picker is set to, which can run ahead of `readAs` while the person's list is read. */
   picked: string | null;
   onReadAs: (name: string | null) => void;
@@ -184,7 +186,7 @@ export function ChatSidebar(p: SidebarProps) {
 
   const agentRow = ({ item: a, leaving }: { item: ChatAgent; leaving: boolean }) => {
     const kind = agentState(p.sessions, a.sessionId, a.status);
-    return row(`a:${a.sessionId}`, agentMenu(a.name, a.sessionId, kind, true), (
+    return row(`a:${a.sessionId}`, agentMenu(a.name, a.sessionId, kind, true, { mention: p.mention }), (
       <>
         <ChatAvatar kind="agent" name={a.name} family={p.sessions[a.sessionId]?.modelFamily} state={kind} size={28} />
         <span className="stack">
@@ -197,7 +199,7 @@ export function ChatSidebar(p: SidebarProps) {
 
   const personRow = (name: string) => {
     const key = `p:${name}`;
-    return row(key, personMenu(name), (
+    return row(key, personMenu(name, { mention: p.mention }), (
       <>
         <ChatAvatar kind="person" name={name} size={28} />
         <span className="stack">

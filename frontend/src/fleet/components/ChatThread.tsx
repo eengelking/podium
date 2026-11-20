@@ -49,7 +49,8 @@ import {
   TagGlyph,
 } from "./ChatIcons";
 import { linkWords } from "./ChatForms";
-import type { MenuAct } from "./ChatMenu";
+import { ChatMenu, agentMenu, personMenu, type MenuAct, type MenuAt, type MenuSpec } from "./ChatMenu";
+import { useRovingList } from "../useRovingList";
 import { agentState } from "./ChatSidebar";
 import { ChatAvatar, ChatAvatarPair } from "./ChatAvatar";
 import { ChatMembersPanel, ChatMembersStack, membersOf } from "./ChatMembers";
@@ -99,6 +100,28 @@ function mineOf(m: ThreadMessage, me: string): boolean {
   return (
     d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase()
   );
+}
+
+/** Who sent a message, for the menu on its avatar: a person, or an agent with its session. You have none. The key is the one the members panel's row for the same sender has, behind `t:`. */
+interface Sender {
+  key: string;
+  person: boolean;
+  name: string;
+  ref: string;
+}
+
+function senderOf(m: ThreadMessage, me: string): Sender | null {
+  if (mineOf(m, me)) return null;
+  if (m.channel) {
+    const c = m.channel;
+    return c.authorKind === "person"
+      ? { key: `mp:${c.authorName}`, person: true, name: c.authorName, ref: c.authorName }
+      : { key: `h:${c.authorRef}`, person: false, name: c.authorName, ref: c.authorRef };
+  }
+  const f = m.direct!.from;
+  return f.kind === "person"
+    ? { key: `mp:${f.name}`, person: true, name: f.name, ref: f.name }
+    : { key: `h:${f.sessionId ?? ""}`, person: false, name: f.name, ref: f.sessionId ?? "" };
 }
 
 type Row =
@@ -225,6 +248,8 @@ function Message({
   machineOf,
   sessions,
   cont,
+  rove,
+  onSender,
 }: {
   m: ThreadMessage;
   all: ThreadMessage[];
@@ -238,6 +263,10 @@ function Message({
   machineOf: (ref: string) => string | null;
   sessions: Record<string, SessionView>;
   cont: boolean;
+  /** The roving tab stop and index of this message (one stop for the whole list, #1231). */
+  rove: { tabIndex: number; "data-roving": number };
+  /** Opens the menu of this message's sender at the pointer; undefined for your own. */
+  onSender?: (at: MenuAt) => void;
 }) {
   const c = m.channel;
   const d = m.direct;
@@ -284,13 +313,27 @@ function Message({
     <li
       className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}`}
       data-testid="chat-message"
+      {...rove}
     >
       {cont ? (
         <span className="ch-gut" aria-hidden="true" title={when}>
           {hm(m.at)}
         </span>
       ) : (
-        <span className="ch-gut">{avatar}</span>
+        // A right-click on the avatar opens its sender's menu at the pointer. The keyboard reaches it from the message (Enter, the ContextMenu key, Shift+F10).
+        <span
+          className="ch-gut"
+          onContextMenu={
+            onSender
+              ? (e) => {
+                  e.preventDefault();
+                  onSender({ x: e.clientX, y: e.clientY, from: e.currentTarget.closest("li") });
+                }
+              : undefined
+          }
+        >
+          {avatar}
+        </span>
       )}
       <div className="ch-col">
         {!cont && (
@@ -401,7 +444,9 @@ export interface ThreadProps {
   /** Moves to the newest message when it changes: the thread opened, or the person sent. */
   scrollToken: string;
   menu: string | null;
-  onMenu: (key: string | null, by: "button" | "context") => void;
+  /** Where the open menu hangs when it is a sender's (`t:` key); null for a row's own. */
+  menuAt: MenuAt | null;
+  onMenu: (key: string | null, by: "button" | "context", at?: MenuAt) => void;
   onClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
   onBack: () => void;
@@ -421,6 +466,15 @@ export function ChatThread(p: ThreadProps) {
   const grew = useRef<number | null>(null);
   const newest = t.messages[t.messages.length - 1]?.id ?? null;
   const oldest = t.messages[0]?.id ?? null;
+  // The message list is one tab stop however long it is (#1231); Enter, the ContextMenu key or Shift+F10 on a message opens its sender's menu (#1235).
+  const roving = useRovingList(t.messages.length, (i) => {
+    const m = t.messages[i];
+    const sender = m && senderOf(m, o.me.name);
+    if (!sender) return; // your own avatar has no menu
+    const item = body.current?.querySelector<HTMLElement>(`[data-roving="${i}"]`);
+    const r = (item?.querySelector(".ch-gut") ?? item)?.getBoundingClientRect();
+    if (r) p.onMenu(`t:${sender.key}`, "button", { x: r.left, y: r.bottom, top: r.top, from: item ?? null });
+  });
   const lastNewest = useRef<string | null>(null);
   const lastOldest = useRef<string | null>(null);
   const lastToken = useRef<string | null>(null);
@@ -648,6 +702,15 @@ export function ChatThread(p: ThreadProps) {
     ),
   );
 
+  // The menu on a sender's avatar (#1235): Message everywhere, Mention where a channel is open, and nothing that sends while an Admin reads.
+  const senderOpts = { mention: p.sel.kind === "channel" && !ro, reading: ro };
+  const specOf = (s: Sender): MenuSpec => (s.person ? personMenu(s.name, senderOpts) : agentMenu(s.name, s.ref, agentState(p.sessions, s.ref, null, false), true, senderOpts));
+  const openKey = p.menu?.startsWith("t:") ? p.menu.slice(2) : null;
+  const openSender = openKey ? (t.messages.map((m) => senderOf(m, o.me.name)).find((s) => s?.key === openKey) ?? null) : null;
+  // The index of each message among the messages (a record, a day divider and the New line are not in the list's order).
+  let at = 0;
+  const msgAt = rows.map((r) => (r.k === "msg" ? at++ : -1));
+
   // Who is in the thread (#1236): My group and a channel get an avatar stack and a panel; a Direct Message has two parties and neither.
   const list =
     p.sel.kind === "channel"
@@ -790,7 +853,7 @@ export function ChatThread(p: ThreadProps) {
               aria-relevant="additions"
               aria-atomic="false"
             >
-              <ol className="ch-msgs">
+              <ol className="ch-msgs" {...roving.listProps}>
                 {rows.map((r, i) =>
                   r.k === "rec" ? (
                     <RecordLine
@@ -811,6 +874,12 @@ export function ChatThread(p: ThreadProps) {
                       m={r.m}
                       all={t.messages}
                       cont={conts[i]!}
+                      rove={roving.itemProps(msgAt[i]!)}
+                      onSender={
+                        senderOf(r.m, o.me.name)
+                          ? (pos) => p.onMenu(`t:${senderOf(r.m, o.me.name)!.key}`, "context", pos)
+                          : undefined
+                      }
                       sessions={p.sessions}
                       people={o.people.map((x) => x.name)}
                       machineOf={machineOf}
@@ -847,6 +916,7 @@ export function ChatThread(p: ThreadProps) {
         )}
       </div>
       {p.composer}
+      {openSender && <ChatMenu spec={specOf(openSender)} at={p.menuAt ?? undefined} onPick={(act) => p.onPick(p.menu!, act)} onClose={p.onClose} />}
     </section>
     {list && p.members && (
       <ChatMembersPanel
@@ -856,6 +926,8 @@ export function ChatThread(p: ThreadProps) {
         members={list.members}
         partial={list.partial}
         menu={p.menu}
+        mention={senderOpts.mention}
+        reading={ro}
         onMenu={p.onMenu}
         onMenuClose={p.onClose}
         onPick={p.onPick}

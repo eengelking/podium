@@ -1331,14 +1331,14 @@ describe("the menus", () => {
     await flush();
     fireEvent.click(more("Tester"));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
-    expect(items.map((i) => i.textContent)).toEqual(["Message Tester", "Open orchestration page"]);
-    expect(items[1]).toHaveAttribute("href", "#/?open=s-tester");
+    expect(items.map((i) => i.textContent)).toEqual(["Message Tester", "Mention Tester", "Open orchestration page"]);
+    expect(items[2]).toHaveAttribute("href", "#/?open=s-tester");
     fireEvent.click(items[0]!);
     await flush();
     expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("Tester");
   });
 
-  it("lists you and your orchestrators behind the stack in My group, and an orchestrator's row has the orchestration page and no Message (#1236)", async () => {
+  it("lists you and your orchestrators behind the stack in My group, and an orchestrator's row has Message, Mention and the orchestration page (#1236, #1235)", async () => {
     page();
     await flush();
     await open("c:group");
@@ -1350,8 +1350,8 @@ describe("the menus", () => {
     expect(within(panel).getByText("Ed").closest("b")).toHaveTextContent("Ed (you)");
     fireEvent.click(within(panel).getByRole("button", { name: "Actions for claude-dashboard" }));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
-    expect(items.map((i) => i.textContent)).toEqual(["Open orchestration page"]);
-    expect(items[0]).toHaveAttribute("href", "#/?open=s-dash");
+    expect(items.map((i) => i.textContent)).toEqual(["Message claude-dashboard", "Mention claude-dashboard", "Open orchestration page"]);
+    expect(items[2]).toHaveAttribute("href", "#/?open=s-dash");
   });
 
   it("closes the members panel from its own button, and Message on a person in a channel opens New direct message with their name searched (#1236)", async () => {
@@ -3743,7 +3743,7 @@ describe("the redesigned sidebar", () => {
     expect(row("d:dm:person:ed|s-notes")).not.toHaveClass("un");
   });
 
-  it("lists the other people in People and agents, not you, each with a menu that offers Message", async () => {
+  it("lists the other people in People and agents, not you, each with a menu that offers Message and Mention", async () => {
     page();
     await flush();
     expect(screen.queryByTestId("chat-row-p:Ed")).toBeNull();
@@ -3754,7 +3754,7 @@ describe("the redesigned sidebar", () => {
     expect(r.querySelector(".ch-av.person")).toBeInTheDocument();
     fireEvent.click(within(r).getByRole("button", { name: "Actions for Maya" }));
     const menu = screen.getByTestId("chat-menu");
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Message Maya"]);
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Message Maya", "Mention Maya"]);
     fireEvent.keyDown(menu, { key: "Escape" });
     expect(screen.queryByTestId("chat-menu")).toBeNull();
     fireEvent.contextMenu(r);
@@ -3853,3 +3853,204 @@ describe("the redesigned sidebar", () => {
     });
   });
 });
+
+
+describe("the menu on a sender's avatar (#1235)", () => {
+  const MIN = 60_000;
+  const maya = (id: string, text: string, over: Partial<ChannelMessage> = {}) => cmsg(id, text, { mine: false, authorName: "Maya", authorRef: "Maya", createdAt: T0 - 9 * MIN, updatedAt: T0 - 9 * MIN, ...over });
+  const tester = (id: string, text: string) => cmsg(id, text, { mine: false, authorKind: "orchestrator", authorName: "Tester", authorRef: "s-tester", createdAt: T0 - 8 * MIN, updatedAt: T0 - 8 * MIN });
+  const generalWith = (messages: ChannelMessage[], targets: DirectTarget[] = []) => {
+    const w = world();
+    w.channels.general = { messages };
+    w.overview.channels = w.overview.channels.map((c) => (c.id === "general" ? { ...c, messages: messages.length } : c));
+    w.targets = targets;
+    return fakeChat(w);
+  };
+  const msgs = () => within(thread()).getAllByTestId("chat-message");
+  const gutOf = (m: HTMLElement) => m.querySelector(".ch-gut") as HTMLElement;
+  const item = (name: string) => within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name });
+  const items = () => within(screen.getByTestId("chat-menu")).getAllByRole("menuitem").map((i) => i.textContent);
+
+  it("offers Message and Mention on a person's avatar, and Message opens New direct message with her orchestrator chosen", async () => {
+    page({ chat: generalWith([maya("a", "hello")], TARGETS.slice(0, 2)) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!), { clientX: 120, clientY: 200 });
+    expect(items()).toEqual(["Message Maya", "Mention Maya"]);
+    // It hangs at the pointer, fixed, inside the page's own wrapper.
+    const menu = screen.getByTestId("chat-menu");
+    expect(menu).toHaveClass("at");
+    expect(menu).toHaveStyle({ left: "120px", top: "200px" });
+    expect(menu.closest(".podium, .adminv")).not.toBeNull();
+    fireEvent.click(item("Message Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    expect(dlg.getByLabelText("Find an agent or person")).toHaveValue("Maya");
+    expect(dlg.getByRole("radio", { name: /docs-writer/ })).toBeChecked();
+  });
+
+  it("opens the dialog and says why when the person has no orchestrator that takes a message", async () => {
+    page({ chat: generalWith([maya("a", "hello")], []) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Message Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    expect(dlg.getByText("Maya has no orchestrator that takes a message now.")).toBeInTheDocument();
+    expect(dlg.queryAllByRole("radio")).toHaveLength(0);
+  });
+
+  it("writes the person's address at the caret in the message box and focuses it", async () => {
+    page({ chat: generalWith([maya("a", "hello")]) });
+    await flush();
+    const box = screen.getByTestId("chat-box") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "ping later" } });
+    box.setSelectionRange(4, 4);
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Maya"));
+    await flush();
+    expect(box.value).toBe("ping @Maya@console later");
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe("ping @Maya@console ".length);
+    // A second Mention is a second request.
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Maya"));
+    await flush();
+    expect(box.value).toBe("ping @Maya@console @Maya@console later");
+  });
+
+  it("offers an agent Message, Mention and Open orchestration page, as its sidebar row does", async () => {
+    page({ chat: generalWith([tester("t", "done")]) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(items()).toEqual(["Message Tester", "Mention Tester", "Open orchestration page"]);
+    expect(item("Open orchestration page")).toHaveAttribute("href", "#/?open=s-tester");
+    fireEvent.click(item("Mention Tester"));
+    await flush();
+    expect((screen.getByTestId("chat-box") as HTMLTextAreaElement).value).toBe("@Tester@ci-runner-01 ");
+  });
+
+  it("starts a conversation with an agent the person owns, and finds one they do not by its name", async () => {
+    const stranger = cmsg("z", "from elsewhere", { mine: false, authorKind: "orchestrator", authorName: "docs-writer", authorRef: "s-docs", createdAt: T0 - 7 * MIN, updatedAt: T0 - 7 * MIN });
+    page({ chat: generalWith([tester("t", "done"), stranger], TARGETS.slice(0, 2)) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Message Tester"));
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("Tester");
+    await open("c:general");
+    fireEvent.contextMenu(gutOf(msgs()[1]!));
+    fireEvent.click(item("Message docs-writer"));
+    await flush();
+    expect(within(screen.getByRole("dialog", { name: "New direct message" })).getByLabelText("Find an agent or person")).toHaveValue("docs-writer");
+  });
+
+  it("gives your own avatar no menu", async () => {
+    page({ chat: generalWith([cmsg("m", "mine", { createdAt: T0 - MIN, updatedAt: T0 - MIN })]) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    fireEvent.keyDown(msgs()[0]!, { key: "Enter" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+  });
+
+  it("keeps the list to one tab stop, opens from the keyboard under the avatar, moves, closes on Esc with focus back, and on Tab", async () => {
+    const list = Array.from({ length: 12 }, (_, i) => (i % 2 ? tester(`t${i}`, `t ${i}`) : maya(`m${i}`, `m ${i}`)));
+    page({ chat: generalWith(list) });
+    await flush();
+    const all = msgs();
+    expect(all.filter((m) => m.tabIndex === 0)).toHaveLength(1);
+    all[0]!.focus();
+    fireEvent.keyDown(all[0]!, { key: "ArrowDown" });
+    expect(all[1]).toHaveFocus();
+    spyRect(gutOf(all[1]!), { left: 40, bottom: 300, top: 260 });
+    fireEvent.keyDown(all[1]!, { key: "ContextMenu" });
+    const menu = screen.getByTestId("chat-menu");
+    expect(menu).toHaveStyle({ left: "40px", top: "300px" });
+    await waitFor(() => expect(within(menu).getAllByRole("menuitem")[0]).toHaveFocus());
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(within(menu).getAllByRole("menuitem")[1]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    await waitFor(() => expect(all[1]).toHaveFocus());
+    fireEvent.keyDown(all[1]!, { key: "F10", shiftKey: true });
+    expect(screen.getByTestId("chat-menu")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId("chat-menu"), { key: "Tab" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("flips above the avatar near the bottom of the window and stays inside it", async () => {
+    page({ chat: generalWith([maya("a", "hello")]) });
+    await flush();
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("ch-menu") ? ({ top: 0, left: 0, bottom: 90, right: 200, width: 200, height: 90, x: 0, y: 0, toJSON: () => ({}) } as DOMRect) : ({ top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
+    });
+    const bottom = window.innerHeight - 20;
+    const el = gutOf(msgs()[0]!);
+    fireEvent.contextMenu(el, { clientX: window.innerWidth - 5, clientY: bottom });
+    const menu = screen.getByTestId("chat-menu");
+    // Past the bottom and the right edge: it moves in, and sits above the pointer.
+    expect(menu).toHaveStyle({ left: `${window.innerWidth - 208}px`, top: `${bottom - 90}px` });
+    spy.mockRestore();
+  });
+
+  it("keeps Message everywhere, and Mention only in a channel: a Direct Message has no @", async () => {
+    const w = world();
+    w.dms["person:ed|s-notes"] = { messages: [dmsg("x1", NOTES, ME, "from the agent")] };
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("d:dm:person:ed|s-notes");
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(items()).toEqual(["Message infra-notes", "Open orchestration page"]);
+  });
+
+  it("gives an Admin reading a person no item that sends: a note for a person, the orchestration page for an agent", async () => {
+    const w = world();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    w.overview.channels = [channelOf("general")];
+    w.overview.directs = [];
+    w.overview.agents = [];
+    w.overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
+    w.owners = { Maya: { channels: [channelOf("general"), channelOf("group", { thread: "group:maya", messages: 2 })], directs: [] } };
+    w.channels.group = { messages: [maya("q1", "run the tests"), cmsg("q2", "On it.", { mine: false, authorKind: "orchestrator", authorName: "maya-api", authorRef: "m-1", createdAt: T0 - 8 * MIN, updatedAt: T0 - 8 * MIN })] };
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
+    await flush();
+    await open("c:group");
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    expect(screen.getByTestId("chat-menu-note")).toHaveTextContent("An Admin reading cannot send, so there is no Message or Mention.");
+    fireEvent.keyDown(screen.getByTestId("chat-menu-note"), { key: "Escape" });
+    fireEvent.contextMenu(gutOf(msgs()[1]!));
+    expect(items()).toEqual(["Open orchestration page"]);
+  });
+
+  it("says so, and writes nothing, when the person has no address in the channel", async () => {
+    const chat = generalWith([cmsg("o", "hi", { mine: false, authorName: "Zed", authorRef: "Zed", createdAt: T0 - MIN, updatedAt: T0 - MIN })]);
+    page({ chat });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Zed"));
+    await flush();
+    expect(screen.getByTestId("chat-action-error")).toHaveTextContent("Could not find an address for Zed in this channel. Nothing was written.");
+    expect((screen.getByTestId("chat-box") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("says so when the addresses cannot be read", async () => {
+    const chat = generalWith([maya("a", "hello")]);
+    chat.api.addresses.mockRejectedValueOnce(new RespondError(500, { error: "The store is busy." }));
+    page({ chat });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Maya"));
+    await flush();
+    expect(screen.getByTestId("chat-action-error")).toHaveTextContent(/Could not read who can be mentioned/);
+  });
+});
+
+/** Makes one element answer getBoundingClientRect with a place of its own; restored by vi.restoreAllMocks. */
+function spyRect(el: Element, r: { left: number; top: number; bottom: number }) {
+  const real = el.getBoundingClientRect.bind(el);
+  vi.spyOn(el, "getBoundingClientRect").mockImplementation(() => ({ ...real(), ...r, right: r.left + 40, width: 40, height: r.bottom - r.top, x: r.left, y: r.top, toJSON: () => ({}) }) as DOMRect);
+}

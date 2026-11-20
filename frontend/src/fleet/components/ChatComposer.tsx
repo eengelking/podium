@@ -38,6 +38,8 @@ export interface ComposerProps {
   stateOf: (a: Address) => StateKind | null;
   /** An agent's model family, for the color of its tile in the @ list. */
   familyOf?: (a: Address) => ModelFamily | undefined;
+  /** A request to write text at the caret and focus the box (a Mention from a sender's menu, #1235). Each request has its own `n`; the same `n` is never applied twice. */
+  insert?: { n: number; text: string } | null;
   /** Set for a message to the person's own agent, where `/clear` and `/compact` are commands; absent everywhere else, where `/` is text. */
   commands?: {
     /** The agent's name, for the words /clear asks with. */
@@ -92,6 +94,22 @@ export function ChatComposer(p: ComposerProps) {
       caret.current = null;
     }
   });
+  // A Mention: the address goes in at the caret (or the end, when the box never had one) with a space before it unless one is there and a space after unless one follows.
+  const inserted = useRef(0);
+  useEffect(() => {
+    const req = p.insert;
+    const t = box.current;
+    if (!req || req.n === inserted.current || !t) return;
+    inserted.current = req.n;
+    const at = t.selectionStart ?? p.draft.length;
+    const end = t.selectionEnd ?? at;
+    const lead = at > 0 && !/\s/.test(p.draft[at - 1]!) ? " " : "";
+    // The caret ends after one space past the address, which is the space already there when the text goes in before one.
+    const trail = /^\s/.test(p.draft.slice(end)) ? "" : " ";
+    p.onDraft(p.draft.slice(0, at) + lead + req.text + trail + p.draft.slice(end));
+    caret.current = at + lead.length + req.text.length + 1;
+    t.focus();
+  }, [p.insert]);
 
   // A send clears the draft without a keystroke; the open @ range is over with it, so the next @ loads the addresses again.
   useEffect(() => {
