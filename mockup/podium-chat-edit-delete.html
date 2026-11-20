@@ -1,0 +1,256 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Chat, edit and delete your own messages (#1269)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1269: edit and delete your own Chat messages, from a menu and from the keyboard. Example data only.
+   Colors and fonts come from tokens.css; this file defines no tokens of its own.
+
+   What it shows
+     Menu      Opened by a right-click on your own message, by the "..." control on the row (shown on hover and on keyboard focus,
+               always shown on touch), and by Enter, the ContextMenu key or Shift+F10 on the focused row, the way the sender menu works today.
+               It reuses .ch-menu. Items: "Edit message" and "Delete message", each with its key. Nobody else's message has the control.
+     Locked    Once an agent has been handed the message, both items stay in the menu as aria-disabled with the reason under them
+               (the .ch-menu .why line, the same treatment as a disabled item today). The server refuses too.
+     Delete    A confirmation modal (.scrim + .modal) that says who loses the message. Cancel is the default focus, Escape cancels.
+               The confirm button is .btn.bad, because the one primary button of a view is the composer's send.
+     Deleted   The row keeps its place and time and shows "This message was deleted by Ed at 14:40." The text is gone from the server.
+     Edit      The row's text becomes the composer box (.ch-box) with Save and Cancel. Enter saves, Shift+Enter is a new line, Escape cancels.
+               A saved edit shows "edited 14:32" after the text.
+     Keyboard  Up in an empty composer moves to your latest message, Up and Down move between your messages, the row shows the focus ring and
+               a screen reader hears "Your message, 14:02: ... Press E to edit or Delete to delete." Escape returns to the composer.
+
+   Copied from Slack and Teams: the menu on right-click and on a hover "..." control, "Edit" and "Delete" as the two own-message actions,
+   a confirmation before delete, an "edited" mark with the time, a visible trace where a message was deleted, Up arrow to edit the last message.
+   Left out: Slack's hover toolbar of reactions and reply (out of scope), Teams' "edit" that keeps history, and undo after delete (out of scope).
+   Changed: the locked state is explained in the menu instead of hiding the items, and the deleted row says who and when.
+
+   Reused: ch-more (the "..." button the sidebar rows already have, placed on the message row), ch-menu and its disabled item and .why line.
+   New classes, all to be added to the standards with the change: ch-del (the deleted row),
+   ch-edited (the edited note), ch-editbox (the in-place editor), ch-kbd (a key hint in a menu item), ch-live (the visually hidden announcement). */
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui); }
+.demo { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible, .podium button:focus-visible, .podium textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { box-sizing: border-box; flex: 1; min-height: 0; width: 100%; max-width: var(--stage, none); margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); border-right: 1px solid var(--border); position: relative; }
+.stage > .podium { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sprite { position: absolute; }
+
+.pane { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; box-sizing: border-box; }
+.pane h1 { margin: 0 0 8px; font-size: 16px; }
+.pane .msgs { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 8px 0; }
+
+/* The row's "..." control: out of sight until the row is hovered or has focus, always there on touch. */
+.podium .ch-msg .ch-more { position: absolute; top: 4px; right: 12px; display: none; margin: 0; border-color: var(--border); background: var(--raised); }
+.podium .ch-msg.own:hover .ch-more, .podium .ch-msg.own:focus-within .ch-more, .podium .ch-msg.own.sel .ch-more, .podium .ch-msg .ch-more[aria-expanded="true"] { display: inline-flex; }
+@media (hover: none) { .podium .ch-msg.own .ch-more { display: inline-flex; } }
+.stage.narrow .ch-msg .ch-more { right: 6px; }
+.ch-msg.own.sel { background: var(--hover); box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 6px; }
+.ch-menu .ch-kbd { margin-left: auto; font: 11px var(--font-mono); color: var(--muted); }
+.ch-menu.demo-open { position: absolute; right: 12px; top: 34px; }
+.ch-menu[hidden] { display: none; }
+.ch-menu .why { white-space: normal; }
+
+/* An edited message and a deleted one. */
+.ch-edited { margin-left: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ch-del { display: block; width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px dashed var(--axis); border-radius: 10px; color: var(--muted); font-size: 14px; }
+.ch-del .ch-st-ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 6px; }
+.ch-editbox { margin-top: 2px; width: 100%; }
+.ch-msg .ch-col:has(.ch-editbox:not([hidden])) { width: 100%; max-width: none; justify-self: stretch; }
+.ch-editbox .ch-box textarea { padding-top: 10px; }
+.ch-editbox .cr-tools { justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 4px 10px 10px; }
+.ch-editbox .hint { flex: 1 1 100%; margin: 0 0 0 8px; font-size: 11px; color: var(--muted); }
+.ch-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.said { margin: 8px 0 0; padding: 6px 10px; border-left: 2px solid var(--axis); font-size: 12px; color: var(--ink2); }
+.said b { color: var(--ink); }
+
+.cm { margin-top: 12px; }
+.cm .ch-box textarea { min-height: 44px; }
+.cm .ch-send { margin-left: auto; }
+
+.dlg-p { margin: 0 0 10px; }
+.dlg-q { margin: 0 0 14px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; }
+.modal.cr-confirm { width: min(440px, 100%); }
+.modal .acts { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Chat: edit and delete (#1269)</b>
+  <span class="grp" role="group" aria-label="State">State
+    <button type="button" data-st="rest" aria-pressed="true">At rest</button>
+    <button type="button" data-st="menu" aria-pressed="false">Menu open</button>
+    <button type="button" data-st="locked" aria-pressed="false">Menu, agent has it</button>
+    <button type="button" data-st="confirm" aria-pressed="false">Confirm delete</button>
+    <button type="button" data-st="edit" aria-pressed="false">Editing</button>
+    <button type="button" data-st="done" aria-pressed="false">After edit and delete</button>
+    <button type="button" data-st="kbd" aria-pressed="false">Keyboard focus</button>
+  </span>
+  <span class="grp" role="group" aria-label="Conversation">Conversation
+    <button type="button" data-conv="group" aria-pressed="true">My group</button>
+    <button type="button" data-conv="dm" aria-pressed="false">Direct message</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium">
+<header class="top"><a class="logo" href="#/" aria-label="Podium, fleet">Podium</a><span class="tb-who">Signed in as <b>Ed</b></span></header>
+<main class="adminv" aria-label="Chat"><div class="pane">
+  <h1 id="conv-h">My group</h1>
+  <ul class="msgs ch-msgs" id="msgs" aria-label="Messages">
+
+    <li class="ch-msg first" data-testid="chat-message">
+      <span class="ch-gut"><span class="ch-av agent sonnet" aria-hidden="true"><svg width="18" height="18"><use href="#i-chip"/></svg></span></span>
+      <div class="ch-col"><div class="ch-mh"><span class="who"><bdi>Tester</bdi></span> <span class="at">14:01</span></div>
+        <div class="tx">The e2e run is green on SQLite. Starting PostgreSQL next.</div></div>
+    </li>
+
+    <li class="ch-msg first own mine" id="m-a" data-testid="chat-message" tabindex="-1" aria-label="Your message, 14:02. Edit and delete are in its menu.">
+      <span class="ch-gut"><span class="ch-av me" aria-hidden="true">E</span></span>
+      <div class="ch-col"><div class="ch-mh"><span class="who me"><bdi>Ed</bdi></span> <span class="at">14:02</span></div>
+        <div class="tx" id="tx-a">@Tester when that is done, rerun the migration tests on MariaDB too.</div>
+        <div class="ch-editbox" id="eb" hidden>
+          <div class="ch-box"><textarea id="ta" rows="2" aria-label="Edit your message">@Tester when that is done, rerun the migration tests on MariaDB too.</textarea>
+            <div class="cr-tools"><span class="hint">Enter saves. Shift+Enter adds a line. Escape cancels.</span><button type="button" class="btn" data-act="cancel-edit">Cancel</button><button type="button" class="btn pri" data-act="save-edit">Save</button></div></div>
+        </div>
+      </div>
+      <button type="button" class="ch-more" id="more-a" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-a" aria-label="More for your message of 14:02"><svg aria-hidden="true"><use href="#i-more"/></svg></button>
+      <div class="ch-menu demo-open" id="menu-a" role="menu" aria-label="Your message of 14:02" hidden>
+        <button type="button" role="menuitem"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ch-kbd" aria-hidden="true">E</span></button>
+        <button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#i-trash"/></svg>Delete message<span class="ch-kbd" aria-hidden="true">Del</span></button>
+      </div>
+    </li>
+
+    <li class="ch-msg first" data-testid="chat-message">
+      <span class="ch-gut"><span class="ch-av person" aria-hidden="true">MK</span></span>
+      <div class="ch-col"><div class="ch-mh"><span class="who"><bdi>Maya Kim</bdi></span> <span class="at">14:10</span></div>
+        <div class="tx">Menus on other people's messages stay as they are. There is no edit for me here.</div></div>
+    </li>
+
+    <li class="ch-msg first own mine" id="m-b" data-testid="chat-message" tabindex="-1" aria-label="Your message, 14:20. An agent has it, so it cannot be edited or deleted.">
+      <span class="ch-gut"><span class="ch-av me" aria-hidden="true">E</span></span>
+      <div class="ch-col"><div class="ch-mh"><span class="who me"><bdi>Ed</bdi></span> <span class="at">14:20</span></div>
+        <div class="tx" id="tx-b">@Tester please bump the Chat spec to match the new menu.</div>
+        <div class="ch-st"><span class="s ok">Delivered at 14:20.</span></div></div>
+      <button type="button" class="ch-more" id="more-b" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-b" aria-label="More for your message of 14:20"><svg aria-hidden="true"><use href="#i-more"/></svg></button>
+      <div class="ch-menu demo-open" id="menu-b" role="menu" aria-label="Your message of 14:20" hidden>
+        <button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ch-kbd" aria-hidden="true">E</span></button>
+        <button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#i-trash"/></svg>Delete message<span class="ch-kbd" aria-hidden="true">Del</span></button>
+        <p class="why" role="note">Tester already has this message, so it can no longer be changed.</p>
+      </div>
+    </li>
+
+    <li class="ch-msg first own mine" id="m-c" data-testid="chat-message" tabindex="-1" aria-label="Your message, 14:31.">
+      <span class="ch-gut"><span class="ch-av me" aria-hidden="true">E</span></span>
+      <div class="ch-col"><div class="ch-mh"><span class="who me"><bdi>Ed</bdi></span> <span class="at">14:31</span></div>
+        <div class="tx" id="tx-c">Pushed the branch. Review when you can.</div></div>
+      <button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="More for your message of 14:31"><svg aria-hidden="true"><use href="#i-more"/></svg></button>
+    </li>
+  </ul>
+
+  <p class="said" id="said" hidden><b>Screen reader:</b> <span id="said-t"></span></p>
+
+  <div class="cm"><div class="ch-box"><textarea rows="1" aria-label="Message to My group" placeholder="Message My group. Up arrow edits your last message."></textarea>
+    <div class="cr-tools"><button type="button" class="btn pri ch-send" aria-label="Send"><svg width="16" height="16" aria-hidden="true"><use href="#i-send"/></svg></button></div></div></div>
+</div></main>
+
+<div class="scrim" id="m-del" hidden>
+  <div class="modal cr-modal cr-confirm" role="alertdialog" aria-modal="true" aria-labelledby="del-h" aria-describedby="del-b">
+    <div class="mh"><div class="ttl"><h2 id="del-h">Delete this message?</h2></div><button type="button" class="x" data-act="cancel-del" aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="mb" id="del-b">
+      <p class="dlg-q" id="del-q">@Tester when that is done, rerun the migration tests on MariaDB too.</p>
+      <p class="dlg-p" id="del-for">It will be deleted for everyone in My group, and the agents there will not see it. This cannot be undone.</p>
+      <div class="acts"><button type="button" class="btn" id="del-cancel" data-act="cancel-del">Cancel</button><button type="button" class="btn bad" data-act="do-del">Delete message</button></div>
+    </div>
+  </div>
+</div>
+<span class="ch-live" role="status" aria-live="polite" id="live"></span>
+</div></div>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var root = document.documentElement, stage = $('#stage');
+  function press(attr, val) { document.querySelectorAll('.demo [' + attr + ']').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  function closeMenus() { document.querySelectorAll('.ch-menu').forEach(function (m) { m.hidden = true; }); document.querySelectorAll('.ch-more').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); }); }
+  function menu(id, moreId) { closeMenus(); $('#' + id).hidden = false; $('#' + moreId).setAttribute('aria-expanded', 'true'); }
+  function said(t) { $('#said').hidden = !t; $('#said-t').textContent = t || ''; $('#live').textContent = t || ''; }
+  function reset() {
+    closeMenus(); $('#m-del').hidden = true; $('#eb').hidden = true; $('#tx-a').hidden = false; said('');
+    document.querySelectorAll('.ch-msg.sel').forEach(function (r) { r.classList.remove('sel'); });
+    $('#tx-a').textContent = '@Tester when that is done, rerun the migration tests on MariaDB too.';
+    $('#tx-c').className = 'tx'; $('#tx-c').textContent = 'Pushed the branch. Review when you can.';
+    document.querySelectorAll('.ch-edited').forEach(function (e) { e.remove(); });
+  }
+  function setState(st) {
+    reset(); press('data-st', st);
+    if (st === 'menu') menu('menu-a', 'more-a');
+    if (st === 'locked') menu('menu-b', 'more-b');
+    if (st === 'confirm') { $('#m-del').hidden = false; $('#del-cancel').focus(); }
+    if (st === 'edit') { $('#tx-a').hidden = true; $('#eb').hidden = false; $('#ta').focus(); }
+    if (st === 'done') {
+      $('#tx-a').textContent = '@Tester when that is done, rerun the migration tests on MariaDB and PostgreSQL too.';
+      var e = document.createElement('span'); e.className = 'ch-edited'; e.textContent = 'edited 14:32'; $('#tx-a').appendChild(e);
+      $('#tx-c').className = 'ch-del'; $('#tx-c').textContent = 'This message was deleted by Ed at 14:40.';
+    }
+    if (st === 'kbd') { $('#m-a').classList.add('sel'); said('Your message, 14:02: @Tester when that is done, rerun the migration tests on MariaDB too. Press E to edit or Delete to delete.'); }
+  }
+  document.querySelectorAll('.demo button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.st) setState(b.dataset.st);
+      if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+      if (b.dataset.w) { stage.classList.toggle('narrow', b.dataset.w === 'narrow'); stage.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : 'none'); press('data-w', b.dataset.w); }
+      if (b.dataset.conv) {
+        press('data-conv', b.dataset.conv);
+        var dm = b.dataset.conv === 'dm';
+        $('#conv-h').textContent = dm ? 'Direct message with Tester' : 'My group';
+        $('#del-for').textContent = dm ? 'It will be deleted for you and for Tester, and Tester will not see it. This cannot be undone.' : 'It will be deleted for everyone in My group, and the agents there will not see it. This cannot be undone.';
+      }
+    });
+  });
+  document.querySelectorAll('.ch-more').forEach(function (b) {
+    b.addEventListener('click', function () { var m = $('#' + b.getAttribute('aria-controls')); if (!m) return; var open = m.hidden; closeMenus(); if (open) { m.hidden = false; b.setAttribute('aria-expanded', 'true'); } });
+  });
+  document.querySelectorAll('.ch-msg.own').forEach(function (li) {
+    li.addEventListener('contextmenu', function (e) { e.preventDefault(); var more = li.querySelector('.ch-more'); if (more && more.getAttribute('aria-controls')) menu(more.getAttribute('aria-controls'), more.id); });
+  });
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('[data-act]'); if (!a) return;
+    var k = a.dataset.act;
+    if (k === 'ask-delete') { closeMenus(); $('#m-del').hidden = false; $('#del-cancel').focus(); }
+    if (k === 'cancel-del') { $('#m-del').hidden = true; }
+    if (k === 'do-del') { $('#m-del').hidden = true; setState('done'); }
+    if (k === 'cancel-edit') setState('rest');
+    if (k === 'save-edit') setState('done');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { if (!$('#m-del').hidden) $('#m-del').hidden = true; closeMenus(); }
+  });
+})();
+</script>
