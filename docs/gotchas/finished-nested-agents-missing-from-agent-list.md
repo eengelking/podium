@@ -18,6 +18,9 @@ hot reload after that point rebuilds only what the list still has.
 
 **Do:** Do not rely on `$.agent.list()` for history. Read from what the mod has recorded.
 
+The reverse holds too: a live agent is always listed, a background one waiting on its shell as `waiting`. The mod relies on
+that to end a subagent whose stop event was lost, once the list has not named it for 2 minutes (#1262).
+
 <!-- nav:start -->
 ---
 

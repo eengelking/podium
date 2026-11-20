@@ -196,6 +196,9 @@ were run. What the engine gives:
   (the reporter keeps it `running`; the UI shows it as delegating, [8.1](../08-ui/08-01-what-the-ui-must-do.md)). Once a
   parent finishes, its finished children drop out of the list, so the list cannot rebuild a finished branch
   after a reload. The reporter keeps every agent it has seen.
+- A live agent is always in the list: a running one as `running`, a background agent waiting on its own shell as `waiting`
+  (seen live, #1262). So a subagent the reporter still has `running` that the list has not named for 2 minutes lost its
+  stop event, and the reporter ends it as `done`, never `failed` or `aborted`. A teammate is never ended this way.
 - The classic `SubagentStart` and `SubagentStop` payloads have `agent_id` and `agent_type` but no parent. A
   session reported only through settings hooks therefore cannot say who launched an agent, and shows every
   agent under the orchestrator.

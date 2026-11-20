@@ -285,6 +285,42 @@ describe('reducers', () => {
     expect(s.agents.x!.status).toBe('aborted')
   })
 
+  test('an agent whose stop was lost is cleared once the list has not named it for two minutes, and a listed one never is (#1262)', () => {
+    const lost = (id: string, parentAgentId?: string) => ({ toolUseId: `t-${id}`, agentId: id, model: 'opus', subagentType: 'general-purpose', description: id, prompt: 'p', fork: false, parentAgentId })
+    const listed = (id: string, status: string) => ({ id, description: id, type: 'general-purpose', status })
+    let s = base()
+    for (const id of ['gone', 'bg', 'back']) s = agentSpawned(s, lost(id), T0)
+    s = turnComplete({ ...s, mainIdle: false }, { reason: 'answer', answer: 'ok' }, T0 + 1)
+    expect(s.status).toBe('running')
+    // The engine lists a live background agent as waiting, and a finished one drops out of the list (seen live, #1262).
+    s = reconcile(s, [listed('bg', 'waiting'), listed('back', 'running')], T0 + 10)
+    // Not named for a while is not yet over.
+    s = reconcile(s, [listed('bg', 'waiting')], T0 + 60_000)
+    expect(s.agents.gone!.status).toBe('running')
+    // Named again at 100 s, `back` counts from the next time it is missing.
+    s = reconcile(s, [listed('bg', 'waiting'), listed('back', 'waiting')], T0 + 100_000)
+    s = reconcile(s, [listed('bg', 'waiting')], T0 + 130_000)
+    expect(s.agents.gone!.status).toBe('done')
+    expect(s.agents.gone!.endedAt).toBe(T0 + 130_000)
+    expect(s.agents.gone!.failure).toBeNull()
+    expect(s.events.filter((e) => e.kind === 'done' && e.agentId === 'gone')).toHaveLength(1)
+    expect(s.agents.back!.status).toBe('running')
+    expect(s.agents.bg!.status).toBe('running')
+    s = reconcile(s, [listed('bg', 'waiting')], T0 + 130_000 + 120_000)
+    expect(s.agents.back!.status).toBe('done')
+    expect(s.agents.bg!.status).toBe('running')
+    // Nothing is running here but the listed background agent, so the card is still running; once that is named done the session waits.
+    expect(s.status).toBe('running')
+    s = reconcile(s, [listed('bg', 'completed')], T0 + 300_000)
+    expect(s.status).toBe('waiting')
+  })
+
+  test('a teammate the list does not name is left alone (#1262)', () => {
+    let s = reconcile(base(), [{ id: 'm', description: 'm', type: 'teammate', status: 'idle' }], T0)
+    s = reconcile(s, [], T0 + 10 * 60_000)
+    expect(s.agents.m!.status).toBe('running')
+  })
+
   test('session end aborts open agents; a new id starts clean but keeps where it runs', () => {
     let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
     s = { ...s, git: { branch: 'main', detached: false, isWorktree: false, worktreePath: null, ahead: 0, behind: 0, dirty: 0 } }

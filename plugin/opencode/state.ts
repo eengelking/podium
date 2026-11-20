@@ -89,6 +89,8 @@ export interface Sess {
   /** The last step's prompt size: input + cache read + cache write. */
   ctxTokens: number | null;
   executing: boolean;
+  /** A child that never reported its end was taken as over by `sweep` (#1262); later work from it makes it run again. */
+  swept?: boolean;
   end: SessEnd;
   calls: Map<string, Call>;
   toolCalls: number;
@@ -576,6 +578,13 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   if (ending && root.done) return root;
   root.lastAt = t;
   s.lastAt = t;
+  // A child `sweep` took as over that does more work was alive after all.
+  if (s.swept && (type === 'session.step.started' || type === 'session.tool.input.started' || type === 'session.tool.called')) {
+    s.swept = false;
+    s.executing = true;
+    s.end = 'running';
+    s.endedAt = null;
+  }
   if (!ending) reopen(root, t);
   root.dirty = true;
   switch (type) {
@@ -600,6 +609,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
     }
     case 'session.execution.started':
       s.executing = true;
+      s.swept = false;
       // The list was true when the session went idle; a new run makes it stale.
       if (root.background) {
         root.background = null;
@@ -806,11 +816,34 @@ export function idleFor(root: Root, now: number, idleMs: number): boolean {
 }
 
 /**
+ * How long a child session may stay silent while it shows as executing before it is taken as over (#1262). OpenCode lists no
+ * sessions to ask, so silence is the only sign: a child with a tool call, a shell or a permission or question still open is never taken as over, and
+ * one that shows more work later runs again. Ten minutes is long enough for a model to think without a word.
+ */
+const LOST_CHILD_MS = 10 * 60_000;
+
+/** A child that never reported its stop stops holding the root at running. The root's own execution is left alone: only its end can be lost harmlessly. */
+function sweepLost(root: Root, now: number): void {
+  if (root.done) return;
+  for (const s of root.sessions.values()) {
+    if (s.id === root.id || !s.executing || now - s.lastAt < LOST_CHILD_MS) continue;
+    if ([...s.calls.values()].some((c) => !c.done) || [...s.shells.values()].some((sh) => !sh.exited) || [...root.asks.values()].some((a) => a.sessionId === s.id)) continue;
+    s.executing = false;
+    s.swept = true;
+    s.end = 'done';
+    s.endedAt = now;
+    emit(root, now, 'done', s.id, 'finished');
+    root.dirty = true;
+  }
+}
+
+/**
  * Finishes every root that has been quiet for `idleMs`. Returns the roots it finished. While `hold` is set (a TUI is attached,
  * so the session is open and can be messaged) nothing is finished for being quiet (#984).
  */
 export function sweep(store: Store, now: number, idleMs: number, hold = false): Root[] {
   const out: Root[] = [];
+  for (const r of store.roots.values()) sweepLost(r, now);
   if (hold) return out;
   for (const r of store.roots.values()) {
     // The launch placeholder (#1112) stands for an open OpenCode with no session yet: it ends when a real session starts or on shutdown, never for being quiet.
