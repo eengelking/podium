@@ -491,8 +491,8 @@ answer is stored in `peer_messages` as the agent's, in the same conversation, so
 unread and one mention for the person and one unread for the owner. A reporter that does not declare the `adminNotices` capability (6.2) cannot frame the text as a person's or show its
 person the Admin callout, so a person's message to that agent is refused up front, before the owner is asked. Any build that declares it is taken, whatever its version.
 
-**Not in this release.** Sending selected messages to an agent did not ship. Delivery is `queue` on both harnesses
-(an agent takes a message when its turn ends); OpenCode's `steer` was evaluated (#1033) and deferred.
+**Not in this release.** Sending selected messages to an agent did not ship. A message handed over while an agent works
+is read at its next step on both harnesses (#1264): OpenCode takes it with `steer`, Claude Code as context on the main loop's next tool result.
 
 ## Certificate routes (#577)
 

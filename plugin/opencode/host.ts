@@ -3,12 +3,12 @@
 // attached, otherwise through OpenCode's local HTTP route with the address and password in `service.json`.
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import type { Host } from './answering.ts';
+import type { Host, PromptDelivery } from './answering.ts';
 import { ATTACH_TTL_MS, type AnswerEvent } from './bridge.ts';
 
 export interface Api {
   permissionReply(input: { sessionID: string; requestID: string; reply: 'once' | 'reject'; message?: string }): Promise<unknown>;
-  prompt(input: { sessionID: string; id: string; text: string }): Promise<unknown>;
+  prompt(input: { sessionID: string; id: string; text: string; delivery?: PromptDelivery }): Promise<unknown>;
   compact(input: { sessionID: string; id: string }): Promise<unknown>;
 }
 
@@ -72,9 +72,9 @@ export function messageIdFor(deliveryId: string, now: number, kept: Map<string, 
 }
 
 /** Submits text as a prompt through `api` under a message id made from `id`. Used for a peer's message, which does not go through the host. */
-export function promptVia(api: Api, now: () => number): (sessionId: string, id: string, text: string) => Promise<void> {
+export function promptVia(api: Api, now: () => number): (sessionId: string, id: string, text: string, delivery?: PromptDelivery) => Promise<void> {
   const kept = new Map<string, string>();
-  return async (sessionID, id, text) => void (await api.prompt({ sessionID, id: messageIdFor(id, now(), kept), text }));
+  return async (sessionID, id, text, delivery) => void (await api.prompt({ sessionID, id: messageIdFor(id, now(), kept), text, ...(delivery ? { delivery } : {}) }));
 }
 
 export function makeHost(d: HostDeps): Host {
@@ -115,7 +115,7 @@ export function makeHost(d: HostDeps): Host {
       });
       if (!res.ok) throw new Error(`the form reply was refused (${res.status})`);
     },
-    prompt: async (sessionID, id, text) => void (await d.api.prompt({ sessionID, id: messageIdFor(id, d.now(), ids), text })),
+    prompt: async (sessionID, id, text, delivery) => void (await d.api.prompt({ sessionID, id: messageIdFor(id, d.now(), ids), text, ...(delivery ? { delivery } : {}) })),
     compact: async (sessionID, id) => void (await d.api.compact({ sessionID, id: messageIdFor(id, d.now(), ids) })),
   };
 }
