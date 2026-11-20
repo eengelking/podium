@@ -1,3 +1,4 @@
+// peerEdit.ts: when a person may edit or delete a direct message of theirs, and which rows a change reaches (#1269).
 import { describe, expect, it } from 'vitest';
 import type { MessageRow, MessageState } from '../fleet/peerTypes.js';
 import { MERGE_MS, shownCount } from './peerText.js';
