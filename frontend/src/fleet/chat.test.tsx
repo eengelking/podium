@@ -2283,7 +2283,7 @@ describe("an Admin reading a person's conversations", () => {
     expect(within(row("d:dm:m-1|m-2")).queryByLabelText(/new/)).toBeNull();
   });
 
-  it("opens a thread with a red banner, no message box and the reason, and records nothing as read", async () => {
+  it("opens a thread with a red banner, a message box that is off with the reason, and records nothing as read", async () => {
     const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
     await flush();
     await pickPerson();
@@ -2293,8 +2293,11 @@ describe("an Admin reading a person's conversations", () => {
     expect(banner).toHaveAttribute("role", "status");
     expect(banner).toHaveTextContent("Reading Maya's conversation as an Admin. You cannot send here.");
     expect(banner).toHaveTextContent("Maya is told while you read, and a line stays in the conversation afterward.");
-    expect(screen.queryByTestId("chat-box")).toBeNull();
-    expect(screen.getByTestId("chat-ro-note")).toHaveTextContent("You are reading as an Admin, so there is no message box.");
+    const box = screen.getByTestId("chat-box");
+    expect(box).toBeDisabled();
+    expect(box).toHaveAttribute("placeholder", "An Admin cannot send here");
+    expect(screen.getByTestId("chat-send")).toBeDisabled();
+    expect(screen.getByTestId("chat-ro-note")).toHaveTextContent("You are reading as an Admin, so nothing can be sent here.");
     expect(thread().querySelectorAll(".ch-pick")).toHaveLength(0);
     expect(p.chat.api.markRead).not.toHaveBeenCalled();
     expect(p.chat.api.addresses).not.toHaveBeenCalled();
@@ -2454,6 +2457,57 @@ describe("an Admin reading a person's conversations", () => {
     await pickPerson("");
     expect(p.chat.api.overview).toHaveBeenLastCalledWith(null);
     expect(screen.queryByTestId("chat-row-c:group")).toBeNull();
+  });
+
+  it("shows an Admin who is not reading the Read as an Admin section, an empty thread area that says what to do, and no row selected", async () => {
+    const w = adminWorld();
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    const nav = within(screen.getByRole("navigation", { name: "Chat" }));
+    expect(titles(nav)[0]).toBe("Read as an Admin");
+    expect(nav.getByText(/belong to a person/)).toBeInTheDocument();
+    const idle = screen.getByTestId("chat-idle");
+    expect(idle).toHaveTextContent("Choose General or a channel to read it.");
+    expect(idle).toHaveTextContent("To read a person's conversations, choose a person under Read as an Admin.");
+    expect(screen.queryByTestId("chat-thread")).toBeNull();
+    expect(row("c:general")).not.toHaveClass("on");
+    await open("c:general");
+    expect(screen.queryByTestId("chat-idle")).toBeNull();
+    expect(screen.getByTestId("chat-thread")).toBeInTheDocument();
+  });
+
+  it("keeps the whole note behind the (i) of the picker and says what is shown once a person is chosen", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    const tip = screen.getByLabelText("About reading as an Admin");
+    expect(tip.closest(".rd-head")).not.toBeNull();
+    expect(within(tip.closest("[aria-describedby]") as HTMLElement).getByRole("tooltip", { hidden: true })).toHaveTextContent("Podium records in the audit log that you read it, never the text.");
+    await pickPerson();
+    expect(screen.getByTestId("chat-stop-reading")).toHaveTextContent("Stop reading");
+    expect(screen.getByText(/'s My group and Direct Messages. Read only./)).toHaveTextContent("Showing Maya's My group and Direct Messages. Read only.");
+    expect(row("c:group")).toHaveTextContent("Maya's own orchestrators and subagents, read only");
+  });
+
+  it("shows a person's My group with the @ tool off beside the box, so nothing can be addressed", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("c:group");
+    expect(screen.getByTestId("chat-box")).toHaveAttribute("placeholder", "An Admin cannot send here");
+    expect(screen.getByTestId("chat-tool-at")).toBeDisabled();
+  });
+
+  it("stops reading from the thread's own button, and leaves nothing that sends in the thread", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("d:dm:m-1|m-2");
+    expect(screen.getByTestId("chat-box")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Message maya/ })).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-stop-reading-thread"));
+    await flush();
+    expect(screen.queryByTestId("chat-ro-banner")).toBeNull();
+    expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
   });
 });
 
@@ -4054,3 +4108,36 @@ function spyRect(el: Element, r: { left: number; top: number; bottom: number }) 
   const real = el.getBoundingClientRect.bind(el);
   vi.spyOn(el, "getBoundingClientRect").mockImplementation(() => ({ ...real(), ...r, right: r.left + 40, width: 40, height: r.bottom - r.top, x: r.left, y: r.top, toJSON: () => ({}) }) as DOMRect);
 }
+
+// ---- Every Admin notice in the redesigned layout (#1238) -----------------------------------------------------------------------
+
+describe("the notices a person gets, in the redesigned layout (#1238)", () => {
+  it("tells the person in each place the layout draws: the tag on the row, the tag under the title, the red banner above the messages, and the record line among them", async () => {
+    const w = world();
+    w.overview.directs = [direct(DASH, TESTER, { adminReading: [live("Root")] })];
+    w.reads = { "s-dash|s-tester": [{ admin: "Alex", startedAt: ago(200_000), lastSeenAt: ago(190_000) }] };
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(within(row("d:dm:s-dash|s-tester")).getByTestId("chat-tag-reading")).toHaveTextContent("Admin reading");
+    await open("d:dm:s-dash|s-tester");
+    const head = thread().querySelector(".ch-head")!;
+    expect(within(head as HTMLElement).getByTestId("chat-tag-reading")).toHaveTextContent("Admin reading");
+    const banner = within(thread()).getByTestId("chat-reading-banner");
+    expect(banner).toHaveClass("ch-nav", "ro", "crit");
+    expect(head.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const list = thread().querySelector("ol.ch-msgs")!;
+    expect(banner.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(list as HTMLElement).getByTestId("chat-record")).toHaveClass("ch-rec");
+  });
+
+  it("tells the person of an Admin's pause with the tag on the row, the tag under the title and the banner", async () => {
+    const w = world();
+    w.overview.directs = [direct(DASH, TESTER, { state: "paused", paused: true, pausedBy: "admin", pausedByAdmin: "Root" })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(within(row("d:dm:s-dash|s-tester")).getByTestId("chat-tag-paused")).toHaveTextContent("Paused by an Admin");
+    await open("d:dm:s-dash|s-tester");
+    expect(within(thread().querySelector(".ch-head") as HTMLElement).getByTestId("chat-tag-paused")).toBeInTheDocument();
+    expect(within(thread()).getByTestId("chat-admin-pause-banner")).toHaveClass("ch-nav", "ro", "crit");
+  });
+});

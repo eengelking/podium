@@ -3,7 +3,7 @@
 // Enter or Tab picks, Escape closes. In a message to the person's own agent, `/` opens the Activity window's command list instead
 // (/clear after a confirmation, /compact at once; #1051). A name may hold spaces and two agents may share a name at different places; both are listed
 // and the list narrows as you type. @group and @everyone are listed but cannot be picked while the Admin has them off.
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChatAvatar } from "./ChatAvatar";
 import { ChAt, ChGroup, ChSend, ChSlash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
@@ -27,6 +27,8 @@ export interface ComposerProps {
   /** The one word for the box's placeholder while it is off ("Paused"); the reason is the note under it. */
   offWord?: string | null;
   note: string;
+  /** A button beside the note while the box is off (an Admin's Stop reading, #1238). */
+  noteAction?: ReactNode;
   /** An error in words, shown above the box; the draft stays. */
   error: string | null;
   sending: boolean;
@@ -288,9 +290,16 @@ export function ChatComposer(p: ComposerProps) {
           </div>
         </div>
       </div>
-      <div className={`note${p.off !== null ? " warn" : ""}`} id={`${uid}-note`}>
-        {p.off ?? p.note}
-      </div>
+      {p.noteAction ? (
+        <div className="note warn with-btn" id={`${uid}-note`} data-testid="chat-ro-note">
+          <span>{p.off ?? p.note}</span>
+          {p.noteAction}
+        </div>
+      ) : (
+        <div className={`note${p.off !== null ? " warn" : ""}`} id={`${uid}-note`}>
+          {p.off ?? p.note}
+        </div>
+      )}
       {/* The list is not a combobox's popup, so how many matches there are is said here. */}
       <div className="vh" role="status" aria-live="polite" data-testid="chat-matches">
         {open ? `${items.length} ${items.length === 1 ? "person or agent" : "people and agents"}. Use the arrow keys.` : cmdOpen ? `${cmd.matches.length} ${cmd.matches.length === 1 ? "command" : "commands"}. Use the arrow keys.` : ""}

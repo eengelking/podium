@@ -178,10 +178,12 @@
 .ch-pad { padding: 6px 20px; }
 
 /* An Admin reading (#1034, mockup/podium-chat.html): the picker, the red banner and tags, and the record line. The red is the critical tokens, with an icon and words, never color alone. */
-.ch-read { display: grid; gap: 6px; padding: 4px 20px 8px; }
+.ch-sec > h2.ch-static { padding: 12px 20px 4px; }
+.ch-read { display: grid; gap: 6px; padding: 4px 20px 12px; }
 .ch-read label { font-size: 12px; color: var(--ink2); }
 .ch-read .rd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ch-read .rd-i { display: inline-flex; color: var(--muted); cursor: help; }
+.podium .ch-read .rd-i { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: help; }
+.ch-read .rd-i svg { width: 16px; height: 16px; }
 .ch-read .rd-i:hover, .ch-read .rd-i:focus-visible { color: var(--ink); }
 .ch-read .btn { justify-self: start; }
 .ch-composer .note.with-btn { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }

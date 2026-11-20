@@ -1266,8 +1266,8 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
     the fleet console (`#/?open=<id>`), and **Message** where it applies.
   - A menu that only has something to say is a note (a popover with no choices).
 - **An Admin reading, and the person told** (#1034, [7.7](../07-server/07-07-hardening.md#chat-1034)). An Admin sees **Read as an Admin** at the top of
-  the sidebar: a picker, "Read a person's conversations", of everyone else who uses Chat. Choosing a person shows that person's My group and
-  Direct Messages, read only: the Admin has no composer, the sidebar has no unread counts and no People and agents, and a banner on the thread says
+  the sidebar: a picker, "Read a person's conversations", of everyone else who uses Chat. An Admin with no person of their own who has chosen no one and picked no row has no thread open: the area says "Choose General or a channel to read it." and where to choose a person (#1238). Choosing a person shows that person's My group and
+  Direct Messages, read only: the Admin's message box is off, with "An Admin cannot send here" in it, the reason and a **Stop reading** button under it, the sidebar has no unread counts and no People and agents, and a banner on the thread says
   "Reading <person>'s conversation as an Admin. You cannot send here." and that the person is told while the Admin reads and a line stays afterward.
   In a Direct Message the Admin's menu is Pause link and Resume link, and nothing else. For the people in the thread, while an Admin reads: a
   red banner above the messages names every Admin reading (one, two, or the first two and a count) and says the notice clears about 30 seconds

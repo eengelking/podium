@@ -152,7 +152,7 @@ const READ_NOTE = "Pick a person to see their My group and Direct Messages. Read
 export function ReadPicker({ people, value, onChange }: { people: string[]; value: string | null; onChange: (name: string | null) => void }) {
   return (
     <section className="ch-sec" aria-labelledby="sec-rd">
-      <h2 id="sec-rd">Read as an Admin</h2>
+      <h2 id="sec-rd" className="ch-static">Read as an Admin</h2>
       <div className="ch-read">
         <div className="rd-head">
           <label htmlFor="read-as">Read a person&apos;s conversations</label>
