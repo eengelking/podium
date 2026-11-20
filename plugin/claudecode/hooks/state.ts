@@ -220,6 +220,8 @@ export interface SessionState {
   agents: Record<string, AgentState>;
   /** Agent ids in spawn order. */
   order: string[];
+  /** Agents still running here that the engine's list stopped naming, by the time it first did not (#1262). Cleared when it names one again. */
+  unlisted: Record<string, number>;
   /** Agent tool calls seen before (or after) their spawn, by tool_use_id. */
   pending: Record<string, PendingSpawn>;
   events: ActivityEvent[];
@@ -289,6 +291,7 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
     plan: emptyPlan,
     agents: {},
     order: [],
+    unlisted: {},
     pending: {},
     events: [],
     evSeq: 0,
@@ -750,6 +753,13 @@ export interface ListedAgent {
   name?: string;
 }
 
+/**
+ * How long a running subagent may go unnamed by the engine's list before it is taken as over (#1262). The engine lists a live
+ * agent whatever it does, a background one waiting on its shell included (as `waiting`), and drops a finished one, so a name
+ * missing for this long means the stop event was lost.
+ */
+const LOST_AGENT_MS = 120_000;
+
 export function reconcile(s: SessionState, list: readonly ListedAgent[], now: number): SessionState {
   let agents = s.agents;
   let order = s.order;
@@ -786,7 +796,37 @@ export function reconcile(s: SessionState, list: readonly ListedAgent[], now: nu
       changed = true;
     }
   }
+  // A running subagent the list has not named for LOST_AGENT_MS lost its stop: it is over, not failed. A teammate's own pane is no loop
+  // here and its list entry says `idle`, so it is never swept.
+  const named = new Set(list.map((l) => l.id));
+  let unlisted = s.unlisted;
+  const lostIds: string[] = [];
+  for (const [id, a] of Object.entries(agents)) {
+    if (a.kind === 'teammate' || (a.status !== 'running' && a.status !== 'queued')) {
+      if (id in unlisted) unlisted = omit(unlisted, id);
+      continue;
+    }
+    if (named.has(id)) {
+      if (id in unlisted) unlisted = omit(unlisted, id);
+    } else if (!(id in unlisted)) unlisted = { ...unlisted, [id]: now };
+    else if (now - unlisted[id]! >= LOST_AGENT_MS) {
+      agents = { ...agents, [id]: { ...a, status: 'done', endedAt: now, candidate: null, failure: null } };
+      unlisted = omit(unlisted, id);
+      lostIds.push(id);
+      changed = true;
+    }
+  }
+  if (unlisted !== s.unlisted) {
+    let out: SessionState = { ...s, agents, order, unlisted };
+    for (const id of lostIds) out = addEvent(out, 'done', id, `finished: ${agents[id]!.description}`, now);
+    return withStatus(out);
+  }
   return changed ? withStatus({ ...s, agents, order }) : s;
+}
+
+function omit(rec: Record<string, number>, id: string): Record<string, number> {
+  const { [id]: _gone, ...rest } = rec;
+  return rest;
 }
 
 // ---- tools --------------------------------------------------------------------------------------

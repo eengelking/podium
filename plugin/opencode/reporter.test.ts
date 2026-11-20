@@ -115,6 +115,62 @@ describe('state: status', () => {
   });
 });
 
+describe('state: a child session whose end was never reported (#1262)', () => {
+  const meta = { now: 1, version: VERSION, engineVersion: null, hostSurface: null };
+  const open = () =>
+    store(
+      ev('session.created', { sessionID: ROOT }, 1000),
+      ev('session.execution.started', { sessionID: ROOT }, 1001),
+      ev('session.execution.succeeded', { sessionID: ROOT }, 1002),
+      ev('session.created', { sessionID: KID, parentID: ROOT }, 1003),
+      ev('session.execution.started', { sessionID: KID }, 1004),
+      step(KID, 1005, 'general'),
+    );
+
+  it('stops holding the card at running after ten quiet minutes, and the card waits', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).session.status).toBe('running');
+    sweep(s, 1005 + 10 * 60_000 - 1, 60_000, true);
+    expect(root.sessions.get(KID)!.executing).toBe(true);
+    // A TUI is attached (hold), and the child is still swept: hold keeps only a quiet root from ending.
+    expect(sweep(s, 1005 + 10 * 60_000, 60_000, true)).toEqual([]);
+    expect(root.sessions.get(KID)).toMatchObject({ executing: false, end: 'done', endedAt: 1005 + 10 * 60_000 });
+    expect(buildReport(root, [], meta).session.status).toBe('waiting');
+    expect(root.done).toBe(false);
+    expect(root.events.filter((e) => e.kind === 'done' && e.agentId === KID)).toHaveLength(1);
+  });
+
+  it('is not swept while a tool call or a background shell of its own is open', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    apply(s, ev('session.tool.input.started', { sessionID: KID, id: 'c1', name: 'bash' }, 1006), 1006);
+    apply(s, ev('session.tool.called', { sessionID: KID, id: 'c1', input: { command: 'sleep 3000' } }, 1007), 1007);
+    sweep(s, 1007 + 60 * 60_000, 60_000);
+    expect(root.sessions.get(KID)!.executing).toBe(true);
+  });
+
+  it('is not swept while a permission or question of its own is open, even with no call open', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    root.asks.set('ask1', { id: 'ask1', kind: 'permission', sessionId: KID, openedAt: 1006, note: 'bash' });
+    sweep(s, 1006 + 60 * 60_000, 60_000);
+    expect(root.sessions.get(KID)!.executing).toBe(true);
+    root.asks.delete('ask1');
+    sweep(s, 1006 + 60 * 60_000, 60_000);
+    expect(root.sessions.get(KID)!.executing).toBe(false);
+  });
+
+  it('runs again when it shows more work after the sweep', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    sweep(s, 1005 + 10 * 60_000, 60_000);
+    apply(s, step(KID, 1005 + 11 * 60_000, 'general'), 1005 + 11 * 60_000);
+    expect(root.sessions.get(KID)).toMatchObject({ executing: true, end: 'running', endedAt: null });
+    expect(buildReport(root, [], meta).session.status).toBe('running');
+  });
+});
+
 describe('state: done after idle, at once on delete or archive, and reopening', () => {
   it('sweeps a quiet root to done and reopens it under the same id', () => {
     const s = store(ev('session.created', { sessionID: ROOT }, 1000), ev('session.execution.started', { sessionID: ROOT }, 1001));
