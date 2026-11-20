@@ -157,6 +157,9 @@ describe('file diff dialog', () => {
       it(`says so in words (HTTP ${status}) and the file is asked for again when it is opened again`, () => {
         cy.signIn('Ed');
         cy.reportAgain('invoice', { fileDiffPreload: false });
+        // The page opens only once the server's view of the session says preload is off. A page that still reads preload as on asks
+        // for the neighbouring files too, and the first count then sees more than the one file opened (#1276).
+        cy.request('/api/fleet/sessions/e2e-s-invoice').its('body.fileDiffPreload').should('eq', false);
         cy.intercept('GET', '**/files/diff*', { statusCode: status, body: { ok: false } }).as('diff');
         openFiles();
         rowFor('src/invoice/export.ts').click();
