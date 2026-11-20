@@ -1,0 +1,174 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Chat: three values off the scale, side by side (#1261)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1261: a comparison page, not a new screen. Example data only. It defines no tokens of its own: colors and fonts come from
+   tokens.css through the app's stylesheets. The chip is the app's .ch-link and the menu is the app's .ch-menu, unchanged.
+   Why: Chat has three values the standards' scale (docs/standards/scale.html) does not list: the channel link chip's 12px corner
+   (chat.css .ch-link) and the layers 10 (.ch-menu) and 12 (.ch-ac). The maintainer has to decide, for each, whether the code moves onto
+   the scale or the scale takes the value, and asked to see them next to each other. The corner is a change a person can see. The layers
+   are not: at 10, 12 or 20 the menu and the @ list sit in front of exactly the same things, so section 2 shows that with the real
+   stack. The only rules below are the demo bar, the page frame and the comparison cells, which are not part of the app. The two
+   `.opt-*` rules reproduce what the two options would set, so each cell can show it. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1100px); padding: 20px 20px 40px; background: var(--bg); }
+.sc { margin: 0 0 32px; }
+.sc > h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
+.sc > p { margin: 0 0 12px; color: var(--ink2); max-width: 72ch; }
+.cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.cell { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 12px; display: grid; gap: 10px; align-content: start; }
+.cell > h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.cell > .why { margin: 0; color: var(--ink2); font-size: 12px; }
+.cell .tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 11px; font-weight: 500; color: var(--ink2); }
+.cell .tag.off { border-color: var(--warn); color: var(--warn-text); }
+.sample { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px; border: 1px dashed var(--border); border-radius: 6px; background: var(--bg); }
+.sample .nm { font-size: 15px; font-weight: 650; }
+.sample.big { zoom: 2.4; }
+/* What each option sets on the chip. Not app rules. */
+.opt-10 .ch-link { border-radius: 10px; }
+.opt-pill .ch-link { border-radius: 999px; }
+/* The layer scene: the real stack of a Chat page, with the menu's layer set per cell by --z. */
+.scene { position: relative; height: 190px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; }
+.scene .hd { position: absolute; left: 0; right: 0; top: 0; height: 34px; z-index: 2; display: flex; align-items: center; padding: 0 10px; background: var(--raised); border-bottom: 1px solid var(--border); font-weight: 650; }
+.scene .mem { position: absolute; right: 0; top: 34px; bottom: 0; width: 38%; z-index: 7; padding: 8px 10px; background: var(--surface); border-left: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
+.scene .cmp-menu { position: absolute; left: 22%; top: 20px; z-index: var(--z); }
+.scene .cmp-menu.ch-menu { right: auto; min-width: 150px; }
+.scene .dlg { position: absolute; left: 10%; right: 38%; bottom: 10px; z-index: 50; padding: 8px 10px; border: 1px solid var(--axis); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); font-size: 12px; }
+.scene .z { position: absolute; left: 8px; bottom: 6px; z-index: 60; font: 500 11px var(--font-mono); color: var(--muted); }
+.ladder { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 12px; }
+.ladder li { display: grid; grid-template-columns: 2.6em 1fr auto; gap: 8px; align-items: baseline; padding: 3px 8px; border-radius: 4px; }
+.ladder li b { font: 600 12px var(--font-mono); text-align: right; }
+.ladder li.chat { background: var(--sel); }
+.ladder li.off b { color: var(--warn-text); }
+.ladder li .tag { margin: 0; }
+.sum { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sum th, .sum td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.sum th { color: var(--ink2); font-weight: 600; }
+.sum code { font: 500 12px var(--font-mono); }
+.stage.narrow .sample.big { zoom: 1.6; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Chat: three values off the scale (#1261)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="podium">
+<div class="stage" id="stage">
+
+  <section class="sc" id="corner">
+    <h2>1. The channel link chip's corner</h2>
+    <p>This is the only one of the three that a person can see. The chip sits next to a channel's name in the thread header. Today its corners are 12px, and the scale has no 12px. It lists 10px (3 uses) and 999px, the full pill (6 uses, the other chips). Each cell shows the chip at its real size, then enlarged so the corner is easy to compare.</p>
+    <div class="cmp">
+      <div class="cell">
+        <h3>Now: 12px <span class="tag off">not on the scale</span></h3>
+        <div class="sample"><span class="nm">general</span><span class="ch-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8"/></svg>github.com/acme/podium</span></div>
+        <div class="sample big"><span class="ch-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8"/></svg>acme/podium</span></div>
+        <p class="why">Option B (the scale takes it) keeps this exactly as it is.</p>
+      </div>
+      <div class="cell opt-10">
+        <h3>10px <span class="tag">on the scale</span></h3>
+        <div class="sample"><span class="nm">general</span><span class="ch-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8"/></svg>github.com/acme/podium</span></div>
+        <div class="sample big"><span class="ch-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8"/></svg>acme/podium</span></div>
+        <p class="why">Option A, the smallest change: about two pixels less round. Hard to tell apart at real size.</p>
+      </div>
+      <div class="cell opt-pill">
+        <h3>999px, a full pill <span class="tag">on the scale</span></h3>
+        <div class="sample"><span class="nm">general</span><span class="ch-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8"/></svg>github.com/acme/podium</span></div>
+        <div class="sample big"><span class="ch-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l.8-.8a2.5 2.5 0 013.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 01-3.5-3.5l.8-.8"/></svg>acme/podium</span></div>
+        <p class="why">Option A, the visible one: it reads as a pill like the app's other chips.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sc" id="layers">
+    <h2>2. The menu and the @ list: layers a person cannot see</h2>
+    <p>A layer number only says what sits in front of what. The menu on a sidebar row or a members-panel row is at 10 and the @ list at 12; the scale lists 20 and not those. Below is a Chat page's real stack: the thread header (2), the members panel at 400 px (7), a menu, and a dialog (50). At 10, 12 or 20 the menu is in front of the same things and behind the same dialog, so the three scenes look identical. Only the number differs.</p>
+    <div class="cmp">
+      <div class="cell">
+        <h3>Now: menu 10, @ list 12 <span class="tag off">not on the scale</span></h3>
+        <div class="scene" style="--z: 10"><div class="hd">general</div><div class="mem">Members</div><div class="cmp-menu ch-menu" role="menu" aria-label="Row actions"><button type="button" role="menuitem">Pause</button><button type="button" role="menuitem">Remove</button></div><div class="dlg">A dialog</div><span class="z">menu z-index 10</span></div>
+        <ul class="ladder" aria-label="Layers now">
+          <li><span>50</span><span>Dialogs</span><b>50</b></li>
+          <li><span>40</span><span>Tooltips</span><b>40</b></li>
+          <li class="chat"><span>30</span><span>Row and avatar menus in Chat; toast</span><b>30</b></li>
+          <li><span>20</span><span>Wall controls (not on the Chat page)</span><b>20</b></li>
+          <li class="chat off"><span>12</span><span>The @ list <span class="tag off">off the scale</span></span><b>12</b></li>
+          <li class="chat off"><span>10</span><span>Row menus: sidebar, members panel <span class="tag off">off the scale</span></span><b>10</b></li>
+          <li class="chat"><span>7</span><span>Members panel at 400 px</span><b>7</b></li>
+          <li class="chat"><span>2</span><span>Section headings</span><b>2</b></li>
+        </ul>
+        <p class="why">Option B (the scale takes them) adds 10 and 12 to the list and changes no CSS.</p>
+      </div>
+      <div class="cell">
+        <h3>Both at 20 <span class="tag">on the scale</span></h3>
+        <div class="scene" style="--z: 20"><div class="hd">general</div><div class="mem">Members</div><div class="cmp-menu ch-menu" role="menu" aria-label="Row actions"><button type="button" role="menuitem">Pause</button><button type="button" role="menuitem">Remove</button></div><div class="dlg">A dialog</div><span class="z">menu z-index 20</span></div>
+        <ul class="ladder" aria-label="Layers with both at 20">
+          <li><span>50</span><span>Dialogs</span><b>50</b></li>
+          <li><span>40</span><span>Tooltips</span><b>40</b></li>
+          <li class="chat"><span>30</span><span>Row and avatar menus in Chat; toast</span><b>30</b></li>
+          <li class="chat"><span>20</span><span>Row menus and the @ list; wall controls (not on the Chat page)</span><b>20</b></li>
+          <li class="chat"><span>7</span><span>Members panel at 400 px</span><b>7</b></li>
+          <li class="chat"><span>2</span><span>Section headings</span><b>2</b></li>
+        </ul>
+        <p class="why">Option A. Nothing visible changes. One difference to know: the @ list and the row menus would share a layer. They sit in different places on the page, so they do not overlap each other.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sc" id="summary">
+    <h2>3. The decision, in one table</h2>
+    <p>Option A moves the code onto the scale and needs no change to the standards. Option B keeps the code and the scale takes the value, through a <code>standards</code> changelog fragment you approve; the standards pages change in the next release-prep PR.</p>
+    <table class="sum">
+      <thead><tr><th scope="col">Value</th><th scope="col">Where</th><th scope="col">A: move the code</th><th scope="col">B: the scale takes it</th><th scope="col">A person sees</th></tr></thead>
+      <tbody>
+        <tr><td><code>border-radius: 12px</code></td><td><code>.ch-link</code></td><td>10px, or 999px</td><td>Add 12px to Corner radius</td><td>A slightly or clearly rounder chip with A; nothing with B</td></tr>
+        <tr><td><code>z-index: 10</code></td><td><code>.ch-menu</code></td><td>20</td><td>Add 10 to Layers</td><td>Nothing</td></tr>
+        <tr><td><code>z-index: 12</code></td><td><code>.ch-ac</code></td><td>20</td><td>Add 12 to Layers</td><td>Nothing</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  function press(attr, val) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1100px');
+      st.classList.toggle('narrow', b.dataset.w === 'narrow');
+      press('data-w', b.dataset.w);
+    }
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>
