@@ -223,6 +223,9 @@ export interface MessageFrom {
   adminOf?: string | null;
 }
 
+/** A message from the session page's message box, the default of `RespondStore.message`. */
+const FROM_CONSOLE: Readonly<MessageFrom> = { via: 'console' };
+
 export class RespondStore {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly waiters = new Set<Waiter>();
@@ -512,7 +515,7 @@ export class RespondStore {
   }
 
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */
-  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null, from: MessageFrom = { via: 'console' }): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
+  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null, from: Readonly<MessageFrom> = FROM_CONSOLE): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
     const accepts = this.info(sessionId)?.accepts ?? [];
     const parsed = parseMessage(body, accepts, this.sessions.get(sessionId)?.commands ?? null);
     if (!parsed.ok) return { ok: false, err: parsed.err };
