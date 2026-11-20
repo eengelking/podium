@@ -1,14 +1,14 @@
 ---
-title: "71. An Admin responds only when the owner allows it, and every message names its sender (#1251)"
+title: "72. An Admin responds only when the owner allows it, and every message names its sender (#1251)"
 description: "An Admin needs the owner's allow, per reporter and off by default, to respond to a person's session. Every message from Podium is framed with its sender."
 group: "Project internals"
-number: 71
+number: 72
 date: "2026-11-20"
 status: "accepted"
-order: 71
+order: 72
 ---
 
-# 71. An Admin responds only when the owner allows it, and every message names its sender (#1251)
+# 72. An Admin responds only when the owner allows it, and every message names its sender (#1251)
 
 *Amends 28: the owner or an Admin could answer a waiting session. An Admin now needs the owner's allow. Builds on 62, whose Admin read notices stay as they are.*
 
@@ -49,5 +49,5 @@ The maintainer also found that a message from Podium Chat reached the Claude Cod
 <!-- nav:start -->
 ---
 
-Previous: [70. A message is handed over while the agent works, and the host decides when it is read (#1252)](70-a-message-is-handed-over-while-the-agent-works-and-the-host-decides-when-it-is-read.md) · Up: [Decisions](README.md)
+Previous: [71. A message handed over mid-turn is read between tool calls (#1264)](71-a-message-handed-over-mid-turn-is-read-between-tool-calls.md) · Up: [Decisions](README.md)
 <!-- nav:end -->

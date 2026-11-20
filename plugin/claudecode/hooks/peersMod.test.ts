@@ -1,6 +1,7 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { AdminNotice, Ask, Delivery, PeerDelivery, PeerRequest, Report } from '../../core/protocol.ts'
+import { HELD_LEAD } from './midTurn.ts'
 import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
 import { assertKeptApart, assertSubmittedFramed, type AfterPeerMessage } from './peerChecks.ts'
 
@@ -154,6 +155,7 @@ function world(on: On) {
     return { result: { ok: true }, text: 'ok' }
   })
   on('classic.PermissionRequest', () => ({}))
+  on('classic.PostToolUse', () => ({}))
   return { calls, posts, logs, toasts, submitted, commands, registered, server, os, submit, dialog, clock, surfaces }
 }
 
@@ -320,7 +322,7 @@ describe('peers: the tools', () => {
     expect(sent[0]!.body).toEqual({ to: 'Tester@ci-runner-01', text: 'Run it. Token [redacted] is for the registry.' })
     expect(sent[0]!.headers['X-Podium-Token']).toBe('tok-ed')
     expect(answer).toBe(
-      'Sent to Tester on ci-runner-01. Podium hands it over within seconds. If Tester is in the middle of a turn, it reads the message when that turn ends. Its answer arrives here as a new message. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].',
+      'Sent to Tester on ci-runner-01. Podium hands it over within seconds. If Tester is in the middle of a turn, it reads the message at its next step, after the tool call it is on. Its answer arrives here as a new message. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].',
     )
   })
 
@@ -400,7 +402,7 @@ describe('peers: the tools', () => {
   })
 
   const SENT = { status: 202, body: { ok: true, id: 'dlv_x', state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: 'Tester', machine: 'ci-runner-01' } } }
-  const SENT_ANSWER = 'Sent to Tester on ci-runner-01. Podium hands it over within seconds. If Tester is in the middle of a turn, it reads the message when that turn ends. Its answer arrives here as a new message.'
+  const SENT_ANSWER = 'Sent to Tester on ci-runner-01. Podium hands it over within seconds. If Tester is in the middle of a turn, it reads the message at its next step, after the tool call it is on. Its answer arrives here as a new message.'
 
   test('with a long report interval, a timer makes the call within moments, not at the next report', { options: { ...ON, flushIntervalMs: 30_000 } }, async ($, on) => {
     const w = world(on)
@@ -554,7 +556,7 @@ describe('peers: receiving', () => {
     expect(() => assertSubmittedFramed([], SUBMITTED_SENDERS)).toThrow(/no peer text was submitted/)
   })
 
-  test('during a turn it is queued at once and took once it entered; one handed over twice acts once', { options: ON }, async ($, on) => {
+  test('during a turn it is queued at once, read at the main loop\'s next tool result, and took then; one handed over twice acts once (#1264)', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)
     await $.turn.start({ text: 'go', turnId: 't1' })
@@ -563,10 +565,41 @@ describe('peers: receiving', () => {
     await settle(w)
     w.server.peerDeliveries.push(message())
     await nextReply(w)
-    expect(w.submitted).toHaveLength(1)
+    // Not a prompt: the host would queue it behind the whole turn. It waits for a tool result.
+    expect(w.submitted).toHaveLength(0)
+    expect(peerResults(w)).toEqual([['dlv_p1', 'queued']])
+    // A subagent's tool result is not the orchestrator's: it takes nothing.
+    const sub = (await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: '', agent_id: 'a1' } as never)) as { additionalContext?: string[] }
+    expect(sub.additionalContext).toBeUndefined()
+    // The main loop's tool result carries it, with Podium's frame and the mid-turn note (#1252).
+    const main = (await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: '' } as never)) as { additionalContext?: string[] }
+    expect(main.additionalContext).toHaveLength(1)
+    expect(main.additionalContext![0]!.startsWith(HELD_LEAD + '\nMessage from the orchestrator claude-dashboard on ed-mbp')).toBe(true)
+    expect(main.additionalContext![0]!.endsWith(MID_TURN_NOTE)).toBe(true)
+    await w.clock.advance(1000)
+    await settle(w)
     expect(peerResults(w)).toEqual([['dlv_p1', 'queued'], ['dlv_p1', 'took']])
-    // In the middle of a turn it carries Podium's note for the agent to weigh it (#1252).
+    expect(w.logs.some((l) => l.startsWith('a message from claude-dashboard'))).toBe(true)
+    // Read once: the next tool result carries nothing, and the turn's end submits nothing.
+    const again = (await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: '' } as never)) as { additionalContext?: string[] }
+    expect(again.additionalContext).toBeUndefined()
+    await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    expect(w.submitted).toHaveLength(0)
+  })
+
+  test('a turn that ends before any tool result submits the held message as a prompt, so none is lost (#1264)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.server.peerDeliveries.push(message())
+    await nextReply(w)
+    expect(w.submitted).toHaveLength(0)
+    await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    await w.clock.advance(1000)
+    await settle(w)
+    expect(w.submitted).toHaveLength(1)
     expect(w.submitted[0]!.text.endsWith(MID_TURN_NOTE)).toBe(true)
+    expect(peerResults(w)).toEqual([['dlv_p1', 'queued'], ['dlv_p1', 'took']])
   })
 
   test('a message that does not enter is refused', { options: ON }, async ($, on) => {
@@ -751,7 +784,7 @@ describe('peers: requests in the terminal', () => {
     w.server.routes[`POST /peers/requests/${REQ_MSG.id}`] = { status: 200, body: { ok: true, outcome: 'delivered' } }
     w.server.routes[`POST /peers/requests/${REQ_ACCESS.id}`] = { status: 410, body: { ok: false, error: 'already allowed' } }
     await started($, w)
-    expect((await $.command.run(podium('deliver 9c2e'))).text).toBe('delivered 9c2e. The message from claude-dashboard on ed-mbp is handed to arm64-check within seconds, and read when its turn ends if it is working. Closed in Podium too.')
+    expect((await $.command.run(podium('deliver 9c2e'))).text).toBe('delivered 9c2e. The message from claude-dashboard on ed-mbp is handed to arm64-check within seconds, and read at its next step if it is working. Closed in Podium too.')
     expect(w.calls.find((c) => c.path.endsWith(`/peers/requests/${REQ_MSG.id}`))!.body).toEqual({ answer: 'deliver' })
     expect((await $.command.run(podium('allow 7f3a'))).text).toBe('Request 7f3a was not answered: already allowed.')
     expect((await $.command.run(podium('decline'))).text).toBe('Name the request: /podium decline <id>. The id is in the request\'s toast and log line.')

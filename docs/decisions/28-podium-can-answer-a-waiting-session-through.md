@@ -10,7 +10,7 @@ order: 28
 
 # 28. Podium can answer a waiting session, through the reporter, not through a terminal
 
-*Amended by 71 (#1251): an Admin answers and sends only when the session's owner has allowed it. The text below says the owner or an Admin can, which was true when it was written.*
+*Amended by 72 (#1251): an Admin answers and sends only when the session's owner has allowed it. The text below says the owner or an Admin can, which was true when it was written.*
 
 **Context.** The maintainer's real goal behind #21 was answering a session that stopped to ask, without going
 back to the terminal or the desktop app.

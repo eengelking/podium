@@ -1,7 +1,7 @@
 // Orchestrator messaging in the OpenCode reporter (#969, #347, #414, SPEC 5.3): the three tools an orchestrator calls, the messages that arrive
 // for it, and the person's answers to a request. The words (what each tool answers, the frame a message comes under, the toasts) are
 // `core/peers.ts`, the same as Claude Code's. What is OpenCode's own is how a message enters (`session.prompt`, queued behind the turn that
-// runs) and how a tool reaches Podium: straight from the tool's call, with the reporter's own credential (the same `fetch` as its reports, so
+// runs, or steered into it at its next step, #1264) and how a tool reaches Podium: straight from the tool's call, with the reporter's own credential (the same `fetch` as its reports, so
 // the rights are the OpenCode reporter's own and not Claude Code's on the same machine), under a time limit.
 //
 // A peer message only ever becomes a framed prompt. It never touches answering (`answering.ts`): no ask, no approval, no command.
@@ -14,6 +14,7 @@ import {
   accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, chatReadTarget, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
   refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
+import type { PromptDelivery } from './answering.ts';
 import type { Root } from './state.ts';
 
 /** How long a tool waits for Podium before it says it did not answer. */
@@ -26,8 +27,8 @@ const UNANSWERED = 'Podium did not answer in time. It may still have taken it: p
 
 export interface PeersDeps {
   responder: Responder;
-  /** Submits text as a prompt, queued behind the turn that runs (`session.prompt`). `id` is Podium's delivery id, so one sent twice is one message. */
-  prompt: (sessionId: string, id: string, text: string) => Promise<void>;
+  /** Submits text as a prompt (`session.prompt`): queued behind the turn that runs, or, with `steer`, taken at the turn's next step (#1264). `id` is Podium's delivery id, so one sent twice is one message. */
+  prompt: (sessionId: string, id: string, text: string, delivery?: PromptDelivery) => Promise<void>;
   /** Tells the person something where they see it (a toast). Absent: nothing is shown. */
   notify?: (line: string) => void;
   now: () => number;
@@ -103,7 +104,10 @@ export class Peers {
     const text = peerPrompt(d, busy);
     if (!text) return this.result(root, d.id, 'refused');
     if (busy) this.result(root, d.id, 'queued');
-    void this.d.prompt(root.id, d.id, text).then(
+    // While a turn runs the message is steered in, so the agent reads it at its next step instead of after the turn (#1264).
+    // A steer the host refuses (the turn ended between the check and the call) is tried once more as an ordinary queued prompt.
+    const send = busy ? this.d.prompt(root.id, d.id, text, 'steer').catch(() => this.d.prompt(root.id, d.id, text, 'queue')) : this.d.prompt(root.id, d.id, text, 'queue');
+    void send.then(
       () => {
         if (d.from) this.d.notify?.(deliveredLine(d.from));
         this.result(root, d.id, 'took');

@@ -75,6 +75,7 @@ import { claudeSettingsPath, resumeWindowFromSettings } from '../../core/resumeW
 import { chooseMachineId, sharedMachineIdPath, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, machineInfo, newMachineId, platformRandom, type RandomSource, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type ActivityEntry, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
 import { isRecordingGrant } from '../../core/transport.ts';
+import { forSession, makeHeld, withHeldContext } from './midTurn.ts';
 import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
 import { redactText } from '../../core/diffRedact.ts';
 import {
@@ -385,6 +386,8 @@ let peerKnown = new Map<string, PeerRequest>();
 let adminNoticesSeen = new AdminNoticeSeen();
 /** The ids the last reply listed as open. */
 let peerOpen: string[] = [];
+/** Messages handed over mid-turn, waiting for the main loop's next tool result (#1264). */
+const peerHeld = makeHeld();
 
 const perf = typeof performance !== 'undefined' && typeof performance.now === 'function' ? () => performance.now() : () => Date.now();
 const nowMs = () => Date.now();
@@ -1556,8 +1559,44 @@ function peerDelivery($: Engine, r: Runtime, d: PeerDelivery): void {
     queuePeerResult(sid, d.id, 'refused');
     return;
   }
+  const midTurn = r.state.status === 'running' && !r.state.mainIdle;
   if (r.state.status === 'running') queuePeerResult(sid, d.id, 'queued');
+  // Mid-turn the host would queue a prompt behind the whole turn, so the text waits for the next tool result instead (#1264).
+  if (midTurn) {
+    peerHeld.hold({ sid, id: d.id, text, from: d.from });
+    return;
+  }
   void submitPeerMessage($, sid, d, text);
+}
+
+/** The main loop's tool result is the boundary: what is held rides on it as context, so the agent reads it before its next step (#1264). */
+function readAtToolBoundary($: Engine, sid: string, agentId: string | undefined, already: string[] | undefined): string[] | undefined {
+  // A subagent's tool result is not the orchestrator's: only the main loop takes the message.
+  if (agentId || !peerHeld.size()) return undefined;
+  const { mine, stale } = forSession(peerHeld.take(), sid);
+  // One held for a session that has ended is never shown to this one (the session was cleared or restarted before its turn ended).
+  for (const m of stale) queuePeerResult(m.sid, m.id, 'refused');
+  for (const m of mine) {
+    if (m.from) transcriptLine($, deliveredLine(m.from));
+    queuePeerResult(sid, m.id, 'took');
+  }
+  return mine.length ? withHeldContext(already, mine) : undefined;
+}
+
+/** A tool result's answer with what is held added as context (#1264): the same answer when nothing is held, or the call is a subagent's. */
+function readHeld($: Engine, e: { agent_id?: string }, out: { additionalContext?: string[] }) {
+  const sid = rt?.state.id;
+  const context = sid ? readAtToolBoundary($, sid, e.agent_id, out.additionalContext) : undefined;
+  return context ? { ...out, additionalContext: context } : out;
+}
+
+/** A main-loop turn that ended before any tool result: what is held becomes the prompt it would have been, so no message is lost (#1264). */
+function submitHeldAtStop($: Engine, sid: string): void {
+  const { mine, stale } = forSession(peerHeld.take(), sid);
+  for (const m of stale) queuePeerResult(m.sid, m.id, 'refused');
+  for (const m of mine) {
+    void submitPeerMessage($, sid, { id: m.id, kind: 'message', at: nowMs(), from: m.from, text: '' }, m.text);
+  }
 }
 
 /** Another orchestrator's message: a turn of its own once the session is idle, under the plugin's name and Podium's frame. Never `asUser`. */
@@ -2311,6 +2350,8 @@ export const register: Register = (on, rawOptions) => {
       r.state = turnComplete(r.state, { agentId: e.agentId, reason: e.reason, answer: e.answer }, nowMs());
     });
     if (!e.agentId && opts.respond !== 'off' && !classicSeen && permissionHooks === null) startHooksCheck($);
+    // The host refuses a prompt from a Stop hook, so what a message still held when the turn ended is submitted here (#1264).
+    if (!e.agentId && rt) submitHeldAtStop($, rt.state.id);
     return res;
   }).catch(($, e, next) => next(e));
 
@@ -2516,6 +2557,10 @@ export const register: Register = (on, rawOptions) => {
     const decision = await permissionAsk($, r, { tool_name: e.tool_name, tool_input: e.tool_input, agent_id: agentId });
     return decision ?? next(e);
   }).catch(($, e, next) => next(e));
+
+  // A message handed over mid-turn is read at the main loop's next tool result (#1264), a failed one included.
+  on('classic.PostToolUse', async ($, e, next) => readHeld($, e, await next(e))).catch(($, e, next) => next(e));
+  on('classic.PostToolUseFailure', async ($, e, next) => readHeld($, e, await next(e))).catch(($, e, next) => next(e));
 
   on('classic.Notification', async ($, e, next) => {
     seen('classic.Notification', e);
