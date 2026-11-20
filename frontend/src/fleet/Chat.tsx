@@ -101,8 +101,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
   const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
   const rowKey = direct ? `d:${dmKey(direct)}` : key;
-  const thread = useThread(api, o && !stale ? sel : null, rev, ro ? readAs : null);
-  const addrs = useAddresses(api, sel.kind === "channel" ? sel.id : null);
+  // An Admin with no person of their own, who has not chosen anything, has no thread open: the area says what to do (#1238).
+  const idle = !!o && o.me.admin && !o.me.person && readAs === null && picked === null;
+  const thread = useThread(api, o && !stale && !idle ? sel : null, rev, ro ? readAs : null);
+  const addrs = useAddresses(api, sel.kind === "channel" && !idle ? sel.id : null);
 
   const refresh = useCallback(async () => {
     await Promise.all([overview.reload(), thread.reload()]);
@@ -412,7 +414,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
             void act(
               async () => {
                 await api.deleteDm(at.a.sessionId, at.b.sessionId);
-                setPicked(null);
+                setPicked(GENERAL);
               },
               "Conversation deleted.",
               (w) => `Could not delete the conversation: ${w}. Nothing changed. Try again.`,
@@ -436,7 +438,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
             void act(
               async () => {
                 await api.removeChannel(at.id);
-                setPicked(null);
+                setPicked(GENERAL);
               },
               "Channel removed.",
               (w) => `Could not remove the channel: ${w}. Nothing changed. Try again.`,
@@ -497,6 +499,11 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     else if (agentParties.length > 0 && ended.length >= agentParties.length) stop("Ended", `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended, so it will not receive this.`);
   }
   const roThread = ro && !(sel.kind === "channel" && sel.id !== "group");
+  // An Admin reading a person's thread has the message box in view, off, so it is plain that nothing can be sent (mockup/podium-chat-redesign.html).
+  if (roThread) {
+    off = `You are reading as an Admin, so nothing can be sent here.${heldBy ? " The link is paused; you can resume it from its menu." : ""}`;
+    offWord = "An Admin cannot send here";
+  }
   const draft = drafts[key] ?? "";
   // `/clear` and `/compact` are commands only in a message to the person's own agent: one agent and the person, no other person.
   const ownAgent = sel.kind === "dm" && !ro && o.me.person && !cross && parties.length === 2 && agentParties.length === 1 ? agentParties[0]! : null;
@@ -561,7 +568,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         <ChatSidebar
           overview={o}
           sessions={sessions}
-          selected={rowKey}
+          selected={idle ? null : rowKey}
           menu={menu?.key ?? null}
           onMenu={(k) => setMenu(k ? { key: k } : null)}
           onClose={closeMenu}
@@ -578,61 +585,64 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onReadAs={chooseReader}
           serverNow={serverNow}
         />
-        <ChatThread
-          sel={sel}
-          overview={o}
-          channel={channel}
-          direct={direct}
-          thread={thread}
-          sessions={sessions}
-          now={props.now}
-          alert={alert}
-          scrollToken={`${key}|${sent}`}
-          menu={menu?.key ?? null}
-          menuAt={menu?.at ?? null}
-          onMenu={(k, _by, at) => setMenu(k ? { key: k, ...(at ? { at } : {}) } : null)}
-          onClose={closeMenu}
-          onPick={pick}
-          members={members}
-          onMembers={setMembers}
-          onBack={() => {
-            setMembers(false);
-            setPane("side");
-          }}
-          readAs={ro ? readAs : null}
-          serverNow={serverNow}
-          composer={
-            roThread ? (
-              <div className="ch-composer">
-                <div className="note with-btn" id="ro-why" data-testid="chat-ro-note">
-                  <span>You are reading as an Admin, so there is no message box.{heldBy ? " The link is paused; you can resume it from its menu." : ""}</span>
+        {idle ? (
+          <section className="ch-thread" aria-label="Chat" data-testid="chat-idle">
+            <div className="ch-blank">
+              <p>Choose General or a channel to read it.</p>
+              <p>To read a person&apos;s conversations, choose a person under Read as an Admin.</p>
+            </div>
+          </section>
+        ) : (
+          <ChatThread
+            sel={sel}
+            overview={o}
+            channel={channel}
+            direct={direct}
+            thread={thread}
+            sessions={sessions}
+            now={props.now}
+            alert={alert}
+            scrollToken={`${key}|${sent}`}
+            menu={menu?.key ?? null}
+            menuAt={menu?.at ?? null}
+            onMenu={(k, _by, at) => setMenu(k ? { key: k, ...(at ? { at } : {}) } : null)}
+            onClose={closeMenu}
+            onPick={pick}
+            members={members}
+            onMembers={setMembers}
+            onBack={() => {
+              setMembers(false);
+              setPane("side");
+            }}
+            readAs={ro ? readAs : null}
+            serverNow={serverNow}
+            composer={
+              <ChatComposer
+                label={label}
+                draft={draft}
+                onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
+                off={thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
+                offWord={thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
+                note={note}
+                error={sendErr}
+                sending={sending}
+                onSend={() => void onSend()}
+                channel={sel.kind === "channel" ? sel.id : null}
+                addresses={addrs.list}
+                loadAddresses={addrs.load}
+                stateOf={stateOf}
+                familyOf={familyOf}
+                insert={mention}
+                commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
+                noteAction={roThread ? (
                   <button type="button" className="btn sm" data-testid="chat-stop-reading-thread" onClick={() => chooseReader(null)}>
                     Stop reading
                   </button>
-                </div>
-              </div>
-            ) : (
-            <ChatComposer
-              label={label}
-              draft={draft}
-              onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
-              off={thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
-              offWord={thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
-              note={note}
-              error={sendErr}
-              sending={sending}
-              onSend={() => void onSend()}
-              channel={sel.kind === "channel" ? sel.id : null}
-              addresses={addrs.list}
-              loadAddresses={addrs.load}
-              stateOf={stateOf}
-              familyOf={familyOf}
-              insert={mention}
-              commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
-            />
-            )
-          }
-        />
+                ) : undefined}
+              />
+            }
+          />
+        )}
       </div>
       {!ro && <ListRecordLines reads={o.listReads ?? []} />}
       {form?.kind === "channel" && (

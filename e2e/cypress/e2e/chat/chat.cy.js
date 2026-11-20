@@ -365,9 +365,11 @@ describe('chat: the stop buttons of a channel', () => {
     cy.tid('chat-message').should('have.length', 1);
     cy.signIn('Admin');
     cy.openConsole('#/chat');
-    // The admin secret reads General and has no group or Direct Messages of its own.
+    // The admin secret has no group or Direct Messages of its own, and no thread is open until it picks one (#1238).
     cy.chatRow(GROUP).should('not.exist');
     cy.contains('Direct Messages and People and agents belong to a person.');
+    cy.tid('chat-idle').should('contain.text', 'Choose General or a channel to read it.');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 1);
     openMenu(GENERAL).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.include.members(['Pause General for everyone', 'Remove all messages…']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Pause General for everyone').click();
@@ -505,8 +507,13 @@ describe('chat: messages drawn as rows (#1232)', () => {
     post('general', 'first from Ed');
     post('general', 'second from Ed');
     post('general', `see this:\n\`\`\`js\n${LONG}\n\`\`\`\nand \`inline\` code <script>window.__pwned = 1</script>`);
+    // The open page marks the thread read up to the newest message. A reload before that lands leaves a "New" line between Ed's own
+    // messages, which splits the run this spec looks at, so wait for all four to be shown and the row to have no unread mark.
+    cy.tid('chat-message').should('have.length', 4);
+    cy.chatRow(GENERAL).should('not.have.class', 'un').find('.unread').should('not.exist');
     cy.reload();
     cy.tid('chat-message').should('have.length', 4);
+    cy.get('li.ch-newline').should('not.exist');
   };
 
   it('groups a run under one name, right-aligns your own messages in the same bubble, and dates the day', () => {
