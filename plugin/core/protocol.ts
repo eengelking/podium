@@ -649,6 +649,11 @@ export interface Delivery {
   chat?: true;
   /** Set on a message from an `@` in a Chat channel (#1034), to a session whose reporter has peer tools: the channel's name (`General` or `My group`). The reporter adds where to read what was said around it. Older reporters ignore it. */
   channel?: string;
+  /** Where a message was written (#1251): `chat` is the owner's own Chat message to this agent, `channel` an `@` in a Chat channel, `console` the session page's message box. Set on every message from a server that frames them; a reporter that finds it absent keeps the text as it was. */
+  via?: 'chat' | 'channel' | 'console';
+  /** Set on a message an Administrator sent to a person's session after the person allowed it (#1251). `owner` is that person. */
+  admin?: true;
+  owner?: string;
 }
 
 /** What became of a delivery, as the mod reports it. */

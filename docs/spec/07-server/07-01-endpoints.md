@@ -221,7 +221,8 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
 
 **`POST /api/fleet/respond/sessions/:id/asks/:askId/answer`**: answers an open ask.
 - Body: a `Delivery` ([6.2](../06-reporter-protocol/06-02-the-report.md)) without `id`, `askId`, `by` or `at`, of kind `question`, `reply`,
-  `plan-approve`, `plan-feedback`, `allow-once` or `deny`. Owner or Admin only.
+  `plan-approve`, `plan-feedback`, `allow-once` or `deny`. The owner, or an Admin the owner has allowed (#1251). An Admin
+  on a session owned by Admin or by no one needs no allow.
 - `202 { ok: true, deliveryId }`: the answer waits for the mod, and the modal shows "Sent, not confirmed yet"
   until its result.
 - Only the first answer to an ask is taken. A later one is `409 { ok: false, error: "answered", by, at }`.
@@ -230,7 +231,10 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
   fit the ask's kind, or `allow-once` for a tool whose input was cut off.
 - `400` for a body that fails validation (an option index out of range, two options on a single-choice
   question, text over its limit).
-- `403` when the browser isn't signed in, isn't the owner or an Admin, or responding is off.
+- `403` when the browser isn't signed in, isn't the owner or an Admin, or responding is off. An Admin the owner has not
+  allowed gets `403 { ok: false, error: "<Owner> has not allowed an Admin to respond. <Owner> can turn it on in My reporters.", owner }`.
+  The attempt is written to the Admin log as `respond_refused` (who, whose session, never the text), and the owner is told
+  in the console and in their reporter (7.7).
 - `404` for an unknown ask.
 
 **`DELETE /api/fleet/respond/deliveries/:deliveryId`**: "Discard my answer".
@@ -238,8 +242,12 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
 - `200 { ok: true }`. `409 { ok: false, error: "handed over" }` once the mod has it. `404` when it's gone. `403` when the delivery is neither the caller's nor an Admin's ("not your answer"), when responding is off, or when the caller is not signed in.
 
 **`POST /api/fleet/respond/sessions/:id/messages`**: sends a new message or a command.
-- Body: `{ text }` or `{ command: "clear" | "compact" }`. Owner or Admin, with `message` (or `command`) in the
-  session's `accepts`.
+- Body: `{ text }` or `{ command: "clear" | "compact" }`. The owner, or an Admin the owner has allowed (#1251), with
+  `message` (or `command`) in the session's `accepts`. An Admin on a session owned by Admin or by no one needs no
+  allow. An Admin the owner has not allowed is refused as for an answer above.
+- The delivery carries where the message was written, `via` (`console` here, `chat` for the owner's own Chat message,
+  `channel` for an `@` in a channel), and for an Admin's message `admin: true` and `owner`, so the reporter frames it
+  with its sender ([6.2](../06-reporter-protocol/06-02-the-report.md)).
 - `202 { ok: true, deliveryId, queued }`. `queued` is true when the session is running, so the message starts
   its turn once the session is idle.
 - A text that starts with `/` is read as a command. `/clear` and `/compact` are taken as those commands.
@@ -337,8 +345,9 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 
 - `GET /api/fleet/respond/peers`: My reporters in one read. `{ enabled, owner, serverTime, serverStartedAt, reporters,
   rights, defaults, limits: { server, effective }, requests }`. `reporters` are the person's mod reporters (`key`,
-  `machine`, `os`, `peers`, `version`, `state`, `lastSeenAt` and `compat` as Admin > Reporters works them out, and
-  `live`, its live orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
+  `machine`, `os`, `peers`, `version`, `state`, `lastSeenAt` and `compat` as Admin > Reporters works them out,
+  `adminRespond` (whether the owner has allowed an Admin to respond to its sessions, #1251) and `live`, its live
+  orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
   `requests` are the open ones, each a `PeerRequest` with `fromKey` and `toKey` (the two reporter keys, so the page
   can tell apart two machines that share a name) and `messageId`, and `fromPerson`, true for a person's message to
   this owner's agent from Chat (`fromKey` is then `person:<name>`, not a reporter; see Chat below). The mod's
@@ -347,6 +356,10 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
   either reporter is another person's, on the admin secret, or the two belong to different people.
 - `PUT /api/fleet/respond/peers/links`: `{ a, b, paused }`, Pause link or Resume link, both directions.
 - `DELETE /api/fleet/respond/peers/links`: `{ a, b }`, Remove link. A message still waiting on it is dropped.
+- `PUT /api/fleet/respond/peers/reporters/:key/admin-respond`: `{ allow: boolean }`, the owner gives or takes back an Admin's
+  say to send to and answer their sessions on one of their reporters (#1251). Off by default. `200 { ok: true, adminRespond }`.
+  `400` for a body that is not a boolean, `404` for a reporter that is not the caller's, `403` for the admin secret (it has
+  no reporters). Taking back what was never given is `200`. It is the owner's alone: an Admin cannot call it for someone else.
 - `PUT /api/fleet/respond/peers/defaults`: any of `{ trust, onRequest: "ask" | "allow" | "decline", newSend: "ask" |
   "send", limits: { roundTrips?, perMinute?, maxChars? } }`. A limit above the Admin's is a `400`; `null` removes one.
 - `POST /api/fleet/respond/peers/requests/:requestId`: `{ answer }`, as the mod's route, except that the reply is `{ ok: true, outcome }` and never carries `level` or `paused`: those name the right and the link for `/podium allow` and `/podium deliver` in a session, and the page already shows both.

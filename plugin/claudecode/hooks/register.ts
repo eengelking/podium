@@ -103,6 +103,7 @@ import {
   requestLine,
   requestToast,
   sendAnswer,
+  podiumPrompt,
   withChatHint,
   SEND_TO_DESCRIPTION,
   CHAT_READ_BEFORE_DESCRIPTION,
@@ -1446,18 +1447,19 @@ function handleDeliveries($: Engine, r: Runtime): void {
   }
 }
 
-/** Texts of messages from Podium this mod submitted, not yet seen back as a turn's text (#353). */
-const sentFromPodium: string[] = [];
+/** Messages from Podium this mod submitted, as submitted and as sent, not yet seen back as a turn's text (#353, #1251). */
+const sentFromPodium: { framed: string; text: string }[] = [];
 
 /** A message from Podium starts a turn of its own once the session is idle, under the plugin's name (not as the person). */
 async function submitMessage($: Engine, sid: string, d: Delivery): Promise<void> {
   const text = d.text ?? '';
-  // Remembered for the recording: the engine frames this prompt, and the turn that follows is recorded as the text sent (#353).
-  sentFromPodium.push(text);
+  // The sender, the text quoted and closed, and where to answer, the same frame in every harness (#1251, #1034). From a server that does not say where the message was written, the text as it was.
+  const framed = podiumPrompt(d) ?? withChatHint(text, d);
+  // Remembered for the recording: the engine frames this prompt again, and the turn that follows is recorded as the text sent (#353). The recording keeps the bare text.
+  sentFromPodium.push({ framed, text });
   if (sentFromPodium.length > 20) sentFromPodium.shift();
   try {
-    // The owner's own Chat message ends with where to answer, so the answer lands in the thread (#1034). The recording still keeps the bare text.
-    await $.prompt.submit({ text: withChatHint(text, d) });
+    await $.prompt.submit({ text: framed });
     transcriptLine($, answeredLine(d, nowMs()));
     queueResult(sid, d.id, 'took');
   } catch (err) {

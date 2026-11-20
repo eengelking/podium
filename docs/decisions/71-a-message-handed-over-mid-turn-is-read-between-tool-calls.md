@@ -44,5 +44,5 @@ Decision 70 handed a message over within seconds and ended it with a note, but a
 <!-- nav:start -->
 ---
 
-Previous: [70. A message is handed over while the agent works, and the host decides when it is read (#1252)](70-a-message-is-handed-over-while-the-agent-works-and-the-host-decides-when-it-is-read.md) · Up: [Decisions](README.md)
+Previous: [70. A message is handed over while the agent works, and the host decides when it is read (#1252)](70-a-message-is-handed-over-while-the-agent-works-and-the-host-decides-when-it-is-read.md) · Up: [Decisions](README.md) · Next: [72. An Admin responds only when the owner allows it, and every message names its sender (#1251)](72-an-admin-responds-only-when-the-owner-allows-it-and-every-message-names-its-sender.md)
 <!-- nav:end -->

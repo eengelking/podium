@@ -304,3 +304,50 @@ export function PermissionForm(props: { detail: AskDetail; allow: boolean; reaso
     </>
   );
 }
+
+// ---- an ask, to read only ------------------------------------------------------------------------
+
+/**
+ * An ask's content with nothing to answer it by (#1251): what an Admin reads when the owner has not allowed one to respond. It uses the answer forms' own
+ * pieces (.qh, .review, .planbox, .cmd) so the ask reads as it does there.
+ */
+export function AskReadOnly({ detail }: { detail: AskDetail }) {
+  const harness = useHarness();
+  const ask = detail.ask;
+  if (ask.kind === "question") {
+    return (
+      <div className="ab">
+        <dl className="review">
+          {(ask.questions ?? []).map((q, i) => (
+            <div key={i}>
+              <dt>{q.question}</dt>
+              <dd>{q.options.map((o) => cleanLabel(o.label, harness.id).label).join(", ")}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    );
+  }
+  if (ask.kind === "plan") {
+    return (
+      <div className="ab">
+        <p className="qh">Ready to code?</p>
+        {ask.plan?.filePath && <p className="planfile">{ask.plan.filePath}</p>}
+        <div className="planbox">
+          <Markdown source={ask.plan?.text ?? ""} />
+        </div>
+      </div>
+    );
+  }
+  const tool = ask.tool;
+  const input = tool?.input ?? {};
+  const command = typeof input.command === "string" ? input.command : null;
+  const description = typeof input.description === "string" ? input.description : null;
+  return (
+    <div className="ab">
+      <p className="qh">{isShellTool(harness.id, tool?.name) ? `${tool?.name} wants to run a command` : `${tool?.name ?? "A tool"} wants your permission`}</p>
+      <div className="cmd">{command ?? JSON.stringify(input, null, 2)}</div>
+      {description && <p className="cmdd">{description}</p>}
+    </div>
+  );
+}

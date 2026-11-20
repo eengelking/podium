@@ -47,6 +47,7 @@ interface SessionView {
   fileDiffPreload: boolean | null;      // the reporter's fileDiffPreload option (#631); null as for fileDiff
   activityFeed: boolean | null;         // the reporter's activityFeed option (6.4); null for a reporter older than 0.13.0, a settings-hooks session, or no report since the server started (held in memory)
   respond: { level: string; accepts: RespondKind[]; limits: string[] } | null;  // Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory)
+  adminRespond: boolean;                // whether the owner has allowed an Admin to respond to this session (#1251); false until they do, and for a session with no reporter Podium knows
   asks: {                               // the session's asks, open, or closed and not yet forgotten (7.2: at idle, or 10 minutes), without their content: that is served only to the owner or an Admin (7.1)
     id: string; kind: 'question' | 'plan' | 'permission'; agentId: string | null; openedAt: number;
     count: number;                      // questions in a question ask (the Respond button's number); 1 otherwise

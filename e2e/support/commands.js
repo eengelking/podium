@@ -109,6 +109,10 @@ Cypress.Commands.add('putSettings', (body) => {
 Cypress.Commands.add('setFlags', (flags) => cy.putSettings({ features: flags }));
 
 /** Reports a seeded session again as a reporter would: `over` merges into its session, `agents` maps an agent id to changed fields, `steps` maps a plan step id to its new state. */
+/** Ed, who owns the seeded ed-mbp reporter, allows an Admin to respond to his sessions on it, or takes that back (#1251): off by default. */
+Cypress.Commands.add('adminMayRespond', (allow) =>
+  cy.task('respond:as', { as: 'Ed', method: 'PUT', path: `/peers/reporters/${encodeURIComponent(seeded().machines.mbp.id)}/admin-respond`, body: { allow } }).its('status').should('eq', 200));
+
 Cypress.Commands.add('reportAgain', (key, over, agents, steps, v2) => cy.task('fleet:report', { key, over, agents, steps, v2 }, { log: false }));
 
 /**

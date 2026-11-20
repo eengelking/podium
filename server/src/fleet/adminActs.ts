@@ -6,7 +6,7 @@ import type { AdminReadKind } from '../storage/types.js';
 import { nameKey } from '../storage/rows.js';
 
 /** The kinds of an Admin's act on a person's things. */
-export type AdminActKind = Extract<AdminReadKind, 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed'>;
+export type AdminActKind = Extract<AdminReadKind, 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed' | 'respond_refused'>;
 
 /** Every thread of these records starts with this. */
 export const ACT_PREFIX = 'act:';
@@ -21,13 +21,14 @@ export interface ActDeps {
 }
 
 /** What the callout says after the Admin's name. `what` is the session's name, or for a reporter the words that name it (`your reporter ed-mbp`, `3 of your reporters`). */
-const WORDS: Record<AdminActKind, (what: string) => string> = {
+const WORDS: Record<AdminActKind, (what: string, machine?: string) => string> = {
   recording_stopped: (n) => `stopped the recording of your session ${n}`,
   recording_deleted: (n) => `deleted the recording of your session ${n}`,
   activity_deleted: (n) => `deleted the stored activity of your session ${n}`,
   session_deleted: (n) => `deleted your session ${n}`,
   access_revoked: () => 'revoked your Podium access',
   person_deleted: () => 'deleted your Podium account',
+  respond_refused: (n, machine) => `tried to respond to your session ${n} and was refused. You can allow it${machine ? ` for ${machine}` : ''} in My reporters`,
   reporter_removed: (what) => `removed ${what || 'your reporter'} from the Reporters list`,
 };
 
@@ -35,10 +36,10 @@ export class AdminActs {
   constructor(private readonly deps: ActDeps) {}
 
   /** `admin` did `kind` to a session. Tells the session's owner; nothing for a session with no owner or one that is gone, or the Admin's own. */
-  async onSession(admin: string, kind: AdminActKind, sessionId: string): Promise<void> {
+  async onSession(admin: string, kind: AdminActKind, sessionId: string, machine?: string): Promise<void> {
     const s = await this.deps.sessionOf(sessionId);
     if (!s?.owner) return;
-    await this.told(admin, kind, s.owner, s.name);
+    await this.told(admin, kind, s.owner, s.name, machine);
   }
 
   /** `admin` did `kind` to something of `owner`'s that is not a session: their access, their account, a reporter (`what`). */
@@ -46,11 +47,11 @@ export class AdminActs {
     return this.told(admin, kind, owner, what);
   }
 
-  private async told(admin: string, kind: AdminActKind, owner: string, what: string): Promise<void> {
+  private async told(admin: string, kind: AdminActKind, owner: string, what: string, machine?: string): Promise<void> {
     if (nameKey(admin) === nameKey(owner)) return;
     // A deleted person has nothing to show a record on, so only their live sessions are told.
     if (kind !== 'person_deleted') await this.deps.mark(actThread(owner), admin, kind, [nameKey(owner)]);
-    const text = `${admin} (an Admin) ${WORDS[kind](what)}.`;
+    const text = `${admin} (an Admin) ${WORDS[kind](what, machine)}.`;
     for (const id of this.deps.sessionsOf(owner)) this.deps.tell(id, text);
   }
 }

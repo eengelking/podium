@@ -584,6 +584,8 @@ This is the only way anything reaches a session from Podium, so every rule here 
 - The text of an answer, a message, a question, a plan or a tool's input is never logged, shipped or stored on
   disk ([7.2](07-02-database.md)).
 
+**An Admin responds only when the owner allows it (#1251).** An Admin, or the admin secret, can read a waiting ask in full (told to the owner, as above), but sends a message, runs `/clear` or `/compact`, or answers an ask on a person's session only when that person has allowed it for the reporter the session runs on. The allow is a link from `person:admin` to the reporter in `peer_rights`, off by default, and only the reporter's owner gives or takes it back (`PUT /respond/peers/reporters/:key/admin-respond`). A session owned by Admin or by no one needs no allow. A refused try is written to the Admin log as `respond_refused` and told to the owner on their `act:` thread and in their reporter, never with the text. The reporter puts every message in one frame that names the sender, quotes the text and closes it ([6.2](../06-reporter-protocol/06-02-the-report.md)). See DECISIONS 72.
+
 **What the content is shown as, and to whom**
 - An ask's content and the answers are served only to the session's owner or an Admin
   (`GET /respond/sessions/:id/asks/:askId`), never in the state or the stream, which carry only a summary
@@ -825,7 +827,7 @@ the server for 5 minutes, at most 8 for a session. They are for the person only 
 **An Admin's stop or delete of a person's things (#1078).** An Admin who stops a recording, deletes a recording or stored activity, deletes a session
 with the admin secret, revokes a person's token or certificate, deletes a person, or removes one of a person's reporters tells that person, as a read does.
 Each act writes a record on the person's `act:<name>` thread (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
-`access_revoked`, `reporter_removed`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
+`access_revoked`, `reporter_removed`, and (#1251) `respond_refused`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
 callout to every live reporter session of that person ("<Admin> (an Admin) stopped the recording of your session <name>."), through `adminNotices` as above. A
 server with no sign-in has no Admin to name and tells no one; a session or reporter with no owner, or on the admin secret, has no person to tell; an Admin
 acting on their own things tells no one. Revoking or deleting a person is told after it succeeds, because a refusal (the last Administrator) must not leave a

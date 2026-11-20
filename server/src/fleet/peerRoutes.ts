@@ -327,7 +327,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
       // Each reporter's state and last report as Admin > Reporters has them (#415), timed by the server's clock as there.
       serverTime: t,
       serverStartedAt: v.serverStartedAt,
-      reporters: v.reporters.map((r) => ({ ...r, live: liveOn(r.key) })),
+      reporters: await Promise.all(v.reporters.map(async (r) => ({ ...r, live: liveOn(r.key), adminRespond: await fleet.adminAllowedFor(r.key) }))),
       rights: v.rights,
       defaults: v.defaults,
       limits: v.limits,
@@ -366,6 +366,20 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const out = await withSource(sourceOf(req), () => fleet.peers.removeLink(me.name, b.a as string, b.b as string, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
+  }));
+
+  /** The owner gives or takes back an Admin's say to respond to their sessions on one of their reporters (#1251). Off by default. */
+  browser.put('/peers/reporters/:key/admin-respond', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
+    if (!me) return;
+    const allow = (req.body as { allow?: unknown } | undefined)?.allow;
+    if (typeof allow !== 'boolean') return void res.status(400).json({ ok: false, error: 'allow must be true or false', path: '$.allow' });
+    const key = req.params.key!;
+    const ref = await fleet.peers.reporters.get(key);
+    if (!ref || ref.owner === null || nameKey(ref.owner) !== nameKey(me.name)) return void res.status(404).json({ ok: false, error: 'no such reporter' });
+    const out = await withSource(sourceOf(req), () => fleet.setAdminAllowed(key, allow, me.actor));
+    if (!out.ok) return void send(res, out);
+    res.json({ ok: true, adminRespond: allow });
   }));
 
   browser.put('/peers/defaults', asyncHandler(async (req, res) => {
