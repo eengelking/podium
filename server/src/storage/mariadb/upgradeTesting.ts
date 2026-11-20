@@ -1,5 +1,6 @@
 // Test support for the upgrade contract (#892) on MariaDB (#823): a database at the schema before peer requests had an insertion number and reporters a name and sessions a harness (main step 1),
 // holding the given requests in the order given. Opening it as a storage then runs steps 2 to 5 on rows that exist. The caller drops the database.
+import { nameKey } from '../rows.js';
 import { MariaDbConn, parseTarget } from './conn.js';
 import { MAIN_MIGRATIONS, MAIN_STEPS, migrate } from './schema.js';
 import { openMariaDbStorage } from './index.js';
@@ -72,7 +73,17 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
     if (publicMessages.length > 0) {
       // General's messages come from step 7; step 21 gave them a channel, so the rows go in at the schema before it.
       await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.filter((s) => s.version <= 20));
+      for (const name of new Set(publicMessages.flatMap((x) => (x.person ? [x.person] : [])))) {
+        await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64)]);
+      }
       for (const x of publicMessages) {
+        if (x.group) {
+          await old.run(
+            'INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
+            [x.id, x.group.owner, x.group.groupId, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq],
+          );
+          continue;
+        }
         await old.run(
           'INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
           [x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq],

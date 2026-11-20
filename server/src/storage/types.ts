@@ -350,7 +350,16 @@ export interface ChannelMessage {
   milestone: string | null;
   replyTo: string | null;
   mentions: ChannelMention[];
+  /** The id of the person who wrote it (`people.id`, never reused), or null for a message an agent or a reporter wrote, for a person's message stored before ids were kept that matched nobody, and for one posted without it. The id outlives the person: a message kept after its person is deleted names nobody, so no one matches it. */
+  authorId: number | null;
+  /** When the author last changed the text (#1269); null for a message never edited, and for every message stored before this. */
+  editedAt: number | null;
+  /** When the author deleted it (#1269); null for a message that stands. A deleted message stays as a tombstone: its text is '' and its mentions are [], its place and its author are kept. */
+  deletedAt: number | null;
 }
+
+/** The result of the author changing one of their own channel messages (#1269). `locked`: it has been sent to an agent (a mention of an agent is `waiting`, `working` or `done`). `deleted`: it is already a tombstone. */
+export type ChannelChange = { ok: true; message: ChannelMessage } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
 
 export interface ChannelPostInput {
   authorKind: ChatAuthorKind;
@@ -361,6 +370,8 @@ export interface ChannelPostInput {
   project?: string | null;
   milestone?: string | null;
   replyTo?: string | null;
+  /** The signed-in person's id, for a message a person wrote (#1269). Without it such a message is stored with no author id, and nobody can change it. Ignored for an agent's or a reporter's. */
+  authorId?: number | null;
   mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null }[];
 }
 
@@ -389,6 +400,14 @@ export interface ChannelStoreApi<A extends unknown[]> {
   setMention(...args: [...A, string, number, { state: MentionState; why?: string | null }]): Promise<ChannelMessage | null>;
   /** The messages that hold a mention still in the `held` state, oldest first (time, then insertion number), each with all its mentions (#1046). With `sessionId`, only those with a held mention of that session. Reads only the rows that can hold one, never a page of the whole channel. */
   heldMentions(...args: [...A, { sessionId?: string }]): Promise<ChannelMessage[]>;
+  /**
+   * The author changes the text of their own message (#1269). `author` is the person's id (`people.id`); the message must be a person's and carry that id as `authorId`. Names are never compared. The text is stored as
+   * given (the server has cleaned, limited and redacted it). Sets `text`, `editedAt` and `updatedAt`; the mentions, `createdAt`, the insertion number and `replyTo` stay, so the pages do not move.
+   * Decided in one step: not-found (no such message in this channel), not-yours, deleted (already a tombstone), locked (see `lockedByDelivery`).
+   */
+  editMessage(...args: [...A, string, { author: number; text: string; now: number }]): Promise<ChannelChange>;
+  /** The author deletes their own message (#1269), under the same checks as `editMessage`. The row stays as a tombstone with its place, author and links: `text` '' and `mentions` [] (the old text is gone from the row), and `deletedAt` and `updatedAt` set. */
+  deleteMessage(...args: [...A, string, { author: number; now: number }]): Promise<ChannelChange>;
   /** Deletes every message of the channel. Returns how many. */
   clear(...args: A): Promise<number>;
   count(...args: A): Promise<number>;

@@ -11,8 +11,32 @@
 // insert that skips a row that is there), and the version row is written after a step's last statement, so a runner that stops part way
 // through a step does the whole step again at the next start, and ends in the same state.
 import { COLLATION, type MariaDbConn } from './conn.js';
+import { peerPersonKey } from '../chatRows.js';
+import { nameKey } from '../rows.js';
 
-export interface Step { version: number; statements: string[] }
+type DB = MariaDbConn;
+
+export interface Step { version: number; statements: string[]; after?: (db: MariaDbConn) => Promise<void> }
+
+/**
+ * Gives the person-written messages that exist the id of their author (#1269), by the author's folded name against `people.name_lower`, which `nameKey` also writes. It is JS
+ * because SQL cannot fold a name the way `nameKey` does (it collapses runs of spaces and lowercases every letter, where the database's `lower()` is ASCII only). A message whose
+ * author matches no person keeps no id, and nobody can change it. Agents' and reporters' messages keep none. Only rows without an id are written, so a run that is repeated adds nothing.
+ */
+async function fillAuthorIds(db: DB): Promise<void> {
+  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  if (ids.size === 0) return;
+  for (const table of ['group_messages', 'public_messages']) {
+    for (const r of await db.all<{ author_ref: string }>(`SELECT DISTINCT author_ref FROM ${table} WHERE author_kind = 'person' AND author_id IS NULL ORDER BY author_ref`)) {
+      const id = ids.get(nameKey(r.author_ref));
+      if (id !== undefined) await db.run(`UPDATE ${table} SET author_id = ? WHERE author_kind = 'person' AND author_ref = ? AND author_id IS NULL`, [id, r.author_ref]);
+    }
+  }
+  for (const r of await db.all<{ from_session: string; owner: string }>("SELECT DISTINCT from_session, owner FROM peer_messages WHERE author = 'person' AND author_id IS NULL ORDER BY from_session, owner")) {
+    const id = ids.get(peerPersonKey(r.from_session, r.owner));
+    if (id !== undefined) await db.run("UPDATE peer_messages SET author_id = ? WHERE author = 'person' AND from_session = ? AND owner = ? AND author_id IS NULL", [id, r.from_session, r.owner]);
+  }
+}
 
 /** `TXT` is long text; `K(n)` is text of at most n characters that can be a key; `INT` is a 64-bit integer (times are milliseconds); `REAL` a double. */
 const typed = (sql: string): string =>
@@ -422,6 +446,25 @@ CREATE TABLE IF NOT EXISTS public_channels (
 ) TABLE_OPTIONS;
 `),
   },
+  {
+    version: 22,
+    // A person edits or deletes their own Chat message (#1269), as SQLite migration 46 keeps it: when the text last changed and when the author deleted it, NULL for every
+    // message already there, on the two channel tables and on `peer_messages` (so a direct message needs no later step). `author_id` is the writer's `people.id`, with no foreign key
+    // (a message kept after its person is deleted names nobody); `fillAuthorIds` gives the ones that exist their author's id right after, and only fills a row that has none, so a step that
+    // stopped half way (MariaDB cannot roll back a column added) runs again and adds nothing twice.
+    statements: steps(`
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS edited_at INT;
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS deleted_at INT;
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS author_id INT;
+ALTER TABLE public_messages ADD COLUMN IF NOT EXISTS edited_at INT;
+ALTER TABLE public_messages ADD COLUMN IF NOT EXISTS deleted_at INT;
+ALTER TABLE public_messages ADD COLUMN IF NOT EXISTS author_id INT;
+ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS edited_at INT;
+ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS deleted_at INT;
+ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS author_id INT;
+`),
+    after: fillAuthorIds,
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
@@ -481,6 +524,7 @@ export async function migrate(db: MariaDbConn, table: string, list: readonly Ste
       await before?.(step.version, i);
       await db.exec(statement);
     }
+    await step.after?.(db);
     await db.run(`INSERT INTO ${table} (version, applied_at) VALUES (?, ?)`, [step.version, Date.now()]);
     version = Math.max(version, step.version);
   }

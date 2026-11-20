@@ -93,6 +93,8 @@ export const NOT_A_READ: Record<string, string> = {
   sendAcross: 'a write: answers the message just sent',
   post: 'a write: answers the message the person just posted',
   setMention: 'a write: answers the message the person just changed',
+  editMessage: 'a write: answers the author the message they just edited (#1269)',
+  deleteMessage: 'a write: answers the author the tombstone of the message they just deleted, which holds no text (#1269)',
   heldMentions: 'the server reads the held mentions of a channel to deliver or drop them; no route returns the rows, so no person reads another\'s text through it (#1046)',
   mentionsAcross: 'the server reads the mentions of one agent in every channel at once to move them when its owner answers; no route returns the rows, so no person reads another\'s text through it (#1213)',
   agentPost: 'a write: an agent posts into a channel and is answered the message it posted',

@@ -6,12 +6,12 @@ import type { AsyncLock } from '../lock.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 
-const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
-const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
+const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
+const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 
 /** Which messages of a table: one person's group, or one public channel (#1035). */
 type Scope = GroupScope | { channel: string };
@@ -59,18 +59,18 @@ class Channel {
     const at = this.now();
     const mentions = mentionsOf(input, at);
     const id = newChannelId(this.grouped ? 'grp' : 'pub', this.scope());
-    const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions)] as const;
+    const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions), kind === 'person' ? (input.authorId ?? null) : null] as const;
     if (!('channel' in scope)) {
       this.stmt(
-        `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
+        `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
       ).run(common[0], channelOwner(scope.owner), scope.groupId, ...common.slice(1));
     } else {
       // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
       if (scope.channel !== GENERAL_CHANNEL && !this.stmt('SELECT 1 AS x FROM public_channels WHERE name = ?').get(scope.channel)) throw new Error('There is no such public channel.');
       this.stmt(
-        `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
+        `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
       ).run(common[0], scope.channel, ...common.slice(1));
     }
     return toChannelMessage(this.byId(id, scope) as DbChannelRow);
@@ -99,6 +99,23 @@ class Channel {
     if (!next) return null;
     this.stmt(`UPDATE ${this.table} SET mentions_json = ?, updated_at = ? WHERE id = ?`).run(JSON.stringify(next), at, id);
     return toChannelMessage(this.byId(id, scope) as DbChannelRow);
+  }
+
+  /** The author changes the text of their own message (#1269). The row is read and written inside one step of the lock, so a delivery cannot change it in between. */
+  editMessage(scope: Scope, id: string, x: { author: number; text: string; now: number }): ChannelChange {
+    const row = this.byId(id, scope);
+    const refused = refuseChange(row, x.author);
+    if (refused) return refused;
+    this.stmt(`UPDATE ${this.table} SET text = ?, edited_at = ?, updated_at = ? WHERE id = ?`).run(x.text, x.now, x.now, id);
+    return { ok: true, message: toChannelMessage(this.byId(id, scope) as DbChannelRow) };
+  }
+
+  /** The author deletes their own message (#1269): the row stays, with no text and no mentions. */
+  deleteMessage(scope: Scope, id: string, x: { author: number; now: number }): ChannelChange {
+    const refused = refuseChange(this.byId(id, scope), x.author);
+    if (refused) return refused;
+    this.stmt(`UPDATE ${this.table} SET text = '', mentions_json = '[]', deleted_at = ?, updated_at = ? WHERE id = ?`).run(x.now, x.now, id);
+    return { ok: true, message: toChannelMessage(this.byId(id, scope) as DbChannelRow) };
   }
 
   heldMentions(scope: Scope, filter: { sessionId?: string }): ChannelMessage[] {
@@ -432,6 +449,8 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     post: (s, input) => step(() => group.post(s, input)),
     page: (s, o) => step(() => group.page(s, o)),
     setMention: (s, id, index, patch) => step(() => group.setMention(s, id, index, patch)),
+    editMessage: (s, id, x) => step(() => group.editMessage(s, id, x)),
+    deleteMessage: (s, id, x) => step(() => group.deleteMessage(s, id, x)),
     heldMentions: (s, filter) => step(() => group.heldMentions(s, filter)),
     clear: (s) => step(() => group.clear(s)),
     count: (s) => step(() => group.count(s)),
@@ -442,6 +461,8 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     post: (c, input) => step(() => pub.post(inChannel(c), input)),
     page: (c, o) => step(() => pub.page(inChannel(c), o)),
     setMention: (c, id, index, patch) => step(() => pub.setMention(inChannel(c), id, index, patch)),
+    editMessage: (c, id, x) => step(() => pub.editMessage(inChannel(c), id, x)),
+    deleteMessage: (c, id, x) => step(() => pub.deleteMessage(inChannel(c), id, x)),
     heldMentions: (c, filter) => step(() => pub.heldMentions(inChannel(c), filter)),
     clear: (c) => step(() => pub.clear(inChannel(c))),
     count: (c) => step(() => pub.count(inChannel(c))),

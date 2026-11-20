@@ -88,6 +88,10 @@ export interface LegacyPublicMessage {
   createdAt: number;
   mentionsJson: string;
   seq: number;
+  /** Set to put the row in the group channel's table (`group_messages`) of this owner and group instead of General's, as the same older database holds both. */
+  group?: { owner: string; groupId: string };
+  /** Set to have a person of this name in the older database too (made once, however many rows name it), so the upgrade can give the rows that person's id. */
+  person?: string;
 }
 
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
@@ -355,6 +359,46 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect((await chat.public.page('general', { limit: 10 })).messages.map((m) => m.text)).toEqual(['first', 'second', 'third', 'fourth']);
       expect((await chat.public.page('new', { limit: 10 })).messages.map((m) => m.text)).toEqual(['in new']);
       expect(await chat.public.purge(T0 + 1)).toBe(2);
+    } finally {
+      await s.close();
+    }
+  });
+  it('reads the group and public messages an older database holds as never edited and never deleted, gives a person\'s the id of the person their author name matches, and lets only that person edit and delete them, when the database is upgraded (#1269)', async () => {
+    const old = (id: string, createdAt: number, seq: number, text: string, over: Partial<LegacyPublicMessage> = {}): LegacyPublicMessage => ({
+      id, authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, createdAt, mentionsJson: '[]', seq, ...over,
+    });
+    const g = { owner: 'ed', groupId: 'g1' };
+    const s = await o.openUpgraded([], [], [], [], [], [], [
+      old('pub_00000000_a', T0, 1, 'public one', { person: 'Ed' }),
+      // The name differs from the person's in case and in the spaces between its words, and folds to it.
+      old('pub_00000000_b', T0 + 1, 2, 'public two', { authorRef: 'ED   Smith', authorName: 'ED   Smith', person: 'Ed Smith' }),
+      old('pub_00000000_c', T0 + 2, 3, 'public three', { authorRef: 'ghost', authorName: 'Ghost' }),
+      old('pub_00000000_d', T0 + 3, 4, 'public four', { authorKind: 'orchestrator', authorRef: 'ed', authorName: 'alpha' }),
+      old('grp_00000000_a', T0, 1, 'group one', { group: g }),
+      old('grp_00000000_b', T0 + 1, 2, 'group two', { group: g, authorRef: 'ghost', authorName: 'Ghost' }),
+    ]);
+    try {
+      const chat = s.chat({ now: () => T0 + 10 });
+      const ed = (await s.people.findByName('ed'))!.id;
+      const smith = (await s.people.findByName('ed smith'))!.id;
+      expect(ed).not.toBe(smith);
+      const publicPage = await chat.public.page('general', { limit: 10 });
+      const groupPage = await chat.group.page(g, { limit: 10 });
+      expect(publicPage.messages.map((m) => [m.text, m.editedAt, m.deletedAt, m.authorId])).toEqual([['public one', null, null, ed], ['public two', null, null, smith], ['public three', null, null, null], ['public four', null, null, null]]);
+      expect(groupPage.messages.map((m) => [m.text, m.editedAt, m.deletedAt, m.authorId])).toEqual([['group one', null, null, ed], ['group two', null, null, null]]);
+      // A message whose author matches nobody, and an agent's, are nobody's to change.
+      for (const who of [ed, smith, 0, 999]) {
+        expect(await chat.public.editMessage('general', 'pub_00000000_c', { author: who, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+        expect(await chat.public.deleteMessage('general', 'pub_00000000_d', { author: who, now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+        expect(await chat.group.editMessage(g, 'grp_00000000_b', { author: who, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+      }
+      expect(await chat.public.editMessage('general', 'pub_00000000_a', { author: smith, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+      expect(await chat.public.editMessage('general', 'pub_00000000_a', { author: ed, text: 'public one edited', now: T0 + 10 })).toMatchObject({ ok: true, message: { text: 'public one edited', editedAt: T0 + 10, createdAt: T0, authorId: ed } });
+      expect(await chat.public.deleteMessage('general', 'pub_00000000_b', { author: smith, now: T0 + 11 })).toMatchObject({ ok: true, message: { text: '', mentions: [], deletedAt: T0 + 11, authorId: smith } });
+      expect(await chat.group.editMessage(g, 'grp_00000000_a', { author: ed, text: 'group one edited', now: T0 + 10 })).toMatchObject({ ok: true, message: { text: 'group one edited', editedAt: T0 + 10 } });
+      expect(await chat.group.deleteMessage(g, 'grp_00000000_a', { author: ed, now: T0 + 12 })).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 12 } });
+      expect((await chat.public.page('general', { limit: 10 })).messages.map((m) => m.text)).toEqual(['public one edited', '', 'public three', 'public four']);
+      expect(await chat.public.count('general')).toBe(4);
     } finally {
       await s.close();
     }

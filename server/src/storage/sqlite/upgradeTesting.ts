@@ -4,6 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
+import { nameKey } from '../rows.js';
 import { openSqliteStorage } from './index.js';
 import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
@@ -62,7 +63,15 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     const insertPublic = before.prepare(
       'INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
     );
-    for (const x of publicMessages) insertPublic.run(x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+    const insertGroup = before.prepare(
+      'INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
+    );
+    const insertPerson = before.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)');
+    for (const name of new Set(publicMessages.flatMap((x) => (x.person ? [x.person] : [])))) insertPerson.run(name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64));
+    for (const x of publicMessages) {
+      if (x.group) insertGroup.run(x.id, x.group.owner, x.group.groupId, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+      else insertPublic.run(x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+    }
     before.close();
   }
   return { storage: openSqliteStorage(file, 0), dir };
