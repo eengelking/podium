@@ -598,9 +598,9 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <li class="ch-msg first"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-done"><svg><use href="#s-done"/></svg></span></span>
           <div class="col"><div class="cr-who"><b>podium-main</b><span class="cr-model opus"><i></i>Agent · Opus</span><span class="at">4:12 PM</span></div>
           <div class="tx">Merged the storage change. All three adapters pass the contract.</div></div></li>
-        <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span>
+        <li class="ch-msg mine first own" id="m-a" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">4:20 PM</span><b>You</b></div>
-          <div class="tx">Good. Start on the chat mockup tomorrow.</div></div></li>
+          <div class="tx">Good. Start on the chat mockup tomorrow.</div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-a" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-a" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
       </ul>
       <div class="ch-day">Today</div>
       <ul class="ch-msgs">
@@ -619,12 +619,13 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <li class="ch-msg cont"><span class="gut">9:21</span>
           <div class="col"><div class="tx">PostgreSQL passed: 312 of 312. MariaDB failed 2 specs in <code>admin-people</code>; I need to know whether to retry or stop.</div>
           <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for your answer</span></div></div></li>
-        <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span>
+        <li class="ch-msg mine first own" id="m-b" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">9:24 AM</span><b>You</b></div>
-          <div class="tx">Retry once, then send me the log if it fails again.</div></div></li>
-        <li class="ch-msg mine cont"><span class="gut">9:25</span>
+          <div class="tx">Retry once, then send me the log if it fails again.</div>
+          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-b" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-b" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Tester already has this message, so it can no longer be changed.</p></div></li>
+        <li class="ch-msg mine cont own" id="m-c" tabindex="-1"><span class="gut">9:25</span>
           <div class="col"><div class="tx">Keep the container up until I say.</div>
-          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div></li>
+          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-c" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-c" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Tester already has this message, so it can no longer be changed.</p></div></li>
         <li class="ch-msg mine first own" id="m-ed" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">9:41 AM</span><b>You</b></div>
           <div class="tx" id="ed-tx"><span class="ch-mention">@Tester</span> also run the migration tests on MariaDB.</div>
@@ -676,10 +677,10 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
       <div class="ch-intro"><div class="ch-intro-av"><span class="ch-av me">E</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent haiku"><svg><use href="#i-chip"/></svg></span></div>
         <h3>This is the start of My group</h3><p>You and your 3 orchestrators and subagents. Say something, or type @ to hand work to an agent.</p></div>
       <ul class="ch-msgs ch-fail" aria-label="Not delivered">
-        <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span>
+        <li class="ch-msg mine first own" id="m-d" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">9:47 AM</span><b>You</b></div>
           <div class="tx">Retry once, then send me the log if it fails again.</div>
-          <div class="ch-st"><span class="s bad"><svg class="si" aria-hidden="true"><use href="#i-x"/></svg>Not delivered to Tester. Its reporter is not taking messages now.</span></div></div></li>
+          <div class="ch-st"><span class="s bad"><svg class="si" aria-hidden="true"><use href="#i-x"/></svg>Not delivered to Tester. Its reporter is not taking messages now.</span></div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-d" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-d" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
       </ul>
       <ul class="ch-msgs ch-recline"><li class="ch-rec"><svg aria-hidden="true"><use href="#m-eye"/></svg><span>Root (an Admin) read this conversation on Nov 19, 9:50 AM.</span></li></ul>
       </div>
@@ -1194,7 +1195,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function openMenu(id) { closeMenus(); var m = $('#' + id); m.hidden = false; var b = m.parentNode.querySelector('.ch-more'); if (b) b.setAttribute('aria-expanded', 'true'); }
   function said(t) { $('#ed-said').hidden = !t; $('#ed-said-t').textContent = t || ''; $('#ed-live').textContent = t || ''; }
   function look(el) { el.scrollIntoView({ block: 'center' }); }
-  var orig = {}; ['m-ed', 'm-gone'].forEach(function (id) { orig[id] = $('#' + id + ' .tx').innerHTML; });
+  var orig = {}; ['m-a', 'm-ed', 'm-gone', 'm-d'].forEach(function (id) { orig[id] = $('#' + id + ' .tx').innerHTML; });
   var target = null, cur = null, editing = null;
   function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
   // Your messages that are on screen in the open conversation, oldest first.
