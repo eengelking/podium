@@ -257,6 +257,11 @@ function fakeChat(w: Fake = world()) {
       w.overview.directs = w.overview.directs.map((d) => (d.a.reporterKey === a && d.b.reporterKey === b ? { ...d, canSend: { aToB: false, bToA: false } } : d));
       return { ok: true as const };
     }),
+    // Editing and deleting a person's own message (#1269) is tested in chatEditDelete.test.tsx.
+    editChannelMessage: vi.fn(async (_channel: string, id: string, text: string) => ({ ok: true as const, message: cmsg(id, text) })),
+    deleteChannelMessage: vi.fn(async (_channel: string, id: string) => ({ ok: true as const, message: cmsg(id, "", { deletedAt: T0 }) })),
+    editDmMessage: vi.fn(async (_a: string, _b: string, id: string, text: string) => ({ ok: true as const, message: dmsg(id, ME, TESTER, text) })),
+    deleteDmMessage: vi.fn(async (_a: string, _b: string, id: string) => ({ ok: true as const, message: dmsg(id, ME, TESTER, "", { deletedAt: T0 }) })),
   } satisfies ChatApi;
   return { api, w };
 }

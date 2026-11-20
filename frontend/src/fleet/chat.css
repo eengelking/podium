@@ -412,3 +412,31 @@
   .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
   .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 7; border-left: 0; }
 }
+
+/* Edit and delete your own messages (#1269, mockup/podium-chat-edit-delete.html). There is no "..." button: a right-click, a long press or Enter on the
+   focused message opens the menu. New classes: ed-box (the editor), ed-del (a deleted message's note), ed-edited (the "edited" mark), ed-kbd (a key hint
+   in the menu), ed-q (the message quoted in the delete confirmation). The menu is the sidebar's `.ch-menu`, in the sidebar's 13 px type. */
+.podium .ch-menu.ed-menu { min-width: 220px; font-size: 13px; line-height: 1.4; font-weight: 400; }
+.ch-menu .ed-kbd { margin-left: auto; padding-left: 14px; font: 11px var(--font-mono); color: var(--muted); }
+/* The focused message of yours, and the one whose menu or confirmation is open, wear one 2 px ring. */
+.ch-msg.mine:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 8px; }
+.ch-msg.mine.sel { box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 8px; }
+.ch-msg.mine.menu-open { background: var(--hover); }
+/* While a message is edited, the box takes the place of its text: right-aligned like your other messages, one focus ring (the box's own), and nothing
+   else on the row competes with it (no delivery line). */
+.ed-box { margin: 2px 0 0 auto; width: min(100%, 560px); }
+.ed-box .ch-box textarea { padding-top: 10px; min-height: 44px; }
+.ch-msg.editing.sel, .ch-msg.editing:focus-visible, .ch-msg.mine.editing { box-shadow: none; background: transparent; }
+.ch-msg.editing .ch-st { display: none; }
+.ed-box .cr-tools { flex-wrap: wrap; gap: 8px; }
+.adminv .ed-box .ch-box .hint { flex: 1 1 100%; }
+.adminv .ed-box .err { padding: 6px 2px 0; border-top: 0; }
+.ch-msg .ch-col:has(.ed-box) { width: 100%; max-width: none; justify-self: stretch; }
+.ed-edited { margin-left: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* A deleted message keeps its row and place and says so, in a dashed pill. */
+.ed-del { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 12px; border: 1px dashed var(--axis); border-radius: 10px; color: var(--muted); font-size: 14px; }
+.ed-del svg { width: 14px; height: 14px; flex: none; }
+.podium .modal.ed-confirm { width: min(440px, 100%); }
+.ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; white-space: pre-wrap; }
+.podium .modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.podium .modal.ed-confirm .err { margin: 0 0 12px; color: var(--crit-text); font-size: 12.5px; }

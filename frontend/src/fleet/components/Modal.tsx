@@ -35,6 +35,13 @@ export function Modal(props: {
   className?: string;
   /** Open under this element instead of in the middle of the page (#1209): the (i) in the banner that opened it. */
   anchor?: HTMLElement | null;
+  /** A confirmation that asks before something that cannot be undone says so (#1269): an alert dialog, which the words in `describedBy` explain. */
+  role?: "dialog" | "alertdialog";
+  describedBy?: string;
+  /** The control that takes the focus when it opens, in place of the X (a confirmation puts it on its safe button). */
+  initialFocus?: { current: HTMLElement | null };
+  /** Sees every key the dialog would take, first; returning true means it was used. The dialog still keeps the key from the page behind. */
+  onKey?: (e: KeyboardEvent) => boolean;
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
@@ -43,17 +50,23 @@ export function Modal(props: {
   onClose.current = props.onClose;
   const onEscape = useRef(props.onEscape);
   onEscape.current = props.onEscape;
+  const onKeyRef = useRef(props.onKey);
+  onKeyRef.current = props.onKey;
+  const initial = useRef(props.initialFocus);
+  initial.current = props.initialFocus;
 
   useEffect(() => {
     document.body.classList.add("modal-open");
-    closeBtn.current?.focus();
+    (initial.current?.current ?? closeBtn.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
       const inField = e.target instanceof Element && dialog.current?.contains(e.target) && e.target.closest(FIELD) !== null;
       // A tab list keeps the arrow keys that move between its tabs (#897); every other key is the modal's, as before.
       if (e.target instanceof Element && (e.key === "ArrowLeft" || e.key === "ArrowRight") && dialog.current?.contains(e.target) && e.target.closest('[role="tablist"]') !== null) return;
       // A field that offers a choice with Tab (the message box's command list) says so with data-keeps-tab.
       if (inField && e.key !== "Escape" && (e.key !== "Tab" || (e.target as Element).hasAttribute("data-keeps-tab"))) return;
+      const used = e.key !== "Escape" && e.key !== "Tab" && onKeyRef.current?.(e) === true;
       e.stopImmediatePropagation();
+      if (used) return;
       if (e.key === "Escape") {
         e.preventDefault();
         if (onEscape.current?.()) return;
@@ -88,7 +101,7 @@ export function Modal(props: {
           if (e.target === e.currentTarget) props.onClose();
         }}
       >
-        <div className={`modal${place ? " anchor" : ""}${props.className ? ` ${props.className}` : ""}`} style={place} role="dialog" aria-modal="true" aria-labelledby={props.titleId} ref={dialog}>
+        <div className={`modal${place ? " anchor" : ""}${props.className ? ` ${props.className}` : ""}`} style={place} role={props.role ?? "dialog"} aria-modal="true" aria-labelledby={props.titleId} aria-describedby={props.describedBy} ref={dialog}>
           <div className="mh">
             <div className="ttl">
               <h2 id={props.titleId}>{props.title}</h2>
