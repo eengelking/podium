@@ -1279,7 +1279,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     e.preventDefault(); e.stopPropagation(); select(list[list.length - 1]);
   });
   // The editor: Enter saves, Shift+Enter adds a line, Escape cancels (below).
-  $('#ed-ta').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); endEdit(true); } });
+  $('#ed-ta').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); endEdit(true); } });
   // The delete confirmation: Left and Right (or Up and Down) move between Cancel and Delete message, wrapping at the ends; Tab stays inside the
   // dialog; Enter or Space presses the focused button, as for any button. Escape closes it (below).
   $('#m-del').addEventListener('keydown', function (e) {
@@ -1303,7 +1303,8 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
       if (cur) leave(); return;
     }
     if (!cur || editing || !$('#m-del').hidden || e.altKey || e.metaKey || e.ctrlKey) return;
-    if (document.activeElement !== cur) return;
+    // Only a key pressed on the row itself: the Enter that saved an edit was pressed in the editor, and must not also open the row's menu.
+    if (e.target !== cur || e.repeat) return;
     var list = own(), i = list.indexOf(cur), w = why(cur);
     if (e.key === 'ArrowUp') { e.preventDefault(); if (i > 0) select(list[i - 1]); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); if (i < list.length - 1) select(list[i + 1]); else leave(); }
