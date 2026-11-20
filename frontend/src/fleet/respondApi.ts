@@ -141,6 +141,8 @@ export const peersApi = {
   /** The owner's defaults, and their stricter `limits` (#436): a number at most the Admin's, or null to use the Admin's. */
   setDefaults: (patch: Partial<Pick<PeerDefaults, "trust" | "onRequest" | "newSend">> & { limits?: Partial<Record<keyof PeerLimitsView, number | null>> }) =>
     callRespond<{ ok: true; defaults: PeerDefaults }>("PUT", "/peers/defaults", patch),
+  /** The owner gives or takes back an Admin's say to respond to their sessions on one reporter (#1251). */
+  setAdminRespond: (key: string, allow: boolean) => callRespond<{ ok: true; adminRespond: boolean }>("PUT", `/peers/reporters/${encodeURIComponent(key)}/admin-respond`, { allow }),
   answer: (requestId: string, answer: "allow" | "decline" | "deliver") => callRespond<{ ok: true; outcome: string | null }>("POST", `/peers/requests/${encodeURIComponent(requestId)}`, { answer }),
 };
 

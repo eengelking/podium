@@ -509,7 +509,7 @@ export interface ChatSettingsApi {
  */
 export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName;
 /** An Admin's stop or delete of something of a person's, kept on the person's `act:` thread (#1078). */
-type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed';
+type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed' | 'respond_refused';
 
 export interface AdminReadRow {
   admin: string;

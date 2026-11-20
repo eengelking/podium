@@ -49,7 +49,7 @@ describe('respond', () => {
       cy.openConsole('#/');
       cy.card('alex').parent().within(() => {
         cy.contains("Alex's session");
-        cy.get('button.respond').should('have.attr', 'title').and('contain', 'Only Alex, who owns this session, or an Admin can respond.');
+        cy.get('button.respond').should('have.attr', 'title').and('contain', 'Only Alex, who owns this session, or an Admin Alex has allowed, can respond.');
       });
       respondBtn('question').should('not.have.class', 'dimmed');
     });

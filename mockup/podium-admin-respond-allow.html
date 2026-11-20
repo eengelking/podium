@@ -1,0 +1,158 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium: an Admin responds only when the owner allows it (#1251)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1251. Example data only. It defines no tokens: colors and fonts come from tokens.css.
+   Revised after a standards review (the first version put the switch in the Activity window, used a class the app does not have, and drew the Compose box wrongly).
+   What is drawn is the app's own markup and classes, copied from My reporters (MyReporters.tsx: .asec, .panel, .tw2, .ptab, .rstate, .pm-os, .badge, .compat, .sw, .pm-note, .err, .apager), the
+   card band (.band.waiting, .respond-wrap, .respond, .why), Compose (Compose.tsx: .compose, .err before .crow, a plain textarea, .btn.pri, .hint) and the
+   red tag Chat uses for an Admin's act (.tag.crit). The only rules below are the demo bar and the frame, which are not part of the app. One rule is new in the app's own stylesheet: .c in admin.css, which centers a cell and its heading, as .n right-aligns one.
+   New to the system, proposed for a Standards: line (the maintainer decides): a consent switch for what another person (an Admin) may do with the owner's
+   reporters, as a column in Your reporters on My reporters, off by default, with the person told when it is tried. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); padding: 16px; box-sizing: border-box; }
+.sc { margin: 0 0 32px; }
+.sc > h2 { margin: 0 0 4px; font-size: 15px; font-weight: 650; }
+.sc > p { margin: 0 0 12px; color: var(--ink2); max-width: 78ch; }
+.sc > h3 { margin: 16px 0 6px; font-size: 13px; font-weight: 600; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>An Admin responds only when the owner allows it (#1251)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium adminv" id="app" style="display:block;overflow:visible">
+
+<section class="sc" aria-labelledby="s1">
+  <h2 id="s1">1. What changes</h2>
+  <p>Today any Admin can send to any person's session, run /clear or /compact on it, or answer its question, plan or tool prompt. The owner is not asked and sees only a terminal line. Chat already asks the owner before another person's message reaches their agent (#1034). This brings an Admin under the same rule: <b>the owner allows it, for each of their reporters, and it is off by default.</b> An Admin can still read, pause and remove as before, and the owner is told of each.</p>
+  <p>Where the switch lives: the owner already sets what others may do with their reporters on <b>My reporters</b>. The allow is kept for a reporter (a machine), so it is a column of the table of the owner's reporters there, not in the Activity window, which an owner opens only after something is already blocked.</p>
+</section>
+
+<section class="sc" aria-labelledby="s2">
+  <h2 id="s2">2. Proposed: one more column in Your reporters on My reporters</h2>
+  <p>The table is the page's own, unchanged, with one column added between Last report and Live orchestrators: <b>Admin may respond</b>, a switch in each row, off by default. The allow is kept for a machine, which is what a row is. The page confirms a change in the toast it already uses ("Admin may respond on Eds-MacBook-Pro-14: On."). A save that fails puts the switch back and says so in words under the table, as the page shows other errors.</p>
+  <section class="asec" aria-labelledby="mine-h">
+    <div class="asec-h"><div><h2 id="mine-h">Your reporters</h2>
+      <p class="hint">Every machine that reports with your name and token.</p></div></div>
+    <div class="panel">
+      <div class="tw2 scroll" tabindex="0" role="region" aria-label="Table of your reporters">
+        <table class="ptab">
+          <thead><tr><th>State</th><th>Machine</th><th>System</th><th>Messaging</th><th>Reporter version</th><th>Last report</th><th id="adm-h" class="c">Admin may respond</th><th class="n">Live orchestrators</th></tr></thead>
+          <tbody>
+        <tr>
+          <td><span class="rstate reporting"><span class="rdot reporting" aria-hidden="true"></span>Reporting</span></td>
+          <td><span class="pm-name strong">Eds-MacBook-Pro-14</span></td>
+          <td><span class="pm-os"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="10" height="7" rx="1"/><path d="M1.5 12.5h13"/></svg><span>macOS 27.2.1</span></span></td>
+          <td><span class="badge ok"><span class="dot running" aria-hidden="true"></span>On</span></td>
+          <td><span class="compat ok"><span class="mono">1.6.0</span></span></td>
+          <td class="mono muted nowrap">just now</td>
+          <td class="c"><div class="sw"><button type="button" role="switch" aria-checked="false" aria-label="Admin may respond on Eds-MacBook-Pro-14" aria-describedby="adm-h" aria-labelledby="a1n a1s"></button><span id="a1s">Off</span></div><span id="a1n" hidden>Admin may respond on Eds-MacBook-Pro-14:</span></td>
+          <td class="n mono">3</td>
+        </tr>
+        <tr>
+          <td><span class="rstate reporting"><span class="rdot reporting" aria-hidden="true"></span>Reporting</span></td>
+          <td><span class="pm-name strong">FortressMaximus</span></td>
+          <td><span class="pm-os"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 7l2 1.5L5 10M8.5 10.5h2.5"/></svg><span>Bazzite</span></span></td>
+          <td><span class="badge ok"><span class="dot running" aria-hidden="true"></span>On</span></td>
+          <td><span class="compat ok"><span class="mono">1.6.0</span></span></td>
+          <td class="mono muted nowrap">just now</td>
+          <td class="c"><div class="sw"><button type="button" role="switch" aria-checked="true" aria-label="Admin may respond on FortressMaximus" aria-describedby="adm-h" aria-labelledby="a2n a2s"></button><span id="a2s">On</span></div><span id="a2n" hidden>Admin may respond on FortressMaximus:</span></td>
+          <td class="n mono">1</td>
+        </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pm-note"><p class="hint">Admin may respond: an Admin can send to your sessions on that machine and answer what they ask, as you can. Off by default. Reading, pausing and removing stay an Admin's, and you are told of each.</p></div>
+      <div class="err" role="alert">Podium couldn't save that. The switch for Eds-MacBook-Pro-14 is as it was. Try again.</div>
+      <div class="apager"><span class="hint" role="status">Showing 1 to 2 of 2</span></div>
+    </div>
+  </section>
+  <p class="hint ink2" style="margin-top:8px">The red line is the failed-save state, drawn here with the pressed switch put back. It is not shown when a save works.</p>
+</section>
+
+<section class="sc" aria-labelledby="s3">
+  <h2 id="s3">3. Proposed: what Root sees on Ed's session without the allow</h2>
+  <p>The card's band does not change: Respond stays live, because the Respond window is also how an Admin reads someone's waiting question, plan or tool prompt (#1073), and the owner is told of that read as today. What changes is inside the window. The ask is shown in full, read-only, and the answer buttons and the message box give way to one note that says why and what Ed can do. A session owned by Admin or by no one, and an Admin's own sessions, are unchanged: an Admin responds to those without any allow. With the allow, the window is as it is today.</p>
+  <div class="panel"><div class="band waiting"><span class="bi"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6M8 10.6v.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="bl">invoice-v2 is waiting on a tool prompt</span>
+    <span class="respond-wrap"><button type="button" class="respond"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 4 2.5 8l4 4M3 8h6.5a4 4 0 0 1 4 4v.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Respond</button></span></div></div>
+  <h3>The window, for Root</h3>
+  <section class="ask" aria-label="Waiting for your approval">
+    <div class="ah"><span class="bi"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.6M8 10.6v.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><b>Waiting for your approval.</b><span class="ago">asked 0:42 ago</span><span class="also">Also open in the terminal</span></div>
+    <div class="ab">
+      <p class="qh">Bash wants to run a command</p>
+      <div class="cmd">git push -u origin issue/205-invoice-v2</div>
+      <p class="cmdd">Push the branch to GitHub</p>
+    </div>
+    <div class="ab"><div class="out info"><span class="oi"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4M8 4.8v.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><b>Ed hasn't allowed an Admin to respond.</b><span class="od">You can read this, and Ed is told you did. Ed can allow responding in My reporters.</span></div></div>
+  </section>
+</section>
+
+<section class="sc" aria-labelledby="s4">
+  <h2 id="s4">4. Proposed: a send refused because the owner turned it off while the window was open</h2>
+  <p>Only reachable when Root's Respond window was already open with the allow on. The message box is Compose exactly as the app draws it, with the refusal in its error line above the box. One sentence for this refusal, replacing the "isn't your session, or responding was turned off" line the 403 shows today, since this cause is now known and the person can act on it.</p>
+  <div class="panel"><div class="compose">
+    <div class="err" role="alert">Ed has not allowed an Admin to respond. Ed can turn it on in My reporters.</div>
+    <div class="crow"><textarea rows="1" placeholder="Message invoice-v2, or type / for a command" aria-label="Message to invoice-v2">Start on issue #205.</textarea><button class="btn pri" type="button">Send</button></div>
+    <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+  </div></div>
+</section>
+
+<section class="sc" aria-labelledby="s5">
+  <h2 id="s5">5. Proposed: how Ed is told of a refused try</h2>
+  <p>In both places the rules for an Admin's acts require: the console and the reporter. One sentence, the same in both, and never the text of the try. It names where to act. The Admin log keeps who, whose reporter and when.</p>
+  <h3>In the console: the red tag Chat uses for an Admin's act</h3>
+  <div class="panel pm-conv" style="padding:12px 16px"><div class="sub"><span class="tag crit"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" width="14" height="14"><circle cx="8" cy="8" r="6"/><path d="M5.5 5.5l5 5"/></svg><span>Admin refused</span></span><span>Root (an Admin) tried to respond to your session invoice-v2 and was refused. You can allow it for Eds-MacBook-Pro-14 in My reporters.</span></div></div>
+  <h3>In podium-reporter: a toast and a line in the transcript, to Ed only</h3>
+  <div class="panel" style="padding:12px 16px"><p class="mono" style="margin:0">Podium: Root (an Admin) tried to respond to your session invoice-v2 and was refused. You can allow it for Eds-MacBook-Pro-14 in My reporters.</p></div>
+  <p class="hint ink2" style="margin-top:8px">The reporter's line is for the person and is never sent to the model.</p>
+</section>
+
+<section class="sc" aria-labelledby="s6">
+  <h2 id="s6">6. Not drawn, and the decisions they need</h2>
+  <p><b>Where an answer to a question or plan is refused.</b> The server refuses it the same way. How the answer panel shows the refusal is not decided here, because the app has no error line on that panel today.</p>
+  <p><b>The exact Chat overview row.</b> Section 5 draws the red tag and the sentence. The overview's existing row for an Admin's act is reused, and only its wording is new.</p>
+  <p><b>A narrow width.</b> The 400 px toggle above sets the page's width, not the app's media query. The real check is the built page at 400 px with <span class="mono">scripts/page-shot.mjs</span>, after this is accepted.</p>
+</section>
+
+</div></div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function press(attr, val) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1280px');
+      press('data-w', b.dataset.w);
+    }
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

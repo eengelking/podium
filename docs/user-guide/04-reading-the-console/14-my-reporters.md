@@ -50,6 +50,12 @@ reporter's `peers` option is off there, and only that machine can turn it on. In
 old to send the option. A version this server does not support is marked **outdated** or **newer**, as on Admin >
 Reporters, whether or not the machine has a live session.
 
+**Admin may respond** is a switch on each row, off by default. Turn it on to let an Admin send a message to your sessions
+on that machine, run `/clear` or `/compact` on them, and answer what they ask, as you can. Turn it off and an Admin who
+tries is refused and you are told, in the console and in your session. An Admin can still read a waiting question, plan
+or tool request, and you are told of that read too, as [Answering a session from Podium](12-answering-a-session-from-podium.md) says. A session an Admin owns is
+theirs to answer without the switch.
+
 ## Defaults
 
 - **Trust my own reporters.** Every reporter of yours can send to every other one, without approval, including

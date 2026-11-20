@@ -24,6 +24,8 @@ export interface PeerReporter {
   lastSeenAt: number;
   /** Its version against what this server supports, from the server's check, as on Admin > Reporters. */
   compat: ReporterCompat;
+  /** Whether the owner has allowed an Admin to respond to its sessions (#1251). Off by default. */
+  adminRespond: boolean;
   /** Its live orchestrators. */
   live: { sessionId: string; name: string; status: "running" | "waiting" | "done"; peers: boolean }[];
 }

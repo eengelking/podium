@@ -38,7 +38,7 @@ OpenCode answers too: set `PODIUM_RESPOND` (the same four levels) and `PODIUM_AC
 To answer, sign in with your name and token, the same ones as the mod's `userName` and `token` options. An Admin can use
 the name **Admin** with the admin secret. Sign in from the modal or from **Sign in** at the far right of the top bar.
 
-Only the session's owner, or an Admin, can respond. On anyone else's card **Respond** is dimmed with their name. A
+Only the session's owner can respond, and an Admin only when the owner has turned on **Admin may respond** for that machine on [My reporters](14-my-reporters.md). On anyone else's card **Respond** is dimmed with their name, and an Admin without that switch can open it to read the ask but not to answer it or send anything. A
 sign-in ends after 12 hours without use, on **Sign out**, when the server restarts, and when your token changes.
 
 An Admin never reads in silence. When an Admin opens a waiting plan, question or tool request in one of your sessions,

@@ -744,7 +744,7 @@ a map of it.
 - Signed out (with `enabled` true), it is live on every waiting card, since Podium doesn't know whose sessions are yours;
   it leads to the sign-in form.
 - Signed in, on a session that is neither yours nor answerable as an Admin, it is dimmed, with "`<Owner>`'s
-  session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin can respond."
+  session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin `<Owner>` has allowed, can respond."
 - The card's own click target is unchanged.
 
 **The modal**
@@ -1126,7 +1126,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     pair has today. An orchestrator's request says what allowing gives, or that it changes nothing when the pair
     already has as much, since allowing never lowers a right.
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
-    there in words, for both Claude Code and the Claude desktop app), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
+    there in words, for both Claude Code and the Claude desktop app), version, last report, Admin may respond (#1251: a centered `.sw` switch in each row, off by default, "Admin may respond on <machine>: On" in the page's status line, a failed save put back with the page's own error), live orchestrators. State uses Admin > Reporters' badge, words and note
     (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted
     from the server's `serverTime`. Version is drawn as on Admin > Reporters from the server's `compat`, so an
     outdated reporter is flagged whether or not it has a live session.

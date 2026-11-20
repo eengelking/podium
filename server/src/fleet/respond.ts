@@ -217,6 +217,12 @@ export function shortDeliveryId(d: Delivery): string {
   return d.id.slice(0, 12);
 }
 
+/** Where a message from Podium was written, for the frame the reporter puts it in (#1251); `adminOf` is the owner who allowed an Administrator to send it. */
+export interface MessageFrom {
+  via: 'chat' | 'channel' | 'console';
+  adminOf?: string | null;
+}
+
 export class RespondStore {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly waiters = new Set<Waiter>();
@@ -506,7 +512,7 @@ export class RespondStore {
   }
 
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */
-  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
+  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null, from: MessageFrom = { via: 'console' }): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
     const accepts = this.info(sessionId)?.accepts ?? [];
     const parsed = parseMessage(body, accepts, this.sessions.get(sessionId)?.commands ?? null);
     if (!parsed.ok) return { ok: false, err: parsed.err };
@@ -514,7 +520,7 @@ export class RespondStore {
     if (s.messages.filter((m) => m.result === null).length >= RESPOND_LIMITS.deliveries) {
       return { ok: false, err: { status: 429, error: `at most ${RESPOND_LIMITS.deliveries} messages can wait for one session` } };
     }
-    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}) };
+    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}), ...(parsed.fields.kind === 'message' ? { via: from.via, ...(from.adminOf ? { admin: true as const, owner: from.adminOf } : {}) } : {}) };
     s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
     // What a person wrote in Chat reaches the agent and nobody else: the anonymous activity feed, the history and the recordings get a line without the text (#1051).
     const text = delivery.chat || delivery.channel ? `a Chat message from ${by}` : feedText(delivery, null);

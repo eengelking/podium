@@ -20,6 +20,7 @@ import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { ChatService } from './chat.js';
+import { ADMIN_PERSON_KEY, type Actor, type Refusal } from './peerTypes.js';
 import { AdminActs } from './adminActs.js';
 import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
@@ -162,6 +163,8 @@ export class Fleet {
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
   private readonly serial = new Serializer();
+  /** An owner's allow for an Admin to respond, by reporter key, so a session view does not read the store each time (#1251). Set and cleared only through `setAdminAllowed`. */
+  private readonly adminAllow = new Map<string, boolean>();
   /** Every SSE message goes out through this chain, in the order it was asked for, so a slow read never reorders them (#313). */
   private out: Promise<void> = Promise.resolve();
   /** The Podium-entry writes to the stored activity (an answer, a note, a take-back) go out through this chain, in the order they were asked for, so an entry's update never overtakes its add. */
@@ -600,6 +603,30 @@ export class Fleet {
 
   // ---- reads ----------------------------------------------------------------------------------
 
+  /** Whether the owner of this reporter has allowed an Admin to respond to its sessions: an open link from the Admin to it. False for no reporter (#1251). */
+  async adminAllowedFor(reporterKey: string | undefined): Promise<boolean> {
+    if (!reporterKey) return false;
+    const known = this.adminAllow.get(reporterKey);
+    if (known !== undefined) return known;
+    const link = await this.peers.rights.personLink(ADMIN_PERSON_KEY, reporterKey);
+    const on = link !== null && link.level === 'send' && !link.paused;
+    this.adminAllow.set(reporterKey, on);
+    return on;
+  }
+
+  /** The same, for a live session, by the reporter that reports it. */
+  adminAllowedForSession(sessionId: string): Promise<boolean> {
+    return this.adminAllowedFor(this.peers.messages.live(sessionId)?.reporterKey);
+  }
+
+  /** The owner gives or takes back the allow for one of their reporters. Taking back what was never given is the state asked for. */
+  async setAdminAllowed(reporterKey: string, allow: boolean, actor: Actor): Promise<{ ok: true } | Refusal> {
+    const out = await this.peers.setPersonLink(ADMIN_PERSON_KEY, reporterKey, allow ? 'allow' : 'remove', actor);
+    if (!out.ok && !(out.status === 404 && !allow)) return out;
+    this.adminAllow.set(reporterKey, allow);
+    return { ok: true };
+  }
+
   /** One session's view, live or historical. */
   view(id: string): Promise<SessionView | undefined> {
     // One transaction, so the session, its agents and its samples are read as of one moment even while a report is being stored.
@@ -636,6 +663,7 @@ export class Fleet {
         fileDiff: this.diffs.optionOn(row.id),
         fileDiffPreload: this.diffs.preloadOn(row.id),
         respond: this.respond.info(row.id),
+        adminRespond: await this.adminAllowedForSession(row.id),
         asks: this.respond.summaries(row.id),
         recording: pre ? pre.recording : await this.recordings.view(row.id),
       },

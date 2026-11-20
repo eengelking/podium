@@ -199,6 +199,9 @@ interface Delivery {
   text?: string;                        // 'reply' (a message in place of an answer), 'plan-feedback', 'deny' (the reason, may be empty) and 'message': ≤ 20,000 chars, line breaks kept
   command?: 'clear' | 'compact';        // kind 'command'
   chat?: true;                          // kind 'message': the owner's own Chat Direct Message to this agent (#1034); the agent may answer in the thread with `podium_send` to `person:<by>`. Older reporters ignore it
+  via?: 'chat' | 'channel' | 'console';  // kind 'message': where it was written (#1251). The reporter puts every message in one frame: the sender, the text quoted line by line and an end line. Absent from an older server, then the text is kept as it was
+  admin?: true;                         // kind 'message': an Administrator sent it, after the owner allowed it (#1251). The frame says so
+  owner?: string;                       // with `admin`: the owner who allowed it
   channel?: string;                     // kind 'message': set on a message from an `@` in a Chat channel (#1034), the channel's name (`General`, `My group` or a public channel's name, #1035)
 }
 

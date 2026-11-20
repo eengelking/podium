@@ -12,6 +12,9 @@ import { createRespondBridge } from './respondBridge.js';
 import { CLOSED_KEEP_MS, RespondStore, commandOf, parseAnswer, questionSummary } from './respond.js';
 import { DELIVERY_RESULTS, MAIN_LOOP, RESPOND_LIMITS, timeBucket, type Ask, type Report, type RespondKind } from './protocol.js';
 import { fixtureReport } from './testing.js';
+import { PEER_MESSAGING } from '../storage/features.js';
+import { ownsOutright } from './respondRoutes.js';
+import type { SessionRow } from '../storage/rows.js';
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -413,7 +416,7 @@ async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn
   const lockout = new Lockout(fleet.now);
   const respondBridge = createRespondBridge();
   const app = express();
-  app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
+  app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters: storage.reporters, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
   app.use('/api/admin', createAdminRouter({ secret, storage, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
   closers.push(() => fleet.close());
   if (opts.respond !== false) await fleet.features.setFeature('respond', true);
@@ -833,8 +836,9 @@ describe('answering, end to end', () => {
     expect((await edB.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_q/answer').set(H).send({ kind: 'reply', text: 'hi' })).status).toBe(202);
     const admin = await signedIn(app, 'Admin', SECRET);
     const second = await admin.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_q/answer').set(H).send({ kind: 'reply', text: 'me too' });
-    expect(second.status).toBe(409);
-    expect(second.body).toMatchObject({ error: 'answered', by: 'Ed' });
+    // An Admin who is not the owner needs the owner's allow, so the answer is refused before it is asked whether it was taken (#1251).
+    expect(second.status).toBe(403);
+    expect(second.body.error).toContain('Ed has not allowed');
     await request(app).post('/api/fleet/sessions/sess-ed/asks/toolu_t/close').set('X-Podium-Token', ed.token).send({ outcome: 'terminal', answer: 'allowed', at: T0 });
     const late = await edB.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
     expect(late.status).toBe(410);
@@ -871,6 +875,83 @@ describe('answering, end to end', () => {
     expect((await alexB.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).status).toBe(403);
     const admin = await signedIn(app, 'Admin', SECRET);
     expect((await admin.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).body.ask.plan.text).toBe('# Plan\n\n1. Page it');
+  });
+});
+
+describe("an Admin acts on another person's session only when its owner allowed it (#1251)", () => {
+  /** The session's reporter is known to Podium by its machine, which is what the owner's allow is kept against. */
+  const onMachine = (r: Report): Report => ({ ...r, machine: { name: 'ed-mbp', id: 'm-ed', os: 'macOS 27.0.1' } });
+  /** The owner's route for the allow, for the reporter the session reports through. */
+  const allowRoute = async (owner: ReturnType<typeof request.agent>) => {
+    const key = (await owner.get('/api/fleet/respond/peers')).body.reporters[0].key as string;
+    return `/api/fleet/respond/peers/reporters/${encodeURIComponent(key)}/admin-respond`;
+  };
+  const send = (b: ReturnType<typeof request.agent>, text = 'do it') => b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text });
+
+  it('refuses an Admin a message, a command and an answer until the owner allows, then takes them, and stops when the owner takes it back', async () => {
+    const { app, fleet, ed, alex } = await setup();
+    await fleet.features.setFeature(PEER_MESSAGING, true);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed', 'sess-ed', [TOOL])));
+    const admin = await signedIn(app, 'Admin', SECRET);
+    const refused = await send(admin);
+    expect(refused.status).toBe(403);
+    expect(refused.body).toMatchObject({ ok: false, owner: 'Ed' });
+    expect(refused.body.error).toContain('Ed has not allowed');
+    expect((await send(admin, '/clear')).status).toBe(403);
+    expect((await admin.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' })).status).toBe(403);
+    const edB = await signedIn(app, 'Ed', ed.token);
+    const route = await allowRoute(edB);
+    // Only the reporter's owner gives or takes back the allow: an Admin has no reporters of their own, and another person's reporter is not found.
+    expect((await admin.put(route).set(H).send({ allow: true })).status).toBe(403);
+    expect((await (await signedIn(app, 'Alex', alex.token)).put(route).set(H).send({ allow: true })).status).toBe(404);
+    expect((await edB.put(route).set(H).send({ allow: true })).body).toEqual({ ok: true, adminRespond: true });
+    expect((await send(admin, 'from the Admin')).status).toBe(202);
+    // The reporter is told who sent it and that the owner allowed it, so it frames the text and names the Admin to the model (#1251).
+    const reply = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed', 'sess-ed', [TOOL])));
+    expect(reply.body.deliveries).toEqual([expect.objectContaining({ kind: 'message', text: 'from the Admin', by: 'Admin', via: 'console', admin: true, owner: 'Ed' })]);
+    // The owner's own message from the session page carries where it came from and no Admin mark.
+    expect((await edB.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'mine' })).status).toBe(202);
+    const own = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed', 'sess-ed', [TOOL])));
+    expect(own.body.deliveries.find((x: { text?: string }) => x.text === 'mine')).toMatchObject({ by: 'Ed', via: 'console' });
+    expect(own.body.deliveries.find((x: { text?: string }) => x.text === 'mine')).not.toHaveProperty('admin');
+    expect((await edB.get('/api/fleet/respond/peers')).body.reporters[0].adminRespond).toBe(true);
+    expect((await edB.put(route).set(H).send({ allow: false })).body).toEqual({ ok: true, adminRespond: false });
+    expect((await send(admin)).status).toBe(403);
+  });
+
+  it('treats a session owned by Admin or by no one as an Admin\'s, and a person\'s as theirs alone', () => {
+    const row = (owner: string | null) => ({ owner }) as SessionRow;
+    expect(ownsOutright({ name: 'Root', admin: true }, row('Ed'))).toBe(false);
+    expect(ownsOutright({ name: 'Ed', admin: false }, row('Ed'))).toBe(true);
+    expect(ownsOutright({ name: 'Root', admin: true }, row('Admin'))).toBe(true);
+    expect(ownsOutright({ name: 'Root', admin: true }, row(null))).toBe(true);
+    expect(ownsOutright({ name: 'Ed', admin: false }, row(null))).toBe(false);
+  });
+
+  it('says in the session view whether the owner has allowed an Admin, and in the owner\'s own list of reporters', async () => {
+    const { app, fleet, ed } = await setup();
+    await fleet.features.setFeature(PEER_MESSAGING, true);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed')));
+    expect((await fleet.view('sess-ed'))?.adminRespond).toBe(false);
+    const edB = await signedIn(app, 'Ed', ed.token);
+    const route = await allowRoute(edB);
+    await edB.put(route).set(H).send({ allow: true });
+    expect((await fleet.view('sess-ed'))?.adminRespond).toBe(true);
+    await edB.put(route).set(H).send({ allow: false });
+    expect((await fleet.view('sess-ed'))?.adminRespond).toBe(false);
+    // Taking back what was never given is the state asked for, and a body that is not a boolean is refused.
+    expect((await edB.put(route).set(H).send({ allow: false })).status).toBe(200);
+    expect((await edB.put(route).set(H).send({ allow: 'yes' })).status).toBe(400);
+  });
+
+  it('never logs the refused text, and records the attempt', async () => {
+    const { app, ed, people } = await setup();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed')));
+    const admin = await signedIn(app, 'Admin', SECRET);
+    await send(admin, 'secret words');
+    const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows;
+    expect(rows.find((r) => r.kind === 'respond_refused')).toMatchObject({ actor: 'Admin secret' });
+    expect(JSON.stringify(rows)).not.toContain('secret words');
   });
 });
 

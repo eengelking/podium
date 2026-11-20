@@ -458,7 +458,7 @@ export class DirectChat {
       if (nameKey(o.owner) !== owner) return fail(404, 'There is no such conversation.');
       const other = agents.find((x) => x !== sid);
       // The person's own conversation with this one agent: it may answer in the thread. A word added to a conversation between two agents has no such thread to answer in.
-      const sent = this.core.deliver(sid, viewer.name, o.name, text, !other);
+      const sent = this.core.deliver(sid, viewer.name, o.name, text, 'chat', !other);
       if (!sent.ok) {
         errors.push({ sessionId: sid, name: o.name, status: sent.status, error: sent.error });
         continue;

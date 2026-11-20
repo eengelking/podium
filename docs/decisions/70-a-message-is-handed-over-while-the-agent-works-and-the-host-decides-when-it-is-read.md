@@ -45,5 +45,5 @@ A message between agents, or from Chat to an agent, used to be handed over only 
 <!-- nav:start -->
 ---
 
-Previous: [69. Public channels are a catalogue inside the public audience (#1035)](69-public-channels-are-a-catalogue-inside-the-public-audience.md) · Up: [Decisions](README.md)
+Previous: [69. Public channels are a catalogue inside the public audience (#1035)](69-public-channels-are-a-catalogue-inside-the-public-audience.md) · Up: [Decisions](README.md) · Next: [71. An Admin responds only when the owner allows it, and every message names its sender (#1251)](71-an-admin-responds-only-when-the-owner-allows-it-and-every-message-names-its-sender.md)
 <!-- nav:end -->
