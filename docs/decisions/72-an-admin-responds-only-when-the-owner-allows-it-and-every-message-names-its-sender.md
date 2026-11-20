@@ -49,5 +49,5 @@ The maintainer also found that a message from Podium Chat reached the Claude Cod
 <!-- nav:start -->
 ---
 
-Previous: [71. A message handed over mid-turn is read between tool calls (#1264)](71-a-message-handed-over-mid-turn-is-read-between-tool-calls.md) · Up: [Decisions](README.md)
+Previous: [71. A message handed over mid-turn is read between tool calls (#1264)](71-a-message-handed-over-mid-turn-is-read-between-tool-calls.md) · Up: [Decisions](README.md) · Next: [73. A person edits and deletes only their own Chat messages, until an agent has been sent them (#1269)](73-a-person-edits-and-deletes-only-their-own-chat-messages-until-an-agent-has-been-sent-them.md)
 <!-- nav:end -->
