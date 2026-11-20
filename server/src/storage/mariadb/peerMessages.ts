@@ -11,7 +11,7 @@ import {
   CROSS_PENDING_MAX,
   type AcrossInput,
   canSend,
-  isIdle,
+  takesMessages,
   linkKey,
   peerShortId,
   refuse,
@@ -367,7 +367,7 @@ export class MariaPeerMessages {
       if (approvalWhy) {
         requestId = (await this.rights.openMessageRequest({ owner: sender.owner, fromKey: sender.reporterKey, toKey: target.reporterKey, by: sender.name, fromSession: sender.sessionId, messageId: id })).id;
       }
-      let outState: SendOutcome['state'] = isIdle(target) ? 'sent' : 'turn';
+      let outState: SendOutcome['state'] = takesMessages(target) ? 'sent' : 'turn';
       if (approvalWhy) outState = 'approval';
       await this.trail({ kind: 'sent', message: (await this.row(id)) as MessageRow, state: outState, approvalWhy });
       return {
@@ -385,11 +385,11 @@ export class MariaPeerMessages {
 
   // ---- Delivery ----------------------------------------------------------------------------------------------------
 
-  deliveriesFor(sessionId: string, idle: boolean): Promise<PeerDelivery[]> {
+  deliveriesFor(sessionId: string, takes: boolean): Promise<PeerDelivery[]> {
     return this.db.tx(async () => {
       const out: PeerDelivery[] = (this.notices.get(sessionId) ?? []).map((n) => ({ id: n.id, kind: 'notice', at: n.at, from: null, text: n.text }));
       const messages: MessageRow[] = [];
-      if (idle) {
+      if (takes) {
         for (const m of await this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') ORDER BY sent_at, seq`, [sessionId])) {
           if (!(await this.rights.effective(m.fromKey, m.toKey)).paused) messages.push(m);
         }
@@ -662,7 +662,7 @@ export class MariaPeerMessages {
     if (state === 'approval') {
       await this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
     }
-    await this.trail({ kind: 'sent', message: (await this.row(id)) as MessageRow, state: state === 'approval' ? 'approval' : isIdle(target) ? 'sent' : 'turn', approvalWhy: state === 'approval' ? 'link' : null });
+    await this.trail({ kind: 'sent', message: (await this.row(id)) as MessageRow, state: state === 'approval' ? 'approval' : takesMessages(target) ? 'sent' : 'turn', approvalWhy: state === 'approval' ? 'link' : null });
     return (await this.row(id)) as MessageRow;
   }
 

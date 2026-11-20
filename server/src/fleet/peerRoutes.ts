@@ -39,7 +39,7 @@ export interface BrowserHelpers {
 const MESSAGE_BODY_LIMIT = '128kb';
 const DAY_MS = 86_400_000;
 /** How a sent message waits, as its Admin log row says it. */
-const SENT_WORDS = { approval: 'waiting for approval', sent: 'the receiver is idle', turn: "waiting for the receiver's turn to end" } as const;
+const SENT_WORDS = { approval: 'waiting for approval', sent: 'handed to the receiver', turn: 'waiting for the receiver to answer a permission prompt' } as const;
 
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
@@ -92,7 +92,7 @@ function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
     if (t.kind === 'sent') {
       const how = t.approvalWhy === 'round-trips' ? 'waiting for approval past the round-trip limit' : SENT_WORDS[t.state];
       row('peer_sent', `Message from ${pair(m)}: sent, ${how} [${short(m.id)}]`, m.owner, { ...fields, state: t.state });
-    } else if (t.kind === 'delivered') row('peer_delivered', `Message from ${pair(m)}: delivered [${short(m.id)}]`, m.owner, fields);
+    } else if (t.kind === 'delivered') row('peer_delivered', `Message from ${pair(m)}: delivered [${short(m.id)}]`, m.owner, { ...fields, waited_ms: Math.max(0, m.stateAt - m.sentAt) }); // how long it waited before the agent took it (#1252)
     else if (t.kind === 'approved') row('peer_approved', `Message from ${pair(m)}: approved [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });
     else if (t.kind === 'declined') row('peer_declined', `Message from ${pair(m)}: declined [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });
     else row('peer_dropped', `Message from ${pair(m)}: dropped, ${PEER_DROP_WORDS[t.why] ?? t.why} [${short(m.id)}]`, m.owner, { ...fields, why: t.why });

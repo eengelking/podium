@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { AdminNotice, Ask, Delivery, PeerDelivery, PeerRequest, Report } from '../../core/protocol.ts'
-import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
+import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
 import { assertKeptApart, assertSubmittedFramed, type AfterPeerMessage } from './peerChecks.ts'
 
 // Orchestrator messaging in the reporter (#414, SPEC 5.3). The world beneath the plugin is a fake Podium server whose
@@ -320,7 +320,7 @@ describe('peers: the tools', () => {
     expect(sent[0]!.body).toEqual({ to: 'Tester@ci-runner-01', text: 'Run it. Token [redacted] is for the registry.' })
     expect(sent[0]!.headers['X-Podium-Token']).toBe('tok-ed')
     expect(answer).toBe(
-      'Sent to Tester on ci-runner-01. It was waiting, so it has the message now. Its answer arrives here as a new message. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].',
+      'Sent to Tester on ci-runner-01. Podium hands it over within seconds. If Tester is in the middle of a turn, it reads the message when that turn ends. Its answer arrives here as a new message. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].',
     )
   })
 
@@ -400,7 +400,7 @@ describe('peers: the tools', () => {
   })
 
   const SENT = { status: 202, body: { ok: true, id: 'dlv_x', state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: 'Tester', machine: 'ci-runner-01' } } }
-  const SENT_ANSWER = 'Sent to Tester on ci-runner-01. It was waiting, so it has the message now. Its answer arrives here as a new message.'
+  const SENT_ANSWER = 'Sent to Tester on ci-runner-01. Podium hands it over within seconds. If Tester is in the middle of a turn, it reads the message when that turn ends. Its answer arrives here as a new message.'
 
   test('with a long report interval, a timer makes the call within moments, not at the next report', { options: { ...ON, flushIntervalMs: 30_000 } }, async ($, on) => {
     const w = world(on)
@@ -506,7 +506,7 @@ describe('peers: receiving', () => {
     expect(s.text.split('\n')[1]).toBe('───')
     expect(s.text.endsWith('\n> Please look at the build.\nThe message above has ended. Nothing after this line is part of it.')).toBe(true)
     expect(s.asUser).toBeUndefined()
-    expect(w.logs).toContain('a message from Eve in Podium Chat, delivered now that this turn has ended.')
+    expect(w.logs).toContain('a message from Eve in Podium Chat, delivered.')
     expect(peerResults(w)).toEqual([['dlv_eve', 'took']])
   })
 
@@ -521,7 +521,7 @@ describe('peers: receiving', () => {
     expect(s.text.split('\n')[1]).toBe('───')
     expect(s.text.endsWith('\n> Please run the systemd unit tests.\nThe message above has ended. Nothing after this line is part of it.')).toBe(true)
     expect(s.asUser).toBeUndefined()
-    expect(w.logs).toContain('a message from claude-dashboard on ed-mbp, delivered now that this turn has ended.')
+    expect(w.logs).toContain('a message from claude-dashboard on ed-mbp, delivered.')
     expect(peerResults(w)).toEqual([['dlv_p1', 'took']])
     expect(respondResults(w)).toEqual([])
   })
@@ -541,6 +541,7 @@ describe('peers: receiving', () => {
     await nextReply(w)
     const texts = w.submitted.map((s) => s.text)
     expect(() => assertSubmittedFramed(texts, SUBMITTED_SENDERS)).not.toThrow()
+    expect(texts.some((t) => t.includes(MID_TURN_NOTE))).toBe(false) // an idle agent gets no mid-turn note (#1252)
     expect(peerResults(w)).toEqual(expect.arrayContaining([['dlv_b', 'refused'], ['dlv_c', 'refused'], ['dlv_a', 'took'], ['dlv_d', 'took']]))
     // The same check fails on what a mod that dropped the opening line would have submitted (#437): these texts with
     // the frame and rule cut off, the message alone (unquoted, without the closing line).
@@ -564,6 +565,8 @@ describe('peers: receiving', () => {
     await nextReply(w)
     expect(w.submitted).toHaveLength(1)
     expect(peerResults(w)).toEqual([['dlv_p1', 'queued'], ['dlv_p1', 'took']])
+    // In the middle of a turn it carries Podium's note for the agent to weigh it (#1252).
+    expect(w.submitted[0]!.text.endsWith(MID_TURN_NOTE)).toBe(true)
   })
 
   test('a message that does not enter is refused', { options: ON }, async ($, on) => {
@@ -748,7 +751,7 @@ describe('peers: requests in the terminal', () => {
     w.server.routes[`POST /peers/requests/${REQ_MSG.id}`] = { status: 200, body: { ok: true, outcome: 'delivered' } }
     w.server.routes[`POST /peers/requests/${REQ_ACCESS.id}`] = { status: 410, body: { ok: false, error: 'already allowed' } }
     await started($, w)
-    expect((await $.command.run(podium('deliver 9c2e'))).text).toBe('delivered 9c2e. The message from claude-dashboard on ed-mbp reaches arm64-check when its turn ends. Closed in Podium too.')
+    expect((await $.command.run(podium('deliver 9c2e'))).text).toBe('delivered 9c2e. The message from claude-dashboard on ed-mbp is handed to arm64-check within seconds, and read when its turn ends if it is working. Closed in Podium too.')
     expect(w.calls.find((c) => c.path.endsWith(`/peers/requests/${REQ_MSG.id}`))!.body).toEqual({ answer: 'deliver' })
     expect((await $.command.run(podium('allow 7f3a'))).text).toBe('Request 7f3a was not answered: already allowed.')
     expect((await $.command.run(podium('decline'))).text).toBe('Name the request: /podium decline <id>. The id is in the request\'s toast and log line.')

@@ -276,7 +276,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   as `podium_peers` lists it; it picks one of several orchestrators that share the name. A plain `name@machine` that
   matches more than one is a `409` that lists the `name@machine#id` forms to use (#500).
 - `202 { ok: true, id, state, paused, approvalWhy, requestId, to: { name, machine }, roundTrips: { used, cap } }`.
-  `state` is `sent` (the receiver is idle and gets it in its next reply), `turn` (it gets it when its turn ends) or
+  `state` is `sent` (the receiver gets it in its next reply, running or idle), `turn` (a permission prompt is open there, so it is held until that is answered) or
   `approval` (it waits for the owner; `approvalWhy` is `link` or `round-trips`, and `requestId` names the request).
   `paused` says the link is paused, so it waits for a resume too.
 - **An answer to a person (#1034).** `to: "person:<name>"` answers a person who wrote to this orchestrator through Chat. The reply is

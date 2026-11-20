@@ -690,9 +690,16 @@ out of range is refused in place, and the error says nothing was saved and which
   refused, and if the Admin later lowers theirs, the lower one applies.
 
 **Delivery**
-- A message is held until the receiving orchestrator's turn ends, and a message that needs approval is held
-  until its owner approves it. The server hands a message over only in the reply to a report that says the session is
-  idle (`status: "waiting"`, `waitReason` not `permission`).
+- A message that needs approval is held until its owner approves it. The server hands any other message over in the
+  reply to the receiver's next report, within about the report interval, whether the session is running or waiting. It
+  holds one only while a permission prompt is open (`waitReason: "permission"`), because the message would answer the
+  prompt, and never hands one to a session that is `done`. A running subagent does not hold a message back (#1252).
+- A handed-over message enters the session through the harness's own prompt queue. The harness decides when the agent
+  reads it: both Claude Code and OpenCode hold it until the running turn ends. A message handed over mid-turn ends with
+  Podium's own note, after the quoted text, that says it was sent while the agent was working and lets the agent decide
+  whether it matters more than what it was doing.
+- When a message was taken, the server log line `peers.delivered` carries `waited_ms`, the time from send to the
+  result. For OpenCode that is the time until the host accepted the prompt, which is earlier than the agent reads it.
 - A held message is dropped if the receiver ends (it reports `done` or leaves the live set), a session is deleted, the
   link is removed, the receiving reporter refuses it, or the flag goes off. The sender is told by a notice while it is
   live, except when the flag goes off.

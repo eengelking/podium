@@ -3,7 +3,7 @@
 import { PgPeerRights } from './peerRights.js';
 import { PgPeerMessages } from './peerMessages.js';
 import { PgPeerSettings } from './peerSettings.js';
-import { isIdle, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
+import { takesMessages, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
@@ -85,7 +85,7 @@ export class PgPeerService {
 
   /**
    * The reply's messaging fields. `on` is the routes' gate (authentication, the flag, a person's session, the `peers`
-   * option); with it off nothing is handed over. Messages go only to an idle orchestrator; notices and requests always.
+   * option); with it off nothing is handed over. Messages go to a live orchestrator with no permission prompt open, running or not (#1252); notices and requests always.
    */
   async reply(sessionId: string, on: boolean): Promise<PeerReply> {
     const o = on ? this.messages.live(sessionId) : null;
@@ -93,7 +93,7 @@ export class PgPeerService {
     const requests = (await this.rights.openRequests(o.owner, o.reporterKey)).slice(0, PEER_LIMITS.requests);
     const peerRequests: PeerRequest[] = [];
     for (const r of requests) peerRequests.push(await this.requestView(r));
-    return { peers: true, peerDeliveries: await this.messages.deliveriesFor(sessionId, isIdle(o)), peerRequests };
+    return { peers: true, peerDeliveries: await this.messages.deliveriesFor(sessionId, takesMessages(o)), peerRequests };
   }
 
   /**

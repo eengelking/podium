@@ -206,6 +206,8 @@ export interface SessionState {
   mainIdle: boolean;
   waitReason: 'permission' | 'input' | null;
   waitNote: string | null;
+  /** The loop whose permission prompt `waitReason` holds: an agent id, or null for the main loop (#1252). */
+  waitAgentId: string | null;
   /** Background work or a scheduled wake-up the idle main loop is waiting on (#119); null when none. */
   background: BackgroundWait | null;
   endReason: string | null;
@@ -278,6 +280,7 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
     mainIdle: true,
     waitReason: 'input',
     waitNote: null,
+    waitAgentId: null,
     background: null,
     endReason: null,
     resumeId: null,
@@ -796,7 +799,7 @@ export function toolStarted(s: SessionState, agentId: string | undefined, tool: 
   const loop = loopOf(s, agentId);
   if (!loop) return s;
   let next = putLoop(s, agentId, { ...loop, lastTool: cap(tool, 120), lastActiveAt: now ?? loop.lastActiveAt });
-  if (next.waitReason === 'permission' && !agentId) next = withStatus({ ...next, waitReason: null, waitNote: null });
+  if (next.waitReason === 'permission' && (!agentId || agentId === next.waitAgentId)) next = withStatus({ ...next, waitReason: null, waitNote: null });
   // A tool call in the main loop means it is working. A background agent's report wakes an idle loop with no new
   // prompt, so turnStart never runs; without this the session keeps saying "waiting" through the whole turn (#997).
   if (!agentId && next.mainIdle) next = withStatus({ ...next, mainIdle: false, background: null });
@@ -840,7 +843,7 @@ export function toolResult(s0: SessionState, i: ToolResultInput, now: number): S
     }
     s = putLoop(s, i.agentId, next);
   }
-  if (s.waitReason === 'permission' && !i.agentId) s = withStatus({ ...s, waitReason: null, waitNote: null });
+  if (s.waitReason === 'permission' && (!i.agentId || i.agentId === s.waitAgentId)) s = withStatus({ ...s, waitReason: null, waitNote: null });
   const ok = typeof i.result.deny !== 'string' && i.result.isError !== true;
   if (!ok) return s;
   if (i.tool === 'Skill' && typeof i.input.skill === 'string') s = skillLoaded(s, i.agentId, i.input.skill, now);
@@ -885,21 +888,21 @@ export function permissionAsked(s: SessionState, agentId: string | undefined, to
 }
 
 /** The engine raised a permission dialog. */
-export function permissionRequest(s: SessionState, toolName: string, toolInput: unknown, now: number): SessionState {
+export function permissionRequest(s: SessionState, toolName: string, toolInput: unknown, now: number, agentId?: string): SessionState {
   let short = '';
   if (toolInput && typeof toolInput === 'object') {
     const v = (toolInput as Record<string, unknown>).command ?? (toolInput as Record<string, unknown>).file_path ?? Object.values(toolInput as Record<string, unknown>)[0];
     short = typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v);
   }
   const note = clip(`${toolName}(${short.replace(/\s+/g, ' ').trim()})`, 160);
-  const next = withStatus({ ...s, waitReason: 'permission', waitNote: note });
+  const next = withStatus({ ...s, waitReason: 'permission', waitNote: note, waitAgentId: agentId ?? null });
   return addEvent(next, 'wait', null, `waiting on you: ${note}`, now);
 }
 
 /** A notification: a permission prompt or idle-for-input is a fallback signal for waiting. */
 export function notification(s: SessionState, type: string, message: string, now: number): SessionState {
   if (/permission/i.test(type) && s.waitReason !== 'permission') {
-    const next = withStatus({ ...s, waitReason: 'permission', waitNote: clip(message.replace(/\s+/g, ' ').trim(), 160) || null });
+    const next = withStatus({ ...s, waitReason: 'permission', waitNote: clip(message.replace(/\s+/g, ' ').trim(), 160) || null, waitAgentId: null });
     return addEvent(next, 'wait', null, `waiting on you: ${next.waitNote ?? 'permission'}`, now);
   }
   if (/idle/i.test(type)) return withStatus({ ...s, mainIdle: true });

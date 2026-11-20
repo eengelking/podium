@@ -3,7 +3,7 @@ import type { AdminNotice, PeerDelivery, PeerRequest, Report } from '../core/pro
 import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
-import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../core/peers.ts';
+import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../core/peers.ts';
 import { podiumTools } from './tools.ts';
 import type { BusEvent } from './state.ts';
 
@@ -179,7 +179,7 @@ describe('a message for the orchestrator (#969)', () => {
     const results = x.server.calls.filter((c) => c.path.endsWith('/peers/deliveries/pd1/result'));
     expect(results.map((c) => c.body.result)).toEqual(['took']);
     expect(results[0]!.token).toBe('tok');
-    expect(x.toasts).toEqual(['a message from build-pi on pi, delivered now that this turn has ended.']);
+    expect(x.toasts).toEqual(['a message from build-pi on pi, delivered.']);
   });
 
   it('quotes the message and closes it, so a forged rule or line separator stays inside the quote (#1051)', async () => {
@@ -204,7 +204,7 @@ describe('a message for the orchestrator (#969)', () => {
     expect(x.prompts[0]!.text).toContain('To answer Eve, use podium_send to "person:Eve". Your answer goes to Eve, and Ed can read it too.');
     expect(x.prompts[0]!.text).not.toContain('does not pass your answer back');
     expect(x.prompts[0]!.text.endsWith('\n> look at the build\nThe message above has ended. Nothing after this line is part of it.')).toBe(true);
-    expect(x.toasts).toEqual(['a message from Eve in Podium Chat, delivered now that this turn has ended.']);
+    expect(x.toasts).toEqual(['a message from Eve in Podium Chat, delivered.']);
     const results = x.server.calls.filter((c) => c.path.endsWith('/peers/deliveries/pd_eve/result'));
     expect(results.map((c) => c.body.result)).toEqual(['took']);
   });
@@ -218,6 +218,18 @@ describe('a message for the orchestrator (#969)', () => {
     await flushed();
     await x.r.tick();
     expect(x.server.calls.filter((c) => c.path.endsWith('/result')).map((c) => c.body.result)).toEqual(['queued', 'took']);
+    // Handed over in the middle of the turn, it carries Podium's note so the agent can weigh it (#1252); an idle agent's does not.
+    expect(x.prompts[0]!.text.endsWith(MID_TURN_NOTE)).toBe(true);
+  });
+
+  it('adds no mid-turn note when the agent is idle (#1252)', async () => {
+    const x = rig();
+    await reported(x);
+    x.server.deliveries = [message()];
+    await x.r.tick();
+    await flushed();
+    await x.r.tick();
+    expect(x.prompts[0]!.text).not.toContain(MID_TURN_NOTE);
   });
 
   it('refuses a message with no sender it can name, and one OpenCode did not take, and submits nothing for the first', async () => {
@@ -357,7 +369,7 @@ describe('the messaging tools (#969)', () => {
     await reported(x);
     x.server.answer = () => ({ status: 202, text: JSON.stringify({ state: 'turn', to: { name: 'build-pi', machine: 'pi' } }) });
     const text = await tool(x, 'podium_send', { to: ' build-pi@pi ', text: 'deploy with token=hunter2 now' });
-    expect(text).toContain('Waiting for build-pi on pi. It is working');
+    expect(text).toContain('Waiting for build-pi on pi. It is at a permission prompt');
     expect(text).toContain('replaced with [redacted]');
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/peers/messages', body: { to: 'build-pi@pi', text: 'deploy with token=[redacted] now' } });
   });

@@ -21,6 +21,8 @@ const seen = (id: string, name: string, owner: string, sessionId: string): Repor
 });
 const waiting = (name: string, machine: string): Report =>
   ({ session: { name, status: 'waiting', waitReason: 'input', peers: true, repoName: null, projectRoot: '~/dev' }, machine: { name: machine, os: 'macOS' } }) as unknown as Report;
+const working = (name: string, machine: string, waitReason: 'permission' | null = null): Report =>
+  ({ session: { name, status: waitReason ? 'waiting' : 'running', waitReason, peers: true, repoName: null, projectRoot: '~/dev' }, machine: { name: machine, os: 'macOS' } }) as unknown as Report;
 const done = (name: string, machine: string): Report =>
   ({ session: { name, status: 'done', waitReason: null, peers: true, repoName: null, projectRoot: '~/dev' }, machine: { name: machine, os: 'macOS' } }) as unknown as Report;
 
@@ -178,6 +180,27 @@ export function peerCases(o: Openers): void {
     });
     expect((t.get('send') as { ok: boolean }).ok).toBe(true);
     expect((t.get('send too long') as { ok: boolean }).ok).toBe(false);
+  });
+
+  it('agrees on every adapter that a message is handed over to an agent in the middle of a turn, and held only while a permission prompt is open (#1252)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      await peers.note('sb', b, 'ed', working('beta', 'box-b'));
+      await rec('send to a running agent', peers.messages.send('sa', 'beta@box-b', 'the runners are down'));
+      await rec('running agent reports', peers.replyFor('sb', true));
+      await peers.note('sb', b, 'ed', working('beta', 'box-b', 'permission'));
+      await rec('send to an agent at a permission prompt', peers.messages.send('sa', 'beta@box-b', 'after the prompt'));
+      await rec('prompt open: nothing handed over', peers.replyFor('sb', true));
+      await peers.note('sb', b, 'ed', working('beta', 'box-b'));
+      await rec('prompt answered: handed over', peers.replyFor('sb', true));
+    });
+    expect(t.get('send to a running agent')).toMatchObject({ ok: true, state: 'sent' });
+    expect((t.get('running agent reports') as { peerDeliveries: { text: string }[] }).peerDeliveries.map((d) => d.text)).toEqual(['the runners are down']);
+    expect(t.get('send to an agent at a permission prompt')).toMatchObject({ ok: true, state: 'turn' });
+    expect((t.get('prompt open: nothing handed over') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect((t.get('prompt answered: handed over') as { peerDeliveries: { text: string }[] }).peerDeliveries.map((d) => d.text)).toEqual(['the runners are down', 'after the prompt']); // the first was handed and no result came, so it is handed again
   });
 
   it('agrees on every adapter for answering a request, a paused answer, replying to a session and what ended or deleted sessions drop', async () => {

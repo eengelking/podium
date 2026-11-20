@@ -1305,8 +1305,8 @@ function permissionSeen(r: Runtime, id: string | null): void {
 }
 
 /** A prompt on the card, once: the PermissionRequest hook and the tool.check fallback (#742) may both report the same one. */
-function recordPermission(r: Runtime, tool: string, input: unknown): void {
-  const next = permissionRequest(r.state, tool, input, nowMs());
+function recordPermission(r: Runtime, tool: string, input: unknown, agentId?: string): void {
+  const next = permissionRequest(r.state, tool, input, nowMs(), agentId);
   if (r.state.waitReason === 'permission' && r.state.waitNote === next.waitNote) return;
   r.state = next;
 }
@@ -1548,7 +1548,8 @@ function peerDelivery($: Engine, r: Runtime, d: PeerDelivery): void {
     if (isAccessAnswer(d.text)) void submitNotice($, d.text);
     return;
   }
-  const text = peerPrompt(d);
+  // In the middle of a turn only while the main loop works: an idle main loop with a subagent running is at its prompt (#1252).
+  const text = peerPrompt(d, r.state.status === 'running' && !r.state.mainIdle);
   if (!text) {
     queuePeerResult(sid, d.id, 'refused');
     return;
@@ -2489,7 +2490,7 @@ export const register: Register = (on, rawOptions) => {
     const agentId = (e as { agent_id?: string }).agent_id;
     classicSeen = true;
     safe('classic.PermissionRequest', (r) => {
-      recordPermission(r, e.tool_name, e.tool_input);
+      recordPermission(r, e.tool_name, e.tool_input, agentId);
       // A plan's approval and a question are not permissions; every other prompt is counted for its tool (#721).
       if (e.tool_name !== 'ExitPlanMode' && e.tool_name !== 'AskUserQuestion') {
         r.state = permissionAsked(r.state, agentId, e.tool_name);

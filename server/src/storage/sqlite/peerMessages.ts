@@ -12,7 +12,7 @@ import {
   CROSS_PENDING_MAX,
   type AcrossInput,
   canSend,
-  isIdle,
+  takesMessages,
   linkKey,
   peerShortId,
   refuse,
@@ -365,7 +365,7 @@ export class PeerMessages implements PeerMessagesApi {
     if (approvalWhy) {
       requestId = this.rights.openMessageRequest({ owner: sender.owner, fromKey: sender.reporterKey, toKey: target.reporterKey, by: sender.name, fromSession: sender.sessionId, messageId: id }).id;
     }
-    let outState: SendOutcome['state'] = isIdle(target) ? 'sent' : 'turn';
+    let outState: SendOutcome['state'] = takesMessages(target) ? 'sent' : 'turn';
     if (approvalWhy) outState = 'approval';
     this.trail({ kind: 'sent', message: this.row(id) as MessageRow, state: outState, approvalWhy });
     return {
@@ -382,9 +382,9 @@ export class PeerMessages implements PeerMessagesApi {
 
   // ---- Delivery ----------------------------------------------------------------------------------------------------
 
-  deliveriesFor(sessionId: string, idle: boolean): PeerDelivery[] {
+  deliveriesFor(sessionId: string, takes: boolean): PeerDelivery[] {
     const out: PeerDelivery[] = (this.notices.get(sessionId) ?? []).map((n) => ({ id: n.id, kind: 'notice', at: n.at, from: null, text: n.text }));
-    const messages = idle
+    const messages = takes
       ? this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') ORDER BY sent_at, seq`, sessionId).filter(
           (m) => !this.rights.effective(m.fromKey, m.toKey).paused,
         )
@@ -637,7 +637,7 @@ export class PeerMessages implements PeerMessagesApi {
     if (state === 'approval') {
       this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
     }
-    this.trail({ kind: 'sent', message: this.row(id) as MessageRow, state: state === 'approval' ? 'approval' : isIdle(target) ? 'sent' : 'turn', approvalWhy: state === 'approval' ? 'link' : null });
+    this.trail({ kind: 'sent', message: this.row(id) as MessageRow, state: state === 'approval' ? 'approval' : takesMessages(target) ? 'sent' : 'turn', approvalWhy: state === 'approval' ? 'link' : null });
     return this.row(id) as MessageRow;
   }
 

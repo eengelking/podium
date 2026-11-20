@@ -80,6 +80,7 @@ None of the core is excluded on Claude Code: it is the harness the core was writ
 | No PermissionRequest hooks (managed setups) | `no-permission-hooks` limit | Not reproducible with `up`; skip and say so. |
 | Background item times (#897) | Claude Code reports no start time for a background shell | `startedKnown` is `false` and `startedAt` is when the reporter first saw it; the console says `first seen`. |
 | A killed background shell (#897) | Claude Code's file ends with `[exited with code N]` for a signalled shell (143 for SIGTERM on the child, 144 on the wrapper), so the item has an `exitCode`, unlike OpenCode | Kill the shell from outside (`kill <pid>`): assert `state:"exited"` with an `exitCode` of 128 plus the signal, and that the console reads `Failed, exit N`. |
+| A message read in the middle of a turn (C26, #1252) | Claude Code queues a submitted prompt behind the running turn and takes it at turn end; the reporter's `took` comes then, so `waited_ms` is the time until the turn ended | The message is in the pane as a queued prompt within seconds, ends with the mid-turn note, and the agent answers it only after its turn. An agent that reads it between tool calls is a finding. |
 
 ## Shut down
 

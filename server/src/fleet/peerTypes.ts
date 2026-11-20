@@ -245,8 +245,11 @@ export interface LiveOrchestrator {
   peers: boolean | undefined;
 }
 
-/** A session that can take a message now: idle at the prompt, with no permission dialog open. */
-export const isIdle = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>): boolean => o.status === 'waiting' && o.waitReason !== 'permission';
+/**
+ * A session that can be handed a message now: any live session with no permission dialog open (#1252). A running turn and a
+ * running or stuck subagent do not hold a message back; a permission prompt does, because the message would answer it.
+ */
+export const takesMessages = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>): boolean => o.status !== 'done' && o.waitReason !== 'permission';
 
 /** What the message store needs from the rights store: a narrow view, so either can be tested alone. */
 export interface PeerRightsView {
@@ -326,7 +329,7 @@ export interface AcrossInput {
 export interface SendOutcome {
   ok: true;
   id: string;
-  /** `sent`: the receiver is idle and gets it in its next reply. `turn`: it gets it when its turn ends. `approval`: it waits for the owner. */
+  /** `sent`: handed over in the receiver's next reply (#1252: running or idle). `turn`: held while a permission prompt is open. `approval`: it waits for the owner. */
   state: 'sent' | 'turn' | 'approval';
   paused: boolean;
   /** Why it waits for approval: the link needs it, or the round-trip cap was reached. */
