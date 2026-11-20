@@ -285,6 +285,9 @@ interface ChannelLine {
   authorName?: unknown;
   text?: unknown;
   createdAt?: unknown;
+  editedAt?: unknown;
+  deleted?: unknown;
+  deletedAt?: unknown;
 }
 
 const utc = (ms: unknown): string => (typeof ms === 'number' && Number.isFinite(ms) ? `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC` : 'a time Podium did not give');
@@ -294,7 +297,14 @@ function channelMessage(m: ChannelLine): string {
   const kind = typeof m.authorKind === 'string' ? (AUTHOR_WORDS[m.authorKind] ?? 'an author of an unknown kind') : 'an author of an unknown kind';
   const author = oneLine(m.authorName).replaceAll('"', "'");
   // The author's name is the sender's own text too: it is in quotes, so it cannot read as the kind or the time (#1051).
-  return `${utc(m.createdAt)}, ${author ? `"${author}"` : 'someone'} (${kind}):\n${quoteLines(m.text)}`;
+  const who = author ? `"${author}"` : 'someone';
+  // A message its author deleted has no text to show: the flag wins over any text that came with it (#1269).
+  if (m.deleted === true) {
+    const when = typeof m.deletedAt === 'number' && Number.isFinite(m.deletedAt) ? m.deletedAt : m.createdAt;
+    return `${utc(m.createdAt)}, ${who} (${kind}): This message was deleted at ${utc(when)}.`;
+  }
+  const edited = typeof m.editedAt === 'number' && Number.isFinite(m.editedAt) ? `, edited ${utc(m.editedAt)}` : '';
+  return `${utc(m.createdAt)}, ${who} (${kind}${edited}):\n${quoteLines(m.text)}`;
 }
 
 /** What `podium_chat_read` answers, from `GET …/chat/channels/:channel/messages`: the frame, a rule line, the messages oldest first, and what remains. */
