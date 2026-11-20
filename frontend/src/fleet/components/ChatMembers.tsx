@@ -98,6 +98,9 @@ export function ChatMembersPanel(p: {
   members: readonly Member[];
   partial: boolean;
   menu: string | null;
+  /** A channel is open, so Mention is offered; and whether an Admin is reading, when nothing that sends is (#1235). */
+  mention: boolean;
+  reading: boolean;
   onMenu: (key: string | null, by: "button" | "context") => void;
   onMenuClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
@@ -139,7 +142,8 @@ export function ChatMembersPanel(p: {
   );
   const row = (m: Member) => {
     const key = menuKey(m);
-    const menu = m.kind === "person" ? personMenu(m.name) : m.kind === "agent" && m.sessionId ? agentMenu(m.name, m.sessionId, m.state ?? "done", false) : null;
+    const opts = { mention: p.mention, reading: p.reading };
+    const menu = m.kind === "person" ? personMenu(m.name, opts) : m.kind === "agent" && m.sessionId ? agentMenu(m.name, m.sessionId, m.state ?? "done", true, opts) : null;
     return (
       <li
         key={m.key}

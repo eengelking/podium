@@ -12,7 +12,7 @@ import { agentState } from "./components/ChatSidebar";
 import { ChatThread } from "./components/ChatThread";
 import { ChannelModal, DirectModal } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
-import type { MenuAct } from "./components/ChatMenu";
+import type { MenuAct, MenuAt } from "./components/ChatMenu";
 import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo, type DirectTarget } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
@@ -66,7 +66,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const gone = overview.gone;
   const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
-  const [menu, setMenu] = useState<{ key: string } | null>(null);
+  // `at` is where a sender's menu (a `t:` key, on an avatar in the thread) hangs; a row's own menu hangs under the row.
+  const [menu, setMenu] = useState<{ key: string; at?: MenuAt } | null>(null);
+  // A Mention asks the message box to write an address at the caret; each request has its own number (#1235).
+  const [mention, setMention] = useState<{ n: number; text: string } | null>(null);
   // The members panel is closed when a conversation opens and is not remembered (#1236).
   const [members, setMembers] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -172,8 +175,11 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   const closeMenu = (restore: boolean) => {
     const k = menu?.key;
+    const from = menu?.at?.from;
     setMenu(null);
-    if (restore && k) setTimeout(() => [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === k)?.focus(), 0);
+    // A sender's menu gives the focus back to the message it opened from.
+    if (restore && from) setTimeout(() => from.focus(), 0);
+    else if (restore && k) setTimeout(() => [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === k)?.focus(), 0);
   };
   useEffect(() => {
     if (!menu) return;
@@ -242,8 +248,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   };
 
   /** Opens a form; the focus goes back to what opened it, or to the row's "..." when that is gone, on closing. */
-  const openForm = (next: NonNullable<typeof form>, fallback?: string) => {
-    const from = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+  const openForm = (next: NonNullable<typeof form>, fallback?: string, back?: HTMLElement | null) => {
+    const from = back ?? (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null);
     formFrom.current = from;
     formFallback.current = fallback ?? null;
     setMenu(null);
@@ -261,17 +267,41 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     }, 0);
   };
 
-  const pick = (rowKey: string, a: MenuAct) => {
+  /** Writes `@<typed> ` in the channel's message box: the address the channel's own list gives for this person or agent (no new route). */
+  const mentionIt = async (person: boolean, id: string) => {
+    if (sel.kind !== "channel") return;
+    try {
+      const { addresses } = await api.addresses(sel.id);
+      const hit = addresses.find((x) => !x.disabled && (person ? x.role === "person" && x.typed.toLowerCase().startsWith(`${id.toLowerCase()}@`) : x.sessionId === id));
+      if (!hit) return setActionErr(`Could not find an address for ${id} in this channel. Nothing was written.`);
+      setActionErr(null);
+      setMention((m) => ({ n: (m?.n ?? 0) + 1, text: `@${hit.typed}` }));
+    } catch (err) {
+      setActionErr(`Could not read who can be mentioned: ${plain(failReason(err))}. Nothing was written. Try again.`);
+    }
+  };
+
+  const pick = (menuKey: string, a: MenuAct) => {
+    const [kind, ...rest] = (menuKey.startsWith("t:") ? menuKey.slice(2) : menuKey).split(":");
+    const from = menu?.at?.from;
     setMenu(null);
-    const [kind, ...rest] = rowKey.split(":");
     const id = rest.join(":");
+    if (a === "mention" && (kind === "p" || kind === "mp" || kind === "a" || kind === "h")) {
+      void mentionIt(kind === "p" || kind === "mp", id);
+      return;
+    }
     if (kind === "p" || kind === "mp") {
-      if (a === "message") openForm({ kind: "dm", person: id }, `p:${id}`);
+      // From a sender's avatar the focus returns to its message; from a row, to the row's "...".
+      if (a === "message") openForm({ kind: "dm", person: id }, `p:${id}`, from);
       return;
     }
     if (kind === "a" || kind === "h") {
       const agent = o.agents.find((x) => x.sessionId === id);
-      if (a === "message" && agent) startAgent(agent);
+      if (a !== "message") return;
+      const named = thread.messages.find((m) => (m.channel ? m.channel.authorRef === id : m.direct?.from.sessionId === id))?.channel?.authorName ?? thread.messages.find((m) => m.direct?.from.sessionId === id)?.direct?.from.name ?? id;
+      // An agent this person does not own (another's orchestrator that wrote in a channel) is found in New direct message by its name instead.
+      if (agent) startAgent(agent);
+      else openForm({ kind: "dm", person: named }, `h:${id}`, from);
       return;
     }
     if (kind === "c") {
@@ -543,6 +573,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onDm={openDm}
           onAgent={startAgent}
           readAs={ro ? readAs : null}
+          mention={sel.kind === "channel"}
           picked={readAs}
           onReadAs={chooseReader}
           serverNow={serverNow}
@@ -558,7 +589,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           alert={alert}
           scrollToken={`${key}|${sent}`}
           menu={menu?.key ?? null}
-          onMenu={(k) => setMenu(k ? { key: k } : null)}
+          menuAt={menu?.at ?? null}
+          onMenu={(k, _by, at) => setMenu(k ? { key: k, ...(at ? { at } : {}) } : null)}
           onClose={closeMenu}
           onPick={pick}
           members={members}
@@ -595,6 +627,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
               loadAddresses={addrs.load}
               stateOf={stateOf}
               familyOf={familyOf}
+              insert={mention}
               commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
             />
             )
