@@ -83,7 +83,7 @@ class MariaChannel {
     return { messages: kept.map(toChannelMessage), older: rows.length > limit && oldest ? encodeCursor(oldest.created_at, oldest.seq) : null };
   }
 
-  setMention(scope: Scope, id: string, index: number, patch: { state: MentionState; why?: string | null }): Promise<ChannelMessage | null> {
+  setMention(scope: Scope, id: string, index: number, patch: { state: MentionState; why?: string | null; copyId?: string | null }): Promise<ChannelMessage | null> {
     return this.db.tx(async () => {
       const row = await this.byId(id, scope);
       if (!row) return null;
@@ -93,6 +93,12 @@ class MariaChannel {
       await this.db.run(`UPDATE ${this.table} SET mentions_json = ?, updated_at = ? WHERE id = ?`, [JSON.stringify(next), at, id]);
       return toChannelMessage((await this.byId(id, scope)) as DbChannelRow);
     });
+  }
+
+  /** One message by id in this scope, a tombstone too (#1269). */
+  async getMessage(scope: Scope, id: string): Promise<ChannelMessage | null> {
+    const row = await this.byId(id, scope);
+    return row ? toChannelMessage(row) : null;
   }
 
   /** The author changes the text of their own message (#1269). The row is read and written in one transaction, so a delivery cannot change it in between. */
@@ -443,6 +449,7 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     post: (s, input) => group.post(s, input),
     page: (s, o) => group.page(s, o),
     setMention: (s, id, index, patch) => group.setMention(s, id, index, patch),
+    getMessage: (s, id) => group.getMessage(s, id),
     editMessage: (s, id, x) => group.editMessage(s, id, x),
     deleteMessage: (s, id, x) => group.deleteMessage(s, id, x),
     heldMentions: (s, filter) => group.heldMentions(s, filter),
@@ -455,6 +462,7 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     post: (c, input) => pub.post(inChannel(c), input),
     page: (c, o) => pub.page(inChannel(c), o),
     setMention: (c, id, index, patch) => pub.setMention(inChannel(c), id, index, patch),
+    getMessage: (c, id) => pub.getMessage(inChannel(c), id),
     editMessage: (c, id, x) => pub.editMessage(inChannel(c), id, x),
     deleteMessage: (c, id, x) => pub.deleteMessage(inChannel(c), id, x),
     heldMentions: (c, filter) => pub.heldMentions(inChannel(c), filter),

@@ -60,7 +60,7 @@ export function mentionsOf(input: ChannelPostInput, at: number): ChannelMention[
   return (input.mentions ?? []).map((m) => {
     const state = m.state ?? 'waiting';
     if (!MENTION_STATES.includes(state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
-    return { sessionId: m.sessionId, peerKey: m.peerKey, typed: m.typed, state, why: m.why ?? null, stateAt: at };
+    return { sessionId: m.sessionId, peerKey: m.peerKey, typed: m.typed, state, why: m.why ?? null, stateAt: at, ...(m.copyId ? { copyId: m.copyId } : {}) };
   });
 }
 
@@ -135,11 +135,12 @@ export function refuseChange(row: DbChannelRow | undefined, author: number): Ext
 }
 
 /** `mentions` with one entry's state changed at `at`; null when there is no entry at `index`. */
-export function withMentionState(mentions: ChannelMention[], index: number, patch: { state: MentionState; why?: string | null }, at: number): ChannelMention[] | null {
+export function withMentionState(mentions: ChannelMention[], index: number, patch: { state: MentionState; why?: string | null; copyId?: string | null }, at: number): ChannelMention[] | null {
   const current = mentions[index];
   if (!Number.isInteger(index) || !current) return null;
   if (!MENTION_STATES.includes(patch.state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
-  return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at } : m));
+  // A copy id stays across later state changes; the patch sets it when it names one (#1269).
+  return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at, ...(patch.copyId ? { copyId: patch.copyId } : {}) } : m));
 }
 
 /** What a read state row says before anything was counted for the thread. */

@@ -17,7 +17,13 @@ const MINUTE = 60_000;
  * What the channel side asks of the direct-message side when a person @-addresses another person's agent (#1034): the text goes to the agent's owner for
  * approval (or over a link the owner already opened). The channel never sees a conversation; it gets only whether that worked.
  */
-export type AcrossAsk = (viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }) => Promise<{ ok: true; state: 'approval' | 'ready'; owner: string } | Fail>;
+export type AcrossAsk = (viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }) => Promise<{ ok: true; state: 'approval' | 'ready'; owner: string; messageId: string } | Fail>;
+
+/**
+ * What the channel side asks of the direct-message side when the author changes a channel message whose mention waits for another person's approval (#1269): the copy of its
+ * text that the agent's owner was asked about, named by the id the channel kept (`copyId`), is edited or deleted with it. The channel never sees a conversation.
+ */
+export type AcrossChange = (viewer: ChatViewer, copyId: string, op: { kind: 'edit'; text: string } | { kind: 'delete' }) => Promise<{ ok: true } | Fail>;
 
 /** What became of such a message, told to the channel side so the mention the person wrote can move: the person (folded), the agent, and the states it may move from. */
 export interface AcrossUpdate {
@@ -62,6 +68,8 @@ export class ChatCore {
   people: Pick<PeopleStoreApi, 'list'> | null = null;
   /** Replaced by the Chat service: hands a person's @ of another person's agent to the direct-message side. */
   across: AcrossAsk | null = null;
+  /** Replaced by the Chat service: edits or deletes the copy of a channel message that waits for another person's approval (#1269). */
+  changeAcross: AcrossChange | null = null;
   private readonly acrossHearers: ((u: AcrossUpdate) => void)[] = [];
   private rev = 0;
   private readonly recent = new Map<string, number[]>();

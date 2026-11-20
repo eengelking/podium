@@ -39,7 +39,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
-import { decideChange } from '../peerEdit.js';
+import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
@@ -603,8 +603,7 @@ export class PgPeerMessages {
     if (target.peers !== true) return refuse(403, `${target.name} is not taking part in orchestrator messaging. It needs the peers option on in podium-reporter on its machine.`);
     const limits = await this.rights.limits(target.owner);
     if (clean.length > limits.maxChars) {
-      const n = (v: number): string => v.toLocaleString('en-US');
-      return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)}. Send a shorter one.`);
+      return refuse(422, overLimitWords(clean.length, limits.maxChars));
     }
     let fromSession = `person:${owner}`;
     let fromKey = '';
@@ -646,8 +645,7 @@ export class PgPeerMessages {
     if (target.peers !== true || !(await this.onPersonReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
     const limits = await this.rights.limits(target.owner);
     if (clean.length > limits.maxChars) {
-      const n = (v: number): string => v.toLocaleString('en-US');
-      return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)}. Send a shorter one.`);
+      return refuse(422, overLimitWords(clean.length, limits.maxChars));
     }
     const link = await this.rights.personLink(personKey, target.reporterKey);
     if (link?.level === 'none') return refuse(403, `${target.owner} removed the link between you and ${target.name}, so Podium did not send the message. ${target.owner} can open it again.`);
@@ -699,6 +697,10 @@ export class PgPeerMessages {
     return this.db.tx(async () => {
       const change = await this.changeOf(id, x.author);
       if (!change.ok) return change;
+      // The owner's limit, as a send checks it, on the text as it is stored (#1269).
+      const clean = cleanPeerText(x.text);
+      const max = (await this.rights.limits(change.group[0]!.owner)).maxChars;
+      if (clean.length > max) return { ok: false as const, reason: 'too-long' as const, status: 422 as const, error: overLimitWords(clean.length, max) };
       for (const m of change.group) await this.db.run('UPDATE peer_messages SET text = ?, edited_at = ? WHERE id = ?', [x.text, x.now, m.id]);
       return { ok: true as const, message: (await this.row(id)) as MessageRow };
     });

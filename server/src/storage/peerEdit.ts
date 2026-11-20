@@ -36,3 +36,6 @@ export function decideChange(row: MessageRow | null, pair: readonly MessageRow[]
   if (group.some((m) => isSentToAgent(m.state))) return { ok: false, reason: 'locked' };
   return { ok: true, group };
 }
+
+/** What a person is told when a message is over the owner's length limit, on a send and on an edit (#1269): one sentence for both, so the two refuse in the same words. */
+export const overLimitWords = (length: number, max: number): string => `The message is ${length.toLocaleString('en-US')} characters, over the limit of ${max.toLocaleString('en-US')}. Send a shorter one.`;

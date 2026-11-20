@@ -1153,4 +1153,34 @@ export function peerCases(o: Openers): void {
       }
     }
   }, 300_000);
+  it("refuses an edit over the length limit of the agent's owner in the words a send uses, and changes nothing, on every adapter (#1269)", async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      await rec('set the limit', peers.setDefaults('ed', { limits: { maxChars: 20 } }, ED));
+      const own = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'short', authorId: ED_ID }));
+      const across = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'short too', authorId: EVE_ID }));
+      const long = 'x'.repeat(30);
+      await rec('send over the limit', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', text: long, authorId: ED_ID }));
+      await rec('send across over the limit', m.sendAcross({ person: 'Eve', toSession: 'sa', text: long, authorId: EVE_ID }));
+      await rec('edit over the limit', m.editMessage(own.id, { author: ED_ID, text: long, now: T0 + 1 }));
+      await rec('edit across over the limit', m.editMessage(across.id, { author: EVE_ID, text: long, now: T0 + 2 }));
+      await rec('edit by someone else, over the limit', m.editMessage(own.id, { author: EVE_ID, text: long, now: T0 + 3 }));
+      await rec('own row is as it was', m.message(own.id));
+      await rec('across row is as it was', m.message(across.id));
+      await rec('edit at the limit', m.editMessage(own.id, { author: ED_ID, text: 'y'.repeat(20), now: T0 + 4 }));
+    });
+    expect(t.get('set the limit')).toMatchObject({ ok: true });
+    const words = 'The message is 30 characters, over the limit of 20. Send a shorter one.';
+    expect(t.get('send over the limit')).toMatchObject({ ok: false, status: 422, error: words });
+    expect(t.get('send across over the limit')).toMatchObject({ ok: false, status: 422, error: words });
+    expect(t.get('edit over the limit')).toEqual({ ok: false, reason: 'too-long', status: 422, error: words });
+    expect(t.get('edit across over the limit')).toEqual({ ok: false, reason: 'too-long', status: 422, error: words });
+    expect(t.get('edit by someone else, over the limit')).toEqual({ ok: false, reason: 'not-yours' });
+    expect((t.get('own row is as it was') as MessageRow).text).toBe('short');
+    expect((t.get('across row is as it was') as MessageRow).text).toBe('short too');
+    expect(t.get('edit at the limit')).toMatchObject({ ok: true });
+  });
+
 }

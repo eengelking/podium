@@ -76,9 +76,10 @@ function lockedWords(m: Pick<ChannelMessage, 'mentions'>): string {
   return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
 }
 
-/** The words for a message that still waits for another person to approve it: its copy for that person cannot be reached from here yet (#1269). */
+/** The words for a message that waits for another person to approve it with no copy kept for it (stored before copies were kept): the copy cannot be reached from here (#1269). */
 function approvalWords(m: Pick<ChannelMessage, 'mentions'>): string | null {
-  const waiting = m.mentions.find((x) => x.state === 'approval');
+  // A mention that waits with a copy kept for it can be changed with it; one stored before copies were kept cannot (#1269).
+  const waiting = m.mentions.find((x) => x.state === 'approval' && !x.copyId);
   if (!waiting) return null;
   const who = /^Waiting for (.+) to approve$/.exec(waiting.why ?? '')?.[1] ?? 'another person';
   return `This message is waiting for ${who} to approve, so it cannot be changed now.`;
@@ -183,8 +184,9 @@ export class ChannelChat {
       return {
         post: (i: ChannelPostInput) => st.group.post(g, i),
         page: (o: { before?: string | null; limit: number }) => st.group.page(g, o),
-        setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null }) => st.group.setMention(g, id, index, patch),
+        setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null; copyId?: string | null }) => st.group.setMention(g, id, index, patch),
         heldMentions: (f: { sessionId?: string }) => st.group.heldMentions(g, f),
+        getMessage: (id: string) => st.group.getMessage(g, id),
         editMessage: (id: string, x: { author: number; text: string; now: number }) => st.group.editMessage(g, id, x),
         deleteMessage: (id: string, x: { author: number; now: number }) => st.group.deleteMessage(g, id, x),
         clear: () => st.group.clear(g),
@@ -194,8 +196,9 @@ export class ChannelChat {
     return {
       post: (i: ChannelPostInput) => st.public.post(channel, i),
       page: (o: { before?: string | null; limit: number }) => st.public.page(channel, o),
-      setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null }) => st.public.setMention(channel, id, index, patch),
+      setMention: (id: string, index: number, patch: { state: MentionState; why?: string | null; copyId?: string | null }) => st.public.setMention(channel, id, index, patch),
       heldMentions: (f: { sessionId?: string }) => st.public.heldMentions(channel, f),
+      getMessage: (id: string) => st.public.getMessage(channel, id),
       editMessage: (id: string, x: { author: number; text: string; now: number }) => st.public.editMessage(channel, id, x),
       deleteMessage: (id: string, x: { author: number; now: number }) => st.public.deleteMessage(channel, id, x),
       clear: () => st.public.clear(channel),
@@ -513,6 +516,15 @@ export class ChannelChat {
       await this.handle(channel, owner).setMention(message.id, x.index, patch);
       const m = message.mentions[x.index];
       if (m) message.mentions[x.index] = { ...m, ...patch, stateAt: this.core.host.now() };
+    } else if (asked?.ok) {
+      // The mention keeps the id of the copy the owner is asked about, so an edit or a delete of this message reaches it (#1269). It is set only while the mention still waits: an owner who
+      // answered in the meantime has moved it on, and that is not undone.
+      const h = this.handle(channel, owner);
+      const now = await h.getMessage(message.id);
+      if (now?.mentions[x.index]?.state === 'approval' && (await h.setMention(message.id, x.index, { state: 'approval', why: patch.why, copyId: asked.messageId }))) {
+        const m = message.mentions[x.index];
+        if (m) message.mentions[x.index] = { ...m, copyId: asked.messageId };
+      }
     }
   }
 
@@ -634,9 +646,44 @@ export class ChannelChat {
     this.core.signal({ scope: channel === GROUP ? 'group' : 'public', owner: channel === GROUP ? owner : null });
   }
 
+  /** The copies of a message that waits for another person's approval, with the id each kept; `null` when one has none (stored before copies were kept), which cannot be reached. */
+  private copiesOf(m: ChannelMessage): string[] | null {
+    const waiting = m.mentions.filter((x) => x.state === 'approval');
+    return waiting.every((x) => x.copyId) ? waiting.map((x) => x.copyId as string) : null;
+  }
+
+  /**
+   * Changes every copy the message has for another person's owner, in the order of its mentions, BEFORE the channel's own row. The channel row is changed last because the
+   * copies are what another person can still act on (approve), and they are the only part that can refuse for a reason the channel store cannot see: the owner approved, and the
+   * agent was handed the text. If a copy refuses, the copies already changed are put back as far as an edit can be (an edit is written again with the old text); a delete cannot be
+   * undone, so those copies stay withdrawn, and the mention of each moves to `dropped` through the answer the direct-message side already gives for a dropped copy. Nothing in the
+   * channel row is changed in either case. Returns the refusal, or the copies changed (for `undo`).
+   */
+  private async changeCopies(viewer: ChatViewer, copies: string[], op: { kind: 'edit'; text: string; old: string } | { kind: 'delete' }): Promise<{ ok: true; done: string[] } | Fail> {
+    const done: string[] = [];
+    for (const copyId of copies) {
+      const out = this.core.changeAcross ? await this.core.changeAcross(viewer, copyId, op.kind === 'edit' ? { kind: 'edit', text: op.text } : op) : fail(503, "Podium cannot reach the other person's copy of this message now.");
+      if (!out.ok) {
+        if (op.kind === 'edit') await this.restoreCopies(viewer, done, op.old);
+        return out;
+      }
+      done.push(copyId);
+    }
+    return { ok: true, done };
+  }
+
+  /** Writes the old text back to copies that were edited, when the channel row then refused. Best effort: a copy that cannot be put back is reported to the server log. */
+  private async restoreCopies(viewer: ChatViewer, copies: string[], text: string): Promise<void> {
+    for (const copyId of copies) {
+      const back = this.core.changeAcross ? await this.core.changeAcross(viewer, copyId, { kind: 'edit', text }) : null;
+      if (!back?.ok) this.core.host.warn('the copy of an edited channel message could not be put back', new Error(back ? back.error : 'no bridge'));
+    }
+  }
+
   /**
    * The author edits their own message: the new text goes through the checks of a new message (empty, too long, the per-minute limit, then redaction, in that order), and
-   * it never delivers anything, so it may not add or remove an @mention. The store decides who may and whether it is locked.
+   * it never delivers anything, so it may not add or remove an @mention. The store decides who may and whether it is locked. A mention that waits for another person's
+   * approval has a copy of the text for them: it is changed first (`changeCopies`), under that person's own length limit.
    */
   async editMessage(viewer: ChatViewer, channel: ChannelId, owner: string | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
     const gate = this.mayChange(viewer, channel, owner);
@@ -648,33 +695,46 @@ export class ChannelChat {
     if (limited) return limited;
     const text = this.core.redact(checked.raw);
     const h = this.handle(channel, owner);
-    const found = id.length <= MAX_ID ? await this.find(channel, owner, id) : null;
+    const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
     if (!found) return this.refusal('not-found', null);
-    // Only the author's own live, unlocked message gets these two checks; for any other the store gives its refusal below.
+    let copies: string[] = [];
+    // Only the author's own live, unlocked message gets these checks; for any other the store gives its refusal below.
     if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
-      const waiting = approvalWords(found);
-      if (waiting) return fail(409, waiting, 'approval');
+      const reachable = this.copiesOf(found);
+      if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
       if (!sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
+      copies = reachable;
     }
+    const changed = await this.changeCopies(viewer, copies, { kind: 'edit', text, old: found.text });
+    if (!changed.ok) return changed;
     const out = await h.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
-    if (!out.ok) return this.refusal(out.reason, out.reason === 'locked' ? await this.find(channel, owner, id) : null);
+    if (!out.ok) {
+      // Only a race gets here (the checks above passed a moment ago): a copy was changed and the row refused, so the copies are put back.
+      await this.restoreCopies(viewer, changed.done, found.text);
+      return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
+    }
     this.changed('message_edited', viewer, channel, owner, id);
     return { ok: true, message: out.message };
   }
 
-  /** The author deletes their own message: a tombstone stays. The store decides who may and whether it is locked. */
+  /** The author deletes their own message: a tombstone stays, and a copy for another person's approval goes with it. The store decides who may and whether it is locked. */
   async deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: string | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
     const gate = this.mayChange(viewer, channel, owner);
     if (gate) return gate;
     const h = this.handle(channel, owner);
-    const found = id.length <= MAX_ID ? await this.find(channel, owner, id) : null;
+    const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
     if (!found) return this.refusal('not-found', null);
+    let copies: string[] = [];
     if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
-      const waiting = approvalWords(found);
-      if (waiting) return fail(409, waiting, 'approval');
+      const reachable = this.copiesOf(found);
+      if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
+      copies = reachable;
     }
+    const changed = await this.changeCopies(viewer, copies, { kind: 'delete' });
+    if (!changed.ok) return changed;
     const out = await h.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
-    if (!out.ok) return this.refusal(out.reason, out.reason === 'locked' ? await this.find(channel, owner, id) : null);
+    // Only a race gets here, and a deleted copy cannot be undone: it stays withdrawn and its mention reads `dropped`, which is true of it.
+    if (!out.ok) return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
     this.changed('message_deleted', viewer, channel, owner, id);
     return { ok: true, message: out.message };
   }

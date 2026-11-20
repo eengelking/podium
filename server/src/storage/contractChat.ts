@@ -1033,11 +1033,12 @@ interface Surface {
   post: (i: ChannelPostInput) => Promise<ChannelMessage>;
   postElsewhere: (i: ChannelPostInput) => Promise<ChannelMessage>;
   page: (o: { before?: string | null; limit: number }) => Promise<ChannelPage>;
-  setMention: (id: string, index: number, p: { state: MentionState; why?: string | null }) => Promise<ChannelMessage | null>;
+  setMention: (id: string, index: number, p: { state: MentionState; why?: string | null; copyId?: string | null }) => Promise<ChannelMessage | null>;
   edit: (id: string, x: { author: number; text: string; now: number }) => Promise<ChannelChange>;
   del: (id: string, x: { author: number; now: number }) => Promise<ChannelChange>;
   held: () => Promise<ChannelMessage[]>;
   count: () => Promise<number>;
+  getMessage: (id: string) => Promise<ChannelMessage | null>;
 }
 
 async function surfaces(chat: ChatStoreApi): Promise<Surface[]> {
@@ -1049,11 +1050,11 @@ async function surfaces(chat: ChatStoreApi): Promise<Surface[]> {
   return [
     {
       label: 'group', post: (i) => g.post(G, i), postElsewhere: (i) => g.post(other, i), page: (o) => g.page(G, o), setMention: (id, n, x) => g.setMention(G, id, n, x),
-      edit: (id, x) => g.editMessage(G, id, x), del: (id, x) => g.deleteMessage(G, id, x), held: () => g.heldMentions(G, {}), count: () => g.count(G),
+      edit: (id, x) => g.editMessage(G, id, x), del: (id, x) => g.deleteMessage(G, id, x), held: () => g.heldMentions(G, {}), count: () => g.count(G), getMessage: (id) => g.getMessage(G, id),
     },
     {
       label: 'public', post: (i) => p.post('dev', i), postElsewhere: (i) => p.post('ops', i), page: (o) => p.page('dev', o), setMention: (id, n, x) => p.setMention('dev', id, n, x),
-      edit: (id, x) => p.editMessage('dev', id, x), del: (id, x) => p.deleteMessage('dev', id, x), held: () => p.heldMentions('dev', {}), count: () => p.count('dev'),
+      edit: (id, x) => p.editMessage('dev', id, x), del: (id, x) => p.deleteMessage('dev', id, x), held: () => p.heldMentions('dev', {}), count: () => p.count('dev'), getMessage: (id) => p.getMessage('dev', id),
     },
   ];
 }
@@ -1279,4 +1280,46 @@ function chatChangeCases(o: Openers): void {
     }
     expect(t.get('public: mentionsAcross after delete')).toEqual([]);
   });
+  it('keeps the id of the copy a mention waits on across later state changes, reads one message by id in its scope, and shows no copy on a tombstone or an old row, on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      for (const c of await surfaces(chat)) {
+        const L = c.label;
+        clock.now = T0;
+        const old = await c.post(mine('an old row', { mentions: [{ ...mention('sa', 'approval') }] }));
+        const m = await c.post(mine('with a copy', { mentions: [{ ...mention('sa', 'approval'), copyId: 'peer_copy_1' }, mention(null, 'done')] }));
+        const elsewhere = await c.postElsewhere(mine('in another place'));
+        await rec(`${L}: read`, c.page({ limit: 5 }));
+        clock.now += 1;
+        await rec(`${L}: patch sets the copy`, c.setMention(old.id, 0, { state: 'approval', why: 'Waiting for eve', copyId: 'peer_copy_0' }));
+        await rec(`${L}: state change keeps it`, c.setMention(m.id, 0, { state: 'approval', why: 'still waiting' }));
+        await rec(`${L}: another copy replaces it`, c.setMention(m.id, 0, { state: 'approval', copyId: 'peer_copy_2' }));
+        await rec(`${L}: waiting keeps it`, c.setMention(m.id, 0, { state: 'waiting' }));
+        await rec(`${L}: the other mention has none`, c.getMessage(m.id));
+        await rec(`${L}: getMessage of another place`, c.getMessage(elsewhere.id));
+        await rec(`${L}: getMessage of nothing`, c.getMessage('pub_00000000_000000000000000000000000'));
+        clock.now += 1;
+        const gone = await c.post(mine('to delete', { mentions: [{ ...mention('sb', 'approval'), copyId: 'peer_copy_3' }] }));
+        await rec(`${L}: delete`, c.del(gone.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: getMessage of a tombstone`, c.getMessage(gone.id));
+      }
+    });
+    for (const L of ['group', 'public']) {
+      const read = (t.get(`${L}: read`) as ChannelPage).messages;
+      expect(read[0]!.mentions[0]).not.toHaveProperty('copyId');
+      expect(read[1]!.mentions[0]).toMatchObject({ state: 'approval', copyId: 'peer_copy_1' });
+      expect(read[1]!.mentions[1]).not.toHaveProperty('copyId');
+      expect((t.get(`${L}: patch sets the copy`) as ChannelMessage).mentions[0]).toMatchObject({ state: 'approval', why: 'Waiting for eve', copyId: 'peer_copy_0' });
+      expect((t.get(`${L}: state change keeps it`) as ChannelMessage).mentions[0]).toMatchObject({ why: 'still waiting', copyId: 'peer_copy_1' });
+      expect((t.get(`${L}: another copy replaces it`) as ChannelMessage).mentions[0]).toMatchObject({ copyId: 'peer_copy_2' });
+      expect((t.get(`${L}: waiting keeps it`) as ChannelMessage).mentions[0]).toMatchObject({ state: 'waiting', copyId: 'peer_copy_2' });
+      expect(t.get(`${L}: getMessage of another place`)).toBeNull();
+      expect(t.get(`${L}: getMessage of nothing`)).toBeNull();
+      expect(t.get(`${L}: getMessage of a tombstone`)).toMatchObject({ text: '', mentions: [], deletedAt: expect.any(Number) });
+      expect(JSON.stringify(t.get(`${L}: getMessage of a tombstone`))).not.toContain('peer_copy_3');
+      expect(t.get(`${L}: the other mention has none`)).toMatchObject({ text: 'with a copy' });
+    }
+  });
+
 }

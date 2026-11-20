@@ -117,7 +117,11 @@ const rank = (s: MessageState): number => (s === 'dropped' || s === 'declined' ?
 
 /** The names of the agents a message was sent to, in words: `Tester`, `Tester and dev`. */
 const named = (names: string[]): string => (names.length <= 1 ? (names[0] ?? 'the agent') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
-const lockedWords = (rows: MessageRow[]): string => `Podium has already sent this message to ${named([...new Set(rows.filter((r) => isSentToAgent(r.state)).map((r) => r.toName))])}, so it can no longer be changed.`;
+const lockedWords = (rows: MessageRow[]): string => {
+  // The rows that were sent name the agents; when the caller knows only that the store said locked, every row it has names one.
+  const sent = rows.filter((r) => isSentToAgent(r.state));
+  return `Podium has already sent this message to ${named([...new Set((sent.length ? sent : rows).map((r) => r.toName))])}, so it can no longer be changed.`;
+};
 
 /** Whether the viewer may change the message these rows are (the rows of one message), and when not, why. The author is the person's id; the lock is the store's predicate over every row. */
 function changeOf(rows: MessageRow[], viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
@@ -184,7 +188,10 @@ export class DirectChat {
   constructor(
     private readonly core: ChatCore,
     private readonly reads: AdminReads,
-  ) {}
+  ) {
+    // The channel side changes the copy of a message that waits for another person's approval through this (#1269).
+    core.changeAcross = (viewer, copyId, op) => this.changeAcross(viewer, copyId, op);
+  }
 
   private get peers() {
     return this.core.host.peers.messages;
@@ -542,7 +549,10 @@ export class DirectChat {
     }
   }
 
-  private async refused(why: Extract<PeerChange, { ok: false }>['reason'], scope: { c: ConversationSummary; a: string; b: string; row: MessageRow }): Promise<Fail> {
+  private async refused(out: Extract<PeerChange, { ok: false }>, scope: { c: ConversationSummary; a: string; b: string; row: MessageRow }): Promise<Fail> {
+    const why = out.reason;
+    // Over the length limit of the agent's owner: the send's own words and status.
+    if (out.reason === 'too-long') return fail(out.status, out.error);
     if (why === 'not-found') return fail(404, 'There is no such message in this conversation.');
     if (why === 'not-yours') return fail(403, 'Only the person who wrote a message can change it.');
     if (why === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
@@ -571,7 +581,7 @@ export class DirectChat {
     const early = await this.early(viewer, body.text, true);
     if (early) return early;
     const out = await this.peers.editMessage(id, { author: viewer.personId as number, text: this.core.redact(body.text), now: this.core.host.now() });
-    if (!out.ok) return this.refused(out.reason, scope);
+    if (!out.ok) return this.refused(out, scope);
     await this.changed('message_edited', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
@@ -581,9 +591,32 @@ export class DirectChat {
     const scope = await this.changeScope(viewer, rawA, rawB, id);
     if ('status' in scope) return scope;
     const out = await this.peers.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
-    if (!out.ok) return this.refused(out.reason, scope);
+    if (!out.ok) return this.refused(out, scope);
     await this.changed('message_deleted', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
+  }
+
+  /**
+   * The channel side changes the copy of one of its messages that waits for another person's approval (#1269): `copyId` is the direct message the person's `@` made. It is
+   * the person's own message, so the store's checks apply as to any edit: its author by id, not a tombstone, not yet sent to the agent (`locked`, in the words of any locked
+   * message), and an edit also within the length limit of the agent's owner, in the send's words. A delete drops the copy and closes the owner's request. Nobody is told in
+   * words here: the author did it, and the channel side logs the change of the message it belongs to.
+   */
+  async changeAcross(viewer: ChatViewer, copyId: string, op: { kind: 'edit'; text: string } | { kind: 'delete' }): Promise<{ ok: true } | Fail> {
+    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    const row = await this.peers.message(copyId);
+    if (!row) return fail(404, 'There is no such message.');
+    const now = this.core.host.now();
+    const out = op.kind === 'edit' ? await this.peers.editMessage(copyId, { author: viewer.personId, text: op.text, now }) : await this.peers.deleteMessage(copyId, { author: viewer.personId, now });
+    if (!out.ok) {
+      if (out.reason === 'too-long') return fail(out.status, out.error);
+      if (out.reason === 'locked') return fail(409, lockedWords([(await this.peers.message(copyId)) ?? row]), 'locked');
+      if (out.reason === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
+      return fail(out.reason === 'not-found' ? 404 : 403, out.reason === 'not-found' ? 'There is no such message.' : 'Only the person who wrote a message can change it.');
+    }
+    const personKey = row.fromSession.startsWith('person:') ? row.fromSession.slice('person:'.length) : viewer.name;
+    await this.tell(personKey, row.owner);
+    return { ok: true };
   }
 
   // ---- A person writes to another person's agent (#1034) ------------------------------------------------------------
@@ -647,10 +680,10 @@ export class DirectChat {
   }
 
   /** What the channel side asks: the same, with its own text (already redacted) and its own rate limit. */
-  async across(viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }): Promise<{ ok: true; state: 'approval' | 'ready'; owner: string } | Fail> {
+  async across(viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }): Promise<{ ok: true; state: 'approval' | 'ready'; owner: string; messageId: string } | Fail> {
     const out = await this.acrossRow(viewer, sessionId, text, opts.rate);
     if ('status' in out) return out;
-    return { ok: true, state: out.row.state === 'approval' ? 'approval' : 'ready', owner: out.row.owner };
+    return { ok: true, state: out.row.state === 'approval' ? 'approval' : 'ready', owner: out.row.owner, messageId: out.row.id };
   }
 
   private async sendAcrossDm(viewer: ChatViewer, agentId: string, body: Record<string, unknown>) {

@@ -331,6 +331,8 @@ export interface ChannelMention {
   state: MentionState;
   why: string | null;
   stateAt: number;
+  /** For a mention of another person's agent that waits for that person's approval (#1269): the id of the direct message that holds a copy of the text for them, so an edit or a delete of the channel message reaches it. Server-side only, never shown to a browser. Absent on a mention without a copy and on every row stored before this. */
+  copyId?: string | null;
 }
 
 /** A channel message. The same shape in the group channel and in a public channel (General included); `owner` and `groupId` are set only in the group channel (a table is the audience, so there is no visibility field). */
@@ -376,7 +378,7 @@ export interface ChannelPostInput {
   replyTo?: string | null;
   /** The signed-in person's id, for a message a person wrote (#1269). Without it such a message is stored with no author id, and nobody can change it. Ignored for an agent's or a reporter's. */
   authorId?: number | null;
-  mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null }[];
+  mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null; copyId?: string | null }[];
 }
 
 /** One page of a channel, oldest first within the page (the newest message last). `older` is the cursor for the page before it, or null when this page starts the channel. */
@@ -401,7 +403,9 @@ export interface ChannelStoreApi<A extends unknown[]> {
   /** The newest page first; `before` is the `older` of the page after it. Ordered by time then insertion number; a page back starts strictly before the cursor, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
   page(...args: [...A, { before?: string | null; limit: number }]): Promise<ChannelPage>;
   /** Sets the delivery state of one mention (by its place in `mentions`) and the message's `updatedAt`. Null when there is no such message in this channel or no such mention. */
-  setMention(...args: [...A, string, number, { state: MentionState; why?: string | null }]): Promise<ChannelMessage | null>;
+  setMention(...args: [...A, string, number, { state: MentionState; why?: string | null; copyId?: string | null }]): Promise<ChannelMessage | null>;
+  /** One message of this channel by id, a tombstone too (#1269); null when there is none in this scope (another channel's, another group's, or no such id). Scope-checked as `editMessage` is. */
+  getMessage(...args: [...A, string]): Promise<ChannelMessage | null>;
   /** The messages that hold a mention still in the `held` state, oldest first (time, then insertion number), each with all its mentions (#1046). With `sessionId`, only those with a held mention of that session. Reads only the rows that can hold one, never a page of the whole channel. */
   heldMentions(...args: [...A, { sessionId?: string }]): Promise<ChannelMessage[]>;
   /**

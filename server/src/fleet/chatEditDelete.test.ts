@@ -50,6 +50,7 @@ const ACCEPTS = ['message', 'command', 'question', 'plan-approve', 'plan-feedbac
 const MAC = { name: 'ed-mbp', id: 'macmacmac001' };
 const LINUX = { name: 'ci-runner-01', id: 'lnxlnxlnx001' };
 const BOX = { name: 'alex-box', id: 'alxalxalx001' };
+const BOX2 = { name: 'alex-box2', id: 'alxalxalx002' };
 
 function report(userName: string, sid: string, name: string, machine: { name: string; id: string }): Report {
   const r = fixtureReport();
@@ -63,6 +64,7 @@ const post = (s: S, token: string, r: Report) => request(s.app).post('/api/fleet
 const dev = (s: S) => post(s, s.ed.token, report('Ed', 'sess-dev', 'dev', MAC));
 const tester = (s: S) => post(s, s.ed.token, report('Ed', 'sess-tester', 'Tester', LINUX));
 const alexOne = (s: S) => post(s, s.alex.token, report('Alex', 'sess-alex', 'review', BOX));
+const alexTwo = (s: S) => post(s, s.alex.token, report('Alex', 'sess-alex2', 'second', BOX2));
 
 async function signedIn(s: S, name: string, token: string) {
   const agent = request.agent(s.app);
@@ -364,18 +366,6 @@ describe('who may change a channel message, and when (#1269)', () => {
     expect((await w.edB.put(`${CH}/channels/general/pause`).set(H).send({ paused: false })).body.delivered).toBe(0);
     expect(((await dev(w)).body.deliveries ?? []) as unknown[]).toHaveLength(0);
   });
-
-  it('refuses to change a message that waits for another person\'s approval, because its copy cannot be reached yet', async () => {
-    const w = await world();
-    const sent = await say(w.edB, 'general', '@review@alex-box please look');
-    expect(sent.body.message.mentions[0].state).toBe('approval');
-    expect(sent.body.message.canChange).toBe(false);
-    expect(sent.body.message.changeWhy).toMatch(/Alex/);
-    for (const res of [await edit(w.edB, 'general', sent.body.message.id, 'please look again'), await del(w.edB, 'general', sent.body.message.id)]) {
-      expect(res.status).toBe(409);
-      expect(res.body.reason).toBe('approval');
-    }
-  });
 });
 
 describe('what the server tells and records about a change (#1269)', () => {
@@ -657,5 +647,155 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     expect((await dmEdit(w.edB, 'me/sess-tester', row.id, 'mine now')).status).toBe(403);
     expect((await dmDel(w.edB, 'me/sess-tester', row.id)).status).toBe(403);
     expect((await thread(w.edB, 'me/sess-tester')).body.messages[0]).toMatchObject({ text: 'from the earlier Ed', canChange: false, changeWhy: null });
+  });
+});
+
+describe('a message that waits for another person\'s approval, and the copy Alex is asked about (#1269)', () => {
+  const copies = async (b: B, agent = 'sess-alex') => (await b.get(`${CH}/dm/person:ed/${agent}/messages`)).body.messages as { id: string; text: string; state: string; deletedAt: number | null }[];
+  const requestsOf = async (b: B) => ((await b.get('/api/fleet/respond/peers')).body.requests ?? []) as { id: string }[];
+  const approveAll = async (b: B) => {
+    for (const r of await requestsOf(b)) expect((await b.post(`/api/fleet/respond/peers/requests/${r.id}`).set(H).send({ answer: 'deliver' })).status).toBe(200);
+  };
+  const ASK = '@review@alex-box please look';
+
+  it('edits the copy for its owner and the message, and shows the page that it can be changed, with no copy id', async () => {
+    const w = await world();
+    const sent = await say(w.edB, 'general', ASK);
+    expect(sent.body.message.mentions[0].state).toBe('approval');
+    expect(sent.body.message).toMatchObject({ canChange: true, changeWhy: null });
+    expect(JSON.stringify(sent.body)).not.toContain('copyId');
+    expect((await copies(w.alexB))[0]!.text).toContain('please look');
+    w.tick(1_000);
+    const res = await edit(w.edB, 'general', sent.body.message.id, `${ASK} again, with key sk-abcdefghijklmnopqrstuvwxyz123456`);
+    expect(res.status).toBe(200);
+    expect(res.body.message.text).toContain('again');
+    expect(JSON.stringify(res.body)).not.toContain('copyId');
+    const theirs = (await copies(w.alexB))[0]!;
+    expect(theirs.text).toContain('again');
+    expect(theirs.text).toContain('[redacted]');
+    expect(theirs.text).not.toContain('sk-abcdef');
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+    expect(JSON.stringify((await read(w.edB, 'general')).body)).not.toContain('copyId');
+  });
+
+  it('deletes the copy with the message: the request closes and nothing is handed over', async () => {
+    const w = await world();
+    const sent = await say(w.edB, 'general', ASK);
+    expect(await requestsOf(w.alexB)).toHaveLength(1);
+    const res = await del(w.edB, 'general', sent.body.message.id);
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatchObject({ text: '', mentions: [], canChange: false });
+    expect(await requestsOf(w.alexB)).toHaveLength(0);
+    const theirs = (await copies(w.alexB))[0]!;
+    expect(theirs).toMatchObject({ text: '', state: 'dropped', deletedAt: expect.any(Number) });
+    expect(((await alexOne(w)).body.peerDeliveries ?? []) as unknown[]).toHaveLength(0);
+  });
+
+  it('refuses a message whose copy was handed over meanwhile, with the locked words, and changes nothing', async () => {
+    const w = await world();
+    const sent = await say(w.edB, 'general', ASK);
+    const id = sent.body.message.id as string;
+    await approveAll(w.alexB);
+    expect(((await alexOne(w)).body.peerDeliveries ?? []) as unknown[]).toHaveLength(1);
+    await settle();
+    // The channel's own mention moves to waiting as the answer arrives; put it back to the state it had a moment before, as a race would leave it.
+    await w.fleet.chat.core.store.public.setMention('general', id, 0, { state: 'approval' });
+    for (const res of [await edit(w.edB, 'general', id, `${ASK} changed`), await del(w.edB, 'general', id)]) {
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ reason: 'locked', error: 'Podium has already sent this message to review, so it can no longer be changed.' });
+    }
+    expect((await read(w.edB, 'general')).body.messages[0]).toMatchObject({ text: ASK, editedAt: null, deletedAt: null });
+    expect((await copies(w.alexB))[0]).toMatchObject({ text: ASK, deletedAt: null });
+  });
+
+  it('puts the first copy back when a later one cannot be changed, so no copy says what the message does not', async () => {
+    const w = await world();
+    expect((await alexTwo(w)).status).toBe(200);
+    const sent = await say(w.edB, 'general', '@review@alex-box @second@alex-box2 both of you');
+    const id = sent.body.message.id as string;
+    expect(sent.body.warnings).toEqual([]);
+    expect(sent.body.message.mentions.map((m: { state: string }) => m.state)).toEqual(['approval', 'approval']);
+    await approveAll(w.alexB);
+    // Only the second agent fetches its message, so only that copy is handed over.
+    expect(((await alexTwo(w)).body.peerDeliveries ?? []) as unknown[]).toHaveLength(1);
+    await settle();
+    await w.fleet.chat.core.store.public.setMention('general', id, 0, { state: 'approval' });
+    await w.fleet.chat.core.store.public.setMention('general', id, 1, { state: 'approval' });
+    const res = await edit(w.edB, 'general', id, '@review@alex-box @second@alex-box2 changed words');
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe('locked');
+    expect((await copies(w.alexB, 'sess-alex'))[0]!.text).toBe('@review@alex-box @second@alex-box2 both of you');
+    expect((await read(w.edB, 'general')).body.messages[0].text).toBe('@review@alex-box @second@alex-box2 both of you');
+  });
+
+  it('keeps the refusal for an approval mention stored before copies were kept, and says so in the view', async () => {
+    const w = await world();
+    const old = await w.fleet.chat.core.store.public.post('general', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: '@review@alex-box from before', authorId: w.ed.person.id, mentions: [{ sessionId: 'sess-alex', peerKey: null, typed: 'review@alex-box', state: 'approval', why: 'Waiting for Alex to approve' }] });
+    const view = (await read(w.edB, 'general')).body.messages[0];
+    expect(view).toMatchObject({ canChange: false, changeWhy: 'This message is waiting for Alex to approve, so it cannot be changed now.' });
+    for (const res of [await edit(w.edB, 'general', old.id, '@review@alex-box changed'), await del(w.edB, 'general', old.id)]) {
+      expect(res.status).toBe(409);
+      expect(res.body.reason).toBe('approval');
+    }
+  });
+
+  describe('the length limit of the agent\'s owner', () => {
+    const LIMIT = 20;
+    const words = (n: number) => `The message is ${n} characters, over the limit of ${LIMIT}. Send a shorter one.`;
+    const limitAlex = async (w: W) => expect(await w.fleet.peers.setDefaults('Alex', { limits: { maxChars: LIMIT } }, { name: 'Alex', admin: false })).toMatchObject({ ok: true });
+
+    it('refuses an edit of a direct message to it in the words of a send, and changes nothing', async () => {
+      const w = await world();
+      await limitAlex(w);
+      const sent = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'a short text' });
+      expect(sent.status).toBe(202);
+      const long = 'x'.repeat(30);
+      const res = await dmEdit(w.edB, 'me/sess-alex', sent.body.message.id, long);
+      expect(res.status).toBe(422);
+      expect(res.body.error).toBe(words(30));
+      expect((await w.edB.get(`${CH}/dm/me/sess-alex/messages`)).body.messages[0]).toMatchObject({ text: 'a short text', editedAt: null });
+      // The send path answers the same status and words.
+      expect((await dmDel(w.edB, 'me/sess-alex', sent.body.message.id)).status).toBe(200);
+      const again = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: long });
+      expect([again.status, again.body.error]).toEqual([422, words(30)]);
+      // At the limit it goes through.
+      const ok = await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'short' });
+      expect((await dmEdit(w.edB, 'me/sess-alex', ok.body.message.id, 'y'.repeat(LIMIT))).status).toBe(200);
+    });
+
+    it('refuses an edit of a channel message that waits for it, changing neither the copy nor the message', async () => {
+      const w = await world();
+      await limitAlex(w);
+      const sent = await say(w.edB, 'general', '@review@alex-box hi');
+      expect(sent.body.message.mentions[0].state).toBe('approval');
+      const text = `@review@alex-box ${'x'.repeat(30)}`;
+      const res = await edit(w.edB, 'general', sent.body.message.id, text);
+      expect(res.status).toBe(422);
+      expect(res.body.error).toBe(words(text.length));
+      expect((await read(w.edB, 'general')).body.messages[0]).toMatchObject({ text: '@review@alex-box hi', editedAt: null });
+      expect((await copies(w.alexB))[0]!.text).toBe('@review@alex-box hi');
+    });
+  });
+});
+
+describe('a message older than the newest 1000 of its channel (#1269)', () => {
+  it('can still be edited and deleted by its author, in a public channel and in the group', async () => {
+    const w = await world();
+    const store = w.fleet.chat.core.store;
+    const mineOld = { authorKind: 'person' as const, authorRef: 'Ed', authorName: 'Ed', authorId: w.ed.person.id };
+    const g = await store.group.post(group(w), { ...mineOld, text: 'oldest in my group' });
+    const p = await store.public.post('general', { ...mineOld, text: 'oldest in general' });
+    for (let i = 0; i < 1005; i++) {
+      await store.group.post(group(w), { authorKind: 'orchestrator', authorRef: 'sess-dev', authorName: 'dev', text: `filler ${i}` });
+      await store.public.post('general', { authorKind: 'orchestrator', authorRef: 'sess-dev', authorName: 'dev', text: `filler ${i}` });
+    }
+    expect((await edit(w.edB, 'general', p.id, 'oldest in general, edited')).status).toBe(200);
+    expect((await edit(w.edB, 'group', g.id, 'oldest in my group, edited')).status).toBe(200);
+    expect((await del(w.edB, 'general', p.id)).status).toBe(200);
+    const gone = await del(w.edB, 'group', g.id);
+    expect(gone.status).toBe(200);
+    expect(gone.body.message).toMatchObject({ id: g.id, text: '', deletedAt: expect.any(Number) });
+    expect((await del(w.edB, 'group', g.id)).status).toBe(409);
+    expect((await edit(w.edB, 'group', 'grp_00000000_000000000000000000000000', 'x')).status).toBe(404);
   });
 });

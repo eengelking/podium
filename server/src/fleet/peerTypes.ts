@@ -312,9 +312,9 @@ export interface PeerMessageEdit {
 
 /**
  * The result of a person changing one of their own direct messages (#1269). `not-yours`: it is an agent's, or another person's, or a person's with no author id. `deleted`: it is already a
- * tombstone. `locked`: it has been sent to an agent (`queued`, `handed` or `delivered`), in any of the rows a message to two agents is stored as. On success `message` is the row asked for, as it is now.
+ * tombstone. `too-long`: the new text is over the limit of the owner of the agent it was written to, which a send checks too (the words are the send's). `locked`: it has been sent to an agent (`queued`, `handed` or `delivered`), in any of the rows a message to two agents is stored as. On success `message` is the row asked for, as it is now.
  */
-export type PeerChange = { ok: true; message: MessageRow } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
+export type PeerChange = { ok: true; message: MessageRow } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' } | { ok: false; reason: 'too-long'; status: 422; error: string };
 
 /** One page of a conversation, oldest first within the page. `older` is the cursor for the page before it, or null when this one starts the conversation. */
 export interface MessagePage {
