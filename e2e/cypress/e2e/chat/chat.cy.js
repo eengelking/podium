@@ -524,9 +524,12 @@ describe('chat: messages drawn as rows (#1232)', () => {
     post('general', 'first from Ed');
     post('general', 'second from Ed');
     post('general', `see this:\n\`\`\`js\n${LONG}\n\`\`\`\nand \`inline\` code <script>window.__pwned = 1</script>`);
-    // The open page marks the thread read up to the newest message. A reload before that lands leaves a "New" line between Ed's own
-    // messages, which splits the run this spec looks at, so wait for all four to be shown and the row to have no unread mark.
+    // The page decides its "New" line once, from the unread count when the thread first loads, and marks the thread read only when it
+    // sees unread messages. Where that mark lands against the reload is timing, and a "New" line between Ed's own messages splits the
+    // run this spec looks at. So the spec marks the thread read itself, by request, and checks the server's answer, before the reload.
     cy.tid('chat-message').should('have.length', 4);
+    cy.request({ method: 'POST', url: '/api/fleet/respond/chat/read', headers: H, body: { thread: 'public', upTo: null }, log: false })
+      .its('body', { log: false }).should('deep.include', { ok: true, unread: 0, mentions: 0 });
     cy.chatRow(GENERAL).should('not.have.class', 'un').find('.unread').should('not.exist');
     cy.reload();
     cy.tid('chat-message').should('have.length', 4);
