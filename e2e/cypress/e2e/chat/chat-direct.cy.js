@@ -333,10 +333,11 @@ describe('chat: the menu on a sender\'s avatar (#1235)', () => {
     cy.focused().should('have.attr', 'data-testid', 'chat-message');
   });
 
-  it('gives your own avatar no menu', () => {
+  it('gives your own avatar no sender menu: a right-click there opens the menu of your own message (#1269), with no Message or Mention', () => {
     asEd();
     cy.tid('chat-box').type('A line of my own{enter}');
     cy.tid('chat-message').last().should('contain.text', 'A line of my own').find('.ch-gut').rightclick();
-    cy.tid('chat-menu').should('not.exist');
+    cy.tid('chat-menu').should('have.attr', 'aria-label', 'Your message').and('not.contain.text', 'Mention').and('not.contain.text', 'Message the');
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.dataset.act)).to.deep.eq(['edit-message', 'delete-message']));
   });
 });
