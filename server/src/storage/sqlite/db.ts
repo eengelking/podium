@@ -21,16 +21,16 @@ function fillAuthorIds(db: DatabaseSync): void {
   const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
   if (ids.size === 0) return;
   for (const table of ['group_messages', 'public_messages']) {
-    const set = db.prepare(`UPDATE ${table} SET author_id = ? WHERE author_kind = 'person' AND author_ref = ?`);
+    const set = db.prepare(`UPDATE ${table} SET author_id = ? WHERE author_kind = 'person' AND author_ref = ? AND author_id IS NULL`);
     // order-insensitive: each author name is written on its own rows, whatever the order.
-    for (const r of db.prepare(`SELECT DISTINCT author_ref FROM ${table} WHERE author_kind = 'person' ORDER BY author_ref`).all() as unknown as { author_ref: string }[]) {
+    for (const r of db.prepare(`SELECT DISTINCT author_ref FROM ${table} WHERE author_kind = 'person' AND author_id IS NULL ORDER BY author_ref`).all() as unknown as { author_ref: string }[]) {
       const id = ids.get(nameKey(r.author_ref));
       if (id !== undefined) set.run(id, r.author_ref);
     }
   }
-  const setPeer = db.prepare("UPDATE peer_messages SET author_id = ? WHERE author = 'person' AND from_session = ? AND owner = ?");
+  const setPeer = db.prepare("UPDATE peer_messages SET author_id = ? WHERE author = 'person' AND from_session = ? AND owner = ? AND author_id IS NULL");
   // order-insensitive: each sender and owner pair is written on its own rows, whatever the order.
-  for (const r of db.prepare("SELECT DISTINCT from_session, owner FROM peer_messages WHERE author = 'person' ORDER BY from_session, owner").all() as unknown as { from_session: string; owner: string }[]) {
+  for (const r of db.prepare("SELECT DISTINCT from_session, owner FROM peer_messages WHERE author = 'person' AND author_id IS NULL ORDER BY from_session, owner").all() as unknown as { from_session: string; owner: string }[]) {
     const id = ids.get(peerPersonKey(r.from_session, r.owner));
     if (id !== undefined) setPeer.run(id, r.from_session, r.owner);
   }
