@@ -470,6 +470,23 @@ describe('chat: at 400 px', () => {
     cy.tid('chat-split').should('have.attr', 'data-pane', 'side');
     cy.chatRow(DM).should('be.visible');
   });
+  it('fills a phone window with an 8 px gutter on every side, the list and the thread alike', () => {
+    cy.atWidth(400);
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    const gutters = () => cy.tid('chat-split').should(($s) => {
+      const r = $s[0].getBoundingClientRect();
+      const page = $s[0].closest('.apage').getBoundingClientRect();
+      expect(r.top - page.top, 'top gutter').to.eq(8);
+      expect(r.left - page.left, 'left gutter').to.eq(8);
+      expect(page.right - r.right, 'right gutter').to.eq(8);
+      expect(page.bottom - r.bottom, 'bottom gutter').to.eq(8);
+    });
+    gutters();
+    cy.chatRow(DM).find('button.ch-row').click();
+    cy.tid('chat-split').should('have.attr', 'data-pane', 'thread');
+    gutters();
+  });
   it('fills the window with a 16 px gutter on every side, at two heights, with the box always in view', () => {
     cy.signIn('Ed');
     [700, 1100].forEach((h) => {
@@ -555,6 +572,58 @@ describe('chat: messages drawn as rows (#1232)', () => {
       expect($c[0].getBoundingClientRect().right, 'the block is inside the window').to.be.at.most(400);
     });
     cy.tid('chat-code').find('pre').should(($p) => expect($p[0].scrollWidth, 'the pre scrolls sideways').to.be.greaterThan($p[0].clientWidth));
+  });
+
+  it('anchors a short thread to the bottom, just above the message box, and grows it upward', () => {
+    cy.viewport(1440, 1100);
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('.ch-body').should(($b) => {
+      const body = $b[0].getBoundingClientRect();
+      const last = $b[0].querySelector('li.ch-msg:last-of-type').getBoundingClientRect();
+      const first = $b[0].querySelector('li.ch-msg').getBoundingClientRect();
+      expect(body.bottom - last.bottom, 'the newest message ends within the body padding').to.be.within(0, 16);
+      expect(first.top - body.top, 'the room left over is above the thread').to.be.greaterThan(100);
+    });
+    cy.get('.ch-composer textarea').should('be.visible');
+  });
+
+  it('empty thread: the introduction sits at the bottom, just above the message box', () => {
+    cy.viewport(1440, 1100);
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow(GROUP).find('button.ch-row').click();
+    cy.tid('chat-intro').should(($i) => {
+      const body = $i.closest('.ch-body')[0].getBoundingClientRect();
+      const intro = $i[0].getBoundingClientRect();
+      expect(body.bottom - intro.bottom, 'the introduction ends within the body padding').to.be.within(0, 16);
+      expect(intro.top - body.top, 'the room left over is above it').to.be.greaterThan(100);
+    });
+  });
+
+  it('is one tab stop; the arrow keys, Home and End move between messages', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('li.ch-msg[tabindex=0]').should('have.length', 1);
+    cy.get('li.ch-msg[tabindex="-1"]').should('have.length', 3);
+    const at = (i) => cy.tid('chat-message').eq(i).should('have.focus').and('have.attr', 'tabindex', '0');
+    cy.tid('chat-message').eq(0).focus();
+    at(0);
+    cy.focused().type('{downarrow}');
+    at(1);
+    cy.focused().type('{downarrow}{downarrow}{downarrow}');
+    at(3);
+    cy.focused().type('{uparrow}');
+    at(2);
+    cy.focused().type('{home}');
+    at(0);
+    cy.focused().type('{uparrow}');
+    at(0);
+    cy.focused().type('{end}');
+    at(3);
+    cy.get('li.ch-msg[tabindex=0]').should('have.length', 1);
   });
 
   it('is a polite log of additions once it has settled', () => {

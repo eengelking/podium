@@ -16,7 +16,7 @@ Create these. Split further only if a file passes about 250 lines.
 - **People:** `People` (`Monogram`, `PeopleCluster`, `Band`, `OwnerLine`).
 - **Orchestrator page:** `FocusView` (with `FocusHeader`, `MiniCharts`, `FactsBar`, `BlowoutCallout`,
   `PlanPanel`, `AgentTree`, `AgentRow`).
-- **Chat and the people pages:** `Chat` (with `ChatSidebar`, `ChatThread`, `ChatComposer`, `ChatMenu`, `ChatForms`, `ChatRules`, `ChatAdmin`), `MyReporters`, `MyUsage`, `PeerRights`, `PeerLimits`, `TrafficMap` (the retired Traffic page's code, kept until 1.9).
+- **Chat and the people pages:** `Chat` (with `ChatSidebar`, `ChatThread`, `ChatComposer`, `ChatMembers` (the avatar stack and the members panel), `ChatAvatar` (the agent, person and you avatars and the overlapped pair), `ChatMenu` (rows and avatars), `ChatForms`, `ChatRules`, `ChatAdmin`), `MyReporters`, `MyUsage`, `PeerRights`, `PeerLimits`, `TrafficMap` (the retired Traffic page's code, kept until 1.9).
 - **History and Admin:** `HistoryView`; `AdminView` with one file per tab under `admin/` (`PeopleTab`, `GroupsTab`, `ReportersTab`, `SettingsTab`, `ReportingTab`, `CertificatesTab`, `LogTab`, `StoredActivityTab`, `SpendTab`, `ModelPricesTab` and the report pages `ToolsPage`, `SpendPage`, `TimePages`, `HarnessPage`, `DataPage`).
 - **Notices and reads:** `NoticeStack` (the wall notices), `SessionReadNotes` (the red notice an owner sees while an Admin reads their live Activity or Respond window), `SignIn` (the lock screen).
 - **Recording and replay:** `RecordPicker`, `RecordingLayer`, `ReplayPage`, with `replayItems.ts` and `replayReads.tsx`.

@@ -395,6 +395,14 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `ChatPage` | Channels, Direct Messages and a thread. In `frontend/src/fleet/Chat.tsx`. |
 | Console | `ChannelModal` | The New channel form, and a channel's description. In `frontend/src/fleet/components/ChatForms.tsx`. |
 | Console | `DirectModal` | The New direct message form. In `frontend/src/fleet/components/ChatForms.tsx`. |
+| Console | `ChatThread` | The messages as rows, the header with the members stack, and the live region. In `frontend/src/fleet/components/ChatThread.tsx`. |
+| Console | `ChatComposer` | The message box, one box with a tools row and a Send icon. In `frontend/src/fleet/components/ChatComposer.tsx`. |
+| Console | `ChatSidebar` | Channels, Direct Messages and people and agents under foldable titles with + buttons. In `frontend/src/fleet/components/ChatSidebar.tsx`. |
+| Console | `ChatAvatar` | A tile for an agent and a ring for a person, a button only where it opens a menu. In `frontend/src/fleet/components/ChatAvatar.tsx`. |
+| Console | `ChatMembersStack` | Up to four avatars and a count, the toggle for the members panel. In `frontend/src/fleet/components/ChatMembers.tsx`. |
+| Console | `ChatMembersPanel` | The thread's members, 20 at a time, with a filter. In `frontend/src/fleet/components/ChatMembers.tsx`. |
+| Console | `ChatMenu` | The menu on an avatar, a row or a channel, moved with the arrow keys. In `frontend/src/fleet/components/ChatMenu.tsx`. |
+| Console | `useRovingList` | One tab stop for the message list, moved with the arrow keys. In `frontend/src/fleet/useRovingList.ts`. |
 | Console | `useChatOverview` | Reads the overview again when the chat event moves, and keeps the records of deleted conversations (gone) even from a read a newer one replaced. In `frontend/src/fleet/useChat.ts`. |
 | Console | `useReadingPing` | An Admin's open ask, Activity, whole text or live feed posts a reading every 15 seconds. In `frontend/src/fleet/sessionReads.tsx`. |
 | Console | `SessionReadNotes` | The red notice and record lines the owner sees when an Admin reads their ask or Activity. In `frontend/src/fleet/components/SessionReadNotes.tsx`. |
