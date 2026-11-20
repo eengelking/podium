@@ -1195,7 +1195,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function own() { return $$('.ch-msg.own').filter(function (r) { return r.offsetParent !== null; }); }
   // Why a message cannot be edited or deleted, or '' when it can.
   function why(row) {
-    if (row.querySelector('.ed-del')) return 'This message was deleted, so there is nothing to change.';
+    if (row.querySelector('.ed-del')) return 'There is nothing left to change.';
     return row.querySelector('.ed-menu [aria-disabled]') ? 'Tester already has this message, so it can no longer be changed.' : '';
   }
   // The focused message is marked, and a screen reader hears it, its state and the keys that work on it.
@@ -1274,6 +1274,19 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   });
   // The editor: Enter saves, Shift+Enter adds a line, Escape cancels (below).
   $('#ed-ta').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); endEdit(true); } });
+  // The delete confirmation: Left and Right (or Up and Down) move between Cancel and Delete message, wrapping at the ends; Tab stays inside the
+  // dialog; Enter or Space presses the focused button, as for any button. Escape closes it (below).
+  $('#m-del').addEventListener('keydown', function (e) {
+    var acts = $$('.acts button', this), all = [$('.mh .x', this)].concat(acts), i = acts.indexOf(document.activeElement);
+    if (['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].indexOf(e.key) >= 0) {
+      e.preventDefault(); e.stopPropagation();
+      var back = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+      acts[(Math.max(i, 0) + (back ? acts.length - 1 : 1)) % acts.length].focus();
+    } else if (e.key === 'Tab') {
+      var j = all.indexOf(document.activeElement), n = all.length;
+      e.preventDefault(); all[(j + (e.shiftKey ? n - 1 : 1)) % n].focus();
+    }
+  });
   // On a focused message of your own: Up and Down move between your messages, E edits, Delete (Backspace on a Mac) deletes, Enter or the
   // ContextMenu key opens its menu, Escape returns to the composer. A message that cannot change ignores the key and says why.
   document.addEventListener('keydown', function (e) {
