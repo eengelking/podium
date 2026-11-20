@@ -1,6 +1,7 @@
 // scripts/e2e-fast.mjs (#1249): how the shard count is chosen (the cap, the CPUs, the memory, the one-shard fallback, the override),
 // how the arguments are read, and that main hands e2e-all.sh the database and the count. No container starts.
 import { describe, expect, it } from "vitest";
+import { kinds } from "./db-adapters.mjs";
 import { chooseShards, GB_PER_RUN, main, MAX_SHARDS, parseArgs, readMachine } from "./e2e-fast.mjs";
 
 describe("chooseShards", () => {
@@ -87,7 +88,7 @@ describe("parseArgs", () => {
   it("refuses a well-formed kind that is not registered, naming it and the registered kinds", () => {
     const e = parseArgs(["--db", "sqlite mysql"], {}).error;
     expect(e).toContain('unknown database kind "mysql"');
-    expect(e).toContain("registered: sqlite, postgres, mariadb");
+    expect(e).toContain(`registered: ${kinds("e2e").join(", ")}`);
     expect(parseArgs([], { E2E_DB: "oracle" }).error).toContain('"oracle"');
     expect(parseArgs(["--db", "mysql"], {}, ["sqlite", "mysql"])).toMatchObject({ dbs: ["mysql"] });
   });
