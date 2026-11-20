@@ -409,7 +409,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
    reactions and reply in the hover bar, edit history, undo. Changed: a locked message keeps its menu items, disabled and explained, and the
    deleted row says who and when.
    New classes (to be added to the standards with the change): ed-box, ed-del, ed-edited, ed-kbd, ed-said. Colors are tokens. Example data only. */
-.podium .ch-msg .ed-menu { position: fixed; right: auto; bottom: auto; z-index: 30; min-width: 220px; }
+/* The menu sits inside the message row, which sets 15px text; it is the same menu as the sidebar's, so it takes the sidebar menu's type (13px). */
+.podium .ch-msg .ed-menu { position: fixed; right: auto; bottom: auto; z-index: 30; min-width: 220px; font-size: 13px; line-height: 1.4; font-weight: 400; }
 .podium .ch-msg .ed-menu[hidden] { display: none; }
 .ch-msg.own.menu-open { background: var(--hover); }
 .ch-menu .ed-kbd { margin-left: auto; padding-left: 14px; font: 11px var(--font-mono); color: var(--muted); }
