@@ -129,6 +129,14 @@ describe('scrub of common secret shapes (#155)', () => {
     }
   });
 
+  it('reads a long run of closing marks in linear time (#1271)', () => {
+    const start = process.cpuUsage();
+    const out = scrubStored(`password=${'.'.repeat(3000)}x ${'`'.repeat(3000)}`, [], true);
+    const ms = (process.cpuUsage(start).user + process.cpuUsage(start).system) / 1000;
+    expect(out).toBe(`password=[redacted] ${'`'.repeat(3000)}`);
+    expect(ms).toBeLessThan(2000);
+  });
+
   it('still redacts a numeric value that ends in a full stop (#1271)', () => {
     expect(scrub('my password=12345678.', [])).toBe('my password=[redacted].');
     expect(scrub('password=12345678', [])).toBe('password=12345678');
