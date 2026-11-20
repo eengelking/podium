@@ -103,8 +103,8 @@ const PASSES: readonly Pass[] = [
       // An unquoted value runs to a space or one of `&,;"'}])`, so it can take the backtick or full stop that closes the sentence or
       // span it sits in. Those end the value, they are not part of it, and stay in the text (#1271).
       const tail = m[3][0] === '"' || m[3][0] === "'" ? '' : (UNQUOTED_TAIL.exec(m[3])?.[0] ?? '');
-      const value = m[3].slice(0, m[3].length - tail.length);
-      const bare = value.replace(/^["']|["']$/g, '');
+      // Harmlessness is judged on the whole value as before, so `password=123456.` stays redacted (the full stop could be part of it).
+      const bare = m[3].replace(/^["']|["']$/g, '');
       return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}${tail}`;
     },
     quoteUnclosed,

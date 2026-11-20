@@ -129,6 +129,11 @@ describe('scrub of common secret shapes (#155)', () => {
     }
   });
 
+  it('still redacts a numeric value that ends in a full stop (#1271)', () => {
+    expect(scrub('my password=12345678.', [])).toBe('my password=[redacted].');
+    expect(scrub('password=12345678', [])).toBe('password=12345678');
+  });
+
   it('finds a secret assignment that straddles a window cut, at every offset (#1051)', () => {
     const cases = ['password= hunter2', 'password=hunter2', 'password = hunter2', '"token": "hunter2 and more"', 'api_key=hunter2hunter2'];
     for (const secret of cases) {
