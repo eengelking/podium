@@ -2,9 +2,9 @@
 // in it: they message one of their agents, or add to a conversation between two. A text goes to the agent as a message of the console (the existing
 // delivery and the reporter's consent), and the same text is stored here with who wrote it. This file never reads or writes a channel: the audience of a
 // table is the table, and `chatSeparation.test.ts` holds this file to it.
-import { MERGE_MS } from '../storage/peerText.js';
+import { isSentToAgent, mergesAsOne } from '../storage/peerEdit.js';
 import { nameKey } from '../storage/rows.js';
-import { isPersonKey, type ConversationSummary, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
+import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
@@ -92,6 +92,7 @@ interface DirectMessageView {
   from: { kind: 'agent' | 'person'; sessionId: string | null; name: string; machine: string };
   /** Who it went to: one agent, or both when the person added to a conversation between two. */
   to: { sessionId: string; name: string; machine: string; state: MessageState; why: string | null }[];
+  /** '' for a message its author deleted (#1269). */
   text: string;
   sentAt: number;
   state: MessageState;
@@ -102,41 +103,72 @@ interface DirectMessageView {
   /** The owner a person's message waits for, while it waits for approval (#1034). */
   waitingFor: string | null;
   approved: boolean;
+  /** When the author last changed the text (#1269); null for a message never edited. */
+  editedAt: number | null;
+  /** When the author deleted it (#1269); null for a message that stands. */
+  deletedAt: number | null;
+  /** Whether the viewer, who must be the author (by id, never by name), may edit or delete it now (#1269). A message to two agents is one message: sent to either, it is locked. */
+  canChange: boolean;
+  /** In words, why the author cannot change it now: it has been sent to an agent. Null when they can, when it is deleted and when the viewer is not its author. */
+  changeWhy: string | null;
 }
 
 const rank = (s: MessageState): number => (s === 'dropped' || s === 'declined' ? 3 : s === 'delivered' ? 0 : 1);
 
-/** A conversation's messages as the page shows them: a person's text that went to both agents of a conversation is shown once. */
-function directMessages(rows: MessageRow[]): DirectMessageView[] {
-  const out: DirectMessageView[] = [];
+/** The names of the agents a message was sent to, in words: `Tester`, `Tester and dev`. */
+const named = (names: string[]): string => (names.length <= 1 ? (names[0] ?? 'the agent') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+const lockedWords = (rows: MessageRow[]): string => `Podium has already sent this message to ${named([...new Set(rows.filter((r) => isSentToAgent(r.state)).map((r) => r.toName))])}, so it can no longer be changed.`;
+
+/** Whether the viewer may change the message these rows are (the rows of one message), and when not, why. The author is the person's id; the lock is the store's predicate over every row. */
+function changeOf(rows: MessageRow[], viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
+  const first = rows[0]!;
+  if (first.deletedAt !== null || viewer === null || viewer.personId === null || first.author !== 'person' || first.authorId === null || first.authorId !== viewer.personId) return { canChange: false, changeWhy: null };
+  return rows.some((r) => isSentToAgent(r.state)) ? { canChange: false, changeWhy: lockedWords(rows) } : { canChange: true, changeWhy: null };
+}
+
+/** A conversation's rows as the thread shows them, each message with the rows it is made of: a person's text that went to both agents of a conversation is one message. */
+function groupRows(rows: MessageRow[], viewer: ChatViewer | null): { view: DirectMessageView; rows: MessageRow[] }[] {
+  const out: { view: DirectMessageView; rows: MessageRow[] }[] = [];
   for (const m of rows) {
     const target = { sessionId: m.toSession, name: m.toName, machine: m.toMachine, state: m.state, why: m.why };
     const last = out.at(-1);
-    if (m.author === 'person' && last?.author === 'person' && last.text === m.text && Math.abs(m.sentAt - last.sentAt) <= MERGE_MS && last.from.name === m.fromName && !last.to.some((t) => t.sessionId === m.toSession)) {
-      last.to.push(target);
-      const worst = last.to.reduce((a, b) => (rank(b.state) > rank(a.state) ? b : a), last.to[0]!);
-      last.state = worst.state;
-      last.why = worst.why;
-      last.stateAt = Math.max(last.stateAt, m.stateAt);
+    if (last && mergesAsOne(last.rows[0]!, m) && !last.view.to.some((t) => t.sessionId === m.toSession)) {
+      last.rows.push(m);
+      last.view.to.push(target);
+      const worst = last.view.to.reduce((a, b) => (rank(b.state) > rank(a.state) ? b : a), last.view.to[0]!);
+      last.view.state = worst.state;
+      last.view.why = worst.why;
+      last.view.stateAt = Math.max(last.view.stateAt, m.stateAt);
       continue;
     }
     out.push({
-      id: m.id,
-      author: m.author,
-      from: m.author === 'person' ? { kind: 'person', sessionId: null, name: m.fromName, machine: '' } : { kind: 'agent', sessionId: m.fromSession, name: m.fromName, machine: m.fromMachine },
-      to: [target],
-      text: m.text,
-      sentAt: m.sentAt,
-      state: m.state,
-      stateAt: m.stateAt,
-      why: m.why,
-      reason: reasonOf(m),
-      waitingFor: m.state === 'approval' ? m.owner : null,
-      approved: m.approved,
+      rows: [m],
+      view: {
+        id: m.id,
+        author: m.author,
+        from: m.author === 'person' ? { kind: 'person', sessionId: null, name: m.fromName, machine: '' } : { kind: 'agent', sessionId: m.fromSession, name: m.fromName, machine: m.fromMachine },
+        to: [target],
+        text: m.text,
+        sentAt: m.sentAt,
+        state: m.state,
+        stateAt: m.stateAt,
+        why: m.why,
+        reason: reasonOf(m),
+        waitingFor: m.state === 'approval' ? m.owner : null,
+        approved: m.approved,
+        editedAt: m.editedAt,
+        deletedAt: m.deletedAt,
+        canChange: false,
+        changeWhy: null,
+      },
     });
   }
+  for (const g of out) Object.assign(g.view, changeOf(g.rows, viewer));
   return out;
 }
+
+/** A conversation's messages as the page shows them. */
+const directMessages = (rows: MessageRow[], viewer: ChatViewer | null): DirectMessageView[] => groupRows(rows, viewer).map((g) => g.view);
 
 /** A declined or dropped message's reason in words, for the person who wrote it. */
 function reasonOf(m: Pick<MessageRow, 'state' | 'why' | 'owner' | 'toName'>): string | null {
@@ -144,6 +176,7 @@ function reasonOf(m: Pick<MessageRow, 'state' | 'why' | 'owner' | 'toName'>): st
   if (m.state !== 'dropped' || !m.why) return null;
   if (m.why === 'receiver-ended') return `${m.toName} ended before it got the message.`;
   if (m.why === 'link-removed') return `${m.owner} removed the link.`;
+  if (m.why === 'deleted') return 'Deleted by its sender.';
   return `${PEER_DROP_WORDS[m.why] ?? m.why}.`.replace(/^./, (c) => c.toUpperCase());
 }
 
@@ -358,7 +391,7 @@ export class DirectChat {
     const adminReads = await this.reads.list(info.thread);
     // The records go to the person's own console here, so what is owed to them is seen (#1051).
     if (role !== 'admin') await this.reads.seen(info.thread, viewer.name);
-    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads, roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
+    return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages, viewer), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads, roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
   }
 
   /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners, in every live reporter session of each. */
@@ -463,7 +496,7 @@ export class DirectChat {
         errors.push({ sessionId: sid, name: o.name, status: sent.status, error: sent.error });
         continue;
       }
-      const row = await this.peers.sendFromPerson({ owner: viewer.name, person: viewer.name, toSession: sid, ...(other ? { withSession: other } : {}), text, state: 'queued' });
+      const row = await this.peers.sendFromPerson({ owner: viewer.name, person: viewer.name, toSession: sid, ...(other ? { withSession: other } : {}), text, state: 'queued', authorId: viewer.personId });
       if ('ok' in row) {
         this.core.host.respond.discard(sent.delivery.id, viewer.name, true);
         errors.push({ sessionId: sid, name: o.name, status: (row as Refusal).status, error: (row as Refusal).error });
@@ -479,7 +512,78 @@ export class DirectChat {
       return fail(first.status, first.error);
     }
     this.core.signal({ scope: 'dm', owner });
-    return { ok: true as const, message: directMessages(stored)[0]!, skipped, errors };
+    return { ok: true as const, message: directMessages(stored, viewer)[0]!, skipped, errors };
+  }
+
+  // ---- A person changes their own message (#1269) -------------------------------------------------------------------------
+
+  /** The conversation and the stored message a change is about, when the viewer is a person in that conversation and the message is one of its own; otherwise the refusal. */
+  private async changeScope(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ c: ConversationSummary; a: string; b: string; row: MessageRow } | Fail> {
+    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    const [a, b] = this.ids(viewer, rawA, rawB);
+    const c = await this.find(a, b);
+    const role = c ? this.role(viewer, c) : null;
+    if (!c || !role) return fail(404, 'There is no such conversation.');
+    // An Admin reads a conversation and stops it; a message is changed by its author, from their own part of it.
+    if (role === 'admin') return fail(403, 'An Admin can read a conversation but cannot change its messages.');
+    const row = id.length <= 64 ? await this.peers.message(id) : null;
+    // A message of another conversation is not found here, so the id says nothing of where it is.
+    if (!row || nameKey(row.owner) !== nameKey(c.owner) || dmThread(row.fromSession, row.toSession) !== dmThread(c.a.sessionId, c.b.sessionId)) return fail(404, 'There is no such message in this conversation.');
+    return { c, a, b, row };
+  }
+
+  /** The rows of the message `id` as the thread now shows it (a message to two agents is more than one), or null when the page does not hold it. */
+  private async rowsOf(c: ConversationSummary, a: string, b: string, id: string): Promise<MessageRow[] | null> {
+    try {
+      const page = await this.peers.page(c.owner, a, b, { limit: 100 });
+      return groupRows(page.messages, null).find((g) => g.rows.some((r) => r.id === id))?.rows ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async refused(why: Extract<PeerChange, { ok: false }>['reason'], scope: { c: ConversationSummary; a: string; b: string; row: MessageRow }): Promise<Fail> {
+    if (why === 'not-found') return fail(404, 'There is no such message in this conversation.');
+    if (why === 'not-yours') return fail(403, 'Only the person who wrote a message can change it.');
+    if (why === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
+    return fail(409, lockedWords((await this.rowsOf(scope.c, scope.a, scope.b, scope.row.id)) ?? [scope.row]), 'locked');
+  }
+
+  /** Tells the consoles of both people that a message changed, and the owner's count of what waits for them (a delete closes a request), and the Admin log: ids and where, never the text. */
+  private async changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, c: ConversationSummary, id: string): Promise<void> {
+    this.core.onEvent({ kind, scope: 'dm', channel: null, owner: nameKey(c.owner), by: viewer.actor, messageId: id });
+    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    if (person && nameKey(person.name) !== nameKey(c.owner)) await this.tell(person.name, c.owner);
+    else this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+  }
+
+  /** The message as a read returns it, now that it changed: every row it is made of, so a message to two agents answers with both. */
+  private async viewAfter(viewer: ChatViewer, scope: { c: ConversationSummary; a: string; b: string }, row: MessageRow): Promise<DirectMessageView> {
+    return directMessages((await this.rowsOf(scope.c, scope.a, scope.b, row.id)) ?? [row], viewer)[0]!;
+  }
+
+  /** The author edits their own message: the new text is checked and redacted as a new one is, and nothing is delivered. The store decides who may and whether it is locked. */
+  async editMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+    const scope = await this.changeScope(viewer, rawA, rawB, id);
+    if ('status' in scope) return scope;
+    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    // The same order as a new message: length, then the person's limit, then the scan for secrets.
+    const early = await this.early(viewer, body.text, true);
+    if (early) return early;
+    const out = await this.peers.editMessage(id, { author: viewer.personId as number, text: this.core.redact(body.text), now: this.core.host.now() });
+    if (!out.ok) return this.refused(out.reason, scope);
+    await this.changed('message_edited', viewer, scope.c, id);
+    return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
+  }
+
+  /** The author deletes their own message: a tombstone stays for both people, and a request that waited for its owner is closed. The store decides who may and whether it is locked. */
+  async deleteMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+    const scope = await this.changeScope(viewer, rawA, rawB, id);
+    if ('status' in scope) return scope;
+    const out = await this.peers.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
+    if (!out.ok) return this.refused(out.reason, scope);
+    await this.changed('message_deleted', viewer, scope.c, id);
+    return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
 
   // ---- A person writes to another person's agent (#1034) ------------------------------------------------------------
@@ -503,7 +607,7 @@ export class DirectChat {
     const refused = await this.acrossTarget(sessionId);
     if (refused) return refused;
     // The text comes in raw from a direct message (checked above first) and already redacted from a channel post.
-    const row = await this.peers.sendAcross({ person: viewer.name, toSession: sessionId, text: redact ? this.core.redact(text) : text });
+    const row = await this.peers.sendAcross({ person: viewer.name, toSession: sessionId, text: redact ? this.core.redact(text) : text, authorId: viewer.personId });
     if ('ok' in row) return fail(row.status, row.error);
     this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
     await this.tell(viewer.name, row.owner);
@@ -554,7 +658,7 @@ export class DirectChat {
     if (Array.isArray(body.to) && body.to.some((x) => x !== agentId)) return fail(400, 'to must name an agent of this conversation.');
     const out = await this.acrossRow(viewer, agentId, body.text, true, true);
     if ('status' in out) return out;
-    return { ok: true as const, message: directMessages([out.row])[0]!, skipped: [] as { sessionId: string; name: string; why: string }[], errors: [] as { sessionId: string; name: string; status: number; error: string }[] };
+    return { ok: true as const, message: directMessages([out.row], viewer)[0]!, skipped: [] as { sessionId: string; name: string; why: string }[], errors: [] as { sessionId: string; name: string; status: number; error: string }[] };
   }
 
   /**

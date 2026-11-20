@@ -45,6 +45,24 @@ export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
     res.status(202).json(out);
   }));
 
+  /** The author edits their own message: `{ text }`. `200 { ok, message }`, the message as a read returns it; refused with 404, 403, 409 (`locked`, `deleted`), 400, 422 or 429. */
+  browser.patch('/chat/dm/:a/:b/messages/:id', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const out = await direct().editMessage(v, req.params.a!, req.params.b!, req.params.id!, (req.body ?? {}) as Record<string, unknown>);
+    if ('status' in out) return void d.refuse(req, res, out);
+    res.json(out);
+  }));
+
+  /** The author deletes their own message; a tombstone stays, and a request that waited for its owner is closed. */
+  browser.delete('/chat/dm/:a/:b/messages/:id', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const out = await direct().deleteMessage(v, req.params.a!, req.params.b!, req.params.id!);
+    if ('status' in out) return void d.refuse(req, res, out);
+    res.json(out);
+  }));
+
   /** Pause, Resume or Remove the link of a conversation across owners (and the owner opening it again): either person of it, at any time. */
   browser.put('/chat/dm/:a/:b/link', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
