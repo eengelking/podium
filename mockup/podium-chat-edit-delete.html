@@ -625,8 +625,9 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
           <div class="ed-box" id="ed-box" hidden><div class="ch-box"><textarea id="ed-ta" rows="2" aria-label="Edit your message">@Tester also run the migration tests on MariaDB.</textarea>
             <div class="cr-tools"><span class="hint"><kbd>Enter</kbd> to save &middot; <kbd>Esc</kbd> to cancel</span><button type="button" class="btn sm" data-act="cancel-edit">Cancel</button><button type="button" class="btn pri sm" data-act="save-edit">Save</button></div></div></div>
           <div class="ch-st" id="ed-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for Tester to take it</span></div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-ed" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-ed" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
-        <li class="ch-msg mine cont own ed-gone" id="m-gone" tabindex="-1" hidden><span class="gut">9:44</span>
-          <div class="col"><div class="tx"><span class="ed-del" id="gone-tx"><svg aria-hidden="true"><use href="#m-trash"/></svg>This message was deleted by You at 9:44 AM.</span></div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-gone" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-gone" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+        <li class="ch-msg mine cont own" id="m-gone" tabindex="-1"><span class="gut">9:44</span>
+          <div class="col"><div class="tx">Never mind, I will restart the container myself.</div>
+          <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for Tester to take it</span></div></div><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-controls="mn-gone" aria-label="More for your message"><svg aria-hidden="true"><use href="#m-dots"/></svg></button><div class="ch-menu ed-menu" id="mn-gone" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
       </ul>
       <div class="cr-newline" role="separator"><span>New</span></div>
       <ul class="ch-msgs">
@@ -1187,23 +1188,34 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function openMenu(id) { closeMenus(); var m = $('#' + id); m.hidden = false; var b = m.parentNode.querySelector('.ch-more'); if (b) b.setAttribute('aria-expanded', 'true'); }
   function said(t) { $('#ed-said').hidden = !t; $('#ed-said-t').textContent = t || ''; $('#ed-live').textContent = t || ''; }
   function look(el) { el.scrollIntoView({ block: 'center' }); }
+  var target = null;
   function reset() {
-    closeMenus(); $('#m-del').hidden = true; $('#ed-box').hidden = true; $('#ed-tx').hidden = false; $('#ed-tx').innerHTML = TXT; $('#m-gone').hidden = true; said('');
+    closeMenus(); $('#m-del').hidden = true; $('#ed-box').hidden = true; $('#ed-tx').hidden = false; $('#ed-tx').innerHTML = TXT; said(''); target = null;
     $$('.ch-msg.sel').forEach(function (r) { r.classList.remove('sel'); });
+    $$('.ed-del').forEach(function (d) { d.remove(); });
+    $$('.ch-msg [data-gone]').forEach(function (c) { c.hidden = false; c.removeAttribute('data-gone'); });
+  }
+  // A deleted message keeps its row; its text and status are replaced by the trace.
+  function remove(row) {
+    var col = row.querySelector('.col');
+    $$('.tx, .ch-st, .ed-box', col).forEach(function (c) { c.setAttribute('data-gone', ''); c.hidden = true; });
+    var d = document.createElement('div'); d.className = 'ed-del';
+    d.innerHTML = '<svg aria-hidden="true"><use href="#m-trash"/></svg>This message was deleted by You at 9:44 AM.';
+    col.insertBefore(d, col.firstChild);
   }
   function conv() { return $('.ch-thread').getAttribute('aria-label') === 'My group' ? 'My group' : 'Tester'; }
   function forText() { return conv() === 'My group' ? 'It will be deleted for everyone in My group, and the agents there will not see it. This cannot be undone.' : 'It will be deleted for you and for Tester, and Tester will not see it. This cannot be undone.'; }
-  function ask() { closeMenus(); $('#del-for').textContent = forText(); $('#m-del').hidden = false; $('#del-cancel').focus(); }
+  function ask(row) { closeMenus(); target = row; $('#del-q').textContent = row.querySelector('.tx').textContent.trim(); $('#del-for').textContent = forText(); $('#m-del').hidden = false; $('#del-cancel').focus(); }
   function setState(st) {
     reset(); press(st);
-    if (st !== 'rest') look($('#m-ed'));
+    if (st !== 'rest') look(st === 'confirm' || st === 'done' ? $('#m-gone') : $('#m-ed'));
     if (st === 'menu') openMenu('mn-ed');
     if (st === 'locked') { look($('#m-lk')); openMenu('mn-lk'); }
-    if (st === 'confirm') ask();
+    if (st === 'confirm') ask($('#m-gone'));
     if (st === 'edit') { $('#ed-tx').hidden = true; $('#ed-box').hidden = false; $('#ed-ta').focus(); }
     if (st === 'done') {
       $('#ed-tx').innerHTML = '<span class="ch-mention">@Tester</span> also run the migration tests on MariaDB and PostgreSQL.<span class="ed-edited">edited 9:46 AM</span>';
-      $('#m-gone').hidden = false;
+      remove($('#m-gone'));
     }
     if (st === 'kbd') { $('#m-ed').classList.add('sel'); said('Your message, 9:41 AM: @Tester also run the migration tests on MariaDB. Waiting for Tester to take it. Press E to edit or Delete to delete.'); }
   }
@@ -1217,12 +1229,12 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     var a = e.target.closest('[data-act]');
     if (!a) { if (!e.target.closest('.ed-menu, .ch-more, .demo')) closeMenus(); return; }
     var k = a.dataset.act;
-    if (k === 'ask-delete') ask();
+    if (k === 'ask-delete') ask(a.closest('.ch-msg'));
     if (k === 'cancel-del') $('#m-del').hidden = true;
-    if (k === 'do-del') { $('#m-del').hidden = true; setState('done'); }
+    if (k === 'do-del') { $('#m-del').hidden = true; if (target) remove(target); target = null; }
     if (k === 'edit') setState('edit');
     if (k === 'cancel-edit') setState('rest');
-    if (k === 'save-edit') setState('done');
+    if (k === 'save-edit') { $('#ed-box').hidden = true; $('#ed-tx').hidden = false; $('#ed-tx').innerHTML = '<span class="ch-mention">@Tester</span> also run the migration tests on MariaDB and PostgreSQL.<span class="ed-edited">edited 9:46 AM</span>'; }
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (!$('#m-del').hidden) $('#m-del').hidden = true; closeMenus(); } });
 })();
