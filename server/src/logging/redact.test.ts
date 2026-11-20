@@ -112,6 +112,23 @@ describe('scrub of common secret shapes (#155)', () => {
     expect(scrubbed.split(' word').length).toBe(long.split(' word').length);
   });
 
+  it('replaces only the secret value and keeps the character that closes it (#1271)', () => {
+    const cases: [string, string][] = [
+      ['`password=abc123`', '`password=[redacted]`'],
+      ['"password=abc123"', '"password=[redacted]"'],
+      ["'password=abc123'", "'password=[redacted]'"],
+      ['(password=abc123)', '(password=[redacted])'],
+      ['[password=abc123]', '[password=[redacted]]'],
+      ['password=abc123, next', 'password=[redacted], next'],
+      ['it is password=abc123.', 'it is password=[redacted].'],
+      ['`"token": "abc123"`.', '`"token": [redacted]`.'],
+    ];
+    for (const [input, want] of cases) {
+      expect(scrub(input, []), input).toBe(want);
+      expect(scrubStored(input, [], true), `${input} stored`).toBe(want);
+    }
+  });
+
   it('finds a secret assignment that straddles a window cut, at every offset (#1051)', () => {
     const cases = ['password= hunter2', 'password=hunter2', 'password = hunter2', '"token": "hunter2 and more"', 'api_key=hunter2hunter2'];
     for (const secret of cases) {

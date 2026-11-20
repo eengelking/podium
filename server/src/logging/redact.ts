@@ -45,6 +45,9 @@ const SECRET_ASSIGNMENT = new RegExp(`${SECRET_HEAD}("(?:[^"\\\\]|\\\\.)*"|'[^']
 const SECRET_QUOTE_OPEN = new RegExp(`${SECRET_HEAD}(?=["'])`, 'gi');
 const QUOTED_VALUE = /"(?:[^"\\]|\\.)*"|'[^']*'/y;
 
+/** The closing marks an unquoted secret value may have taken with it: a backtick, or a full stop, `!`, `?` or `:` that ends a sentence (#1271). */
+const UNQUOTED_TAIL = /[`.!?:]+$/;
+
 /** URL userinfo: the `user:pass@` in `https://user:pass@host/`. */
 const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi;
 
@@ -97,8 +100,12 @@ const PASSES: readonly Pass[] = [
   [
     SECRET_ASSIGNMENT,
     (m) => {
-      const bare = m[3].replace(/^["']|["']$/g, '');
-      return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}`;
+      // An unquoted value runs to a space or one of `&,;"'}])`, so it can take the backtick or full stop that closes the sentence or
+      // span it sits in. Those end the value, they are not part of it, and stay in the text (#1271).
+      const tail = m[3][0] === '"' || m[3][0] === "'" ? '' : (UNQUOTED_TAIL.exec(m[3])?.[0] ?? '');
+      const value = m[3].slice(0, m[3].length - tail.length);
+      const bare = value.replace(/^["']|["']$/g, '');
+      return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}${tail}`;
     },
     quoteUnclosed,
   ],
