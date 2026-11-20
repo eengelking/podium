@@ -399,7 +399,9 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
    Menu      No button on the row. Right-click (or a long press on touch) anywhere on your own message opens the menu at the pointer; Enter, the
              ContextMenu key or Shift+F10 on the focused row opens it beside the message. Up, Down, Home and End move through its items, Enter
              chooses one, Escape closes it and returns to the row. It is the existing .ch-menu, placed with position: fixed and kept on screen.
-   Locked    Once an agent has been handed the message, both items stay and are aria-disabled, with the reason under them (.ch-menu .why).
+   Locked    Once Podium has sent the message to an agent (waiting for it, working on it or done), both items stay and are aria-disabled, with the
+             reason under them (.ch-menu .why). A message that was not sent to an agent (not delivered, held, awaiting approval, or no @ at all)
+             can still be edited or deleted.
    Delete    A confirmation (.scrim + .modal) that says who loses the message and that it cannot be undone. Cancel has focus first.
    Deleted   The row keeps its place: "This message was deleted by You at 9:44 AM." The text is gone from the server.
    Edit      The text becomes the composer box with Save and Cancel; a saved edit shows "edited 9:46 AM" after the text.
@@ -610,7 +612,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <li class="ch-msg mine first own" id="m-lk" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">9:05 AM</span><b>You</b></div>
           <div class="tx"><span class="ch-mention">@Tester</span> yes, run it on every adapter and report the counts.</div>
-          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-lk" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Tester already has this message, so it can no longer be changed.</p></div></li>
+          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-lk" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
         <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span>
           <div class="col"><div class="cr-who"><b>Tester</b><span class="cr-model sonnet"><i></i>Agent · Sonnet</span><span class="at">9:06 AM</span></div>
           <div class="tx">Started. SQLite passed: 312 of 312.</div></div></li>
@@ -620,19 +622,18 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <li class="ch-msg mine first own" id="m-b" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">9:24 AM</span><b>You</b></div>
           <div class="tx">Retry once, then send me the log if it fails again.</div>
-          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-b" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Tester already has this message, so it can no longer be changed.</p></div></li>
+          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-b" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
         <li class="ch-msg mine cont own" id="m-c" tabindex="-1"><span class="gut">9:25</span>
           <div class="col"><div class="tx">Keep the container up until I say.</div>
-          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-c" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Tester already has this message, so it can no longer be changed.</p></div></li>
+          <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for Tester to take it</span></div></div><div class="ch-menu ed-menu" id="mn-c" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
         <li class="ch-msg mine first own" id="m-ed" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
           <div class="col"><div class="cr-who"><span class="at">9:41 AM</span><b>You</b></div>
           <div class="tx" id="ed-tx"><span class="ch-mention">@Tester</span> also run the migration tests on MariaDB.</div>
           <div class="ed-box" id="ed-box" hidden><div class="ch-box"><textarea id="ed-ta" rows="2" aria-label="Edit your message">@Tester also run the migration tests on MariaDB.</textarea>
             <div class="cr-tools"><span class="hint"><kbd>Enter</kbd> to save &middot; <kbd>Esc</kbd> to cancel</span><button type="button" class="btn sm" data-act="cancel-edit">Cancel</button><button type="button" class="btn pri sm" data-act="save-edit">Save</button></div></div></div>
-          <div class="ch-st" id="ed-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for Tester to take it</span></div></div><div class="ch-menu ed-menu" id="mn-ed" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+          <div class="ch-st" id="ed-st"><span class="s bad"><svg class="si" aria-hidden="true"><use href="#i-x"/></svg>Not delivered to Tester. Its reporter is not taking messages now.</span></div></div><div class="ch-menu ed-menu" id="mn-ed" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
         <li class="ch-msg mine cont own" id="m-gone" tabindex="-1"><span class="gut">9:44</span>
-          <div class="col"><div class="tx">Never mind, I will restart the container myself.</div>
-          <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for Tester to take it</span></div></div><div class="ch-menu ed-menu" id="mn-gone" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+          <div class="col"><div class="tx">Never mind, I will restart the container myself.</div></div><div class="ch-menu ed-menu" id="mn-gone" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
       </ul>
       <div class="cr-newline" role="separator"><span>New</span></div>
       <ul class="ch-msgs">
@@ -685,7 +686,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
       <div class="ch-flow-dm">
         <div class="ch-day">Today</div>
         <ul class="ch-msgs">
-          <li class="ch-msg mine first own" id="m-lk2" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span><div class="col"><div class="cr-who"><span class="at">9:05 AM</span><b>You</b></div><div class="tx">Run the e2e suite on every adapter and report the counts.</div><div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-lk2" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Tester already has this message, so it can no longer be changed.</p></div></li>
+          <li class="ch-msg mine first own" id="m-lk2" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span><div class="col"><div class="cr-who"><span class="at">9:05 AM</span><b>You</b></div><div class="tx">Run the e2e suite on every adapter and report the counts.</div><div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-lk2" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
           <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><div class="col"><div class="cr-who"><b>Tester</b><span class="cr-model sonnet"><i></i>Agent · Sonnet</span><span class="at">9:06 AM</span></div><div class="tx">Started. SQLite passed: 312 of 312.</div></div></li>
           <li class="ch-msg cont"><span class="gut">9:21</span><div class="col"><div class="tx">MariaDB failed 2 specs in <code>admin-people</code>. Retry, or stop here?</div><div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for your answer</span></div></div></li>
         </ul>
@@ -1192,7 +1193,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function closeMenus() { $$('.ed-menu').forEach(function (m) { m.hidden = true; }); $$('.ch-msg.menu-open').forEach(function (r) { r.classList.remove('menu-open'); }); }
   // The menu opens where the pointer is, kept inside the window, and takes focus so the keys work at once.
   function openMenu(row, x, y) {
-    closeMenus(); var m = row.querySelector('.ed-menu'); m.hidden = false; row.classList.add('menu-open');
+    closeMenus(); openedAt = Date.now(); var m = row.querySelector('.ed-menu'); m.hidden = false; row.classList.add('menu-open');
     var w = m.offsetWidth, h = m.offsetHeight;
     m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
     m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
@@ -1203,14 +1204,14 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function said(t) { $('#ed-said').hidden = !t; $('#ed-said-t').textContent = t || ''; $('#ed-live').textContent = t || ''; }
   function look(el) { el.scrollIntoView({ block: 'center' }); }
   var orig = {}; ['m-a', 'm-ed', 'm-gone', 'm-d'].forEach(function (id) { orig[id] = $('#' + id + ' .tx').innerHTML; });
-  var target = null, cur = null, editing = null;
+  var target = null, cur = null, editing = null, openedAt = 0;
   function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
   // Your messages that are on screen in the open conversation, oldest first.
   function own() { return $$('.ch-msg.own').filter(function (r) { return r.offsetParent !== null; }); }
   // Why a message cannot be edited or deleted, or '' when it can.
   function why(row) {
     if (row.querySelector('.ed-del')) return 'There is nothing left to change.';
-    return row.querySelector('.ed-menu [aria-disabled]') ? 'Tester already has this message, so it can no longer be changed.' : '';
+    return row.querySelector('.ed-menu [aria-disabled]') ? 'Podium has already sent this message to Tester, so it can no longer be changed.' : '';
   }
   // The focused message is marked, and a screen reader hears it, its state and the keys that work on it.
   function select(row, stay) {
@@ -1273,7 +1274,8 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     });
   });
   // The menu is placed with the pointer, so a scroll or a resize closes it.
-  document.addEventListener('scroll', closeMenus, true);
+  // (Not for the scroll that brought the message into view a moment before the menu opened.)
+  document.addEventListener('scroll', function () { if (Date.now() - openedAt > 400) closeMenus(); }, true);
   window.addEventListener('resize', closeMenus);
   document.addEventListener('click', function (e) {
     var a = e.target.closest('[data-act]');
