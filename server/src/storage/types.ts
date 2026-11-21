@@ -620,6 +620,30 @@ export interface Conversation {
   messages: number;
 }
 
+/** What became of a message handed to one agent of a conversation (#1282): `queued` until the agent takes it, then `delivered`, or `dropped` when it never will. */
+export type ConversationDeliveryState = 'queued' | 'delivered' | 'dropped';
+
+/** One member a message of a conversation went to or named (#1282). A message with no delivery was sent to everyone before this existed, and keeps no delivery line. */
+export interface ConversationDelivery {
+  kind: ConversationMemberKind;
+  /** The person's `people.id` as text, or the agent's session id. */
+  ref: string;
+  name: string;
+  /** True for a member the writer addressed with an @; false for one that took a message sent to everyone. */
+  named: boolean;
+  /** An agent's state; null for a person, who is told by the unread count. */
+  state: ConversationDeliveryState | null;
+  stateAt: number | null;
+}
+
+/** A member a new message is for, as the server decided it: an agent starts `queued`, a person has no state. */
+export interface ConversationTargetInput {
+  kind: ConversationMemberKind;
+  ref: string;
+  name: string;
+  named: boolean;
+}
+
 /** A message of a conversation. */
 export interface ConversationMessage {
   /** `cmg_`, the server's 8 hex digits of scope, then 24 hex digits. */
@@ -639,6 +663,8 @@ export interface ConversationMessage {
   deletedAt: number | null;
   /** When Podium handed it to an agent of the conversation, or null. A handed message can no longer be changed. */
   handedAt: number | null;
+  /** Who it went to or named (#1282), ordered by kind then name then ref; empty for a message written before deliveries were kept. */
+  deliveries: ConversationDelivery[];
 }
 
 export interface ConversationPostInput {
@@ -649,6 +675,8 @@ export interface ConversationPostInput {
   authorId?: number | null;
   text: string;
   replyTo?: string | null;
+  /** Who the message is for (#1282), stored with it in the same step. Each must be a member now, and not the author; a target that is not throws. Omitted or empty keeps none. */
+  targets?: ConversationTargetInput[];
 }
 
 export interface ConversationPage {
@@ -690,7 +718,9 @@ export interface ConversationsApi {
   deleteMessage(id: string, messageId: string, x: { author: number; now: number }): Promise<ConversationChange>;
   /** Podium handed the message to an agent: it can no longer be changed. Null when there is no such message. */
   markHanded(id: string, messageId: string, at: number): Promise<ConversationMessage | null>;
-  /** Deletes the conversation, its members and its messages. */
+  /** What became of the message for one agent it was handed to (#1282). A state only moves forward: `queued` to `delivered` or `dropped`, and a final one stays. Null when the message has no such delivery. */
+  setDelivery(id: string, messageId: string, member: { kind: ConversationMemberKind; ref: string }, state: ConversationDeliveryState, at: number): Promise<ConversationMessage | null>;
+  /** Deletes the conversation, its members, its messages and their deliveries. */
   remove(id: string): Promise<{ removed: boolean; messages: number }>;
   /** A person was deleted: they leave every conversation, and each one left with no person is deleted. Returns how many conversations were deleted. */
   removePerson(personId: number): Promise<number>;

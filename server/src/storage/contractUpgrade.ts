@@ -123,6 +123,8 @@ export interface LegacyChat {
   owed?: { person: string; thread: string; adminKey: string; startedAt: number }[];
   /** A flag by its scope as the older database named it (`group:ed`), with the value stored. */
   flags?: { scope: string; value: string }[];
+  /** A conversation of people and agents as a database made before who a message was for was kept (#1282) stores it: its members and its messages, and no deliveries. */
+  conversations?: { id: string; members: { kind: 'person' | 'agent'; ref: string; name: string }[]; messages: { id: string; authorKind: 'person' | 'agent'; authorRef: string; authorName: string; authorId: number | null; text: string; at: number }[] }[];
 }
 
 /** A daily row as an older database stores it, before the row was bound to its owner's id (#1284): named by the owner's name only. `person` is a person of that name the older database holds too (made once, however many rows name it), so the upgrade can match it. */
@@ -751,6 +753,30 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await chat.readState.list(42)).toEqual([]);
       expect(await chat.settings.flags(`group:${num}`)).toMatchObject({ paused: true });
       expect(await chat.settings.flags('group:42')).toMatchObject({ paused: false });
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('keeps every message of a conversation an older database holds, with no delivery, and takes who a later message is for beside them, when the database is upgraded (#1282)', async () => {
+    const CID = 'cnv_00000000_aaaaaaaaaaaaaaaaaaaaaaaa';
+    const s = await o.openUpgraded([], [], [], [], [], [], [], { people: ['ed'] }, {
+      conversations: [{
+        id: CID,
+        members: [{ kind: 'person', ref: '1', name: 'Ed' }, { kind: 'agent', ref: 'sess-tester', name: 'Tester' }, { kind: 'agent', ref: 'sess-notes', name: 'infra-notes' }],
+        messages: [
+          { id: 'cmg_00000000_000000000000000000000001', authorKind: 'person', authorRef: '1', authorName: 'Ed', authorId: 1, text: 'before', at: T0 },
+          { id: 'cmg_00000000_000000000000000000000002', authorKind: 'agent', authorRef: 'sess-tester', authorName: 'Tester', authorId: null, text: 'an answer', at: T0 + 1 },
+        ],
+      }],
+    });
+    try {
+      const c = s.chat({ now: () => T0 + 1000 }).conversations;
+      const old = await c.page(CID, { limit: 50 });
+      expect(old.messages.map((m) => [m.text, m.deliveries])).toEqual([['before', []], ['an answer', []]]);
+      const next = await c.post(CID, { authorKind: 'person', authorRef: '1', authorName: 'Ed', authorId: 1, text: 'after', targets: [{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true }] }, T0 + 10);
+      expect(next?.deliveries).toEqual([{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true, state: 'queued', stateAt: T0 + 10 }]);
+      expect((await c.page(CID, { limit: 50 })).messages.map((m) => [m.text, m.deliveries.length])).toEqual([['before', 0], ['an answer', 0], ['after', 1]]);
     } finally {
       await s.close();
     }

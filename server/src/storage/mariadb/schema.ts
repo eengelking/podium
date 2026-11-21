@@ -704,6 +704,18 @@ ALTER TABLE person_places_daily DROP PRIMARY KEY, ADD PRIMARY KEY (day, owner_id
 `),
     after: fillDailyOwnerIds,
   },
+  {
+    version: 29,
+    // Who a message of a conversation was for, and what became of it (#1282), as SQLite migration 53 keeps it: one row per member a message went to or named; `named` is 1 for a member the writer
+    // addressed with an @; `state` is an agent's `queued`, `delivered` or `dropped` and NULL for a person. A message with no row was sent to everyone and keeps no delivery line. The statement can run
+    // twice, so a step that stopped half way runs again and adds nothing twice.
+    statements: steps(`
+CREATE TABLE IF NOT EXISTS conversation_deliveries (
+  conversation_id K(64) NOT NULL, message_id K(64) NOT NULL, member_kind K(16) NOT NULL, member_ref K(255) NOT NULL, member_name TXT NOT NULL, named INT NOT NULL, state TXT, state_at INT,
+  PRIMARY KEY (conversation_id, message_id, member_kind, member_ref)
+) TABLE_OPTIONS;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

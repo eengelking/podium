@@ -271,7 +271,7 @@ function fakeChat(w: Fake = world()) {
       const info: ConversationInfo = {
         id: `cnv_${(w.overview.conversations ?? []).length + 1}`,
         thread: "",
-        members: [{ kind: "person", name: "Ed", you: true, addedBy: null }, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : m.sessionId, you: false, addedBy: "Ed" }))],
+        members: [{ kind: "person", name: "Ed", you: true, addedBy: null, address: "Ed@console", sessionId: null }, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : m.sessionId, you: false, addedBy: "Ed", address: m.kind === "person" ? `${m.name}@console` : `${m.sessionId}@ed-mbp`, sessionId: m.kind === "agent" ? m.sessionId : null }))],
         hasAgent: members.some((m) => m.kind === "agent"),
         unread: 0,
         mentions: 0,
@@ -281,12 +281,12 @@ function fakeChat(w: Fake = world()) {
       };
       info.thread = `convo:${info.id}`;
       w.overview.conversations = [info, ...(w.overview.conversations ?? [])];
-      w.convoMessages[info.id] = text ? [{ id: "k1", author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null }] : [];
+      w.convoMessages[info.id] = text ? [{ id: "k1", author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] }] : [];
       return { ok: true as const, created: true, conversation: info, skipped: [] as string[] };
     }),
     conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: w.convoMessages[id] ?? [], older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
     sendConversation: vi.fn(async (id: string, text: string) => {
-      const m: ConversationMessage = { id: `k${(w.convoMessages[id] ?? []).length + 1}`, author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null };
+      const m: ConversationMessage = { id: `k${(w.convoMessages[id] ?? []).length + 1}`, author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] };
       w.convoMessages[id] = [...(w.convoMessages[id] ?? []), m];
       return { ok: true as const, message: m, skipped: [] as string[] };
     }),
@@ -298,7 +298,7 @@ function fakeChat(w: Fake = world()) {
     }),
     addConversationMembers: vi.fn(async (id: string, members: ConversationMemberInput[]) => {
       const c = (w.overview.conversations ?? []).find((x) => x.id === id)!;
-      c.members = [...c.members, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : (w.targets ?? []).find((t) => t.sessionId === m.sessionId)?.name ?? m.sessionId, you: false, addedBy: "Ed" }))];
+      c.members = [...c.members, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : (w.targets ?? []).find((t) => t.sessionId === m.sessionId)?.name ?? m.sessionId, you: false, addedBy: "Ed", address: m.kind === "person" ? `${m.name}@console` : null, sessionId: m.kind === "agent" ? m.sessionId : null }))];
       c.hasAgent = c.members.some((m) => m.kind === "agent");
       return { ok: true as const, conversation: c };
     }),
@@ -4244,8 +4244,8 @@ describe("conversations of people and agents (#1278)", () => {
     id: "cnv_1",
     thread: "convo:cnv_1",
     members: [
-      { kind: "person", name: "Ed", you: true, addedBy: null },
-      { kind: "person", name: "Maya", you: false, addedBy: "Ed" },
+      { kind: "person", name: "Ed", you: true, addedBy: null, address: "Ed@console", sessionId: null },
+      { kind: "person", name: "Maya", you: false, addedBy: "Ed", address: "Maya@console", sessionId: null },
     ],
     hasAgent: false,
     unread: 2,
@@ -4265,6 +4265,7 @@ describe("conversations of people and agents (#1278)", () => {
     replyTo: null,
     canChange: you,
     changeWhy: null,
+    deliveries: [],
     ...over,
   });
   const withConvo = (info: ConversationInfo = convo(), messages: ConversationMessage[] = [cmessage("k1", "can you look at my PR?", false), cmessage("k2", "yes, after standup", true)]) => {
@@ -4311,13 +4312,67 @@ describe("conversations of people and agents (#1278)", () => {
     expect(within(screen.getByTestId("chat-conversation")).getByText("thanks")).toBeInTheDocument();
   });
 
-  it("says an Admin can read it, and names the agent, when an agent is in it", async () => {
-    const info = convo({ hasAgent: true, members: [...convo().members, { kind: "agent", name: "Tester", you: false, addedBy: "Ed" }] });
-    page({ chat: withConvo(info) });
+  const agent = (name: string, machine = "ed-mbp") => ({ kind: "agent" as const, name, you: false, addedBy: "Ed", address: `${name}@${machine}`, sessionId: `s-${name}` });
+  const withAgents = () => convo({ hasAgent: true, members: [...convo().members, agent("Tester"), agent("infra-notes")] });
+  const openConvo = async (chat: ReturnType<typeof withConvo>) => {
+    page({ chat });
     await flush();
     fireEvent.click(rowBtn("v:cnv_1"));
     await flush();
-    expect(screen.getByTestId("chat-conversation-privacy")).toHaveTextContent("Tester is an agent in this conversation, so an Admin can read it. Everyone in it is told when one does.");
+  };
+
+  it("says who is in it, and not what an Admin may do, when an agent is in it (#1282)", async () => {
+    await openConvo(withConvo(withAgents()));
+    expect(screen.getByTestId("chat-conversation-privacy")).toHaveTextContent("You, Maya and 2 agents.");
+    expect(screen.getByTestId("chat-conversation-privacy")).not.toHaveTextContent("Admin");
+  });
+
+  it("opens the @ list on the members of the conversation, and no one else (#1282)", async () => {
+    await openConvo(withConvo(withAgents()));
+    const box = screen.getByLabelText("Message Maya, Tester, infra-notes");
+    fireEvent.change(box, { target: { value: "Can @", selectionStart: 5 } });
+    const list = within(await screen.findByRole("listbox", { name: "People and agents" }));
+    expect(list.getAllByRole("option").map((o) => o.querySelector("b.h")?.textContent)).toEqual(["@Maya@console", "@Tester@ed-mbp", "@infra-notes@ed-mbp"]);
+    expect(list.queryByText(/@group/)).toBeNull();
+    expect(list.queryByText(/@everyone/)).toBeNull();
+  });
+
+  it("offers no @ list where no agent is in the conversation (#1282)", async () => {
+    await openConvo(withConvo());
+    expect(screen.queryByTestId("chat-tool-at")).toBeNull();
+  });
+
+  it("says who a message was for, and shows the delivery line for only the agents it was handed to (#1282)", async () => {
+    const msgs = [
+      cmessage("k1", "both of you: status?", true, { deliveries: [{ kind: "agent", name: "Tester", named: false, state: "delivered" }, { kind: "agent", name: "infra-notes", named: false, state: "delivered" }] }),
+      cmessage("k2", "@Tester@ed-mbp rerun it", true, { deliveries: [{ kind: "agent", name: "Tester", named: true, state: "delivered" }] }),
+      cmessage("k3", "@Maya@console look", true, { deliveries: [{ kind: "person", name: "Maya", named: true, state: null }] }),
+      cmessage("k4", "@infra-notes@ed-mbp add it", true, { deliveries: [{ kind: "agent", name: "infra-notes", named: true, state: "queued" }] }),
+    ];
+    await openConvo(withConvo(withAgents(), msgs));
+    const rows = screen.getAllByTestId("chat-message");
+    expect(within(rows[0]!).getByTestId("chat-for")).toHaveTextContent("For everyone in this conversation");
+    expect(within(rows[0]!).getByTestId("chat-delivery")).toHaveTextContent("Delivered to Tester and infra-notes");
+    expect(within(rows[1]!).getByTestId("chat-for")).toHaveTextContent("For Tester");
+    expect(within(rows[1]!).getByTestId("chat-delivery")).toHaveTextContent("Delivered to Tester");
+    expect(within(rows[1]!).getByTestId("chat-delivery")).not.toHaveTextContent("infra-notes");
+    expect(within(rows[2]!).getByTestId("chat-for")).toHaveTextContent("For Maya. No agent received it.");
+    expect(within(rows[2]!).queryByTestId("chat-delivery")).toBeNull();
+    expect(within(rows[3]!).getByTestId("chat-delivery")).toHaveTextContent("Waiting for infra-notes to take it");
+  });
+
+  it("shows the server's words for a refused @ and keeps what was typed (#1282)", async () => {
+    const chat = withConvo(withAgents());
+    chat.api.sendConversation = vi.fn(async () => {
+      throw new RespondError(422, { error: "docs-sweeper@ed-mbp is not in this conversation, so nothing was sent. Add it from Members, or remove the @." });
+    });
+    await openConvo(chat);
+    const box = screen.getByLabelText("Message Maya, Tester, infra-notes");
+    fireEvent.change(box, { target: { value: "@docs-sweeper@ed-mbp check the docs" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await flush();
+    expect(screen.getByRole("alert")).toHaveTextContent("docs-sweeper@ed-mbp is not in this conversation, so nothing was sent. Add it from Members, or remove the @.");
+    expect((screen.getByLabelText("Message Maya, Tester, infra-notes") as HTMLTextAreaElement).value).toBe("@docs-sweeper@ed-mbp check the docs");
   });
 
   it("adds people or agents from the members panel, in the same dialog, with no first message", async () => {

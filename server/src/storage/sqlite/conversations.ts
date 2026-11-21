@@ -1,14 +1,14 @@
-// The conversations of people and agents on SQLite (#1278, DECISIONS 74): `conversations`, `conversation_members` and `conversation_messages`. A fourth audience, in its own
+// The conversations of people and agents on SQLite (#1278, DECISIONS 74): `conversations`, `conversation_members`, `conversation_messages` and `conversation_deliveries` (#1282). A fourth audience, in its own
 // tables: nothing here reads or writes a channel's message or a `peer_messages` row, and the reverse (`separation.test.ts` holds the code to it). Each call is one step
 // under the lock, and one that writes more than one row is also one transaction, so a crash cannot leave half a conversation.
 import type { DatabaseSync } from 'node:sqlite';
 import type { AsyncLock } from '../lock.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, membersKey, newConversationId, newConversationMessageId, refuseConversationChange, toConversation, toConversationMessage,
-  type DbConversation, type DbConversationMessage, type DbMember,
+  DELIVERY_COLS, MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, checkTargets, firstDeliveryState, nextDeliveryState, membersKey, newConversationId, newConversationMessageId, refuseConversationChange, toConversation, toConversationMessage,
+  type DbConversation, type DbConversationMessage, type DbDelivery, type DbMember,
 } from '../conversationRows.js';
-import type { Conversation, ConversationChange, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationPage, ConversationPostInput, ConversationsApi } from '../types.js';
+import type { Conversation, ConversationChange, ConversationDeliveryState, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationPage, ConversationPostInput, ConversationsApi } from '../types.js';
 
 type MemberRef = { kind: ConversationMemberKind; ref: string };
 
@@ -125,13 +125,22 @@ class Conversations {
     const kind = checkAuthor(input.authorKind);
     if (!this.row(id)) return null;
     if (!this.current(id).some((m) => m.kind === kind && m.ref === input.authorRef)) return null;
+    const targets = checkTargets(input.targets, this.current(id), { kind, ref: input.authorRef });
     const mid = newConversationMessageId(this.scope());
-    this.db
-      .prepare(
-        `INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
-      )
-      .run(mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, at, input.replyTo ?? null);
+    this.tx(() => {
+      this.db
+        .prepare(
+          `INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
+        )
+        .run(mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, at, input.replyTo ?? null);
+      for (const t of targets) {
+        const state = firstDeliveryState(t.kind);
+        this.db
+          .prepare('INSERT INTO conversation_deliveries (conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, mid, t.kind, t.ref, t.name, t.named ? 1 : 0, state, state === null ? null : at);
+      }
+    });
     return this.message(id, mid);
   }
 
@@ -139,9 +148,17 @@ class Conversations {
     return this.db.prepare(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE id = ? AND conversation_id = ?`).get(messageId, id) as unknown as DbConversationMessage | undefined;
   }
 
+  private deliveriesOf(id: string, messageIds: string[]): DbDelivery[] {
+    if (!messageIds.length) return [];
+    const marks = messageIds.map(() => '?').join(', ');
+    return this.db
+      .prepare(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id IN (${marks}) ORDER BY message_id, member_kind, member_ref`)
+      .all(id, ...messageIds) as unknown as DbDelivery[];
+  }
+
   private message(id: string, messageId: string): ConversationMessage | null {
     const r = this.raw(id, messageId);
-    return r ? toConversationMessage(r) : null;
+    return r ? toConversationMessage(r, this.deliveriesOf(id, [messageId])) : null;
   }
 
   page(id: string, opts: { before?: string | null; limit: number }): ConversationPage {
@@ -156,7 +173,8 @@ class Conversations {
     ) as unknown as DbConversationMessage[];
     const kept = rows.slice(0, limit).reverse();
     const oldest = kept[0];
-    return { messages: kept.map(toConversationMessage), older: rows.length > limit && oldest ? encodeCursor(Number(oldest.created_at), Number(oldest.seq)) : null };
+    const deliveries = this.deliveriesOf(id, kept.map((r) => r.id));
+    return { messages: kept.map((r) => toConversationMessage(r, deliveries)), older: rows.length > limit && oldest ? encodeCursor(Number(oldest.created_at), Number(oldest.seq)) : null };
   }
 
   getMessage(id: string, messageId: string): ConversationMessage | null {
@@ -183,8 +201,17 @@ class Conversations {
     return this.message(id, messageId);
   }
 
-  /** Deletes the conversation, its members and its messages. Returns how many messages. */
+  setDelivery(id: string, messageId: string, member: MemberRef, state: ConversationDeliveryState, at: number): ConversationMessage | null {
+    const d = this.db.prepare(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?`).get(id, messageId, member.kind, member.ref) as unknown as DbDelivery | undefined;
+    if (!d) return null;
+    const next = nextDeliveryState(d.state, state);
+    if (next) this.db.prepare('UPDATE conversation_deliveries SET state = ?, state_at = ? WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?').run(next, at, id, messageId, member.kind, member.ref);
+    return this.message(id, messageId);
+  }
+
+  /** Deletes the conversation, its members, its messages and their deliveries. Returns how many messages. */
   private erase(id: string): number {
+    this.db.prepare('DELETE FROM conversation_deliveries WHERE conversation_id = ?').run(id);
     const n = Number(this.db.prepare('DELETE FROM conversation_messages WHERE conversation_id = ?').run(id).changes);
     this.db.prepare('DELETE FROM conversation_members WHERE conversation_id = ?').run(id);
     this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
@@ -202,7 +229,10 @@ class Conversations {
   }
 
   purge(olderThan: number): number {
-    return Number(this.db.prepare('DELETE FROM conversation_messages WHERE created_at < ?').run(olderThan).changes);
+    return this.tx(() => {
+      this.db.prepare('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE created_at < ?)').run(olderThan);
+      return Number(this.db.prepare('DELETE FROM conversation_messages WHERE created_at < ?').run(olderThan).changes);
+    });
   }
 }
 
@@ -221,6 +251,7 @@ export function removePersonOf(db: DatabaseSync, personId: number): number {
     const now = left.filter((m) => m.left_at == null);
     if (now.some((m) => m.member_kind === 'person')) db.prepare('UPDATE conversations SET members_key = ? WHERE id = ?').run(membersKey(now.map((m) => ({ kind: m.member_kind, ref: m.member_ref }))), id);
     else {
+      db.prepare('DELETE FROM conversation_deliveries WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM conversation_messages WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM conversation_members WHERE conversation_id = ?').run(id);
       db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
@@ -248,6 +279,7 @@ export function conversationsOver(db: DatabaseSync, lock: AsyncLock, scope: () =
     editMessage: (id, messageId, x) => step(() => c.editMessage(id, messageId, x)),
     deleteMessage: (id, messageId, x) => step(() => c.deleteMessage(id, messageId, x)),
     markHanded: (id, messageId, at) => step(() => c.markHanded(id, messageId, at)),
+    setDelivery: (id, messageId, member, state, at) => step(() => c.setDelivery(id, messageId, member, state, at)),
     remove: (id) => step(() => c.remove(id)),
     removePerson: (personId) => step(() => c.removePerson(personId)),
     purge: (olderThan) => step(() => c.purge(olderThan)),
