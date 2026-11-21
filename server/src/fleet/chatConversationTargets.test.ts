@@ -87,6 +87,27 @@ describe('resolving the @ of a Direct Message', () => {
     expect(ask('@Tester@ed-mbp go', [ED, TESTER, twin])).toMatchObject({ ok: false });
   });
 
+  it('reads the address of a member whose name has a space in it, as the @ list types it, and sends to no one else', () => {
+    const maya: TargetMember = { kind: 'person', ref: '2', name: 'Maya Kim', machine: null, agentId: null };
+    const reply: TargetMember = { kind: 'agent', ref: 'sess-reply', name: 'HELLO reply instruction', machine: 'ed-mbp', agentId: 9 };
+    const members = [ED, maya, reply, TESTER];
+    expect(ask('@HELLO reply instruction@ed-mbp go', members)).toEqual({ ok: true, targets: [{ kind: 'agent', ref: 'sess-reply', name: 'HELLO reply instruction', named: true }] });
+    expect(ask('@Maya Kim@console, can you check?', members)).toEqual({ ok: true, targets: [{ kind: 'person', ref: '2', name: 'Maya Kim', named: true }] });
+    expect(ask('@maya kim@console. thanks and @Tester@ed-mbp too', members)).toEqual({
+      ok: true,
+      targets: [
+        { kind: 'person', ref: '2', name: 'Maya Kim', named: true },
+        { kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true },
+      ],
+    });
+  });
+
+  it('does not read half of a spaced name as a member, or inside a longer word or an email', () => {
+    const maya: TargetMember = { kind: 'person', ref: '2', name: 'Maya Kim', machine: null, agentId: null };
+    expect(ask('mail x@Maya Kim@console please', [ED, maya])).toEqual({ ok: true, targets: null });
+    expect(ask('`@Maya Kim@console` is the address', [ED, maya])).toEqual({ ok: true, targets: null });
+  });
+
   it('finds an agent that has ended by its name, since the machine is no longer known', () => {
     const gone: TargetMember = { kind: 'agent', ref: 'sess-gone', name: 'Gone', machine: null, agentId: null };
     expect(ask('@Gone@ed-mbp hello', [ED, gone])).toEqual({ ok: true, targets: [{ kind: 'agent', ref: 'sess-gone', name: 'Gone', named: true }] });

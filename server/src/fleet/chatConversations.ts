@@ -368,7 +368,8 @@ export class ConversationChat {
       const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId);
       if (!out.ok) {
         skipped.push(`${m.name}: ${out.error}`);
-        await this.store.setDelivery(id, stored.id, m, 'dropped', this.core.host.now());
+        // The message is already stored and other agents may still be handed it, so a failure to record this one must not stop the loop or fail the send.
+        await this.store.setDelivery(id, stored.id, m, 'dropped', this.core.host.now()).catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
         continue;
       }
       this.core.watch(out.delivery.id, (o) => this.followed(id, stored.id, m, o));
@@ -400,6 +401,15 @@ export class ConversationChat {
     if (op === 'edit') {
       const t = await this.text(body.text);
       if (!t.ok) return t;
+      // Who a message is for is fixed when it is sent (#1282): an edit that names someone else, or no one, would leave the line under it describing the old text.
+      const was = await this.store.getMessage(id, messageId);
+      if (was) {
+        const now = resolveTargets(t.text, c.members.filter((m) => m.leftAt === null).map((m) => this.asTarget(m)), { kind: 'person', ref: String(viewer.personId) });
+        const key = (x: { kind: string; ref?: string; name: string }): string => `${x.kind}:${x.name}`;
+        const before = was.deliveries.filter((d) => d.named).map(key).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const after = now.ok ? (now.targets ?? []).map(key).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : null;
+        if (before.length && JSON.stringify(before) !== JSON.stringify(after)) return fail(422, 'An edit cannot change who a message is for. Delete it and write it again to address someone else.');
+      }
       const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, (await this.core.limits()).perMinute);
       if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
       out = await this.store.editMessage(id, messageId, { author: viewer.personId, text: t.text, now });

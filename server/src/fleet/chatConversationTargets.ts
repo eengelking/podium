@@ -50,7 +50,23 @@ function candidates(m: ParsedMention, members: TargetMember[]): TargetMember[] {
 export function resolveTargets(text: string, members: TargetMember[], author: { kind: ConversationMemberKind; ref: string }): TargetResult {
   const out: ConversationTargetInput[] = [];
   const seen = new Set<string>();
-  for (const m of parseMentions(scrub(text))) {
+  // A name with a space in it (a person called Maya Kim, a session titled by its model) cannot be read by the word-by-word reading below, and the @ list types it whole. So the whole address of
+  // such a member is looked for first, and taken out of the text, so a message that names one is never read as one for everyone.
+  let rest = scrub(text);
+  for (const x of members) {
+    if (x.kind === author.kind && x.ref === author.ref) continue;
+    const address = x.kind === 'person' ? `${x.name}@console` : x.machine === null ? null : `${x.name}@${x.machine}`;
+    if (address === null || /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$/.test(address)) continue;
+    const found = new RegExp(String.raw`(?<![\w.@-])@${address.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?![\w@])`, 'gi');
+    if (!found.test(rest)) continue;
+    rest = rest.replaceAll(found, ' ');
+    const key = `${x.kind}:${x.ref}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ kind: x.kind, ref: x.ref, name: x.name, named: true });
+    }
+  }
+  for (const m of parseMentions(rest)) {
     if (m.kind === 'group' || m.kind === 'everyone') return { ok: false, error: '@group and @everyone are not available in a Direct Message, so nothing was sent. Address a member as name@location, or remove the @.' };
     const hits = candidates(m, members).filter((x) => !(x.kind === author.kind && x.ref === author.ref));
     if (hits.length === 0) {

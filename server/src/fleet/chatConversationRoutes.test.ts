@@ -279,4 +279,19 @@ describe('an @ in a conversation with two agents and a person', () => {
     expect((await SEND(samB, w.id, '@Tester@ci-runner-01 hi')).status).toBe(404);
     expect(await got(w, 'tester')).toEqual([]);
   });
+
+  it('lets a message that names a person be edited, but not to name someone else or no one, since who it is for is fixed when it is sent', async () => {
+    const w = await room();
+    const sent = await SEND(w.edB, w.id, '@Alex@console can you look?');
+    const mid = sent.body.message.id as string;
+    const EDIT = (text: string) => w.edB.patch(`${CH}/conversations/${w.id}/messages/${mid}`).set(H).send({ text });
+    expect((await EDIT('@Alex@console can you look at the PR?')).status).toBe(200);
+    const other = await EDIT('@Tester@ci-runner-01 run rm');
+    expect(other.status).toBe(422);
+    expect(other.body.error).toBe('An edit cannot change who a message is for. Delete it and write it again to address someone else.');
+    expect((await EDIT('can you look?')).status).toBe(422);
+    const read = await page(w.edB, w.id);
+    expect(read.body.messages[0]).toMatchObject({ text: '@Alex@console can you look at the PR?', deliveries: [{ name: 'Alex', named: true }] });
+    expect(await got(w, 'tester')).toEqual([]);
+  });
 });
