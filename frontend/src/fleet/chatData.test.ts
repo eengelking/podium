@@ -1,5 +1,6 @@
 // Chat's words and small rules (#1034): the tags, the delivery lines, the `@` query and the message parts, without drawing.
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { RespondError } from "./respondApi";
 import {
   type AdminReadKind,
   addressMatches,
@@ -478,5 +479,46 @@ describe("the calls for public channels and the direct message picker (#1035)", 
     expect(last(f).url).toBe("/api/fleet/respond/chat/direct-targets");
     await chatApi.directTargets("doc s");
     expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/direct-targets?q=doc%20s", method: "GET" });
+  });
+});
+
+// ---- Editing and deleting one's own messages (#1269) ------------------------------------------------------------------------
+
+describe("the calls that edit and delete a message of one's own (#1269)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = (status = 200, body: unknown = { ok: true, message: { id: "m 1" } }) => {
+    const f = vi.fn(async () => ({ ok: status < 400, status, text: async () => JSON.stringify(body) }));
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
+  const last = (f: ReturnType<typeof stub>) => {
+    const [url, init] = f.mock.calls[f.mock.calls.length - 1] as unknown as [string, RequestInit];
+    return { url, method: init.method, body: init.body ? JSON.parse(init.body as string) : undefined, headers: init.headers as Record<string, string> };
+  };
+
+  it("edits and deletes a channel message by the channel and the message id, with the respond header", async () => {
+    const f = stub();
+    const r = await chatApi.editChannelMessage("a b", "m 1", "new words");
+    expect(r.message.id).toBe("m 1");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b/messages/m%201", method: "PATCH", body: { text: "new words" }, headers: { "X-Podium-Respond": "1" } });
+    await chatApi.deleteChannelMessage("group", "m 1");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/group/messages/m%201", method: "DELETE", body: undefined, headers: { "X-Podium-Respond": "1" } });
+  });
+
+  it("edits and deletes a Direct Message by its two ends and its id", async () => {
+    const f = stub();
+    await chatApi.editDmMessage("person:ed", "s-tester", "m 1", "x");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/dm/person%3Aed/s-tester/messages/m%201", method: "PATCH", body: { text: "x" } });
+    await chatApi.deleteDmMessage("person:ed", "s-tester", "m 1");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/dm/person%3Aed/s-tester/messages/m%201", method: "DELETE" });
+  });
+
+  it("throws a refusal with its status, its words and its reason, for the page to show", async () => {
+    stub(409, { ok: false, error: "Podium has already sent this message to Tester, so it can no longer be changed.", reason: "locked" });
+    const err = await chatApi.editChannelMessage("group", "m1", "x").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RespondError);
+    expect(err).toMatchObject({ status: 409, message: "Podium has already sent this message to Tester, so it can no longer be changed.", body: { reason: "locked" } });
+    stub(422, { ok: false, error: "To change who is mentioned, delete this message and send a new one." });
+    await expect(chatApi.editDmMessage("a", "b", "m1", "x")).rejects.toMatchObject({ status: 422, message: "To change who is mentioned, delete this message and send a new one." });
   });
 });

@@ -134,14 +134,20 @@ export interface ThreadRead {
   loadingEarlier: boolean;
   loadEarlier: () => Promise<void>;
   reload: () => Promise<void>;
+  /** Puts a message as the server answered an edit or a delete in place of the one with its id, in whichever page holds it (#1269). A message not loaded is not added. */
+  patch: (m: ChannelMessage | DirectMessage) => void;
 }
 
 const fromChannel = (m: ChannelMessage): ThreadMessage => ({ id: m.id, at: m.createdAt, channel: m, direct: null });
 const fromDirect = (m: DirectMessage): ThreadMessage => ({ id: m.id, at: m.sentAt, channel: null, direct: m });
+const fromAny = (m: ChannelMessage | DirectMessage): ThreadMessage => ("authorKind" in m ? fromChannel(m) : fromDirect(m));
 
 /**
  * The newest page of the open thread, and the earlier pages the person asked for. A read after a signal replaces the newest
- * page and keeps the earlier ones, unless the thread now holds fewer messages than are shown (it was cleared or deleted).
+ * page and reads the earlier ones again, one request for each page kept, so an edit or a delete made in a page already shown (on another
+ * console) appears without a reload (#1269). The signal says that something changed and not what, so there is nothing smaller to read.
+ * The earlier pages go when the thread now holds fewer messages than are shown (it was cleared or deleted); a delete of one message
+ * leaves a row behind, so the total stays and it is not taken for a clear.
  */
 export function useThread(api: ChatApi, sel: Selection | null, rev: number, owner: string | null = null): ThreadRead {
   const [latest, setLatest] = useState<ThreadMessage[]>([]);
@@ -159,6 +165,9 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
   const cursor = useRef<string | null>(null);
   const kept = useRef(0);
   const latestLen = useRef(0);
+  // The earlier pages, for the read that follows a signal (state is stale inside it), and how many requests they took.
+  const earlierNow = useRef<ThreadMessage[]>([]);
+  const pagesKept = useRef(0);
 
   const readPage = useCallback(
     (before: string | null) => {
@@ -179,12 +188,44 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
       // Fewer messages than are shown means it was cleared or deleted: the earlier pages go.
       if (r.total < kept.current + latestLen.current) {
         setEarlier([]);
+        earlierNow.current = [];
         kept.current = 0;
+        pagesKept.current = 0;
+      }
+      // The earlier pages are read again from the new page's cursor back to the oldest message that was shown, so an edit or a delete in
+      // them lands, and a message that arrived does not push the oldest one off the end. A page that cannot be read leaves them as they were.
+      let again: { msgs: ThreadMessage[]; pages: number; cursor: string | null } | null = null;
+      if (kept.current > 0) {
+        const target = earlierNow.current[0]?.id;
+        let before = r.older;
+        const got: ThreadMessage[][] = [];
+        try {
+          for (let n = 0; n < pagesKept.current + 2 && before; n++) {
+            const pr = await readPage(before);
+            if (!gate.land(at)) return;
+            const page = pr.messages.map(fromAny);
+            got.unshift(page);
+            before = pr.older;
+            if (page.some((m) => m.id === target)) break;
+          }
+          again = { msgs: got.flat(), pages: got.length, cursor: before };
+        } catch {
+          again = null;
+        }
+      }
+      if (!gate.land(at)) return;
+      if (again) {
+        setEarlier(again.msgs);
+        earlierNow.current = again.msgs;
+        kept.current = again.msgs.length;
+        pagesKept.current = again.pages;
+        cursor.current = again.cursor;
+        setOlder(again.cursor);
       }
       latestLen.current = msgs.length;
       setLatest(msgs);
       setTotal(r.total);
-      // With earlier pages kept, the cursor stays the oldest of them; otherwise it is this page's.
+      // With no earlier pages kept, the cursor is this page's.
       if (kept.current === 0) {
         cursor.current = r.older;
         setOlder(r.older);
@@ -218,6 +259,8 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
       cursor.current = null;
       kept.current = 0;
       latestLen.current = 0;
+      earlierNow.current = [];
+      pagesKept.current = 0;
     }
     if (key === null) return;
     void reload();
@@ -235,7 +278,9 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
       cursor.current = r.older;
       setOlder(r.older);
       kept.current += msgs.length;
-      setEarlier((cur) => [...msgs, ...cur]);
+      pagesKept.current += 1;
+      earlierNow.current = [...msgs, ...earlierNow.current];
+      setEarlier(earlierNow.current);
       setError(null);
     } catch (err) {
       setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
@@ -243,9 +288,17 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
     setLoadingEarlier(false);
   }, [sel, readPage]);
 
+  const patch = useCallback((m: ChannelMessage | DirectMessage) => {
+    const next = fromAny(m);
+    const swap = (list: ThreadMessage[]) => (list.some((x) => x.id === m.id) ? list.map((x) => (x.id === m.id ? next : x)) : list);
+    setLatest(swap);
+    earlierNow.current = swap(earlierNow.current);
+    setEarlier(earlierNow.current);
+  }, []);
+
   const seen = new Set(latest.map((m) => m.id));
   const messages = [...earlier.filter((m) => !seen.has(m.id)), ...latest];
-  return { messages, total, older, head, reads, loaded, error, loadingEarlier, loadEarlier, reload };
+  return { messages, total, older, head, reads, loaded, error, loadingEarlier, loadEarlier, reload, patch };
 }
 
 /** What `@` can mean in a channel, read when the box first needs it and again each time it opens, so a new agent shows. */

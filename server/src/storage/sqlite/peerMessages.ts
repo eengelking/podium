@@ -31,6 +31,8 @@ import {
   type PersonMessageInput,
   type MessageTrail,
   type PeerListing,
+  type PeerChange,
+  type PeerMessageEdit,
   type PeerMessagesApi,
   type PeerRightsView,
   type Refusal,
@@ -38,6 +40,7 @@ import {
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
 import { nameKey } from '../rows.js';
+import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
 import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
 
@@ -65,6 +68,9 @@ interface DbMessage {
   why: string | null;
   approved: number;
   author: string;
+  author_id?: number | null;
+  edited_at?: number | null;
+  deleted_at?: number | null;
   hidden_at?: number | null;
   seq?: number;
 }
@@ -92,13 +98,17 @@ const toRow = (r: DbMessage): MessageRow => ({
   fromMachine: r.from_machine,
   toName: r.to_name,
   toMachine: r.to_machine,
-  text: r.text,
+  // A tombstone has no text, even if a write that should have emptied it went wrong.
+  text: r.deleted_at == null ? r.text : '',
   sentAt: r.sent_at,
   state: r.state as MessageState,
   stateAt: r.state_at,
   why: r.why as DropWhy | null,
   approved: r.approved === 1,
   author: r.author as MessageAuthor,
+  authorId: r.author_id == null ? null : Number(r.author_id),
+  editedAt: r.edited_at == null ? null : Number(r.edited_at),
+  deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
 });
 
 /** Why a held message was let go, as its sender's notice says it. `messaging-off` tells no one, so it has no words. */
@@ -385,7 +395,7 @@ export class PeerMessages implements PeerMessagesApi {
   deliveriesFor(sessionId: string, takes: boolean): PeerDelivery[] {
     const out: PeerDelivery[] = (this.notices.get(sessionId) ?? []).map((n) => ({ id: n.id, kind: 'notice', at: n.at, from: null, text: n.text }));
     const messages = takes
-      ? this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') ORDER BY sent_at, seq`, sessionId).filter(
+      ? this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') AND deleted_at IS NULL ORDER BY sent_at, seq`, sessionId).filter(
           (m) => !this.rights.effective(m.fromKey, m.toKey).paused,
         )
       : [];
@@ -489,7 +499,7 @@ export class PeerMessages implements PeerMessagesApi {
   conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): ConversationSummary[] {
     // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
     const all = this.rows(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
        FROM peer_messages ORDER BY sent_at, seq`,
     );
     const owner = filter.owner === undefined ? null : nameKey(filter.owner);
@@ -573,8 +583,7 @@ export class PeerMessages implements PeerMessagesApi {
     if (target.peers !== true) return refuse(403, `${target.name} is not taking part in orchestrator messaging. It needs the peers option on in podium-reporter on its machine.`);
     const limits = this.rights.limits(target.owner);
     if (clean.length > limits.maxChars) {
-      const n = (v: number): string => v.toLocaleString('en-US');
-      return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)}. Send a shorter one.`);
+      return refuse(422, overLimitWords(clean.length, limits.maxChars));
     }
     let fromSession = `person:${owner}`;
     let fromKey = '';
@@ -592,9 +601,9 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const now = this.now();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now);
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null);
     return this.row(id) as MessageRow;
   }
 
@@ -613,8 +622,7 @@ export class PeerMessages implements PeerMessagesApi {
     if (target.peers !== true || !this.onPersonReporter(target)) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
     const limits = this.rights.limits(target.owner);
     if (clean.length > limits.maxChars) {
-      const n = (v: number): string => v.toLocaleString('en-US');
-      return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)}. Send a shorter one.`);
+      return refuse(422, overLimitWords(clean.length, limits.maxChars));
     }
     const link = this.rights.personLink(personKey, target.reporterKey);
     if (link?.level === 'none') return refuse(403, `${target.owner} removed the link between you and ${target.name}, so Podium did not send the message. ${target.owner} can open it again.`);
@@ -631,9 +639,9 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const now = this.now();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person')`,
-    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now);
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null);
     if (state === 'approval') {
       this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
     }
@@ -656,6 +664,34 @@ export class PeerMessages implements PeerMessagesApi {
     return { messages: kept.map(toRow), older: newestFirst.length > limit && oldest ? encodeCursor(oldest.sent_at, oldest.seq as number) : null };
   }
 
+  /** The rows an author's change would touch, or why it is refused (#1269): the one asked for and every row the thread merges with it, decided on one read, in the step the caller holds. */
+  private changeOf(id: string, author: number): ReturnType<typeof decideChange> {
+    const row = this.row(id);
+    return decideChange(row, row ? this.conversation(row.fromSession, row.toSession) : [], author);
+  }
+
+  editMessage(id: string, x: PeerMessageEdit): PeerChange {
+    const change = this.changeOf(id, x.author);
+    if (!change.ok) return change;
+    // The owner's limit, as a send checks it, on the text as it is stored (#1269).
+    const clean = cleanPeerText(x.text);
+    const max = (this.rights.limits(change.group[0]!.owner)).maxChars;
+    if (clean.length > max) return { ok: false as const, reason: 'too-long' as const, status: 422 as const, error: overLimitWords(clean.length, max) };
+    for (const m of change.group) this.stmt('UPDATE peer_messages SET text = ?, edited_at = ? WHERE id = ?').run(x.text, x.now, m.id);
+    return { ok: true, message: this.row(id) as MessageRow };
+  }
+
+  deleteMessage(id: string, x: { author: number; now: number }): PeerChange {
+    const change = this.changeOf(id, x.author);
+    if (!change.ok) return change;
+    for (const m of change.group) {
+      this.stmt(`UPDATE peer_messages SET text = '', deleted_at = ? WHERE id = ?`).run(x.now, m.id);
+      // Never approved or handed over now: dropped, with its approval request closed.
+      if (m.state === 'approval' || m.state === 'ready') this.drop({ ...m, text: '', deletedAt: x.now }, 'deleted');
+    }
+    return { ok: true, message: this.row(id) as MessageRow };
+  }
+
   deleteConversation(owner: string, a: string, b: string): number {
     if (!this.ownsPair(owner, a, b)) return 0;
     for (const m of this.rows(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, a, b, b, a)) this.rights.closeMessageRequest(m.id, 'dropped');
@@ -664,7 +700,7 @@ export class PeerMessages implements PeerMessagesApi {
 
   conversationOf(a: string, b: string): ConversationSummary | null {
     // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
-    const rows = this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, a, b, b, a);
+    const rows = this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, a, b, b, a);
     return rows.length > 0 ? this.summary(rows) : null;
   }
 
@@ -677,7 +713,7 @@ export class PeerMessages implements PeerMessagesApi {
   ownerConversations(owner: string, opts: { includeHidden?: boolean; pairs?: string[] } = {}): OwnerConversation[] {
     if (opts.pairs && opts.pairs.length === 0) return [];
     const all = this.stmt(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, hidden_at
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
        FROM peer_messages ORDER BY sent_at, seq`,
     ).all() as unknown as DbMessage[];
     const only = opts.pairs ? new Set(opts.pairs) : null;

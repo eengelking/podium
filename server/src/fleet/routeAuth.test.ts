@@ -32,7 +32,7 @@ type Write = { file: string; line: number; method: string; route: string; gate: 
 
 const WRITE = new Set(['post', 'put', 'patch', 'delete']);
 const TOKEN_GATES = new Set(['requireToken', 'authenticate']);
-const VIEWER_GATE = /\b(?:viewer|viewerOf|owner|target|access|browserSession)\(/;
+const VIEWER_GATE = /\b(?:viewer|viewerOf|owner|target|changeTarget|access|browserSession)\(/;
 
 /** The name an argument ends in: `requireToken` and `d.requireToken` are both `requireToken`. */
 function nameOf(n: ts.Expression): string | null {

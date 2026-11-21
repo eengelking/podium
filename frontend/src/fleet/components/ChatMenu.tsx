@@ -6,7 +6,7 @@ import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, typ
 import { ChAt, ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
-export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "mention" | "open" | "edit" | "remove-channel";
+export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "mention" | "open" | "edit" | "remove-channel" | "edit-message" | "delete-message";
 
 interface MenuItem {
   act: MenuAct;
@@ -17,6 +17,10 @@ interface MenuItem {
   disabled?: string;
   /** An item that goes to a page is a link. */
   href?: string;
+  /** The key that does the same, drawn at the end of the item in the mono type (#1269). It is not read: the item's name is its words. */
+  hint?: string;
+  /** An item that cannot be used now and says why once, for all of them, in the menu's `why` (#1269): it stays, is `aria-disabled` and can take the focus. */
+  off?: boolean;
 }
 
 export interface MenuSpec {
@@ -24,6 +28,8 @@ export interface MenuSpec {
   items: MenuItem[];
   /** Words in place of items the viewer may not use. */
   why?: string;
+  /** A class for the menu beside `ch-menu`. */
+  cls?: string;
 }
 
 /**
@@ -123,6 +129,33 @@ export function personMenu(name: string, opts: SenderOpts = {}): MenuSpec {
   return { label, items };
 }
 
+/** A pencil, for Edit message: the sprite's `i-edit`. */
+const ChEdit = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <path d="M2.5 13.5h3l7-7a2 2 0 0 0-3-3l-7 7v3Z" />
+  </svg>
+);
+
+/**
+ * The menu on one of your own messages (#1269): Edit message and Delete message. A message that cannot change (Podium has already sent
+ * it to an agent) keeps both, disabled and focusable, with the reason under them, so the person learns why.
+ */
+export function messageMenu(m: { canChange?: boolean; changeWhy?: string | null }): MenuSpec {
+  const off = m.canChange !== true;
+  return {
+    label: "Your message",
+    cls: "ed-menu",
+    items: [
+      { act: "edit-message", label: "Edit message", icon: <ChEdit />, hint: "E", off },
+      { act: "delete-message", label: "Delete message", icon: <ChTrash />, hint: "Del", danger: true, off },
+    ],
+    ...(off && m.changeWhy ? { why: m.changeWhy } : {}),
+  };
+}
+
+/** How long after a menu opens a scroll leaves it open: the one that brought its message into view. */
+const SCROLL_GRACE_MS = 400;
+
 /** Where a menu opens when it is not a row's own: the pointer, or the bottom-left of what was focused. `from` gets the focus back on Escape. */
 export interface MenuAt {
   x: number;
@@ -132,7 +165,16 @@ export interface MenuAt {
   from?: HTMLElement | null;
 }
 
-export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void; onClose: (restoreFocus: boolean) => void; at?: MenuAt }) {
+export function ChatMenu(props: {
+  spec: MenuSpec;
+  onPick: (act: MenuAct) => void;
+  onClose: (restoreFocus: boolean) => void;
+  at?: MenuAt;
+  /** Called when an item that is `off` is chosen: the menu stays open (#1269). */
+  onBlocked?: (act: MenuAct) => void;
+  /** A menu placed at the pointer closes when the page scrolls or the window is resized, since it would no longer be where it opened. */
+  closeOnScroll?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   // A row's menu opens under the row and flips up when it would run past the bottom of the sidebar's scroll area.
@@ -158,6 +200,23 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
     const room = item.getBoundingClientRect().top - side.getBoundingClientRect().top >= el.getBoundingClientRect().height;
     setUp(below && room);
   }, []);
+  const close = useRef(props.onClose);
+  close.current = props.onClose;
+  const scrolls = props.closeOnScroll === true;
+  useEffect(() => {
+    if (!scrolls) return;
+    const opened = Date.now();
+    const onScroll = () => {
+      if (Date.now() - opened > SCROLL_GRACE_MS) close.current(false);
+    };
+    const onResize = () => close.current(false);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [scrolls]);
   const noteOnly = props.spec.items.length === 0;
   useEffect(() => {
     // A menu with no items is a note: it takes the focus itself so the keyboard can reach and close it.
@@ -197,7 +256,7 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
   }
   return (
     // The keys belong to the menu's own items, which take the focus.
-    <div className={`ch-menu${up ? " up" : ""}${props.at ? " at" : ""}`} style={place} role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
+    <div className={`ch-menu${props.spec.cls ? ` ${props.spec.cls}` : ""}${up ? " up" : ""}${props.at ? " at" : ""}`} style={place} role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
       {props.spec.items.map((it) =>
         it.href ? (
           <a key={it.act} role="menuitem" href={it.href} data-act={it.act} onClick={() => props.onClose(false)}>
@@ -205,12 +264,17 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
             {it.label}
           </a>
         ) : (
-          <button key={it.act} type="button" role="menuitem" data-act={it.act} className={it.danger ? "dng" : undefined} aria-disabled={it.disabled ? true : undefined} onClick={() => !it.disabled && props.onPick(it.act)}>
+          <button key={it.act} type="button" role="menuitem" data-act={it.act} className={it.danger ? "dng" : undefined} aria-disabled={it.disabled || it.off ? true : undefined} onClick={() => (it.off ? props.onBlocked?.(it.act) : !it.disabled && props.onPick(it.act))}>
             {it.icon}
             <span>
               {it.label}
               {it.disabled && <span className="sub">{it.disabled}</span>}
             </span>
+            {it.hint && (
+              <span className="ed-kbd" aria-hidden="true">
+                {it.hint}
+              </span>
+            )}
           </button>
         ),
       )}

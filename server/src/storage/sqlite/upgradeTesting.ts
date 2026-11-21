@@ -4,6 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDb } from './db.js';
+import { nameKey } from '../rows.js';
 import { openSqliteStorage } from './index.js';
 import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
@@ -38,7 +39,7 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
      VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
   );
-  for (const x of messages) insertMessage.run(x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq);
+  for (const x of messages.filter((m) => !m.written)) insertMessage.run(x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq);
   const insertRight = old.prepare('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, 0)');
   for (const x of rights) insertRight.run(x.fromKey, x.toKey, x.owner, x.level, Number(x.paused));
   old.close();
@@ -62,8 +63,30 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     const insertPublic = before.prepare(
       'INSERT INTO public_messages (id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
     );
-    for (const x of publicMessages) insertPublic.run(x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+    const insertGroup = before.prepare(
+      'INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)',
+    );
+    const insertPerson = before.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)');
+    for (const name of new Set(publicMessages.flatMap((x) => (x.person ? [x.person] : [])))) insertPerson.run(name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64));
+    for (const x of publicMessages) {
+      if (x.group) insertGroup.run(x.id, x.group.owner, x.group.groupId, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+      else insertPublic.run(x.id, x.authorKind, x.authorRef, x.authorName, x.text, x.createdAt, x.createdAt, x.mentionsJson, x.seq);
+    }
     before.close();
+  }
+  if (messages.some((m) => m.written)) {
+    // Rows that say who wrote them come from migration 31; migration 46 gave them an author's id, so they go in at the schema before it, with the people they will be matched to.
+    const late = openDb(file, 45);
+    const insertPerson = late.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)');
+    for (const name of new Set(messages.flatMap((x) => (x.written?.person ? [x.written.person] : [])))) {
+      if (!late.prepare('SELECT 1 FROM people WHERE name_lower = ?').get(nameKey(name))) insertPerson.run(name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64));
+    }
+    const insertWritten = late.prepare(
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+       VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, ?, 'box-a', 'beta', 'box-b', ?, ?, ?, ?, NULL, 0, 0, ?, ?)`,
+    );
+    for (const x of messages) if (x.written) insertWritten.run(x.id, x.owner, x.fromSession, x.toSession, x.written.fromName, x.text, x.sentAt, x.written.state, x.sentAt, x.seq, x.written.author);
+    late.close();
   }
   return { storage: openSqliteStorage(file, 0), dir };
 }

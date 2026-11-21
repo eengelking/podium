@@ -92,7 +92,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded; if recording fails the read fails. General is public and never is.
     const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
     const owners = await channels().ownersOf(got.page.messages);
-    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name, owners)), older: got.page.older, total: got.total, adminReads });
+    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v, owners)), older: got.page.older, total: got.total, adminReads });
   }));
 
   /** An Admin's open group pings this every 15 seconds so its person keeps seeing that it is being read. Answers only `ok`. */
@@ -116,7 +116,47 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     if (!t) return;
     const out = await channels().post(t.v, t.channel, t.owner, (req.body ?? {}) as Record<string, unknown>);
     if (!out.ok) return void d.refuse(req, res, out);
-    res.status(201).json({ ok: true, message: messageView(out.message, t.v.name, await channels().ownersOf([out.message])), warnings: out.warnings });
+    res.status(201).json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])), warnings: out.warnings });
+  }));
+
+  /** The viewer and the channel a change of one of their own messages is about (#1269), or an answer already sent. The admin secret has no messages, so it is refused before anything is read. */
+  const changeTarget = async (req: Request, res: Response): Promise<{ v: ChatViewer; channel: ChannelId; owner: string | null; id: string } | null> => {
+    const v = await d.viewer(req, res);
+    if (!v) return null;
+    if (v.personId === null) {
+      d.refuse(req, res, fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.'));
+      return null;
+    }
+    const channel = await channels().resolve(req.params.channel);
+    if (!channel) {
+      res.status(404).json({ ok: false, error: 'no such channel' });
+      return null;
+    }
+    // Only the person's own group, as for a post: an owner is never named here.
+    const scope = channels().scopeFor(v, channel, undefined);
+    if ('status' in scope) {
+      d.refuse(req, res, scope);
+      return null;
+    }
+    return { v, channel, owner: scope.owner, id: String(req.params.id) };
+  };
+
+  /** The author edits their own message: `{ text }`. `200 { ok, message }`, the message as a read returns it; refused with 404, 403, 409 (`locked`, `deleted`, `approval`), 400, 422 or 429. */
+  browser.patch('/chat/channels/:channel/messages/:id', asyncHandler(async (req, res) => {
+    const t = await changeTarget(req, res);
+    if (!t) return;
+    const out = await channels().editMessage(t.v, t.channel, t.owner, t.id, (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])) });
+  }));
+
+  /** The author deletes their own message; a tombstone stays. `DELETE .../messages` without an id is Remove all and stays as it was. */
+  browser.delete('/chat/channels/:channel/messages/:id', asyncHandler(async (req, res) => {
+    const t = await changeTarget(req, res);
+    if (!t) return;
+    const out = await channels().deleteMessage(t.v, t.channel, t.owner, t.id);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])) });
   }));
 
   browser.put('/chat/channels/:channel/pause', asyncHandler(async (req, res) => {

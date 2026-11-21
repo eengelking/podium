@@ -1,0 +1,1349 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Chat, edit and delete your own messages (#1269)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup: a redesign of the Chat page's thread, composer and members list. Round 1 (maintainer's feedback in the issue thread).
+   What changes, and why:
+     Height     The split fills the window: the page is a column (top bar, then a pad of 16px on all four sides), and only the
+                message list and the sidebar scroll. The fixed min-height 560, .ch-body max-height 520 and .ch-side max-height 720 go.
+     Messages   Flat rows (Slack), not bubbles. Your own messages sit on the right (Teams); everyone else, people and agents, on the left.
+                Runs of messages from one sender share one avatar, name and time. A day divider and a "New" line break the list.
+     Sender     Told apart at a glance by SHAPE first, then color, then a word: a person is a round avatar with initials; an agent is a
+                rounded-square tile in its model's color with a chip glyph and an "Agent" tag after the name; you are the round ink avatar.
+     Composer   One rounded box that grows with the text. The send button is an icon inside it (the one primary button, .btn.pri).
+     Members    An avatar stack plus a count in the thread header is the toggle for a right-hand panel: search, filter, People and Agents
+                groups, "Showing N of M". Collapsed by default.
+   Colors and fonts come from tokens.css through fleet.css; this file defines no tokens of its own. New classes (all would be added to the
+   standards with the change): ch-av (the avatar, with .person .agent .me), ch-msg (a message row, .mine, .cont), ch-day (day divider),
+   ch-new (the "New" line), ch-box (the composer box), ch-send, ch-stack (avatar stack), ch-mem (the members panel). Example data only. */
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui); }
+.demo { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible, .ch-split button:focus-visible, .ch-split input:focus-visible, .ch-split textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { box-sizing: border-box; flex: 1; min-height: 0; width: 100%; max-width: var(--stage, none); margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+.stage > .podium { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sprite { position: absolute; }
+.dm-t .ch-av { width: 28px; height: 28px; }
+.ch-mem .mh h3 .n { font-weight: 500; color: var(--muted); }
+
+/* The page: the same 16px on all four sides. */
+/* The page keeps the app's wrappers (.adminv > .apage > .apage-in). In the app .apage has 24px 32px 0 and .apage-in 32px at the bottom, and the
+   split has a 560px minimum, so the page scrolls and its bottom gutter shows only at the end. Here the chat fills the page and the same 16px
+   is on all four sides. */
+.podium .adminv .apage.cr-fill { padding: 16px; overflow: hidden; }
+.adminv .apage-in.cr-page { display: flex; gap: 0; padding: 0; align-content: normal; min-height: 0; }
+.cr-page .ch-split { flex: 1; min-width: 0; grid-template-rows: minmax(0, 1fr); min-height: 360px; max-height: none; position: relative; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); }
+.cr-page .ch-split.mem-open { grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr) 300px; }
+.cr-page .ch-side { max-height: none; padding: 4px 0 8px; background: var(--raised); }
+.cr-page .ch-thread { min-height: 0; }
+.cr-page .ch-body { max-height: none; padding: 0 0 8px; }
+
+/* Sidebar. Type is the current chat's (13px rows with an 11px muted line under the name; section titles in capitals). Sections are sticky,
+   collapsible and separated by a hairline. Every row has a ... button and a right-click menu, as it does today. */
+.ch-sec { padding: 0; border-top: 1px solid var(--grid); }
+.ch-sec:first-child { border-top: 0; }
+.ch-sec > h2 { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; margin: 0; padding: 4px 8px 0 8px; background: var(--raised); font-size: 12px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--ink2); }
+.ch-sec > h2.static { padding: 12px 20px 4px; }
+.ch-sec > h2 .cr-fold { flex: 1; display: flex; align-items: center; gap: 6px; min-height: 34px; margin: 0; padding: 0 6px; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
+.ch-sec > h2 .cr-fold:hover { background: var(--hover); }
+.ch-sec > h2 .cr-fold svg { width: 12px; height: 12px; flex: none; transition: transform .12s; }
+.ch-sec.shut > h2 .cr-fold svg { transform: rotate(-90deg); }
+.ch-sec.shut .ch-list { display: none; }
+.ch-sec > h2 .n { font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.podium .ch-sec > h2 .add { flex: none; align-self: center; width: 28px; height: 28px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.ch-sec > h2 .add:hover { background: var(--hover); }
+.ch-sec > h2 .add svg { width: 16px; height: 16px; }
+.ch-sec .ch-list { padding-bottom: 8px; }
+.ch-item { margin: 0 8px; border-radius: 6px; padding-right: 0; position: relative; }
+.ch-item.on { background: var(--sel); box-shadow: inset 3px 0 0 var(--sonnet); }
+.ch-item.on .ch-row .nm { font-weight: 650; }
+.ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 4px 6px 8px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
+.ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ch-row .nm .nm-own { font-weight: 400; color: var(--muted); }
+/* A conversation with two parties shows both, overlapped, like a group conversation in Slack: the other person first, then the agent. */
+.ch-row .ch-pair { position: relative; flex: none; width: 38px; height: 30px; }
+.ch-row .ch-pair .ch-av { position: absolute; width: 22px; height: 22px; font-size: 9px; --gap: 1px; }
+.ch-row .ch-pair .ch-av:first-child { left: 0; top: 0; z-index: 1; }
+/* admin.css puts a dot before every .tag; a row's tag already has an icon. */
+.ch-row .tag::before { display: none; }
+.ch-row .ch-pair .ch-av:last-child { right: 0; bottom: 0; box-shadow: 0 0 0 2px var(--raised); }
+.ch-row .ch-pair .ch-av.person:last-child { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--raised); }
+.ch-row .ch-pair .cr-st { display: none; }
+.ch-item.on .ch-pair .ch-av:last-child { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 8%, var(--raised)); }
+.ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-item.un .ch-row .nm { font-weight: 650; }
+.ch-row .unread { flex: none; min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 650; text-align: center; }
+.ch-row .ch-av { width: 28px; height: 28px; font-size: 10.5px; --gap: 1.5px; }
+.ch-row .ic-wrap { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
+.podium .ch-item .ch-more { flex: none; width: 28px; height: 28px; padding: 0; margin-right: 2px; color: var(--ink2); }
+.podium .ch-item .ch-more[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
+.ch-menu[hidden] { display: none; }
+.ch-menu.fixed { position: fixed; right: auto; top: auto; z-index: 30; }
+/* A sender's avatar in the thread (and in the members list) opens the same menu as the row in the sidebar. */
+.ch-av[aria-haspopup] { cursor: pointer; }
+.ch-av[aria-haspopup]:hover, .ch-av[aria-haspopup][aria-expanded="true"] { outline: 2px solid var(--axis); outline-offset: 2px; }
+.ch-av[aria-haspopup]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.ch-menu.up { top: auto; bottom: 100%; }
+.ch-menu svg { width: 14px; height: 14px; flex: none; }
+/* The Read as an Admin section (Admins only). */
+.ch-read { display: grid; gap: 6px; padding: 4px 20px 12px; }
+.ch-read label { font-size: 12px; color: var(--ink2); }
+.ch-read .rd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ch-read .rd-i { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: help; }
+.ch-read .rd-i svg { width: 16px; height: 16px; }
+.podium .ch-read select.field { width: 100%; min-width: 0; box-sizing: border-box; min-height: 30px; padding: 0 8px; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; color: var(--ink); font: inherit; }
+.ch-read .rd-on { display: contents; }
+.ch-read #stop-read { justify-self: start; }
+.ch-read .hint { margin: 0; max-width: none; font-size: 12px; color: var(--muted); }
+.cr-hint { margin: 0; padding: 8px 20px 12px; max-width: none; font-size: 12px; color: var(--muted); }
+/* What shows for whom: a person, an Admin, an Admin reading a person. */
+.stage:not(.is-admin) .a-only, .stage.is-admin .o-only { display: none; }
+.stage.is-admin:not(.is-reading) .grp-row, .stage.is-admin:not(.is-reading) .sec-dm, .stage.is-admin .sec-pe { display: none; }
+.stage:not(.is-admin) .hint-admin, .stage.is-reading .hint-admin { display: none; }
+.stage.is-reading .unread, .stage:not(.is-reading) .sub.ro, .stage.is-reading .sub.own, .stage:not(.is-reading) .rd-on { display: none; }
+.stage:not(.is-reading) .ch-nav.adm-ro { display: none; }
+.stage.is-reading .ch-nav.adm-ro { display: flex; }
+.stage.is-reading .ch-nav.ro.person { display: none; }
+.stage.is-reading .ch-box { opacity: .6; }
+.stage.is-reading .sec-dm .add { display: none; }
+.cr-blank { display: none; flex: 1; align-items: center; justify-content: center; padding: 40px 24px; text-align: center; color: var(--ink2); }
+.stage.is-admin:not(.is-reading) .cr-blank { display: flex; }
+.stage.is-admin:not(.is-reading) .cr-head, .stage.is-admin:not(.is-reading) .ch-nav.ro, .stage.is-admin:not(.is-reading) .ch-scroll, .stage.is-admin:not(.is-reading) .ch-composer { display: none; }
+
+/* The avatar. Shape says what the sender is; color says which model; a state mark says what it is doing. */
+.ch-av { position: relative; flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-weight: 650; font-size: 13px; letter-spacing: .01em; user-select: none; }
+.ch-av { --gap: 2px; }
+/* A person is never a hue (color means model and status, see People.tsx). So the person's avatar gets the agent tile's two-part look from
+   neutral tones: an outer ring, a thin gap, and a filled inner disc. You are the same disc turned inside out (ink fill, page-color letter). */
+.ch-av.person { border-radius: 50%; border: 1.5px solid var(--ink2); background: color-mix(in srgb, var(--ink) 14%, var(--surface)); color: var(--ink); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.ch-av.me { border-radius: 50%; border: 1.5px solid var(--ink); background: var(--ink); color: var(--bg); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.ch-av.agent { border-radius: 9px; border: 1.5px solid var(--m, var(--other)); background: color-mix(in srgb, var(--m, var(--other)) 20%, var(--surface)); color: var(--ink); }
+.ch-av.agent svg { width: 58%; height: 58%; }
+.ch-av.opus { --m: var(--opus); } .ch-av.sonnet { --m: var(--sonnet); } .ch-av.haiku { --m: var(--haiku); } .ch-av.fable { --m: var(--fable); }
+.ch-av .cr-st { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--surface); box-sizing: border-box; }
+.ch-av .cr-st svg { width: 100%; height: 100%; display: block; }
+.ch-row .ch-av .cr-st { width: 11px; height: 11px; right: -3px; bottom: -3px; padding: 0; }
+.st-run { color: var(--good-text); } .st-wait { color: var(--warn-text); } .st-done { color: var(--ink2); } .st-off { color: var(--muted); }
+
+/* Thread header. */
+.cr-head { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--grid); min-width: 0; }
+.cr-head .ch-back { display: none; }
+.cr-head .ttl { flex: 1; min-width: 0; }
+.cr-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 650; }
+.cr-head h2 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-head h2 svg { width: 16px; height: 16px; color: var(--ink2); flex: none; }
+.cr-head .sub { margin-top: 2px; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-stack { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px 4px 6px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--ink2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.ch-stack:hover, .ch-stack[aria-expanded="true"] { background: var(--sel); border-color: var(--axis); }
+.ch-stack .av { display: inline-flex; }
+.ch-stack .ch-av { width: 22px; height: 22px; font-size: 9px; border-width: 1.5px; margin-left: -6px; --gap: 1.5px; }
+.ch-stack .ch-av.person, .ch-stack .ch-av.me { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--surface); }
+.ch-stack .ch-av.agent { box-shadow: 0 0 0 2px var(--surface); }
+.ch-stack .ch-av:first-child { margin-left: 0; }
+.ch-stack .ch-av.agent { border-radius: 6px; }
+
+/* Message list. */
+.ch-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding-top: 4px; }
+.ch-day { display: flex; align-items: center; gap: 12px; margin: 20px 24px 6px; color: var(--ink2); font-size: 12.5px; font-weight: 600; }
+.ch-day::before, .ch-day::after { content: ""; flex: 1; height: 1px; background: var(--grid); }
+.cr-newline { display: flex; align-items: center; gap: 10px; margin: 12px 24px 0; color: var(--crit-text); font-size: 11.5px; font-weight: 650; }
+.cr-newline::before { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--crit-text) 55%, transparent); }
+.ch-msgs { list-style: none; margin: 0; padding: 0; }
+.ch-msg { display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 14px; padding: 2px 24px; position: relative; }
+.ch-msg:hover { background: var(--hover); }
+.ch-msg.first { padding-top: 26px; }
+.ch-msg .cr-who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+.ch-msg .cr-who { line-height: 22px; margin-bottom: 3px; }
+.ch-msg .cr-who b { font-weight: 650; font-size: 15px; color: var(--ink); }
+.ch-msg .cr-who .at { font-size: 12px; color: var(--muted); }
+.cr-model { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--m, var(--other)) 55%, transparent); border-radius: 4px; font-size: 11.5px; font-weight: 600; color: var(--ink2); line-height: 18px; }
+.cr-model i { width: 7px; height: 7px; border-radius: 2px; background: var(--m, var(--other)); }
+.cr-model.opus { --m: var(--opus); } .cr-model.sonnet { --m: var(--sonnet); } .cr-model.haiku { --m: var(--haiku); }
+.ch-msg .tx { font-size: 15px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ch-msg .tx code { display: inline-block; font-family: var(--font-mono); font-size: 13px; font-weight: 600; line-height: 1.4; padding: 0 6px; border-radius: 4px; color: var(--ink); background: light-dark(color-mix(in srgb, var(--ink) 11%, transparent), color-mix(in srgb, var(--bg) 55%, transparent)); }
+.ch-msg.cont { padding-top: 3px; padding-bottom: 3px; }
+.ch-msg.cont .gut { grid-column: 1; align-self: start; text-align: right; font-size: 11px; line-height: 23px; color: transparent; }
+.ch-msg.cont:hover .gut { color: var(--muted); }
+.ch-msg.cont .col { grid-column: 2; }
+/* Yours: on the right, avatar on the right, the block shrinks to its text. */
+.ch-msg.mine { grid-template-columns: minmax(0, 1fr) 40px; }
+.ch-msg.mine .col { grid-column: 1; grid-row: 1; justify-self: end; max-width: 90%; min-width: 0; }
+.ch-msg.mine .ch-av { grid-column: 2; grid-row: 1; }
+.ch-msg.mine .cr-who { justify-content: flex-end; }
+.ch-msg.mine .tx { background: var(--sel); border-radius: 10px; padding: 8px 12px; width: fit-content; margin-left: auto; }
+.stage.all .ch-msg .tx { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: 10px; background: var(--sel); }
+.stage.all .ch-msg.cont { padding-top: 4px; padding-bottom: 4px; }
+.stage.all .ch-msg.cont .gut { line-height: 36px; }
+.stage.all .ch-msg .cr-who { margin-bottom: 6px; }
+.stage.plain .ch-msg.mine .tx { background: transparent; padding: 0; text-align: right; }
+.ch-msg.mine.cont .col { grid-column: 1; }
+.ch-msg.mine.cont .gut { grid-column: 2; text-align: left; }
+.ch-msg .ch-st { margin-top: 4px; }
+.ch-msg.mine .ch-st { justify-content: flex-end; }
+.ch-st .s .si { width: 12px; height: 12px; }
+.ch-ask { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+
+/* Composer: one box, two lines tall like Mattermost's. The text is on top; the tools sit in a row under it (what you can add), and the
+   send button is at the far end (what you do). It is the one primary button, so it is muted until there is something to send. */
+.ch-composer { display: block; flex: none; padding: 8px 24px 16px; border-top: 0; }
+.cr-wrap { position: relative; }
+.ch-box { display: flex; flex-direction: column; border: 1px solid var(--axis); border-radius: 10px; background: var(--surface); box-shadow: 0 1px 2px var(--grid); transition: border-color .12s, box-shadow .12s; }
+.ch-box:hover { border-color: var(--muted); }
+.ch-box:focus-within { border-color: var(--sonnet); box-shadow: 0 0 0 1px var(--sonnet); }
+.ch-box textarea { display: block; width: 100%; box-sizing: border-box; min-height: 24px; max-height: 180px; resize: none; padding: 14px 18px 4px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 15px; line-height: 1.5; overflow-y: auto; }
+.ch-box textarea::placeholder { color: var(--muted); }
+.ch-box textarea:focus-visible { outline: none; }
+.ch-box .cr-tools { display: flex; align-items: center; gap: 4px; padding: 2px 8px 8px 10px; }
+.ch-box .cr-tool { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink2); cursor: pointer; }
+.ch-box .cr-tool:hover { background: var(--hover); color: var(--ink); }
+.ch-box .cr-tool[aria-pressed="true"] { background: var(--sel); color: var(--ink); }
+.ch-box .cr-tool svg { width: 18px; height: 18px; }
+.ch-box .sep { width: 1px; height: 18px; margin: 0 6px; background: var(--grid); }
+/* admin.css caps .hint at 66ch; the composer's hint has to grow so the send button ends at the box's right edge. */
+.adminv .ch-box .hint { max-width: none; }
+.ch-box .hint { flex: 1; min-width: 0; padding: 0 12px; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-box .hint kbd { font: inherit; font-weight: 600; color: var(--ink2); }
+.podium .btn.ch-send { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; }
+.ch-send svg { width: 18px; height: 18px; }
+.podium .btn.ch-send:disabled { background: var(--sel); color: var(--muted); border-color: transparent; cursor: not-allowed; }
+.cr-wrap .ch-ac { left: 0; right: auto; width: min(400px, 100%); bottom: calc(100% + 8px); padding: 6px; max-height: 340px; }
+.cr-wrap .ch-ac li { flex-wrap: nowrap; align-items: center; gap: 10px; padding: 6px 8px; }
+.cr-wrap .ch-ac .ch-av { width: 28px; height: 28px; font-size: 11px; --gap: 1.5px; }
+.cr-wrap .ch-ac .t { flex: 1; min-width: 0; display: grid; }
+.cr-wrap .ch-ac .t b { font-weight: 600; }
+.cr-wrap .ch-ac .t span { font-size: 11.5px; color: var(--muted); }
+.cr-wrap .ch-ac .t span.off { color: var(--warn-text); }
+.cr-wrap .ch-ac li[aria-disabled="true"] { cursor: not-allowed; }
+.cr-wrap .ch-ac li[aria-disabled="true"] .ch-av { opacity: .55; }
+.cr-wrap .ch-ac .ch-av.person svg { width: 55%; height: 55%; }
+.cr-wrap .ch-ac .stw { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink2); }
+.cr-wrap .ch-ac .stw svg { width: 12px; height: 12px; }
+.cr-wrap .ch-ac .ft { padding: 6px 8px 2px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--grid); margin-top: 4px; }
+
+/* Members panel. */
+.ch-mem { display: none; min-width: 0; flex-direction: column; border-left: 1px solid var(--grid); background: var(--surface); }
+.ch-split.mem-open .ch-mem { display: flex; }
+.ch-mem .mh { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--grid); }
+.ch-mem .mh h3 { flex: 1; margin: 0; font-size: 14px; font-weight: 650; }
+.ch-mem .cr-x { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.ch-mem .cr-x:hover { background: var(--hover); }
+.ch-mem .cr-x svg { width: 14px; height: 14px; }
+.ch-mem .mq { padding: 10px 12px 6px; display: grid; gap: 8px; }
+.ch-mem .mq input { width: 100%; box-sizing: border-box; height: 32px; padding: 0 10px 0 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; }
+.ch-mem .srch-w { position: relative; }
+.ch-mem .srch-w svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; margin-top: -7px; color: var(--muted); pointer-events: none; }
+.ch-filt { display: flex; gap: 4px; flex-wrap: wrap; }
+.ch-filt button { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer; }
+.ch-filt button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); color: var(--ink); font-weight: 600; }
+.ch-mem .ml { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.ch-mem h4 { margin: 0; padding: 12px 16px 4px; font-size: 12px; font-weight: 650; color: var(--ink2); }
+.ch-mem h4 .n { font-weight: 500; color: var(--muted); }
+.ch-mem ul { list-style: none; margin: 0; padding: 0 8px; }
+.ch-mem li { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; }
+.ch-mem li:hover { background: var(--hover); }
+.ch-mem li .ch-av { width: 28px; height: 28px; font-size: 11px; --gap: 1.5px; }
+.ch-mem li .t { flex: 1; min-width: 0; display: grid; }
+.ch-mem li { font-size: 14px; }
+.ch-mem li .t b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem li .t span { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem li .stw { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink2); }
+.ch-mem li .stw svg { width: 12px; height: 12px; }
+.ch-mem .cr-more { padding: 8px 16px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; justify-content: space-between; border-top: 1px solid var(--grid); }
+.ch-mem .cr-more button { border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+.ch-nav.ro.person { display: none; }
+.stage.reading .ch-nav.ro.person { display: flex; }
+
+/* Narrow: one pane at a time; the members panel is a sheet over the thread. */
+.stage.narrow .apage.cr-fill { padding: 8px; }
+.stage.narrow .ch-split, .stage.narrow .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
+.stage.narrow .ch-split[data-pane="side"] .ch-thread, .stage.narrow .ch-split[data-pane="side"] .ch-mem { display: none; }
+.stage.narrow .ch-split[data-pane="thread"] .ch-side { display: none; }
+.stage.narrow .cr-head .cr-back.ch-back { display: inline-flex; flex: none; }
+.stage.narrow .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 7; border-left: 0; }
+.stage.narrow .ch-msg.mine .col { max-width: 92%; }
+.stage.narrow .ch-msg { padding-left: 12px; padding-right: 12px; column-gap: 10px; grid-template-columns: 36px minmax(0, 1fr); }
+.stage.narrow .ch-msg.mine { grid-template-columns: minmax(0, 1fr) 36px; }
+.stage.narrow .ch-av { width: 36px; height: 36px; }
+.stage.narrow .ch-day, .stage.narrow .cr-newline { margin-left: 12px; margin-right: 12px; }
+.stage.narrow .cr-head { padding: 10px 12px; }
+.stage.narrow .ch-composer { padding: 8px 12px 12px; }
+.stage.narrow .cr-head .sub { display: none; }
+.stage.narrow .ch-box .hint { font-size: 0; padding: 0; }
+.stage.narrow .ch-box .cr-tools { padding: 2px 8px 8px 8px; }
+.stage.narrow .ch-box .cr-tools .grow { flex: 1; }
+.cr-back { width: 28px; height: 28px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.cr-back svg { width: 16px; height: 16px; }
+.podium .cr-head .cr-back.ch-back { padding: 0; }
+
+/* The two dialogs behind the + buttons. They are the console's Modal (.scrim, .modal) with the same fields and rules as the app today
+   (ChatForms.tsx); only the agent picker changes: it uses the new avatars, and its group titles are 13px sentence case, not 11px capitals. */
+.scrim[hidden] { display: none; }
+.cr-modal { width: min(520px, 100%); }
+.cr-modal .ch-form { gap: 12px; }
+.podium .cr-modal .ch-form textarea.field { min-height: 56px; }
+.podium .cr-modal .ch-form .hint { max-width: none; font-size: 12.5px; }
+.cr-modal .ch-form label { font-size: 13px; color: var(--ink); font-weight: 600; }
+.podium .cr-modal .ch-form label .cr-opt { display: inline; font-weight: 400; color: var(--muted); }
+.podium .cr-modal .ch-form .ch-warn { max-width: none; display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12.5px; color: var(--ink2); }
+.cr-modal .ch-warn svg { width: 14px; height: 14px; flex: none; margin-top: 3px; }
+.cr-modal .dm-pick h3 { padding: 6px 12px 2px; font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--ink2); }
+.cr-modal .dm-pick label { gap: 12px; padding: 5px 12px; }
+.podium .cr-modal .mb .dm-pick { max-height: 320px; }
+/* The buttons stay in view while the form scrolls: pinned to the bottom of the dialog's body. */
+.podium .cr-modal .ch-form .acts { position: sticky; bottom: -22px; z-index: 1; margin: 0 -20px -22px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--surface); }
+.cr-modal .dm-pick .ch-av { width: 30px; height: 30px; font-size: 12px; }
+.cr-modal .dm-pick .stack > span:first-child { font-size: 14px; }
+.cr-modal .dm-pick .sub { font-size: 12px; }
+.cr-modal .dm-pick input[type="radio"] { margin: 0; accent-color: var(--ink); }
+.cr-modal .dm-pick label[aria-disabled="true"] .ch-av { opacity: .55; }
+.cr-modal .ch-form .field[aria-invalid="true"] + .ferr, .cr-modal .ferr { display: block; margin-top: 4px; font-size: 12px; font-weight: 500; color: var(--crit-text); }
+
+/* States the app has that a conversation or the list can be in; each is off until its switch is on. */
+.cr-approval, .cr-cap, .cr-st-paused, .cr-st-ended { display: none; }
+.stage.st-approval .cr-approval { display: block; }
+.stage.st-limit .cr-cap { display: block; }
+.stage.st-paused .ch-row .tags.cr-st-paused, .stage.st-ended .ch-row .tags.cr-st-ended { display: flex; }
+.podium .ch-sec > h2 .add:disabled { opacity: .4; cursor: not-allowed; }
+.podium .ch-sec > h2 .add:disabled:hover { background: transparent; }
+.ch-earlier { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 0 12px; color: var(--muted); font-size: 12px; }
+/* The thread is anchored to the bottom: the newest message sits just above the composer, and a short or empty thread grows upward from there
+   (as Slack and Mattermost do). margin-top:auto does it without breaking scrolling. */
+.ch-scroll { display: flex; flex-direction: column; }
+.ch-flow { margin-top: auto; }
+.ch-flow-dm, .ch-intro, .ch-fail, .ch-recline, .dm-t, .dm-only { display: none; }
+/* A code block inside a message: monospace on a darker step of the bubble, scrolls sideways, never wraps, and has a Copy button. */
+.ch-code { margin: 8px 0 2px; border-radius: 8px; background: light-dark(color-mix(in srgb, var(--ink) 9%, transparent), color-mix(in srgb, var(--bg) 55%, transparent)); overflow: hidden; }
+.ch-code-h { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 0 12px; font-size: 11.5px; color: var(--ink2); font-family: var(--font-mono); }
+.ch-code pre { margin: 0; padding: 6px 12px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: var(--ink); white-space: pre; tab-size: 2; }
+.ch-code pre:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-code code { all: unset; font: inherit; white-space: inherit; }
+.podium .ch-copy { padding: 2px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink2); font: inherit; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.podium .ch-copy:hover { background: var(--hover); color: var(--ink); }
+/* The first thing in an empty thread, at the bottom. */
+.stage.case-empty .ch-flow-ch > :not(.ch-intro) { display: none; }
+.stage.case-empty .ch-intro { display: block; padding: 24px 24px 20px; }
+.ch-intro-av { display: flex; margin-bottom: 12px; }
+.ch-intro-av .ch-av { width: 44px; height: 44px; margin-left: -8px; box-shadow: 0 0 0 3px var(--surface); }
+.ch-intro-av .ch-av:first-child { margin-left: 0; }
+.ch-intro h3 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+.ch-intro p { margin: 0; max-width: 52ch; color: var(--ink2); font-size: 14px; line-height: 1.5; }
+/* A send that failed: the message stays, says it was not delivered, and the box says why and keeps the draft. */
+.stage.case-fail .ch-fail { display: block; }
+.stage.case-fail .cr-err { display: block; }
+.cr-err { display: none; margin: 0 0 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--crit-text) 55%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--crit) 16%, var(--raised)); color: var(--ink); font-size: 12.5px; }
+.cr-err[hidden] { display: none; }
+.stage.case-fail .cr-err[hidden] { display: none; }
+.ch-msg .ch-st .s.bad { color: var(--crit-text); }
+.cr-cmderr { margin: 0 0 8px; font-size: 12.5px; color: var(--crit-text); }
+.cr-cmderr[hidden] { display: none; }
+.podium .ch-composer .confirm { margin: 0 0 8px; }
+.podium .ch-composer .confirm[hidden] { display: none; }
+.podium .btn.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); background: transparent; }
+.cr-wrap .typeahead { left: 0; right: auto; width: min(440px, 100%); bottom: calc(100% + 8px); }
+.cr-wrap .typeahead[hidden] { display: none; }
+/* An Admin is reading: the red tag on the row and under the title, and the quiet record line a visit leaves. */
+.stage:not(.reading) .cr-head .sub .tag.crit.rd-tag, .stage:not(.reading) .ch-row .tags.rd-tag { display: none; }
+.stage:not(.conv-dm) .dm-only { display: none; }
+.stage.reading .ch-row .tags.rd-tag { display: flex; }
+.stage.reading .cr-head .tag.rd-tag { display: inline-flex; }
+.ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.ch-row .tag, .cr-head .tag { gap: 4px; align-items: center; white-space: nowrap; }
+.ch-row .tag.crit, .cr-head .sub .tag.crit { display: inline-flex; margin: 2px 0 0 8px; color: var(--crit-text); font-size: 11px; font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; }
+.ch-row .tags .tag.crit { margin: 1px 0 0; }
+.ch-row .tag svg, .cr-head .tag svg { width: 12px; height: 12px; flex: none; }
+.stage.record .ch-recline { display: block; }
+.ch-recline .ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; list-style: none; user-select: none; }
+/* A direct message with your own agent: its own title, no members stack, no @ list, and / opens its commands. */
+.stage.conv-dm .ch-flow-ch, .stage.conv-dm .ch-t, .stage.conv-dm .ch-stack, .stage.conv-dm .ch-only { display: none; }
+.stage.conv-dm .ch-flow-dm, .stage.conv-dm .dm-t { display: block; }
+.stage.conv-dm .dm-only { display: inline-flex; }
+.dm-t h2 { gap: 10px; }
+/* The same narrow layout when the window itself is narrow, so it works without the 400 px switch. */
+@media (max-width: 760px) {
+  .stage .cr-page { padding: 8px; }
+  .stage .ch-split, .stage .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
+  .stage .ch-split[data-pane="side"] .ch-thread, .stage .ch-split[data-pane="side"] .ch-mem { display: none; }
+  .stage .ch-split[data-pane="thread"] .ch-side { display: none; }
+  .stage .cr-head .cr-back.ch-back { display: inline-flex; flex: none; }
+  .stage .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 8; border-left: 0; }
+  .stage .ch-msg.mine .col { max-width: 92%; }
+  .stage .ch-msg { padding-left: 12px; padding-right: 12px; column-gap: 10px; grid-template-columns: 36px minmax(0, 1fr); }
+  .stage .ch-msg.mine { grid-template-columns: minmax(0, 1fr) 36px; }
+  .stage .ch-av { width: 36px; height: 36px; }
+  .stage .ch-day, .stage .cr-newline { margin-left: 12px; margin-right: 12px; }
+  .stage .cr-head { padding: 10px 12px; }
+  .stage .ch-composer { padding: 8px 12px 12px; }
+  .stage .cr-head .sub { display: none; }
+  .stage .ch-box .hint { font-size: 0; padding: 0; }
+  .stage .ch-box .cr-tools { padding: 2px 8px 8px 8px; }
+  .stage .ch-box .cr-tools .grow { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .ch-sec > h2 .cr-fold svg { transition: none; } }
+</style>
+<style>
+/* #1269: edit and delete your own Chat messages. This page is podium-chat-redesign.html with the new states added; everything else is unchanged.
+   Menu      No button on the row. Right-click (or a long press on touch) anywhere on your own message opens the menu at the pointer; Enter, the
+             ContextMenu key or Shift+F10 on the focused row opens it beside the message. Up, Down, Home and End move through its items, Enter
+             chooses one, Escape closes it and returns to the row. It is the existing .ch-menu, placed with position: fixed and kept on screen.
+   Locked    Once Podium has sent the message to an agent (waiting for it, working on it or done), both items stay and are aria-disabled, with the
+             reason under them (.ch-menu .why). A message that was not sent to an agent (not delivered, held, awaiting approval, or no @ at all)
+             can still be edited or deleted.
+   Delete    A confirmation (.scrim + .modal) that says who loses the message and that it cannot be undone. Cancel has focus first.
+   Deleted   The row keeps its place: "This message was deleted by You at 9:44 AM." The text is gone from the server.
+   Edit      The text becomes the composer box with Save and Cancel; a saved edit shows "edited 9:46 AM" after the text.
+   Keyboard  Up in the composer, E, Delete, Escape. The focused row has the focus ring; a screen reader hears its text and the keys.
+   Compared with Slack and Teams, from their help pages (slack.com/help/articles/202395258, support.microsoft.com "Edit or delete a sent message in
+   Microsoft Teams"): copied from Slack, the words "Edit message" and "Delete message", the confirmation before a delete, and a press and hold on a
+   touch screen. Both put edit and delete in a message's own menu, and Teams offers an Undo after a delete. Differences: here the menu opens on a
+   right-click at the pointer, with no hover "..." button (the maintainer asked for none); there is no undo; and a locked message keeps its menu
+   items, disabled and explained. The "edited" time, the line left where a message was deleted and Up arrow to edit your last message are this
+   project's own design; the sources above do not confirm that Slack or Teams does them.
+   New classes (to be added to the standards with the change): ed-box, ed-del, ed-edited, ed-kbd, ed-said. Colors are tokens. Example data only. */
+/* The menu sits inside the message row, which sets 15px text; it is the same menu as the sidebar's, so it takes the sidebar menu's type (13px). */
+.podium .ch-msg .ed-menu { position: fixed; right: auto; bottom: auto; z-index: 30; min-width: 220px; font-size: 13px; line-height: 1.4; font-weight: 400; }
+.podium .ch-msg .ed-menu[hidden] { display: none; }
+.ch-msg.own.menu-open { background: var(--hover); }
+.ch-menu .ed-kbd { margin-left: auto; padding-left: 14px; font: 11px var(--font-mono); color: var(--muted); }
+.ch-msg.own.sel { box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 8px; background: var(--hover); }
+.ch-msg.own:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 8px; }
+/* While a message is edited, the box takes the place of its bubble: right-aligned like your other messages, one focus ring (the box's own),
+   and nothing else on the row competes with it (no delivery line). */
+.ed-box { margin: 2px 0 0 auto; width: min(100%, 560px); }
+.ed-box .ch-box textarea { padding-top: 10px; min-height: 44px; }
+.ch-msg.editing.sel { box-shadow: none; background: transparent; }
+.ch-msg.editing:focus-visible { box-shadow: none; }
+.ch-msg.editing .ch-st { display: none; }
+.ed-box .cr-tools { flex-wrap: wrap; gap: 8px; }
+.ed-box .hint { flex: 1 1 100%; }
+.ch-msg .col:has(.ed-box:not([hidden])) { width: 100%; max-width: none; justify-self: stretch; }
+.ed-edited { margin-left: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ed-del { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 12px; border: 1px dashed var(--axis); border-radius: 10px; color: var(--muted); font-size: 14px; }
+.ed-del svg { width: 14px; height: 14px; flex: none; }
+.ed-said { margin: 0 24px 8px; padding: 6px 10px; border-left: 2px solid var(--axis); font-size: 12px; color: var(--ink2); }
+.ed-said b { color: var(--ink); }
+.modal.ed-confirm { width: min(440px, 100%); }
+.ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; }
+.modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-group" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 5.2a3 3 0 0 1 0 5.6M18 14.8c1.8.7 3 2.3 3 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="10" y="10" width="4" height="4" rx=".6" fill="currentColor"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-slash" viewBox="0 0 24 24"><path d="M16 4 8 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path d="M2.5 13.5h3l7-7a2 2 0 0 0-3-3l-7 7v3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="m-dots" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="12.5" cy="8" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="m-pause" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 5.5v5M9.5 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="m-play" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.8 5.6v4.8l3.6-2.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="m-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="m-msg" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="m-eye" viewBox="0 0 16 16"><path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="m-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="m-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4M8 4.8v.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <!-- state marks: shape + word + color. running = filled play triangle in a ring, waiting = clock, done = check, off = ring -->
+  <symbol id="s-run" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M6.4 4.9 11 8l-4.6 3.1Z" fill="var(--surface)"/></symbol>
+  <symbol id="s-wait" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 4.6V8l2.3 1.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="s-done" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.9 8.2 2.2 2.2 4-4.4" fill="none" stroke="var(--surface)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="s-off" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+</svg>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Chat redesign, round 1</b>
+  <span class="grp" role="group" aria-label="Members panel">Members panel
+    <button type="button" data-mem="closed" aria-pressed="true">Collapsed</button>
+    <button type="button" data-mem="open" aria-pressed="false">Open</button>
+  </span>
+  <span class="grp" role="group" aria-label="Viewer">Viewer
+    <button type="button" data-viewer="owner" aria-pressed="true">Ed, a person</button>
+    <button type="button" data-viewer="admin" aria-pressed="false">Root, an Admin</button>
+  </span>
+  <span class="grp" role="group" aria-label="Conversation">Conversation
+    <button type="button" data-conv="ch" aria-pressed="true">My group</button>
+    <button type="button" data-conv="dm" aria-pressed="false">DM with Tester</button>
+  </span>
+  <span class="grp" role="group" aria-label="Thread">Thread
+    <button type="button" data-case="busy" aria-pressed="true">Busy</button>
+    <button type="button" data-case="empty" aria-pressed="false">Nothing yet</button>
+    <button type="button" data-case="fail" aria-pressed="false">Send failed</button>
+    <button type="button" data-case="long" aria-pressed="false">Long names</button>
+  </span>
+  <span class="grp" role="group" aria-label="Other states">Other states
+    <button type="button" data-st="approval" aria-pressed="false">Approval waits</button>
+    <button type="button" data-st="limit" aria-pressed="false">Channel limit</button>
+    <button type="button" data-st="paused" aria-pressed="false">Link paused</button>
+    <button type="button" data-st="ended" aria-pressed="false">Agent ended</button>
+  </span>
+  <span class="grp" role="group" aria-label="Dialogs">Dialogs
+    <button type="button" data-dlg="m-ch">New channel</button>
+    <button type="button" data-dlg="m-ch-err">Channel refused</button>
+    <button type="button" data-dlg="m-dm">New direct message</button>
+  </span>
+  <span class="grp" role="group" aria-label="Composer">Composer
+    <button type="button" data-comp="empty" aria-pressed="true">Empty</button>
+    <button type="button" data-comp="typing" aria-pressed="false">Typing</button>
+    <button type="button" data-comp="mention" aria-pressed="false">@ list</button>
+    <button type="button" data-comp="long" aria-pressed="false">Long text</button>
+  </span>
+  <span class="grp" role="group" aria-label="Bubbles">Bubbles
+    <button type="button" data-bub="all" aria-pressed="true">Everyone</button>
+    <button type="button" data-bub="mine" aria-pressed="false">Mine only</button>
+  </span>
+  <span class="grp" role="group" aria-label="Your messages">Your messages
+    <button type="button" data-own="tint" aria-pressed="true">Soft tint</button>
+    <button type="button" data-own="plain" aria-pressed="false">Plain</button>
+  </span>
+  <span class="grp" role="group" aria-label="Admin reading">An Admin is reading
+    <button type="button" data-read="off" aria-pressed="true">No</button>
+    <button type="button" data-read="on" aria-pressed="false">Yes</button>
+    <button type="button" data-read="left" aria-pressed="false">They left</button>
+  </span>
+  <span class="grp" role="group" aria-label="Edit and delete">Edit and delete (#1269)
+    <button type="button" data-ed="rest" aria-pressed="true">At rest</button>
+    <button type="button" data-ed="menu" aria-pressed="false">Menu</button>
+    <button type="button" data-ed="locked" aria-pressed="false">Menu, agent has it</button>
+    <button type="button" data-ed="confirm" aria-pressed="false">Confirm delete</button>
+    <button type="button" data-ed="edit" aria-pressed="false">Editing</button>
+    <button type="button" data-ed="done" aria-pressed="false">After edit and delete</button>
+    <button type="button" data-ed="kbd" aria-pressed="false">Keyboard focus</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+  <span>Resize the window: the chat fills it, with the same 16 px on every side.</span>
+</div>
+
+<div class="stage all" id="stage"><div class="podium">
+<header class="top"><a class="logo" href="#/" aria-label="Podium, fleet">Podium</a><span class="tb-who">Signed in as <b id="who">Ed</b></span></header>
+<main class="adminv" aria-label="Chat" id="podium-main"><div class="apage cr-fill"><div class="apage-in cr-page">
+<div class="ch-split" id="split" data-pane="thread">
+
+  <nav class="ch-side" aria-label="Chat">
+    <section class="ch-sec a-only" aria-labelledby="sec-rd"><h2 id="sec-rd" class="static">Read as an Admin</h2>
+      <div class="ch-read">
+        <div class="rd-head"><label for="read-as">Read a person's conversations</label><button type="button" class="rd-i" aria-label="About reading as an Admin" data-tip="Pick a person to see their My group and Direct Messages. Read only. While you read, the person sees a red notice, and a line stays in the conversation afterward. Podium records in the audit log that you read it, never the text."><svg aria-hidden="true"><use href="#m-info"/></svg></button></div>
+        <select class="field sm" id="read-as"><option value="">Choose a person…</option><option value="Ed">Ed</option><option value="Maya Kim">Maya Kim</option></select>
+        <span class="rd-on"><button type="button" class="btn sm" id="stop-read">Stop reading</button>
+        <p class="hint">Showing <bdi id="read-name">Ed</bdi>'s My group and Direct Messages. Read only.</p></span>
+      </div></section>
+    <section class="ch-sec" id="sec-ch"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Channels <span class="n">3</span></button><button type="button" class="add" id="add-ch" aria-label="New channel" data-tip="Create a channel" data-open="m-ch" aria-haspopup="dialog" aria-describedby="cap-why"><svg><use href="#i-plus"/></svg></button></h2>
+      <p class="hint ch-pad cr-cap" id="cap-why">This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.</p>
+      <ul class="ch-list">
+        <li class="ch-item " data-key="c:general"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">General</span><span class="sub">Everyone signed in to this server</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for General" data-tip="Actions for General"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item on grp-row" data-key="c:group"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-group"/></svg></span><span class="stack"><span class="nm">My group</span><span class="sub own">You and your 3 orchestrators and subagents</span><span class="tags rd-tag"><span class="tag crit"><svg aria-hidden="true"><use href="#m-eye"/></svg><span>Admin reading</span></span></span><span class="sub ro"><bdi class="rn">Ed</bdi>'s own orchestrators and subagents, read only</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for My group" data-tip="Actions for My group"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item un" data-key="c:release"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">release-1-7</span><span class="sub">Release checklist for v1.7</span></span><span class="unread" aria-label="1 mention of you">@ 1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for release-1-7" data-tip="Actions for release-1-7"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+      </ul></section>
+    <p class="cr-hint hint-admin">Direct Messages and People and agents belong to a person. Sign in with a person's name to message your own agents.</p>
+    <section class="ch-sec sec-dm" id="sec-dm"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Direct messages <span class="n">4</span></button><button type="button" class="add " aria-label="New direct message" data-tip="Start a direct message" data-open="m-dm" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
+      <ul class="ch-list">
+        <li class="cr-approval ch-pad"><a class="ch-notice" href="#/me/reporters">1 message from another person waits for your approval in My reporters.</a></li>
+        <li class="ch-item un" data-key="d:tester"><button type="button" class="ch-row" ><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">You and one agent</span></span><span class="unread" aria-label="1 new">1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:main"><button type="button" class="ch-row" ><span class="ch-pair" aria-hidden="true"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">podium-main, release-bot</span><span class="sub">Two agents, and you</span><span class="tags cr-st-paused"><span class="tag"><svg aria-hidden="true"><use href="#m-pause"/></svg><span>Paused</span></span></span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for podium-main, release-bot" data-tip="Actions for podium-main, release-bot"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:maya"><button type="button" class="ch-row" ><span class="ch-pair" aria-hidden="true"><span class="ch-av person">MK</span><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">Maya Kim, maya-main</span><span class="sub">You and Maya Kim's agent</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim, maya-main" data-tip="Actions for Maya Kim, maya-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item " data-key="d:notes"><button type="button" class="ch-row" ><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-done"><svg><use href="#s-done"/></svg></span></span><span class="stack"><span class="nm">infra-notes</span><span class="sub">You and one agent</span><span class="tags cr-st-ended"><span class="tag"><svg aria-hidden="true"><use href="#m-pause"/></svg><span>infra-notes ended</span></span></span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for infra-notes" data-tip="Actions for infra-notes"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+      </ul></section>
+    <section class="ch-sec sec-pe o-only" id="sec-pe"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n">7</span></button></h2>
+      <ul class="ch-list">
+        <li class="ch-item hl-waiting" data-key="a:tester" data-name="Tester"><button type="button" class="ch-row" title="Message Tester"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">Orchestrator on ed-mbp, waiting for you</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item hl-running" data-key="a:main" data-name="podium-main"><button type="button" class="ch-row" title="Message podium-main"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">podium-main</span><span class="sub">Orchestrator on ed-mbp, running</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for podium-main" data-tip="Actions for podium-main"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item hl-running" data-key="a:bot" data-name="release-bot"><button type="button" class="ch-row" title="Message release-bot"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span class="nm">release-bot</span><span class="sub">Orchestrator on ed-mbp, running</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for release-bot" data-tip="Actions for release-bot"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item hl-done" data-key="a:notes" data-name="infra-notes"><button type="button" class="ch-row" title="Message infra-notes"><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-done"><svg><use href="#s-done"/></svg></span></span><span class="stack"><span class="nm">infra-notes</span><span class="sub">Orchestrator on ed-mbp, done</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for infra-notes" data-tip="Actions for infra-notes"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item hl-stale" data-key="a:docs" data-name="docs-sweeper"><button type="button" class="ch-row" title="Message docs-sweeper"><span class="ch-av agent fable" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-off"><svg><use href="#s-off"/></svg></span></span><span class="stack"><span class="nm">docs-sweeper</span><span class="sub">Orchestrator on ed-mbp, heartbeat lost</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for docs-sweeper" data-tip="Actions for docs-sweeper"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+      <li class="ch-item" data-key="p:maya" data-name="Maya Kim" data-person="1"><button type="button" class="ch-row" title="Message Maya Kim"><span class="ch-av person" aria-hidden="true">MK</span><span class="stack"><span class="nm">Maya Kim</span><span class="sub">Person, online</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim" data-tip="Actions for Maya Kim"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item" data-key="p:jo" data-name="Jo Okafor" data-person="1"><button type="button" class="ch-row" title="Message Jo Okafor"><span class="ch-av person" aria-hidden="true">JO</span><span class="stack"><span class="nm">Jo Okafor</span><span class="sub">Person, away</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Jo Okafor" data-tip="Actions for Jo Okafor"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+      </ul></section>
+  </nav>
+
+  <section class="ch-thread" aria-label="My group">
+    <div class="cr-blank"><p>Choose General or a channel to read it.<br>To read a person's conversations, choose a person under Read as an Admin.</p></div>
+    <header class="cr-head">
+      <button type="button" class="cr-back ch-back" aria-label="Back to conversations" id="back"><svg><use href="#i-back"/></svg></button>
+      <div class="ttl ch-t"><h2><svg aria-hidden="true"><use href="#i-group"/></svg><span class="nm">My group</span></h2><div class="sub">You and your own agents. Only you and an Admin can read this.<span class="tag crit rd-tag"><svg aria-hidden="true"><use href="#m-eye"/></svg>Admin reading</span></div></div>
+      <div class="ttl dm-t"><h2><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg></span><span class="nm">Tester</span></h2><div class="sub">You and one agent. Only you, its owner and an Admin can read this.</div></div>
+      <button type="button" class="ch-stack" id="stack" aria-expanded="false" aria-controls="mem" aria-label="Members, 9. Show the list">
+        <span class="av" aria-hidden="true"><span class="ch-av me">E</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="ch-av person">MK</span></span>9</button>
+    </header>
+    <div class="ch-nav ro crit adm-ro" role="status"><svg aria-hidden="true"><use href="#m-lock"/></svg><span><b>Reading <bdi class="rn">Ed</bdi>'s conversation as an Admin. You cannot send here.</b> <bdi class="rn">Ed</bdi> is told while you read, and a line stays in the conversation afterward.</span></div>
+    <div class="ch-nav ro crit person" role="status"><svg aria-hidden="true"><use href="#i-eye"/></svg><span><b>Root (an Admin) is reading this conversation.</b> Everything in it is visible to them now. They cannot send.</span></div>
+
+    <div class="ch-scroll" tabindex="0" aria-label="Messages">
+      <div class="ch-flow">
+      <div class="ch-flow-ch">
+      <div class="ch-earlier"><span role="status">Showing 24 of 126</span><button type="button" class="btn sm" id="earlier">Earlier messages</button></div>
+      <div class="ch-day">Yesterday</div>
+      <ul class="ch-msgs">
+        <li class="ch-msg first"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-done"><svg><use href="#s-done"/></svg></span></span>
+          <div class="col"><div class="cr-who"><b>podium-main</b><span class="cr-model opus"><i></i>Agent · Opus</span><span class="at">4:12 PM</span></div>
+          <div class="tx">Merged the storage change. All three adapters pass the contract.</div></div></li>
+        <li class="ch-msg mine first own" id="m-a" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
+          <div class="col"><div class="cr-who"><span class="at">4:20 PM</span><b>You</b></div>
+          <div class="tx">Good. Start on the chat mockup tomorrow.</div></div><div class="ch-menu ed-menu" id="mn-a" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+      </ul>
+      <div class="ch-day">Today</div>
+      <ul class="ch-msgs">
+        <li class="ch-msg first"><span class="ch-av person" aria-hidden="true">MK</span>
+          <div class="col"><div class="cr-who"><b>Maya Kim</b><span class="at">9:02 AM</span></div>
+          <div class="tx">Can <span class="ch-mention">@Tester</span> run the e2e suite on MariaDB before we cut 1.7?</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:03</span>
+          <div class="col"><div class="tx">Last night's run was SQLite only.</div></div></li>
+        <li class="ch-msg mine first own" id="m-lk" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
+          <div class="col"><div class="cr-who"><span class="at">9:05 AM</span><b>You</b></div>
+          <div class="tx"><span class="ch-mention">@Tester</span> yes, run it on every adapter and report the counts.</div>
+          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-lk" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
+        <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span>
+          <div class="col"><div class="cr-who"><b>Tester</b><span class="cr-model sonnet"><i></i>Agent · Sonnet</span><span class="at">9:06 AM</span></div>
+          <div class="tx">Started. SQLite passed: 312 of 312.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:21</span>
+          <div class="col"><div class="tx">PostgreSQL passed: 312 of 312. MariaDB failed 2 specs in <code>admin-people</code>; I need to know whether to retry or stop.</div>
+          <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for your answer</span></div></div></li>
+        <li class="ch-msg mine first own" id="m-b" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
+          <div class="col"><div class="cr-who"><span class="at">9:24 AM</span><b>You</b></div>
+          <div class="tx">Retry once, then send me the log if it fails again.</div>
+          <div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-b" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
+        <li class="ch-msg mine cont own" id="m-c" tabindex="-1"><span class="gut">9:25</span>
+          <div class="col"><div class="tx">Keep the container up until I say.</div>
+          <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for Tester to take it</span></div></div><div class="ch-menu ed-menu" id="mn-c" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
+        <li class="ch-msg mine first own" id="m-ed" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
+          <div class="col"><div class="cr-who"><span class="at">9:41 AM</span><b>You</b></div>
+          <div class="tx" id="ed-tx"><span class="ch-mention">@Tester</span> also run the migration tests on MariaDB.</div>
+          <div class="ed-box" id="ed-box" hidden><div class="ch-box"><textarea id="ed-ta" rows="2" aria-label="Edit your message">@Tester also run the migration tests on MariaDB.</textarea>
+            <div class="cr-tools"><span class="hint"><kbd>Enter</kbd> to save &middot; <kbd>Esc</kbd> to cancel</span><button type="button" class="btn sm" data-act="cancel-edit">Cancel</button><button type="button" class="btn pri sm" data-act="save-edit">Save</button></div></div></div>
+          <div class="ch-st" id="ed-st"><span class="s bad"><svg class="si" aria-hidden="true"><use href="#i-x"/></svg>Not delivered to Tester. Its reporter is not taking messages now.</span></div></div><div class="ch-menu ed-menu" id="mn-ed" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+        <li class="ch-msg mine cont own" id="m-gone" tabindex="-1"><span class="gut">9:44</span>
+          <div class="col"><div class="tx">Never mind, I will restart the container myself.</div></div><div class="ch-menu ed-menu" id="mn-gone" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+      </ul>
+      <div class="cr-newline" role="separator"><span>New</span></div>
+      <ul class="ch-msgs">
+        <li class="ch-msg first"><span class="ch-av agent haiku" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-done"><svg><use href="#s-done"/></svg></span></span>
+          <div class="col"><div class="cr-who"><b>infra-notes</b><span class="cr-model haiku"><i></i>Agent · Haiku</span><span class="at">9:31 AM</span></div>
+          <div class="tx">Container left running on port 5433. Nothing else is using it.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:31</span>
+          <div class="col"><div class="tx">I left the MariaDB data volume in place so you can inspect the two failed specs.</div></div></li>
+        <li class="ch-msg first"><span class="ch-av person" aria-hidden="true">MK</span>
+          <div class="col"><div class="cr-who"><b>Maya Kim</b><span class="at">9:34 AM</span></div>
+          <div class="tx">Thanks. I'll look at <code>admin-people</code> after standup.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:34</span>
+          <div class="col"><div class="tx">Jo, are you free at 11 to pair on it?</div></div></li>
+        <li class="ch-msg first"><span class="ch-av person" aria-hidden="true">JO</span>
+          <div class="col"><div class="cr-who"><b>Jo Okafor</b><span class="at">9:36 AM</span></div>
+          <div class="tx">Yes, 11 works.</div></div></li>
+        <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span>
+          <div class="col"><div class="cr-who"><b>Tester</b><span class="cr-model sonnet"><i></i>Agent · Sonnet</span><span class="at">9:40 AM</span></div>
+          <div class="tx">Retry 1 of 1 finished. The same 2 specs failed, so the failure is not a flake. The first one waits 2 seconds for a row that MariaDB returns in a different order:
+<code>admin-people &gt; lists people newest first</code></div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:41</span>
+          <div class="col"><div class="tx">The second one is the same query with a filter. I think the fix is an explicit <code>ORDER BY</code> in the MariaDB adapter, but that is an adapter change, so I have not touched it.</div>
+          <div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for your answer</span></div></div></li>
+        <li class="ch-msg first"><span class="ch-av agent opus" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span>
+          <div class="col"><div class="cr-who"><b>podium-main</b><span class="cr-model opus"><i></i>Agent · Opus</span><span class="at">9:43 AM</span></div>
+          <div class="tx">I can take the adapter fix on a new branch once you say so. It touches the contract case and the MariaDB list query only.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:43</span>
+          <div class="col"><div class="tx">It will also need the same check on PostgreSQL, which I expect to pass without a change.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:44</span>
+          <div class="col"><div class="tx">Ready when you are.</div></div></li>
+        <li class="ch-msg cont"><span class="gut">9:45</span>
+          <div class="col"><div class="tx">Here is the change I would make to the MariaDB list query:<div class="ch-code"><div class="ch-code-h"><span>ts</span><button type="button" class="ch-copy" aria-label="Copy code">Copy</button></div><pre tabindex="0"><code>// server/src/storage/mariadb/people.ts
+const rows = await db.query(
+  "SELECT id, name, created_at FROM people ORDER BY created_at DESC, id DESC LIMIT ?",
+  [limit],
+); // ORDER BY now names a tiebreaker so MariaDB and PostgreSQL return the same order
+return rows.map(toPerson);</code></pre></div></div></div></li>
+      </ul>
+    
+      <div class="ch-intro"><div class="ch-intro-av"><span class="ch-av me">E</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent haiku"><svg><use href="#i-chip"/></svg></span></div>
+        <h3>This is the start of My group</h3><p>You and your 3 orchestrators and subagents. Say something, or type @ to hand work to an agent.</p></div>
+      <ul class="ch-msgs ch-fail" aria-label="Not delivered">
+        <li class="ch-msg mine first own" id="m-d" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span>
+          <div class="col"><div class="cr-who"><span class="at">9:47 AM</span><b>You</b></div>
+          <div class="tx">Retry once, then send me the log if it fails again.</div>
+          <div class="ch-st"><span class="s bad"><svg class="si" aria-hidden="true"><use href="#i-x"/></svg>Not delivered to Tester. Its reporter is not taking messages now.</span></div></div><div class="ch-menu ed-menu" id="mn-d" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" data-act="edit"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" data-act="ask-delete"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button></div></li>
+      </ul>
+      <ul class="ch-msgs ch-recline"><li class="ch-rec"><svg aria-hidden="true"><use href="#m-eye"/></svg><span>Root (an Admin) read this conversation on Nov 19, 9:50 AM.</span></li></ul>
+      </div>
+      <div class="ch-flow-dm">
+        <div class="ch-day">Today</div>
+        <ul class="ch-msgs">
+          <li class="ch-msg mine first own" id="m-lk2" tabindex="-1"><span class="ch-av me" aria-hidden="true">E</span><div class="col"><div class="cr-who"><span class="at">9:05 AM</span><b>You</b></div><div class="tx">Run the e2e suite on every adapter and report the counts.</div><div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Delivered to Tester</span></div></div><div class="ch-menu ed-menu" id="mn-lk2" role="menu" aria-label="Your message" hidden><button type="button" role="menuitem" aria-disabled="true"><svg aria-hidden="true"><use href="#i-edit"/></svg>Edit message<span class="ed-kbd" aria-hidden="true">E</span></button><button type="button" role="menuitem" class="dng" aria-disabled="true"><svg aria-hidden="true"><use href="#m-trash"/></svg>Delete message<span class="ed-kbd" aria-hidden="true">Del</span></button><p class="why" role="note">Podium has already sent this message to Tester, so it can no longer be changed.</p></div></li>
+          <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><div class="col"><div class="cr-who"><b>Tester</b><span class="cr-model sonnet"><i></i>Agent · Sonnet</span><span class="at">9:06 AM</span></div><div class="tx">Started. SQLite passed: 312 of 312.</div></div></li>
+          <li class="ch-msg cont"><span class="gut">9:21</span><div class="col"><div class="tx">MariaDB failed 2 specs in <code>admin-people</code>. Retry, or stop here?</div><div class="ch-st"><span class="s wait"><svg class="si st-wait"><use href="#s-wait"/></svg>Waiting for your answer</span></div></div></li>
+        </ul>
+      </div>
+    </div>
+    </div>
+
+    <p class="ed-said" id="ed-said" hidden><b>Screen reader:</b> <span id="ed-said-t"></span></p>
+    <form class="ch-composer" onsubmit="return false">
+      <label class="vh" for="msg">Message My group</label>
+      <div class="cr-err" id="cr-err" role="alert" hidden>Could not send: Tester's reporter is not taking messages now. Nothing was sent, and your message is still here. Try again.</div>
+      <div class="confirm" id="cr-confirm" role="alertdialog" aria-label="Clear the conversation?" hidden><span><b>Clear the conversation?</b> Tester starts over with an empty context. Podium shows the cleared part as its own session in History, linked to this one.</span><span class="acts"><button class="btn" type="button" id="cl-no">Cancel</button><button class="btn bad" type="button" id="cl-yes">Clear conversation</button></span></div>
+      <div class="cr-cmderr" id="cr-cmderr" role="alert" hidden></div>
+      <div class="cr-wrap">
+        <div class="typeahead" id="cmdlist" role="listbox" aria-label="Commands" hidden><button type="button" role="option" aria-selected="true" class="on" data-cmd="/clear"><span class="cn">/clear</span><span class="cd">Start over with an empty conversation</span></button><button type="button" role="option" aria-selected="false" data-cmd="/compact"><span class="cn">/compact</span><span class="cd">Summarize the conversation to free context</span></button><div class="tf">Other commands run only in the terminal.</div></div>
+        <ul class="ch-ac" id="ac" role="listbox" aria-label="Mention someone" hidden>
+          <li role="option" id="ac-0" data-typed="Tester@ed-mbp" aria-selected="true"><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="t"><b>@Tester@ed-mbp</b><span>Orchestrator</span></span><span class="stw"><svg class="st-wait"><use href="#s-wait"/></svg>Waiting</span></li>
+          <li role="option" id="ac-1" data-typed="podium-main@ed-mbp" aria-selected="false"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="t"><b>@podium-main@ed-mbp</b><span>Orchestrator</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Running</span></li>
+          <li role="option" id="ac-2" data-typed="Maya@console" aria-selected="false"><span class="ch-av person">MK</span><span class="t"><b>@Maya@console</b><span>Person</span></span></li>
+          <li role="option" id="ac-3" data-typed="group" aria-selected="false" aria-disabled="true"><span class="ch-av person"><svg><use href="#i-group"/></svg></span><span class="t"><b>@group</b><span class="off">Off. An Admin turns it on in Admin &gt; Settings.</span></span></li>
+          <li role="option" id="ac-4" data-typed="everyone" aria-selected="false" aria-disabled="true"><span class="ch-av person"><svg><use href="#i-group"/></svg></span><span class="t"><b>@everyone</b><span class="off">Off. An Admin turns it on in Admin &gt; Settings.</span></span></li>
+          <li class="ft" aria-hidden="true">Up and down to choose, Tab or Enter to mention, Esc to close</li>
+        </ul>
+        <div class="ch-box">
+          <textarea id="msg" rows="1" role="combobox" aria-autocomplete="list" aria-controls="ac" aria-expanded="false" placeholder="Message My group"></textarea>
+          <div class="cr-tools">
+            <button type="button" class="cr-tool ch-only" id="t-at" aria-label="Mention someone" title="Mention someone"><svg><use href="#i-at"/></svg></button>
+            <button type="button" class="cr-tool dm-only" id="t-slash" aria-label="Session commands" title="Session commands (/clear, /compact)"><svg><use href="#i-slash"/></svg></button>
+            <span class="hint"><kbd>Enter</kbd> to send &middot; <kbd>Shift+Enter</kbd> for a new line &middot; <kbd>&uarr;</kbd> to edit yours</span>
+            <button type="submit" class="btn pri ch-send" id="send" aria-label="Send message" title="Send message" disabled><svg aria-hidden="true"><use href="#i-send"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <aside class="ch-mem" id="mem" aria-label="Members of My group">
+    <div class="mh"><h3>Members <span class="n">9</span></h3><button type="button" class="cr-x" id="memx" aria-label="Close members"><svg><use href="#i-x"/></svg></button></div>
+    <div class="mq"><label class="vh" for="mq">Find a member</label><span class="srch-w"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="mq" type="search" placeholder="Find a member"></span>
+      <div class="ch-filt" role="group" aria-label="Filter members"><button type="button" aria-pressed="true">All</button><button type="button" aria-pressed="false">Waiting 1</button><button type="button" aria-pressed="false">Running 2</button></div></div>
+    <div class="ml">
+      <h4>People <span class="n">3</span></h4>
+      <ul>
+        <li><span class="ch-av me">E</span><span class="t"><b>Ed (you)</b><span>Owner</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Online</span></li>
+        <li><span class="ch-av person">MK</span><span class="t"><b>Maya Kim</b><span>Member</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Online</span></li>
+        <li><span class="ch-av person">JO</span><span class="t"><b>Jo Okafor</b><span>Member</span></span><span class="stw"><svg class="st-off"><use href="#s-off"/></svg>Away</span></li>
+      </ul>
+      <h4>Agents <span class="n">6</span></h4>
+      <ul>
+        <li><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="t"><b>Tester</b><span>Sonnet · e2e suite</span></span><span class="stw"><svg class="st-wait"><use href="#s-wait"/></svg>Waiting</span></li>
+        <li><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="t"><b>podium-main</b><span>Opus · orchestrator</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Running</span></li>
+        <li><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="t"><b>storage-fork</b><span>Opus · fork of podium-main</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Running</span></li>
+        <li><span class="ch-av agent haiku"><svg><use href="#i-chip"/></svg></span><span class="t"><b>infra-notes</b><span>Haiku · subagent</span></span><span class="stw"><svg class="st-done"><use href="#s-done"/></svg>Done</span></li>
+      </ul>
+    </div>
+    <div class="cr-more"><span>Showing 7 of 9</span><button type="button">Show 2 more</button></div>
+  </aside>
+
+</div>
+</div></div></main>
+
+<div class="scrim" id="m-del" hidden>
+  <div class="modal cr-modal ed-confirm" role="alertdialog" aria-modal="true" aria-labelledby="del-h" aria-describedby="del-b">
+    <div class="mh"><div class="ttl"><h2 id="del-h">Delete this message?</h2></div><button type="button" class="x" data-act="cancel-del" aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="mb" id="del-b">
+      <p class="ed-q" id="del-q">@Tester also run the migration tests on MariaDB.</p>
+      <p id="del-for">It will be deleted for everyone in My group, and the agents there will not see it. This cannot be undone.</p>
+      <div class="acts"><button type="button" class="btn" id="del-cancel" data-act="cancel-del">Cancel</button><button type="button" class="btn bad" data-act="do-del">Delete message</button></div>
+    </div>
+  </div>
+</div>
+<span class="vh" role="status" aria-live="polite" id="ed-live"></span>
+<div class="scrim" id="m-ch" hidden>
+  <div class="modal cr-modal" role="dialog" aria-modal="true" aria-labelledby="nc-h">
+    <div class="mh"><div class="ttl"><h2 id="nc-h">New channel</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="mb"><form class="ch-form" id="f-ch" noValidate>
+      <p class="ch-warn"><svg aria-hidden="true"><use href="#i-eye"/></svg><span>Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in. Do not put anything here you would not want all of them to read.</span></p>
+      <label>Name<input class="field" id="nc-name" maxlength="40" autocomplete="off" placeholder="staging-incident" aria-describedby="nc-name-hint nc-name-err"><span class="ferr" id="nc-name-err" role="alert" hidden></span></label>
+      <p class="hint" id="nc-name-hint">Lowercase letters, numbers and hyphens. It cannot be changed later.</p>
+      <label>Description<textarea class="field" id="nc-desc" maxlength="280" rows="3" placeholder="What this channel is for, and what belongs here."></textarea></label>
+      <span class="count" id="nc-count">0 of 280</span>
+      <div class="row2">
+        <label><span>About <span class="cr-opt">(optional)</span></span><select class="field" id="nc-kind"><option value="">Nothing</option><option value="issue">Issue</option><option value="milestone">Milestone</option><option value="project">Project</option></select></label>
+        <label>Which one<input class="field" id="nc-ref" maxlength="100" autocomplete="off" placeholder="1035, v1.7 or podium" disabled></label>
+      </div>
+      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri">Create channel</button></div>
+    </form></div>
+  </div>
+</div>
+
+<div class="scrim" id="m-dm" hidden>
+  <div class="modal cr-modal" role="dialog" aria-modal="true" aria-labelledby="dm-h">
+    <div class="mh"><div class="ttl"><h2 id="dm-h">New direct message</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="mb"><form class="ch-form" id="f-dm" noValidate>
+      <p class="hint">A direct message is read only by you, the agent's owner and an Admin. A subagent or a fork is not offered: message its orchestrator.</p>
+      <label>Find an agent or person<input class="field" id="dm-q" type="search" autocomplete="off" placeholder="Search by agent or person"></label>
+      <fieldset class="dm-set"><legend class="vh">To</legend>
+        <ul class="dm-pick" id="dm-list">
+          <li><h3>Your agents</h3></li>
+          <li data-n="tester"><label><input type="radio" name="dm-to" value="Tester"><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span><bdi>Tester</bdi></span><span class="sub">Your orchestrator, waiting for you</span></span></label></li>
+          <li data-n="podium-main"><label><input type="radio" name="dm-to" value="podium-main"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span><bdi>podium-main</bdi></span><span class="sub">Your orchestrator, running</span></span></label></li>
+          <li><h3>Other people's agents</h3></li>
+          <li data-n="maya-main maya kim"><label><input type="radio" name="dm-to" value="maya-main"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span><bdi>maya-main</bdi> (<bdi>Maya Kim</bdi>'s)</span><span class="sub">Orchestrator, running. Maya Kim approves before it is delivered.</span></span></label></li>
+          <li data-n="docs-sweeper jo okafor"><label aria-disabled="true"><input type="radio" name="dm-to" value="docs-sweeper" disabled><span class="ch-av agent fable"><svg><use href="#i-chip"/></svg><span class="cr-st st-off"><svg><use href="#s-off"/></svg></span></span><span class="stack"><span><bdi>docs-sweeper</bdi> (<bdi>Jo Okafor</bdi>'s)</span><span class="sub">It takes no messages now.</span></span></label></li>
+          <li class="none" id="dm-none" hidden>No agent matches that.</li>
+        </ul>
+      </fieldset>
+      <label>Message<textarea class="field" id="dm-msg" rows="3" placeholder="Write the first message."></textarea><span class="ferr" id="dm-err" role="alert" hidden></span></label>
+      <p class="hint">Secrets are replaced before a message leaves this machine. Another person's agent gets it only after its owner approves, in their My reporters.</p>
+      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri">Send message</button></div>
+    </form></div>
+  </div>
+</div>
+<div class="tipbox" role="tooltip" id="tip" hidden></div>
+</div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var root = document.documentElement, stage = $('#stage'), split = $('#split');
+  function press(attr, val) { document.querySelectorAll('.demo [' + attr + ']').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  function mem(open) {
+    split.classList.toggle('mem-open', open);
+    $('#stack').setAttribute('aria-expanded', String(open));
+    $('#stack').setAttribute('aria-label', 'Members, 9. ' + (open ? 'Hide' : 'Show') + ' the list');
+    press('data-mem', open ? 'open' : 'closed');
+  }
+  document.querySelectorAll('.demo button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.mem) mem(b.dataset.mem === 'open');
+      if (b.dataset.comp) { setComp(b.dataset.comp); press('data-comp', b.dataset.comp); }
+      if (b.dataset.conv) setConv(b.dataset.conv);
+      if (b.dataset.case) { setCase(b.dataset.case); press('data-case', b.dataset.case); }
+      if (b.dataset.bub) { stage.classList.toggle('all', b.dataset.bub === 'all'); press('data-bub', b.dataset.bub); }
+      if (b.dataset.own) { stage.classList.toggle('plain', b.dataset.own === 'plain'); press('data-own', b.dataset.own); }
+      if (b.dataset.read) { stage.classList.toggle('reading', b.dataset.read === 'on'); stage.classList.toggle('record', b.dataset.read !== 'off'); press('data-read', b.dataset.read); }
+      if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+      if (b.dataset.w) { stage.classList.toggle('narrow', b.dataset.w === 'narrow'); stage.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : 'none'); press('data-w', b.dataset.w); }
+    });
+  });
+  $('#stack').addEventListener('click', function () { mem(!split.classList.contains('mem-open')); });
+  $('#memx').addEventListener('click', function () { mem(false); $('#stack').focus(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && split.classList.contains('mem-open')) { mem(false); $('#stack').focus(); } });
+  document.querySelectorAll('.ch-sec .cr-fold').forEach(function (f) {
+    f.addEventListener('click', function () { var s = f.closest('.ch-sec'); var shut = s.classList.toggle('shut'); f.setAttribute('aria-expanded', String(!shut)); });
+  });
+  document.querySelectorAll('.ch-side .ch-row').forEach(function (r) { r.addEventListener('click', function () { split.dataset.pane = 'thread'; }); });
+  $('#back').addEventListener('click', function () { split.dataset.pane = 'side'; });
+  document.querySelectorAll('.ch-filt button').forEach(function (b) { b.addEventListener('click', function () { document.querySelectorAll('.ch-filt button').forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); }); }); });
+  // The app's shared tooltip (Tip.tsx): one fixed .tipbox, shown on hover and keyboard focus, placed from the trigger's rectangle.
+  var tip = $('#tip');
+  function showTip(el) {
+    tip.textContent = el.getAttribute('data-tip'); tip.hidden = false;
+    var r = el.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.top = (r.bottom + 6) + 'px';
+    tip.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+    el.setAttribute('aria-describedby', 'tip');
+  }
+  function hideTip(el) { tip.hidden = true; if (el) el.removeAttribute('aria-describedby'); }
+  document.querySelectorAll('[data-tip]').forEach(function (el) {
+    el.addEventListener('mouseenter', function () { showTip(el); });
+    el.addEventListener('focus', function () { showTip(el); });
+    el.addEventListener('mouseleave', function () { hideTip(el); });
+    el.addEventListener('blur', function () { hideTip(el); });
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideTip(); });
+  // Dialogs: the console's Modal rules. Esc, the X, Cancel and a click on the dimmed area close it; focus goes to the first field and
+  // returns to what opened it; Tab stays inside.
+  var openedBy = null, openId = null;
+  function dlgOpen(id, from) {
+    var sc = document.getElementById(id); if (!sc) return;
+    openedBy = from || document.activeElement; openId = id; sc.hidden = false; hideTip();
+    var f = sc.querySelector('input:not([disabled]), textarea'); if (f) f.focus();
+  }
+  function dlgClose() {
+    if (!openId) return; var sc = document.getElementById(openId); sc.hidden = true; openId = null;
+    if (sc.id === 'm-dm') { $('#dm-q').value = ''; $('#dm-q').dispatchEvent(new Event('input')); sc.querySelectorAll('input[name=dm-to]').forEach(function (x) { x.checked = false; }); $('#dm-msg').value = ''; }
+    sc.querySelectorAll('.ferr').forEach(function (e) { e.hidden = true; e.textContent = ''; });
+    sc.querySelectorAll('[aria-invalid]').forEach(function (e) { e.removeAttribute('aria-invalid'); });
+    if (openedBy && openedBy.focus) openedBy.focus();
+  }
+  document.querySelectorAll('[data-open]').forEach(function (b) { b.addEventListener('click', function () { dlgOpen(b.dataset.open, b); }); });
+  document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', dlgClose); });
+  document.querySelectorAll('.scrim').forEach(function (sc) { sc.addEventListener('mousedown', function (e) { if (e.target === sc) dlgClose(); }); });
+  document.addEventListener('keydown', function (e) {
+    if (!openId) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); dlgClose(); }
+    if (e.key === 'Tab') {
+      var q = Array.from(document.getElementById(openId).querySelectorAll('button:not([disabled]), input:not([disabled]), textarea, select')).filter(function (x) { return x.offsetParent !== null; });
+      var i = q.indexOf(document.activeElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); q[q.length - 1].focus(); } else if (!e.shiftKey && i === q.length - 1) { e.preventDefault(); q[0].focus(); }
+    }
+  }, true);
+  function ferr(id, field, text) { var m = document.getElementById(id); m.textContent = text; m.hidden = false; if (field) { field.setAttribute('aria-invalid', 'true'); field.focus(); } }
+  var ncName = $('#nc-name'), ncDesc = $('#nc-desc'), ncKind = $('#nc-kind'), ncRef = $('#nc-ref');
+  ncDesc.addEventListener('input', function () { $('#nc-count').textContent = ncDesc.value.length + ' of 280'; });
+  ncKind.addEventListener('change', function () { ncRef.disabled = !ncKind.value; });
+  $('#f-ch').addEventListener('submit', function (e) {
+    e.preventDefault(); $('#nc-name-err').hidden = true; ncName.removeAttribute('aria-invalid');
+    var n = ncName.value.trim().toLowerCase();
+    if (!n) return ferr('nc-name-err', ncName, 'Name the channel.');
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(n)) return ferr('nc-name-err', ncName, 'A name has lowercase letters, numbers and hyphens only, starts with a letter or a number, and is at most 40 characters.');
+    if (n === 'general' || n === 'release-1-7') return ferr('nc-name-err', ncName, 'A channel named ' + n + ' already exists.');
+    dlgClose(); $('#announce').textContent = 'Channel ' + n + ' created. (mockup)';
+  });
+  $('#dm-q').addEventListener('input', function () {
+    var q = this.value.trim().toLowerCase(), any = false;
+    document.querySelectorAll('#dm-list li[data-n]').forEach(function (li) { var show = !q || li.dataset.n.indexOf(q) > -1; li.hidden = !show; any = any || show; });
+    // A group's title goes when none of its agents match.
+    var lis = Array.from(document.querySelectorAll('#dm-list > li')), head = null, count = 0;
+    lis.concat([null]).forEach(function (li) {
+      if (li === null || li.querySelector('h3')) { if (head) head.hidden = count === 0; head = li; count = 0; }
+      else if (li.dataset.n && !li.hidden) count++;
+    });
+    $('#dm-none').hidden = any;
+  });
+  $('#f-dm').addEventListener('submit', function (e) {
+    e.preventDefault(); $('#dm-err').hidden = true;
+    if (!document.querySelector('input[name=dm-to]:checked')) return ferr('dm-err', $('#dm-q'), 'Choose who to message.');
+    if (!$('#dm-msg').value.trim()) return ferr('dm-err', $('#dm-msg'), 'Write the first message.');
+    dlgClose(); $('#announce').textContent = 'Sent. (mockup)';
+  });
+  document.querySelectorAll('[data-dlg]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var d = b.dataset.dlg;
+      if (d === 'm-ch-err') { dlgOpen('m-ch', b); ncName.value = 'Staging Incident'; ferr('nc-name-err', ncName, 'A name has lowercase letters, numbers and hyphens only, starts with a letter or a number, and is at most 40 characters.'); }
+      else dlgOpen(d, b);
+    });
+  });
+  var ta = $('#msg'), send = $('#send'), ac = $('#ac');
+  function grow() { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; send.disabled = !ta.value.trim(); }
+  // The @ list, as the real composer does it: it opens on an @ at the start or after a space, narrows as you type, the arrow keys move,
+  // Enter or Tab picks, Esc closes. A name may hold spaces, so the list stays open while something still matches.
+  var acItems = Array.from(ac.querySelectorAll('li[role=option]')), acAt = 0, acRange = null;
+  function acQuery() {
+    var m = /(^|\s)@([^@\n]*)$/.exec(ta.value.slice(0, ta.selectionStart == null ? ta.value.length : ta.selectionStart));
+    return m ? { start: m.index + m[1].length, q: m[2] } : null;
+  }
+  function acPaint() {
+    acItems.forEach(function (li, i) { li.setAttribute('aria-selected', String(i === acAt && !li.hidden)); });
+    var cur = acItems.filter(function (li) { return !li.hidden; })[acAt];
+    if (cur) ta.setAttribute('aria-activedescendant', cur.id); else ta.removeAttribute('aria-activedescendant');
+  }
+  // What the codebase does (chatData.addressMatches, ChatComposer.pick): the list is what starts with what is typed, in any case, in the
+  // order the server gave; picking writes "@" + the full address + a space; an entry that is off is listed but cannot be picked.
+  function acSync() {
+    if (stage.classList.contains('conv-dm')) { ac.hidden = true; ta.setAttribute('aria-expanded', 'false'); cmdSync(); return; }
+    cmdSync();
+    acRange = acQuery();
+    var shown = [];
+    if (acRange) {
+      var q = acRange.q.toLowerCase();
+      acItems.forEach(function (li) { li.hidden = li.dataset.typed.toLowerCase().indexOf(q) !== 0; if (!li.hidden) shown.push(li); });
+    }
+    if (!acRange || !shown.length) { ac.hidden = true; ta.setAttribute('aria-expanded', 'false'); ta.removeAttribute('aria-activedescendant'); return; }
+    if (acAt >= shown.length) acAt = 0;
+    ac.hidden = false; ta.setAttribute('aria-expanded', 'true'); acPaint();
+  }
+  function acPick() {
+    var cur = acItems.filter(function (li) { return !li.hidden; })[acAt]; if (!cur || !acRange || cur.getAttribute('aria-disabled') === 'true') return;
+    var ins = '@' + cur.dataset.typed + ' ';
+    var before = ta.value.slice(0, acRange.start), after = ta.value.slice(ta.selectionStart);
+    ta.value = before + ins + after;
+    var pos = (before + ins).length; ta.setSelectionRange(pos, pos);
+    ac.hidden = true; acRange = null; acAt = 0; ta.setAttribute('aria-expanded', 'false'); ta.removeAttribute('aria-activedescendant');
+    $('#announce').textContent = 'Mentioned ' + cur.dataset.typed; grow();
+  }
+  acItems.forEach(function (li) { li.addEventListener('mousedown', function (e) { e.preventDefault(); acAt = acItems.filter(function (x) { return !x.hidden; }).indexOf(li); acPick(); ta.focus(); }); });
+  function setComp(k) {
+    ta.value = k === 'typing' ? 'Retry the MariaDB specs once more and keep the container up.' : k === 'mention' ? 'Can @Te' : k === 'long' ? 'Retry the two failed MariaDB specs once more and keep the container running. If they fail again, send me the full log from the run, the adapter output for both specs, and the row order each query returned, so I can compare them against PostgreSQL before we decide on the ORDER BY change.' : '';
+    grow(); acSync();
+  }
+  ta.addEventListener('input', function () { grow(); acSync(); });
+  ta.addEventListener('keydown', function (e) {
+    if (!ac.hidden) {
+      var n = acItems.filter(function (li) { return !li.hidden; }).length;
+      if (e.key === 'ArrowDown') { e.preventDefault(); acAt = (acAt + 1) % n; return acPaint(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); acAt = (acAt + n - 1) % n; return acPaint(); }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return acPick(); }
+      if (e.key === 'Escape') { e.preventDefault(); ac.hidden = true; ta.setAttribute('aria-expanded', 'false'); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!send.disabled) send.click(); }
+  });
+  $('#t-at').addEventListener('click', function () { if (!acQuery()) { ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + '@'; } ta.focus(); grow(); acSync(); });
+  send.addEventListener('click', function () {
+    if (isDm() && ta.value.trim() === '/clear') { $('#cr-confirm').hidden = false; $('#cl-yes').focus(); return; }
+    $('#announce').textContent = (isDm() && ta.value.trim() === '/compact' ? 'Compact sent. ' : 'Sent. ') + '(mockup)';
+    $('#cr-err').hidden = true; stage.classList.remove('case-fail'); press('data-case', 'busy');
+    ta.value = ''; grow(); acSync(); press('data-comp', 'empty');
+  });
+  // ---- The row menus (ChatMenu.tsx): a ... button and a right-click open the same menu; arrows move, Esc closes and puts the focus back,
+  // and a menu offers only what the viewer may do. What each row offers is what menuFor() says, from the app's own rules.
+  // A menu item: the icon is a fixed svg made here, and the words are a text node. Text from a conversation (a name) is never read as HTML.
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function itemContent(b, icon, label) {
+    var svg = document.createElementNS(SVGNS, 'svg'); svg.setAttribute('aria-hidden', 'true');
+    var use = document.createElementNS(SVGNS, 'use'); use.setAttribute('href', '#m-' + icon); svg.appendChild(use);
+    var span = document.createElement('span'); span.textContent = label;
+    b.appendChild(svg); b.appendChild(span);
+  }
+  var openMenu = null;
+  function menuFor(key) {
+    var adm = stage.classList.contains('is-admin'), rd = stage.classList.contains('is-reading'), who = readName || 'Ed';
+    var G = 'Only an Admin can pause General for everyone or remove its messages.';
+    var P = 'Only an Admin can pause release-1-7 for everyone or remove its messages or the channel.';
+    var it = function (act, label, icon, o) { o = o || {}; return { act: act, label: label, icon: icon, danger: !!o.danger, href: o.href, disabled: o.disabled }; };
+    if (key === 'c:general') return adm && !rd ? { label: 'Actions for General', items: [it('pause-all', 'Pause General for everyone', 'pause'), it('clear', 'Remove all messages…', 'trash', { danger: true })] }
+      : { label: 'Actions for General', items: [it('pause', 'Pause my agents in General', 'pause'), it('disconnect', 'Disconnect my agents in General', 'pause')], why: G };
+    if (key === 'c:group') { var g = rd ? 'every agent in ' + who + "'s group" : 'every agent in the group'; return { label: 'Actions for My group', items: [it('pause', 'Pause ' + g, 'pause'), it('disconnect', 'Disconnect ' + g, 'pause'), it('clear', 'Remove all messages…', 'trash', { danger: true })] }; }
+    if (key === 'c:release') return adm ? { label: 'Actions for release-1-7', items: [it('pause-all', 'Pause release-1-7 for everyone', 'pause'), it('edit', 'Edit description…', 'msg'), it('remove-channel', 'Remove channel…', 'trash', { danger: true }), it('clear', 'Remove all messages…', 'trash', { danger: true })] }
+      : { label: 'Actions for release-1-7', items: [it('pause', 'Pause my agents in release-1-7', 'pause'), it('disconnect', 'Disconnect my agents in release-1-7', 'pause'), it('edit', 'Edit description…', 'msg')], why: P };
+    if (key.indexOf('d:') === 0) {
+      var nm = { 'd:tester': 'Tester', 'd:main': 'podium-main, release-bot', 'd:maya': 'Maya Kim, maya-main', 'd:notes': 'infra-notes' }[key], link = key === 'd:main' || key === 'd:maya', lab = 'Actions for ' + nm;
+      if (rd) return link ? { label: lab, items: [it('pause-link', 'Pause link', 'pause')], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + " removes the link or deletes the conversation. An Admin can pause all of a reporter's links in Admin > Reporters." }
+        : { label: lab, items: [], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + ' deletes the conversation.' };
+      var items = []; var pausedNow = key === 'd:main' && stage.classList.contains('st-paused'); if (link) { items.push(it('pause-link', pausedNow ? 'Resume link' : 'Pause link', pausedNow ? 'play' : 'pause')); items.push(it('remove-link', 'Remove link…', 'trash', { danger: true })); }
+      items.push(it('delete-dm', 'Delete conversation…', 'trash', { danger: true })); return { label: lab, items: items };
+    }
+    if (key.indexOf('p:') === 0) { var pn = document.querySelector('[data-key="' + key + '"]').dataset.name; return { label: 'Actions for ' + pn, items: [it('message', 'Message ' + pn, 'msg'), it('mention', 'Mention ' + pn, 'msg')] }; }
+    if (key.indexOf('a:') === 0) { var an = document.querySelector('[data-key="' + key + '"]').dataset.name; return { label: 'Actions for ' + an, items: [it('message', 'Message ' + an, 'msg'), it('open', 'Open orchestration page', 'play', { href: '#' })] }; }
+    return { label: 'Actions', items: [] };
+  }
+  function closeMenu(restore) {
+    if (!openMenu) return; var m = openMenu; openMenu = null; m.el.remove(); m.kebab.setAttribute('aria-expanded', 'false');
+    if (restore) m.kebab.focus();
+  }
+  function showMenu(li, via) {
+    var spec = menuFor(li.dataset.key), kebab = li.querySelector('.ch-more');
+    if (openMenu && openMenu.li === li) return closeMenu(true);
+    closeMenu(false); hideTip();
+    var el = document.createElement('div'); el.className = 'ch-menu'; el.setAttribute('aria-label', spec.label); el.tabIndex = -1;
+    if (!spec.items.length) { el.classList.add('ch-note'); el.setAttribute('role', 'note'); el.textContent = spec.why; }
+    else {
+      el.setAttribute('role', 'menu');
+      spec.items.forEach(function (x) {
+        var b = document.createElement(x.href ? 'a' : 'button'); if (!x.href) b.type = 'button'; else b.href = x.href;
+        b.setAttribute('role', 'menuitem'); if (x.danger) b.className = 'dng'; b.dataset.act = x.act; b.dataset.label = x.label;
+        itemContent(b, x.icon, x.label); el.appendChild(b);
+      });
+      if (spec.why) { var w = document.createElement('div'); w.className = 'why'; w.textContent = spec.why; el.appendChild(w); }
+    }
+    li.appendChild(el); kebab.setAttribute('aria-expanded', 'true'); openMenu = { li: li, kebab: kebab, el: el };
+    var sb = $('.ch-side').getBoundingClientRect(); if (el.getBoundingClientRect().bottom > sb.bottom) el.classList.add('up');
+    var first = el.querySelector('[role=menuitem]'); (first || el).focus();
+  }
+  document.querySelectorAll('.ch-item').forEach(function (li) {
+    li.addEventListener('contextmenu', function (e) { e.preventDefault(); showMenu(li, 'context'); });
+    li.querySelector('.ch-more').addEventListener('click', function (e) { e.stopPropagation(); showMenu(li, 'button'); });
+    if (li.dataset.person) li.querySelector('.ch-row').addEventListener('click', function () { runAct('message', li.dataset.name, 'Message ' + li.dataset.name); });
+    li.querySelector('.ch-row').addEventListener('click', function () { document.querySelectorAll('.ch-item.on').forEach(function (x) { x.classList.remove('on'); }); li.classList.add('on'); li.classList.remove('un'); var u = li.querySelector('.unread'); if (u) u.remove(); });
+  });
+  document.addEventListener('mousedown', function (e) { if (openMenu && !e.target.closest('.ch-menu, .ch-more, .ch-av[aria-haspopup]')) closeMenu(false); });
+  document.addEventListener('keydown', function (e) {
+    if (!openMenu || openId) return;
+    var all = Array.from(openMenu.el.querySelectorAll('[role=menuitem]')), at = all.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
+    else if (e.key === 'Tab') closeMenu(false);
+    else if (all.length && e.key === 'ArrowDown') { e.preventDefault(); all[(at + 1) % all.length].focus(); }
+    else if (all.length && e.key === 'ArrowUp') { e.preventDefault(); all[(at + all.length - 1) % all.length].focus(); }
+    else if (all.length && e.key === 'Home') { e.preventDefault(); all[0].focus(); }
+    else if (all.length && e.key === 'End') { e.preventDefault(); all[all.length - 1].focus(); }
+  }, true);
+  // What a menu item does. Message opens the New direct message dialog (a person is messaged through their orchestrator), Mention writes
+  // the address into the message box, and anything else only says what it would do.
+  function runAct(act, who, label) {
+    closeMenu(true);
+    if (act === 'message') {
+      dlgOpen('m-dm', document.activeElement);
+      var rb = document.querySelector('input[name=dm-to][value="' + who + '"]');
+      if (!rb) { var q = $('#dm-q'); q.value = who; q.dispatchEvent(new Event('input')); var ok = Array.from(document.querySelectorAll('#dm-list li[data-n]:not([hidden]) input:not([disabled])')); rb = ok.length === 1 ? ok[0] : null; }
+      if (rb) rb.checked = true; $('#dm-msg').focus(); $('#announce').textContent = 'New direct message to ' + who + '. (mockup)'; return;
+    }
+    if (act === 'mention') { var tag = { 'Maya Kim': '@Maya@console ', 'Jo Okafor': '@Jo@console ' }[who] || '@' + who + ' '; ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + tag; ta.focus(); grow(); $('#announce').textContent = 'Mentioned ' + who; return; }
+    $('#announce').textContent = label + ' (mockup)';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('.ch-menu [role=menuitem]'); if (!b) return; if (b.tagName === 'A') e.preventDefault();
+    runAct(b.dataset.act, b.dataset.who || (b.dataset.label || '').replace(/^(Message|Mention) /, ''), b.dataset.label);
+  });
+  // ---- The same menus from a sender's avatar (thread and members list): right-click, click, Enter or the menu key. An agent offers what its
+  // row in People and agents offers; a person offers Mention (channels address people by @). You have no menu on your own avatar.
+  function showAvMenu(av, name, isAgent, pt) {
+    if (openMenu && openMenu.kebab === av) return closeMenu(true);
+    closeMenu(false); hideTip();
+    var items = isAgent ? [['message', 'Message ' + name, 'msg'], ['open', 'Open orchestration page', 'play']] : [['message', 'Message ' + name, 'msg'], ['mention', 'Mention ' + name, 'msg']];
+    var el = document.createElement('div'); el.className = 'ch-menu fixed'; el.setAttribute('role', 'menu'); el.setAttribute('aria-label', 'Actions for ' + name); el.tabIndex = -1;
+    items.forEach(function (x) {
+      var b = document.createElement(x[0] === 'open' ? 'a' : 'button'); if (x[0] === 'open') b.href = '#'; else b.type = 'button';
+      b.setAttribute('role', 'menuitem'); b.dataset.act = x[0]; b.dataset.label = x[1]; b.dataset.who = name; itemContent(b, x[2], x[1]); el.appendChild(b);
+    });
+    $('.stage > .podium').appendChild(el); av.setAttribute('aria-expanded', 'true'); openMenu = { li: null, kebab: av, el: el };
+    // Where the pointer was, as any context menu does; from the keyboard it hangs under the avatar. It is kept inside the window.
+    var r = av.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+    var x = pt ? pt.x : r.left, y = pt ? pt.y : r.bottom + 4;
+    el.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
+    el.style.top = (y + h > innerHeight - 8 ? Math.max(8, (pt ? y : r.top - 4) - h) : y) + 'px';
+    el.querySelector('[role=menuitem]').focus();
+  }
+  function wireAv(av, name, isAgent) {
+    av.removeAttribute('aria-hidden'); av.setAttribute('role', 'button'); av.tabIndex = 0; av.setAttribute('aria-haspopup', 'menu'); av.setAttribute('aria-expanded', 'false'); av.setAttribute('aria-label', 'Actions for ' + name);
+    av.addEventListener('contextmenu', function (e) { e.preventDefault(); showAvMenu(av, name, isAgent, { x: e.clientX, y: e.clientY }); });
+    av.addEventListener('click', function (e) { e.stopPropagation(); showAvMenu(av, name, isAgent, e.detail ? { x: e.clientX, y: e.clientY } : null); });
+    av.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showAvMenu(av, name, isAgent); } });
+  }
+  document.querySelectorAll('.ch-msg > .ch-av.agent, .ch-msg > .ch-av.person').forEach(function (av) {
+    wireAv(av, av.closest('.ch-msg').querySelector('.cr-who b').textContent, av.classList.contains('agent'));
+  });
+  document.querySelectorAll('.ch-mem li > .ch-av.agent, .ch-mem li > .ch-av.person').forEach(function (av) {
+    var li = av.parentElement; wireAv(av, li.querySelector('.t b').textContent, av.classList.contains('agent'));
+    li.addEventListener('contextmenu', function (e) { if (e.target.closest('.ch-av')) return; e.preventDefault(); showAvMenu(av, li.querySelector('.t b').textContent, av.classList.contains('agent'), { x: e.clientX, y: e.clientY }); });
+  });
+  // ---- Other states the app has: each switch adds a class; the channel limit also turns New channel off.
+  document.querySelectorAll('[data-st]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', String(on)); stage.classList.toggle('st-' + b.dataset.st, on);
+      if (b.dataset.st === 'limit') $('#add-ch').disabled = on;
+    });
+  });
+  // ---- The viewer, and what an Admin reads (ReadPicker): Read only, the person is told, the sidebar loses what is the person's alone.
+  var readName = null;
+  function setReading(name) {
+    readName = name || null; closeMenu(false);
+    stage.classList.toggle('is-reading', !!readName);
+    document.querySelectorAll('.rn, #read-name').forEach(function (e) { e.textContent = readName || 'Ed'; });
+    var rs = $('#read-as'); if (rs.value !== (readName || '')) rs.value = readName || '';
+    $('#t-at').disabled = !!readName; ta.disabled = !!readName; ta.placeholder = readName ? 'An Admin cannot send here' : 'Message My group'; ta.value = ''; grow(); acSync();
+    $('.ch-thread').setAttribute('aria-label', 'My group');
+  }
+  function setViewer(v) {
+    var adm = v === 'admin'; stage.classList.toggle('is-admin', adm); $('#who').textContent = adm ? 'Root (Admin)' : 'Ed'; setReading(null); press('data-viewer', v);
+  }
+  $('#read-as').addEventListener('change', function () { setReading(this.value); });
+  $('#stop-read').addEventListener('click', function () { setReading(null); $('#read-as').focus(); });
+  document.querySelectorAll('[data-viewer]').forEach(function (b) { b.addEventListener('click', function () { setViewer(b.dataset.viewer); }); });
+  // ---- Commands in a direct message with your own agent (SlashCommands.tsx): / opens the list, Tab or Enter picks, a command is sent on its
+  // own, /clear asks first, and anything else that starts with / says what it can do from here.
+  var CMDS = ['/clear', '/compact'], cmdList = $('#cmdlist'), cmdBtns = Array.from(cmdList.querySelectorAll('[data-cmd]')), cmdAt = 0;
+  function isDm() { return stage.classList.contains('conv-dm'); }
+  function cmdState() {
+    var v = ta.value; if (!isDm() || v.charAt(0) !== '/') return { matches: [], problem: null };
+    var slash = v.split(/\s/)[0], known = CMDS.indexOf(slash) > -1, matches = v.indexOf(' ') < 0 && !known ? CMDS.filter(function (c) { return c.indexOf(slash) === 0; }) : [], problem = null;
+    if (!known && v.length > 1 && !matches.length) problem = slash + ' runs only in the terminal. From here you can send /clear and /compact.';
+    else if (known && v.trim() !== slash) problem = slash + ' takes nothing after it from here. Send ' + slash + ' on its own, or use the terminal.';
+    return { matches: matches, problem: problem };
+  }
+  function cmdSync() {
+    var st = cmdState(); cmdList.hidden = !st.matches.length;
+    cmdBtns.forEach(function (b) { b.hidden = st.matches.indexOf(b.dataset.cmd) < 0; });
+    var vis = cmdBtns.filter(function (b) { return !b.hidden; }); if (cmdAt >= vis.length) cmdAt = 0;
+    vis.forEach(function (b, i) { b.classList.toggle('on', i === cmdAt); b.setAttribute('aria-selected', String(i === cmdAt)); });
+    var e = $('#cr-cmderr'); e.hidden = !st.problem; e.textContent = st.problem || '';
+    send.disabled = !ta.value.trim() || !!st.problem;
+  }
+  cmdBtns.forEach(function (b) { b.addEventListener('mousedown', function (e) { e.preventDefault(); ta.value = b.dataset.cmd; grow(); acSync(); ta.focus(); }); });
+  ta.addEventListener('keydown', function (e) {
+    if (!isDm() || cmdList.hidden) return;
+    var vis = cmdBtns.filter(function (b) { return !b.hidden; });
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); cmdAt = (cmdAt + (e.key === 'ArrowDown' ? 1 : vis.length - 1)) % vis.length; cmdSync(); }
+    else if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); ta.value = vis[cmdAt].dataset.cmd; cmdAt = 0; grow(); acSync(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cmdList.hidden = true; }
+  }, true);
+  $('#t-slash').addEventListener('click', function () { if (ta.value.charAt(0) !== '/') ta.value = '/'; ta.focus(); grow(); acSync(); });
+  $('#cl-no').addEventListener('click', function () { $('#cr-confirm').hidden = true; ta.focus(); });
+  $('#cl-yes').addEventListener('click', function () { $('#cr-confirm').hidden = true; ta.value = ''; grow(); acSync(); $('#announce').textContent = 'Conversation cleared. (mockup)'; ta.focus(); });
+  $('#cr-confirm').addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); $('#cl-no').click(); } });
+  // ---- Which conversation, and which case of its thread.
+  function toBottom() { var sc = $('.ch-scroll'); sc.scrollTop = sc.scrollHeight; }
+  function setConv(c) {
+    var dm = c === 'dm'; stage.classList.toggle('conv-dm', dm); press('data-conv', c); closeMenu(false); $('#cr-confirm').hidden = true;
+    document.querySelectorAll('.ch-item.on').forEach(function (x) { x.classList.remove('on'); }); (document.querySelector(dm ? '[data-key="d:tester"]' : '[data-key="c:group"]')).classList.add('on');
+    ta.value = ''; ta.placeholder = dm ? 'Write a message, or type / for a command.' : 'Message My group'; ta.setAttribute('aria-expanded', 'false'); grow(); acSync(); toBottom();
+    $('.ch-thread').setAttribute('aria-label', dm ? 'Tester' : 'My group');
+  }
+  var LONG = { 'Tester': 'release-candidate-verification-orchestrator-eu-west-2', 'Maya Kim': 'Alexandria Montgomery-Featherstonehaugh', 'release-1-7': 'release-candidate-verification-board', 'podium-main': 'podium-main-orchestrator-with-a-very-long-session-name' };
+  function setLong(on) {
+    document.querySelectorAll('.ch-msg .cr-who b, .ch-row .nm, .ch-mem .t b, .cr-head h2 .nm, .ch-ac .t b').forEach(function (el) {
+      if (el.children.length) return; if (el.dataset.short === undefined) el.dataset.short = el.textContent;
+      var t = el.dataset.short; if (on) Object.keys(LONG).forEach(function (k) { t = t.split(k).join(LONG[k]); }); el.textContent = t;
+    });
+  }
+  function setCase(c) {
+    var was = stage.classList.contains('case-fail');
+    ['empty', 'fail', 'long'].forEach(function (k) { stage.classList.toggle('case-' + k, k === c); });
+    setLong(c === 'long'); $('#cr-err').hidden = c !== 'fail';
+    if (c === 'fail') { ta.value = 'Retry once, then send me the log if it fails again.'; } else if (was) { ta.value = ''; }
+    grow(); acSync(); toBottom();
+  }
+  // Copy on a code block: the clipboard can be refused (a sandboxed page), so the words say what happened.
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('.ch-copy'); if (!b) return; var pre = b.closest('.ch-code').querySelector('pre');
+    var done = function (t) { b.textContent = t; setTimeout(function () { b.textContent = 'Copy'; }, 1600); };
+    try { navigator.clipboard.writeText(pre.innerText).then(function () { done('Copied'); }, function () { done('Select and copy'); }); } catch (x) { done('Select and copy'); }
+  });
+  root.setAttribute('data-theme', 'dark');
+  var sc = $('.ch-scroll'); sc.scrollTop = sc.scrollHeight;
+})();
+</script>
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); }, $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var TXT = '<span class="ch-mention">@Tester</span> also run the migration tests on MariaDB.';
+  function press(v) { $$('.demo [data-ed]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.ed === v)); }); }
+  function closeMenus() { $$('.ed-menu').forEach(function (m) { m.hidden = true; }); $$('.ch-msg.menu-open').forEach(function (r) { r.classList.remove('menu-open'); }); }
+  // The menu opens where the pointer is, kept inside the window, and takes focus so the keys work at once.
+  function openMenu(row, x, y) {
+    closeMenus(); openedAt = Date.now(); var m = row.querySelector('.ed-menu'); m.hidden = false; row.classList.add('menu-open');
+    var w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
+    m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+    m.querySelector('[role=menuitem]').focus({ preventScroll: true });
+  }
+  // From the keyboard, or a demo button: beside the message text.
+  function openAt(row) { var r = (row.querySelector('.tx') || row).getBoundingClientRect(); openMenu(row, r.left + 16, r.bottom + 4); }
+  function said(t) { $('#ed-said').hidden = !t; $('#ed-said-t').textContent = t || ''; $('#ed-live').textContent = t || ''; }
+  function look(el) { el.scrollIntoView({ block: 'center' }); }
+  var orig = {}; ['m-a', 'm-ed', 'm-gone', 'm-d'].forEach(function (id) { orig[id] = $('#' + id + ' .tx').innerHTML; });
+  var target = null, cur = null, editing = null, openedAt = 0;
+  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  // Your messages that are on screen in the open conversation, oldest first.
+  function own() { return $$('.ch-msg.own').filter(function (r) { return r.offsetParent !== null; }); }
+  // Why a message cannot be edited or deleted, or '' when it can.
+  function why(row) {
+    if (row.querySelector('.ed-del')) return 'There is nothing left to change.';
+    return row.querySelector('.ed-menu [aria-disabled]') ? 'Podium has already sent this message to Tester, so it can no longer be changed.' : '';
+  }
+  // The focused message is marked, and a screen reader hears it, its state and the keys that work on it.
+  function select(row, stay) {
+    $$('.ch-msg.sel').forEach(function (r) { r.classList.remove('sel'); });
+    cur = row; row.classList.add('sel'); row.focus({ preventScroll: true }); if (!stay) row.scrollIntoView({ block: 'center' });
+    var body = row.querySelector('.ed-del') || row.querySelector('.tx'), st = row.querySelector('.ch-st'), at = row.querySelector('.at, .gut'), w = why(row);
+    said('Your message, ' + (at ? at.textContent.trim() : '') + ': ' + body.textContent.trim().replace(/[.!?]$/, '') + '. ' + (st && !st.hidden ? st.textContent.trim() + '. ' : '') + (w || 'Press E to edit or Delete to delete.'));
+  }
+  function leave() { if (cur) cur.classList.remove('sel'); cur = null; said(''); $('#msg').focus(); }
+  function startEdit(row) {
+    closeMenus(); endEdit(false, true);
+    var col = row.querySelector('.col'), tx = col.querySelector('.tx'), box = $('#ed-box'), ta = $('#ed-ta');
+    col.insertBefore(box, tx.nextSibling); ta.value = tx.textContent.trim(); tx.hidden = true; box.hidden = false; editing = row; cur = row; row.classList.add('editing'); said('');
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
+  function endEdit(save, quiet) {
+    if (!editing) return;
+    var row = editing, tx = row.querySelector('.tx'); editing = null; $('#ed-box').hidden = true; tx.hidden = false; row.classList.remove('editing');
+    if (save) tx.innerHTML = esc($('#ed-ta').value.trim()).replace(/@(\w+)/g, '<span class="ch-mention">@$1</span>') + '<span class="ed-edited">edited 9:46 AM</span>';
+    if (!quiet) select(row);
+  }
+  function reset() {
+    closeMenus(); $('#m-del').hidden = true; said(''); target = null; cur = null; endEdit(false, true);
+    Object.keys(orig).forEach(function (id) { $('#' + id + ' .tx').innerHTML = orig[id]; });
+    $$('.ch-msg.sel').forEach(function (r) { r.classList.remove('sel'); });
+    $$('.ed-del').forEach(function (d) { d.remove(); });
+    $$('.ch-msg [data-gone]').forEach(function (c) { c.hidden = false; c.removeAttribute('data-gone'); });
+  }
+  // A deleted message keeps its row; its text and status are replaced by the trace.
+  function remove(row) {
+    var col = row.querySelector('.col');
+    $$('.tx, .ch-st, .ed-box', col).forEach(function (c) { c.setAttribute('data-gone', ''); c.hidden = true; });
+    var d = document.createElement('div'); d.className = 'ed-del';
+    d.innerHTML = '<svg aria-hidden="true"><use href="#m-trash"/></svg>This message was deleted by You at 9:44 AM.';
+    col.insertBefore(d, col.firstChild);
+  }
+  function conv() { return $('.ch-thread').getAttribute('aria-label') === 'My group' ? 'My group' : 'Tester'; }
+  function forText() { return conv() === 'My group' ? 'It will be deleted for everyone in My group, and the agents there will not see it. This cannot be undone.' : 'It will be deleted for you and for Tester, and Tester will not see it. This cannot be undone.'; }
+  function ask(row) { closeMenus(); target = row; $('#del-q').textContent = row.querySelector('.tx').textContent.trim(); $('#del-for').textContent = forText(); $('#m-del').hidden = false; $('#del-cancel').focus(); }
+  function setState(st) {
+    reset(); press(st);
+    if (st !== 'rest') look(st === 'confirm' || st === 'done' ? $('#m-gone') : $('#m-ed'));
+    if (st === 'menu') openAt($('#m-ed'));
+    if (st === 'locked') { look($('#m-lk')); openAt($('#m-lk')); }
+    if (st === 'confirm') ask($('#m-gone'));
+    if (st === 'edit') startEdit($('#m-ed'));
+    if (st === 'done') {
+      $('#ed-tx').innerHTML = '<span class="ch-mention">@Tester</span> also run the migration tests on MariaDB and PostgreSQL.<span class="ed-edited">edited 9:46 AM</span>';
+      remove($('#m-gone'));
+    }
+    if (st === 'kbd') select($('#m-ed'));
+  }
+  $$('.demo [data-ed]').forEach(function (b) { b.addEventListener('click', function () { setState(b.dataset.ed); }); });
+  // A right-click (a long press on touch) anywhere on one of your messages opens its menu at the pointer. The row being edited keeps the browser's own menu.
+  $$('.ch-msg.own').forEach(function (li) {
+    li.setAttribute('aria-haspopup', 'menu');
+    li.addEventListener('contextmenu', function (e) {
+      if (editing === li) return;
+      e.preventDefault(); select(li, true); openMenu(li, e.clientX, e.clientY);
+    });
+  });
+  // The menu is placed with the pointer, so a scroll or a resize closes it.
+  // (Not for the scroll that brought the message into view a moment before the menu opened.)
+  document.addEventListener('scroll', function () { if (Date.now() - openedAt > 400) closeMenus(); }, true);
+  window.addEventListener('resize', closeMenus);
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('[data-act]');
+    if (!a) {
+      var dis = e.target.closest('.ed-menu [aria-disabled="true"]');
+      if (dis) { said(why(dis.closest('.ch-msg'))); return; }
+      if (!e.target.closest('.ed-menu, .demo')) closeMenus();
+      return;
+    }
+    var k = a.dataset.act;
+    if (k === 'ask-delete') ask(a.closest('.ch-msg'));
+    if (k === 'cancel-del') { $('#m-del').hidden = true; if (cur) cur.focus(); }
+    if (k === 'do-del') { $('#m-del').hidden = true; var gone = target; target = null; if (gone) { remove(gone); select(gone); } }
+    if (k === 'edit') startEdit(a.closest('.ch-msg'));
+    if (k === 'cancel-edit') endEdit(false);
+    if (k === 'save-edit') endEdit(true);
+  });
+  // The composer: Up in an empty composer moves to your latest message (not while a list of @ or / choices is open).
+  $('#msg').addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowUp' || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || this.value !== '' || !$('#ac').hidden || !$('#cmdlist').hidden) return;
+    var list = own(); if (!list.length) return;
+    e.preventDefault(); e.stopPropagation(); select(list[list.length - 1]);
+  });
+  // The editor: Enter saves, Shift+Enter adds a line, Escape cancels (below).
+  $('#ed-ta').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); endEdit(true); } });
+  // The delete confirmation: Left and Right (or Up and Down) move between Cancel and Delete message, wrapping at the ends; Tab stays inside the
+  // dialog; Enter or Space presses the focused button, as for any button. Escape closes it (below).
+  $('#m-del').addEventListener('keydown', function (e) {
+    var acts = $$('.acts button', this), all = [$('.mh .x', this)].concat(acts), i = acts.indexOf(document.activeElement);
+    if (['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].indexOf(e.key) >= 0) {
+      e.preventDefault(); e.stopPropagation();
+      var back = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+      acts[(Math.max(i, 0) + (back ? acts.length - 1 : 1)) % acts.length].focus();
+    } else if (e.key === 'Tab') {
+      var j = all.indexOf(document.activeElement), n = all.length;
+      e.preventDefault(); all[(j + (e.shiftKey ? n - 1 : 1)) % n].focus();
+    }
+  });
+  // On a focused message of your own: Up and Down move between your messages, E edits, Delete (Backspace on a Mac) deletes, Enter or the
+  // ContextMenu key opens its menu, Escape returns to the composer. A message that cannot change ignores the key and says why.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (!$('#m-del').hidden) { $('#m-del').hidden = true; if (cur) cur.focus(); return; }
+      if ($$('.ed-menu').some(function (m) { return !m.hidden; })) { closeMenus(); if (cur) cur.focus(); return; }
+      if (editing) { endEdit(false); return; }
+      if (cur) leave(); return;
+    }
+    if (!cur || editing || !$('#m-del').hidden || e.altKey || e.metaKey || e.ctrlKey) return;
+    // Only a key pressed on the row itself: the Enter that saved an edit was pressed in the editor, and must not also open the row's menu.
+    if (e.target !== cur || e.repeat) return;
+    var list = own(), i = list.indexOf(cur), w = why(cur);
+    if (e.key === 'ArrowUp') { e.preventDefault(); if (i > 0) select(list[i - 1]); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); if (i < list.length - 1) select(list[i + 1]); else leave(); }
+    else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); if (w) said(w); else startEdit(cur); }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (w) said(w); else ask(cur); }
+    else if (e.key === 'Enter' || e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); openAt(cur); }
+  });
+  // In the menu: Up, Down, Home and End move through the items (the disabled ones too, so their reason can be read), Enter chooses, Tab closes it.
+  document.addEventListener('keydown', function (e) {
+    var menu = e.target.closest && e.target.closest('.ed-menu'); if (!menu) return;
+    var items = $$('[role=menuitem]', menu), i = items.indexOf(document.activeElement), n = items.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % n].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i + n - 1) % n].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[n - 1].focus(); }
+    else if (e.key === 'Tab') { e.preventDefault(); closeMenus(); if (cur) cur.focus(); }
+  });
+})();
+</script>

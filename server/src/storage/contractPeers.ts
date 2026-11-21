@@ -4,7 +4,7 @@
 import { it, expect } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
 import type { Report } from '../fleet/protocol.js';
-import type { Actor } from '../fleet/peerTypes.js';
+import type { Actor, MessageRow, PeerChange } from '../fleet/peerTypes.js';
 import type { ReporterSeen } from './rows.js';
 import type { PeerStoreApi, Storage } from './types.js';
 import { session } from './contract.js';
@@ -14,6 +14,10 @@ const ED: Actor = { name: 'ed', admin: false };
 const ADMIN: Actor = { name: 'Admin', admin: true };
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
+/** The `people.id` of two people (#1269): the ids the server gives, which a direct message keeps as its author. */
+const ED_ID = 11;
+const EVE_ID = 12;
+const asRow = (v: unknown): MessageRow => v as MessageRow;
 const SERVER_LIMITS = { roundTrips: 10, perMinute: 6, maxChars: 20_000 };
 
 const seen = (id: string, name: string, owner: string, sessionId: string): ReporterSeen => ({
@@ -815,4 +819,402 @@ export function peerCases(o: Openers): void {
     // 30 times the history in other conversations. Reading every message would cost about as many times more; five times is the margin for a slow runner.
     expect(large).toBeLessThan(Math.max(small * 5, 250));
   }, 300_000);
+
+  it('lets a person edit and delete their own direct message while it has not been sent to an agent, whether it waits for approval, is ready, was declined or was dropped, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a } = await setUp(s, clock);
+      await s.fleet.upsertSession(session({ id: 'sd', owner: 'ed' }));
+      await peers.note('sd', a, 'ed', waiting('delta2', 'box-a'));
+      const m = peers.messages;
+      await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'ready one', authorId: ED_ID });
+      clock.now += 5;
+      const r2 = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'ready two', authorId: ED_ID }));
+      clock.now += 5;
+      const r3 = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'ready three', authorId: ED_ID }));
+      const cursor = await rec('page of the newest two, before any change', m.page('ed', 'person:ed', 'sb', { limit: 2 }));
+      await rec('edit a ready message', m.editMessage(r2.id, { author: ED_ID, text: 'ready two edited', now: T0 + 100 }));
+      await rec('edit it again', m.editMessage(r2.id, { author: ED_ID, text: 'ready two edited again', now: T0 + 200 }));
+      await rec('delete a ready message', m.deleteMessage(r3.id, { author: ED_ID, now: T0 + 300 }));
+      await rec('the page before the cursor, after the changes', m.page('ed', 'person:ed', 'sb', { before: cursor.older, limit: 2 }));
+      await rec('the whole conversation', m.page('ed', 'person:ed', 'sb', { limit: 10 }));
+      await rec('the tombstone by id', m.message(r3.id));
+      // Waiting for another person's approval: the owner of the agent is asked, and sees the text as it is now.
+      const first = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'across one', authorId: EVE_ID }));
+      const second = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sa', text: 'across two', authorId: EVE_ID }));
+      const third = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sc', text: 'across three', authorId: EVE_ID }));
+      const open = await peers.rights.openRequests('ed');
+      const requestOf = (id: string): string => open.find((r) => r.messageId === id)!.id;
+      await rec('edit a message that waits for approval', m.editMessage(first.id, { author: EVE_ID, text: 'across one edited', now: T0 + 10 }));
+      await rec("the owner's view shows the edited text", peers.ownerView('ed', T0 + 11));
+      await rec('delete a message that waits for approval', m.deleteMessage(second.id, { author: EVE_ID, now: T0 + 20 }));
+      await rec('open requests, the deleted one gone', peers.rights.openRequests('ed'));
+      await rec('the owner answers the deleted one', peers.answer(requestOf(second.id), 'ed', 'deliver', ED));
+      await rec('the deleted one by id', m.message(second.id));
+      // Declined: it never went, so it can still be changed, and it stays declined.
+      await rec('decline', peers.answer(requestOf(third.id), 'ed', 'decline', ED));
+      await rec('edit a declined message', m.editMessage(third.id, { author: EVE_ID, text: 'across three edited', now: T0 + 30 }));
+      await rec('delete a declined message', m.deleteMessage(third.id, { author: EVE_ID, now: T0 + 40 }));
+      // Dropped: its receiver ended first.
+      const lost = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sd', text: 'to a leaver', authorId: ED_ID }));
+      await peers.ended('sd');
+      await rec('edit a dropped message', m.editMessage(lost.id, { author: ED_ID, text: 'to a leaver edited', now: T0 + 50 }));
+      await rec('delete a dropped message', m.deleteMessage(lost.id, { author: ED_ID, now: T0 + 60 }));
+      await rec('the conversation with the person (across)', m.page('ed', 'person:eve', 'sb', { limit: 10 }));
+      await rec('the conversation of the leaver', m.conversation('person:ed', 'sd'));
+    });
+    expect(t.get('edit a ready message')).toMatchObject({ ok: true, message: { text: 'ready two edited', editedAt: T0 + 100, deletedAt: null, state: 'ready', sentAt: T0 + 5, authorId: ED_ID, author: 'person', why: null } });
+    expect(t.get('edit it again')).toMatchObject({ ok: true, message: { text: 'ready two edited again', editedAt: T0 + 200 } });
+    expect(t.get('delete a ready message')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 300, editedAt: null, state: 'dropped', why: 'deleted', sentAt: T0 + 10, authorId: ED_ID, fromName: 'Ed', toSession: 'sb' } });
+    const before = t.get('page of the newest two, before any change') as { messages: MessageRow[]; older: string | null };
+    const after = t.get('the page before the cursor, after the changes') as { messages: MessageRow[]; older: string | null };
+    expect(before.messages.map((x) => x.text)).toEqual(['ready two', 'ready three']);
+    expect(after.messages.map((x) => x.text)).toEqual(['ready one']);
+    expect((t.get('the whole conversation') as { messages: MessageRow[] }).messages.map((x) => [x.text, x.state, x.editedAt, x.deletedAt])).toEqual([['ready one', 'ready', null, null], ['ready two edited again', 'ready', T0 + 200, null], ['', 'dropped', null, T0 + 300]]);
+    expect(t.get('the tombstone by id')).toMatchObject({ text: '', deletedAt: T0 + 300 });
+    expect(t.get('edit a message that waits for approval')).toMatchObject({ ok: true, message: { text: 'across one edited', state: 'approval', editedAt: T0 + 10, authorId: EVE_ID, owner: 'ed' } });
+    expect((t.get("the owner's view shows the edited text") as { requests: { text: string | null }[] }).requests.map((r) => r.text)).toEqual(['across one edited', 'across two', 'across three']);
+    expect(t.get('delete a message that waits for approval')).toMatchObject({ ok: true, message: { text: '', state: 'dropped', why: 'deleted', deletedAt: T0 + 20 } });
+    expect((t.get('open requests, the deleted one gone') as { messageId: string }[]).length).toBe(2);
+    expect(t.get('the owner answers the deleted one')).toMatchObject({ ok: false, status: 410 });
+    expect(t.get('the deleted one by id')).toMatchObject({ text: '', state: 'dropped', why: 'deleted' });
+    expect(t.get('edit a declined message')).toMatchObject({ ok: true, message: { text: 'across three edited', state: 'declined', editedAt: T0 + 30 } });
+    expect(t.get('delete a declined message')).toMatchObject({ ok: true, message: { text: '', state: 'declined', why: null, deletedAt: T0 + 40, editedAt: T0 + 30 } });
+    expect(t.get('edit a dropped message')).toMatchObject({ ok: true, message: { text: 'to a leaver edited', state: 'dropped', why: 'receiver-ended', editedAt: T0 + 50 } });
+    expect(t.get('delete a dropped message')).toMatchObject({ ok: true, message: { text: '', state: 'dropped', why: 'receiver-ended', deletedAt: T0 + 60 } });
+  });
+
+  it('refuses to change a direct message that is not found, is not the person\'s, is already deleted, or has been sent to an agent, and changes nothing, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      const change = async (label: string, id: string, who: number): Promise<void> => {
+        await rec(`${label}: edit`, m.editMessage(id, { author: who, text: 'changed', now: T0 + 10 }));
+        await rec(`${label}: delete`, m.deleteMessage(id, { author: who, now: T0 + 11 }));
+      };
+      await change('unknown id', 'dlv_000000000000000000000000', ED_ID);
+      const mine = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'mine', authorId: ED_ID }));
+      const noId = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'no author id' }));
+      const agent = (await m.send('sa', 'beta@box-b', 'from an agent')) as { id: string };
+      const eves = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sc', text: 'from eve', authorId: EVE_ID }));
+      await change("another person's id", mine.id, EVE_ID);
+      await change('id 0', mine.id, 0);
+      await change('an id nobody has', mine.id, 999);
+      await change('a person\'s message with no author id (the owner\'s id)', noId.id, ED_ID);
+      await change('a person\'s message with no author id (id 0)', noId.id, 0);
+      await change("an agent's message", agent.id, ED_ID);
+      await change("eve's message, as ed", eves.id, ED_ID);
+      await rec('nothing changed', m.conversation('person:ed', 'sb'));
+      await rec('the agent row is as it was', m.message(agent.id));
+      // A tombstone: another change is `deleted`, and someone else's is still `not-yours`.
+      await rec('delete mine', m.deleteMessage(mine.id, { author: ED_ID, now: T0 + 20 }));
+      await rec('tombstone: edit', m.editMessage(mine.id, { author: ED_ID, text: 'back', now: T0 + 21 }));
+      await rec('tombstone: delete', m.deleteMessage(mine.id, { author: ED_ID, now: T0 + 22 }));
+      await rec('tombstone of another: edit', m.editMessage(mine.id, { author: EVE_ID, text: 'back', now: T0 + 23 }));
+      await rec('tombstone: unchanged', m.message(mine.id));
+      // Sent to an agent: queued, handed over, delivered.
+      const queued = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', text: 'queued', state: 'queued', authorId: ED_ID }));
+      const handed = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'handed', authorId: ED_ID }));
+      await peers.replyFor('sb', true);
+      const delivered = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sc', text: 'delivered', authorId: ED_ID }));
+      await peers.replyFor('sc', true);
+      await m.result('sc', delivered.id, 'took');
+      for (const [label, row] of [['queued', queued], ['handed', handed], ['delivered', delivered]] as const) await change(label, row.id, ED_ID);
+      await rec('locked rows are as they were', m.conversation('person:ed', 'sa'));
+      await rec('locked rows are as they were (handed)', m.message(handed.id));
+      await rec('locked rows are as they were (delivered)', m.message(delivered.id));
+    });
+    const refused = (label: string, reason: string): void => {
+      expect(t.get(`${label}: edit`), `${label}: edit`).toEqual({ ok: false, reason });
+      expect(t.get(`${label}: delete`), `${label}: delete`).toEqual({ ok: false, reason });
+    };
+    refused('unknown id', 'not-found');
+    refused("another person's id", 'not-yours');
+    refused('id 0', 'not-yours');
+    refused('an id nobody has', 'not-yours');
+    refused("a person's message with no author id (the owner's id)", 'not-yours');
+    refused("a person's message with no author id (id 0)", 'not-yours');
+    refused("an agent's message", 'not-yours');
+    refused("eve's message, as ed", 'not-yours');
+    refused('queued', 'locked');
+    refused('handed', 'locked');
+    refused('delivered', 'locked');
+    expect(t.get('delete mine')).toMatchObject({ ok: true });
+    expect(t.get('tombstone: edit')).toEqual({ ok: false, reason: 'deleted' });
+    expect(t.get('tombstone: delete')).toEqual({ ok: false, reason: 'deleted' });
+    expect(t.get('tombstone of another: edit')).toEqual({ ok: false, reason: 'not-yours' });
+    expect(t.get('tombstone: unchanged')).toMatchObject({ text: '', deletedAt: T0 + 20, editedAt: null });
+    expect((t.get('nothing changed') as MessageRow[]).map((x) => [x.text, x.editedAt, x.deletedAt, x.state])).toEqual([['mine', null, null, 'ready'], ['no author id', null, null, 'ready']]);
+    expect(t.get('the agent row is as it was')).toMatchObject({ text: 'from an agent', editedAt: null, deletedAt: null, authorId: null, author: 'agent' });
+    expect((t.get('locked rows are as they were') as MessageRow[]).map((x) => [x.text, x.state, x.editedAt, x.deletedAt])).toEqual([['queued', 'queued', null, null]]);
+    expect(t.get('locked rows are as they were (handed)')).toMatchObject({ text: 'handed', state: 'handed', editedAt: null, deletedAt: null });
+    expect(t.get('locked rows are as they were (delivered)')).toMatchObject({ text: 'delivered', state: 'delivered', editedAt: null, deletedAt: null });
+  });
+
+  it('treats a direct message its owner approved as sent to the agent: locked for edit and delete from the approval on, while a ready message that needed no approval can still be changed, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      const approve = async (id: string): Promise<void> => {
+        const request = (await peers.rights.openRequests('ed')).find((r) => r.messageId === id)!.id;
+        await peers.answer(request, 'ed', 'deliver', ED);
+      };
+      // Approved, not yet fetched by the agent: state ready, approved true.
+      const one = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'approved one', authorId: EVE_ID }));
+      await rec('edit while waiting for approval', m.editMessage(one.id, { author: EVE_ID, text: 'approved one, edited', now: T0 + 5 }));
+      await approve(one.id);
+      await rec('approved: the row', m.message(one.id));
+      await rec('approved: edit', m.editMessage(one.id, { author: EVE_ID, text: 'a different text', now: T0 + 10 }));
+      await rec('approved: delete', m.deleteMessage(one.id, { author: EVE_ID, now: T0 + 11 }));
+      await rec('approved: the row afterwards', m.message(one.id));
+      // A ready message that needed no approval (the link was already open) can still be changed.
+      const open = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'open link', authorId: ED_ID }));
+      await rec('open link: the row', m.message(open.id));
+      await rec('open link: edit', m.editMessage(open.id, { author: ED_ID, text: 'open link, edited', now: T0 + 20 }));
+      await rec('open link: delete', m.deleteMessage(open.id, { author: ED_ID, now: T0 + 21 }));
+    });
+    expect(t.get('edit while waiting for approval')).toMatchObject({ ok: true });
+    expect(t.get('approved: the row')).toMatchObject({ state: 'ready', approved: true, text: 'approved one, edited' });
+    expect(t.get('approved: edit')).toEqual({ ok: false, reason: 'locked' });
+    expect(t.get('approved: delete')).toEqual({ ok: false, reason: 'locked' });
+    expect(t.get('approved: the row afterwards')).toMatchObject({ state: 'ready', approved: true, text: 'approved one, edited', editedAt: T0 + 5, deletedAt: null });
+    expect(t.get('open link: the row')).toMatchObject({ state: 'ready', approved: false });
+    expect(t.get('open link: edit')).toMatchObject({ ok: true, message: { text: 'open link, edited', state: 'ready' } });
+    expect(t.get('open link: delete')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 21 } });
+  });
+
+  it('changes a person\'s message to two agents of a conversation in both of the rows it is stored as, and refuses it as a whole when either has been sent to an agent, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      const start = (await m.send('sa', 'beta@box-b', 'start')) as { id: string };
+      await m.result('sb', start.id, 'took');
+      clock.now += 1;
+      const both = async (text: string): Promise<[MessageRow, MessageRow]> => [
+        asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text, authorId: ED_ID })),
+        asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', withSession: 'sb', text, authorId: ED_ID })),
+      ];
+      const [x1, x2] = await both('both of you');
+      await rec('edit by the first row', m.editMessage(x1.id, { author: ED_ID, text: 'both of you, edited', now: T0 + 10 }));
+      await rec('after the edit', m.conversation('sa', 'sb'));
+      await rec('edit by the second row', m.editMessage(x2.id, { author: ED_ID, text: 'both of you, edited twice', now: T0 + 20 }));
+      await rec('edit by someone else', m.editMessage(x2.id, { author: EVE_ID, text: 'x', now: T0 + 21 }));
+      await rec('delete by the second row', m.deleteMessage(x2.id, { author: ED_ID, now: T0 + 30 }));
+      await rec('after the delete', m.conversation('sa', 'sb'));
+      await rec('delete again by the first row', m.deleteMessage(x1.id, { author: ED_ID, now: T0 + 31 }));
+      await rec('handed over: neither tombstone', peers.replyFor('sb', true));
+      // The same text to two agents more than the window apart is two messages: only the one asked for changes.
+      clock.now += 10_000;
+      const late1 = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: 'late', authorId: ED_ID }));
+      clock.now += 3000;
+      await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', withSession: 'sb', text: 'late', authorId: ED_ID });
+      await rec('edit a message that is two, because of the time between them', m.editMessage(late1.id, { author: ED_ID, text: 'late, edited', now: T0 + 40 }));
+      await rec('after the edit of one of two', m.conversation('sa', 'sb'));
+      // One of the two rows has been handed over and taken: the message is locked, whichever row is asked for.
+      clock.now += 10_000;
+      const [y1, y2] = await both('again');
+      await peers.replyFor('sb', true);
+      await m.result('sb', y1.id, 'took');
+      await rec('locked: edit by the row that was taken', m.editMessage(y1.id, { author: ED_ID, text: 'x', now: T0 + 50 }));
+      await rec('locked: edit by the other row', m.editMessage(y2.id, { author: ED_ID, text: 'x', now: T0 + 51 }));
+      await rec('locked: delete by the other row', m.deleteMessage(y2.id, { author: ED_ID, now: T0 + 52 }));
+      await rec('locked: nothing changed', m.conversation('sa', 'sb'));
+    });
+    const texts = (label: string): unknown[] => (t.get(label) as MessageRow[]).map((x) => [x.text, x.state, x.editedAt, x.deletedAt]);
+    expect(t.get('edit by the first row')).toMatchObject({ ok: true, message: { text: 'both of you, edited', editedAt: T0 + 10, toSession: 'sb' } });
+    expect(texts('after the edit')).toEqual([['start', 'delivered', null, null], ['both of you, edited', 'ready', T0 + 10, null], ['both of you, edited', 'ready', T0 + 10, null]]);
+    expect(t.get('edit by the second row')).toMatchObject({ ok: true, message: { text: 'both of you, edited twice', toSession: 'sa' } });
+    expect(t.get('edit by someone else')).toEqual({ ok: false, reason: 'not-yours' });
+    expect(t.get('delete by the second row')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 30, state: 'dropped', why: 'deleted', toSession: 'sa' } });
+    expect(texts('after the delete')).toEqual([['start', 'delivered', null, null], ['', 'dropped', T0 + 20, T0 + 30], ['', 'dropped', T0 + 20, T0 + 30]]);
+    expect(t.get('delete again by the first row')).toEqual({ ok: false, reason: 'deleted' });
+    expect((t.get('handed over: neither tombstone') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect(t.get('edit a message that is two, because of the time between them')).toMatchObject({ ok: true, message: { text: 'late, edited' } });
+    expect((t.get('after the edit of one of two') as MessageRow[]).slice(-2).map((x) => [x.text, x.editedAt])).toEqual([['late, edited', T0 + 40], ['late', null]]);
+    expect(t.get('locked: edit by the row that was taken')).toEqual({ ok: false, reason: 'locked' });
+    expect(t.get('locked: edit by the other row')).toEqual({ ok: false, reason: 'locked' });
+    expect(t.get('locked: delete by the other row')).toEqual({ ok: false, reason: 'locked' });
+    expect((t.get('locked: nothing changed') as MessageRow[]).slice(-2).map((x) => [x.text, x.state, x.editedAt, x.deletedAt])).toEqual([['again', 'delivered', null, null], ['again', 'ready', null, null]]);
+  });
+
+  it('never hands over, asks about or counts a deleted direct message as a new one, lets what it held free its place, and ages it out like any other, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      for (const n of [1, 2, 3, 4]) {
+        await s.fleet.upsertSession(session({ id: `sx${n}`, owner: 'ed' }));
+        await peers.note(`sx${n}`, a, 'ed', waiting(`extra${n}`, 'box-a'));
+      }
+      const m = peers.messages;
+      const first = (await m.send('sa', 'beta@box-b', 'hello')) as { id: string };
+      await m.result('sb', first.id, 'took');
+      const secret = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'secret', authorId: ED_ID }));
+      const keep = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'keep me', authorId: ED_ID }));
+      await rec('summary before', m.conversationOf('sa', 'sb'));
+      await rec('summary of the person\'s conversation before', m.conversationOf('person:ed', 'sb'));
+      await m.deleteMessage(secret.id, { author: ED_ID, now: T0 + 5 });
+      await rec('summary of the person\'s conversation after', m.conversationOf('person:ed', 'sb'));
+      await rec('a ready tombstone is not handed over', peers.replyFor('sb', true));
+      await rec('result for the tombstone', m.result('sb', secret.id, 'took'));
+      await rec('by id', m.message(secret.id));
+      await rec('page', m.page('ed', 'person:ed', 'sb', { limit: 10 }));
+      await rec('conversations of ed', m.conversations({ owner: 'ed' }));
+      // Waiting for approval: the request goes with it, and the conversation no longer waits.
+      const waits = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sc', text: 'may I?', authorId: EVE_ID }));
+      await rec('eve waits', m.ownerConversations('eve'));
+      const waitsRequest = (await peers.rights.openRequests('ed')).find((r) => r.messageId === waits.id)!.id;
+      await m.deleteMessage(waits.id, { author: EVE_ID, now: T0 + 6 });
+      await rec('eve no longer waits', m.ownerConversations('eve'));
+      await rec('no request for the owner', peers.rights.openRequests('ed'));
+      await rec('no request in the owner view', peers.ownerView('ed', T0 + 7));
+      await rec('nothing handed over to gamma', peers.replyFor('sc', true));
+      await rec('answering the deleted message: deliver', peers.answer(waitsRequest, 'ed', 'deliver', ED));
+      await rec('answering the deleted message: decline', peers.answer(waitsRequest, 'ed', 'decline', ED));
+      await rec('the deleted message is as it was', m.message(waits.id));
+      // What a waiting message held is free again: the one waiting message per agent, and the five at one owner.
+      const hold = async (to: string, text: string): Promise<unknown> => m.sendAcross({ person: 'Eve', toSession: to, text, authorId: EVE_ID });
+      const w1 = asRow(await hold('sa', 'w1'));
+      await rec('the same agent again while one waits', hold('sa', 'w1 again'));
+      await rec('delete the waiting one', m.deleteMessage(w1.id, { author: EVE_ID, now: T0 + 8 }));
+      await rec('the same agent again after the delete', hold('sa', 'w1 again'));
+      for (const to of ['sb', 'sc', 'sx1', 'sx2']) await hold(to, `w ${to}`);
+      await rec('past the cap of five waiting', hold('sx3', 'one too many'));
+      const waiting5 = (await m.page('ed', 'person:eve', 'sx2', { limit: 5 })).messages[0]!;
+      await m.deleteMessage(waiting5.id, { author: EVE_ID, now: T0 + 9 });
+      await rec('under the cap after a delete', hold('sx3', 'one too many'));
+      // It ages out with the conversation's other messages.
+      await rec('conversation before retention', m.conversation('person:ed', 'sb'));
+      clock.now += 400 * DAY;
+      await rec('retain', peers.retain());
+      await rec('conversation after retention', m.conversation('person:ed', 'sb'));
+      await rec('the tombstone after retention', m.message(secret.id));
+      await rec('keep me after retention', m.message(keep.id));
+    });
+    expect(((t.get('a ready tombstone is not handed over') as { peerDeliveries: { text: string }[] }).peerDeliveries).map((d) => d.text)).toEqual(['keep me']);
+    expect(t.get('result for the tombstone')).toBe('unknown');
+    expect(t.get('by id')).toMatchObject({ text: '', state: 'dropped', why: 'deleted', deletedAt: T0 + 5, authorId: ED_ID });
+    const page = t.get('page') as { messages: MessageRow[] };
+    expect(page.messages.map((x) => [x.text, x.state])).toEqual([['', 'dropped'], ['keep me', 'handed']]);
+    // A tombstone keeps its place in the count of the thread and adds no round trip.
+    const was = t.get("summary of the person's conversation before") as { messages: number; roundTrips: { used: number } };
+    const now = t.get("summary of the person's conversation after") as { messages: number; roundTrips: { used: number } };
+    expect(now.messages).toBe(was.messages);
+    expect(now.roundTrips).toEqual(was.roundTrips);
+    expect((t.get('eve waits') as { state: string }[]).map((c) => c.state)).toEqual(['waiting']);
+    expect((t.get('eve no longer waits') as { state: string }[]).map((c) => c.state)).toEqual(['active']);
+    expect(t.get('no request for the owner')).toEqual([]);
+    expect((t.get('no request in the owner view') as { requests: unknown[] }).requests).toEqual([]);
+    expect((t.get('nothing handed over to gamma') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect(t.get('answering the deleted message: deliver')).toMatchObject({ ok: false, status: 410 });
+    expect(t.get('answering the deleted message: decline')).toMatchObject({ ok: false, status: 410 });
+    expect(t.get('the deleted message is as it was')).toMatchObject({ text: '', state: 'dropped', why: 'deleted' });
+    expect(t.get('the same agent again while one waits')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('the same agent again after the delete')).toMatchObject({ author: 'person', state: 'approval', text: 'w1 again' });
+    expect(t.get('past the cap of five waiting')).toMatchObject({ ok: false, status: 429 });
+    expect(t.get('under the cap after a delete')).toMatchObject({ author: 'person', state: 'approval' });
+    expect((t.get('retain') as { messages: number }).messages).toBeGreaterThanOrEqual(3);
+    expect(t.get('conversation after retention')).toEqual([]);
+    expect(t.get('the tombstone after retention')).toBeNull();
+    expect(t.get('keep me after retention')).toBeNull();
+  });
+
+  it('keeps the id of the person who wrote a direct message, and none for an agent\'s, the same on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      await rec('with an id', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'with', authorId: ED_ID }));
+      await rec('with no id', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'without' }));
+      await rec('with a null id', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'null', authorId: null }));
+      await rec('across with an id', m.sendAcross({ person: 'Eve', toSession: 'sc', text: 'across', authorId: EVE_ID }));
+      await rec('an agent writes', m.send('sa', 'beta@box-b', 'agent'));
+      await rec('the person\'s conversation', m.conversation('person:ed', 'sb'));
+      await rec('the agents\' conversation', m.conversation('sa', 'sb'));
+      await rec('page', m.page('ed', 'person:ed', 'sb', { limit: 10 }));
+      await rec('summaries (no text, no id leaks)', m.conversations({}));
+    });
+    expect((t.get("the person's conversation") as MessageRow[]).map((x) => [x.text, x.authorId, x.editedAt, x.deletedAt])).toEqual([['with', ED_ID, null, null], ['without', null, null, null], ['null', null, null, null]]);
+    expect(t.get('across with an id')).toMatchObject({ authorId: EVE_ID, author: 'person', state: 'approval' });
+    expect((t.get("the agents' conversation") as MessageRow[]).map((x) => [x.text, x.authorId, x.author])).toEqual([['agent', null, 'agent']]);
+  });
+
+  onEachAdapter(o, 'decides a delete against a hand-over of the same message in one step: either the message is never handed over, or the delete is refused (#1269)', async (s) => {
+    const clock = { now: T0 };
+    const { peers } = await setUp(s, clock);
+    const m = peers.messages;
+    for (const order of ['delete first', 'delete last'] as const) {
+      for (const race of ['replyFor', 'result', 'answer'] as const) {
+        for (let round = 0; round < 12; round++) {
+          const label = `${race}, ${order}, round ${round}`;
+          // `answer` races the owner's approval of a message that waits for it; the others race a ready one.
+          // An approval opens the link for what Eve writes next, so the approval race runs once for each order, each at an agent of another reporter.
+          if (race === 'answer' && round > 0) continue;
+          const target = order === 'delete first' ? 'sa' : 'sc';
+          const subject = race === 'answer'
+            ? asRow(await m.sendAcross({ person: 'Eve', toSession: target, text: `across ${round}`, authorId: EVE_ID }))
+            : asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: `ready ${round}`, authorId: ED_ID }));
+          const who = race === 'answer' ? EVE_ID : ED_ID;
+          const request = race === 'answer' ? (await peers.rights.openRequests('ed')).find((r) => r.messageId === subject.id)!.id : '';
+          const del = (): Promise<PeerChange> => m.deleteMessage(subject.id, { author: who, now: T0 + 50 });
+          const other = (): Promise<unknown> => (race === 'replyFor' ? peers.replyFor('sb', true) : race === 'result' ? m.result('sb', subject.id, 'queued') : peers.answer(request, 'ed', 'deliver', ED));
+          let change: PeerChange;
+          let handedOver: unknown;
+          if (order === 'delete first') [change, handedOver] = await Promise.all([del(), other()]);
+          else [handedOver, change] = await Promise.all([other(), del()]);
+          const row = (await m.message(subject.id))!;
+          const texts = race === 'replyFor' ? (handedOver as { peerDeliveries: { text: string }[] }).peerDeliveries.map((d) => d.text) : [];
+          if (change.ok) {
+            // The delete won: a tombstone, which was not handed over.
+            expect(row, label).toMatchObject({ text: '', deletedAt: T0 + 50, state: 'dropped', why: 'deleted' });
+            expect(texts, label).not.toContain(subject.text);
+          } else {
+            // The hand-over won: the message is locked, whole.
+            expect(change, label).toEqual({ ok: false, reason: 'locked' });
+            expect(row, label).toMatchObject({ text: subject.text, deletedAt: null });
+            // An approval locks the message too, before the agent has fetched it.
+            expect(['handed', 'queued', 'ready'], label).toContain(row.state);
+          }
+          // Whatever happened, no tombstone is ever handed over afterwards.
+          for (const d of (await peers.replyFor('sb', true)).peerDeliveries) expect(d.text, label).not.toBe('');
+        }
+      }
+    }
+  }, 300_000);
+  it("refuses an edit over the length limit of the agent's owner in the words a send uses, and changes nothing, on every adapter (#1269)", async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      await rec('set the limit', peers.setDefaults('ed', { limits: { maxChars: 20 } }, ED));
+      const own = asRow(await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'short', authorId: ED_ID }));
+      const across = asRow(await m.sendAcross({ person: 'Eve', toSession: 'sb', text: 'short too', authorId: EVE_ID }));
+      const long = 'x'.repeat(30);
+      await rec('send over the limit', m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sa', text: long, authorId: ED_ID }));
+      await rec('send across over the limit', m.sendAcross({ person: 'Eve', toSession: 'sa', text: long, authorId: EVE_ID }));
+      await rec('edit over the limit', m.editMessage(own.id, { author: ED_ID, text: long, now: T0 + 1 }));
+      await rec('edit across over the limit', m.editMessage(across.id, { author: EVE_ID, text: long, now: T0 + 2 }));
+      await rec('edit by someone else, over the limit', m.editMessage(own.id, { author: EVE_ID, text: long, now: T0 + 3 }));
+      await rec('own row is as it was', m.message(own.id));
+      await rec('across row is as it was', m.message(across.id));
+      await rec('edit at the limit', m.editMessage(own.id, { author: ED_ID, text: 'y'.repeat(20), now: T0 + 4 }));
+    });
+    expect(t.get('set the limit')).toMatchObject({ ok: true });
+    const words = 'The message is 30 characters, over the limit of 20. Send a shorter one.';
+    expect(t.get('send over the limit')).toMatchObject({ ok: false, status: 422, error: words });
+    expect(t.get('send across over the limit')).toMatchObject({ ok: false, status: 422, error: words });
+    expect(t.get('edit over the limit')).toEqual({ ok: false, reason: 'too-long', status: 422, error: words });
+    expect(t.get('edit across over the limit')).toEqual({ ok: false, reason: 'too-long', status: 422, error: words });
+    expect(t.get('edit by someone else, over the limit')).toEqual({ ok: false, reason: 'not-yours' });
+    expect((t.get('own row is as it was') as MessageRow).text).toBe('short');
+    expect((t.get('across row is as it was') as MessageRow).text).toBe('short too');
+    expect(t.get('edit at the limit')).toMatchObject({ ok: true });
+  });
+
 }

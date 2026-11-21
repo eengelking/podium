@@ -6,6 +6,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -44,17 +47,19 @@ import {
   ChLink,
   ChNo,
   ChClock,
+  ChTrash,
   ChWarn,
   DeliveryGlyph,
   TagGlyph,
 } from "./ChatIcons";
 import { linkWords } from "./ChatForms";
-import { ChatMenu, agentMenu, personMenu, type MenuAct, type MenuAt, type MenuSpec } from "./ChatMenu";
+import { ChatMenu, agentMenu, messageMenu, personMenu, type MenuAct, type MenuAt, type MenuSpec } from "./ChatMenu";
 import { useRovingList } from "../useRovingList";
 import { agentState } from "./ChatSidebar";
 import { ChatAvatar, ChatAvatarPair } from "./ChatAvatar";
 import { ChatMembersPanel, ChatMembersStack, membersOf } from "./ChatMembers";
 import { ModelChip, StateIcon } from "./Chips";
+import { Modal } from "./Modal";
 import { familyName } from "../logic";
 import { hm } from "../trafficData";
 import { Monogram } from "./People";
@@ -101,6 +106,22 @@ function mineOf(m: ThreadMessage, me: string): boolean {
     d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase()
   );
 }
+
+/** The fields of a message both kinds share (#1269). */
+const bodyOf = (m: ThreadMessage) => (m.channel ?? m.direct)!;
+const deletedOf = (m: ThreadMessage): boolean => !!bodyOf(m).deletedAt;
+/** Whether one of your own messages has a menu: it stands, and the server either lets you change it or says why not. */
+const hasMenu = (m: ThreadMessage, me: string): boolean => mineOf(m, me) && !deletedOf(m) && (bodyOf(m).canChange === true || !!bodyOf(m).changeWhy);
+/** Why one of your own messages cannot be edited or deleted now, or "" when it can. */
+function whyNot(m: ThreadMessage): string {
+  const b = bodyOf(m);
+  if (b.deletedAt) return "There is nothing left to change.";
+  if (b.canChange === true) return "";
+  return b.changeWhy ?? "This message cannot be changed.";
+}
+/** The note a deleted message leaves in its place. */
+const tombstone = (m: ThreadMessage, me: string): string => `This message was deleted by ${mineOf(m, me) ? "You" : m.channel ? m.channel.authorName : m.direct!.from.name} at ${hm(bodyOf(m).deletedAt ?? 0)}.`;
+const noPeriod = (s: string): string => { let n = s.length; while (n > 0 && ".!?".includes(s[n - 1]!)) n--; return s.slice(0, n); };
 
 /** Who sent a message, for the menu on its avatar: a person, or an agent with its session. You have none. The key is the one the members panel's row for the same sender has, behind `t:`. */
 interface Sender {
@@ -235,6 +256,112 @@ function Text({ text }: { text: string }) {
   );
 }
 
+/** One of your messages being edited (#1269): the composer's box in place of its text, Save and Cancel. Enter saves, Shift+Enter adds a line, Escape cancels. */
+function Editor({ initial, error, busy, onSave, onCancel }: { initial: string; error: string | null; busy: boolean; onSave: (text: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState(initial);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const t = ta.current;
+    if (!t) return;
+    t.focus();
+    t.setSelectionRange(t.value.length, t.value.length);
+  }, []);
+  const save = () => {
+    if (!busy && text.trim()) onSave(text);
+  };
+  return (
+    <div className="ed-box" data-testid="chat-edit">
+      <div className="ch-box">
+        <textarea
+          ref={ta}
+          rows={2}
+          aria-label="Edit your message"
+          value={text}
+          readOnly={busy}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // The keys of the box are the box's: they never reach the message list around it.
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              e.stopPropagation();
+              save();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              onCancel();
+            }
+          }}
+        />
+        <div className="cr-tools">
+          <span className="hint">
+            <kbd>Enter</kbd> to save · <kbd>Esc</kbd> to cancel
+          </span>
+          <button type="button" className="btn sm" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn pri sm" disabled={busy || !text.trim()} aria-busy={busy || undefined} onClick={save}>
+            Save
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div className="err" role="alert">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The confirmation before a message is deleted (#1269): an alert dialog that quotes it, says who loses it and that it cannot be undone.
+ * Cancel has the focus first; Left, Right, Up and Down move between Cancel and Delete message; a refusal shows inside it.
+ */
+export function DeleteMessageDialog({ text, who, error, busy, onCancel, onDelete }: { text: string; who: string; error: string | null; busy: boolean; onCancel: () => void; onDelete: () => void }) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  const del = useRef<HTMLButtonElement>(null);
+  const arrows = (e: globalThis.KeyboardEvent): boolean => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return false;
+    e.preventDefault();
+    const acts = [cancel.current, del.current];
+    acts[(Math.max(acts.indexOf(document.activeElement as HTMLButtonElement), 0) + 1) % acts.length]?.focus();
+    return true;
+  };
+  return (
+    <Modal titleId="del-h" title="Delete this message?" className="ed-confirm" role="alertdialog" describedBy="del-b" initialFocus={cancel} onKey={arrows} onClose={onCancel}>
+      <div className="mb" id="del-b">
+        <p className="ed-q">{text}</p>
+        <p>{who} This cannot be undone.</p>
+        {error && (
+          <div className="err" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="acts">
+          <button type="button" className="btn" ref={cancel} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn bad" ref={del} disabled={busy} aria-busy={busy || undefined} onClick={onDelete}>
+            Delete message
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** What the row needs to know about changing one of your own messages (#1269). */
+interface OwnState {
+  /** Its menu is open, or its delete confirmation: the row stays marked. */
+  marked: boolean;
+  /** Set while it is being edited. */
+  editing: { error: string | null; busy: boolean } | null;
+  onSave: (text: string) => void;
+  onCancel: () => void;
+  /** A right-click or a long press: opens the menu at the pointer; undefined when the message has none. */
+  onContext?: (e: MouseEvent<HTMLElement>) => void;
+}
+
 function Message({
   m,
   all,
@@ -250,6 +377,7 @@ function Message({
   cont,
   rove,
   onSender,
+  own,
 }: {
   m: ThreadMessage;
   all: ThreadMessage[];
@@ -267,6 +395,8 @@ function Message({
   rove: { tabIndex: number; "data-roving": number };
   /** Opens the menu of this message's sender at the pointer; undefined for your own. */
   onSender?: (at: MenuAt) => void;
+  /** For one of your own messages: whether it is being edited or has a menu open, and what to do about it (#1269). */
+  own?: OwnState;
 }) {
   const c = m.channel;
   const d = m.direct;
@@ -309,10 +439,15 @@ function Message({
   );
   const when = new Date(m.at).toLocaleString();
   const failed = dl.icon === "no";
+  const body = bodyOf(m);
+  const gone = !!body.deletedAt;
+  const editing = own?.editing ?? null;
   return (
     <li
-      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}`}
+      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}${own?.marked ? " menu-open sel" : ""}${editing ? " editing" : ""}`}
       data-testid="chat-message"
+      aria-haspopup={own?.onContext ? "menu" : undefined}
+      onContextMenu={own?.onContext}
       {...rove}
     >
       {cont ? (
@@ -389,10 +524,24 @@ function Message({
             </span>
           </div>
         )}
-        <div className="ch-tx">
-          <Text text={text} />
-        </div>
-        {c && c.mentions.length > 0 && (
+        {gone ? (
+          <div className="ed-del">
+            <ChTrash />
+            {tombstone(m, me)}
+          </div>
+        ) : editing ? (
+          <Editor initial={text} error={editing.error} busy={editing.busy} onSave={own!.onSave} onCancel={own!.onCancel} />
+        ) : (
+          <div className="ch-tx">
+            <Text text={text} />
+            {body.editedAt ? (
+              <span className="ed-edited" title={new Date(body.editedAt).toLocaleString()}>
+                edited {hm(body.editedAt)}
+              </span>
+            ) : null}
+          </div>
+        )}
+        {!gone && c && c.mentions.length > 0 && (
           <div className="ch-st">
             {c.mentions.map((x, i) => {
               const chip = mentionChip(x);
@@ -416,6 +565,7 @@ function Message({
             })}
           </div>
         )}
+        {!gone && (
         <div className="ch-st">
           <span
             className={`s ds${dl.wait ? " wait" : ""}${failed ? " bad" : ""}`}
@@ -424,6 +574,7 @@ function Message({
             <span>{dl.text}</span>
           </span>
         </div>
+        )}
       </div>
     </li>
   );
@@ -457,6 +608,19 @@ export interface ThreadProps {
   readAs: string | null;
   /** The server's clock now, for hiding a reading whose time has passed. */
   serverNow: number;
+  /** Editing and deleting your own messages (#1269). */
+  change: {
+    /** The message being edited, with a refusal to show under its box and whether a save is out. */
+    editing: { id: string; error: string | null; busy: boolean } | null;
+    /** The message whose delete confirmation is open. */
+    deleting: string | null;
+    /** A request to put the focus back on a message (after an edit, a cancel or a delete); each has its own `n`. */
+    focus: { id: string; n: number } | null;
+    onEdit: (id: string) => void;
+    onSave: (id: string, text: string) => void;
+    onCancel: (id: string) => void;
+    onDelete: (id: string) => void;
+  };
 }
 
 export function ChatThread(p: ThreadProps) {
@@ -466,18 +630,109 @@ export function ChatThread(p: ThreadProps) {
   const grew = useRef<number | null>(null);
   const newest = t.messages[t.messages.length - 1]?.id ?? null;
   const oldest = t.messages[0]?.id ?? null;
-  // The message list is one tab stop however long it is (#1231); Enter, the ContextMenu key or Shift+F10 on a message opens its sender's menu (#1235).
-  const roving = useRovingList(t.messages.length, (i) => {
+  // The message list is one tab stop however long it is (#1231); Enter, the ContextMenu key or Shift+F10 on a message opens its sender's menu (#1235), or on
+  // one of your own the menu of Edit message and Delete message (#1269).
+  const section = useRef<HTMLElement>(null);
+  const [said, setSaid] = useState("");
+  // How the focus got to a message of yours. From the box's Up, a right-click or a menu, Up and Down visit your own messages only (#1269), the
+  // way Teams and Slack do; reached with Tab or a click, they keep the list's own arrows and visit every message (#1231). Tab, a click or
+  // a focus that comes from elsewhere ends it, so there is no way the list keeps a person in it or skips a message they came to read.
+  const ownNav = useRef(false);
+  const programmatic = useRef(false);
+  const openOwnMenu = (i: number) => {
     const m = t.messages[i];
-    const sender = m && senderOf(m, o.me.name);
-    if (!sender) return; // your own avatar has no menu
+    if (!m) return;
     const item = body.current?.querySelector<HTMLElement>(`[data-roving="${i}"]`);
-    const r = (item?.querySelector(".ch-gut") ?? item)?.getBoundingClientRect();
-    if (r) p.onMenu(`t:${sender.key}`, "button", { x: r.left, y: r.bottom, top: r.top, from: item ?? null });
-  });
+    const r = (item?.querySelector(".ch-tx") ?? item)?.getBoundingClientRect();
+    if (r) p.onMenu(`m:${m.id}`, "button", { x: r.left + 16, y: r.bottom + 4, top: r.top, from: item ?? null });
+  };
+  const roving = useRovingList(
+    t.messages.length,
+    (i) => {
+      const m = t.messages[i];
+      if (m && mineOf(m, o.me.name)) return; // yours opens its own menu, from the keys below
+      const sender = m && senderOf(m, o.me.name);
+      if (!sender) return;
+      const item = body.current?.querySelector<HTMLElement>(`[data-roving="${i}"]`);
+      const r = (item?.querySelector(".ch-gut") ?? item)?.getBoundingClientRect();
+      if (r) p.onMenu(`t:${sender.key}`, "button", { x: r.left, y: r.bottom, top: r.top, from: item ?? null });
+    },
+    {
+      onKey: (e, i, onItem) => {
+        const m = t.messages[i];
+        if (!onItem || !m || !mineOf(m, o.me.name) || p.readAs !== null || e.altKey || e.metaKey || e.ctrlKey) return false;
+        const k = e.key;
+        const mine = t.messages.flatMap((x, n) => (mineOf(x, o.me.name) ? [n] : []));
+        const here = mine.indexOf(i);
+        if (ownNav.current && k === "Escape") {
+          e.preventDefault();
+          toBox();
+          return true;
+        }
+        if (ownNav.current && (k === "ArrowUp" || k === "ArrowDown") && !e.shiftKey) {
+          e.preventDefault();
+          const next = mine[here + (k === "ArrowUp" ? -1 : 1)];
+          if (next !== undefined) toMessageAt(next);
+          else if (k === "ArrowDown") toBox();
+          return true;
+        }
+        if (e.repeat) return false;
+        const why = whyNot(m);
+        if (k === "e" || k === "E") {
+          e.preventDefault();
+          if (why) setSaid(why);
+          else p.change.onEdit(m.id);
+          return true;
+        }
+        if (k === "Delete" || k === "Backspace") {
+          e.preventDefault();
+          if (why) setSaid(why);
+          else p.change.onDelete(m.id);
+          return true;
+        }
+        if ((k === "Enter" || k === "ContextMenu" || (k === "F10" && e.shiftKey)) && hasMenu(m, o.me.name)) {
+          e.preventDefault();
+          openOwnMenu(i);
+          return true;
+        }
+        return false;
+      },
+    },
+  );
   const lastNewest = useRef<string | null>(null);
   const lastOldest = useRef<string | null>(null);
   const lastToken = useRef<string | null>(null);
+  // What a screen reader hears when a message of yours takes the focus: it, its state and the keys that work on it, or why none does.
+  const saidOf = (m: ThreadMessage): string => {
+    const b = bodyOf(m);
+    const gone = !!b.deletedAt;
+    const dl = m.channel ? channelDelivery(m.channel) : dmDelivery(m.direct!, t.head?.paused ?? p.direct?.paused ?? false, t.head?.owner ?? p.direct?.owner ?? o.me.name, undefined, (t.head?.cross ?? p.direct?.cross ?? null) !== null);
+    const edited = !gone && b.editedAt ? ` (edited ${hm(b.editedAt)})` : "";
+    return `Your message, ${hm(m.at)}: ${noPeriod(gone ? tombstone(m, o.me.name) : b.text.trim())}${edited}. ${gone ? "" : `${noPeriod(dl.text)}. `}${whyNot(m) || "Press E to edit or Delete to delete."}`;
+  };
+  // A message of yours takes the focus from the keyboard (the box's Up, Up and Down among them), and says what it is.
+  const toMessageAt = (i: number) => {
+    const m = t.messages[i];
+    if (!m) return;
+    ownNav.current = true;
+    programmatic.current = true;
+    roving.focusItem(i);
+    programmatic.current = false;
+    setSaid(saidOf(m));
+  };
+  const toBox = () => {
+    ownNav.current = false;
+    setSaid("");
+    section.current?.querySelector<HTMLTextAreaElement>(".ch-composer textarea")?.focus();
+  };
+  const focusAsk = p.change.focus;
+  useEffect(() => {
+    if (!focusAsk) return;
+    const i = t.messages.findIndex((x) => x.id === focusAsk.id);
+    if (i >= 0) toMessageAt(i);
+    // Each request has its own number.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusAsk?.n]);
   // Which thread this is, so what is remembered about one (its New line, what it announced) is not carried to another.
   const threadKey =
     p.channel?.thread ??
@@ -731,12 +986,48 @@ export function ChatThread(p: ThreadProps) {
       ) : null
     ) : null;
 
+  // Up in an empty message box, with no @ or / list open to take it, moves to your latest message (#1269).
+  const fromBox = (e: KeyboardEvent<HTMLElement>) => {
+    const box = e.target;
+    if (e.key !== "ArrowUp" || e.defaultPrevented || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing) return;
+    if (!(box instanceof HTMLTextAreaElement) || !box.closest(".ch-composer") || box.value !== "" || p.readAs !== null) return;
+    const last = t.messages.reduce((at, x, n) => (mineOf(x, o.me.name) ? n : at), -1);
+    if (last < 0) return;
+    e.preventDefault();
+    toMessageAt(last);
+  };
+  const onListFocus = (e: FocusEvent<HTMLElement>) => {
+    roving.listProps.onFocus(e);
+    const from = e.relatedTarget;
+    if (!programmatic.current && from instanceof Element && !e.currentTarget.contains(from) && !from.closest(".ch-menu")) ownNav.current = false;
+  };
+  const openKey2 = p.menu?.startsWith("m:") ? p.menu.slice(2) : null;
+  const openOwn = openKey2 ? (t.messages.find((m) => m.id === openKey2) ?? null) : null;
+  const ownOf = (m: ThreadMessage, mineRow: boolean): OwnState | undefined =>
+    mineRow && p.readAs === null
+      ? {
+          marked: p.menu === `m:${m.id}` || p.change.deleting === m.id,
+          editing: p.change.editing?.id === m.id ? p.change.editing : null,
+          onSave: (text) => p.change.onSave(m.id, text),
+          onCancel: () => p.change.onCancel(m.id),
+          onContext: hasMenu(m, o.me.name) && p.change.editing?.id !== m.id
+            ? (e) => {
+                e.preventDefault();
+                ownNav.current = true;
+                p.onMenu(`m:${m.id}`, "context", { x: e.clientX, y: e.clientY, from: e.currentTarget });
+              }
+            : undefined,
+        }
+      : undefined;
+
   return (
     <>
     <section
       className="ch-thread"
       aria-labelledby="th-h"
       data-testid="chat-thread"
+      ref={section}
+      onKeyDown={fromBox}
     >
       {back}
       <div className="ch-head">
@@ -853,7 +1144,7 @@ export function ChatThread(p: ThreadProps) {
               aria-relevant="additions"
               aria-atomic="false"
             >
-              <ol className="ch-msgs" {...roving.listProps}>
+              <ol className="ch-msgs" {...roving.listProps} onFocus={onListFocus} onMouseDown={() => void (ownNav.current = false)}>
                 {rows.map((r, i) =>
                   r.k === "rec" ? (
                     <RecordLine
@@ -875,6 +1166,7 @@ export function ChatThread(p: ThreadProps) {
                       all={t.messages}
                       cont={conts[i]!}
                       rove={roving.itemProps(msgAt[i]!)}
+                      own={ownOf(r.m, mineOf(r.m, o.me.name))}
                       onSender={
                         senderOf(r.m, o.me.name)
                           ? (pos) => p.onMenu(`t:${senderOf(r.m, o.me.name)!.key}`, "context", pos)
@@ -917,6 +1209,10 @@ export function ChatThread(p: ThreadProps) {
       </div>
       {p.composer}
       {openSender && <ChatMenu spec={specOf(openSender)} at={p.menuAt ?? undefined} onPick={(act) => p.onPick(p.menu!, act)} onClose={p.onClose} />}
+      {openOwn && <ChatMenu key={openOwn.id} spec={messageMenu(bodyOf(openOwn))} at={p.menuAt ?? undefined} onPick={(act) => p.onPick(p.menu!, act)} onClose={p.onClose} onBlocked={() => setSaid(whyNot(openOwn))} closeOnScroll />}
+      <span className="vh" role="status" aria-live="polite" data-testid="chat-msg-said">
+        {said}
+      </span>
     </section>
     {list && p.members && (
       <ChatMembersPanel

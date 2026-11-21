@@ -6,11 +6,37 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP } from '../rows.js';
+import { peerPersonKey } from '../chatRows.js';
+import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 
-const MIGRATIONS: { version: number; sql: string }[] = [
+/**
+ * Gives the person-written messages that exist the id of their author (#1269), by the author's folded name against `people.name_lower`, which `nameKey` also writes. It is JS
+ * because SQL cannot fold a name the way `nameKey` does (it collapses runs of spaces and lowercases every letter, where SQLite's `lower()` is ASCII only). A message whose author
+ * matches no person keeps no id, and nobody can change it. Agents' and reporters' messages keep none.
+ */
+function fillAuthorIds(db: DatabaseSync): void {
+  // order-insensitive: the rows are folded into a map by name.
+  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
+  if (ids.size === 0) return;
+  for (const table of ['group_messages', 'public_messages']) {
+    const set = db.prepare(`UPDATE ${table} SET author_id = ? WHERE author_kind = 'person' AND author_ref = ? AND author_id IS NULL`);
+    // order-insensitive: each author name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT author_ref FROM ${table} WHERE author_kind = 'person' AND author_id IS NULL ORDER BY author_ref`).all() as unknown as { author_ref: string }[]) {
+      const id = ids.get(nameKey(r.author_ref));
+      if (id !== undefined) set.run(id, r.author_ref);
+    }
+  }
+  const setPeer = db.prepare("UPDATE peer_messages SET author_id = ? WHERE author = 'person' AND from_session = ? AND owner = ? AND author_id IS NULL");
+  // order-insensitive: each sender and owner pair is written on its own rows, whatever the order.
+  for (const r of db.prepare("SELECT DISTINCT from_session, owner FROM peer_messages WHERE author = 'person' AND author_id IS NULL ORDER BY from_session, owner").all() as unknown as { from_session: string; owner: string }[]) {
+    const id = ids.get(peerPersonKey(r.from_session, r.owner));
+    if (id !== undefined) setPeer.run(id, r.from_session, r.owner);
+  }
+}
+
+const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
   {
     version: 1,
     sql: `
@@ -588,6 +614,25 @@ CREATE TABLE IF NOT EXISTS public_channels (
   created_by TEXT NOT NULL, created_by_name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );`,
   },
+  {
+    version: 46,
+    // A person edits or deletes their own Chat message (#1269): `edited_at` is when the text last changed and `deleted_at` when the author deleted it (the row stays as a tombstone
+    // with no text and no mentions, so the pages and their cursors do not move). Both are NULL for every message already there. `peer_messages` gets them now so that a direct
+    // message can be edited and deleted without another migration. `author_id` is the id of the person who wrote the message (`people.id`, never reused), with no foreign key, so a
+    // message kept after its person is deleted still names nobody and no one can match it; it is NULL for an agent's or a reporter's message. The ones that exist are given their
+    // author's id by `fillAuthorIds`, right after the columns are added. The same step is PostgreSQL step 22 and MariaDB step 22.
+    sql: `
+ALTER TABLE group_messages ADD COLUMN edited_at INTEGER;
+ALTER TABLE group_messages ADD COLUMN deleted_at INTEGER;
+ALTER TABLE group_messages ADD COLUMN author_id INTEGER;
+ALTER TABLE public_messages ADD COLUMN edited_at INTEGER;
+ALTER TABLE public_messages ADD COLUMN deleted_at INTEGER;
+ALTER TABLE public_messages ADD COLUMN author_id INTEGER;
+ALTER TABLE peer_messages ADD COLUMN edited_at INTEGER;
+ALTER TABLE peer_messages ADD COLUMN deleted_at INTEGER;
+ALTER TABLE peer_messages ADD COLUMN author_id INTEGER;`,
+    after: fillAuthorIds,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -608,6 +653,7 @@ export function openDb(file: string, upTo = Infinity): DatabaseSync {
     db.exec('BEGIN');
     try {
       db.exec(m.sql);
+      m.after?.(db);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(m.version, Date.now());
       db.exec('COMMIT');
     } catch (err) {

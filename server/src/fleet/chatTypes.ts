@@ -69,6 +69,7 @@ export type ChatEvent =
   | { kind: 'paused' | 'resumed' | 'disconnected' | 'reconnected' | 'cleared'; channel: ChannelId; owner: string | null; by: string; everyone: boolean; count: number }
   | { kind: 'dm_sent'; owner: string; by: string; messageId: string; sessionId: string }
   | { kind: 'across'; owner: string; person: string; by: string; messageId: string; sessionId: string; approval: boolean }
+  | { kind: 'message_edited' | 'message_deleted'; scope: 'channel' | 'dm'; channel: ChannelId | null; owner: string | null; by: string; messageId: string }
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
   | { kind: 'admin_browse'; by: string; person: string }

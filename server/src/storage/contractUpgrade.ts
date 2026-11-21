@@ -76,6 +76,11 @@ export interface LegacyMessage {
   sentAt: number;
   /** The insertion number the older schema already had. */
   seq: number;
+  /**
+   * Set to store the row as a database holds it after a row said who wrote it (#1034) and before it kept its author's id (#1269): who wrote it, under what name, in what state, and (once, however many rows name it)
+   * the person of that name the older database holds, so the upgrade can give the row that person's id. Without it the row is an agent's, `delivered`, from `alpha`, as before.
+   */
+  written?: { author: 'agent' | 'person'; fromName: string; state: string; person?: string };
 }
 
 /** A public message as an older database stores it, before a message was kept in a channel (#1035): in General's table, with its insertion number. */
@@ -88,6 +93,10 @@ export interface LegacyPublicMessage {
   createdAt: number;
   mentionsJson: string;
   seq: number;
+  /** Set to put the row in the group channel's table (`group_messages`) of this owner and group instead of General's, as the same older database holds both. */
+  group?: { owner: string; groupId: string };
+  /** Set to have a person of this name in the older database too (made once, however many rows name it), so the upgrade can give the rows that person's id. */
+  person?: string;
 }
 
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
@@ -355,6 +364,101 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect((await chat.public.page('general', { limit: 10 })).messages.map((m) => m.text)).toEqual(['first', 'second', 'third', 'fourth']);
       expect((await chat.public.page('new', { limit: 10 })).messages.map((m) => m.text)).toEqual(['in new']);
       expect(await chat.public.purge(T0 + 1)).toBe(2);
+    } finally {
+      await s.close();
+    }
+  });
+  it('reads the group and public messages an older database holds as never edited and never deleted, gives a person\'s the id of the person their author name matches, and lets only that person edit and delete them, when the database is upgraded (#1269)', async () => {
+    const old = (id: string, createdAt: number, seq: number, text: string, over: Partial<LegacyPublicMessage> = {}): LegacyPublicMessage => ({
+      id, authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, createdAt, mentionsJson: '[]', seq, ...over,
+    });
+    const g = { owner: 'ed', groupId: 'g1' };
+    const s = await o.openUpgraded([], [], [], [], [], [], [
+      old('pub_00000000_a', T0, 1, 'public one', { person: 'Ed' }),
+      // The name differs from the person's in case and in the spaces between its words, and folds to it.
+      old('pub_00000000_b', T0 + 1, 2, 'public two', { authorRef: 'ED   Smith', authorName: 'ED   Smith', person: 'Ed Smith' }),
+      old('pub_00000000_c', T0 + 2, 3, 'public three', { authorRef: 'ghost', authorName: 'Ghost' }),
+      old('pub_00000000_d', T0 + 3, 4, 'public four', { authorKind: 'orchestrator', authorRef: 'ed', authorName: 'alpha' }),
+      old('grp_00000000_a', T0, 1, 'group one', { group: g }),
+      old('grp_00000000_b', T0 + 1, 2, 'group two', { group: g, authorRef: 'ghost', authorName: 'Ghost' }),
+    ]);
+    try {
+      const chat = s.chat({ now: () => T0 + 10 });
+      const ed = (await s.people.findByName('ed'))!.id;
+      const smith = (await s.people.findByName('ed smith'))!.id;
+      expect(ed).not.toBe(smith);
+      const publicPage = await chat.public.page('general', { limit: 10 });
+      const groupPage = await chat.group.page(g, { limit: 10 });
+      expect(publicPage.messages.map((m) => [m.text, m.editedAt, m.deletedAt, m.authorId])).toEqual([['public one', null, null, ed], ['public two', null, null, smith], ['public three', null, null, null], ['public four', null, null, null]]);
+      expect(groupPage.messages.map((m) => [m.text, m.editedAt, m.deletedAt, m.authorId])).toEqual([['group one', null, null, ed], ['group two', null, null, null]]);
+      // A message whose author matches nobody, and an agent's, are nobody's to change.
+      for (const who of [ed, smith, 0, 999]) {
+        expect(await chat.public.editMessage('general', 'pub_00000000_c', { author: who, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+        expect(await chat.public.deleteMessage('general', 'pub_00000000_d', { author: who, now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+        expect(await chat.group.editMessage(g, 'grp_00000000_b', { author: who, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+      }
+      expect(await chat.public.editMessage('general', 'pub_00000000_a', { author: smith, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
+      expect(await chat.public.editMessage('general', 'pub_00000000_a', { author: ed, text: 'public one edited', now: T0 + 10 })).toMatchObject({ ok: true, message: { text: 'public one edited', editedAt: T0 + 10, createdAt: T0, authorId: ed } });
+      expect(await chat.public.deleteMessage('general', 'pub_00000000_b', { author: smith, now: T0 + 11 })).toMatchObject({ ok: true, message: { text: '', mentions: [], deletedAt: T0 + 11, authorId: smith } });
+      expect(await chat.group.editMessage(g, 'grp_00000000_a', { author: ed, text: 'group one edited', now: T0 + 10 })).toMatchObject({ ok: true, message: { text: 'group one edited', editedAt: T0 + 10 } });
+      expect(await chat.group.deleteMessage(g, 'grp_00000000_a', { author: ed, now: T0 + 12 })).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 12 } });
+      expect((await chat.public.page('general', { limit: 10 })).messages.map((m) => m.text)).toEqual(['public one edited', '', 'public three', 'public four']);
+      expect(await chat.public.count('general')).toBe(4);
+    } finally {
+      await s.close();
+    }
+  });
+  it('reads the direct messages an older database holds as never edited and never deleted, gives a person\'s the id of the person its sender or owner names, and lets only that person edit and delete it and the row it is merged with, when the database is upgraded (#1269)', async () => {
+    const wrote = (id: string, seq: number, owner: string, from: string, to: string, text: string, written: NonNullable<LegacyMessage['written']>): LegacyMessage => ({ id, owner, fromSession: from, toSession: to, text, sentAt: T0 + seq, seq, written });
+    const ed = (over: Partial<NonNullable<LegacyMessage['written']>> = {}): NonNullable<LegacyMessage['written']> => ({ author: 'person', fromName: 'Ed', state: 'ready', person: 'Ed', ...over });
+    const s = await o.openUpgraded([], [], [], [
+      // An agent's message, stored the old way, and one the older database already said an agent wrote.
+      { id: 'dlv_old', owner: 'ed', fromSession: 'sa', toSession: 'sb', text: 'agent, old', sentAt: T0, seq: 1 },
+      wrote('dlv_agent', 2, 'ed', 'sa', 'sb', 'agent, written', { author: 'agent', fromName: 'alpha', state: 'delivered' }),
+      // The person with one of their own agents: the sender names them, and the name differs from theirs in case and in the spaces between words.
+      wrote('dlv_own', 3, 'ed', 'person:ed', 'sb', 'in my conversation', ed()),
+      // A person writing to another person's agent: held for approval.
+      wrote('dlv_across', 4, 'ed', 'person:eve smith', 'sb', 'across', ed({ fromName: 'Eve Smith', person: 'Eve Smith', state: 'approval' })),
+      // A person adding to a conversation between two agents is two rows, one per agent, owned by the person, with an agent as the sender.
+      wrote('dlv_two_a', 5, 'ED', 'sa', 'sb', 'to both', ed()),
+      wrote('dlv_two_b', 6, 'ED', 'sb', 'sa', 'to both', ed()),
+      // A person nobody is called, in a conversation of their own, and between two other agents.
+      wrote('dlv_ghost', 7, 'ghost', 'person:ghost', 'sc', 'nobody', ed({ fromName: 'Ghost', person: undefined })),
+      wrote('dlv_nobody', 8, 'Nobody', 'sc', 'sd', 'no one at all', ed({ fromName: 'Nobody', person: undefined })),
+    ]);
+    try {
+      const m = s.peers({ now: () => T0 + 100, flagOn: () => true, startedAt: T0 }).messages;
+      const edId = (await s.people.findByName('ed'))!.id;
+      const eve = (await s.people.findByName('eve smith'))!.id;
+      expect(edId).not.toBe(eve);
+      const all = [...(await m.conversation('sa', 'sb')), ...(await m.conversation('person:ed', 'sb')), ...(await m.conversation('person:eve smith', 'sb')), ...(await m.conversation('person:ghost', 'sc')), ...(await m.conversation('sc', 'sd'))];
+      expect(all.map((x) => [x.id, x.author, x.authorId, x.editedAt, x.deletedAt, x.text === '' ? null : x.state])).toEqual([
+        ['dlv_old', 'agent', null, null, null, 'delivered'],
+        ['dlv_agent', 'agent', null, null, null, 'delivered'],
+        ['dlv_two_a', 'person', edId, null, null, 'ready'],
+        ['dlv_two_b', 'person', edId, null, null, 'ready'],
+        ['dlv_own', 'person', edId, null, null, 'ready'],
+        ['dlv_across', 'person', eve, null, null, 'approval'],
+        ['dlv_ghost', 'person', null, null, null, 'ready'],
+        ['dlv_nobody', 'person', null, null, null, 'ready'],
+      ]);
+      // Nobody changes an agent's message, or a person's that no person matches.
+      for (const who of [edId, eve, 0, 999]) {
+        for (const id of ['dlv_old', 'dlv_agent', 'dlv_ghost', 'dlv_nobody']) {
+          expect(await m.editMessage(id, { author: who, text: 'x', now: T0 + 100 }), `${id} edited by ${who}`).toEqual({ ok: false, reason: 'not-yours' });
+          expect(await m.deleteMessage(id, { author: who, now: T0 + 100 }), `${id} deleted by ${who}`).toEqual({ ok: false, reason: 'not-yours' });
+        }
+      }
+      // The person whose name matches changes theirs, and nobody else's.
+      expect(await m.editMessage('dlv_own', { author: eve, text: 'x', now: T0 + 100 })).toEqual({ ok: false, reason: 'not-yours' });
+      expect(await m.editMessage('dlv_own', { author: edId, text: 'in my conversation, edited', now: T0 + 100 })).toMatchObject({ ok: true, message: { text: 'in my conversation, edited', editedAt: T0 + 100, state: 'ready', authorId: edId } });
+      expect(await m.deleteMessage('dlv_across', { author: edId, now: T0 + 101 })).toEqual({ ok: false, reason: 'not-yours' });
+      expect(await m.deleteMessage('dlv_across', { author: eve, now: T0 + 101 })).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 101, state: 'dropped', why: 'deleted' } });
+      // The two rows of one message to two agents change together, whichever row is asked for.
+      expect(await m.editMessage('dlv_two_b', { author: edId, text: 'to both, edited', now: T0 + 102 })).toMatchObject({ ok: true, message: { id: 'dlv_two_b', text: 'to both, edited' } });
+      expect((await m.conversation('sa', 'sb')).filter((x) => x.author === 'person').map((x) => [x.id, x.text, x.editedAt])).toEqual([['dlv_two_a', 'to both, edited', T0 + 102], ['dlv_two_b', 'to both, edited', T0 + 102]]);
+      expect(await m.deleteMessage('dlv_two_a', { author: edId, now: T0 + 103 })).toMatchObject({ ok: true });
+      expect((await m.conversation('sa', 'sb')).map((x) => [x.id, x.text, x.deletedAt])).toEqual([['dlv_old', 'agent, old', null], ['dlv_agent', 'agent, written', null], ['dlv_two_a', '', T0 + 103], ['dlv_two_b', '', T0 + 103]]);
     } finally {
       await s.close();
     }

@@ -5,13 +5,13 @@
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
 
-const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
-const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq';
+const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
+const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 
 /** Which messages of a table: one person's group, or one public channel (#1035). */
 type Scope = GroupScope | { channel: string };
@@ -49,20 +49,20 @@ class PgChannel {
       const at = this.now();
       const mentions = mentionsOf(input, at);
       const id = newChannelId(this.grouped ? 'grp' : 'pub', await this.scope());
-      const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions)] as const;
+      const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions), kind === 'person' ? (input.authorId ?? null) : null] as const;
       // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
       if (!('channel' in scope)) {
         await this.db.run(
-          `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
+          `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
           [common[0], channelOwner(scope.owner), scope.groupId, ...common.slice(1)],
         );
       } else {
         // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
         if (scope.channel !== GENERAL_CHANNEL && !(await this.db.get('SELECT 1 AS x FROM public_channels WHERE name = ?', [scope.channel]))) throw new Error('There is no such public channel.');
         await this.db.run(
-          `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
+          `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
           [common[0], scope.channel, ...common.slice(1)],
         );
       }
@@ -83,7 +83,7 @@ class PgChannel {
     return { messages: kept.map(toChannelMessage), older: rows.length > limit && oldest ? encodeCursor(oldest.created_at, oldest.seq) : null };
   }
 
-  setMention(scope: Scope, id: string, index: number, patch: { state: MentionState; why?: string | null }): Promise<ChannelMessage | null> {
+  setMention(scope: Scope, id: string, index: number, patch: { state: MentionState; why?: string | null; copyId?: string | null }): Promise<ChannelMessage | null> {
     return this.db.tx(async () => {
       const row = await this.byId(id, scope);
       if (!row) return null;
@@ -92,6 +92,32 @@ class PgChannel {
       if (!next) return null;
       await this.db.run(`UPDATE ${this.table} SET mentions_json = ?, updated_at = ? WHERE id = ?`, [JSON.stringify(next), at, id]);
       return toChannelMessage((await this.byId(id, scope)) as DbChannelRow);
+    });
+  }
+
+  /** One message by id in this scope, a tombstone too (#1269). */
+  async getMessage(scope: Scope, id: string): Promise<ChannelMessage | null> {
+    const row = await this.byId(id, scope);
+    return row ? toChannelMessage(row) : null;
+  }
+
+  /** The author changes the text of their own message (#1269). The row is read and written in one transaction, so a delivery cannot change it in between. */
+  editMessage(scope: Scope, id: string, x: { author: number; text: string; now: number }): Promise<ChannelChange> {
+    return this.db.tx(async () => {
+      const refused = refuseChange(await this.byId(id, scope), x.author);
+      if (refused) return refused;
+      await this.db.run(`UPDATE ${this.table} SET text = ?, edited_at = ?, updated_at = ? WHERE id = ?`, [x.text, x.now, x.now, id]);
+      return { ok: true, message: toChannelMessage((await this.byId(id, scope)) as DbChannelRow) };
+    });
+  }
+
+  /** The author deletes their own message (#1269): the row stays, with no text and no mentions. */
+  deleteMessage(scope: Scope, id: string, x: { author: number; now: number }): Promise<ChannelChange> {
+    return this.db.tx(async () => {
+      const refused = refuseChange(await this.byId(id, scope), x.author);
+      if (refused) return refused;
+      await this.db.run(`UPDATE ${this.table} SET text = '', mentions_json = '[]', deleted_at = ?, updated_at = ? WHERE id = ?`, [x.now, x.now, id]);
+      return { ok: true, message: toChannelMessage((await this.byId(id, scope)) as DbChannelRow) };
     });
   }
 
@@ -423,6 +449,9 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     post: (s, input) => group.post(s, input),
     page: (s, o) => group.page(s, o),
     setMention: (s, id, index, patch) => group.setMention(s, id, index, patch),
+    getMessage: (s, id) => group.getMessage(s, id),
+    editMessage: (s, id, x) => group.editMessage(s, id, x),
+    deleteMessage: (s, id, x) => group.deleteMessage(s, id, x),
     heldMentions: (s, filter) => group.heldMentions(s, filter),
     clear: (s) => group.clear(s),
     count: (s) => group.count(s),
@@ -433,6 +462,9 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     post: (c, input) => pub.post(inChannel(c), input),
     page: (c, o) => pub.page(inChannel(c), o),
     setMention: (c, id, index, patch) => pub.setMention(inChannel(c), id, index, patch),
+    getMessage: (c, id) => pub.getMessage(inChannel(c), id),
+    editMessage: (c, id, x) => pub.editMessage(inChannel(c), id, x),
+    deleteMessage: (c, id, x) => pub.deleteMessage(inChannel(c), id, x),
     heldMentions: (c, filter) => pub.heldMentions(inChannel(c), filter),
     clear: (c) => pub.clear(inChannel(c)),
     count: (c) => pub.count(inChannel(c)),

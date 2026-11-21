@@ -3,7 +3,7 @@
 // a channel's text is never kept with, copied into or returned with a direct message's (`peer_messages`), and the reverse.
 import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
-import type { ChannelMessage, ChannelPage, ChannelPostInput, MentionState } from './types.js';
+import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState } from './types.js';
 import { setUp } from './contractPeers.js';
 
 const T0 = 1_800_000_000_000;
@@ -15,6 +15,7 @@ const input = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostI
 const texts = (p: ChannelPage): string[] => p.messages.map((m) => m.text);
 
 export function chatCases(o: Openers): void {
+  chatChangeCases(o);
   it('agrees on every adapter for the group channel: posting, pages back with a cursor, mentions, scope, counting, clearing and retention', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
@@ -1024,4 +1025,301 @@ export function chatCases(o: Openers): void {
     expect(texts(await chat.group.page(G, { limit: 10 }))).toEqual(['GROUP-NEVER-PUBLIC']);
     expect((await peers.messages.conversation('sa', 'sb')).map((m) => m.text)).toContain(dm);
   });
+}
+
+/** One channel under test, group or public, with a second scope of the same table (another group, another channel) whose ids must not be reachable from the first. */
+interface Surface {
+  label: string;
+  post: (i: ChannelPostInput) => Promise<ChannelMessage>;
+  postElsewhere: (i: ChannelPostInput) => Promise<ChannelMessage>;
+  page: (o: { before?: string | null; limit: number }) => Promise<ChannelPage>;
+  setMention: (id: string, index: number, p: { state: MentionState; why?: string | null; copyId?: string | null }) => Promise<ChannelMessage | null>;
+  edit: (id: string, x: { author: number; text: string; now: number }) => Promise<ChannelChange>;
+  del: (id: string, x: { author: number; now: number }) => Promise<ChannelChange>;
+  held: () => Promise<ChannelMessage[]>;
+  count: () => Promise<number>;
+  getMessage: (id: string) => Promise<ChannelMessage | null>;
+}
+
+async function surfaces(chat: ChatStoreApi): Promise<Surface[]> {
+  const g = chat.group;
+  const other = { owner: 'ed', groupId: 'g2' };
+  await chat.channels.create({ name: 'dev', createdBy: 'ed' }, T0);
+  await chat.channels.create({ name: 'ops', createdBy: 'ed' }, T0);
+  const p = chat.public;
+  return [
+    {
+      label: 'group', post: (i) => g.post(G, i), postElsewhere: (i) => g.post(other, i), page: (o) => g.page(G, o), setMention: (id, n, x) => g.setMention(G, id, n, x),
+      edit: (id, x) => g.editMessage(G, id, x), del: (id, x) => g.deleteMessage(G, id, x), held: () => g.heldMentions(G, {}), count: () => g.count(G), getMessage: (id) => g.getMessage(G, id),
+    },
+    {
+      label: 'public', post: (i) => p.post('dev', i), postElsewhere: (i) => p.post('ops', i), page: (o) => p.page('dev', o), setMention: (id, n, x) => p.setMention('dev', id, n, x),
+      edit: (id, x) => p.editMessage('dev', id, x), del: (id, x) => p.deleteMessage('dev', id, x), held: () => p.heldMentions('dev', {}), count: () => p.count('dev'), getMessage: (id) => p.getMessage('dev', id),
+    },
+  ];
+}
+
+const ED_ID = 11;
+const EVE_ID = 12;
+/** A message a person wrote, with the id of the person (`people.id`) that the server gives. */
+const mine = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostInput => input(text, { authorId: ED_ID, ...over });
+
+const mention = (sessionId: string | null, state: MentionState): NonNullable<ChannelPostInput['mentions']>[number] => ({ sessionId, peerKey: sessionId ? 'k' : null, typed: `${sessionId ?? 'zoe'}@box`, state });
+
+function chatChangeCases(o: Openers): void {
+  it('edits and deletes the author\'s own message in place on every adapter, keeping its place in the pages and the count, for the group channel and a public channel (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      for (const c of await surfaces(chat)) {
+        const L = c.label;
+        clock.now = T0;
+        const m1 = await c.post(mine('one'));
+        // The author is found by id: the name on the row is not the name the person has now.
+        const m2 = await c.post(mine('two', { authorRef: 'Ed', authorName: 'Edward', mentions: [mention(null, 'done')] }));
+        const m3 = await c.post(input('three', { authorRef: 'eve', authorName: 'Eve', authorId: EVE_ID }));
+        const m4 = await c.post(input('four', { authorKind: 'orchestrator', authorRef: 'sa', authorName: 'alpha', authorId: ED_ID }));
+        const m5 = await c.post(mine('five'));
+        const elsewhere = await c.postElsewhere(mine('elsewhere'));
+        const noId = await c.post(input('no id'));
+        await rec(`${L}: post stores the author id`, c.page({ limit: 50 }));
+        clock.now += 10;
+        await rec(`${L}: edit two`, c.edit(m2.id, { author: ED_ID, text: 'two edited', now: clock.now }));
+        await rec(`${L}: page after edit`, c.page({ limit: 50 }));
+        clock.now += 10;
+        await rec(`${L}: delete one`, c.del(m1.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: page after delete`, c.page({ limit: 50 }));
+        const p1 = await rec(`${L}: cursor page 1`, c.page({ limit: 2 }));
+        const p2 = await rec(`${L}: cursor page 2`, c.page({ before: p1.older, limit: 2 }));
+        await rec(`${L}: cursor page 3`, c.page({ before: p2.older, limit: 2 }));
+        await rec(`${L}: count`, c.count());
+        await rec(`${L}: edit unknown id`, c.edit('grp_00000000_000000000000000000000000', { author: ED_ID, text: 'x', now: clock.now }));
+        await rec(`${L}: delete unknown id`, c.del('pub_00000000_000000000000000000000000', { author: ED_ID, now: clock.now }));
+        await rec(`${L}: edit an id of the other scope`, c.edit(elsewhere.id, { author: ED_ID, text: 'x', now: clock.now }));
+        await rec(`${L}: delete an id of the other scope`, c.del(elsewhere.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: edit a person's message with no author id`, c.edit(noId.id, { author: ED_ID, text: 'x', now: clock.now }));
+        await rec(`${L}: delete a person's message with no author id`, c.del(noId.id, { author: 0, now: clock.now }));
+        await rec(`${L}: edit another person's message`, c.edit(m3.id, { author: ED_ID, text: 'x', now: clock.now }));
+        await rec(`${L}: delete another person's message`, c.del(m3.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: edit an orchestrator's message`, c.edit(m4.id, { author: ED_ID, text: 'x', now: clock.now }));
+        await rec(`${L}: delete an orchestrator's message`, c.del(m4.id, { author: 99, now: clock.now }));
+        await rec(`${L}: edit a tombstone`, c.edit(m1.id, { author: ED_ID, text: 'x', now: clock.now }));
+        await rec(`${L}: delete a tombstone`, c.del(m1.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: edit a tombstone of someone else`, c.edit(m1.id, { author: EVE_ID, text: 'x', now: clock.now }));
+        clock.now += 10;
+        await rec(`${L}: edit five twice (first)`, c.edit(m5.id, { author: ED_ID, text: 'five v2', now: clock.now }));
+        clock.now += 10;
+        await rec(`${L}: edit five twice (second)`, c.edit(m5.id, { author: ED_ID, text: 'five v3', now: clock.now }));
+        await rec(`${L}: page at the end`, c.page({ limit: 50 }));
+      }
+    });
+    for (const L of ['group', 'public']) {
+      const edited = t.get(`${L}: edit two`) as { ok: boolean; message: ChannelMessage };
+      expect(edited.ok).toBe(true);
+      expect(edited.message).toMatchObject({ text: 'two edited', editedAt: T0 + 10, deletedAt: null, createdAt: T0, updatedAt: T0 + 10, authorRef: 'Ed', authorName: 'Edward', authorId: ED_ID });
+      const posted = t.get(`${L}: post stores the author id`) as ChannelPage;
+      expect(posted.messages.map((m) => [m.text, m.authorId])).toEqual([['one', ED_ID], ['two', ED_ID], ['three', EVE_ID], ['four', null], ['five', ED_ID], ['no id', null]]);
+      expect(edited.message.mentions).toEqual([{ sessionId: null, peerKey: null, typed: 'zoe@box', state: 'done', why: null, stateAt: T0 }]);
+      const after = t.get(`${L}: page after edit`) as ChannelPage;
+      expect(texts(after)).toEqual(['one', 'two edited', 'three', 'four', 'five', 'no id']);
+      expect(after.messages.map((m) => m.editedAt)).toEqual([null, T0 + 10, null, null, null, null]);
+      const del = t.get(`${L}: page after delete`) as ChannelPage;
+      expect(texts(del)).toEqual(['', 'two edited', 'three', 'four', 'five', 'no id']);
+      expect(del.messages[0]).toMatchObject({ text: '', mentions: [], deletedAt: T0 + 20, editedAt: null, updatedAt: T0 + 20, createdAt: T0, authorKind: 'person', authorRef: 'ed', authorName: 'Ed', authorId: ED_ID });
+      expect(texts(t.get(`${L}: cursor page 1`) as ChannelPage)).toEqual(['five', 'no id']);
+      expect(texts(t.get(`${L}: cursor page 2`) as ChannelPage)).toEqual(['three', 'four']);
+      const last = t.get(`${L}: cursor page 3`) as ChannelPage;
+      expect(texts(last)).toEqual(['', 'two edited']);
+      expect(last.older).toBeNull();
+      expect(t.get(`${L}: count`)).toBe(6);
+      expect(t.get(`${L}: edit a person's message with no author id`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect(t.get(`${L}: delete a person's message with no author id`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect(t.get(`${L}: edit unknown id`)).toEqual({ ok: false, reason: 'not-found' });
+      expect(t.get(`${L}: delete unknown id`)).toEqual({ ok: false, reason: 'not-found' });
+      expect(t.get(`${L}: edit an id of the other scope`)).toEqual({ ok: false, reason: 'not-found' });
+      expect(t.get(`${L}: delete an id of the other scope`)).toEqual({ ok: false, reason: 'not-found' });
+      expect(t.get(`${L}: edit another person's message`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect(t.get(`${L}: delete another person's message`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect(t.get(`${L}: edit an orchestrator's message`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect(t.get(`${L}: delete an orchestrator's message`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect(t.get(`${L}: edit a tombstone`)).toEqual({ ok: false, reason: 'deleted' });
+      expect(t.get(`${L}: delete a tombstone`)).toEqual({ ok: false, reason: 'deleted' });
+      expect(t.get(`${L}: edit a tombstone of someone else`)).toEqual({ ok: false, reason: 'not-yours' });
+      expect((t.get(`${L}: edit five twice (second)`) as { message: ChannelMessage }).message).toMatchObject({ text: 'five v3', editedAt: T0 + 40, updatedAt: T0 + 40, createdAt: T0 });
+      const end = t.get(`${L}: page at the end`) as ChannelPage;
+      expect(texts(end)).toEqual(['', 'two edited', 'three', 'four', 'five v3', 'no id']);
+      expect(end.messages[2]).toMatchObject({ text: 'three', editedAt: null, deletedAt: null });
+    }
+  });
+
+  it('locks a message for the person once it has been sent to an agent (waiting, working or done), and only then, on every adapter (#1269)', async () => {
+    const free: MentionState[] = ['held', 'approval', 'not-delivered', 'dropped'];
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      for (const c of await surfaces(chat)) {
+        const L = c.label;
+        clock.now = T0;
+        const by = async (label: string, mentions: ChannelPostInput['mentions']): Promise<ChannelMessage> => rec(`${L}: post ${label}`, c.post(mine(label, { mentions })));
+        const queued = await by('waiting', [mention('sa', 'waiting')]);
+        const working = await by('working', [mention('sa', 'working')]);
+        const done = await by('done', [mention('sa', 'done')]);
+        const mixed = await by('mixed', [mention('sa', 'held'), mention('sb', 'waiting')]);
+        const none = await by('none', undefined);
+        const people = await by('people', [mention(null, 'done')]);
+        const ids = new Map<string, string>();
+        for (const st of free) ids.set(st, (await by(st, [mention('sa', st)])).id);
+        clock.now += 5;
+        for (const m of [queued, working, done, mixed]) {
+          await rec(`${L}: edit ${m.text}`, c.edit(m.id, { author: ED_ID, text: 'changed', now: clock.now }));
+          await rec(`${L}: delete ${m.text}`, c.del(m.id, { author: ED_ID, now: clock.now }));
+        }
+        await rec(`${L}: page after locked`, c.page({ limit: 50 }));
+        await rec(`${L}: edit none`, c.edit(none.id, { author: ED_ID, text: 'changed', now: clock.now }));
+        await rec(`${L}: edit people`, c.edit(people.id, { author: ED_ID, text: 'changed', now: clock.now }));
+        await rec(`${L}: delete people`, c.del(people.id, { author: ED_ID, now: clock.now }));
+        for (const st of free) {
+          await rec(`${L}: edit ${st}`, c.edit(ids.get(st) as string, { author: ED_ID, text: `edited ${st}`, now: clock.now }));
+          await rec(`${L}: delete ${st}`, c.del(ids.get(st) as string, { author: ED_ID, now: clock.now }));
+        }
+        await rec(`${L}: page at the end`, c.page({ limit: 50 }));
+      }
+    });
+    for (const L of ['group', 'public']) {
+      for (const w of ['waiting', 'working', 'done', 'mixed']) {
+        expect(t.get(`${L}: edit ${w}`)).toEqual({ ok: false, reason: 'locked' });
+        expect(t.get(`${L}: delete ${w}`)).toEqual({ ok: false, reason: 'locked' });
+      }
+      const locked = t.get(`${L}: page after locked`) as ChannelPage;
+      expect(texts(locked).slice(0, 4)).toEqual(['waiting', 'working', 'done', 'mixed']);
+      expect(locked.messages.slice(0, 4).map((m) => [m.editedAt, m.deletedAt, m.updatedAt])).toEqual([[null, null, T0], [null, null, T0], [null, null, T0], [null, null, T0]]);
+      expect(t.get(`${L}: edit none`)).toMatchObject({ ok: true, message: { text: 'changed', editedAt: T0 + 5 } });
+      expect(t.get(`${L}: edit people`)).toMatchObject({ ok: true, message: { text: 'changed' } });
+      expect(t.get(`${L}: delete people`)).toMatchObject({ ok: true, message: { text: '', mentions: [] } });
+      for (const st of free) {
+        expect(t.get(`${L}: edit ${st}`)).toMatchObject({ ok: true, message: { text: `edited ${st}`, editedAt: T0 + 5 } });
+        const gone = t.get(`${L}: delete ${st}`) as { ok: boolean; message: ChannelMessage };
+        expect(gone).toMatchObject({ ok: true, message: { text: '', mentions: [], deletedAt: T0 + 5 } });
+      }
+      const end = t.get(`${L}: page at the end`) as ChannelPage;
+      expect(texts(end)).toEqual(['waiting', 'working', 'done', 'mixed', 'changed', '', '', '', '', '']);
+    }
+  });
+
+  it('names the author by id, so a new person with the name of a deleted one cannot change what that person wrote in a public channel, on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const pub = s.chat({ now: () => clock.now }).public;
+      const first = (await s.people.createPerson('Zed')).person;
+      const msg = await pub.post('general', input('mine', { authorRef: 'Zed', authorName: 'Zed', authorId: first.id }));
+      await rec('edit by the author', pub.editMessage('general', msg.id, { author: first.id, text: 'mine, edited', now: T0 + 1 }));
+      await s.people.deleteMany([first.id]);
+      const again = (await s.people.createPerson('Zed')).person;
+      await rec('a new id', again.id > first.id);
+      await rec('the message after the person is gone', pub.page('general', { limit: 5 }).then((p) => p.messages.map((m) => [m.text, m.authorId === first.id, m.authorName])));
+      await rec('edit by the new person of the same name', pub.editMessage('general', msg.id, { author: again.id, text: 'taken', now: T0 + 2 }));
+      await rec('delete by the new person of the same name', pub.deleteMessage('general', msg.id, { author: again.id, now: T0 + 2 }));
+    });
+    expect(t.get('edit by the author')).toMatchObject({ ok: true, message: { text: 'mine, edited' } });
+    expect(t.get('a new id')).toBe(true);
+    expect(t.get('the message after the person is gone')).toEqual([['mine, edited', true, 'Zed']]);
+    expect(t.get('edit by the new person of the same name')).toEqual({ ok: false, reason: 'not-yours' });
+    expect(t.get('delete by the new person of the same name')).toEqual({ ok: false, reason: 'not-yours' });
+  });
+
+  onEachAdapter(o, 'never leaves a tombstone with a live mention or a locked message with its text deleted when a delivery and a delete race (#1269)', async (s) => {
+    const clock = { now: T0 };
+    const chat = s.chat({ now: () => clock.now });
+    for (const c of await surfaces(chat)) {
+      for (let i = 0; i < 12; i++) {
+        const m = await c.post(mine(`race ${i}`, { mentions: [mention('sa', 'held')] }));
+        clock.now += 1;
+        const change = (): Promise<ChannelChange> => c.del(m.id, { author: ED_ID, now: clock.now });
+        const deliver = (): Promise<ChannelMessage | null> => c.setMention(m.id, 0, { state: 'waiting' });
+        const [a, b] = i % 2 === 0 ? await Promise.all([deliver(), change()]) : await Promise.all([change(), deliver()]);
+        const [set, del] = i % 2 === 0 ? [a as ChannelMessage | null, b as ChannelChange] : [b as ChannelMessage | null, a as ChannelChange];
+        const row = (await c.page({ limit: 100 })).messages.find((x) => x.id === m.id) as ChannelMessage;
+        if (del.ok) {
+          expect(set).toBeNull();
+          expect(row).toMatchObject({ text: '', mentions: [], deletedAt: expect.any(Number) });
+        } else {
+          expect(del).toEqual({ ok: false, reason: 'locked' });
+          expect(set).not.toBeNull();
+          expect(row).toMatchObject({ text: `race ${i}`, deletedAt: null });
+          expect(row.mentions[0]!.state).toBe('waiting');
+        }
+      }
+    }
+  });
+
+  it('never gives a tombstone back as a held mention and takes no mention state on it, on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      for (const c of await surfaces(chat)) {
+        const L = c.label;
+        clock.now = T0;
+        const m = await c.post(mine('held text', { mentions: [mention('sa', 'held')] }));
+        await rec(`${L}: held before`, c.held());
+        clock.now += 1;
+        await rec(`${L}: delete`, c.del(m.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: held after`, c.held());
+        await rec(`${L}: setMention on the tombstone`, c.setMention(m.id, 0, { state: 'working' }));
+        await rec(`${L}: page`, c.page({ limit: 5 }));
+      }
+      const across = await chat.public.post('dev', mine('across', { mentions: [mention('sa', 'approval')] }));
+      clock.now += 1;
+      await chat.public.deleteMessage('dev', across.id, { author: ED_ID, now: clock.now });
+      await rec('public: mentionsAcross after delete', chat.public.mentionsAcross({ sessionId: 'sa', states: ['waiting', 'held', 'working', 'done', 'approval'] }));
+    });
+    for (const L of ['group', 'public']) {
+      expect(texts({ messages: t.get(`${L}: held before`) as ChannelMessage[], older: null })).toEqual(['held text']);
+      expect(t.get(`${L}: held after`)).toEqual([]);
+      expect(t.get(`${L}: setMention on the tombstone`)).toBeNull();
+      expect((t.get(`${L}: page`) as ChannelPage).messages[0]).toMatchObject({ text: '', mentions: [], deletedAt: T0 + 1 });
+    }
+    expect(t.get('public: mentionsAcross after delete')).toEqual([]);
+  });
+  it('keeps the id of the copy a mention waits on across later state changes, reads one message by id in its scope, and shows no copy on a tombstone or an old row, on every adapter (#1269)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const chat = s.chat({ now: () => clock.now });
+      for (const c of await surfaces(chat)) {
+        const L = c.label;
+        clock.now = T0;
+        const old = await c.post(mine('an old row', { mentions: [{ ...mention('sa', 'approval') }] }));
+        const m = await c.post(mine('with a copy', { mentions: [{ ...mention('sa', 'approval'), copyId: 'peer_copy_1' }, mention(null, 'done')] }));
+        const elsewhere = await c.postElsewhere(mine('in another place'));
+        await rec(`${L}: read`, c.page({ limit: 5 }));
+        clock.now += 1;
+        await rec(`${L}: patch sets the copy`, c.setMention(old.id, 0, { state: 'approval', why: 'Waiting for eve', copyId: 'peer_copy_0' }));
+        await rec(`${L}: state change keeps it`, c.setMention(m.id, 0, { state: 'approval', why: 'still waiting' }));
+        await rec(`${L}: another copy replaces it`, c.setMention(m.id, 0, { state: 'approval', copyId: 'peer_copy_2' }));
+        await rec(`${L}: waiting keeps it`, c.setMention(m.id, 0, { state: 'waiting' }));
+        await rec(`${L}: the other mention has none`, c.getMessage(m.id));
+        await rec(`${L}: getMessage of another place`, c.getMessage(elsewhere.id));
+        await rec(`${L}: getMessage of nothing`, c.getMessage('pub_00000000_000000000000000000000000'));
+        clock.now += 1;
+        const gone = await c.post(mine('to delete', { mentions: [{ ...mention('sb', 'approval'), copyId: 'peer_copy_3' }] }));
+        await rec(`${L}: delete`, c.del(gone.id, { author: ED_ID, now: clock.now }));
+        await rec(`${L}: getMessage of a tombstone`, c.getMessage(gone.id));
+      }
+    });
+    for (const L of ['group', 'public']) {
+      const read = (t.get(`${L}: read`) as ChannelPage).messages;
+      expect(read[0]!.mentions[0]).not.toHaveProperty('copyId');
+      expect(read[1]!.mentions[0]).toMatchObject({ state: 'approval', copyId: 'peer_copy_1' });
+      expect(read[1]!.mentions[1]).not.toHaveProperty('copyId');
+      expect((t.get(`${L}: patch sets the copy`) as ChannelMessage).mentions[0]).toMatchObject({ state: 'approval', why: 'Waiting for eve', copyId: 'peer_copy_0' });
+      expect((t.get(`${L}: state change keeps it`) as ChannelMessage).mentions[0]).toMatchObject({ why: 'still waiting', copyId: 'peer_copy_1' });
+      expect((t.get(`${L}: another copy replaces it`) as ChannelMessage).mentions[0]).toMatchObject({ copyId: 'peer_copy_2' });
+      expect((t.get(`${L}: waiting keeps it`) as ChannelMessage).mentions[0]).toMatchObject({ state: 'waiting', copyId: 'peer_copy_2' });
+      expect(t.get(`${L}: getMessage of another place`)).toBeNull();
+      expect(t.get(`${L}: getMessage of nothing`)).toBeNull();
+      expect(t.get(`${L}: getMessage of a tombstone`)).toMatchObject({ text: '', mentions: [], deletedAt: expect.any(Number) });
+      expect(JSON.stringify(t.get(`${L}: getMessage of a tombstone`))).not.toContain('peer_copy_3');
+      expect(t.get(`${L}: the other mention has none`)).toMatchObject({ text: 'with a copy' });
+    }
+  });
+
 }

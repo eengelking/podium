@@ -9,7 +9,7 @@ import { Blank } from "./components/Blank";
 import { ChatComposer } from "./components/ChatComposer";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
-import { ChatThread } from "./components/ChatThread";
+import { ChatThread, DeleteMessageDialog } from "./components/ChatThread";
 import { ChannelModal, DirectModal } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct, MenuAt } from "./components/ChatMenu";
@@ -89,6 +89,11 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   // Counts the times a thread was opened; each one asks for the focus to move to its heading (see the effect below).
   const [focusAsk, setFocusAsk] = useState(0);
   const keepBtn = useRef<HTMLButtonElement>(null);
+  // Editing and deleting a message of one's own (#1269): the one being edited with the server's refusal, the one whose delete is asked about,
+  // and a request to put the focus back on a message when either ends (each has its own number).
+  const [editing, setEditing] = useState<{ id: string; error: string | null; busy: boolean } | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; error: string | null; busy: boolean } | null>(null);
+  const [focusMsg, setFocusMsg] = useState<{ id: string; n: number } | null>(null);
 
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
   let sel: Selection = picked ?? GENERAL;
@@ -96,7 +101,11 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   // A channel an Admin removed leaves the list, and the page falls back to General.
   if (o && picked?.kind === "channel" && !o.channels.some((c) => c.id === picked.id)) sel = GENERAL;
   const key = selKey(sel)!;
-  useEffect(() => setMembers(false), [key, readAs]);
+  useEffect(() => {
+    setMembers(false);
+    setEditing(null);
+    setDeleting(null);
+  }, [key, readAs]);
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
   // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
   const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
@@ -283,7 +292,75 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     }
   };
 
+  // ---- One's own messages (#1269) -----------------------------------------------------------------------------------------------
+  const refocus = (id: string) => setFocusMsg((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  /** A refusal in the server's own words (they say what to do), or what failed and that nothing changed. */
+  const changeFail = (err: unknown, what: string, stays: string): string => (err instanceof RespondError && err.status < 500 ? err.message : `Could not ${what}: ${plain(failReason(err))}. ${stays} Try again.`);
+  const startEdit = (id: string) => {
+    setMenu(null);
+    setDeleting(null);
+    setEditing({ id, error: null, busy: false });
+  };
+  const cancelEdit = (id: string) => {
+    setEditing(null);
+    refocus(id);
+  };
+  const saveEdit = async (id: string, text: string) => {
+    const m = thread.messages.find((x) => x.id === id);
+    if (!m) return setEditing(null);
+    const was = (m.channel ?? m.direct)!.text;
+    // Nothing changed: the box closes and nothing is sent.
+    if (text.trim() === was.trim()) return cancelEdit(id);
+    setEditing({ id, error: null, busy: true });
+    try {
+      const r = sel.kind === "channel" ? await api.editChannelMessage(sel.id, id, text.trim()) : await api.editDmMessage(sel.a, sel.b, id, text.trim());
+      thread.patch(r.message);
+      setEditing(null);
+      refocus(id);
+    } catch (err) {
+      setEditing({ id, error: changeFail(err, "save", "Your message is unchanged."), busy: false });
+    }
+  };
+  const askDelete = (id: string) => {
+    setMenu(null);
+    setEditing(null);
+    setDeleting({ id, error: null, busy: false });
+  };
+  const cancelDelete = () => {
+    const id = deleting?.id;
+    setDeleting(null);
+    if (id) refocus(id);
+  };
+  const doDelete = async () => {
+    if (!deleting) return;
+    const { id } = deleting;
+    setDeleting({ id, error: null, busy: true });
+    try {
+      const r = sel.kind === "channel" ? await api.deleteChannelMessage(sel.id, id) : await api.deleteDmMessage(sel.a, sel.b, id);
+      thread.patch(r.message);
+      setDeleting(null);
+      refocus(id);
+    } catch (err) {
+      setDeleting({ id, error: changeFail(err, "delete", "Your message is still there."), busy: false });
+    }
+  };
+  /** Who loses a deleted message: everyone in a channel, and in a Direct Message the person and the agents it went to. */
+  const lostBy = (m: (typeof thread.messages)[number]): string => {
+    if (m.channel) return `It will be deleted for everyone in ${channel?.kind === "public" && channel.id !== "general" ? `#${channel.name}` : (channel?.name ?? "this channel")}, and the agents there will not see it.`;
+    const names = [...new Set(m.direct!.to.map((x) => x.name))];
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "the other party");
+    return `It will be deleted for you and for ${list}, and ${names.length > 1 ? "each" : (names[0] ?? "they")} will not see it.`;
+  };
+  const deletingMsg = deleting ? (thread.messages.find((x) => x.id === deleting.id) ?? null) : null;
+
   const pick = (menuKey: string, a: MenuAct) => {
+    // One of your own messages: Edit message or Delete message.
+    if (menuKey.startsWith("m:")) {
+      const id = menuKey.slice(2);
+      if (a === "delete-message") askDelete(id);
+      else startEdit(id);
+      return;
+    }
     const [kind, ...rest] = (menuKey.startsWith("t:") ? menuKey.slice(2) : menuKey).split(":");
     const from = menu?.at?.from;
     setMenu(null);
@@ -616,6 +693,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
             }}
             readAs={ro ? readAs : null}
             serverNow={serverNow}
+            change={{ editing, deleting: deleting?.id ?? null, focus: focusMsg, onEdit: startEdit, onSave: (id, text) => void saveEdit(id, text), onCancel: cancelEdit, onDelete: askDelete }}
             composer={
               <ChatComposer
                 label={label}
@@ -674,6 +752,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           }}
         />
       )}
+      {deleting && deletingMsg && <DeleteMessageDialog text={(deletingMsg.channel ?? deletingMsg.direct)!.text} who={lostBy(deletingMsg)} error={deleting.error} busy={deleting.busy} onCancel={cancelDelete} onDelete={() => void doDelete()} />}
       <div className="vh" role="status" aria-live="polite">
         {said}
       </div>

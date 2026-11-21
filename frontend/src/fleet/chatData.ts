@@ -223,6 +223,14 @@ export interface ChannelMessage {
   authorOwner?: string | null;
   mine: boolean;
   mentions: Mention[];
+  /** When the author last changed the text (#1269); null for a message never edited. Absent from a server older than #1269. */
+  editedAt?: number | null;
+  /** When the author deleted it (#1269). A deleted message keeps its row and has no text and no mentions. */
+  deletedAt?: number | null;
+  /** Whether the viewer, who must be its author, may edit or delete it now. */
+  canChange?: boolean;
+  /** In words, why the author cannot change it now; null otherwise. */
+  changeWhy?: string | null;
 }
 
 type DirectState =
@@ -260,6 +268,14 @@ export interface DirectMessage {
   /** The owner a person's message waits for while it waits for approval. */
   waitingFor?: string | null;
   approved: boolean;
+  /** When the author last changed the text (#1269); null for a message never edited. Absent from a server older than #1269. */
+  editedAt?: number | null;
+  /** When the author deleted it (#1269). A deleted message keeps its row and has no text. */
+  deletedAt?: number | null;
+  /** Whether the viewer, who must be its author, may edit or delete it now. */
+  canChange?: boolean;
+  /** In words, why the author cannot change it now; null otherwise. */
+  changeWhy?: string | null;
 }
 
 export interface ChannelPageRead {
@@ -395,6 +411,29 @@ export const chatApi = {
     call<{ ok: true; removed: number }>(
       "DELETE",
       `${BASE}/dm/${enc(a)}/${enc(b)}`,
+    ),
+  /** Edits or deletes the viewer's own message (#1269). A refusal is a RespondError whose `message` is the server's words and whose body has its `reason` (`locked`, `deleted` or `approval` for a 409). The answer is the message as it now stands, to replace the row by its id. */
+  editChannelMessage: (channel: string, id: string, text: string) =>
+    call<{ ok: true; message: ChannelMessage }>(
+      "PATCH",
+      `${BASE}/channels/${enc(channel)}/messages/${enc(id)}`,
+      { text },
+    ),
+  deleteChannelMessage: (channel: string, id: string) =>
+    call<{ ok: true; message: ChannelMessage }>(
+      "DELETE",
+      `${BASE}/channels/${enc(channel)}/messages/${enc(id)}`,
+    ),
+  editDmMessage: (a: string, b: string, id: string, text: string) =>
+    call<{ ok: true; message: DirectMessage }>(
+      "PATCH",
+      `${BASE}/dm/${enc(a)}/${enc(b)}/messages/${enc(id)}`,
+      { text },
+    ),
+  deleteDmMessage: (a: string, b: string, id: string) =>
+    call<{ ok: true; message: DirectMessage }>(
+      "DELETE",
+      `${BASE}/dm/${enc(a)}/${enc(b)}/messages/${enc(id)}`,
     ),
   /** A Direct Message's Pause link and Remove link, which were Traffic's: the same routes, by the two reporters' keys. */
   pauseLink: (a: string, b: string, paused: boolean) =>

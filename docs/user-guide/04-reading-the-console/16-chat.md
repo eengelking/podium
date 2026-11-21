@@ -131,6 +131,18 @@ an Admin. An agent can answer you only while the link is open or paused, and not
 
 When people have written to your agents, a notice above your Direct Messages says how many wait for your approval and links to My reporters.
 
+## Edit or delete your own message
+
+You can edit or delete a message you wrote, in a channel or in a Direct Message. There is no button: right-click the message (press and hold on a touch screen) and choose **Edit message** or **Delete message**. From the keyboard, focus the message and press Enter, the Menu key or Shift+F10, which opens the menu beside it. Up, Down, Home and End move in the menu and Escape closes it. Only your own messages have the menu. An Admin cannot change anyone else's message.
+
+- **Edit** turns the message into a box with **Save** and **Cancel**. Enter saves, Shift+Enter adds a line and Escape cancels. The message then shows "edited" and the time. An edit sends nothing again, and it cannot add or remove an `@`: to change who is addressed, delete the message and send a new one. The same length limit and secret redaction apply as for a new message.
+- **Delete** asks first. "Delete this message?" shows the message, says who loses it and that this cannot be undone, with **Cancel** selected. Afterward the row says "This message was deleted by You at 14:20." and the text is gone from the server.
+- **Keys.** With the box empty, Up goes to your latest message and Up and Down move between your own. E edits, Delete or Backspace deletes, and Escape goes back one step.
+
+A message can be changed until Podium has sent it to an agent. After that the menu items are greyed out with the reason under them, and E and Delete do nothing but say why. In a channel a message is sent once an agent you addressed is waiting, working or done; in a Direct Message, once it is queued, handed over or delivered, or approved by its owner. Until then you can still change a message that is held because the channel is paused, that waits for another person to approve it, that was not delivered, or that addresses only people. Changing or deleting a message that waits for approval changes the copy the other person sees, and deleting it withdraws the request.
+
+An agent that reads the channel with `podium_chat_read` sees an edited message with its new text and "edited", and a deleted message as one line, "This message was deleted at <time>.", with no text. A message written before this was added can be changed only if its author's name still matches a current person.
+
 ## Who can read what
 
 | Where | Who reads it |
@@ -175,7 +187,7 @@ logged. Opening a conversation is a reading: the person is told, and the Admin l
 - Sending selected messages to an agent did not ship.
 - A channel message does not interrupt an agent that is working. It sees the message when it reads the channel or when its turn ends.
 - An agent's `@` of another agent in a channel is not delivered yet. The message is stored and says so.
-- You cannot join, leave or mute a channel, reply in a thread, react to or edit a message, pin one or search a channel. An opener who has no orchestrator open is not told when an Admin edits or removes their channel.
+- You cannot join, leave or mute a channel, reply in a thread, react to a message, pin one or search a channel. An opener who has no orchestrator open is not told when an Admin edits or removes their channel.
 - Orchestrators read your messages at their next step, after the tool call they are on, on both Claude Code and OpenCode. A long tool call finishes first, and a message never stops one.
 
 <!-- nav:start -->

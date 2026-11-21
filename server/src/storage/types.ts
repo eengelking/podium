@@ -1,7 +1,7 @@
 // The async storage interfaces (#313). Every method of the stores keeps its name, arguments and result, and returns a Promise.
 // Each interface is written out here and imports nothing from an adapter, so another database implements this file alone; an
 // adapter proves it does by being typed against these interfaces, and a signature that drifts is a compile error there.
-import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListResult, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
+import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, PeerChange, PeerMessageEdit, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListResult, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
 import type { ModelPricesView, PeerAnswer, PeerLevel, PeerResult, RecordingAdminRow, RecordingBatch, RecordingGrant, RecordingLoopInfo, RecordingRow, RecordingSettings, RecordingState, RecordingView, Report, WallSettingsView } from '../fleet/protocol.js';
 import type { ActivityEntryView } from '../fleet/activity.js';
 import type { ActivityHistoryNote, ActivityHistoryPreview, ActivityHistorySettings, LastPurge, StoredActivityList, StoredDeleteBody, StoredDeleteResult, StoredFilter, StoredTotals } from '../fleet/activityHistoryTypes.js';
@@ -277,6 +277,10 @@ export interface PeerStoreApi {
     sendAcross(input: AcrossInput): Promise<MessageRow | Refusal>;
     /** One page of the owner's conversation, the newest page first. `before` is the `older` of the page after it; a page back starts strictly before it, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
     page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
+    /** The author changes the text of one of their own direct messages and of the rows it is merged with (#1269). See `PeerMessagesApi.editMessage`; one step, so a delivery cannot split it. */
+    editMessage(id: string, x: PeerMessageEdit): Promise<PeerChange>;
+    /** The author deletes one of their own direct messages and the rows it is merged with (#1269): each stays as a tombstone, and one that was not yet handed over ends `dropped` (why `deleted`). See `PeerMessagesApi.deleteMessage`. */
+    deleteMessage(id: string, x: { author: number; now: number }): Promise<PeerChange>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
     deleteConversation(owner: string, a: string, b: string): Promise<number>;
     /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
@@ -327,6 +331,8 @@ export interface ChannelMention {
   state: MentionState;
   why: string | null;
   stateAt: number;
+  /** For a mention of another person's agent that waits for that person's approval (#1269): the id of the direct message that holds a copy of the text for them, so an edit or a delete of the channel message reaches it. Server-side only, never shown to a browser. Absent on a mention without a copy and on every row stored before this. */
+  copyId?: string | null;
 }
 
 /** A channel message. The same shape in the group channel and in a public channel (General included); `owner` and `groupId` are set only in the group channel (a table is the audience, so there is no visibility field). */
@@ -350,7 +356,16 @@ export interface ChannelMessage {
   milestone: string | null;
   replyTo: string | null;
   mentions: ChannelMention[];
+  /** The id of the person who wrote it (`people.id`, never reused), or null for a message an agent or a reporter wrote, for a person's message stored before ids were kept that matched nobody, and for one posted without it. The id outlives the person: a message kept after its person is deleted names nobody, so no one matches it. */
+  authorId: number | null;
+  /** When the author last changed the text (#1269); null for a message never edited, and for every message stored before this. */
+  editedAt: number | null;
+  /** When the author deleted it (#1269); null for a message that stands. A deleted message stays as a tombstone: its text is '' and its mentions are [], its place and its author are kept. */
+  deletedAt: number | null;
 }
+
+/** The result of the author changing one of their own channel messages (#1269). `locked`: it has been sent to an agent (a mention of an agent is `waiting`, `working` or `done`). `deleted`: it is already a tombstone. */
+export type ChannelChange = { ok: true; message: ChannelMessage } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
 
 export interface ChannelPostInput {
   authorKind: ChatAuthorKind;
@@ -361,7 +376,9 @@ export interface ChannelPostInput {
   project?: string | null;
   milestone?: string | null;
   replyTo?: string | null;
-  mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null }[];
+  /** The signed-in person's id, for a message a person wrote (#1269). Without it such a message is stored with no author id, and nobody can change it. Ignored for an agent's or a reporter's. */
+  authorId?: number | null;
+  mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null; copyId?: string | null }[];
 }
 
 /** One page of a channel, oldest first within the page (the newest message last). `older` is the cursor for the page before it, or null when this page starts the channel. */
@@ -386,9 +403,19 @@ export interface ChannelStoreApi<A extends unknown[]> {
   /** The newest page first; `before` is the `older` of the page after it. Ordered by time then insertion number; a page back starts strictly before the cursor, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
   page(...args: [...A, { before?: string | null; limit: number }]): Promise<ChannelPage>;
   /** Sets the delivery state of one mention (by its place in `mentions`) and the message's `updatedAt`. Null when there is no such message in this channel or no such mention. */
-  setMention(...args: [...A, string, number, { state: MentionState; why?: string | null }]): Promise<ChannelMessage | null>;
+  setMention(...args: [...A, string, number, { state: MentionState; why?: string | null; copyId?: string | null }]): Promise<ChannelMessage | null>;
+  /** One message of this channel by id, a tombstone too (#1269); null when there is none in this scope (another channel's, another group's, or no such id). Scope-checked as `editMessage` is. */
+  getMessage(...args: [...A, string]): Promise<ChannelMessage | null>;
   /** The messages that hold a mention still in the `held` state, oldest first (time, then insertion number), each with all its mentions (#1046). With `sessionId`, only those with a held mention of that session. Reads only the rows that can hold one, never a page of the whole channel. */
   heldMentions(...args: [...A, { sessionId?: string }]): Promise<ChannelMessage[]>;
+  /**
+   * The author changes the text of their own message (#1269). `author` is the person's id (`people.id`); the message must be a person's and carry that id as `authorId`. Names are never compared. The text is stored as
+   * given (the server has cleaned, limited and redacted it). Sets `text`, `editedAt` and `updatedAt`; the mentions, `createdAt`, the insertion number and `replyTo` stay, so the pages do not move.
+   * Decided in one step: not-found (no such message in this channel), not-yours, deleted (already a tombstone), locked (see `lockedByDelivery`).
+   */
+  editMessage(...args: [...A, string, { author: number; text: string; now: number }]): Promise<ChannelChange>;
+  /** The author deletes their own message (#1269), under the same checks as `editMessage`. The row stays as a tombstone with its place, author and links: `text` '' and `mentions` [] (the old text is gone from the row), and `deletedAt` and `updatedAt` set. */
+  deleteMessage(...args: [...A, string, { author: number; now: number }]): Promise<ChannelChange>;
   /** Deletes every message of the channel. Returns how many. */
   clear(...args: A): Promise<number>;
   count(...args: A): Promise<number>;

@@ -6,7 +6,7 @@ import { asyncHandler } from './asyncHandler.js';
 import { mountChatAgentRoutes } from './chatAgentRoutes.js';
 import { mountChatChannelRoutes, type ChatBrowserDeps } from './chatChannelRoutes.js';
 import { mountChatDmRoutes } from './chatDmRoutes.js';
-import { channelName, type ChatEvent, type ChatViewer, type Fail } from './chatTypes.js';
+import { channelName, GENERAL, type ChatEvent, type ChatViewer, type Fail } from './chatTypes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress } from '../storage/rows.js';
 import { peersEnabled, type BrowserHelpers, type PeerDeps } from './peerRoutes.js';
 import type { Fleet } from './fleet.js';
@@ -50,6 +50,14 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
       case 'across':
         row(e.approval ? 'chat_across_requested' : 'chat_across_sent', `${e.approval ? 'Asked' : 'Wrote to'} ${e.owner}'s agent for ${e.person} [${short(e.messageId)}] (${short(e.sessionId)})`, actorName(e.by), { owner: e.owner, person: e.person, message_id: short(e.messageId), session_id: e.sessionId, approval: e.approval });
         break;
+      case 'message_edited':
+      case 'message_deleted': {
+        // Ids and where, never the text: the author changed their own message (#1269).
+        const prefix = e.scope === 'dm' ? 'chat' : e.channel === 'group' ? 'group' : e.channel === GENERAL ? 'general' : 'channel';
+        const where = e.scope === 'dm' ? `a direct message, ${e.owner}'s` : `${channelName(e.channel as string)}${e.owner ? `, ${e.owner}'s` : ''}`;
+        row(`${prefix}_${e.kind}`, `${e.kind === 'message_edited' ? 'Edited' : 'Deleted'} own message in ${where} [${short(e.messageId)}]`, actorName(e.by), { scope: e.scope, channel: e.channel, owner: e.owner, message_id: short(e.messageId), by: e.by });
+        break;
+      }
       case 'dm_deleted':
         row('chat_deleted', `Deleted a conversation, ${e.owner}'s: ${e.count} messages (${short(e.a)}, ${short(e.b)})`, actorName(e.by), { owner: e.owner, count: e.count });
         break;

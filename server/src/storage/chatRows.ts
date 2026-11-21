@@ -3,7 +3,7 @@
 // conversation's text are kept in different tables and read by different methods on purpose.
 import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
-import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal } from './types.js';
+import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal } from './types.js';
 
 const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
 const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
@@ -43,6 +43,10 @@ export interface DbChannelRow {
   reply_to: string | null;
   mentions_json: string;
   seq: number;
+  /** Null for a message never edited (#1269); a database older than that has no value, which reads as null. */
+  edited_at?: number | null;
+  deleted_at?: number | null;
+  author_id?: number | null;
 }
 
 /** Throws for an author kind that is not one of the four. */
@@ -56,7 +60,7 @@ export function mentionsOf(input: ChannelPostInput, at: number): ChannelMention[
   return (input.mentions ?? []).map((m) => {
     const state = m.state ?? 'waiting';
     if (!MENTION_STATES.includes(state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
-    return { sessionId: m.sessionId, peerKey: m.peerKey, typed: m.typed, state, why: m.why ?? null, stateAt: at };
+    return { sessionId: m.sessionId, peerKey: m.peerKey, typed: m.typed, state, why: m.why ?? null, stateAt: at, ...(m.copyId ? { copyId: m.copyId } : {}) };
   });
 }
 
@@ -105,15 +109,38 @@ export function toChannelMessage(r: DbChannelRow): ChannelMessage {
     milestone: r.milestone,
     replyTo: r.reply_to,
     mentions: parseMentions(r.mentions_json),
+    authorId: r.author_id == null ? null : Number(r.author_id),
+    editedAt: r.edited_at == null ? null : Number(r.edited_at),
+    deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
   };
 }
 
+/**
+ * Whether a person can no longer change a message with these mentions (#1269): it has been sent to an agent (`sessionId` set) and the agent has it queued (`waiting`), is working on it
+ * (`working`) or has finished (`done`). A mention of a person (no session) never locks, whatever its state, and neither does one that has not been sent (`held`, `approval`) or never
+ * will be (`not-delivered`, `dropped`).
+ */
+export const lockedByDelivery = (mentions: readonly ChannelMention[]): boolean => mentions.some((x) => x.sessionId !== null && (x.state === 'waiting' || x.state === 'working' || x.state === 'done'));
+
+/**
+ * The decision of `editMessage` and `deleteMessage` on the row they found, the same in every adapter (#1269): the refusal, or null when the author may go on.
+ * The checks run in this order: the author (a person's message whose `author_id` is this person's id; names are never compared), a tombstone, then the lock.
+ */
+export function refuseChange(row: DbChannelRow | undefined, author: number): Extract<ChannelChange, { ok: false }> | null {
+  if (!row) return { ok: false, reason: 'not-found' };
+  if (row.author_kind !== 'person' || row.author_id == null || Number(row.author_id) !== author) return { ok: false, reason: 'not-yours' };
+  if (row.deleted_at != null) return { ok: false, reason: 'deleted' };
+  if (lockedByDelivery(parseMentions(row.mentions_json))) return { ok: false, reason: 'locked' };
+  return null;
+}
+
 /** `mentions` with one entry's state changed at `at`; null when there is no entry at `index`. */
-export function withMentionState(mentions: ChannelMention[], index: number, patch: { state: MentionState; why?: string | null }, at: number): ChannelMention[] | null {
+export function withMentionState(mentions: ChannelMention[], index: number, patch: { state: MentionState; why?: string | null; copyId?: string | null }, at: number): ChannelMention[] | null {
   const current = mentions[index];
   if (!Number.isInteger(index) || !current) return null;
   if (!MENTION_STATES.includes(patch.state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
-  return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at } : m));
+  // A copy id stays across later state changes; the patch sets it when it names one (#1269).
+  return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at, ...(patch.copyId ? { copyId: patch.copyId } : {}) } : m));
 }
 
 /** What a read state row says before anything was counted for the thread. */
@@ -320,3 +347,6 @@ export function checkNewChannel(input: NewPublicChannel): Extract<PublicChannelO
   if (!createdByName) return channelRefusal('invalid', 'A channel needs the person who opens it.');
   return { name, description, link, createdBy: nameKey(createdByName), createdByName };
 }
+
+/** The key of the person a stored direct message was written by, folded (#1269): `person:<folded name>` in `from_session` for a message to someone else's agent or to one's own, and the row's owner in a conversation between two of that person's own agents. */
+export const peerPersonKey = (fromSession: string, owner: string): string => nameKey(fromSession.startsWith('person:') ? fromSession.slice('person:'.length) : owner);
