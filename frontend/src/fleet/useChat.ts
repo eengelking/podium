@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
-import { PAGE_SIZE, mergeGone, plain, type GoneRead, type AdminRead, type Address, type Cross, type CrossRole, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
+import { PAGE_SIZE, mergeGone, plain, type ConversationInfo, type ConversationMessage, type GoneRead, type AdminRead, type Address, type Cross, type CrossRole, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
 import { ReadGate } from "./readGate";
 
 export interface OverviewRead {
@@ -320,4 +320,101 @@ export function useAddresses(api: ChatApi, channel: string | null) {
     setError(null);
   }, [channel]);
   return { list, error, load };
+}
+
+export interface ConversationRead {
+  info: ConversationInfo | null;
+  messages: ConversationMessage[];
+  total: number;
+  older: string | null;
+  reads: AdminRead[];
+  loaded: boolean;
+  error: { status: number | null; text: string } | null;
+  loadingEarlier: boolean;
+  loadEarlier: () => Promise<void>;
+  reload: () => Promise<void>;
+  /** Puts a message as the server answered an edit or a delete in place of the one with its id. */
+  patch: (m: ConversationMessage) => void;
+}
+
+/**
+ * The open conversation of people and agents (#1278): the newest page, and the earlier pages the person asked for. It reads again whenever the console's content-free
+ * `chat` signal moves `rev`. An Admin's read of one with an agent in it is recorded by the server before this lands.
+ */
+export function useConversation(api: ChatApi, id: string | null, rev: number): ConversationRead {
+  const [info, setInfo] = useState<ConversationInfo | null>(null);
+  const [latest, setLatest] = useState<ConversationMessage[]>([]);
+  const [earlier, setEarlier] = useState<ConversationMessage[]>([]);
+  const [older, setOlder] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [reads, setReads] = useState<AdminRead[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<ConversationRead["error"]>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [gate] = useState(() => new ReadGate());
+  const shown = useRef<string | null>(null);
+  const cursor = useRef<string | null>(null);
+
+  const reload = useCallback(async () => {
+    if (!id) return;
+    const at = gate.fresh();
+    try {
+      const r = await api.conversationMessages(id, { limit: PAGE_SIZE });
+      if (!gate.land(at)) return;
+      setInfo(r.conversation);
+      setLatest(r.messages);
+      setReads(r.adminReads ?? []);
+      setTotal(r.total);
+      // Earlier pages stay while the thread holds at least as many messages as are shown; a smaller total means it was cleared.
+      setEarlier((cur) => (r.total < cur.length + r.messages.length ? [] : cur));
+      if (cursor.current === null || r.total < r.messages.length) cursor.current = r.older;
+      setOlder((cur) => (cur === null && cursor.current === null ? r.older : (cursor.current ?? r.older)));
+      setLoaded(true);
+      setError(null);
+    } catch (err) {
+      if (!gate.land(at)) return;
+      setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
+      setLoaded(true);
+    }
+  }, [api, id, gate]);
+
+  useEffect(() => {
+    if (shown.current !== id) {
+      shown.current = id;
+      cursor.current = null;
+      setInfo(null);
+      setLatest([]);
+      setEarlier([]);
+      setOlder(null);
+      setTotal(0);
+      setReads([]);
+      setLoaded(false);
+      setError(null);
+    }
+    if (!id) return;
+    void reload();
+    return () => gate.drop();
+  }, [id, rev, reload, gate]);
+
+  const loadEarlier = useCallback(async () => {
+    if (!id || !older || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const r = await api.conversationMessages(id, { before: older, limit: PAGE_SIZE });
+      setEarlier((cur) => [...r.messages, ...cur]);
+      cursor.current = r.older;
+      setOlder(r.older);
+    } catch (err) {
+      setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
+    }
+    setLoadingEarlier(false);
+  }, [api, id, older, loadingEarlier]);
+
+  const patch = useCallback((m: ConversationMessage) => {
+    const put = (list: ConversationMessage[]) => list.map((x) => (x.id === m.id ? m : x));
+    setLatest(put);
+    setEarlier(put);
+  }, []);
+
+  return { info, messages: [...earlier, ...latest], total, older, reads, loaded, error, loadingEarlier, loadEarlier, reload, patch };
 }

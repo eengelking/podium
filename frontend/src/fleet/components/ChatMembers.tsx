@@ -105,6 +105,10 @@ export function ChatMembersPanel(p: {
   onMenuClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
   onClose: () => void;
+  /** A button under the title, such as Add people or agents (#1278). */
+  action?: React.ReactNode;
+  /** No menu on a row: a conversation's members are listed, not messaged from here. */
+  plain?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<MemberFilter>("all");
@@ -143,7 +147,7 @@ export function ChatMembersPanel(p: {
   const row = (m: Member) => {
     const key = menuKey(m);
     const opts = { mention: p.mention, reading: p.reading };
-    const menu = m.kind === "person" ? personMenu(m.name, opts) : m.kind === "agent" && m.sessionId ? agentMenu(m.name, m.sessionId, m.state ?? "done", true, opts) : null;
+    const menu = p.plain ? null : m.kind === "person" ? personMenu(m.name, opts) : m.kind === "agent" && m.sessionId ? agentMenu(m.name, m.sessionId, m.state ?? "done", true, opts) : null;
     return (
       <li
         key={m.key}
@@ -186,6 +190,7 @@ export function ChatMembersPanel(p: {
           <ChX />
         </button>
       </div>
+      {p.action && <div className="ch-mem-act">{p.action}</div>}
       <div className="ch-mem-q">
         <span className="ch-mem-srch">
           <ChSearch />

@@ -73,6 +73,11 @@ export type ChatEvent =
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
   | { kind: 'admin_browse'; by: string; person: string }
+  | { kind: 'conversation_opened'; by: string; conversation: string; members: number }
+  | { kind: 'conversation_sent'; by: string; conversation: string; messageId: string }
+  | { kind: 'conversation_message_edited' | 'conversation_message_deleted'; by: string; conversation: string; messageId: string }
+  | { kind: 'conversation_members_added'; by: string; conversation: string; count: number }
+  | { kind: 'conversation_left'; by: string; conversation: string; deleted: boolean }
   | { kind: 'purged'; channelMessages: number; directMessages: number }
   | { kind: 'channel_opened' | 'channel_edited' | 'channel_removed'; channel: ChannelId; by: string; messages?: number };
 

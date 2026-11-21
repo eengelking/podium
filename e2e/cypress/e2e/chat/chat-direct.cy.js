@@ -54,7 +54,7 @@ describe('chat: the controls of a Direct Message', () => {
     cy.signIn('Alex');
     cy.openConsole('#/chat');
     cy.chatRow(DM).should('not.exist');
-    cy.contains('No conversations. Start one from People and agents.');
+    cy.contains('No conversations. Use + to start one.');
     // And the server answers them as it would for a conversation that does not exist (404), with no text.
     cy.request({ url: '/api/fleet/respond/chat/dm/e2e-s-invoice/e2e-s-tester/messages?limit=50', failOnStatusCode: false }).then((r) => {
       expect(r.status).to.eq(404);
@@ -137,7 +137,7 @@ describe('chat: the controls of a Direct Message', () => {
     openMenu(DM).contains('[role=menuitem]', 'Delete conversation…').click();
     cy.tid('chat-confirm').contains('button', /^Delete conversation$/).click();
     cy.chatRow(DM).should('not.exist');
-    cy.contains('No conversations. Start one from People and agents.');
+    cy.contains('No conversations. Use + to start one.');
     cy.get('#th-h').should('have.text', 'General');
     cy.chatRow(GENERAL).find('button.ch-row').should('have.attr', 'aria-current', 'true');
   });
@@ -244,7 +244,7 @@ describe('chat: a conversation whose agents have left', () => {
     cy.chatRow(DM).should('not.exist');
     cy.chatRow(`a:${seeded().sessions.invoice}`).should('not.exist');
     cy.get('#th-h').should('have.text', 'General');
-    cy.contains('No conversations. Start one from People and agents.');
+    cy.contains('No conversations. Use + to start one.');
   });
 
   it('shows it again, with what it held, when one of its agents reports again', () => {
@@ -322,11 +322,12 @@ describe('chat: the menu on a sender\'s avatar (#1235)', () => {
     return cy.tid('chat-message').last().should('contain.text', ASK);
   };
 
-  it('offers Message and Mention on a right-click of a person\'s avatar, and Message opens New direct message with the name searched', () => {
+  it('offers Message and Mention on a right-click of a person\'s avatar, and Message opens New direct message with that person ticked', () => {
     asEd().find('.ch-gut').rightclick();
     cy.tid('chat-menu').should('be.visible').and('have.class', 'at').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message Alex', 'Mention Alex']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Message Alex').click();
-    cy.get('[role=dialog]').should('contain.text', 'New direct message').find('input[type=search]').should('have.value', 'Alex');
+    cy.get('[role=dialog]').should('contain.text', 'New direct message');
+    cy.tid('dm-form').find('input[type=checkbox]:checked').should('have.length', 1).and('have.value', 'p:Alex');
   });
 
   it('writes the address in the message box on Mention, and puts it at the caret', () => {

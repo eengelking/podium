@@ -217,7 +217,7 @@ function CodeBlock({ text, lang }: { text: string; lang?: string }) {
   );
 }
 
-function Text({ text }: { text: string }) {
+export function Text({ text }: { text: string }) {
   const parts = messageParts(text);
   return (
     <>
@@ -257,7 +257,7 @@ function Text({ text }: { text: string }) {
 }
 
 /** One of your messages being edited (#1269): the composer's box in place of its text, Save and Cancel. Enter saves, Shift+Enter adds a line, Escape cancels. */
-function Editor({ initial, error, busy, onSave, onCancel }: { initial: string; error: string | null; busy: boolean; onSave: (text: string) => void; onCancel: () => void }) {
+export function Editor({ initial, error, busy, onSave, onCancel }: { initial: string; error: string | null; busy: boolean; onSave: (text: string) => void; onCancel: () => void }) {
   const [text, setText] = useState(initial);
   const ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {

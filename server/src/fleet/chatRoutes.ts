@@ -6,6 +6,7 @@ import { asyncHandler } from './asyncHandler.js';
 import { mountChatAgentRoutes } from './chatAgentRoutes.js';
 import { mountChatChannelRoutes, type ChatBrowserDeps } from './chatChannelRoutes.js';
 import { mountChatDmRoutes } from './chatDmRoutes.js';
+import { mountChatConversationRoutes } from './chatConversationRoutes.js';
 import { channelName, GENERAL, type ChatEvent, type ChatViewer, type Fail } from './chatTypes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress } from '../storage/rows.js';
 import { peersEnabled, type BrowserHelpers, type PeerDeps } from './peerRoutes.js';
@@ -76,6 +77,22 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
         row(e.kind, e.kind === 'channel_removed' ? `Public channel ${e.channel} ${words}` : `${words.replace(/^./, (c) => c.toUpperCase())} public channel ${e.channel}`, actorName(e.by), { channel: e.channel, by: e.by });
         break;
       }
+      case 'conversation_opened':
+        row('conversation_opened', `Opened a conversation of ${e.members} members [${short(e.conversation)}]`, actorName(e.by), { conversation: short(e.conversation), members: e.members });
+        break;
+      case 'conversation_sent':
+        row('conversation_sent', `Sent a message in a conversation [${short(e.conversation)}] [${short(e.messageId)}]`, actorName(e.by), { conversation: short(e.conversation), message_id: short(e.messageId) });
+        break;
+      case 'conversation_message_edited':
+      case 'conversation_message_deleted':
+        row(e.kind, `${e.kind === 'conversation_message_edited' ? 'Edited' : 'Deleted'} own message in a conversation [${short(e.conversation)}] [${short(e.messageId)}]`, actorName(e.by), { conversation: short(e.conversation), message_id: short(e.messageId) });
+        break;
+      case 'conversation_members_added':
+        row('conversation_members_added', `Added ${e.count} to a conversation [${short(e.conversation)}]`, actorName(e.by), { conversation: short(e.conversation), count: e.count });
+        break;
+      case 'conversation_left':
+        row('conversation_left', `Left a conversation${e.deleted ? ' (the last person, so it was deleted)' : ''} [${short(e.conversation)}]`, actorName(e.by), { conversation: short(e.conversation), deleted: e.deleted });
+        break;
       case 'purged':
         row('chat_purged', `Chat retention removed ${e.channelMessages} channel messages and ${e.directMessages} messages of hidden conversations`, 'sweeper', { channel_messages: e.channelMessages, direct_messages: e.directMessages });
         break;
@@ -133,6 +150,7 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
 
   mountChatChannelRoutes(browser, deps);
   mountChatDmRoutes(browser, deps);
+  mountChatConversationRoutes(browser, deps);
 }
 
 export { mountChatAgentRoutes };

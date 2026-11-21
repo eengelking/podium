@@ -10,10 +10,11 @@ import { ChatComposer } from "./components/ChatComposer";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread, DeleteMessageDialog } from "./components/ChatThread";
-import { ChannelModal, DirectModal } from "./components/ChatForms";
+import { ChatConversation } from "./components/ChatConversation";
+import { ChannelModal, DirectModal, type DirectDone } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct, MenuAt } from "./components/ChatMenu";
-import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo, type DirectTarget } from "./chatData";
+import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
 import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
@@ -25,6 +26,9 @@ type Confirm = "remove-link" | "delete-dm" | "clear" | "remove-channel";
 const KEEP_ALIVE_MS = 15_000;
 
 const GENERAL: Selection = { kind: "channel", id: "general" };
+
+/** A conversation of people and agents is open (#1278). It has its own thread view, so it is not one of the old `Selection`s. */
+type ConvoSel = { kind: "convo"; id: string };
 
 /** What an error of a send says: the server's own words for 429, 409 and 422, and what to do for the rest. */
 function sendFailure(err: unknown): string {
@@ -64,7 +68,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const serverNow = Math.min(props.now + overview.skew, overview.readAt || Number.MAX_SAFE_INTEGER);
   // The records of a conversation that has since been deleted come once, and the server marks them seen; they stay while this page is open (#1051).
   const gone = overview.gone;
-  const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
+  const [picked, setPicked] = useState<((Selection & { fresh?: boolean }) | ConvoSel) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
   // `at` is where a sender's menu (a `t:` key, on an avatar in the thread) hangs; a row's own menu hangs under the row.
   const [menu, setMenu] = useState<{ key: string; at?: MenuAt } | null>(null);
@@ -83,7 +87,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [sent, setSent] = useState(0);
   const [busy, setBusy] = useState(false);
   // The New channel form (`edit` is the channel whose description it changes) and the New direct message form (#1035).
-  const [form, setForm] = useState<{ kind: "channel"; edit: ChatChannel | null } | { kind: "dm"; person?: string } | null>(null);
+  const [form, setForm] = useState<{ kind: "channel"; edit: ChatChannel | null } | { kind: "dm"; person?: string; search?: string; addTo?: { id: string; members: string[] } } | null>(null);
   const formFrom = useRef<HTMLElement | null>(null);
   const formFallback = useRef<string | null>(null);
   // Counts the times a thread was opened; each one asks for the focus to move to its heading (see the effect below).
@@ -96,11 +100,13 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [focusMsg, setFocusMsg] = useState<{ id: string; n: number } | null>(null);
 
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
-  let sel: Selection = picked ?? GENERAL;
+  let sel: Selection = picked && picked.kind !== "convo" ? picked : GENERAL;
   if (o && picked?.kind === "dm" && !picked.fresh && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
   // A channel an Admin removed leaves the list, and the page falls back to General.
   if (o && picked?.kind === "channel" && !o.channels.some((c) => c.id === picked.id)) sel = GENERAL;
-  const key = selKey(sel)!;
+  // A conversation of people and agents is open while the overview lists it; one left or deleted falls back to General (#1278).
+  const cv: ConvoSel | null = picked?.kind === "convo" && o?.conversations?.some((c) => c.id === picked.id) ? picked : null;
+  const key = cv ? `v:${cv.id}` : selKey(sel)!;
   useEffect(() => {
     setMembers(false);
     setEditing(null);
@@ -108,18 +114,18 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   }, [key, readAs]);
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
   // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
-  const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
-  const rowKey = direct ? `d:${dmKey(direct)}` : key;
+  const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.kind === "dm" && picked.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
+  const rowKey = cv ? key : direct ? `d:${dmKey(direct)}` : key;
   // An Admin with no person of their own, who has not chosen anything, has no thread open: the area says what to do (#1238).
   const idle = !!o && o.me.admin && !o.me.person && readAs === null && picked === null;
-  const thread = useThread(api, o && !stale && !idle ? sel : null, rev, ro ? readAs : null);
+  const thread = useThread(api, o && !stale && !idle && !cv ? sel : null, rev, ro ? readAs : null);
   const addrs = useAddresses(api, sel.kind === "channel" && !idle ? sel.id : null);
 
   const refresh = useCallback(async () => {
     await Promise.all([overview.reload(), thread.reload()]);
   }, [overview, thread]);
 
-  const select = (next: Selection & { fresh?: boolean }) => {
+  const select = (next: (Selection & { fresh?: boolean }) | ConvoSel) => {
     setPicked(next);
     setPane("thread");
     setMenu(null);
@@ -380,7 +386,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
       const named = thread.messages.find((m) => (m.channel ? m.channel.authorRef === id : m.direct?.from.sessionId === id))?.channel?.authorName ?? thread.messages.find((m) => m.direct?.from.sessionId === id)?.direct?.from.name ?? id;
       // An agent this person does not own (another's orchestrator that wrote in a channel) is found in New direct message by its name instead.
       if (agent) startAgent(agent);
-      else openForm({ kind: "dm", person: named }, `h:${id}`, from);
+      else openForm({ kind: "dm", search: named }, `h:${id}`, from);
       return;
     }
     if (kind === "c") {
@@ -655,6 +661,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           onNewDm={() => openForm({ kind: "dm" })}
           onPerson={(name) => openForm({ kind: "dm", person: name }, `p:${name}`)}
           onDm={openDm}
+          onConvo={(id) => select({ kind: "convo", id })}
           onAgent={startAgent}
           readAs={ro ? readAs : null}
           mention={sel.kind === "channel"}
@@ -669,6 +676,33 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
               <p>To read a person&apos;s conversations, choose a person under Read as an Admin.</p>
             </div>
           </section>
+        ) : cv ? (
+          <ChatConversation
+            key={cv.id}
+            api={api}
+            id={cv.id}
+            overview={o}
+            sessions={sessions}
+            rev={rev}
+            now={serverNow}
+            readAs={ro ? readAs : null}
+            members={members}
+            onMembers={setMembers}
+            onBack={() => {
+              setMembers(false);
+              setPane("side");
+            }}
+            onGone={() => {
+              setPicked(null);
+              setPane("side");
+            }}
+            onAdd={() => {
+              const c = o.conversations?.find((x) => x.id === cv.id);
+              openForm({ kind: "dm", addTo: { id: cv.id, members: (c?.members ?? []).map((m) => m.name) } });
+            }}
+            onChanged={() => overview.reload()}
+            onSaid={setSaid}
+          />
         ) : (
           <ChatThread
             sel={sel}
@@ -743,11 +777,20 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
           sessions={sessions}
           person={form.person}
           onClose={() => closeForm()}
-          onDone={async (t: DirectTarget, say) => {
+          search={form.search}
+          addTo={form.addTo}
+          onDone={async (r: DirectDone) => {
             await overview.reload();
+            if (r.kind === "added") {
+              await refresh();
+              setSaid(r.said);
+              closeForm();
+              return;
+            }
+            if (r.kind === "convo") select({ kind: "convo", id: r.id });
             // The conversation is the one the overview lists now, found by this key (an own agent's by the agent), or the fresh one that opens it.
-            select({ kind: "dm", a: "me", b: t.sessionId, key: t.own ? t.sessionId : t.thread, fresh: true });
-            setSaid(say);
+            else select({ kind: "dm", a: "me", b: r.target.sessionId, key: r.target.own ? r.target.sessionId : r.target.thread, fresh: true });
+            setSaid(r.said);
             closeForm(false);
           }}
         />

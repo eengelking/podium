@@ -208,6 +208,8 @@ export interface ChatOverview {
   };
   channels: ChatChannel[];
   directs: DirectInfo[];
+  /** The viewer's conversations of people and agents (#1278). Absent from an older server. */
+  conversations?: ConversationInfo[];
   agents: ChatAgent[];
   people: { name: string; you: boolean }[];
   /** How many messages from other people wait for the viewer's approval as the owner of the agent they wrote to. */
@@ -218,6 +220,71 @@ export interface ChatOverview {
   listReads?: AdminRead[];
   /** The person's unseen records of a conversation that has since been deleted, newest first (#1051). Sent once: the server marks them seen. */
   goneReads?: GoneRead[];
+}
+
+/** One member of a conversation of people and agents (#1278), as the overview lists it. `you` is the viewer's own place. */
+interface ConversationMemberInfo {
+  kind: "person" | "agent";
+  name: string;
+  you: boolean;
+  addedBy: string | null;
+}
+
+/** A conversation of two or more people and agents (#1278, DECISIONS 74): names, counts and times, never any text. */
+export interface ConversationInfo {
+  id: string;
+  thread: string;
+  members: ConversationMemberInfo[];
+  /** An agent is in it now, so an Admin may read it (and everyone in it is told when one does). */
+  hasAgent: boolean;
+  unread: number;
+  mentions: number;
+  messages: number;
+  lastAt: number;
+  adminReading: AdminReading[];
+}
+
+/** One message of a conversation as a page reads it. */
+export interface ConversationMessage {
+  id: string;
+  author: { kind: "person" | "agent"; name: string; you: boolean };
+  text: string;
+  createdAt: number;
+  editedAt: number | null;
+  deletedAt: number | null;
+  replyTo: string | null;
+  canChange: boolean;
+  changeWhy: string | null;
+}
+
+export interface ConversationPageRead {
+  ok: true;
+  conversation: ConversationInfo;
+  messages: ConversationMessage[];
+  older: string | null;
+  total: number;
+  adminReads: AdminRead[];
+}
+
+/** Who a new conversation is with: a person by name, or one of the viewer's own agents by session id. */
+export type ConversationMemberInput = { kind: "person"; name: string } | { kind: "agent"; sessionId: string };
+
+/** The names the conversation lists give its members, the viewer left out and the other people first (as a direct message does). */
+export function conversationName(c: Pick<ConversationInfo, "members">): string {
+  const others = c.members.filter((m) => !m.you);
+  const list = (others.length ? others : c.members).slice().sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "person" ? -1 : 1));
+  return list.map((m) => m.name).join(", ");
+}
+
+/** The line under a conversation's name in the list. */
+export function conversationSub(c: Pick<ConversationInfo, "members">): string {
+  const others = c.members.filter((m) => !m.you);
+  const people = others.filter((m) => m.kind === "person").length;
+  const agents = others.filter((m) => m.kind === "agent").length;
+  if (people === 1 && agents === 0) return "Direct message";
+  if (people === 0 && agents === 1) return "You and one agent";
+  const parts = [people ? `${people} ${people === 1 ? "person" : "people"}` : "", agents ? `${agents} ${agents === 1 ? "agent" : "agents"}` : ""].filter(Boolean);
+  return `You and ${parts.join(" and ")}`;
 }
 
 /** An Admin record of a conversation that no longer exists, for the person's overview. Never any text. */
@@ -506,6 +573,31 @@ export const chatApi = {
       "GET",
       `${BASE}/direct-targets${q ? `?q=${enc(q)}` : ""}`,
     ),
+  /** Everyone who can sign in, running or not, narrowed by `q`; `conversation` is the one that already holds exactly the viewer and that person (#1278). */
+  chatPeople: (q = "") =>
+    call<{ ok: true; people: { name: string; conversation: string | null }[] }>(
+      "GET",
+      `${BASE}/people${q ? `?q=${enc(q)}` : ""}`,
+    ),
+  /** Opens the conversation of these members and the viewer, or answers the one that exists, and sends `text` when there is one. */
+  openConversation: (members: ConversationMemberInput[], text?: string) =>
+    call<{ ok: true; created: boolean; conversation: ConversationInfo; message?: ConversationMessage; skipped: string[] }>(
+      "POST",
+      `${BASE}/conversations`,
+      text === undefined ? { members } : { members, text },
+    ),
+  conversationMessages: (id: string, o: { before?: string | null; limit?: number } = {}) =>
+    call<ConversationPageRead>("GET", `${BASE}/conversations/${enc(id)}/messages${qs(o)}`),
+  sendConversation: (id: string, text: string) =>
+    call<{ ok: true; message: ConversationMessage; skipped: string[] }>("POST", `${BASE}/conversations/${enc(id)}/messages`, { text }),
+  editConversationMessage: (id: string, messageId: string, text: string) =>
+    call<{ ok: true; message: ConversationMessage }>("PATCH", `${BASE}/conversations/${enc(id)}/messages/${enc(messageId)}`, { text }),
+  deleteConversationMessage: (id: string, messageId: string) =>
+    call<{ ok: true; message: ConversationMessage }>("DELETE", `${BASE}/conversations/${enc(id)}/messages/${enc(messageId)}`),
+  addConversationMembers: (id: string, members: ConversationMemberInput[]) =>
+    call<{ ok: true; conversation: ConversationInfo }>("POST", `${BASE}/conversations/${enc(id)}/members`, { members }),
+  leaveConversation: (id: string) => call<{ ok: true; deleted: boolean }>("DELETE", `${BASE}/conversations/${enc(id)}/members/me`),
+  readingConversation: (id: string) => call<{ ok: true }>("POST", `${BASE}/conversations/${enc(id)}/reading`),
   link: (a: string, b: string, op: LinkOp) =>
     call<{ ok: true; link: Cross["link"] }>(
       "PUT",

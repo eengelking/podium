@@ -5,6 +5,7 @@ import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/toke
 import { stripFormat } from '../peerText.js';
 import { withoutPerson } from '../chatRows.js';
 import { fillOwed } from './chat.js';
+import { removePersonOf } from './conversations.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 
 /** How long a machine stays in a person's list without reporting, and how many are kept (#379). */
@@ -163,7 +164,7 @@ export class PeopleStore {
     try {
       for (const p of found) {
         this.stmt('DELETE FROM people WHERE id = ?').run(p.id);
-        this.forgetChat(p.name);
+        this.forgetChat(p.name, p.id);
       }
       this.db.exec('COMMIT');
     } catch (err) {
@@ -178,8 +179,10 @@ export class PeopleStore {
    * and the ones with their `person:<name>` end), links and requests, and their owner defaults. A new person of the same name starts with none of it.
    * Sessions, spend and the Admin log keep the name as text, and so does General, a channel for everyone.
    */
-  private forgetChat(name: string): void {
+  private forgetChat(name: string, personId: number): void {
     const key = nameKey(name);
+    // The conversations of people and agents (#1278): they leave each one, and one left with no person goes with its messages.
+    removePersonOf(this.db, personId);
     const pk = `person:${key}`;
     for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
       const owners = (this.db.prepare(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`).all() as unknown as { owner: string }[]).map((r) => r.owner).filter((o) => nameKey(o) === key);

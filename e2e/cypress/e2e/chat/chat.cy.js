@@ -101,7 +101,7 @@ describe('chat: the page', () => {
     closed();
   });
 
-  it('folds a section from its title, tips the + buttons, and opens New direct message from a person with their name searched (#1234)', () => {
+  it('folds a section from its title, tips the + buttons, and opens New direct message from a person with that person ticked (#1234, #1278)', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     const fold = () => cy.get('nav[aria-label=Chat] #sec-ch .ch-fold');
@@ -113,23 +113,25 @@ describe('chat: the page', () => {
     cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').focus();
     cy.contains('[role=tooltip]', 'Create a channel').should('be.visible');
     cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').blur();
-    // A person is a row in People and agents; Message opens New direct message with their name in the search.
+    // A person is a row in People and agents; Message opens New direct message with that person ticked, whether or not they have an orchestrator Ed may message (#1278).
     cy.chatRow('p:Alex').should('contain.text', 'Person').find('button.ch-row').click();
     cy.get('[role=dialog]').should('contain.text', 'New direct message');
-    cy.get('[role=dialog] input[type=search]').should('have.value', 'Alex');
-    // None of Alex's orchestrators can take a message from Ed, so nothing is chosen and the search keeps the focus (#1237).
-    cy.tid('dm-form').find('input[type=radio]:checked').should('not.exist');
+    cy.get('[role=dialog] input[type=search]').should('have.value', '');
+    cy.tid('dm-form').find('input[type=checkbox]:checked').should('have.length', 1).and('have.value', 'p:Alex');
+    cy.tid('dm-summary').should('have.text', 'To Alex.');
+    cy.tid('dm-agent-warn').should('not.exist');
     cy.get('[role=dialog] input[type=search]').should('have.focus');
   });
 
-  it('opens New direct message from a person with several orchestrators that can take a message and chooses none, the search keeping the focus (#1237)', () => {
+  it('opens New direct message from a person with several orchestrators and ticks only the person; their agents are listed disabled (#1237, #1278)', () => {
     cy.signIn('Alex');
     cy.openConsole('#/chat');
     cy.chatRow('p:Ed').find('button.ch-row').click();
-    cy.get('[role=dialog] input[type=search]').should('have.value', 'Ed');
-    // Ed has three orchestrators Alex may message, so none is chosen for Alex.
-    cy.tid('dm-form').find('input[type=radio]').should('have.length', 3);
-    cy.tid('dm-form').find('input[type=radio]:checked').should('not.exist');
+    cy.get('[role=dialog] input[type=search]').should('have.value', '');
+    // Only Ed is chosen; none of Ed's orchestrators is, and another person's agent cannot be added yet.
+    cy.tid('dm-form').find('input[type=checkbox]:checked').should('have.length', 1).and('have.value', 'p:Ed');
+    cy.tid('dm-form').contains('h3', 'Other people\'s agents');
+    cy.tid('dm-form').contains('label', 'invoice-v2').should('have.attr', 'aria-disabled', 'true').and('contain.text', 'Adding another person\'s agent is not available yet.').find('input').should('be.disabled');
     cy.get('[role=dialog] input[type=search]').should('have.focus');
   });
 

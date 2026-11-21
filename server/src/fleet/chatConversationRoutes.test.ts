@@ -1,0 +1,206 @@
+// Conversations of people and agents (#1278, DECISIONS 74): a person writes to a person who has no orchestrator running, who finds it in Chat; the same members open one
+// conversation; an Admin and a stranger cannot read a conversation of people; an Admin reads one with an agent in it, recorded, and a person may add their own agent.
+import { describe, it, expect, afterEach } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
+import { DEFAULT_CONFIG, Fleet } from './fleet.js';
+import { createFleetRouter } from './routes.js';
+import { createLogger } from '../logging/logger.js';
+import { createAdminRouter } from '../admin/adminRouter.js';
+import { Lockout } from './lockout.js';
+import { createRespondBridge } from './respondBridge.js';
+import type { Report } from './protocol.js';
+import { fixtureReport } from './testing.js';
+import { ACTIVITY_FEED, PEER_MESSAGING, RESPOND } from '../storage/features.js';
+
+const SECRET = 'admin-secret-for-the-conversation-tests';
+const H = { 'X-Podium-Respond': '1' };
+const CH = '/api/fleet/respond/chat';
+const closers: (() => void)[] = [];
+afterEach(() => {
+  for (const c of closers.splice(0)) c();
+});
+
+async function setup() {
+  let clock = 1_800_000_000_000;
+  const now = () => clock;
+  const storage = openSqliteStorage(':memory:', now());
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now);
+  const people = storage.people;
+  const lockout = new Lockout(now);
+  const respondBridge = createRespondBridge();
+  const logger = createLogger({ format: 'json', level: 'debug', write: () => {} });
+  const app = express();
+  app.use('/api/fleet', createFleetRouter(fleet, { token: SECRET, people, reporters: storage.reporters, lockout, respondBridge, logger }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, people, reporters: storage.reporters, peers: fleet.peers, chat: fleet.chat.settings, features: fleet.features, lockout, respondBridge, now, log: () => {} }));
+  await fleet.init();
+  closers.push(() => fleet.close());
+  await fleet.features.setFeature(PEER_MESSAGING, true);
+  await fleet.features.setFeature(RESPOND, true);
+  await fleet.features.setFeature(ACTIVITY_FEED, true);
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
+  return { app, fleet, people, ed, alex, tick: (ms: number) => (clock += ms), now, storage };
+}
+type S = Awaited<ReturnType<typeof setup>>;
+
+const ACCEPTS = ['message', 'command', 'question', 'plan-approve', 'plan-feedback', 'permission'] as const;
+const MAC = { name: 'ed-mbp', id: 'macmacmac001' };
+const LINUX = { name: 'ci-runner-01', id: 'lnxlnxlnx001' };
+const BOX = { name: 'alex-box', id: 'alxalxalx001' };
+
+function report(userName: string, sid: string, name: string, machine: { name: string; id: string }): Report {
+  const r = fixtureReport();
+  r.session = { ...r.session, id: sid, name, status: 'waiting', waitReason: 'input', peers: true, respond: { level: 'everything', accepts: [...ACCEPTS], limits: [] } };
+  r.userName = userName;
+  r.machine = { ...machine, os: 'macOS 27.0.1' };
+  r.adminNotices = true;
+  return r;
+}
+const post = (s: S, token: string, r: Report) => request(s.app).post('/api/fleet/report').set('X-Podium-Token', token).send(r);
+const dev = (s: S) => post(s, s.ed.token, report('Ed', 'sess-dev', 'dev', MAC));
+const tester = (s: S) => post(s, s.ed.token, report('Ed', 'sess-tester', 'Tester', LINUX));
+const alexOne = (s: S) => post(s, s.alex.token, report('Alex', 'sess-alex', 'review', BOX));
+
+async function signedIn(s: S, name: string, token: string) {
+  const agent = request.agent(s.app);
+  expect((await agent.post('/api/fleet/respond/sign-in').set(H).send({ name, token })).status).toBe(200);
+  return agent;
+}
+type B = ReturnType<typeof request.agent>;
+
+async function world() {
+  const s = await setup();
+  expect((await dev(s)).status).toBe(200);
+  expect((await tester(s)).status).toBe(200);
+  expect((await alexOne(s)).status).toBe(200);
+  return { ...s, edB: await signedIn(s, 'Ed', s.ed.token), alexB: await signedIn(s, 'Alex', s.alex.token) };
+}
+
+
+const logRows = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 200 })).rows;
+const OPEN = (b: B, members: unknown, text?: string) => b.post(`${CH}/conversations`).set(H).send({ members, ...(text === undefined ? {} : { text }) });
+const page = (b: B, id: string) => b.get(`${CH}/conversations/${id}/messages`);
+const person = (name: string) => ({ kind: 'person', name });
+
+describe('a conversation of people', () => {
+  it('lets a person write to a person who has no orchestrator running, who finds it in Chat with an unread count', async () => {
+    const w = await world();
+    const sam = await w.people.createPerson('Sam');
+    const samB = await signedIn(w, 'Sam', sam.token);
+    const res = await OPEN(w.edB, [person('Sam')], 'hello Sam');
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ ok: true, created: true, conversation: { hasAgent: false, messages: 1 }, message: { text: 'hello Sam', author: { kind: 'person', name: 'Ed', you: true }, canChange: true } });
+    const id = res.body.conversation.id as string;
+    const ov = (await samB.get(CH)).body;
+    expect(ov.conversations).toHaveLength(1);
+    expect(ov.conversations[0]).toMatchObject({ id, unread: 1, hasAgent: false });
+    expect(ov.conversations[0].members.map((m: { name: string; you: boolean }) => [m.name, m.you])).toEqual([['Ed', false], ['Sam', true]]);
+    const read = await page(samB, id);
+    expect(read.status).toBe(200);
+    expect(read.body.messages.map((m: { text: string; author: { you: boolean } }) => [m.text, m.author.you])).toEqual([['hello Sam', false]]);
+    const marked = await samB.post(`${CH}/read`).set(H).send({ thread: `convo:${id}`, upTo: null });
+    expect(marked.body).toMatchObject({ ok: true, unread: 0 });
+    expect(JSON.stringify((await samB.get(CH)).body.conversations)).not.toContain('hello Sam');
+  });
+
+  it('answers the same conversation for the same members, in any order, and lists a person even when they have never signed in', async () => {
+    const w = await world();
+    const a = await OPEN(w.edB, [person('Alex')]);
+    expect(a.status).toBe(201);
+    const b = await OPEN(w.alexB, [person('Ed')]);
+    expect(b.status).toBe(200);
+    expect(b.body.conversation.id).toBe(a.body.conversation.id);
+    const names = (await w.edB.get(`${CH}/people`)).body.people as { name: string; conversation: string | null }[];
+    expect(names.find((p) => p.name === 'Alex')).toEqual({ name: 'Alex', conversation: a.body.conversation.id });
+    expect(names.find((p) => p.name === 'Ed')).toBeUndefined();
+  });
+
+  it('refuses a stranger and an Admin who is not in a conversation of people, with the answer of a conversation that does not exist', async () => {
+    const w = await world();
+    const sam = await w.people.createPerson('Sam');
+    const samB = await signedIn(w, 'Sam', sam.token);
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const id = (await OPEN(w.edB, [person('Alex')], 'private')).body.conversation.id as string;
+    for (const b of [samB, rootB]) {
+      const r = await page(b, id);
+      expect(r.status).toBe(404);
+      expect(r.body.error).toBe('There is no such conversation.');
+    }
+    expect((await rootB.post(`${CH}/conversations/${id}/reading`).set(H)).status).toBe(404);
+    expect((await samB.post(`${CH}/conversations/${id}/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
+    // An Admin's browse of Ed's Chat does not name it, and the logs hold no text.
+    const browse = await rootB.get(`${CH}?owner=Ed`);
+    expect(browse.status).toBe(200);
+    expect(browse.body.conversations).toEqual([]);
+    expect(JSON.stringify(await logRows(w))).not.toContain('private');
+  });
+
+  it('refuses nobody, yourself, an unknown person and the admin secret, in words', async () => {
+    const w = await world();
+    expect((await OPEN(w.edB, [])).status).toBe(400);
+    expect((await OPEN(w.edB, [person('Ed')])).status).toBe(400);
+    const ghost = await OPEN(w.edB, [person('Nobody')]);
+    expect(ghost.status).toBe(404);
+    expect(ghost.body.error).toBe('There is no person named Nobody.');
+    const secret = await signedIn(w, 'Admin', SECRET);
+    expect((await OPEN(secret, [person('Alex')])).status).toBe(403);
+  });
+
+  it('holds the author to their own message: edit and delete, a stranger refused, and a tombstone left', async () => {
+    const w = await world();
+    const id = (await OPEN(w.edB, [person('Alex')], 'first')).body.conversation.id as string;
+    const mid = (await page(w.edB, id)).body.messages[0].id as string;
+    expect((await w.alexB.patch(`${CH}/conversations/${id}/messages/${mid}`).set(H).send({ text: 'mine' })).status).toBe(403);
+    const edited = await w.edB.patch(`${CH}/conversations/${id}/messages/${mid}`).set(H).send({ text: 'first, changed' });
+    expect(edited.body).toMatchObject({ ok: true, message: { text: 'first, changed', canChange: true } });
+    expect(edited.body.message.editedAt).not.toBeNull();
+    const gone = await w.edB.delete(`${CH}/conversations/${id}/messages/${mid}`).set(H);
+    expect(gone.body.message).toMatchObject({ text: '', canChange: false });
+    expect((await w.edB.delete(`${CH}/conversations/${id}/messages/${mid}`).set(H)).status).toBe(409);
+  });
+
+  it('adds a person without asking them, and the last person to leave deletes the conversation', async () => {
+    const w = await world();
+    const sam = await w.people.createPerson('Sam');
+    const samB = await signedIn(w, 'Sam', sam.token);
+    const id = (await OPEN(w.edB, [person('Alex')])).body.conversation.id as string;
+    expect((await samB.get(`${CH}/conversations/${id}/messages`)).status).toBe(404);
+    const added = await w.edB.post(`${CH}/conversations/${id}/members`).set(H).send({ members: [person('Sam')] });
+    expect(added.status).toBe(200);
+    expect((await samB.get(`${CH}/conversations/${id}/messages`)).status).toBe(200);
+    for (const b of [w.edB, w.alexB]) expect((await b.delete(`${CH}/conversations/${id}/members/me`).set(H)).body).toEqual({ ok: true, deleted: false });
+    expect((await samB.delete(`${CH}/conversations/${id}/members/me`).set(H)).body).toEqual({ ok: true, deleted: true });
+    expect((await samB.get(`${CH}/conversations/${id}/messages`)).status).toBe(404);
+  });
+});
+
+describe('a conversation with an agent in it', () => {
+  it('hands a person\'s message to their own agent, tells the people in it of an Admin who reads, and refuses another person\'s agent', async () => {
+    const w = await world();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-tester' }], 'run the suite');
+    expect(res.status).toBe(201);
+    expect(res.body.conversation.hasAgent).toBe(true);
+    const id = res.body.conversation.id as string;
+    // Another person's agent is not added yet.
+    const other = await w.edB.post(`${CH}/conversations/${id}/members`).set(H).send({ members: [{ kind: 'agent', sessionId: 'sess-alex' }] });
+    expect(other.status).toBe(403);
+    expect(other.body.error).toContain('not available yet');
+    // An Admin may read it, and the read is recorded and told to the people in it.
+    const read = await page(rootB, id);
+    expect(read.status).toBe(200);
+    expect(read.body.messages[0].text).toBe('run the suite');
+    const seen = (await w.edB.get(CH)).body.conversations[0];
+    expect(seen.adminReading.map((r: { admin: string }) => r.admin)).toEqual(['Root']);
+    expect((await rootB.patch(`${CH}/conversations/${id}/messages/${read.body.messages[0].id}`).set(H).send({ text: 'x' })).status).toBe(403);
+    expect(JSON.stringify(await logRows(w))).not.toContain('run the suite');
+    const log = (await logRows(w)).map((r) => r.kind);
+    expect(log).toContain('chat_admin_read');
+  });
+});

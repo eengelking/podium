@@ -1,0 +1,1 @@
+The atlas describes the conversations of people and agents in Chat: the tables `conversations`, `conversation_members` and `conversation_messages` (SQLite migration 47, PostgreSQL and MariaDB step 23), the `chat.conversations` store, the `ConversationChat` service and its routes, the `convo:<id>` thread, and that an Admin reads one only while an agent is in it (#1278).

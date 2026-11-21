@@ -440,3 +440,11 @@
 .ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; white-space: pre-wrap; }
 .podium .modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
 .podium .modal.ed-confirm .err { margin: 0 0 12px; color: var(--crit-text); font-size: 12.5px; }
+
+/* Conversations of people and agents (#1278, mockup/podium-chat-person-dm.html). The lock or eye line under the title says who can read it; the actions under a
+   message are plain buttons; the members panel has one action under its title; Leave sits above the message box. Every color is a token. */
+.ch-head .sub svg { width: 12px; height: 12px; vertical-align: -1px; flex: none; }
+.ch-own { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.ch-msg.mine .ch-own { justify-content: flex-end; }
+.ch-actions { display: flex; justify-content: flex-end; padding: 0 24px 4px; }
+.ch-mem-act { padding: 10px 12px 2px; }

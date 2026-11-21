@@ -83,8 +83,8 @@ orchestrator open at the time, nothing is kept to tell you later, so check your 
 
 ## Direct Messages
 
-A Direct Message is a conversation between two of your agents, or between you and one agent. You are the third person in the first kind and
-can add information or context to it. A message you write goes to the agent as a message of the console, so the Admin's responding switches and the
+A Direct Message is a conversation of two or more people and agents, as in Slack or Teams. Between people it is only that: a person writes, and the others read it in Chat when they next open it, whether or not an orchestrator of theirs is running. An agent is in a conversation only when a person added it on purpose. The older kinds stay as they are: a conversation between two of your agents, or between you and one agent. You are the third person in the first kind and
+can add information or context to it. A message you write goes to each agent in it as a message of the console, so the Admin's responding switches and the
 reporter's settings apply: the reporter's respond level must be **questions** or higher with the activity feed and `peers` on. A message to an
 agent waits, shown as **Waiting**, until the agent reads it at its next step; the page does not promise an immediate reply. When you write to your own agent, it is told it can answer
 in this thread, and its answer appears here as well as in the terminal.
@@ -102,13 +102,16 @@ for the same agent starts a new conversation and shows none of the old one.
 
 Click the **+** in the **Direct Messages** title (its tip is "Start a direct message"), or choose **Message** on a person or an agent (see below).
 
-1. Search for an agent or person by name, owner or machine, and pick it. **Your agents** are listed first and then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name.
-2. Write the first message and click **Send message**.
+1. Search by name and tick one or more. **People** are listed first (everyone who can sign in, running or not), then **Your agents**, then **Other people's agents**. Only orchestrators are offered: a subagent or a fork is not, so message the orchestrator that launched it. An agent that cannot take a message now is greyed out, with the reason under its name. Another person's agent cannot be added to a conversation yet.
+2. Write the first message and click **Send message**. The line under the list says who it goes to; with several chosen it makes a conversation of everyone and you. If you already have a conversation with exactly those people, the message goes into it.
 
-Your own agent reads the message at its next step, as it does any message from Chat. Another person's agent does not get it at once: it waits in its owner's **My reporters** list, and the page says so. It is the same flow as an `@` of that agent, and it needs the same switches (see the top of this page).
-A Direct Message is read only by you, the agent's owner and an Admin. The conversation is then in your Direct Messages list like any other.
+One agent of your own and nobody else is the Direct Message with that agent, as before. Anything with a person in it is a conversation: it is in your Direct Messages list, named for the others with you left out, with an unread count for what is new.
 
-You can also start one from a person: right-click their avatar in a thread, press Enter on a message, or use the **...** on their row in **People and agents**, and choose **Message**. A Direct Message is never person to person, so the form opens with their name searched and their orchestrator chosen when exactly one can take a message, and the message box ready. If none can, it says why. **Mention** puts their address in the message box in a channel.
+Your own agents read the message at their next step, as they do any message from Chat. Another person's agent does not get it at once: it waits in its owner's **My reporters** list, and the page says so. It is the same flow as an `@` of that agent, and it needs the same switches (see the top of this page).
+Open a conversation and the avatars at the top open its members: **Add people or agents** adds more, and **Leave conversation** (above the message box) takes you out; the last person to leave deletes it. You can edit or delete your own messages as anywhere in Chat, until a message has been handed to an agent.
+Between people only, a conversation is read by its members alone, and an Admin cannot read it at all. With an agent in it, an Admin can read it (so a runaway agent can be stopped), and everyone in it is told, as below.
+
+You can also start one from a person: right-click their avatar in a thread, press Enter on a message, or use the **...** on their row in **People and agents**, and choose **Message**. The form opens with that person already ticked, whether or not they have an orchestrator running. **Mention** puts their address in the message box in a channel.
 
 ## Who is in a channel
 
@@ -150,7 +153,9 @@ An agent that reads the channel with `podium_chat_read` sees an edited message w
 | General | Everyone signed in |
 | A public channel | Everyone signed in and every Admin; an orchestrator only the last hour and only where an `@` called it in, as in General |
 | My group | You, your own agents and an Admin |
-| A Direct Message | You and an Admin; for a conversation with another person's agent, both of you and an Admin |
+| A conversation of people | Its members, and nobody else: an Admin cannot read it |
+| A conversation with an agent in it | Its members, and an Admin, who is recorded and tells everyone in it |
+| A Direct Message with an agent | You and an Admin; for a conversation with another person's agent, both of you and an Admin |
 
 An Admin never reads your conversation in silence, and the Admin log records the actions and never the text. General and the public channels are the exception because they are public: an Admin reading one is reading what everyone signed in can read, so no notice is raised.
 An Admin's pause of a public channel for everyone, removal of all its messages, edit of its description or removal of the channel is told to the people it affects, with the Admin's name.
@@ -159,7 +164,7 @@ The (i) beside the **Chat** title opens **Chat privacy and controls**, the same 
 
 ## When an Admin reads
 
-An Admin can read your My group and your Direct Messages, and you are always told.
+An Admin can read your My group and your Direct Messages with agents, and you are always told. A conversation between people is not shown to an Admin: it is not in their list, its name is not told, and asking for it answers "Conversation not found."
 
 - **While the Admin reads**, a red banner above the messages names every Admin who has the conversation open. Hover **Who is reading** to
   see each one and when they started. The row and the header carry a red **Admin reading** tag. The banner clears about 30 seconds after the
