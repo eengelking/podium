@@ -383,3 +383,28 @@ describe('chat: People and agents is paged (#1272)', () => {
     cy.focused().type('{esc}');
   });
 });
+
+describe('chat: two live agents never share a name (#1284)', () => {
+  const TWIN = 'twin-e2e0001';
+  const RESPOND = { 'X-Podium-Respond': '1' };
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  it('lists the later of two same-named agents of one owner as "<name> 2", and leaves the first with its name', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('exist').and('contain.text', 'invoice-v2').and('not.contain.text', 'invoice-v2 2');
+    cy.task('fleet:launch', { id: TWIN, name: 'invoice-v2' }, { log: false });
+    // The twin joins the open list, on its first page beside the first agent.
+    cy.chatRow(`a:${TWIN}`).should('exist').and('contain.text', 'invoice-v2 2');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('not.contain.text', 'invoice-v2 2');
+  });
+
+  it('reaches the first agent by @name@machine and refuses nothing as ambiguous, because the second is not called by that name', () => {
+    cy.signIn('Ed');
+    cy.request({ method: 'POST', url: '/api/fleet/respond/chat/channels/general/messages', headers: RESPOND, body: { text: '@invoice-v2@ed-mbp are you there?' }, log: false }).then((r) => {
+      expect(r.status).to.eq(201);
+      expect(r.body.message.mentions).to.have.length(1);
+      expect(r.body.message.mentions[0].sessionId).to.eq(seeded().sessions.invoice);
+    });
+  });
+});
