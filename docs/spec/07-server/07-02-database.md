@@ -471,7 +471,7 @@ CREATE TABLE conversations (id TEXT PRIMARY KEY, created_by INTEGER, created_at 
   -- members_key: the member refs, sorted and joined by |, so exactly one conversation exists for a set of members
 CREATE TABLE conversation_members (conversation_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, added_by INTEGER,
   joined_at INTEGER NOT NULL, left_at INTEGER, PRIMARY KEY (conversation_id, member_kind, member_ref));
-  -- member_kind person | agent; member_ref the person's people.id or the agent's session id. This release writes people only
+  -- member_kind person | agent; member_ref the person's people.id or the agent's session id
 CREATE TABLE conversation_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
   text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to TEXT, seq INTEGER NOT NULL, edited_at INTEGER, deleted_at INTEGER, author_id INTEGER);
 CREATE INDEX conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);

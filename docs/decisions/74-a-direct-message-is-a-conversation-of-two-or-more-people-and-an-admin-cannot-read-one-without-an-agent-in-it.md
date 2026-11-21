@@ -47,7 +47,7 @@ The maintainer's model is Slack or Teams: a person messages a person, and an age
 - A new set of tables, routes and read state in every adapter, and a new audience to keep separate.
 - A person's conversation is outside every Admin tool, so an Admin cannot help a person who asks for it to be read. A person who wants help shares it themselves.
 - Chat still needs orchestrator messaging on, because its routes answer `403` while it is off. A conversation of two people does not need it to work, so tying it to that switch is a cost to remove later.
-- Adding an agent to a conversation is a separate piece of work (its link, its owner's allow, the Admin's read and the notices it brings). Until it ships a conversation has people only.
+- Adding an agent to a conversation brings the link and the owner's allow, the Admin's read and the notices that go with it, all in the same effort, so the first release is larger than a conversation of people alone.
 
 <!-- nav:start -->
 ---

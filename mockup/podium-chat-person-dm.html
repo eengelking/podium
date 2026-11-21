@@ -12,12 +12,13 @@
 /* Mockup for #1278: a person messages any person, whether or not their orchestrators are running (DECISIONS 74).
    It is the accepted Chat redesign (podium-chat-redesign.html) with these changes:
      Direct messages   A conversation of two or more PEOPLE, kept in Chat like Slack or Teams. An agent is in one only when a person added it
-                       on purpose, so no agent is shown here. The conversations with agents (Tester, podium-main, ...) stay as they are.
+                       on purpose. A conversation may hold people, agents or both, and the one dialog and the members panel add either.
      New direct message  Lists people first, any of them, with no "can take a message" test. One person or several (a group).
                        "Choose who to message." goes away for a person who is listed. A person with no orchestrator running is a normal choice.
      Message on a person  (People and agents, or an avatar) opens this dialog with the person chosen. Message on an agent opens the agent dialog.
      Unread            A conversation with something new shows the count on its row and a New line in the thread.
      Admin             An Admin cannot read a conversation of people. It is not in the list, and one asked for by address is "not found".
+                       With an agent in it, an Admin can read it (to stop a runaway), and everyone in it is told.
    Colors and fonts come from tokens.css through fleet.css; this file defines no tokens of its own. New classes beyond the redesign's: ch-pp
    (a conversation of people), pp-t, pp-stack, cr-nope, cr-ppnote. Example data only. */
 html, body { height: 100%; }
@@ -394,6 +395,22 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .cr-modal .dm-sum { margin: 0; font-size: 13px; color: var(--ink2); min-height: 20px; }
 .podium .cr-modal .ch-form .ch-warn.found { background: var(--sel); }
 .cr-modal .dm-other { justify-self: start; }
+
+.ch-flow-p4, .pp-t4 { display: none; }
+.stage.conv-p4 .ch-flow-ch, .stage.conv-p4 .ch-flow-dm, .stage.conv-p4 .ch-t, .stage.conv-p4 .dm-t, .stage.conv-p4 .ch-stack:not(.pp-stack), .stage.conv-p4 .ch-only, .stage.conv-p4 .dm-only { display: none; }
+.stage.conv-p4 .ch-flow-p4, .stage.conv-p4 .pp-t4 { display: block; }
+.stage.conv-p4 .ch-stack.pp-stack { display: inline-flex; }
+.stage.conv-p4 .ch-recline, .stage.conv-p4.record .ch-recline { display: none; }
+.stage.conv-p4.record .ch-flow-p4 .ch-recline { display: block; }
+.stage.conv-p4 .ch-flow-p4 .ch-recline { display: none; }
+.ch-stack.pp-stack { cursor: pointer; }
+.ch-stack.pp-stack:hover, .ch-stack.pp-stack[aria-expanded="true"] { background: var(--sel); border-color: var(--axis); }
+#mem3 .mh h3 .n { font-weight: 500; color: var(--muted); }
+.stage:not(.conv-p3):not(.conv-p4) .ch-split #mem3 { display: none !important; }
+.stage.conv-p3 #mem, .stage.conv-p4 #mem { display: none !important; }
+.stage.conv-p3 .m3-p4, .stage.conv-p4 .m3-p3 { display: none !important; }
+.ch-mem .m3-add { padding: 10px 12px 2px; }
+.pp-t4 .sub svg { color: var(--crit-text); }
 /* The same narrow layout when the window itself is narrow, so it works without the 400 px switch. */
 @media (max-width: 760px) {
   .stage .cr-page { padding: 8px; }
@@ -459,6 +476,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     <button type="button" data-conv="dm" aria-pressed="false">DM with Tester (agent)</button>
     <button type="button" data-conv="p1" aria-pressed="false">DM with Maya Kim</button>
     <button type="button" data-conv="p3" aria-pressed="false">Group DM, 3 people</button>
+    <button type="button" data-conv="p4" aria-pressed="false">DM with a person and an agent</button>
   </span>
   <span class="grp" role="group" aria-label="Thread">Thread
     <button type="button" data-case="busy" aria-pressed="true">Busy</button>
@@ -478,7 +496,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
     <button type="button" data-dlg="m-dm">New direct message</button>
     <button type="button" data-dlg="m-dm-found">Conversation exists</button>
     <button type="button" data-dlg="m-dm-err">Nobody chosen</button>
-    <button type="button" data-dlg="m-dm-agent">Message an agent</button>
+    <button type="button" data-dlg="m-dm-add">Add to a conversation</button>
   </span>
   <span class="grp" role="group" aria-label="Composer">Composer
     <button type="button" data-comp="empty" aria-pressed="true">Empty</button>
@@ -531,10 +549,11 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <li class="ch-item un" data-key="c:release"><button type="button" class="ch-row" ><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">release-1-7</span><span class="sub">Release checklist for v1.7</span></span><span class="unread" aria-label="1 mention of you">@ 1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for release-1-7" data-tip="Actions for release-1-7"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
       </ul></section>
     <p class="cr-hint hint-admin">Direct Messages and People and agents belong to a person. Sign in with a person's name to message your own agents.</p>
-    <section class="ch-sec sec-dm" id="sec-dm"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Direct messages <span class="n">6</span></button><button type="button" class="add " aria-label="New direct message" data-tip="Start a direct message" data-open="m-dm" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
+    <section class="ch-sec sec-dm" id="sec-dm"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Direct messages <span class="n">7</span></button><button type="button" class="add " aria-label="New direct message" data-tip="Start a direct message" data-open="m-dm" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
       <ul class="ch-list">
         <li class="ch-item un pp" data-key="d:p-maya" data-conv="p1"><button type="button" class="ch-row" ><span class="ch-av person" aria-hidden="true">MK</span><span class="stack"><span class="nm">Maya Kim</span><span class="sub">Can you look at my PR before standup?</span></span><span class="unread" aria-label="2 new">2</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim" data-tip="Actions for Maya Kim"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="ch-item pp" data-key="d:p-group" data-conv="p3"><button type="button" class="ch-row" ><span class="ch-pair" aria-hidden="true"><span class="ch-av person">JO</span><span class="ch-av person">PS</span></span><span class="stack"><span class="nm">Jo Okafor, Priya Shah</span><span class="sub">You and 2 people</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Jo Okafor, Priya Shah" data-tip="Actions for Jo Okafor, Priya Shah"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
+        <li class="ch-item" data-key="d:p-agent" data-conv="p4"><button type="button" class="ch-row" ><span class="ch-pair" aria-hidden="true"><span class="ch-av person">MK</span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">Maya Kim, Tester</span><span class="sub">You, a person and an agent</span></span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Maya Kim, Tester" data-tip="Actions for Maya Kim, Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
         <li class="cr-ppnote" role="note">Conversations between people are not shown to an Admin.</li>
         <li class="cr-approval ch-pad"><a class="ch-notice" href="#/me/reporters">1 message from another person waits for your approval in My reporters.</a></li>
         <li class="ch-item un" data-key="d:tester"><button type="button" class="ch-row" ><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span class="nm">Tester</span><span class="sub">You and one agent</span></span><span class="unread" aria-label="1 new">1</span></button><button type="button" class="ch-more" aria-haspopup="menu" aria-expanded="false" aria-label="Actions for Tester" data-tip="Actions for Tester"><svg aria-hidden="true"><use href="#m-dots"/></svg></button></li>
@@ -563,7 +582,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
       <div class="ttl dm-t"><h2><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg></span><span class="nm">Tester</span></h2><div class="sub">You and one agent. Only you, its owner and an Admin can read this.</div></div>
       <div class="ttl pp-t pp-t1"><h2><span class="ch-av person" aria-hidden="true">MK</span><span class="nm">Maya Kim</span></h2><div class="sub"><svg aria-hidden="true"><use href="#m-lock"/></svg>Only you and Maya Kim can read this. An Admin cannot.</div></div>
       <div class="ttl pp-t pp-t3"><h2><svg aria-hidden="true"><use href="#i-group"/></svg><span class="nm">Jo Okafor, Priya Shah</span></h2><div class="sub"><svg aria-hidden="true"><use href="#m-lock"/></svg>Only you and these 2 people can read this. An Admin cannot.</div></div>
-      <span class="ch-stack pp-stack" role="img" aria-label="3 members: you, Jo Okafor and Priya Shah"><span class="av" aria-hidden="true"><span class="ch-av me">E</span><span class="ch-av person">JO</span><span class="ch-av person">PS</span></span>3</span>
+      <div class="ttl pp-t pp-t4"><h2><span class="ch-av person" aria-hidden="true">MK</span><span class="nm">Maya Kim, Tester</span></h2><div class="sub"><svg aria-hidden="true"><use href="#m-eye"/></svg>Tester is an agent in this conversation, so an Admin can read it. Everyone in it is told when one does.</div></div>
+      <button type="button" class="ch-stack pp-stack" id="stack3" aria-expanded="false" aria-controls="mem3" aria-label="Members, 3. Show the list"><span class="av m3-p3" aria-hidden="true"><span class="ch-av me">E</span><span class="ch-av person">JO</span><span class="ch-av person">PS</span></span><span class="av m3-p4" aria-hidden="true"><span class="ch-av me">E</span><span class="ch-av person">MK</span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span></span>3</button>
       <button type="button" class="ch-stack" id="stack" aria-expanded="false" aria-controls="mem" aria-label="Members, 9. Show the list">
         <span class="av" aria-hidden="true"><span class="ch-av me">E</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="ch-av person">MK</span></span>9</button>
     </header>
@@ -676,6 +696,15 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
           <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span><div class="col"><div class="cr-who"><span class="at">9:24 AM</span><b>You</b></div><div class="tx">No rush. Whenever you are in.</div><div class="ch-st"><span class="s done"><svg class="si st-done"><use href="#s-done"/></svg>Sent</span></div></div></li>
         </ul>
       </div>
+      <div class="ch-flow-p4">
+        <div class="ch-day">Today</div>
+        <ul class="ch-msgs">
+          <li class="ch-msg mine first"><span class="ch-av me" aria-hidden="true">E</span><div class="col"><div class="cr-who"><span class="at">9:30 AM</span><b>You</b></div><div class="tx">Tester, can you rerun the MariaDB specs so Maya can see the result here?</div></div></li>
+          <li class="ch-msg first"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><div class="col"><div class="cr-who"><b>Tester</b><span class="cr-model sonnet"><i></i>Agent · Sonnet</span><span class="at">9:41 AM</span></div><div class="tx">Done. MariaDB passed: 312 of 312.</div></div></li>
+          <li class="ch-msg first"><span class="ch-av person" aria-hidden="true">MK</span><div class="col"><div class="cr-who"><b>Maya Kim</b><span class="at">9:43 AM</span></div><div class="tx">Thanks both.</div></div></li>
+        </ul>
+        <ul class="ch-msgs ch-recline"><li class="ch-rec"><svg aria-hidden="true"><use href="#m-eye"/></svg><span>Root (an Admin) read this conversation on Nov 19, 9:50 AM.</span></li></ul>
+      </div>
       <div class="ch-flow-dm">
         <div class="ch-day">Today</div>
         <ul class="ch-msgs">
@@ -714,6 +743,24 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
       </div>
     </form>
   </section>
+
+  <aside class="ch-mem" id="mem3" aria-label="Members of this conversation">
+    <div class="mh"><h3>Members <span class="n m3-p3">3</span><span class="n m3-p4">3</span></h3><button type="button" class="cr-x" id="memx3" aria-label="Close members"><svg><use href="#i-x"/></svg></button></div>
+    <div class="m3-add"><button type="button" class="btn sm" id="m3-add" data-dlg="m-dm-add">Add people or agents</button></div>
+    <div class="ml">
+      <h4>People <span class="n m3-p3">3</span><span class="n m3-p4">2</span></h4>
+      <ul>
+        <li><span class="ch-av me">E</span><span class="t"><b>Ed (you)</b><span>Started it</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Online</span></li>
+        <li class="m3-p3"><span class="ch-av person">JO</span><span class="t"><b>Jo Okafor</b><span>Added by you</span></span><span class="stw"><svg class="st-off"><use href="#s-off"/></svg>Away</span></li>
+        <li class="m3-p3"><span class="ch-av person">PS</span><span class="t"><b>Priya Shah</b><span>Added by you. No orchestrator running.</span></span><span class="stw"><svg class="st-off"><use href="#s-off"/></svg>Offline</span></li>
+        <li class="m3-p4"><span class="ch-av person">MK</span><span class="t"><b>Maya Kim</b><span>Added by you</span></span><span class="stw"><svg class="st-run"><use href="#s-run"/></svg>Online</span></li>
+      </ul>
+      <h4 class="m3-p4">Agents <span class="n">1</span></h4>
+      <ul class="m3-p4">
+        <li><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg></span><span class="t"><b>Tester</b><span>Your orchestrator. An Admin can read this conversation.</span></span><span class="stw"><svg class="st-wait"><use href="#s-wait"/></svg>Waiting</span></li>
+      </ul>
+    </div>
+  </aside>
 
   <aside class="ch-mem" id="mem" aria-label="Members of My group">
     <div class="mh"><h3>Members <span class="n">9</span></h3><button type="button" class="cr-x" id="memx" aria-label="Close members"><svg><use href="#i-x"/></svg></button></div>
@@ -762,46 +809,29 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   <div class="modal cr-modal" role="dialog" aria-modal="true" aria-labelledby="pd-h">
     <div class="mh"><div class="ttl"><h2 id="pd-h">New direct message</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div class="mb"><form class="ch-form" id="f-pd" noValidate>
-      <p class="hint">A direct message is between people. Only the people in it can read it, and an Admin cannot. Choose one person, or several for a group. They see it in Chat when they next open it, whether or not an orchestrator of theirs is running.</p>
-      <label>Find a person<input class="field" id="pd-q" type="search" autocomplete="off" placeholder="Search by name"></label>
+      <p class="hint" id="pd-hint">Choose one or more people or agents. Between people only, a direct message is read by them alone and an Admin cannot read it. People see it in Chat when they next open it, whether or not an orchestrator of theirs is running.</p>
+      <label>Find a person or an agent<input class="field" id="pd-q" type="search" autocomplete="off" placeholder="Search by name"></label>
       <fieldset class="dm-set"><legend class="vh">To</legend>
         <ul class="dm-pick" id="pd-list">
           <li><h3>People</h3></li>
-          <li data-n="maya kim"><label><input type="checkbox" name="pd-to" value="Maya Kim"><span class="ch-av person">MK</span><span class="stack"><span><bdi>Maya Kim</bdi></span><span class="sub">Online</span></span></label></li>
-          <li data-n="jo okafor"><label><input type="checkbox" name="pd-to" value="Jo Okafor"><span class="ch-av person">JO</span><span class="stack"><span><bdi>Jo Okafor</bdi></span><span class="sub">Away</span></span></label></li>
-          <li data-n="priya shah"><label><input type="checkbox" name="pd-to" value="Priya Shah"><span class="ch-av person">PS</span><span class="stack"><span><bdi>Priya Shah</bdi></span><span class="sub">Offline. No orchestrator running.</span></span></label></li>
-          <li class="none" id="pd-none" hidden>No person matches that.</li>
+          <li data-n="maya kim" data-m="1"><label><input type="checkbox" name="pd-to" value="Maya Kim" data-kind="person"><span class="ch-av person">MK</span><span class="stack"><span><bdi>Maya Kim</bdi></span><span class="sub">Online</span></span></label></li>
+          <li data-n="jo okafor" data-m="1"><label><input type="checkbox" name="pd-to" value="Jo Okafor" data-kind="person"><span class="ch-av person">JO</span><span class="stack"><span><bdi>Jo Okafor</bdi></span><span class="sub">Away</span></span></label></li>
+          <li data-n="priya shah" data-m="1"><label><input type="checkbox" name="pd-to" value="Priya Shah" data-kind="person"><span class="ch-av person">PS</span><span class="stack"><span><bdi>Priya Shah</bdi></span><span class="sub">Offline. No orchestrator running.</span></span></label></li>
+          <li><h3>Your agents</h3></li>
+          <li data-n="tester"><label><input type="checkbox" name="pd-to" value="Tester" data-kind="agent"><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span><bdi>Tester</bdi></span><span class="sub">Your orchestrator, waiting for you</span></span></label></li>
+          <li data-n="podium-main"><label><input type="checkbox" name="pd-to" value="podium-main" data-kind="agent"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span><bdi>podium-main</bdi></span><span class="sub">Your orchestrator, running</span></span></label></li>
+          <li><h3>Other people's agents</h3></li>
+          <li data-n="maya-main maya kim"><label><input type="checkbox" name="pd-to" value="maya-main" data-kind="agent" data-owner="Maya Kim"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span><bdi>maya-main</bdi> (<bdi>Maya Kim</bdi>'s)</span><span class="sub">Orchestrator, running. Maya Kim approves before it is added.</span></span></label></li>
+          <li data-n="docs-sweeper jo okafor"><label aria-disabled="true"><input type="checkbox" name="pd-to" value="docs-sweeper" disabled><span class="ch-av agent fable"><svg><use href="#i-chip"/></svg><span class="cr-st st-off"><svg><use href="#s-off"/></svg></span></span><span class="stack"><span><bdi>docs-sweeper</bdi> (<bdi>Jo Okafor</bdi>'s)</span><span class="sub">It takes no messages now.</span></span></label></li>
+          <li class="none" id="pd-none" hidden>No person or agent matches that.</li>
         </ul>
       </fieldset>
       <p class="dm-sum" id="pd-sum" role="status" aria-live="polite"></p>
+      <p class="ch-warn" id="pd-agent" hidden><svg aria-hidden="true"><use href="#i-eye"/></svg><span>An agent is in this conversation, so an Admin can read it. Everyone in it is told in the console and in their reporter when one does.</span></p>
       <p class="ch-warn found" id="pd-found" hidden><svg aria-hidden="true"><use href="#m-info"/></svg><span>You already have a conversation with <bdi id="pd-found-who">Maya Kim</bdi>. Your message goes into it.</span></p>
-      <label>Message<textarea class="field" id="pd-msg" rows="3" placeholder="Write the first message."></textarea><span class="ferr" id="pd-err" role="alert" hidden></span></label>
-      <p class="hint">Secrets are replaced before a message is stored. To message an agent, choose it under People and agents.</p>
-      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri">Send message</button></div>
-    </form></div>
-  </div>
-</div>
-
-<div class="scrim" id="m-dm-agent" hidden>
-  <div class="modal cr-modal" role="dialog" aria-modal="true" aria-labelledby="dm-h">
-    <div class="mh"><div class="ttl"><h2 id="dm-h">Message an agent</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
-    <div class="mb"><form class="ch-form" id="f-dm" noValidate>
-      <p class="hint">A direct message is read only by you, the agent's owner and an Admin. A subagent or a fork is not offered: message its orchestrator.</p>
-      <label>Find an agent or person<input class="field" id="dm-q" type="search" autocomplete="off" placeholder="Search by agent or person"></label>
-      <fieldset class="dm-set"><legend class="vh">To</legend>
-        <ul class="dm-pick" id="dm-list">
-          <li><h3>Your agents</h3></li>
-          <li data-n="tester"><label><input type="radio" name="dm-to" value="Tester"><span class="ch-av agent sonnet"><svg><use href="#i-chip"/></svg><span class="cr-st st-wait"><svg><use href="#s-wait"/></svg></span></span><span class="stack"><span><bdi>Tester</bdi></span><span class="sub">Your orchestrator, waiting for you</span></span></label></li>
-          <li data-n="podium-main"><label><input type="radio" name="dm-to" value="podium-main"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span><bdi>podium-main</bdi></span><span class="sub">Your orchestrator, running</span></span></label></li>
-          <li><h3>Other people's agents</h3></li>
-          <li data-n="maya-main maya kim"><label><input type="radio" name="dm-to" value="maya-main"><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg><span class="cr-st st-run"><svg><use href="#s-run"/></svg></span></span><span class="stack"><span><bdi>maya-main</bdi> (<bdi>Maya Kim</bdi>'s)</span><span class="sub">Orchestrator, running. Maya Kim approves before it is delivered.</span></span></label></li>
-          <li data-n="docs-sweeper jo okafor"><label aria-disabled="true"><input type="radio" name="dm-to" value="docs-sweeper" disabled><span class="ch-av agent fable"><svg><use href="#i-chip"/></svg><span class="cr-st st-off"><svg><use href="#s-off"/></svg></span></span><span class="stack"><span><bdi>docs-sweeper</bdi> (<bdi>Jo Okafor</bdi>'s)</span><span class="sub">It takes no messages now.</span></span></label></li>
-          <li class="none" id="dm-none" hidden>No agent matches that.</li>
-        </ul>
-      </fieldset>
-      <label>Message<textarea class="field" id="dm-msg" rows="3" placeholder="Write the first message."></textarea><span class="ferr" id="dm-err" role="alert" hidden></span></label>
-      <p class="hint">Secrets are replaced before a message leaves this machine. Another person's agent gets it only after its owner approves, in their My reporters.</p>
-      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri">Send message</button></div>
+      <label id="pd-msg-l">Message<textarea class="field" id="pd-msg" rows="3" placeholder="Write the first message."></textarea><span class="ferr" id="pd-err" role="alert" hidden></span></label>
+      <p class="hint" id="pd-foot">Secrets are replaced before a message is stored. Another person's agent gets it only after its owner approves, in their My reporters.</p>
+      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri" id="pd-go">Send message</button></div>
     </form></div>
   </div>
 </div>
@@ -816,7 +846,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   function press(attr, val) { document.querySelectorAll('.demo [' + attr + ']').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
   function mem(open) {
     split.classList.toggle('mem-open', open);
-    $('#stack').setAttribute('aria-expanded', String(open));
+    $('#stack').setAttribute('aria-expanded', String(open)); $('#stack3').setAttribute('aria-expanded', String(open));
     $('#stack').setAttribute('aria-label', 'Members, 9. ' + (open ? 'Hide' : 'Show') + ' the list');
     press('data-mem', open ? 'open' : 'closed');
   }
@@ -834,6 +864,8 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     });
   });
   $('#stack').addEventListener('click', function () { mem(!split.classList.contains('mem-open')); });
+  $('#stack3').addEventListener('click', function () { mem(!split.classList.contains('mem-open')); });
+  $('#memx3').addEventListener('click', function () { mem(false); $('#stack3').focus(); });
   $('#memx').addEventListener('click', function () { mem(false); $('#stack').focus(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && split.classList.contains('mem-open')) { mem(false); $('#stack').focus(); } });
   document.querySelectorAll('.ch-sec .cr-fold').forEach(function (f) {
@@ -869,8 +901,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   }
   function dlgClose() {
     if (!openId) return; var sc = document.getElementById(openId); sc.hidden = true; openId = null;
-    if (sc.id === 'm-dm-agent') { $('#dm-q').value = ''; $('#dm-q').dispatchEvent(new Event('input')); sc.querySelectorAll('input[name=dm-to]').forEach(function (x) { x.checked = false; }); $('#dm-msg').value = ''; }
-    if (sc.id === 'm-dm') { $('#pd-q').value = ''; $('#pd-q').dispatchEvent(new Event('input')); sc.querySelectorAll('input[name=pd-to]').forEach(function (x) { x.checked = false; }); $('#pd-msg').value = ''; pdSync(); }
+    if (sc.id === 'm-dm') { $('#pd-q').value = ''; $('#pd-q').dispatchEvent(new Event('input')); sc.querySelectorAll('input[name=pd-to]').forEach(function (x) { x.checked = false; }); $('#pd-msg').value = ''; pdMode(false); pdSync(); }
     sc.querySelectorAll('.ferr').forEach(function (e) { e.hidden = true; e.textContent = ''; });
     sc.querySelectorAll('[aria-invalid]').forEach(function (e) { e.removeAttribute('aria-invalid'); });
     if (openedBy && openedBy.focus) openedBy.focus();
@@ -899,51 +930,56 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     if (n === 'general' || n === 'release-1-7') return ferr('nc-name-err', ncName, 'A channel named ' + n + ' already exists.');
     dlgClose(); $('#announce').textContent = 'Channel ' + n + ' created. (mockup)';
   });
-  $('#dm-q').addEventListener('input', function () {
-    var q = this.value.trim().toLowerCase(), any = false;
-    document.querySelectorAll('#dm-list li[data-n]').forEach(function (li) { var show = !q || li.dataset.n.indexOf(q) > -1; li.hidden = !show; any = any || show; });
-    // A group's title goes when none of its agents match.
-    var lis = Array.from(document.querySelectorAll('#dm-list > li')), head = null, count = 0;
-    lis.concat([null]).forEach(function (li) {
-      if (li === null || li.querySelector('h3')) { if (head) head.hidden = count === 0; head = li; count = 0; }
-      else if (li.dataset.n && !li.hidden) count++;
-    });
-    $('#dm-none').hidden = any;
-  });
-  $('#f-dm').addEventListener('submit', function (e) {
-    e.preventDefault(); $('#dm-err').hidden = true;
-    if (!document.querySelector('input[name=dm-to]:checked')) return ferr('dm-err', $('#dm-q'), 'Choose who to message.');
-    if (!$('#dm-msg').value.trim()) return ferr('dm-err', $('#dm-msg'), 'Write the first message.');
-    dlgClose(); $('#announce').textContent = 'Sent. (mockup)';
-  });
-  // New direct message (people): any person can be chosen, running or not; one person or several. An existing conversation with exactly the
-  // chosen people is said before sending, and the message goes into it.
-  var EXISTING = { 'Maya Kim': 'Maya Kim', 'Jo Okafor,Priya Shah': 'Jo Okafor and Priya Shah' };
-  function pdChosen() { return Array.from(document.querySelectorAll('input[name=pd-to]:checked')).map(function (x) { return x.value; }); }
+  // New direct message: any person or agent can be chosen, one or several. An existing conversation with exactly the chosen members is said
+  // before sending, and the message goes into it. An agent in it says an Admin can read it. "Add" mode is the same list for a conversation's
+  // members panel: the people already in it are left out and there is no first message.
+  var EXISTING = { 'Maya Kim': 'Maya Kim', 'Jo Okafor,Priya Shah': 'Jo Okafor and Priya Shah', 'Maya Kim,Tester': 'Maya Kim and Tester' }, pdAdd = false;
+  function pdBoxes() { return Array.from(document.querySelectorAll('input[name=pd-to]:checked')); }
+  function pdChosen() { return pdBoxes().map(function (x) { return x.value; }); }
+  function list(c) { return c.length === 1 ? c[0] : c.length === 2 ? c[0] + ' and ' + c[1] : c.slice(0, -1).join(', ') + ' and ' + c[c.length - 1]; }
   function pdSync() {
-    var c = pdChosen(), names = c.length === 1 ? c[0] : c.length === 2 ? c[0] + ' and ' + c[1] : c.slice(0, -1).join(', ') + ' and ' + c[c.length - 1];
-    $('#pd-sum').textContent = c.length ? 'To ' + names + (c.length > 1 ? '. This makes a group of ' + (c.length + 1) + ' with you.' : '.') : '';
-    var key = c.slice().sort().join(','), ex = EXISTING[key];
+    var b = pdBoxes(), c = b.map(function (x) { return x.value; }), ag = b.some(function (x) { return x.dataset.kind === 'agent'; });
+    var owners = b.filter(function (x) { return x.dataset.owner; }).map(function (x) { return x.dataset.owner; });
+    var txt = '';
+    if (c.length) txt = (pdAdd ? 'Add ' : 'To ') + list(c) + (pdAdd ? ' to this conversation.' : (c.length > 1 ? '. This makes a conversation of ' + (c.length + 1) + ' with you.' : '.'));
+    if (owners.length) txt += ' ' + list(owners) + ' approves before ' + (owners.length > 1 ? 'their agents are' : 'their agent is') + ' added.';
+    $('#pd-sum').textContent = txt;
+    $('#pd-agent').hidden = !ag;
+    var key = c.slice().sort().join(','), ex = pdAdd ? null : EXISTING[key];
     $('#pd-found').hidden = !ex; if (ex) $('#pd-found-who').textContent = ex;
+  }
+  function pdMode(add) {
+    pdAdd = add; $('#pd-h').textContent = add ? 'Add to this conversation' : 'New direct message';
+    $('#pd-msg-l').hidden = add; $('#pd-go').textContent = add ? 'Add' : 'Send message'; $('#pd-foot').hidden = add;
+    document.querySelectorAll('#pd-list li[data-m]').forEach(function (li) { var mem = add && /jo okafor|priya shah/.test(li.dataset.n); li.dataset.in = mem ? '1' : ''; li.hidden = mem; });
   }
   document.querySelectorAll('input[name=pd-to]').forEach(function (x) { x.addEventListener('change', pdSync); });
   $('#pd-q').addEventListener('input', function () {
     var q = this.value.trim().toLowerCase(), any = false;
-    document.querySelectorAll('#pd-list li[data-n]').forEach(function (li) { var show = !q || li.dataset.n.indexOf(q) > -1; li.hidden = !show; any = any || show; });
+    document.querySelectorAll('#pd-list li[data-n]').forEach(function (li) { var show = !q || li.dataset.n.indexOf(q) > -1; li.hidden = !show || li.dataset.in === '1'; any = any || !li.hidden; });
+    var lis = Array.from(document.querySelectorAll('#pd-list > li')), head = null, count = 0;
+    lis.concat([null]).forEach(function (li) {
+      if (li === null || li.querySelector('h3')) { if (head) head.hidden = count === 0; head = li; count = 0; }
+      else if (li.dataset.n && !li.hidden) count++;
+    });
     $('#pd-none').hidden = any;
   });
   $('#f-pd').addEventListener('submit', function (e) {
     e.preventDefault(); $('#pd-err').hidden = true;
-    if (!pdChosen().length) return ferr('pd-err', $('#pd-q'), 'Choose at least one person.');
-    if (!$('#pd-msg').value.trim()) return ferr('pd-err', $('#pd-msg'), 'Write the first message.');
-    var c = pdChosen().length; dlgClose(); setConv(c > 1 ? 'p3' : 'p1'); $('#announce').textContent = 'Sent. (mockup)';
+    var n = pdChosen().length;
+    if (!n) return ferr('pd-err', $('#pd-q'), pdAdd ? 'Choose at least one person or agent to add.' : 'Choose at least one person or agent.');
+    if (!pdAdd && !$('#pd-msg').value.trim()) return ferr('pd-err', $('#pd-msg'), 'Write the first message.');
+    var ag = pdBoxes().some(function (x) { return x.dataset.kind === 'agent'; }), was = pdAdd; dlgClose();
+    if (was) { $('#announce').textContent = 'Added. (mockup)'; return; }
+    setConv(n > 1 ? 'p3' : ag ? 'dm' : 'p1'); $('#announce').textContent = 'Sent. (mockup)';
   });
   document.querySelectorAll('[data-dlg]').forEach(function (b) {
     b.addEventListener('click', function () {
       var d = b.dataset.dlg;
       if (d === 'm-ch-err') { dlgOpen('m-ch', b); ncName.value = 'Staging Incident'; ferr('nc-name-err', ncName, 'A name has lowercase letters, numbers and hyphens only, starts with a letter or a number, and is at most 40 characters.'); }
+      else if (d === 'm-dm-add') { dlgOpen('m-dm', b); pdMode(true); pdSync(); }
       else if (d === 'm-dm-found') { dlgOpen('m-dm', b); document.querySelector('input[name=pd-to][value="Maya Kim"]').checked = true; pdSync(); }
-      else if (d === 'm-dm-err') { dlgOpen('m-dm', b); $('#pd-msg').value = 'Are you free to pair at 11?'; ferr('pd-err', $('#pd-q'), 'Choose at least one person.'); }
+      else if (d === 'm-dm-err') { dlgOpen('m-dm', b); $('#pd-msg').value = 'Are you free to pair at 11?'; ferr('pd-err', $('#pd-q'), 'Choose at least one person or agent.'); }
       else dlgOpen(d, b);
     });
   });
@@ -1029,7 +1065,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     if (key === 'c:group') { var g = rd ? 'every agent in ' + who + "'s group" : 'every agent in the group'; return { label: 'Actions for My group', items: [it('pause', 'Pause ' + g, 'pause'), it('disconnect', 'Disconnect ' + g, 'pause'), it('clear', 'Remove all messages…', 'trash', { danger: true })] }; }
     if (key === 'c:release') return adm ? { label: 'Actions for release-1-7', items: [it('pause-all', 'Pause release-1-7 for everyone', 'pause'), it('edit', 'Edit description…', 'msg'), it('remove-channel', 'Remove channel…', 'trash', { danger: true }), it('clear', 'Remove all messages…', 'trash', { danger: true })] }
       : { label: 'Actions for release-1-7', items: [it('pause', 'Pause my agents in release-1-7', 'pause'), it('disconnect', 'Disconnect my agents in release-1-7', 'pause'), it('edit', 'Edit description…', 'msg')], why: P };
-    if (key.indexOf('d:p-') === 0) { var grp = key === 'd:p-group', pl = 'Actions for ' + (grp ? 'Jo Okafor, Priya Shah' : 'Maya Kim'); return { label: pl, items: grp ? [it('leave', 'Leave conversation…', 'msg'), it('delete-dm', 'Delete conversation…', 'trash', { danger: true })] : [it('delete-dm', 'Delete conversation…', 'trash', { danger: true })] }; }
+    if (key.indexOf('d:p-') === 0) { var grp = key !== 'd:p-maya', pl = 'Actions for ' + ({ 'd:p-group': 'Jo Okafor, Priya Shah', 'd:p-agent': 'Maya Kim, Tester' }[key] || 'Maya Kim'); return { label: pl, items: grp ? [it('leave', 'Leave conversation…', 'msg'), it('delete-dm', 'Delete conversation…', 'trash', { danger: true })] : [it('delete-dm', 'Delete conversation…', 'trash', { danger: true })] }; }
     if (key.indexOf('d:') === 0) {
       var nm = { 'd:tester': 'Tester', 'd:main': 'podium-main, release-bot', 'd:maya': 'Maya Kim, maya-main', 'd:notes': 'infra-notes' }[key], link = key === 'd:main' || key === 'd:maya', lab = 'Actions for ' + nm;
       if (rd) return link ? { label: lab, items: [it('pause-link', 'Pause link', 'pause')], why: 'An Admin reads a Direct Message and cannot send in it. ' + who + " removes the link or deletes the conversation. An Admin can pause all of a reporter's links in Admin > Reporters." }
@@ -1085,16 +1121,10 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   // the address into the message box, and anything else only says what it would do.
   function runAct(act, who, label) {
     closeMenu(true);
-    if (act === 'message' && (who === 'Maya Kim' || who === 'Jo Okafor' || who === 'Priya Shah')) {
-      dlgOpen('m-dm', document.activeElement);
-      var cb = document.querySelector('input[name=pd-to][value="' + who + '"]'); if (cb) cb.checked = true; pdSync(); $('#pd-msg').focus();
-      $('#announce').textContent = 'New direct message to ' + who + '. (mockup)'; return;
-    }
     if (act === 'message') {
-      dlgOpen('m-dm-agent', document.activeElement);
-      var rb = document.querySelector('input[name=dm-to][value="' + who + '"]');
-      if (!rb) { var q = $('#dm-q'); q.value = who; q.dispatchEvent(new Event('input')); var ok = Array.from(document.querySelectorAll('#dm-list li[data-n]:not([hidden]) input:not([disabled])')); rb = ok.length === 1 ? ok[0] : null; }
-      if (rb) rb.checked = true; $('#dm-msg').focus(); $('#announce').textContent = 'New direct message to ' + who + '. (mockup)'; return;
+      dlgOpen('m-dm', document.activeElement);
+      var cb = document.querySelector('input[name=pd-to][value="' + who + '"]'); if (cb && !cb.disabled) cb.checked = true; pdSync(); $('#pd-msg').focus();
+      $('#announce').textContent = 'New direct message to ' + who + '. (mockup)'; return;
     }
     if (act === 'mention') { var tag = { 'Maya Kim': '@Maya@console ', 'Jo Okafor': '@Jo@console ' }[who] || '@' + who + ' '; ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + tag; ta.focus(); grow(); $('#announce').textContent = 'Mentioned ' + who; return; }
     $('#announce').textContent = label + ' (mockup)';
@@ -1151,7 +1181,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
     var rs = $('#read-as'); if (rs.value !== (readName || '')) rs.value = readName || '';
     $('#t-at').disabled = !!readName; ta.disabled = !!readName; ta.placeholder = readName ? 'An Admin cannot send here' : PH[curConv]; ta.value = ''; grow(); acSync();
     $('.ch-thread').setAttribute('aria-label', ARIA[curConv]);
-    $('#sec-dm .cr-fold .n').textContent = readName ? '4' : '6';
+    $('#sec-dm .cr-fold .n').textContent = readName ? '5' : '7';
   }
   function setViewer(v) {
     var adm = v === 'admin'; stage.classList.toggle('is-admin', adm); $('#who').textContent = adm ? 'Root (Admin)' : 'Ed'; setReading(null); press('data-viewer', v);
@@ -1163,7 +1193,7 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   // own, /clear asks first, and anything else that starts with / says what it can do from here.
   var CMDS = ['/clear', '/compact'], cmdList = $('#cmdlist'), cmdBtns = Array.from(cmdList.querySelectorAll('[data-cmd]')), cmdAt = 0;
   function isDm() { return stage.classList.contains('conv-dm'); }
-  function isPp() { return stage.classList.contains('conv-p1') || stage.classList.contains('conv-p3'); }
+  function isPp() { return stage.classList.contains('conv-p1') || stage.classList.contains('conv-p3') || stage.classList.contains('conv-p4'); }
   function cmdState() {
     var v = ta.value; if (!isDm() || v.charAt(0) !== '/') return { matches: [], problem: null };
     var slash = v.split(/\s/)[0], known = CMDS.indexOf(slash) > -1, matches = v.indexOf(' ') < 0 && !known ? CMDS.filter(function (c) { return c.indexOf(slash) === 0; }) : [], problem = null;
@@ -1193,10 +1223,10 @@ return rows.map(toPerson);</code></pre></div></div></div></li>
   $('#cr-confirm').addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); $('#cl-no').click(); } });
   // ---- Which conversation, and which case of its thread.
   function toBottom() { var sc = $('.ch-scroll'); sc.scrollTop = sc.scrollHeight; }
-  var PH = { ch: 'Message My group', dm: 'Write a message, or type / for a command.', p1: 'Message Maya Kim', p3: 'Message Jo Okafor and Priya Shah' };
-  var KEY = { ch: 'c:group', dm: 'd:tester', p1: 'd:p-maya', p3: 'd:p-group' }, ARIA = { ch: 'My group', dm: 'Tester', p1: 'Maya Kim', p3: 'Jo Okafor, Priya Shah' }, curConv = 'ch';
+  var PH = { ch: 'Message My group', dm: 'Write a message, or type / for a command.', p1: 'Message Maya Kim', p3: 'Message Jo Okafor and Priya Shah', p4: 'Message Maya Kim and Tester' };
+  var KEY = { ch: 'c:group', dm: 'd:tester', p1: 'd:p-maya', p3: 'd:p-group', p4: 'd:p-agent' }, ARIA = { ch: 'My group', dm: 'Tester', p1: 'Maya Kim', p3: 'Jo Okafor, Priya Shah', p4: 'Maya Kim, Tester' }, curConv = 'ch';
   function setConv(c) {
-    curConv = c; ['dm', 'p1', 'p3'].forEach(function (k) { stage.classList.toggle('conv-' + k, k === c); }); press('data-conv', c); closeMenu(false); $('#cr-confirm').hidden = true;
+    curConv = c; ['dm', 'p1', 'p3', 'p4'].forEach(function (k) { stage.classList.toggle('conv-' + k, k === c); }); press('data-conv', c); closeMenu(false); $('#cr-confirm').hidden = true;
     document.querySelectorAll('.ch-item.on').forEach(function (x) { x.classList.remove('on'); }); var cur = document.querySelector('[data-key="' + KEY[c] + '"]'); cur.classList.add('on'); cur.classList.remove('un'); var u = cur.querySelector('.unread'); if (u) u.remove();
     ta.value = ''; ta.placeholder = PH[c]; $('label[for=msg]').textContent = PH[c]; ta.setAttribute('aria-expanded', 'false'); grow(); acSync(); toBottom();
     $('.ch-thread').setAttribute('aria-label', ARIA[c]);
