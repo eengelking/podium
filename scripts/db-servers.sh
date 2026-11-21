@@ -1,66 +1,61 @@
 #!/usr/bin/env bash
-# Runs the server suite on every storage adapter (#891, #823): a throwaway container for each database that needs a server, started
-# together, each one's test server variable set, then `npx vitest run` in server/, then every container removed. SQLite needs none.
+# The container half of `npm run test:db` (#1294, #891, #823): takes the machine's database lock, starts a throwaway container for each
+# database server kind it is given, all at once, waits until each answers, sets each one's test server variable, runs a command, then
+# removes every container however the run ends. scripts/test-db.mjs is the front door; it chooses the kinds and builds the command.
 # The databases, images and variables come from scripts/db-adapters.mjs, so a new adapter needs no edit here.
 set -uo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/test-db.sh [--image KIND=REF ...] [--] [vitest args...]
-       e.g. scripts/test-db.sh src/storage/adapters.test.ts
+Usage: scripts/db-servers.sh [--image KIND=REF ...] [--kinds "KIND [KIND...]"] [--cwd DIR] -- COMMAND [ARGS...]
 
-Starts one throwaway container per database that has a test server (PostgreSQL, MariaDB, ...: `node scripts/db-adapters.mjs kinds
---server`), all at once, with a placeholder password on a free local port, waits until each answers, sets its test server variable
-(PODIUM_TEST_PG, PODIUM_TEST_MARIADB, ...), runs `npx vitest run [vitest args]` in server/, and removes every container it started,
-however the run ends. Each test file makes its own database on each server and drops it after. Each database runs the one version
-that is tested (PostgreSQL 17, MariaDB 11.4); --image runs another, which is untested.
+Takes the machine's database lock (scripts/db-lock.sh), starts one throwaway container per kind in --kinds that has a test server
+(`node scripts/db-adapters.mjs kinds --server`; default: all of them), with a placeholder password on a free 127.0.0.1 port, waits up to
+two minutes for each to answer (and prints its last log lines when one does not), sets its test server variable (PODIUM_TEST_PG,
+PODIUM_TEST_MARIADB, ...), runs COMMAND in DIR (default: server/) and removes every container it started, however the run ends, and
+checks that none is left. Containers carry the label dev.podium.test-db.
 
 Options:
-  --image KIND=REF   Use this image for one kind (for example --image mariadb=docker.io/library/mariadb:11.8).
+  --image KIND=REF   Use this image for one kind (for example --image mariadb=docker.io/library/mariadb:11.8). Untested.
+  --kinds LIST       The kinds that get a server, space or comma separated. A kind with no test server (sqlite) needs none.
+  --cwd DIR          Where COMMAND runs, relative to the repository root.
   -h, --help         Show this help.
 
-It takes the machine's database lock first (scripts/db-lock.sh): only one database test job (this, or `npm run e2e:fast`) runs at a
-time per user, so a second one waits its turn and says so. A script this one is started from that holds the lock does not wait again.
-PODIUM_DB_LOCK=off skips the lock; PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting. CI skips it.
-
 Environment:
-  PODIUM_TEST_ONLY  Kinds to run, comma separated (for example sqlite,postgres). The others get no container, and the run prints
-                     that they were NOT RUN: a limited run is not a pass for a pull request. Set it only when asked to leave one out.
-  CONTAINER_ENGINE   podman (default) or docker.
-Exit code: vitest's, or 2 when a container could not be started or did not answer.
+  CONTAINER_ENGINE        podman (default) or docker.
+  PODIUM_DB_LOCK=off      Skip the lock. PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting. CI skips the lock.
+Exit code: COMMAND's, or 2 when a container could not be started or did not answer.
 USAGE
 }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TABLE="$ROOT/scripts/db-adapters.mjs"
 IMAGES=()
+kinds_arg=""
+cwd="server"
 while (($#)); do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --image) [[ "${2:-}" == *=* ]] || { echo "test-db: --image needs KIND=REF" >&2; exit 2; }; IMAGES+=("$2"); shift 2 ;;
+    --kinds) [[ $# -ge 2 ]] || { echo "test-db: --kinds needs a list" >&2; exit 2; }; kinds_arg="$2"; shift 2 ;;
+    --cwd) [[ $# -ge 2 ]] || { echo "test-db: --cwd needs a folder" >&2; exit 2; }; cwd="$2"; shift 2 ;;
     --) shift; break ;;
-    *) break ;;
+    *) echo "test-db: unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
 done
+(($#)) || { echo "test-db: no command to run after -- (see --help)" >&2; exit 2; }
 
 engine="${CONTAINER_ENGINE:-podman}"
 "$engine" info >/dev/null 2>&1 || { echo "test-db: $engine is not usable ($engine info fails). Is it running? On a Mac: podman machine start" >&2; exit 2; }
 
-all="$(node "$TABLE" kinds)" || exit 2
 servers="$(node "$TABLE" kinds --server)" || exit 2
-# Read with a default: bash 4 and later stop on a pattern read of an unset variable under set -u, where macOS's bash 3.2 does not.
-only_env="${PODIUM_TEST_ONLY:-}"
-only=" $(printf '%s' "$only_env" | tr ',' ' ') "
-limited=0 ; [[ -n "${only_env//[ ,]/}" ]] && limited=1
-for k in $only; do
-  [[ " $all " == *" $k "* ]] || { echo "test-db: PODIUM_TEST_ONLY names \"$k\", which is not a storage kind (kinds: $all)" >&2; exit 2; }
-done
-LEFT=() ; if ((limited)); then for k in $all; do [[ "$only" == *" $k "* ]] || LEFT+=("$k"); done; fi
+want=" $(printf '%s' "$kinds_arg" | tr ',' ' ') "
+all_wanted=0 ; [[ -z "${kinds_arg//[ ,]/}" ]] && all_wanted=1
 
 # One heavy database job at a time on this machine (#1284): wait here for the lock, before any container starts.
 # shellcheck source=scripts/db-lock.sh
 source "$ROOT/scripts/db-lock.sh"
-db_lock_acquire "scripts/test-db.sh"
+db_lock_acquire "npm run test:db"
 
 NAMES=() ; KINDS=() ; PORTS=() ; RAN=()
 cleanup() {
@@ -75,7 +70,7 @@ trap 'exit 130' INT TERM
 
 # Start every container first, so the databases initialize side by side.
 for k in $servers; do
-  if ((limited)) && [[ "$only" != *" $k "* ]]; then continue; fi
+  if ((!all_wanted)) && [[ "$want" != *" $k "* ]]; then continue; fi
   img=() ; for i in ${IMAGES[@]+"${IMAGES[@]}"}; do [[ "${i%%=*}" == "$k" ]] && img=(--image "${i#*=}"); done
   shell="$(DB_PASSWORD=change-me node "$TABLE" shell "$k" test ${img[@]+"${img[@]}"})" || exit 2
   eval "$shell"
@@ -108,13 +103,8 @@ for idx in ${NAMES[@]+"${!NAMES[@]}"}; do
   RAN+=("$k")
   echo "test-db: $DB_LABEL test server: 127.0.0.1:$port ($DB_TEST_VAR)"
 done
+echo "test-db: servers started: ${RAN[*]:-none}"
 
-cd "$ROOT/server" || exit 2
-npx vitest run "$@"
-code=$?
-if ((limited)); then
-  echo "test-db: LIMITED by PODIUM_TEST_ONLY=$only_env. Servers started: ${RAN[*]:-none}. NOT RUN: ${LEFT[*]:-none}. A limited run is not a pass for a pull request."
-else
-  echo "test-db: every adapter had its server: sqlite ${RAN[*]:-}"
-fi
-exit "$code"
+cd "$ROOT/$cwd" || exit 2
+"$@"
+exit $?

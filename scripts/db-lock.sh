@@ -5,14 +5,14 @@
 #
 # Source it from a script, then call the functions:
 #   source "$ROOT/scripts/db-lock.sh"
-#   db_lock_acquire "test-db"        # waits for its turn; the name is only for messages
+#   db_lock_acquire "npm run test:db" # waits for its turn; the name is only for messages
 #   ... the work ...                 # the lock is released when the script exits (EXIT, INT, TERM, HUP)
 # A script that sets its own EXIT trap after acquiring must call db_lock_release in it, because a new EXIT trap replaces ours.
 # Run directly, it only answers --help.
 #
 # How it works: the lock is the directory ${TMPDIR:-/tmp}/podium-db-lock-<uid>, made with mkdir (atomic, and macOS has no flock).
 # The holder writes its pid into it. A waiter whose holder's pid is dead takes the lock over. A holder exports
-# PODIUM_DB_LOCK_HELD=<its pid>, so a script it starts (test-db.sh, e2e-fast.mjs -> e2e-all.sh -> e2e-up.sh) sees that its parent
+# PODIUM_DB_LOCK_HELD=<its pid>, so a script it starts (db-servers.sh, e2e-fast.mjs -> e2e-all.sh -> e2e-up.sh) sees that its parent
 # holds the lock and does not wait for it: only the outermost script waits.
 #
 # Environment:

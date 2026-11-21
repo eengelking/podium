@@ -53,7 +53,7 @@ script prints nothing else until the last run ends (a CI step log would look sta
 and 0 turns it off.
 
 It holds the machine's database lock (scripts/db-lock.sh) for the whole run: only one database test job (this, `npm run e2e:fast`,
-`scripts/e2e-up.sh run` or `scripts/test-db.sh`) runs at a time per user, and a second one waits its turn and says so. PODIUM_DB_LOCK=off
+`scripts/e2e-up.sh run` or `npm run test:db`) runs at a time per user, and a second one waits its turn and says so. PODIUM_DB_LOCK=off
 skips the lock, PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting, and CI skips it.
 
 On INT or TERM it stops its runs (each run's own script removes its containers, network and volume when it exits).

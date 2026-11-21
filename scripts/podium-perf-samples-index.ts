@@ -9,7 +9,7 @@
 // `samplesPerf()` of its entry in the storage registry, so this script writes no SQL and imports no driver.
 //
 // It writes only to a database of its own, made and removed by the adapter: a SQLite file in a new temporary folder, and a database on the
-// PostgreSQL or MariaDB server that PODIUM_TEST_PG or PODIUM_TEST_MARIADB names (the throwaway servers of `scripts/test-db.sh`).
+// PostgreSQL or MariaDB server that PODIUM_TEST_PG or PODIUM_TEST_MARIADB names (the throwaway servers of `npm run test:db`).
 // It never touches a server you use.
 import { performance } from 'node:perf_hooks';
 import { contractAdapterFor, openStorage } from '../server/src/storage/index.ts';
@@ -137,7 +137,7 @@ const results: Record<string, unknown>[] = [];
 for (const { flag, kind, serverVar } of KINDS) {
   if (!args.includes(flag)) continue;
   if (serverVar && !process.env[serverVar]) {
-    console.error(`${flag} needs ${serverVar} set to a throwaway server (scripts/test-db.sh starts one).`);
+    console.error(`${flag} needs ${serverVar} set to a throwaway server (npm run test:db starts them).`);
     process.exit(2);
   }
   const adapter = await contractAdapterFor(kind);
