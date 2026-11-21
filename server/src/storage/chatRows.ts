@@ -282,16 +282,19 @@ export const adminKeyOf = (name: string, adminId: number | null): string => (adm
 /** `people.name_lower` to the person's id and the time the person was made, which the upgrade uses. */
 export type PersonIndex = ReadonlyMap<string, { id: number; createdAt: number }>;
 
-/** The text after a thread or scope's prefix when it still holds a folded name; null when it holds an id already (all digits, which a name the upgrade has not met is not) or nothing. */
+/**
+ * The text after a thread or scope's prefix, read as a folded name; null when it holds nothing. An all-digit text is a name too (a person may be called "42"): the upgrade step that calls this runs
+ * once on name-keyed data (`CHAT_IDS_DONE_KEY`), so the text it reads is always a name and never an id it wrote before, the same rule the peer step reads `person:<digits>` by.
+ */
 const nameAfter = (text: string, prefix: string): string | null => {
   if (!text.startsWith(prefix)) return null;
   const rest = text.slice(prefix.length);
-  return rest === '' || /^\d+$/.test(rest) ? null : rest;
+  return rest === '' ? null : rest;
 };
 
 /**
- * A thread the older server named by a folded name (`group:<name>`, `list:<name>`, `act:<name>`) with the person's id instead. `null` when the thread is not one of those or already holds an
- * id; `''` when it names a person who is not there, which the upgrade leaves alone (nobody can match it).
+ * A thread the older server named by a folded name (`group:<name>`, `list:<name>`, `act:<name>`) with the person's id instead. `null` when the thread is not one of those (a name-keyed thread is
+ * all the step meets, since it runs once); `''` when it names a person who is not there, which the upgrade leaves alone (nobody can match it).
  */
 export function threadWithId(thread: string, people: PersonIndex): string | null {
   if (thread.startsWith('dm:')) return dmThreadWithIds(thread, people);
@@ -322,7 +325,7 @@ function dmThreadWithIds(thread: string, people: PersonIndex): string | null {
   return `dm:${a <= b ? `${a}|${b}` : `${b}|${a}`}`;
 }
 
-/** The flag scope the older server named by a folded name, with the person's id: `group:<name>`, `public:person:<name>` and `channel:<channel>:person:<name>`. `null` when it is not one of those or holds an id; `''` for a person who is not there (the flag is dropped). */
+/** The flag scope the older server named by a folded name, with the person's id: `group:<name>`, `public:person:<name>` and `channel:<channel>:person:<name>`. `null` when it is not one of those; `''` for a person who is not there (the flag is dropped). */
 export function flagScopeWithId(scope: string, people: PersonIndex): string | null {
   const person = (prefix: string, name: string): string => {
     const p = people.get(name);
@@ -333,7 +336,7 @@ export function flagScopeWithId(scope: string, people: PersonIndex): string | nu
   const pub = nameAfter(scope, 'public:person:');
   if (pub !== null) return person('public:person:', pub);
   const m = /^(channel:[a-z0-9-]+:person:)(.+)$/.exec(scope);
-  if (m && !/^\d+$/.test(m[2] as string)) return person(m[1] as string, m[2] as string);
+  if (m) return person(m[1] as string, m[2] as string);
   return null;
 }
 

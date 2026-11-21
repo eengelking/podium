@@ -6,7 +6,7 @@ import path from 'node:path';
 import { openDb } from './db.js';
 import { nameKey } from '../rows.js';
 import { openSqliteStorage } from './index.js';
-import { legacyDailyInsert, type LegacyAdminRead, type LegacyChat, type LegacyDaily, type LegacyExtras, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
+import { LEGACY_RIGHT_AT, legacyDailyInsert, NEWCOMER_AT, type LegacyAdminRead, type LegacyChat, type LegacyDaily, type LegacyExtras, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
@@ -17,6 +17,8 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
   // The people this older database holds (#1284), in order, so an owner's name can be matched to one when the upgrade binds rows to ids, and the owner defaults it kept under a name.
   const insertPerson = old.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)');
   for (const name of extras.people ?? []) insertPerson.run(name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64));
+  const insertNewcomer = old.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, ?)');
+  for (const name of extras.newcomers ?? []) insertNewcomer.run(name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64), NEWCOMER_AT);
   const insertSetting = old.prepare("INSERT INTO peer_owner_settings (owner_lower, trust, on_request, new_send, limits_json) VALUES (?, ?, 'ask', 'ask', NULL)");
   for (const x of extras.ownerSettings ?? []) insertSetting.run(nameKey(x.owner), Number(x.trust));
   const insert = old.prepare(
@@ -45,8 +47,8 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
      VALUES (?, ?, 'ka|kb', 'ka', 'kb', ?, ?, 'alpha', 'box-a', 'beta', 'box-b', ?, ?, 'delivered', ?, NULL, 0, 1, ?)`,
   );
   for (const x of messages.filter((m) => !m.written)) insertMessage.run(x.id, x.owner, x.fromSession, x.toSession, x.text, x.sentAt, x.sentAt, x.seq);
-  const insertRight = old.prepare('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, 0)');
-  for (const x of rights) insertRight.run(x.fromKey, x.toKey, x.owner, x.level, Number(x.paused));
+  const insertRight = old.prepare('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, ?)');
+  for (const x of rights) insertRight.run(x.fromKey, x.toKey, x.owner, x.level, Number(x.paused), LEGACY_RIGHT_AT);
   old.close();
   if (adminReads.length > 0) {
     // The Admin read records come from migration 33; migration 34 gave them a kind, so the rows go in at the schema before it.

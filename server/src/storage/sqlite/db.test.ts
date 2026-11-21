@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openDb, FleetDb } from './db.js';
+import { openDb, FleetDb, MIGRATIONS } from './db.js';
 import { PeopleStore } from './people.js';
 import type { SessionRow } from '../rows.js';
 
@@ -436,6 +436,27 @@ describe('openDb', () => {
     expect(f.groupOfOwner(priya.id + 1000)).toBeNull();
     expect(f.groupOfOwner(null)).toBeNull();
     f.close();
+  });
+});
+
+describe('the peer step that binds a person\'s end of a link to the id (#1284)', () => {
+  it('runs once: a second run leaves an id and a gone key as they are, and reads an all-digit name as a name on the first', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
+    tmpDirs.push(dir);
+    const file = path.join(dir, 'fleet.db');
+    const old = openDb(file, 49);
+    // Ids 1, 2 and 3: "a", "b" and a person called "1" (not the person with id 1).
+    for (const n of ['a', 'b', '1']) old.exec(`INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES ('${n}', '${n}', 'key${n}', '${'0'.repeat(64)}', 1000)`);
+    for (const k of ['person:a', 'person:1', 'person:zz']) old.exec(`INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES ('${k}', 'rk', 'a', 'send', 0, 5000)`);
+    old.close();
+    const db = openDb(file);
+    const keys = (): string[] => (db.prepare('SELECT from_key FROM peer_rights ORDER BY from_key').all() as { from_key: string }[]).map((r) => r.from_key);
+    // "a" is id 1, the person called "1" is id 3, and "zz" is nobody.
+    expect(keys()).toEqual(['person:1', 'person:3', 'person:gone:zz']);
+    MIGRATIONS.find((m) => m.version === 50)!.after!(db);
+    MIGRATIONS.find((m) => m.version === 51)!.after!(db);
+    expect(keys()).toEqual(['person:1', 'person:3', 'person:gone:zz']);
+    db.close();
   });
 });
 

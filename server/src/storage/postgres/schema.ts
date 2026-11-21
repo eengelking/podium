@@ -6,7 +6,7 @@
 // `podium_lower`, which folds ASCII letters only, as SQLite's `lower()` does.
 import { PgDb } from './conn.js';
 import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
-import { OWNED_PEER_TABLES, PERSON_END_COLUMNS, personEndKey, renameLinkEnd } from '../peerOwnerIds.js';
+import { CHAT_IDS_DONE_KEY, idsOf, OWNED_PEER_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndKey, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { nameKey } from '../rows.js';
 
 type DB = PgDb;
@@ -40,14 +40,26 @@ async function fillAgentIds(db: DB): Promise<void> {
   await db.run('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
 }
 
-/** Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`. See SQLite's `fillOwnerIds`. Only rows without an id are written. */
+/** The people by folded name, with the time each was made, for the upgrade steps that bind rows to a person's id. */
+async function peopleIndex(db: DB): Promise<PersonIndex> {
+  return new Map((await db.all<{ id: number; name_lower: string; created_at: number }>('SELECT id, name_lower, created_at FROM people ORDER BY id')).map((r) => [r.name_lower, { id: Number(r.id), createdAt: Number(r.created_at) }]));
+}
+
+/** True the first time it is called for `key` (an upgrade step's mark, `PEER_IDS_DONE_KEY` or `CHAT_IDS_DONE_KEY`), and writes the mark; false after, so the step's rewrite of name keys runs once. */
+async function firstRun(db: DB, key: string): Promise<boolean> {
+  if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [key])) return false;
+  await db.run("INSERT INTO settings (key, value) VALUES (?, '1')", [key]);
+  return true;
+}
+
+/** Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, and only a person who existed when the row was written. See SQLite's `fillOwnerIds`. Only rows without an id are written. */
 async function fillOwnerIds(db: DB): Promise<void> {
-  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
-  if (ids.size === 0) return;
-  for (const table of ['sessions', 'reporters']) {
+  const people = await peopleIndex(db);
+  if (people.size === 0) return;
+  for (const [table, at] of [['sessions', 'started_at'], ['reporters', 'first_seen_at']] as const) {
     for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner IS NOT NULL AND owner_id IS NULL ORDER BY owner`)) {
-      const id = ids.get(nameKey(r.owner));
-      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`, [id, r.owner]);
+      const p = people.get(nameKey(r.owner));
+      if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`, [p.id, r.owner, p.createdAt]);
     }
   }
 }
@@ -55,15 +67,17 @@ async function fillOwnerIds(db: DB): Promise<void> {
 /**
  * Binds the peer-messaging tables to a person by id (#1284), as SQLite's `fillPeerOwnerIds` does: the rights, requests and messages that exist get the id of their owner by the owner's folded
  * name against `people.name_lower`, a row whose owner matches no person keeps none, a person's end of a link (`person:<name>`) becomes `person:<id>` (or `person:gone:<name>`), and the
- * owner defaults are rekeyed by the id, a row of nobody dropped.
+ * owner defaults are rekeyed by the id, a row of nobody dropped. A row is only given to a person who existed when it was written, and the step runs once (`PEER_IDS_DONE_KEY`); see SQLite's.
  */
 async function fillPeerOwnerIds(db: DB): Promise<void> {
-  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
-  for (const table of OWNED_PEER_TABLES) {
+  if (!(await firstRun(db, PEER_IDS_DONE_KEY))) return;
+  const people = await peopleIndex(db);
+  const ids = idsOf(people);
+  for (const { table, at } of OWNED_PEER_TABLES) {
     // order-insensitive: each owner name is written on its own rows, whatever the order.
     for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`)) {
-      const id = ids.get(nameKey(r.owner));
-      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`, [id, r.owner]);
+      const p = people.get(nameKey(r.owner));
+      if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`, [p.id, r.owner, p.createdAt]);
     }
   }
   // The link names first, while the session columns still say which end is the person.
@@ -96,10 +110,11 @@ async function fillPeerOwnerIds(db: DB): Promise<void> {
 
 /**
  * Binds the Chat data the older server kept under a person's NAME to the person's id (#1284), as SQLite's `fillChatPersonIds` does: see it for what is rewritten and why a row whose name matches no person
- * (or whose person did not exist yet when it was written) keeps no id. Every step writes only what still holds a name, so a run that is repeated adds nothing.
+ * (or whose person did not exist yet when it was written) keeps no id. The step runs once (`CHAT_IDS_DONE_KEY`), so a name in a thread name is never an id it wrote before, an all-digit name included.
  */
 async function fillChatPersonIds(db: DB): Promise<void> {
-  const people: PersonIndex = new Map((await db.all<{ id: number; name_lower: string; created_at: number }>('SELECT id, name_lower, created_at FROM people ORDER BY id')).map((r) => [r.name_lower, { id: Number(r.id), createdAt: Number(r.created_at) }]));
+  if (!(await firstRun(db, CHAT_IDS_DONE_KEY))) return;
+  const people = await peopleIndex(db);
   if (people.size === 0) return;
   for (const r of await db.all<{ owner: string }>('SELECT DISTINCT owner FROM group_messages WHERE owner_id IS NULL ORDER BY owner')) {
     const p = people.get(nameKey(r.owner));
@@ -150,11 +165,11 @@ const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_pl
 
 /** Gives the daily rows that exist the id of their owner (#1284), and takes the group off the rows whose owner matches no person. See SQLite's `fillDailyOwnerIds`. Only rows with no id are written, so a step run again adds nothing. */
 async function fillDailyOwnerIds(db: DB): Promise<void> {
-  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  const people = await peopleIndex(db);
   for (const table of OWNED_DAILY) {
     for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`)) {
-      const id = ids.get(nameKey(r.owner));
-      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0`, [id, r.owner]);
+      const p = people.get(nameKey(r.owner));
+      if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0 AND day >= ?`, [p.id, r.owner, personFirstDay(p.createdAt)]);
     }
     if (table !== 'failures_daily' && table !== 'skills_daily') await db.run(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
   }

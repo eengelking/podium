@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
 import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
-import { OWNED_PEER_TABLES, PERSON_END_COLUMNS, personEndKey, renameLinkEnd } from '../peerOwnerIds.js';
+import { CHAT_IDS_DONE_KEY, idsOf, OWNED_PEER_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndKey, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
@@ -50,20 +50,31 @@ function fillAgentIds(db: DatabaseSync): void {
 /**
  * Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, which `nameKey` also writes. It is JS because SQL
  * cannot fold a name the way `nameKey` does. A row whose owner matches no current person (the admin secret's, or a person since deleted) keeps no id: it belongs to nobody, and no
- * newcomer who takes the name can claim it. Only rows without an id are written, so a run that is repeated adds nothing.
+ * newcomer who takes the name can claim it. A person is only given what was written after they existed (`people.created_at` is not after the row's `started_at` or `first_seen_at`), so a
+ * newcomer is not handed the sessions an earlier person of the same name left. Only rows without an id are written, so a run that is repeated adds nothing.
  */
 function fillOwnerIds(db: DatabaseSync): void {
-  // order-insensitive: the rows are folded into a map by name.
-  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
-  if (ids.size === 0) return;
-  for (const table of ['sessions', 'reporters']) {
-    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`);
+  const people = peopleIndex(db);
+  if (people.size === 0) return;
+  for (const [table, at] of [['sessions', 'started_at'], ['reporters', 'first_seen_at']] as const) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`);
     // order-insensitive: each owner name is written on its own rows, whatever the order.
     for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner IS NOT NULL AND owner_id IS NULL ORDER BY owner`).all() as unknown as { owner: string }[]) {
-      const id = ids.get(nameKey(r.owner));
-      if (id !== undefined) set.run(id, r.owner);
+      const p = people.get(nameKey(r.owner));
+      if (p) set.run(p.id, r.owner, p.createdAt);
     }
   }
+}
+
+/** The people by folded name, with the time each was made, for the upgrade steps that bind rows to a person's id. */
+function peopleIndex(db: DatabaseSync): PersonIndex {
+  // order-insensitive: the rows are folded into a map by name.
+  return new Map((db.prepare('SELECT id, name_lower, created_at FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string; created_at: number }[]).map((r) => [r.name_lower, { id: r.id, createdAt: r.created_at }]));
+}
+
+/** True the first time it is called for `key` (an upgrade step's mark, `PEER_IDS_DONE_KEY` or `CHAT_IDS_DONE_KEY`), and writes the mark; false after, so the step's rewrite of name keys runs once. */
+function firstRun(db: DatabaseSync, key: string): boolean {
+  return Number(db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '1')").run(key).changes) > 0;
 }
 
 /**
@@ -71,17 +82,20 @@ function fillOwnerIds(db: DatabaseSync): void {
  * (JS, because SQL cannot fold a name the way `nameKey` does); a row whose owner matches no person keeps none, so it belongs to nobody and a newcomer with the name cannot reach it. A person's
  * end of a link (`person:<name>`) becomes `person:<id>`, or `person:gone:<name>` when no person has the name, in every column and link name that holds one. An owner's defaults are kept under
  * the id (the table's key now holds it as text, never a name); a row whose name matches no person is dropped, because defaults nobody can read or write are not worth a key that a newcomer
- * could meet. Only rows without an id are written, and the key rewrite goes through a marker so no new key is ever rewritten again.
+ * could meet. A row is only given to a person who existed when it was written (`people.created_at` is not after its `set_at`, `created_at` or `sent_at`), so a newcomer who takes a deleted person's
+ * name is not handed what the person left. The key rewrite goes through a marker so no new key is rewritten again within a run, and a mark in `settings` (`PEER_IDS_DONE_KEY`) makes the step run
+ * once: a key `person:5` is a person named "5" before it and the id 5 after it, and only the mark tells which, so a second run would read an id as a name.
  */
 function fillPeerOwnerIds(db: DatabaseSync): void {
-  // order-insensitive: the rows are folded into a map by name.
-  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
-  for (const table of OWNED_PEER_TABLES) {
-    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`);
+  if (!firstRun(db, PEER_IDS_DONE_KEY)) return;
+  const people = peopleIndex(db);
+  const ids = idsOf(people);
+  for (const { table, at } of OWNED_PEER_TABLES) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`);
     // order-insensitive: each owner name is written on its own rows, whatever the order.
     for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`).all() as unknown as { owner: string }[]) {
-      const id = ids.get(nameKey(r.owner));
-      if (id !== undefined) set.run(id, r.owner);
+      const p = people.get(nameKey(r.owner));
+      if (p) set.run(p.id, r.owner, p.createdAt);
     }
   }
   // The link names first, while the session columns still say which end is the person.
@@ -121,11 +135,12 @@ function fillPeerOwnerIds(db: DatabaseSync): void {
  * thread names (`group:`, `list:`, `act:`) and flag scopes (`settings`, `chat.flag.`). It is JS because SQL cannot fold a name the way `nameKey` does. A row whose name matches no current person keeps no id
  * and is not handed to anyone: a newcomer who takes the name finds none of it. A person only gets what was written after they existed (a row older than the person is not theirs), so a newcomer is not
  * credited with the messages of an earlier person of the same name, and the same check clears an author id #1269 gave a message that predates the person it names. Every step writes only what still holds a name,
- * so a run that is repeated adds nothing.
+ * so a run that is repeated adds nothing. Every name in a thread name or scope is read as a name, an all-digit one included (`group:42` is the person called "42" before the step and the person with
+ * id 42 after it), as the peer step reads `person:42`; a mark in `settings` (`CHAT_IDS_DONE_KEY`) makes the step run once, so an id is never read as a name.
  */
 function fillChatPersonIds(db: DatabaseSync): void {
-  // order-insensitive: the rows are folded into a map by name.
-  const people: PersonIndex = new Map((db.prepare('SELECT id, name_lower, created_at FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string; created_at: number }[]).map((r) => [r.name_lower, { id: r.id, createdAt: r.created_at }]));
+  if (!firstRun(db, CHAT_IDS_DONE_KEY)) return;
+  const people = peopleIndex(db);
   if (people.size === 0) return;
   const setGroup = db.prepare('UPDATE group_messages SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND created_at >= ?');
   // order-insensitive: each owner name is written on its own rows, whatever the order.
@@ -185,24 +200,25 @@ const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_pl
 
 /**
  * Gives the daily rows that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, as `fillOwnerIds` does for sessions. A row whose owner matches no
- * current person (the admin secret's, or a person since deleted) keeps 0 and loses its group: it is counted in the fleet's figures and in no person's or group's. Only rows with no id are
+ * current person (the admin secret's, or a person since deleted) keeps 0 and loses its group: it is counted in the fleet's figures and in no person's or group's. A person is only given the rows of
+ * the day they were made and after (`day` is not before `personFirstDay`), so a newcomer who takes a deleted person's name is not handed that person's spend. Only rows with no id are
  * written, so a run that is repeated adds nothing.
  */
 function fillDailyOwnerIds(db: DatabaseSync): void {
-  // order-insensitive: the rows are folded into a map by name.
-  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
+  const people = peopleIndex(db);
   for (const table of OWNED_DAILY) {
-    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0`);
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0 AND day >= ?`);
     // order-insensitive: each owner name is written on its own rows, whatever the order.
     for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`).all() as unknown as { owner: string }[]) {
-      const id = ids.get(nameKey(r.owner));
-      if (id !== undefined) set.run(id, r.owner);
+      const p = people.get(nameKey(r.owner));
+      if (p) set.run(p.id, r.owner, personFirstDay(p.createdAt));
     }
     if (table !== 'failures_daily' && table !== 'skills_daily') db.exec(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
   }
 }
 
-const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
+/** The migrations, in order. Exported so a test can run a step's `after` hook a second time. */
+export const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
   {
     version: 1,
     sql: `
