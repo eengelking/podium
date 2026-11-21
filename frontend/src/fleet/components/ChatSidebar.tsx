@@ -1,14 +1,16 @@
 // Chat's sidebar (#1034, #1234, mockup/podium-chat-redesign.html): Channels, Direct Messages, and People and agents, each a sticky, collapsible
 // section with a "+" in its title. One row is a button that opens it and a "..." button that opens its menu; a right-click opens the same
 // menu. A People and agents row takes the color of the agent's state when pointed at or focused, the same colors as its avatar's mark.
+// People and agents is paged ten at a time (#1272, mockup/podium-chat-people-cap.html), and its "+" opens New direct message.
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { adminPauseOf, channelTag, MAX_PUBLIC_CHANNELS, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { adminPauseOf, channelTag, MAX_PUBLIC_CHANNELS, PEOPLE_PER_PAGE, dmKey, orderPeople, peopleSort, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChatAvatar, ChatAvatarPair, type AvatarProps } from "./ChatAvatar";
 import { ChChev, ChDm, ChDots, ChGroup, ChHash, ChPlus, TagGlyph } from "./ChatIcons";
 import { ChatMenu, agentMenu, channelMenu, dmMenu, personMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
 import { stateKind, type StateKind } from "./Chips";
+import { PageNav } from "./PageNav";
 import { Tip } from "./Tip";
 import { useLeaving } from "../useLeaving";
 
@@ -120,6 +122,8 @@ export function ChatSidebar(p: SidebarProps) {
   // An agent whose session ended leaves with the wall's own animation, and is not offered while it does (#1110).
   const agentRows = useLeaving(o.agents, (a) => a.sessionId);
   const [shut, setShut] = useState<Record<string, boolean>>({});
+  const [pePage, setPePage] = useState(0);
+  const [said, setSaid] = useState("");
   const fold = (id: string) => () => setShut((m) => ({ ...m, [id]: !m[id] }));
   const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean; leaving?: boolean; unread?: boolean }) => {
     const on = p.selected === key;
@@ -210,6 +214,19 @@ export function ChatSidebar(p: SidebarProps) {
     ), { open: () => p.onPerson(name), aria: `Actions for ${name}`, title: `Message ${name}` });
   };
   const others = o.people.filter((x) => !x.you);
+  // People and agents, paged ten at a time (#1272): rows that need this person first (unread, mentions, a running agent), then the newest last message.
+  const peopleEntries = orderPeople([
+    ...agentRows.map((it) => ({ key: `a:${it.item.sessionId}`, name: it.item.name, ...peopleSort(o.directs, (x) => x.sessionId === it.item.sessionId, agentState(p.sessions, it.item.sessionId, it.item.status) === "running"), node: () => agentRow(it) })),
+    ...others.map((x) => ({ key: `p:${x.name}`, name: x.name, ...peopleSort(o.directs, (q) => q.kind === "person" && q.name === x.name, false), node: () => personRow(x.name) })),
+  ]);
+  const pePages = Math.max(1, Math.ceil(peopleEntries.length / PEOPLE_PER_PAGE));
+  const peAt = Math.min(pePage, pePages - 1);
+  const peFrom = peAt * PEOPLE_PER_PAGE;
+  const peShown = peopleEntries.slice(peFrom, peFrom + PEOPLE_PER_PAGE);
+  const goPe = (n: number) => {
+    setPePage(n);
+    setSaid(`Page ${n + 1} of ${pePages}`);
+  };
 
   const reading = p.readAs !== null;
   // The server keeps 50 public channels besides General; at the limit New channel is off and says why (#1035).
@@ -243,11 +260,16 @@ export function ChatSidebar(p: SidebarProps) {
               {o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Start one from People and agents.</li>}
             </ul>
           </Sec>
-          <Sec id="pe" title="People and agents" count={agentRows.length + others.length} shut={!!shut.pe} onToggle={fold("pe")}>
+          <Sec id="pe" title="People and agents" count={peopleEntries.length} shut={!!shut.pe} onToggle={fold("pe")} add={{ label: "New direct message", tip: "Start a direct message", onClick: p.onNewDm }}>
             <ul className="ch-list" id="list-pe">
-              {agentRows.length ? agentRows.map(agentRow) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
-              {others.map((x) => personRow(x.name))}
+              {peopleEntries.length ? peShown.map((e) => e.node()) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
             </ul>
+            {peopleEntries.length > 0 && (
+              <PageNav label="People and agents pages" compact at={peAt} pages={pePages} from={peFrom} shown={peShown.length} total={peopleEntries.length} perPage={PEOPLE_PER_PAGE} onPage={goPe} />
+            )}
+            <div className="vh" role="status">
+              {said}
+            </div>
           </Sec>
         </>
       ) : (

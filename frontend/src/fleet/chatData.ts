@@ -80,6 +80,39 @@ export interface ChannelLink {
 /** The most public channels besides General the server keeps (#1035); at it, New channel is off. */
 export const MAX_PUBLIC_CHANNELS = 50;
 
+/** People and agents are listed this many to a page (#1272). Fixed, not a setting. */
+export const PEOPLE_PER_PAGE = 10;
+
+/** One row of People and agents, with what it is sorted by. */
+export interface PeopleEntry {
+  key: string;
+  name: string;
+  /** A running agent, or anyone this person has unread messages or mentions from. */
+  needs: boolean;
+  /** The last message with this person or agent, 0 when there is no conversation. */
+  last: number;
+}
+
+/**
+ * What a person or an agent sorts by in People and agents (#1272): whether they need this person (unread messages or mentions in a Direct Message with them,
+ * or a running agent) and the time of the last message in a Direct Message with them. `match` says whether a Direct Message's party is this one.
+ */
+export function peopleSort(directs: readonly DirectInfo[], match: (p: Party) => boolean, running: boolean): Pick<PeopleEntry, "needs" | "last"> {
+  let last = 0;
+  let unread = 0;
+  for (const d of directs) {
+    if (!match(d.a) && !match(d.b)) continue;
+    last = Math.max(last, d.lastAt);
+    unread += d.unread + d.mentions;
+  }
+  return { needs: running || unread > 0, last };
+}
+
+/** Rows that need the person first, then the newest last message, then the name. Returns a new array. */
+export function orderPeople<T extends PeopleEntry>(entries: readonly T[]): T[] {
+  return [...entries].sort((x, y) => Number(y.needs) - Number(x.needs) || y.last - x.last || x.name.localeCompare(y.name));
+}
+
 /** One agent the New direct message picker offers (#1035). Names, owners and states only. */
 export interface DirectTarget {
   sessionId: string;
