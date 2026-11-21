@@ -707,7 +707,7 @@ const list = (names: string[]): string =>
     ? (names[0] ?? "")
     : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
-/** What became of a channel message, in one line. Someone else's message is simply Posted. */
+/** What became of a channel message, in one line. Someone else's message, and one with no `@`, is simply Posted. */
 export function channelDelivery(
   m: Pick<ChannelMessage, "mine" | "mentions">,
 ): Delivery {
@@ -753,12 +753,9 @@ export function channelDelivery(
       text: `Posted. ${list(working.map((x) => nameOf(x.typed)))} ${working.length === 1 ? "is" : "are"} working on it.`,
       wait: false,
     };
-  if (m.mentions.length) return { icon: "ok", text: "Posted", wait: false };
-  return {
-    icon: "ok",
-    text: "Posted. No agent was addressed, so none will act on it.",
-    wait: false,
-  };
+  // A message with no `@` is between people, so it says nothing about agents (#1270). A message aimed at an agent has a mention, and
+  // the mention's own state (not delivered, dropped, held, waiting, working) is the line above.
+  return { icon: "ok", text: "Posted", wait: false };
 }
 
 export interface MentionChip {

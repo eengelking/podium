@@ -166,7 +166,7 @@ describe('chat: the page', () => {
     cy.tid('chat-message').should('have.length', 0);
     cy.tid('chat-box').type('{enter}');
     cy.tid('chat-box').should('have.value', '');
-    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'first line').and('contain.text', 'second line').and('contain.text', 'Posted. No agent was addressed, so none will act on it.');
+    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'first line').and('contain.text', 'second line').and('contain.text', 'Posted').and('not.contain.text', 'No agent was addressed');
     // The box stays empty and is read again from the server after a reload.
     cy.reload();
     cy.tid('chat-message').should('have.length', 1);
