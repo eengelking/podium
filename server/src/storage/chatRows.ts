@@ -239,16 +239,6 @@ export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
   };
 }
 
-/** A list of folded names kept in a text column before #1284 (`chat_admin_reads.people`, `.seen`). Anything that is not a list of strings is an empty one. Only the upgrade reads these now. */
-export function nameList(raw: string | null | undefined): string[] {
-  try {
-    const v: unknown = JSON.parse(raw ?? '[]');
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
 /** A list of person ids kept in a text column (`chat_admin_reads.people`, `.seen`, #1284). Anything that is not a whole number in a list is dropped, so a list the older server kept as names reads as empty until the upgrade has rewritten it. */
 export function idList(raw: string | null | undefined): number[] {
   try {
