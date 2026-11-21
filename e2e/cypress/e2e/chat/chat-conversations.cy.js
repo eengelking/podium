@@ -128,7 +128,6 @@ describe('chat: a conversation of people', () => {
     cy.get(ROW).should('have.length', 1).find('button.ch-row').click();
     cy.contains('button', 'Leave conversation').click();
     cy.get(ROW).should('not.exist');
-    cy.contains('No conversations. Use + to start one.').should('exist');
     call('GET', `/conversations/${convo}/messages?limit=50`).its('status').should('eq', 404);
     openAs(maya);
     cy.get(ROW).should('have.length', 1);

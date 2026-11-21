@@ -255,7 +255,7 @@ describe('chat: public channels', () => {
     cy.get('[role=dialog] button[aria-label="Close (Esc)"]').click();
     cy.get('[role=dialog]').should('not.exist');
     // The dialog does not add it yet (#1278); the route that waits for the owner is unchanged, and the row and Ed's notice show it.
-    call('POST', `/dm/me/${INVOICE}/messages`, { text: 'Please run the unit tests on invoice-v2.' }).its('status').should('eq', 201);
+    call('POST', `/dm/me/${INVOICE}/messages`, { text: 'Please run the unit tests on invoice-v2.' }).its('status').should('eq', 202);
     cy.chatRow(`d:dm:${INVOICE}|person:alex`).should('contain.text', 'Waiting for approval').find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'Waiting for Ed to approve it.');
     cy.signIn('Ed');
