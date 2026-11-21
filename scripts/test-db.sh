@@ -19,8 +19,12 @@ Options:
   --image KIND=REF   Use this image for one kind (for example --image mariadb=docker.io/library/mariadb:11.8).
   -h, --help         Show this help.
 
+It takes the machine's database lock first (scripts/db-lock.sh): only one database test job (this, or `npm run e2e:fast`) runs at a
+time per user, so a second one waits its turn and says so. A script this one is started from that holds the lock does not wait again.
+PODIUM_DB_LOCK=off skips the lock; PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting. CI skips it.
+
 Environment:
-  PODIUM_TEST_ONLY   Kinds to run, comma separated (for example sqlite,postgres). The others get no container, and the run prints
+  PODIUM_TEST_ONLY  Kinds to run, comma separated (for example sqlite,postgres). The others get no container, and the run prints
                      that they were NOT RUN: a limited run is not a pass for a pull request. Set it only when asked to leave one out.
   CONTAINER_ENGINE   podman (default) or docker.
 Exit code: vitest's, or 2 when a container could not be started or did not answer.
@@ -53,9 +57,15 @@ for k in $only; do
 done
 LEFT=() ; if ((limited)); then for k in $all; do [[ "$only" == *" $k "* ]] || LEFT+=("$k"); done; fi
 
+# One heavy database job at a time on this machine (#1284): wait here for the lock, before any container starts.
+# shellcheck source=scripts/db-lock.sh
+source "$ROOT/scripts/db-lock.sh"
+db_lock_acquire "scripts/test-db.sh"
+
 NAMES=() ; KINDS=() ; PORTS=() ; RAN=()
 cleanup() {
   local n
+  db_lock_release
   for n in ${NAMES[@]+"${NAMES[@]}"}; do "$engine" rm -f "$n" >/dev/null 2>&1; done
   for n in ${NAMES[@]+"${NAMES[@]}"}; do "$engine" inspect "$n" >/dev/null 2>&1 && echo "test-db: container $n is still there" >&2; done
   return 0

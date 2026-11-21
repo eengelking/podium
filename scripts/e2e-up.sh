@@ -57,6 +57,9 @@ Environment:
                     pinned; another version is untested).
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
   E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
+  PODIUM_DB_LOCK    off skips the machine's database lock. `run` takes it (scripts/db-lock.sh) so that only one database test job runs at
+                    a time per user, and waits its turn; a run started by scripts/e2e-all.sh is already under it and does not wait.
+                    PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting. CI skips it.
 
 Cypress itself is never installed: the image carries it. axe-core is mounted read-only from node_modules (a root dev dependency).
 Exit code: 0 passed, 1 a spec or a check failed, 2 a setup error.
@@ -137,6 +140,11 @@ $E info >/dev/null 2>&1 || { fail "$E is not usable ($E info fails). Is it runni
 if [[ "$CMD" == build ]]; then build_images; say "images ready"; exit 0; fi
 [[ -f "$ROOT/node_modules/axe-core/axe.min.js" ]] || { fail "node_modules/axe-core is missing: run npm ci --ignore-scripts at the repo root (axe-core is a frontend dev dependency)"; exit 2; }
 
+# One heavy database job at a time on this machine (#1284). A run started by scripts/e2e-all.sh is already under its lock and does not wait.
+# shellcheck source=scripts/db-lock.sh
+source "$ROOT/scripts/db-lock.sh"
+db_lock_acquire "scripts/e2e-up.sh run"
+
 RUN="$(date +%s)-$$"
 NET="podium-e2e-$RUN"
 SRV="podium-e2e-$RUN-srv"
@@ -190,6 +198,7 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND
 teardown() {
   local code=$?
   trap - EXIT INT TERM
+  db_lock_release
   [[ -n "$CTL_PID" ]] && { touch "$CTL/stop"; wait "$CTL_PID" 2>/dev/null; }
   # The server log, scrubbed of the secret, for the CI artifact. The repo is public and artifacts are world-readable.
   $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$DB_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null

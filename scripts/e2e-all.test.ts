@@ -45,6 +45,7 @@ function repo() {
   made.push(root);
   mkdirSync(join(root, "scripts"));
   copyFileSync(join(REPO, "scripts", "e2e-all.sh"), join(root, "scripts", "e2e-all.sh"));
+  copyFileSync(join(REPO, "scripts", "db-lock.sh"), join(root, "scripts", "db-lock.sh"));
   copyFileSync(join(REPO, "scripts", "e2e-shards.mjs"), join(root, "scripts", "e2e-shards.mjs"));
   writeFileSync(join(root, "scripts", "e2e-up.sh"), FAKE_UP);
   chmodSync(join(root, "scripts", "e2e-up.sh"), 0o755);
@@ -64,7 +65,7 @@ function run(args: string[], env: Record<string, string> = {}, prepare?: (root: 
   prepare?.(root);
   const r = spawnSync("bash", [join(root, "scripts", "e2e-all.sh"), "--out", out, ...args], {
     encoding: "utf8",
-    env: { ...process.env, E2E_ENGINE: "none", ...env },
+    env: { ...process.env, E2E_ENGINE: "none", PODIUM_DB_LOCK: "off", ...env },
   });
   const last = r.stdout.trim().split("\n").pop();
   return { ...r, last, out };
