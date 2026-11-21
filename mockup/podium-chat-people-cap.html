@@ -1,0 +1,685 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Chat, a capped People and agents list with a + (#1272)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="../frontend/src/fleet/chat.css">
+<style>
+/* Mockup for #1272: the People and agents list in the Chat sidebar shows a few rows, not everyone. Colors and fonts come from tokens.css
+   through fleet.css; this file defines no tokens of its own. Example data only.
+   Rule shown (the maintainer's, 2026-11-20): the list holds at most 8 rows, a fixed number, not a setting.
+     Order    Most recently used first.
+     Used     You opened it, sent it a message, or mentioned it (@). Adding it with + counts as using it.
+     Add      + beside the title opens a picker of every person and agent not shown, with search. Choosing one puts it at the top.
+     Drop     When the list is full, adding one removes the row used least recently. The picker says which one before you choose.
+     Stays    A row with unread messages, a message held for approval, or a running agent is never dropped. If all 8 are like that the list
+              grows past 8 and shrinks again as they are read. (Open question for the maintainer.)
+     Back     A row that dropped is still in the picker, and a new message from it brings it back to the top, dropping the next least used.
+   New classes: pe-cap ("Showing N of M" under the list), pe-note (the line that says who left). Everything else is the sidebar and the
+   New direct message dialog as they are. */
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui); }
+.demo { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible, .ch-split button:focus-visible, .ch-split input:focus-visible, .ch-split textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { box-sizing: border-box; flex: 1; min-height: 0; width: 100%; max-width: var(--stage, none); margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+.stage > .podium { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sprite { position: absolute; }
+.dm-t .ch-av { width: 28px; height: 28px; }
+.ch-mem .mh h3 .n { font-weight: 500; color: var(--muted); }
+
+/* The page: the same 16px on all four sides. */
+/* The page keeps the app's wrappers (.adminv > .apage > .apage-in). In the app .apage has 24px 32px 0 and .apage-in 32px at the bottom, and the
+   split has a 560px minimum, so the page scrolls and its bottom gutter shows only at the end. Here the chat fills the page and the same 16px
+   is on all four sides. */
+.podium .adminv .apage.cr-fill { padding: 16px; overflow: hidden; }
+.adminv .apage-in.cr-page { display: flex; gap: 0; padding: 0; align-content: normal; min-height: 0; }
+.cr-page .ch-split { flex: 1; min-width: 0; grid-template-rows: minmax(0, 1fr); min-height: 360px; max-height: none; position: relative; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); }
+.cr-page .ch-split.mem-open { grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr) 300px; }
+.cr-page .ch-side { max-height: none; padding: 4px 0 8px; background: var(--raised); }
+.cr-page .ch-thread { min-height: 0; }
+.cr-page .ch-body { max-height: none; padding: 0 0 8px; }
+
+/* Sidebar. Type is the current chat's (13px rows with an 11px muted line under the name; section titles in capitals). Sections are sticky,
+   collapsible and separated by a hairline. Every row has a ... button and a right-click menu, as it does today. */
+.ch-sec { padding: 0; border-top: 1px solid var(--grid); }
+.ch-sec:first-child { border-top: 0; }
+.ch-sec > h2 { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; margin: 0; padding: 4px 8px 0 8px; background: var(--raised); font-size: 12px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--ink2); }
+.ch-sec > h2.static { padding: 12px 20px 4px; }
+.ch-sec > h2 .cr-fold { flex: 1; display: flex; align-items: center; gap: 6px; min-height: 34px; margin: 0; padding: 0 6px; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
+.ch-sec > h2 .cr-fold:hover { background: var(--hover); }
+.ch-sec > h2 .cr-fold svg { width: 12px; height: 12px; flex: none; transition: transform .12s; }
+.ch-sec.shut > h2 .cr-fold svg { transform: rotate(-90deg); }
+.ch-sec.shut .ch-list { display: none; }
+.ch-sec > h2 .n { font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.podium .ch-sec > h2 .add { flex: none; align-self: center; width: 28px; height: 28px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.ch-sec > h2 .add:hover { background: var(--hover); }
+.ch-sec > h2 .add svg { width: 16px; height: 16px; }
+.ch-sec .ch-list { padding-bottom: 8px; }
+.ch-item { margin: 0 8px; border-radius: 6px; padding-right: 0; position: relative; }
+.ch-item.on { background: var(--sel); box-shadow: inset 3px 0 0 var(--sonnet); }
+.ch-item.on .ch-row .nm { font-weight: 650; }
+.ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 4px 6px 8px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
+.ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ch-row .nm .nm-own { font-weight: 400; color: var(--muted); }
+/* A conversation with two parties shows both, overlapped, like a group conversation in Slack: the other person first, then the agent. */
+.ch-row .ch-pair { position: relative; flex: none; width: 38px; height: 30px; }
+.ch-row .ch-pair .ch-av { position: absolute; width: 22px; height: 22px; font-size: 9px; --gap: 1px; }
+.ch-row .ch-pair .ch-av:first-child { left: 0; top: 0; z-index: 1; }
+/* admin.css puts a dot before every .tag; a row's tag already has an icon. */
+.ch-row .tag::before { display: none; }
+.ch-row .ch-pair .ch-av:last-child { right: 0; bottom: 0; box-shadow: 0 0 0 2px var(--raised); }
+.ch-row .ch-pair .ch-av.person:last-child { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--raised); }
+.ch-row .ch-pair .cr-st { display: none; }
+.ch-item.on .ch-pair .ch-av:last-child { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 8%, var(--raised)); }
+.ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-item.un .ch-row .nm { font-weight: 650; }
+.ch-row .unread { flex: none; min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 650; text-align: center; }
+.ch-row .ch-av { width: 28px; height: 28px; font-size: 10.5px; --gap: 1.5px; }
+.ch-row .ic-wrap { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
+.podium .ch-item .ch-more { flex: none; width: 28px; height: 28px; padding: 0; margin-right: 2px; color: var(--ink2); }
+.podium .ch-item .ch-more[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
+.ch-menu[hidden] { display: none; }
+.ch-menu.fixed { position: fixed; right: auto; top: auto; z-index: 30; }
+/* A sender's avatar in the thread (and in the members list) opens the same menu as the row in the sidebar. */
+.ch-av[aria-haspopup] { cursor: pointer; }
+.ch-av[aria-haspopup]:hover, .ch-av[aria-haspopup][aria-expanded="true"] { outline: 2px solid var(--axis); outline-offset: 2px; }
+.ch-av[aria-haspopup]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.ch-menu.up { top: auto; bottom: 100%; }
+.ch-menu svg { width: 14px; height: 14px; flex: none; }
+/* The Read as an Admin section (Admins only). */
+.ch-read { display: grid; gap: 6px; padding: 4px 20px 12px; }
+.ch-read label { font-size: 12px; color: var(--ink2); }
+.ch-read .rd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ch-read .rd-i { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: help; }
+.ch-read .rd-i svg { width: 16px; height: 16px; }
+.podium .ch-read select.field { width: 100%; min-width: 0; box-sizing: border-box; min-height: 30px; padding: 0 8px; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; color: var(--ink); font: inherit; }
+.ch-read .rd-on { display: contents; }
+.ch-read #stop-read { justify-self: start; }
+.ch-read .hint { margin: 0; max-width: none; font-size: 12px; color: var(--muted); }
+.cr-hint { margin: 0; padding: 8px 20px 12px; max-width: none; font-size: 12px; color: var(--muted); }
+/* What shows for whom: a person, an Admin, an Admin reading a person. */
+.stage:not(.is-admin) .a-only, .stage.is-admin .o-only { display: none; }
+.stage.is-admin:not(.is-reading) .grp-row, .stage.is-admin:not(.is-reading) .sec-dm, .stage.is-admin .sec-pe { display: none; }
+.stage:not(.is-admin) .hint-admin, .stage.is-reading .hint-admin { display: none; }
+.stage.is-reading .unread, .stage:not(.is-reading) .sub.ro, .stage.is-reading .sub.own, .stage:not(.is-reading) .rd-on { display: none; }
+.stage:not(.is-reading) .ch-nav.adm-ro { display: none; }
+.stage.is-reading .ch-nav.adm-ro { display: flex; }
+.stage.is-reading .ch-nav.ro.person { display: none; }
+.stage.is-reading .ch-box { opacity: .6; }
+.stage.is-reading .sec-dm .add { display: none; }
+.cr-blank { display: none; flex: 1; align-items: center; justify-content: center; padding: 40px 24px; text-align: center; color: var(--ink2); }
+.stage.is-admin:not(.is-reading) .cr-blank { display: flex; }
+.stage.is-admin:not(.is-reading) .cr-head, .stage.is-admin:not(.is-reading) .ch-nav.ro, .stage.is-admin:not(.is-reading) .ch-scroll, .stage.is-admin:not(.is-reading) .ch-composer { display: none; }
+
+/* The avatar. Shape says what the sender is; color says which model; a state mark says what it is doing. */
+.ch-av { position: relative; flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-weight: 650; font-size: 13px; letter-spacing: .01em; user-select: none; }
+.ch-av { --gap: 2px; }
+/* A person is never a hue (color means model and status, see People.tsx). So the person's avatar gets the agent tile's two-part look from
+   neutral tones: an outer ring, a thin gap, and a filled inner disc. You are the same disc turned inside out (ink fill, page-color letter). */
+.ch-av.person { border-radius: 50%; border: 1.5px solid var(--ink2); background: color-mix(in srgb, var(--ink) 14%, var(--surface)); color: var(--ink); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.ch-av.me { border-radius: 50%; border: 1.5px solid var(--ink); background: var(--ink); color: var(--bg); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.ch-av.agent { border-radius: 9px; border: 1.5px solid var(--m, var(--other)); background: color-mix(in srgb, var(--m, var(--other)) 20%, var(--surface)); color: var(--ink); }
+.ch-av.agent svg { width: 58%; height: 58%; }
+.ch-av.opus { --m: var(--opus); } .ch-av.sonnet { --m: var(--sonnet); } .ch-av.haiku { --m: var(--haiku); } .ch-av.fable { --m: var(--fable); }
+.ch-av .cr-st { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--surface); box-sizing: border-box; }
+.ch-av .cr-st svg { width: 100%; height: 100%; display: block; }
+.ch-row .ch-av .cr-st { width: 11px; height: 11px; right: -3px; bottom: -3px; padding: 0; }
+.st-run { color: var(--good-text); } .st-wait { color: var(--warn-text); } .st-done { color: var(--ink2); } .st-off { color: var(--muted); }
+
+/* Thread header. */
+.cr-head { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--grid); min-width: 0; }
+.cr-head .ch-back { display: none; }
+.cr-head .ttl { flex: 1; min-width: 0; }
+.cr-head h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 650; }
+.cr-head h2 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-head h2 svg { width: 16px; height: 16px; color: var(--ink2); flex: none; }
+.cr-head .sub { margin-top: 2px; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-stack { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px 4px 6px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--ink2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.ch-stack:hover, .ch-stack[aria-expanded="true"] { background: var(--sel); border-color: var(--axis); }
+.ch-stack .av { display: inline-flex; }
+.ch-stack .ch-av { width: 22px; height: 22px; font-size: 9px; border-width: 1.5px; margin-left: -6px; --gap: 1.5px; }
+.ch-stack .ch-av.person, .ch-stack .ch-av.me { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--surface); }
+.ch-stack .ch-av.agent { box-shadow: 0 0 0 2px var(--surface); }
+.ch-stack .ch-av:first-child { margin-left: 0; }
+.ch-stack .ch-av.agent { border-radius: 6px; }
+
+/* Message list. */
+.ch-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding-top: 4px; }
+.ch-day { display: flex; align-items: center; gap: 12px; margin: 20px 24px 6px; color: var(--ink2); font-size: 12.5px; font-weight: 600; }
+.ch-day::before, .ch-day::after { content: ""; flex: 1; height: 1px; background: var(--grid); }
+.cr-newline { display: flex; align-items: center; gap: 10px; margin: 12px 24px 0; color: var(--crit-text); font-size: 11.5px; font-weight: 650; }
+.cr-newline::before { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--crit-text) 55%, transparent); }
+.ch-msgs { list-style: none; margin: 0; padding: 0; }
+.ch-msg { display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 14px; padding: 2px 24px; position: relative; }
+.ch-msg:hover { background: var(--hover); }
+.ch-msg.first { padding-top: 26px; }
+.ch-msg .cr-who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+.ch-msg .cr-who { line-height: 22px; margin-bottom: 3px; }
+.ch-msg .cr-who b { font-weight: 650; font-size: 15px; color: var(--ink); }
+.ch-msg .cr-who .at { font-size: 12px; color: var(--muted); }
+.cr-model { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--m, var(--other)) 55%, transparent); border-radius: 4px; font-size: 11.5px; font-weight: 600; color: var(--ink2); line-height: 18px; }
+.cr-model i { width: 7px; height: 7px; border-radius: 2px; background: var(--m, var(--other)); }
+.cr-model.opus { --m: var(--opus); } .cr-model.sonnet { --m: var(--sonnet); } .cr-model.haiku { --m: var(--haiku); }
+.ch-msg .tx { font-size: 15px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ch-msg .tx code { display: inline-block; font-family: var(--font-mono); font-size: 13px; font-weight: 600; line-height: 1.4; padding: 0 6px; border-radius: 4px; color: var(--ink); background: light-dark(color-mix(in srgb, var(--ink) 11%, transparent), color-mix(in srgb, var(--bg) 55%, transparent)); }
+.ch-msg.cont { padding-top: 3px; padding-bottom: 3px; }
+.ch-msg.cont .gut { grid-column: 1; align-self: start; text-align: right; font-size: 11px; line-height: 23px; color: transparent; }
+.ch-msg.cont:hover .gut { color: var(--muted); }
+.ch-msg.cont .col { grid-column: 2; }
+/* Yours: on the right, avatar on the right, the block shrinks to its text. */
+.ch-msg.mine { grid-template-columns: minmax(0, 1fr) 40px; }
+.ch-msg.mine .col { grid-column: 1; grid-row: 1; justify-self: end; max-width: 90%; min-width: 0; }
+.ch-msg.mine .ch-av { grid-column: 2; grid-row: 1; }
+.ch-msg.mine .cr-who { justify-content: flex-end; }
+.ch-msg.mine .tx { background: var(--sel); border-radius: 10px; padding: 8px 12px; width: fit-content; margin-left: auto; }
+.stage.all .ch-msg .tx { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: 10px; background: var(--sel); }
+.stage.all .ch-msg.cont { padding-top: 4px; padding-bottom: 4px; }
+.stage.all .ch-msg.cont .gut { line-height: 36px; }
+.stage.all .ch-msg .cr-who { margin-bottom: 6px; }
+.stage.plain .ch-msg.mine .tx { background: transparent; padding: 0; text-align: right; }
+.ch-msg.mine.cont .col { grid-column: 1; }
+.ch-msg.mine.cont .gut { grid-column: 2; text-align: left; }
+.ch-msg .ch-st { margin-top: 4px; }
+.ch-msg.mine .ch-st { justify-content: flex-end; }
+.ch-st .s .si { width: 12px; height: 12px; }
+.ch-ask { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+
+/* Composer: one box, two lines tall like Mattermost's. The text is on top; the tools sit in a row under it (what you can add), and the
+   send button is at the far end (what you do). It is the one primary button, so it is muted until there is something to send. */
+.ch-composer { display: block; flex: none; padding: 8px 24px 16px; border-top: 0; }
+.cr-wrap { position: relative; }
+.ch-box { display: flex; flex-direction: column; border: 1px solid var(--axis); border-radius: 10px; background: var(--surface); box-shadow: 0 1px 2px var(--grid); transition: border-color .12s, box-shadow .12s; }
+.ch-box:hover { border-color: var(--muted); }
+.ch-box:focus-within { border-color: var(--sonnet); box-shadow: 0 0 0 1px var(--sonnet); }
+.ch-box textarea { display: block; width: 100%; box-sizing: border-box; min-height: 24px; max-height: 180px; resize: none; padding: 14px 18px 4px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 15px; line-height: 1.5; overflow-y: auto; }
+.ch-box textarea::placeholder { color: var(--muted); }
+.ch-box textarea:focus-visible { outline: none; }
+.ch-box .cr-tools { display: flex; align-items: center; gap: 4px; padding: 2px 8px 8px 10px; }
+.ch-box .cr-tool { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink2); cursor: pointer; }
+.ch-box .cr-tool:hover { background: var(--hover); color: var(--ink); }
+.ch-box .cr-tool[aria-pressed="true"] { background: var(--sel); color: var(--ink); }
+.ch-box .cr-tool svg { width: 18px; height: 18px; }
+.ch-box .sep { width: 1px; height: 18px; margin: 0 6px; background: var(--grid); }
+/* admin.css caps .hint at 66ch; the composer's hint has to grow so the send button ends at the box's right edge. */
+.adminv .ch-box .hint { max-width: none; }
+.ch-box .hint { flex: 1; min-width: 0; padding: 0 12px; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-box .hint kbd { font: inherit; font-weight: 600; color: var(--ink2); }
+.podium .btn.ch-send { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; }
+.ch-send svg { width: 18px; height: 18px; }
+.podium .btn.ch-send:disabled { background: var(--sel); color: var(--muted); border-color: transparent; cursor: not-allowed; }
+.cr-wrap .ch-ac { left: 0; right: auto; width: min(400px, 100%); bottom: calc(100% + 8px); padding: 6px; max-height: 340px; }
+.cr-wrap .ch-ac li { flex-wrap: nowrap; align-items: center; gap: 10px; padding: 6px 8px; }
+.cr-wrap .ch-ac .ch-av { width: 28px; height: 28px; font-size: 11px; --gap: 1.5px; }
+.cr-wrap .ch-ac .t { flex: 1; min-width: 0; display: grid; }
+.cr-wrap .ch-ac .t b { font-weight: 600; }
+.cr-wrap .ch-ac .t span { font-size: 11.5px; color: var(--muted); }
+.cr-wrap .ch-ac .t span.off { color: var(--warn-text); }
+.cr-wrap .ch-ac li[aria-disabled="true"] { cursor: not-allowed; }
+.cr-wrap .ch-ac li[aria-disabled="true"] .ch-av { opacity: .55; }
+.cr-wrap .ch-ac .ch-av.person svg { width: 55%; height: 55%; }
+.cr-wrap .ch-ac .stw { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink2); }
+.cr-wrap .ch-ac .stw svg { width: 12px; height: 12px; }
+.cr-wrap .ch-ac .ft { padding: 6px 8px 2px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--grid); margin-top: 4px; }
+
+/* Members panel. */
+.ch-mem { display: none; min-width: 0; flex-direction: column; border-left: 1px solid var(--grid); background: var(--surface); }
+.ch-split.mem-open .ch-mem { display: flex; }
+.ch-mem .mh { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--grid); }
+.ch-mem .mh h3 { flex: 1; margin: 0; font-size: 14px; font-weight: 650; }
+.ch-mem .cr-x { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.ch-mem .cr-x:hover { background: var(--hover); }
+.ch-mem .cr-x svg { width: 14px; height: 14px; }
+.ch-mem .mq { padding: 10px 12px 6px; display: grid; gap: 8px; }
+.ch-mem .mq input { width: 100%; box-sizing: border-box; height: 32px; padding: 0 10px 0 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; }
+.ch-mem .srch-w { position: relative; }
+.ch-mem .srch-w svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; margin-top: -7px; color: var(--muted); pointer-events: none; }
+.ch-filt { display: flex; gap: 4px; flex-wrap: wrap; }
+.ch-filt button { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer; }
+.ch-filt button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); color: var(--ink); font-weight: 600; }
+.ch-mem .ml { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.ch-mem h4 { margin: 0; padding: 12px 16px 4px; font-size: 12px; font-weight: 650; color: var(--ink2); }
+.ch-mem h4 .n { font-weight: 500; color: var(--muted); }
+.ch-mem ul { list-style: none; margin: 0; padding: 0 8px; }
+.ch-mem li { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; }
+.ch-mem li:hover { background: var(--hover); }
+.ch-mem li .ch-av { width: 28px; height: 28px; font-size: 11px; --gap: 1.5px; }
+.ch-mem li .t { flex: 1; min-width: 0; display: grid; }
+.ch-mem li { font-size: 14px; }
+.ch-mem li .t b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem li .t span { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem li .stw { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink2); }
+.ch-mem li .stw svg { width: 12px; height: 12px; }
+.ch-mem .cr-more { padding: 8px 16px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; justify-content: space-between; border-top: 1px solid var(--grid); }
+.ch-mem .cr-more button { border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+.ch-nav.ro.person { display: none; }
+.stage.reading .ch-nav.ro.person { display: flex; }
+
+/* Narrow: one pane at a time; the members panel is a sheet over the thread. */
+.stage.narrow .apage.cr-fill { padding: 8px; }
+.stage.narrow .ch-split, .stage.narrow .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
+.stage.narrow .ch-split[data-pane="side"] .ch-thread, .stage.narrow .ch-split[data-pane="side"] .ch-mem { display: none; }
+.stage.narrow .ch-split[data-pane="thread"] .ch-side { display: none; }
+.stage.narrow .cr-head .cr-back.ch-back { display: inline-flex; flex: none; }
+.stage.narrow .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 7; border-left: 0; }
+.stage.narrow .ch-msg.mine .col { max-width: 92%; }
+.stage.narrow .ch-msg { padding-left: 12px; padding-right: 12px; column-gap: 10px; grid-template-columns: 36px minmax(0, 1fr); }
+.stage.narrow .ch-msg.mine { grid-template-columns: minmax(0, 1fr) 36px; }
+.stage.narrow .ch-av { width: 36px; height: 36px; }
+.stage.narrow .ch-day, .stage.narrow .cr-newline { margin-left: 12px; margin-right: 12px; }
+.stage.narrow .cr-head { padding: 10px 12px; }
+.stage.narrow .ch-composer { padding: 8px 12px 12px; }
+.stage.narrow .cr-head .sub { display: none; }
+.stage.narrow .ch-box .hint { font-size: 0; padding: 0; }
+.stage.narrow .ch-box .cr-tools { padding: 2px 8px 8px 8px; }
+.stage.narrow .ch-box .cr-tools .grow { flex: 1; }
+.cr-back { width: 28px; height: 28px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.cr-back svg { width: 16px; height: 16px; }
+.podium .cr-head .cr-back.ch-back { padding: 0; }
+
+/* The two dialogs behind the + buttons. They are the console's Modal (.scrim, .modal) with the same fields and rules as the app today
+   (ChatForms.tsx); only the agent picker changes: it uses the new avatars, and its group titles are 13px sentence case, not 11px capitals. */
+.scrim[hidden] { display: none; }
+.cr-modal { width: min(520px, 100%); }
+.cr-modal .ch-form { gap: 12px; }
+.podium .cr-modal .ch-form textarea.field { min-height: 56px; }
+.podium .cr-modal .ch-form .hint { max-width: none; font-size: 12.5px; }
+.cr-modal .ch-form label { font-size: 13px; color: var(--ink); font-weight: 600; }
+.podium .cr-modal .ch-form label .cr-opt { display: inline; font-weight: 400; color: var(--muted); }
+.podium .cr-modal .ch-form .ch-warn { max-width: none; display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12.5px; color: var(--ink2); }
+.cr-modal .ch-warn svg { width: 14px; height: 14px; flex: none; margin-top: 3px; }
+.cr-modal .dm-pick h3 { padding: 6px 12px 2px; font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--ink2); }
+.cr-modal .dm-pick label { gap: 12px; padding: 5px 12px; }
+.podium .cr-modal .mb .dm-pick { max-height: 320px; }
+/* The buttons stay in view while the form scrolls: pinned to the bottom of the dialog's body. */
+.podium .cr-modal .ch-form .acts { position: sticky; bottom: -22px; z-index: 1; margin: 0 -20px -22px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--surface); }
+.cr-modal .dm-pick .ch-av { width: 30px; height: 30px; font-size: 12px; }
+.cr-modal .dm-pick .stack > span:first-child { font-size: 14px; }
+.cr-modal .dm-pick .sub { font-size: 12px; }
+.cr-modal .dm-pick input[type="radio"] { margin: 0; accent-color: var(--ink); }
+.cr-modal .dm-pick label[aria-disabled="true"] .ch-av { opacity: .55; }
+.cr-modal .ch-form .field[aria-invalid="true"] + .ferr, .cr-modal .ferr { display: block; margin-top: 4px; font-size: 12px; font-weight: 500; color: var(--crit-text); }
+
+/* States the app has that a conversation or the list can be in; each is off until its switch is on. */
+.cr-approval, .cr-cap, .cr-st-paused, .cr-st-ended { display: none; }
+.stage.st-approval .cr-approval { display: block; }
+.stage.st-limit .cr-cap { display: block; }
+.stage.st-paused .ch-row .tags.cr-st-paused, .stage.st-ended .ch-row .tags.cr-st-ended { display: flex; }
+.podium .ch-sec > h2 .add:disabled { opacity: .4; cursor: not-allowed; }
+.podium .ch-sec > h2 .add:disabled:hover { background: transparent; }
+.ch-earlier { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 0 12px; color: var(--muted); font-size: 12px; }
+/* The thread is anchored to the bottom: the newest message sits just above the composer, and a short or empty thread grows upward from there
+   (as Slack and Mattermost do). margin-top:auto does it without breaking scrolling. */
+.ch-scroll { display: flex; flex-direction: column; }
+.ch-flow { margin-top: auto; }
+.ch-flow-dm, .ch-intro, .ch-fail, .ch-recline, .dm-t, .dm-only { display: none; }
+/* A code block inside a message: monospace on a darker step of the bubble, scrolls sideways, never wraps, and has a Copy button. */
+.ch-code { margin: 8px 0 2px; border-radius: 8px; background: light-dark(color-mix(in srgb, var(--ink) 9%, transparent), color-mix(in srgb, var(--bg) 55%, transparent)); overflow: hidden; }
+.ch-code-h { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 0 12px; font-size: 11.5px; color: var(--ink2); font-family: var(--font-mono); }
+.ch-code pre { margin: 0; padding: 6px 12px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: var(--ink); white-space: pre; tab-size: 2; }
+.ch-code pre:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-code code { all: unset; font: inherit; white-space: inherit; }
+.podium .ch-copy { padding: 2px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--ink2); font: inherit; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.podium .ch-copy:hover { background: var(--hover); color: var(--ink); }
+/* The first thing in an empty thread, at the bottom. */
+.stage.case-empty .ch-flow-ch > :not(.ch-intro) { display: none; }
+.stage.case-empty .ch-intro { display: block; padding: 24px 24px 20px; }
+.ch-intro-av { display: flex; margin-bottom: 12px; }
+.ch-intro-av .ch-av { width: 44px; height: 44px; margin-left: -8px; box-shadow: 0 0 0 3px var(--surface); }
+.ch-intro-av .ch-av:first-child { margin-left: 0; }
+.ch-intro h3 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+.ch-intro p { margin: 0; max-width: 52ch; color: var(--ink2); font-size: 14px; line-height: 1.5; }
+/* A send that failed: the message stays, says it was not delivered, and the box says why and keeps the draft. */
+.stage.case-fail .ch-fail { display: block; }
+.stage.case-fail .cr-err { display: block; }
+.cr-err { display: none; margin: 0 0 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--crit-text) 55%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--crit) 16%, var(--raised)); color: var(--ink); font-size: 12.5px; }
+.cr-err[hidden] { display: none; }
+.stage.case-fail .cr-err[hidden] { display: none; }
+.ch-msg .ch-st .s.bad { color: var(--crit-text); }
+.cr-cmderr { margin: 0 0 8px; font-size: 12.5px; color: var(--crit-text); }
+.cr-cmderr[hidden] { display: none; }
+.podium .ch-composer .confirm { margin: 0 0 8px; }
+.podium .ch-composer .confirm[hidden] { display: none; }
+.podium .btn.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); background: transparent; }
+.cr-wrap .typeahead { left: 0; right: auto; width: min(440px, 100%); bottom: calc(100% + 8px); }
+.cr-wrap .typeahead[hidden] { display: none; }
+/* An Admin is reading: the red tag on the row and under the title, and the quiet record line a visit leaves. */
+.stage:not(.reading) .cr-head .sub .tag.crit.rd-tag, .stage:not(.reading) .ch-row .tags.rd-tag { display: none; }
+.stage:not(.conv-dm) .dm-only { display: none; }
+.stage.reading .ch-row .tags.rd-tag { display: flex; }
+.stage.reading .cr-head .tag.rd-tag { display: inline-flex; }
+.ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.ch-row .tag, .cr-head .tag { gap: 4px; align-items: center; white-space: nowrap; }
+.ch-row .tag.crit, .cr-head .sub .tag.crit { display: inline-flex; margin: 2px 0 0 8px; color: var(--crit-text); font-size: 11px; font-weight: 600; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--crit-text) 50%, transparent); border-radius: 9px; }
+.ch-row .tags .tag.crit { margin: 1px 0 0; }
+.ch-row .tag svg, .cr-head .tag svg { width: 12px; height: 12px; flex: none; }
+.stage.record .ch-recline { display: block; }
+.ch-recline .ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; list-style: none; user-select: none; }
+/* A direct message with your own agent: its own title, no members stack, no @ list, and / opens its commands. */
+.stage.conv-dm .ch-flow-ch, .stage.conv-dm .ch-t, .stage.conv-dm .ch-stack, .stage.conv-dm .ch-only { display: none; }
+.stage.conv-dm .ch-flow-dm, .stage.conv-dm .dm-t { display: block; }
+.stage.conv-dm .dm-only { display: inline-flex; }
+.dm-t h2 { gap: 10px; }
+/* The same narrow layout when the window itself is narrow, so it works without the 400 px switch. */
+@media (max-width: 760px) {
+  .stage .cr-page { padding: 8px; }
+  .stage .ch-split, .stage .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
+  .stage .ch-split[data-pane="side"] .ch-thread, .stage .ch-split[data-pane="side"] .ch-mem { display: none; }
+  .stage .ch-split[data-pane="thread"] .ch-side { display: none; }
+  .stage .cr-head .cr-back.ch-back { display: inline-flex; flex: none; }
+  .stage .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 8; border-left: 0; }
+  .stage .ch-msg.mine .col { max-width: 92%; }
+  .stage .ch-msg { padding-left: 12px; padding-right: 12px; column-gap: 10px; grid-template-columns: 36px minmax(0, 1fr); }
+  .stage .ch-msg.mine { grid-template-columns: minmax(0, 1fr) 36px; }
+  .stage .ch-av { width: 36px; height: 36px; }
+  .stage .ch-day, .stage .cr-newline { margin-left: 12px; margin-right: 12px; }
+  .stage .cr-head { padding: 10px 12px; }
+  .stage .ch-composer { padding: 8px 12px 12px; }
+  .stage .cr-head .sub { display: none; }
+  .stage .ch-box .hint { font-size: 0; padding: 0; }
+  .stage .ch-box .cr-tools { padding: 2px 8px 8px 8px; }
+  .stage .ch-box .cr-tools .grow { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .ch-sec > h2 .cr-fold svg { transition: none; } }
+</style>
+<style>
+/* #1269: edit and delete your own Chat messages. This page is podium-chat-redesign.html with the new states added; everything else is unchanged.
+   Menu      No button on the row. Right-click (or a long press on touch) anywhere on your own message opens the menu at the pointer; Enter, the
+             ContextMenu key or Shift+F10 on the focused row opens it beside the message. Up, Down, Home and End move through its items, Enter
+             chooses one, Escape closes it and returns to the row. It is the existing .ch-menu, placed with position: fixed and kept on screen.
+   Locked    Once Podium has sent the message to an agent (waiting for it, working on it or done), both items stay and are aria-disabled, with the
+             reason under them (.ch-menu .why). A message that was not sent to an agent (not delivered, held, awaiting approval, or no @ at all)
+             can still be edited or deleted.
+   Delete    A confirmation (.scrim + .modal) that says who loses the message and that it cannot be undone. Cancel has focus first.
+   Deleted   The row keeps its place: "This message was deleted by You at 9:44 AM." The text is gone from the server.
+   Edit      The text becomes the composer box with Save and Cancel; a saved edit shows "edited 9:46 AM" after the text.
+   Keyboard  Up in the composer, E, Delete, Escape. The focused row has the focus ring; a screen reader hears its text and the keys.
+   Compared with Slack and Teams, from their help pages (slack.com/help/articles/202395258, support.microsoft.com "Edit or delete a sent message in
+   Microsoft Teams"): copied from Slack, the words "Edit message" and "Delete message", the confirmation before a delete, and a press and hold on a
+   touch screen. Both put edit and delete in a message's own menu, and Teams offers an Undo after a delete. Differences: here the menu opens on a
+   right-click at the pointer, with no hover "..." button (the maintainer asked for none); there is no undo; and a locked message keeps its menu
+   items, disabled and explained. The "edited" time, the line left where a message was deleted and Up arrow to edit your last message are this
+   project's own design; the sources above do not confirm that Slack or Teams does them.
+   New classes (to be added to the standards with the change): ed-box, ed-del, ed-edited, ed-kbd, ed-said. Colors are tokens. Example data only. */
+/* The menu sits inside the message row, which sets 15px text; it is the same menu as the sidebar's, so it takes the sidebar menu's type (13px). */
+.podium .ch-msg .ed-menu { position: fixed; right: auto; bottom: auto; z-index: 30; min-width: 220px; font-size: 13px; line-height: 1.4; font-weight: 400; }
+.podium .ch-msg .ed-menu[hidden] { display: none; }
+.ch-msg.own.menu-open { background: var(--hover); }
+.ch-menu .ed-kbd { margin-left: auto; padding-left: 14px; font: 11px var(--font-mono); color: var(--muted); }
+.ch-msg.own.sel { box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 8px; background: var(--hover); }
+.ch-msg.own:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--sonnet); border-radius: 8px; }
+/* While a message is edited, the box takes the place of its bubble: right-aligned like your other messages, one focus ring (the box's own),
+   and nothing else on the row competes with it (no delivery line). */
+.ed-box { margin: 2px 0 0 auto; width: min(100%, 560px); }
+.ed-box .ch-box textarea { padding-top: 10px; min-height: 44px; }
+.ch-msg.editing.sel { box-shadow: none; background: transparent; }
+.ch-msg.editing:focus-visible { box-shadow: none; }
+.ch-msg.editing .ch-st { display: none; }
+.ed-box .cr-tools { flex-wrap: wrap; gap: 8px; }
+.ed-box .hint { flex: 1 1 100%; }
+.ch-msg .col:has(.ed-box:not([hidden])) { width: 100%; max-width: none; justify-self: stretch; }
+.ed-edited { margin-left: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ed-del { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 12px; border: 1px dashed var(--axis); border-radius: 10px; color: var(--muted); font-size: 14px; }
+.ed-del svg { width: 14px; height: 14px; flex: none; }
+.ed-said { margin: 0 24px 8px; padding: 6px 10px; border-left: 2px solid var(--axis); font-size: 12px; color: var(--ink2); }
+.ed-said b { color: var(--ink); }
+.modal.ed-confirm { width: min(440px, 100%); }
+.ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; }
+.modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.pe-cap { margin: 0; padding: 4px 20px 8px; font-size: 12px; color: var(--muted); }
+.pe-note { margin: 0; padding: 6px 20px; font-size: 12px; color: var(--ink2); border-left: 2px solid var(--axis); margin-left: 12px; }
+.pe-note b { color: var(--ink); }
+.pe-why { margin: 0; font-size: 12px; color: var(--ink2); }
+.pe-why b { color: var(--ink); }
+[data-shut] { display: none; }
+.pe-empty { margin: 0; padding: 8px 20px 12px; color: var(--ink2); font-size: 13px; }
+</style>
+
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-group" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 5.2a3 3 0 0 1 0 5.6M18 14.8c1.8.7 3 2.3 3 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="10" y="10" width="4" height="4" rx=".6" fill="currentColor"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-slash" viewBox="0 0 24 24"><path d="M16 4 8 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path d="M2.5 13.5h3l7-7a2 2 0 0 0-3-3l-7 7v3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="m-dots" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="12.5" cy="8" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="m-pause" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 5.5v5M9.5 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="m-play" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.8 5.6v4.8l3.6-2.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="m-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="m-msg" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="m-eye" viewBox="0 0 16 16"><path d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8 12.2 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="m-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="m-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4M8 4.8v.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <!-- state marks: shape + word + color. running = filled play triangle in a ring, waiting = clock, done = check, off = ring -->
+  <symbol id="s-run" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M6.4 4.9 11 8l-4.6 3.1Z" fill="var(--surface)"/></symbol>
+  <symbol id="s-wait" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 4.6V8l2.3 1.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="s-done" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m4.9 8.2 2.2 2.2 4-4.4" fill="none" stroke="var(--surface)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="s-off" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+</svg>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>People and agents, capped list (#1272)</b>
+  <span class="grp" role="group" aria-label="State">State
+    <button type="button" data-st="full" aria-pressed="true">Full, 8 of 14</button>
+    <button type="button" data-st="added" aria-pressed="false">After adding Priya</button>
+    <button type="button" data-st="back" aria-pressed="false">Sam messages you</button>
+    <button type="button" data-st="stuck" aria-pressed="false">All 8 stay</button>
+    <button type="button" data-st="empty" aria-pressed="false">Nobody yet</button>
+  </span>
+  <span class="grp" role="group" aria-label="Picker">Picker
+    <button type="button" data-dlg="m-pe">Open the +</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage all" id="stage"><div class="podium">
+<header class="top"><a class="logo" href="#/" aria-label="Podium, fleet">Podium</a><span class="tb-who">Signed in as <b>Ed</b></span></header>
+<main class="adminv" aria-label="Chat" id="podium-main"><div class="apage cr-fill"><div class="apage-in cr-page">
+<div class="ch-split" id="split" data-pane="side">
+
+  <nav class="ch-side" aria-label="Chat">
+    <section class="ch-sec" id="sec-ch"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Channels <span class="n">3</span></button><button type="button" class="add" aria-label="New channel" data-tip="Create a channel"><svg><use href="#i-plus"/></svg></button></h2>
+      <ul class="ch-list">
+        <li class="ch-item"><button type="button" class="ch-row"><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">General</span><span class="sub">Everyone signed in to this server</span></span></button></li>
+        <li class="ch-item"><button type="button" class="ch-row"><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-group"/></svg></span><span class="stack"><span class="nm">My group</span><span class="sub own">You and your 3 orchestrators and subagents</span></span></button></li>
+        <li class="ch-item"><button type="button" class="ch-row"><span class="ic-wrap"><svg class="ic" aria-hidden="true"><use href="#i-hash"/></svg></span><span class="stack"><span class="nm">release-1-7</span><span class="sub">Release checklist for v1.7</span></span></button></li>
+      </ul></section>
+    <section class="ch-sec" id="sec-dm"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>Direct messages <span class="n">2</span></button><button type="button" class="add" aria-label="New direct message" data-tip="Start a direct message"><svg><use href="#i-plus"/></svg></button></h2>
+      <ul class="ch-list">
+        <li class="ch-item"><button type="button" class="ch-row"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg></span><span class="stack"><span class="nm">Tester</span><span class="sub">You and one agent</span></span></button></li>
+        <li class="ch-item"><button type="button" class="ch-row"><span class="ch-pair" aria-hidden="true"><span class="ch-av person">MK</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">Maya Kim, maya-main</span><span class="sub">You and Maya Kim's agent</span></span></button></li>
+      </ul></section>
+    <section class="ch-sec sec-pe" id="sec-pe"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n" id="pe-n">8</span></button><button type="button" class="add" id="pe-add" aria-label="Add a person or an agent to the list" data-tip="Add a person or an agent" data-dlg="m-pe" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
+      <p class="pe-note" id="pe-note" role="status" hidden></p>
+      <ul class="ch-list" id="pe-list"></ul>
+      <p class="pe-empty" id="pe-empty" hidden>No one is on the list yet. Use + to add a person or an agent.</p>
+      <p class="pe-cap" id="pe-cap"></p>
+    </section>
+  </nav>
+
+  <section class="ch-thread" aria-label="Conversation"><div class="cr-blank" style="display:flex"><p>Choose a channel, a direct message, or someone from People and agents.</p></div></section>
+</div>
+</div></div></main>
+
+<div class="scrim" id="m-pe" hidden>
+  <div class="modal cr-modal ch-dlg" role="dialog" aria-modal="true" aria-labelledby="pe-h">
+    <div class="mh"><div class="ttl"><h2 id="pe-h">Add to People and agents</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="mb"><form class="ch-form" id="f-pe" novalidate>
+      <label>Find a person or an agent<input class="field" id="pe-q" type="search" autocomplete="off" placeholder="Search by person or agent"></label>
+      <fieldset class="dm-set"><legend class="vh">Add</legend>
+        <ul class="dm-pick" id="pe-pick"></ul>
+      </fieldset>
+      <p class="pe-why" id="pe-why" role="status"></p>
+      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri" id="pe-go" disabled>Add to list</button></div>
+    </form></div>
+  </div>
+</div>
+<div class="tipbox" role="tooltip" id="tip" hidden></div>
+</div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var root = document.documentElement, stage = $('#stage');
+  var N = 8;
+  // used: higher is more recent. unread, held: messages that keep a row on the list. st: run, wait, done, off.
+  var P = {
+    tester:  { n: 'Tester', k: 'agent', m: 'sonnet', st: 'wait', sub: 'Orchestrator on ed-mbp, waiting for you', unread: 1 },
+    main:    { n: 'podium-main', k: 'agent', m: 'opus', st: 'run', sub: 'Orchestrator on ed-mbp, running' },
+    bot:     { n: 'release-bot', k: 'agent', m: 'opus', st: 'run', sub: 'Orchestrator on ed-mbp, running' },
+    maya:    { n: 'Maya Kim', k: 'person', i: 'MK', sub: 'Person, online' },
+    mmain:   { n: 'maya-main', k: 'agent', m: 'opus', st: 'run', sub: 'Maya Kim’s orchestrator, running' },
+    notes:   { n: 'infra-notes', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done' },
+    docs:    { n: 'docs-sweeper', k: 'agent', m: 'fable', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost' },
+    jo:      { n: 'Jo Okafor', k: 'person', i: 'JO', sub: 'Person, away', held: 1 },
+    priya:   { n: 'Priya Nair', k: 'person', i: 'PN', sub: 'Person, online' },
+    sam:     { n: 'Sam Ortiz', k: 'person', i: 'SO', sub: 'Person, away' },
+    lena:    { n: 'Lena Park', k: 'person', i: 'LP', sub: 'Person, offline' },
+    watch:   { n: 'build-watcher', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done' },
+    mig:     { n: 'db-migrator', k: 'agent', m: 'sonnet', st: 'done', sub: 'Orchestrator on ed-mbp, done' },
+    bench:   { n: 'perf-bench', k: 'agent', m: 'opus', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost' }
+  };
+  var TOTAL = Object.keys(P).length;
+  var HL = { run: 'hl-running', wait: 'hl-waiting', done: 'hl-done', off: 'hl-stale' };
+  var shown, used, note = '', sel = null;
+
+  function setState(s) {
+    var u = { tester: 14, main: 13, bot: 12, maya: 11, mmain: 10, notes: 9, docs: 8, jo: 7, priya: 5, sam: 4, lena: 3, watch: 2, mig: 1, bench: 0 };
+    used = u; note = '';
+    Object.keys(P).forEach(function (k) { delete P[k].fresh; });
+    P.tester.unread = 1; P.jo.held = 1; delete P.sam.unread;
+    P.docs.st = 'off'; P.notes.st = 'done';
+    shown = ['tester', 'main', 'bot', 'maya', 'mmain', 'notes', 'docs', 'jo'];
+    if (s === 'added') add('priya');
+    if (s === 'back') { P.sam.unread = 1; P.sam.sub = 'Person, online. 1 new message'; bringBack('sam'); }
+    if (s === 'stuck') {
+      shown = ['tester', 'main', 'bot', 'maya', 'mmain', 'notes', 'docs', 'jo'];
+      P.notes.st = 'run'; P.docs.st = 'run'; P.maya.unread = 2; add('priya');
+      note = 'Every row has unread or held messages, or is an agent that is running, so no one left to make room for Priya Nair. The list is 9 until you read them.';
+    }
+    if (s === 'empty') shown = [];
+    render();
+  }
+  function prot(k) { var e = P[k]; return !!(e.unread || e.held || (e.k === 'agent' && e.st === 'run')); }
+  function lru() {
+    var c = shown.filter(function (k) { return !prot(k); }).sort(function (a, b) { return used[a] - used[b]; });
+    return c[0] || null;
+  }
+  var tick = 20;
+  function touch(k) { used[k] = ++tick; shown = [k].concat(shown.filter(function (x) { return x !== k; })); }
+  function add(k) {
+    var gone = null;
+    if (shown.length >= N) { gone = lru(); if (gone) shown = shown.filter(function (x) { return x !== gone; }); }
+    touch(k);
+    note = gone ? P[gone].n + ' left the list to make room. Find it with +.' : '';
+    return gone;
+  }
+  function bringBack(k) { var gone = add(k); note = P[k].n + ' messaged you and is back on the list' + (gone ? '. ' + P[gone].n + ' left to make room. Find it with +.' : '.'); }
+
+  function av(e) {
+    if (e.k === 'person') return '<span class="ch-av person" aria-hidden="true">' + e.i + '</span>';
+    return '<span class="ch-av agent ' + e.m + '" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-' + e.st + '"><svg><use href="#s-' + e.st + '"/></svg></span></span>';
+  }
+  function row(k) {
+    var e = P[k], cls = 'ch-item ' + (e.k === 'agent' ? HL[e.st] : '') + (e.unread ? ' un' : '');
+    var badge = e.unread ? '<span class="unread" aria-label="' + e.unread + ' new">' + e.unread + '</span>' : '';
+    var held = e.held ? '<span class="sub">1 message held for approval</span>' : '';
+    return '<li class="' + cls + '" data-key="' + k + '"><button type="button" class="ch-row" title="Message ' + e.n + '">' + av(e) +
+      '<span class="stack"><span class="nm">' + e.n + '</span><span class="sub">' + e.sub + '</span>' + held + '</span>' + badge + '</button></li>';
+  }
+  function render() {
+    $('#pe-list').innerHTML = shown.map(row).join('');
+    $('#pe-n').textContent = shown.length;
+    var nt = $('#pe-note'); nt.textContent = note; nt.hidden = !note;
+    $('#pe-empty').hidden = shown.length > 0;
+    $('#pe-cap').hidden = shown.length === 0;
+    $('#pe-cap').textContent = 'Showing ' + shown.length + ' of ' + TOTAL + '. Use + for the rest.';
+    if (note) $('#announce').textContent = note;
+  }
+
+  // The picker: everyone not shown, grouped, with search; says before you choose who would leave.
+  function pickList(q) {
+    var out = { 'Agents': [], 'People': [] };
+    Object.keys(P).filter(function (k) { return shown.indexOf(k) < 0; }).sort(function (a, b) { return used[b] - used[a]; }).forEach(function (k) {
+      var e = P[k]; if (q && (e.n + ' ' + e.sub).toLowerCase().indexOf(q) < 0) return;
+      out[e.k === 'agent' ? 'Agents' : 'People'].push(k);
+    });
+    var h = '', n = 0;
+    Object.keys(out).forEach(function (g) {
+      if (!out[g].length) return; h += '<li><h3>' + g + '</h3></li>';
+      out[g].forEach(function (k) { n++; var e = P[k];
+        h += '<li><label><input type="radio" name="pe-to" value="' + k + '">' + av(e) + '<span class="stack"><span><bdi>' + e.n + '</bdi></span><span class="sub">' + e.sub + '</span></span></label></li>'; });
+    });
+    if (!n) h = '<li class="none">' + (q ? 'No one matches that.' : 'Everyone is already on the list.') + '</li>';
+    $('#pe-pick').innerHTML = h;
+  }
+  function why() {
+    var w = $('#pe-why');
+    if (!sel) { w.textContent = shown.length >= N ? 'The list holds ' + N + '. Adding someone removes the row you used least recently.' : 'Choose someone to add.'; return; }
+    if (shown.length < N) { w.innerHTML = '<b>' + P[sel].n + '</b> goes to the top of the list.'; return; }
+    var g = lru();
+    w.innerHTML = g ? '<b>' + P[sel].n + '</b> goes to the top. <b>' + P[g].n + '</b> leaves the list, because you used it least recently. It stays in this picker.'
+                    : '<b>' + P[sel].n + '</b> goes to the top. Every row has unread or held messages, or an agent that is running, so none leaves and the list grows past ' + N + '.';
+  }
+  var openedBy = null, open = false;
+  function dlgOpen(from) {
+    openedBy = from || document.activeElement; open = true; sel = null; $('#pe-q').value = ''; pickList(''); why(); $('#pe-go').disabled = true;
+    $('#m-pe').hidden = false; $('#pe-q').focus();
+  }
+  function dlgClose() { if (!open) return; open = false; $('#m-pe').hidden = true; if (openedBy && openedBy.focus) openedBy.focus(); }
+  $('#pe-q').addEventListener('input', function () { sel = null; $('#pe-go').disabled = true; pickList(this.value.trim().toLowerCase()); why(); });
+  $('#pe-pick').addEventListener('change', function (e) { sel = e.target.value; $('#pe-go').disabled = false; why(); });
+  $('#f-pe').addEventListener('submit', function (e) { e.preventDefault(); if (!sel) return; add(sel); dlgClose(); render(); var b = $('#pe-add'); if (b.focus) b.focus(); });
+  document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', dlgClose); });
+  $('#m-pe').addEventListener('mousedown', function (e) { if (e.target === this) dlgClose(); });
+  document.addEventListener('keydown', function (e) {
+    if (!open) return;
+    if (e.key === 'Escape') { e.preventDefault(); dlgClose(); }
+    if (e.key === 'Tab') {
+      var f = Array.prototype.filter.call($('#m-pe').querySelectorAll('input:not([disabled]), button:not([disabled])'), function (x) { return x.offsetParent !== null; });
+      if (!f.length) return; var a = f[0], z = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+    }
+  });
+  $('#pe-add').addEventListener('click', function () { dlgOpen(this); });
+  // Opening or messaging a row counts as using it.
+  $('#pe-list').addEventListener('click', function (e) { var li = e.target.closest('li[data-key]'); if (!li) return; var k = li.dataset.key; delete P[k].unread; touch(k); note = ''; render(); });
+
+  function press(attr, val) { document.querySelectorAll('.demo [' + attr + ']').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
+  document.querySelectorAll('.demo button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.st) { setState(b.dataset.st); press('data-st', b.dataset.st); }
+      if (b.dataset.dlg) dlgOpen(b);
+      if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+      if (b.dataset.w) { stage.classList.toggle('narrow', b.dataset.w === 'narrow'); stage.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : 'none'); press('data-w', b.dataset.w); }
+    });
+  });
+  document.querySelectorAll('.cr-fold').forEach(function (b) { b.addEventListener('click', function () { var sec = b.closest('.ch-sec'); var ex = b.getAttribute('aria-expanded') === 'true'; b.setAttribute('aria-expanded', String(!ex)); sec.querySelectorAll('ul, p').forEach(function (x) { if (ex) x.setAttribute('data-shut', ''); else x.removeAttribute('data-shut'); }); }); });
+  root.setAttribute('data-theme', 'dark');
+  setState('full');
+})();
+</script>
