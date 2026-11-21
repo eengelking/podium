@@ -29,7 +29,7 @@ export function mountSessionReadRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (d.token === null) return void res.status(404).json({ ok: false, error: 'authentication is off' });
     const v = await h.viewerOf(req);
     if (!v) return void refuse(req, res, 401, 'sign in to see who is reading your sessions');
-    res.json({ ok: true, serverTime: fleet.now(), readers: await reads().sessionReadersOf(v.name) });
+    res.json({ ok: true, serverTime: fleet.now(), readers: v.personId === null ? {} : await reads().sessionReadersOf(v.personId) });
   }));
 
   // The person's own look at the record of reads of one of their sessions: who read, when, and who reads now. Loading it is the person seeing it.
@@ -42,8 +42,8 @@ export function mountSessionReadRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const row = await fleet.db.getSession(req.params.id as string);
     if (!row) return void res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
     const own = row.owner_id !== null && row.owner_id === v.personId;
-    if (!own) return void refuse(req, res, 403, 'only the session\'s owner sees who read it');
-    const got = await reads().sessionRecordsOf(kind, row.id, v.name);
+    if (!own || v.personId === null) return void refuse(req, res, 403, 'only the session\'s owner sees who read it');
+    const got = await reads().sessionRecordsOf(kind, row.id, v.personId);
     res.json({ ok: true, serverTime: fleet.now(), adminReads: got.records, adminReading: got.reading });
   }));
 

@@ -104,9 +104,22 @@ export interface LegacyPublicMessage {
   person?: string;
 }
 
+/**
+ * What an older database holds in Chat under a person's NAME, before it was kept under the person's id (#1284): the people it holds (made once each, with the time they were made), read counts, channels
+ * opened, Admin records owed, and flags, each as that database stored it. The upgrade gives each person's rows their id; a name that is no person's stays with nobody.
+ */
+export interface LegacyChat {
+  people?: { name: string; createdAt: number }[];
+  readState?: { person: string; thread: string; unread: number }[];
+  channels?: { name: string; createdBy: string; createdByName: string; createdAt: number }[];
+  owed?: { person: string; thread: string; adminKey: string; startedAt: number }[];
+  /** A flag by its scope as the older database named it (`group:ed`), with the value stored. */
+  flags?: { scope: string; value: string }[];
+}
+
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[], chat?: LegacyChat): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -280,14 +293,14 @@ export function upgradeCases(o: UpgradeOpeners): void {
     const s = await o.openUpgraded([], [], [], [], [], [old]);
     try {
       const reads = s.chat({ now: () => T0 + MIN }).adminReads;
-      expect(await reads.touch('ask:sa', 'Root', 30 * MIN, ['ed'])).toMatchObject({ started: true, record: { startedAt: T0 + MIN, kind: 'read' } });
-      expect(await reads.touch('activity:sa:a1', 'Root', 30 * MIN, ['ed'])).toMatchObject({ started: true });
+      expect(await reads.touch('ask:sa', 'Root', null, 30 * MIN, [11])).toMatchObject({ started: true, record: { startedAt: T0 + MIN, kind: 'read' } });
+      expect(await reads.touch('activity:sa:a1', 'Root', null, 30 * MIN, [11])).toMatchObject({ started: true });
       expect(await reads.threads('ask:')).toEqual(['ask:sa']);
       expect(await reads.threads('activity:sa:')).toEqual(['activity:sa:a1']);
       expect(await reads.list('group:ed')).toEqual([{ admin: 'Root', startedAt: T0 - MIN, lastSeenAt: T0 - MIN, kind: 'read' }]);
       // The new records are owed to the person, the older one owes nothing.
-      expect((await reads.unseenFor('ed')).map((r) => r.thread).sort((a, b) => a.localeCompare(b))).toEqual(['activity:sa:a1', 'ask:sa']);
-      expect(await reads.seen('ask:sa', 'ed')).toBe(1);
+      expect((await reads.unseenFor(11)).map((r) => r.thread).sort((a, b) => a.localeCompare(b))).toEqual(['activity:sa:a1', 'ask:sa']);
+      expect(await reads.seen('ask:sa', 11)).toBe(1);
       expect(await reads.forget('activity:sa:a1')).toBe(0);
       expect(await reads.forget('ask:sa')).toBe(1);
     } finally {
@@ -311,7 +324,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
         { thread: 'group:ed', admin: 'Zoe', startedAt: T0 + MIN, lastSeenAt: T0 + 2 * MIN, kind: 'read' },
       ]);
       // A touch within the gap continues the old record rather than starting a new one.
-      expect(await reads.touch('group:ed', 'Root', 30 * MIN)).toMatchObject({ started: false, previousSeenAt: T0 + 5 * MIN, record: { startedAt: T0, lastSeenAt: T0 + 6 * MIN, kind: 'read' } });
+      expect(await reads.touch('group:ed', 'Root', null, 30 * MIN)).toMatchObject({ started: false, previousSeenAt: T0 + 5 * MIN, record: { startedAt: T0, lastSeenAt: T0 + 6 * MIN, kind: 'read' } });
       expect((await reads.list('group:ed')).map((r) => r.kind)).toEqual(['read', 'read']);
       // A record made before it was kept who it is owed to owes nothing, so retention and forgetting take it as they did (#1051).
       expect(await reads.purge(T0 - 70 * MIN)).toBe(1);
@@ -331,17 +344,20 @@ export function upgradeCases(o: UpgradeOpeners): void {
       list('zoe', 'dm:a|b', T0 + MIN, ['ed'], []),
       list('root', 'group:eve', T0 + 2 * MIN, ['eve'], ['eve']),
       list('root', 'dm:none', T0 + 3 * MIN, [], []),
-    ]);
+    ], [], { people: [{ name: 'Ed', createdAt: 1000 }, { name: 'Eve', createdAt: 1000 }] });
     try {
       const reads = s.chat({ now: () => T0 + 10 * MIN }).adminReads;
       const brief = (l: { thread: string; admin: string }[]) => l.map((r) => `${r.thread}:${r.admin}`);
-      expect(brief(await reads.unseenFor('Ed'))).toEqual(['dm:a|b:zoe', 'dm:a|b:root']);
-      expect(brief(await reads.unseenFor('eve'))).toEqual([]);
-      expect(brief(await reads.unseenFor('nobody'))).toEqual([]);
+      // The lists named the people; the upgrade turned each name into the person's id (#1284), and a person is found by it.
+      const ed = (await s.people.findByName('ed'))!.id;
+      const eve = (await s.people.findByName('eve'))!.id;
+      expect(brief(await reads.unseenFor(ed))).toEqual(['dm:a|b:zoe', 'dm:a|b:root']);
+      expect(brief(await reads.unseenFor(eve))).toEqual([]);
+      expect(brief(await reads.unseenFor(99_999))).toEqual([]);
       // It is filled once: a second look, and a record made now, add to it and do not repeat it.
-      await reads.mark('dm:a|b', 'Root', 'paused', ['ed']);
-      expect(await s.chat({ now: () => T0 + 11 * MIN }).adminReads.unseenFor('ed')).toHaveLength(3);
-      expect(await reads.seen('dm:a|b', 'ed')).toBe(3);
+      await reads.mark('dm:a|b', 'Root', null, 'paused', [ed]);
+      expect(await s.chat({ now: () => T0 + 11 * MIN }).adminReads.unseenFor(ed)).toHaveLength(3);
+      expect(await reads.seen('dm:a|b', ed)).toBe(3);
       // Nobody is owed the first two now; the one that names nobody goes by retention alone.
       expect(await reads.forget('dm:a|b')).toBe(3);
       expect(await reads.purge(T0 + 4 * MIN)).toBe(2);
@@ -362,7 +378,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect((await chat.public.heldMentions('general', {})).map((m) => m.text)).toEqual(['third']);
       expect(await chat.channels.list()).toEqual([]);
       // A channel beside General has none of them, and a new General post follows the old ones.
-      expect(await chat.channels.create({ name: 'new', createdBy: 'ed' }, T0 + 10)).toMatchObject({ ok: true });
+      expect(await chat.channels.create({ name: 'new', createdBy: 'ed', createdById: 11 }, T0 + 10)).toMatchObject({ ok: true });
       expect(await chat.public.count('new')).toBe(0);
       await chat.public.post('new', { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'in new' });
       await chat.public.post('general', { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'fourth' });
@@ -377,19 +393,20 @@ export function upgradeCases(o: UpgradeOpeners): void {
     const old = (id: string, createdAt: number, seq: number, text: string, over: Partial<LegacyPublicMessage> = {}): LegacyPublicMessage => ({
       id, authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, createdAt, mentionsJson: '[]', seq, ...over,
     });
-    const g = { owner: 'ed', groupId: 'g1' };
+    const gOld = { owner: 'ed', groupId: 'g1' };
     const s = await o.openUpgraded([], [], [], [], [], [], [
       old('pub_00000000_a', T0, 1, 'public one', { person: 'Ed' }),
       // The name differs from the person's in case and in the spaces between its words, and folds to it.
       old('pub_00000000_b', T0 + 1, 2, 'public two', { authorRef: 'ED   Smith', authorName: 'ED   Smith', person: 'Ed Smith' }),
       old('pub_00000000_c', T0 + 2, 3, 'public three', { authorRef: 'ghost', authorName: 'Ghost' }),
       old('pub_00000000_d', T0 + 3, 4, 'public four', { authorKind: 'orchestrator', authorRef: 'ed', authorName: 'alpha' }),
-      old('grp_00000000_a', T0, 1, 'group one', { group: g }),
-      old('grp_00000000_b', T0 + 1, 2, 'group two', { group: g, authorRef: 'ghost', authorName: 'Ghost' }),
+      old('grp_00000000_a', T0, 1, 'group one', { group: gOld }),
+      old('grp_00000000_b', T0 + 1, 2, 'group two', { group: gOld, authorRef: 'ghost', authorName: 'Ghost' }),
     ]);
     try {
       const chat = s.chat({ now: () => T0 + 10 });
       const ed = (await s.people.findByName('ed'))!.id;
+      const g = { ownerId: ed };
       const smith = (await s.people.findByName('ed smith'))!.id;
       expect(ed).not.toBe(smith);
       const publicPage = await chat.public.page('general', { limit: 10 });

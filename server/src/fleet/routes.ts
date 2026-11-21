@@ -457,7 +457,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
     const id = identityOf(res);
     // The admin secret deletes any session; the owner is told who did it (#1078). A server with no sign-in has no Admin to name.
-    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.id : undefined, id.kind === 'admin' ? 'Admin' : undefined);
+    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.id : undefined, id.kind === 'admin' ? { name: 'Admin', id: null } : undefined);
     if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;

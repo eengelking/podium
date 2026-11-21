@@ -11,7 +11,7 @@
 // insert that skips a row that is there), and the version row is written after a step's last statement, so a runner that stops part way
 // through a step does the whole step again at the next start, and ends in the same state.
 import { COLLATION, type MariaDbConn } from './conn.js';
-import { peerPersonKey } from '../chatRows.js';
+import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
 import { nameKey } from '../rows.js';
 
 type DB = MariaDbConn;
@@ -54,6 +54,58 @@ async function fillOwnerIds(db: DB): Promise<void> {
       const id = ids.get(nameKey(r.owner));
       if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`, [id, r.owner]);
     }
+  }
+}
+
+/**
+ * Binds the Chat data the older server kept under a person's NAME to the person's id (#1284), as SQLite's `fillChatPersonIds` does: see it for what is rewritten and why a row whose name matches no person
+ * (or whose person did not exist yet when it was written) keeps no id. MariaDB cannot roll a step back, so the rows that are rewritten whole (read counts, what is owed) are written under their id first and
+ * the older ones are deleted after, and every step writes only what still holds a name: a step that stopped half way runs again, loses nothing and adds nothing twice.
+ */
+async function fillChatPersonIds(db: DB): Promise<void> {
+  const people: PersonIndex = new Map((await db.all<{ id: number; name_lower: string; created_at: number }>('SELECT id, name_lower, created_at FROM people ORDER BY id')).map((r) => [r.name_lower, { id: Number(r.id), createdAt: Number(r.created_at) }]));
+  if (people.size === 0) return;
+  for (const r of await db.all<{ owner: string }>('SELECT DISTINCT owner FROM group_messages WHERE owner_id IS NULL ORDER BY owner')) {
+    const p = people.get(nameKey(r.owner));
+    if (p) await db.run('UPDATE group_messages SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND created_at >= ?', [p.id, r.owner, p.createdAt]);
+  }
+  for (const p of people.values()) {
+    for (const table of ['group_messages', 'public_messages']) await db.run(`UPDATE ${table} SET author_id = NULL WHERE author_id = ? AND created_at < ?`, [p.id, p.createdAt]);
+  }
+  for (const r of await db.all<{ name: string; created_by: string; created_at: number }>("SELECT name, created_by, created_at FROM public_channels WHERE created_by_id IS NULL AND created_by <> '' ORDER BY name")) {
+    const p = people.get(nameKey(r.created_by));
+    if (p && p.createdAt <= Number(r.created_at)) await db.run('UPDATE public_channels SET created_by_id = ? WHERE name = ?', [p.id, r.name]);
+  }
+  for (const r of await db.all<{ thread: string }>('SELECT DISTINCT thread FROM chat_admin_reads ORDER BY thread')) {
+    const to = threadWithId(r.thread, people);
+    if (to) await db.run('UPDATE chat_admin_reads SET thread = ? WHERE thread = ?', [to, r.thread]);
+  }
+  const state = await db.all<{ person: string; thread: string; last_read: string | null; unread: number; mentions: number; updated_at: number }>('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id IS NULL ORDER BY person, thread');
+  for (const r of state) {
+    const p = people.get(nameKey(r.person));
+    const thread = threadWithId(r.thread, people);
+    if (!p || thread === '') continue;
+    await db.run('INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE person = person', [personKey(p.id), p.id, thread ?? r.thread, r.last_read, Number(r.unread), Number(r.mentions), Number(r.updated_at)]);
+  }
+  await db.run('DELETE FROM chat_read_state WHERE person_id IS NULL');
+  const owed = await db.all<{ person_key: string; thread: string; admin_key: string; started_at: number }>('SELECT person_key, thread, admin_key, started_at FROM chat_admin_owed WHERE person_id IS NULL ORDER BY person_key, thread, admin_key, started_at');
+  for (const r of owed) {
+    const p = people.get(nameKey(r.person_key));
+    if (!p) continue;
+    const thread = threadWithId(r.thread, people);
+    await db.run('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE person_key = person_key', [personKey(p.id), p.id, thread || r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  await db.run('DELETE FROM chat_admin_owed WHERE person_id IS NULL');
+  for (const r of await db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' OR seen <> '[]' ORDER BY thread, started_at, admin_key")) {
+    const ps = listWithIds(r.people, people);
+    const ss = listWithIds(r.seen, people);
+    if (ps !== null || ss !== null) await db.run('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [ps ?? r.people, ss ?? r.seen, r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  for (const r of await db.all<{ key: string }>("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key")) {
+    const to = flagScopeWithId(r.key.slice('chat.flag.'.length), people);
+    if (to === null) continue;
+    if (to === '') await db.run('DELETE FROM settings WHERE key = ?', [r.key]);
+    else await db.run('UPDATE settings SET key = ? WHERE key = ?', [`chat.flag.${to}`, r.key]);
   }
 }
 
@@ -525,6 +577,21 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_id INT;
 ALTER TABLE reporters ADD COLUMN IF NOT EXISTS owner_id INT;
 `),
     after: fillOwnerIds,
+  },
+  {
+    version: 27,
+    // Chat belongs to a person by id, never by name (#1284), as SQLite migration 51 keeps it: `group_messages.owner_id`, `person_id` on the read counts and on what an Admin record is owed (the older
+    // name key beside it now holds `#<id>`), and `public_channels.created_by_id`, all with no foreign key and NULL where the name matched no person. `fillChatPersonIds` gives the rest their person's id.
+    statements: steps(`
+ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS owner_id INT;
+CREATE INDEX IF NOT EXISTS group_messages_owner ON group_messages(owner_id, created_at, seq);
+ALTER TABLE chat_read_state ADD COLUMN IF NOT EXISTS person_id INT;
+CREATE INDEX IF NOT EXISTS chat_read_state_person ON chat_read_state(person_id, thread);
+ALTER TABLE chat_admin_owed ADD COLUMN IF NOT EXISTS person_id INT;
+CREATE INDEX IF NOT EXISTS chat_admin_owed_person ON chat_admin_owed(person_id, thread);
+ALTER TABLE public_channels ADD COLUMN IF NOT EXISTS created_by_id INT;
+`),
+    after: fillChatPersonIds,
   },
 ];
 

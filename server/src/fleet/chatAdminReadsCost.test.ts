@@ -36,7 +36,7 @@ function setup(conversations: number) {
     store: { adminReads: store },
     host: {
       now: () => clock.now,
-      peers: { messages: { live: (id: string) => ({ owner: `person${Number(id.slice(1))}` }) } },
+      peers: { messages: { live: (id: string) => ({ owner: `person${Number(id.slice(1))}`, ownerId: Number(id.slice(1)) % SESSIONS }) } },
       sessionOf: async () => null,
       liveIds: () => [],
     },
@@ -48,7 +48,7 @@ function setup(conversations: number) {
   reads.resolve = async (thread) => {
     counts.resolve++;
     const n = Number(thread.slice('dm:'.length).split('|')[0]!.slice(1));
-    return n < conversations ? { scope: 'dm', thread, owners: [`person${n % SESSIONS}`], phrase: 'is reading your Podium conversation' } : null;
+    return n < conversations ? { scope: 'dm', thread, owners: [`person${n % SESSIONS}`], people: [n % SESSIONS], phrase: 'is reading your Podium conversation' } : null;
   };
   return { reads, clock, counts, owners };
 }
@@ -66,7 +66,7 @@ async function readings(reads: AdminReads, deleted: number): Promise<void> {
   for (let i = 0; i < READINGS; i++) {
     // the last `deleted` readings are of conversations that are gone
     const n = i < READINGS - deleted ? i : 100_000 + i;
-    await reads.note(admin, { scope: 'dm', thread: `dm:s${n}|s${n + 1}`, owners: [`person${i % SESSIONS}`], phrase: 'is reading your Podium conversation' });
+    await reads.note(admin, { scope: 'dm', thread: `dm:s${n}|s${n + 1}`, owners: [`person${i % SESSIONS}`], people: [i % SESSIONS], phrase: 'is reading your Podium conversation' });
   }
 }
 

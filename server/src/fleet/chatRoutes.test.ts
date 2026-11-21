@@ -426,7 +426,7 @@ describe('addressing with @', () => {
     expect((await mark('1800000000005.7')).status).toBe(200);
     expect((await mark('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f')).status).toBe(200);
     for (const bad of ['x'.repeat(65), 'x'.repeat(5000), 'a b', '<script>', 'a\nb', 7]) expect([String(bad).slice(0, 12), (await mark(bad)).status]).toEqual([String(bad).slice(0, 12), 400]);
-    expect((await s.fleet.chat.core.store.readState.get('ed', 'public')).lastRead).toBe('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f');
+    expect((await s.fleet.chat.core.store.readState.get(s.ed.person.id, 'public')).lastRead).toBe('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f');
   });
 
   it('lists what @ can address, with @group and @everyone disabled and the reason while off', async () => {
@@ -816,12 +816,12 @@ describe('direct messages', () => {
     const again = await signedIn(s, 'Ed', s.ed.token);
     expect((await again.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).body.messages).toHaveLength(1);
     const readState = s.fleet.chat.core.store.readState;
-    expect((await readState.list('ed')).map((r) => r.thread)).toEqual([key.thread]);
+    expect((await readState.list(s.ed.person.id)).map((r) => r.thread)).toEqual([key.thread]);
     s.tick(2 * 3_600_000);
     await s.fleet.retain();
     expect((await again.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).status).toBe(404);
     // The counts of a conversation that is gone go with it (#1051).
-    expect(await readState.list('ed')).toEqual([]);
+    expect(await readState.list(s.ed.person.id)).toEqual([]);
   });
 
   it('keeps a closed conversation for the days its harness lets a person resume the session, brings it back on resume, and purges it after (#1113)', async () => {
@@ -2205,8 +2205,8 @@ describe('an Admin reading a conversation (#1034)', () => {
     const w = await crossWorld();
     const store = w.fleet.chat.core.store.adminReads;
     // Thread B is the newest (its records are made last), thread A has the older ones.
-    for (let i = 0; i < 20; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', 'cleared', ['ed']);
-    for (let i = 0; i < 5; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', 'cleared', ['ed']);
+    for (let i = 0; i < 20; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', null, 'cleared', [w.ed.person.id]);
+    for (let i = 0; i < 5; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', null, 'cleared', [w.ed.person.id]);
     const ed = w.edB;
     const first = (await ed.get(CH)).body.goneReads;
     const second = (await ed.get(CH)).body.goneReads;
@@ -2220,8 +2220,8 @@ describe('an Admin reading a conversation (#1034)', () => {
   it('keeps making progress when every gone thread has records beyond the cap, and loses none (#1051)', async () => {
     const w = await crossWorld();
     const store = w.fleet.chat.core.store.adminReads;
-    for (let i = 0; i < 15; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', 'cleared', ['ed']);
-    for (let i = 0; i < 10; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', 'cleared', ['ed']);
+    for (let i = 0; i < 15; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', null, 'cleared', [w.ed.person.id]);
+    for (let i = 0; i < 10; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', null, 'cleared', [w.ed.person.id]);
     const ed = w.edB;
     let total = 0;
     for (let load = 0; load < 5; load++) total += (await ed.get(CH)).body.goneReads.length;
@@ -2513,7 +2513,7 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     const told = (await noticesOf(w, 'dev')).map((n) => n.text);
     expect(told).toHaveLength(1);
     expect(told[0]).toMatch(/^Admin \(an Admin\) deleted your session .+\.$/);
-    await w.fleet.adminActs.onPerson('Root', 'reporter_removed', 'Ed', 'your reporter ed-mbp');
+    await w.fleet.adminActs.onPerson({ name: 'Root', id: null }, 'reporter_removed', { id: w.ed.person.id, name: 'Ed' }, 'your reporter ed-mbp');
     expect((await noticesOf(w, 'dev')).map((n) => n.text)).toContain('Root (an Admin) removed your reporter ed-mbp from the Reporters list.');
     const shelf = (await w.edB.get(CH)).body.goneReads as { admin: string; kind: string; with: string }[];
     expect(shelf.map((r) => `${r.admin}:${r.kind}:${r.with}`).sort()).toEqual(['Admin:session_deleted:', 'Root:reporter_removed:']);
@@ -2784,7 +2784,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
   it('shows every unseen record of a look at a person\'s list, even past the 20 it normally carries, and 20 once they are seen (#1051)', async () => {
     const w = await browseWorld();
     const store = w.fleet.chat.core.store.adminReads;
-    for (let i = 0; i < 25; i++) await store.mark('list:ed', 'Admin', 'paused', ['ed']);
+    for (let i = 0; i < 25; i++) await store.mark(`list:${w.ed.person.id}`, 'Admin', null, 'paused', [w.ed.person.id]);
     const ed = await signedIn(w, 'Ed', w.ed.token);
     const first = (await ed.get(CH)).body.listReads as { startedAt: number }[];
     expect(new Set(first.map((r) => r.startedAt))).toEqual(new Set((await store.list('list:ed')).map((r) => r.startedAt)));

@@ -91,7 +91,7 @@ const dmDel = (b: B, path: string, id: string) => b.delete(`${CH}/dm/${path}/mes
 const settle = () => new Promise((r) => setTimeout(r, 20));
 const logRows = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 200 })).rows;
 const LOCKED_WORDS = 'Podium has already sent this message to Tester, so it can no longer be changed.';
-const group = (s: S, owner = 'Ed') => ({ owner, groupId: owner.toLowerCase() });
+const group = (s: S) => ({ ownerId: s.ed.person.id });
 /** Both agents linked by a right, with one agent message between them, so there is a conversation a person can add to. */
 async function linkedConversation(w: W) {
   const set = await w.edB.put('/api/fleet/respond/peers/rights').set(H).send({ from: MAC.id, to: LINUX.id, level: 'send' });

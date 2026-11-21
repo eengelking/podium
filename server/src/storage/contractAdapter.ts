@@ -1,7 +1,7 @@
 // What the storage tests need from an adapter (#1008). Every adapter registers one (the `testing` loader of its kind in `index.ts`), and
 // the contract, the upgrade cases and the differential test all run over the list of them, so a new adapter is added in one place and no
 // adapter is the reference for another. Types only: this file names no database.
-import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from './contractUpgrade.js';
+import type { LegacyAdminRead, LegacyChat, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from './contractUpgrade.js';
 import type { Storage } from './types.js';
 
 /** What an adapter's database holds, by name: each table with its columns, and the indexes. Names only; the types differ between databases. */
@@ -51,7 +51,7 @@ export interface ContractAdapter {
   /** A fresh, empty storage. Its `close()` also removes whatever the adapter made for it. */
   open(): Promise<Storage>;
   /** A storage over a database made at the oldest supported schema and holding the given rows, opened (and so migrated). Closing it removes what was made. */
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[], chat?: LegacyChat): Promise<Storage>;
   /** The names of the tables, columns and indexes of a freshly opened database, both the main and the Activity one. Read from the database itself, not from the code that makes it. */
   schema(): Promise<SchemaNames>;
   /** A throwaway database with the `samples` table to measure (#755). Optional: only the measurement script asks for it. */

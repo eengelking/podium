@@ -9,7 +9,7 @@ import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '.
 import type { Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
 import { AdminNotices } from './chatAdminNotices.js';
-import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail } from './chatTypes.js';
+import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 const MINUTE = 60_000;
 
@@ -25,9 +25,9 @@ export type AcrossAsk = (viewer: ChatViewer, sessionId: string, text: string, op
  */
 export type AcrossChange = (viewer: ChatViewer, copyId: string, op: { kind: 'edit'; text: string } | { kind: 'delete' }) => Promise<{ ok: true } | Fail>;
 
-/** What became of such a message, told to the channel side so the mention the person wrote can move: the person (folded), the agent, and the states it may move from. */
+/** What became of such a message, told to the channel side so the mention the person wrote can move: the person (`people.id`, #1284), the agent, and the states it may move from. */
 export interface AcrossUpdate {
-  person: string;
+  personId: number;
   sessionId: string;
   from: MentionState[];
   state: MentionState;
@@ -65,7 +65,7 @@ export class ChatCore {
   /** What an Admin's reading or stopping tells the person's reporter sessions (#1034); the report reply carries it, to the person only. */
   readonly notices: AdminNotices;
   /** Replaced by the routes: the names of everyone who can sign in, for the counts a post changes for all of them. */
-  people: Pick<PeopleStoreApi, 'list'> | null = null;
+  people: (Pick<PeopleStoreApi, 'list'> & Partial<Pick<PeopleStoreApi, 'findByName'>>) | null = null;
   /** Replaced by the Chat service: hands a person's @ of another person's agent to the direct-message side. */
   across: AcrossAsk | null = null;
   /** Replaced by the Chat service: edits or deletes the copy of a channel message that waits for another person's approval (#1269). */
@@ -135,27 +135,43 @@ export class ChatCore {
     this.host.signal({ ...s, rev: ++this.rev });
   }
 
-  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. */
-  async count(who: string, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
-    const row = await this.store.readState.bump(who, thread, mention);
-    this.signal({ scope, owner: who, unread: row.unread, mentions: row.mentions });
+  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. The count is kept under the person's id (#1284). */
+  async count(who: PersonRef, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
+    const row = await this.store.readState.bump(who.id, thread, mention);
+    this.signal({ scope, owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
   }
 
-  /** Every person who can sign in, with the name as typed and folded. */
-  async persons(): Promise<{ name: string; key: string }[]> {
-    const out: { name: string; key: string }[] = [];
+  /**
+   * `count` for a person a direct message names by name (a conversation between agents is still kept under its owner's name until it moves to ids): the name is looked up once, and a name that is
+   * no person's today counts for no one, so a deleted person's name never counts toward a newcomer by an id the newcomer does not have.
+   */
+  async countByName(name: string, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
+    const p = await this.personNamed(name);
+    if (p) await this.count(p, thread, scope, mention);
+  }
+
+  /**
+   * The person with this name now, or null: the one place a typed name becomes an id. A person whose access is revoked is still a person (their group is still theirs to an Admin), so the
+   * directory of people who can sign in is tried first, then the store's own lookup by name.
+   */
+  async personNamed(name: string): Promise<(PersonRef & { key: string }) | null> {
+    const key = nameKey(name);
+    const listed = (await this.persons()).find((x) => x.key === key);
+    if (listed) return listed;
+    const found = await this.people?.findByName?.(name);
+    return found ? { id: found.id, name: found.name, key } : null;
+  }
+
+  /** Every person who can sign in, by id, with the name as typed and folded. */
+  async persons(): Promise<(PersonRef & { key: string })[]> {
+    const out: (PersonRef & { key: string })[] = [];
     if (!this.people) return out;
     for (let page = 1; page <= 20; page++) {
       const got = await this.people.list({ page, pageSize: 100 });
-      for (const p of got.rows) if (p.revokedAt === null) out.push({ name: p.name, key: nameKey(p.name) });
+      for (const p of got.rows) if (p.revokedAt === null) out.push({ id: p.id, name: p.name, key: nameKey(p.name) });
       if (got.rows.length < 100) break;
     }
     return out;
-  }
-
-  /** Every person's name, folded, for a post to General. */
-  async everyone(): Promise<string[]> {
-    return (await this.persons()).map((p) => p.key);
   }
 
   /**

@@ -21,14 +21,20 @@ export const newChannelId = (prefix: 'grp' | 'pub', scope: string): string => `$
 /** A fresh server scope: 8 hex digits. */
 export const newServerScope = (): string => randomBytes(4).toString('hex');
 
-/** The owner of a group channel as it is stored and compared: folded the way every owner name is. */
-export const channelOwner = (owner: string): string => nameKey(owner);
+/**
+ * What a person is called in a key column that was a name before #1284 (`chat_read_state.person`, `chat_admin_owed.person_key`, and `group_messages.owner` and `.group_id`): `#<people.id>`.
+ * The column keeps its place in the primary key, so a person is told apart by the id and never by a name, and a person who takes a deleted person's name starts with nothing.
+ * Those columns are no longer read as names; the `person_id` and `owner_id` beside them are what every query uses.
+ */
+export const personKey = (id: number): string => `#${id}`;
 
 /** The group channel's key columns, in one place for both adapters. */
 export interface DbChannelRow {
   id: string;
   owner?: string;
   group_id?: string;
+  /** The `people.id` of the group's person (#1284); null for a row whose person is not known. Only in the group table. */
+  owner_id?: number | null;
   /** Only in the public table (#1035). */
   channel?: string;
   author_kind: string;
@@ -95,8 +101,7 @@ function parseMentions(json: string): ChannelMention[] {
 export function toChannelMessage(r: DbChannelRow): ChannelMessage {
   return {
     id: r.id,
-    owner: r.owner ?? null,
-    groupId: r.group_id ?? null,
+    ownerId: r.owner_id == null ? null : Number(r.owner_id),
     channel: r.channel ?? null,
     authorKind: r.author_kind as ChatAuthorKind,
     authorRef: r.author_ref,
@@ -144,8 +149,8 @@ export function withMentionState(mentions: ChannelMention[], index: number, patc
 }
 
 /** What a read state row says before anything was counted for the thread. */
-export const emptyReadState = (person: string, thread: string): { person: string; thread: string; lastRead: null; unread: 0; mentions: 0; updatedAt: 0 } => ({
-  person: nameKey(person),
+export const emptyReadState = (personId: number, thread: string): { personId: number; thread: string; lastRead: null; unread: 0; mentions: 0; updatedAt: 0 } => ({
+  personId,
   thread,
   lastRead: null,
   unread: 0,
@@ -162,7 +167,10 @@ const CHAT_RANGES: Record<keyof ChatSettings, { min: number; max: number }> = {
   perMinute: { min: 1, max: 600 },
 };
 const SETTING_PREFIX = 'chat.';
-const FLAG_PREFIX = 'chat.flag.';
+export const FLAG_PREFIX = 'chat.flag.';
+
+/** Whether a flag scope (`group:<id>`, `public:person:<id>`, `channel:<channel>:person:<id>`) is the person's own, which goes with the person (#1284). */
+export const isFlagOfPerson = (scope: string, id: number): boolean => scope === `group:${id}` || scope === `public:person:${id}` || (scope.startsWith('channel:') && scope.endsWith(`:person:${id}`));
 const SCOPE_MAX = 200;
 
 /** The `settings` table as the Chat settings need it: one text value per key, read and written whole. */
@@ -231,8 +239,8 @@ export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
   };
 }
 
-/** A list of folded names kept in a text column (`chat_admin_reads.people`, `.seen`). Anything that is not a list of strings is an empty one. */
-export function keyList(raw: string | null | undefined): string[] {
+/** A list of folded names kept in a text column before #1284 (`chat_admin_reads.people`, `.seen`). Anything that is not a list of strings is an empty one. Only the upgrade reads these now. */
+export function nameList(raw: string | null | undefined): string[] {
   try {
     const v: unknown = JSON.parse(raw ?? '[]');
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -241,27 +249,97 @@ export function keyList(raw: string | null | undefined): string[] {
   }
 }
 
-/** The list as the column keeps it: folded, without repeats, in order. */
-export const keyText = (names: readonly string[]): string => JSON.stringify([...new Set(names.map(nameKey))]);
+/** A list of person ids kept in a text column (`chat_admin_reads.people`, `.seen`, #1284). Anything that is not a whole number in a list is dropped, so a list the older server kept as names reads as empty until the upgrade has rewritten it. */
+export function idList(raw: string | null | undefined): number[] {
+  try {
+    const v: unknown = JSON.parse(raw ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isInteger(x)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The list as the column keeps it: ids without repeats, in order. */
+export const idText = (ids: readonly number[]): string => JSON.stringify([...new Set(ids)]);
 
 /**
- * What deleting the person `key` does to an Admin record (#1051): `drop` when only they were owed it (it can never be seen), `keep` with the people and the
+ * What deleting the person `id` does to an Admin record (#1051): `drop` when only they were owed it (it can never be seen), `keep` with the people and the
  * seen list without them when others are owed it too, and `none` for a record that does not name them (including one that names nobody, which goes by
  * retention alone).
  */
-export function withoutPerson(r: { people: string; seen: string }, key: string): 'none' | 'drop' | { people: string; seen: string } {
-  const people = keyList(r.people);
-  if (!people.includes(key)) return 'none';
-  const rest = people.filter((p) => p !== key);
+export function withoutPerson(r: { people: string; seen: string }, id: number): 'none' | 'drop' | { people: string; seen: string } {
+  const people = idList(r.people);
+  if (!people.includes(id)) return 'none';
+  const rest = people.filter((p) => p !== id);
   if (!rest.length) return 'drop';
-  return { people: keyText(rest), seen: keyText(keyList(r.seen).filter((p) => p !== key)) };
+  return { people: idText(rest), seen: idText(idList(r.seen).filter((p) => p !== id)) };
 }
 
 /** The people an Admin record is owed to and who have not seen it, from the two lists the record kept before `chat_admin_owed` (#1061). */
-export const owedKeys = (r: { people: string; seen: string }): string[] => {
-  const seen = new Set(keyList(r.seen));
-  return keyList(r.people).filter((p) => !seen.has(p));
+export const owedIds = (r: { people: string; seen: string }): number[] => {
+  const seen = new Set(idList(r.seen));
+  return idList(r.people).filter((p) => !seen.has(p));
 };
+
+/**
+ * The key an Admin's record is kept under: `#<people.id>` for an Admin who signed in as a person, and the folded name for the admin secret, which has no person (#1284). A person who
+ * takes a deleted Admin's name is a different Admin, so their reads do not join the earlier person's reading session.
+ */
+export const adminKeyOf = (name: string, adminId: number | null): string => (adminId === null ? nameKey(name) : personKey(adminId));
+
+// ---- The upgrade to ids (#1284), shared by every adapter -------------------------------------------------------------------------------------------------------
+
+/** `people.name_lower` to the person's id and the time the person was made, which the upgrade uses. */
+export type PersonIndex = ReadonlyMap<string, { id: number; createdAt: number }>;
+
+/** The text after a thread or scope's prefix when it still holds a folded name; null when it holds an id already (all digits, which a name the upgrade has not met is not) or nothing. */
+const nameAfter = (text: string, prefix: string): string | null => {
+  if (!text.startsWith(prefix)) return null;
+  const rest = text.slice(prefix.length);
+  return rest === '' || /^\d+$/.test(rest) ? null : rest;
+};
+
+/**
+ * A thread the older server named by a folded name (`group:<name>`, `list:<name>`, `act:<name>`) with the person's id instead. `null` when the thread is not one of those or already holds an
+ * id; `''` when it names a person who is not there, which the upgrade leaves alone (nobody can match it).
+ */
+export function threadWithId(thread: string, people: PersonIndex): string | null {
+  for (const prefix of ['group:', 'list:', 'act:']) {
+    const name = nameAfter(thread, prefix);
+    if (name === null) continue;
+    const p = people.get(name);
+    return p ? `${prefix}${p.id}` : '';
+  }
+  return null;
+}
+
+/** The flag scope the older server named by a folded name, with the person's id: `group:<name>`, `public:person:<name>` and `channel:<channel>:person:<name>`. `null` when it is not one of those or holds an id; `''` for a person who is not there (the flag is dropped). */
+export function flagScopeWithId(scope: string, people: PersonIndex): string | null {
+  const person = (prefix: string, name: string): string => {
+    const p = people.get(name);
+    return p ? `${prefix}${p.id}` : '';
+  };
+  const g = nameAfter(scope, 'group:');
+  if (g !== null) return person('group:', g);
+  const pub = nameAfter(scope, 'public:person:');
+  if (pub !== null) return person('public:person:', pub);
+  const m = /^(channel:[a-z0-9-]+:person:)(.+)$/.exec(scope);
+  if (m && !/^\d+$/.test(m[2] as string)) return person(m[1] as string, m[2] as string);
+  return null;
+}
+
+/** An Admin record's `people` or `seen` list with every name in it replaced by the person's id; a name that is no person's is dropped. `null` when the list holds no name, so it is not written again. */
+export function listWithIds(raw: string, people: PersonIndex): string | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(v) || !v.some((x) => typeof x === 'string')) return null;
+  const ids = v.flatMap((x) => (typeof x === 'number' ? [x] : typeof x === 'string' && people.has(x) ? [(people.get(x) as { id: number }).id] : []));
+  return idText(ids);
+}
 
 /** A person who never loads Chat is owed an Admin record for this long after its last read (#1061, 90 days); then the record is no longer owed to them. */
 export const OWED_CAP_MS = 90 * 86_400_000;
@@ -282,7 +360,7 @@ const MAX_CHANNEL_LINK_REF = 100;
 const CHANNEL_LINK_KINDS: readonly PublicChannelLinkKind[] = ['issue', 'milestone', 'project'];
 
 /** The columns of a public channel row. */
-export const CHANNEL_COLS = 'name, description, link_kind, link_ref, created_by, created_by_name, created_at, updated_at';
+export const CHANNEL_COLS = 'name, description, link_kind, link_ref, created_by_id, created_by_name, created_at, updated_at';
 
 /** A public channel as its table keeps it. `link_key` is only for the unique key and is never read back. */
 export interface DbPublicChannel {
@@ -290,7 +368,8 @@ export interface DbPublicChannel {
   description: string;
   link_kind: string | null;
   link_ref: string | null;
-  created_by: string;
+  /** The opener's `people.id` (#1284); null once that person is deleted, or for a channel whose opener the upgrade could not tell. */
+  created_by_id: number | null;
   created_by_name: string;
   created_at: number;
   updated_at: number;
@@ -300,7 +379,7 @@ export const toPublicChannel = (r: DbPublicChannel): PublicChannel => ({
   name: r.name,
   description: r.description,
   link: r.link_kind && r.link_ref ? { kind: r.link_kind as PublicChannelLinkKind, ref: r.link_ref } : null,
-  createdBy: r.created_by,
+  createdById: r.created_by_id == null ? null : Number(r.created_by_id),
   createdByName: r.created_by_name,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -328,7 +407,7 @@ export const checkDescription = (description: unknown): Extract<PublicChannelOut
   typeof description === 'string' && [...description].length <= MAX_CHANNEL_DESCRIPTION ? null : channelRefusal('invalid', `The description is at most ${MAX_CHANNEL_DESCRIPTION} characters.`);
 
 /** A new channel's values after the checks that need no database (`reserved`, `invalid`); the refusal when one fails. */
-export function checkNewChannel(input: NewPublicChannel): Extract<PublicChannelOutcome, { ok: false }> | { name: string; description: string; link: { kind: PublicChannelLinkKind; ref: string; key: string } | null; createdBy: string; createdByName: string } {
+export function checkNewChannel(input: NewPublicChannel): Extract<PublicChannelOutcome, { ok: false }> | { name: string; description: string; link: { kind: PublicChannelLinkKind; ref: string; key: string } | null; createdById: number | null; createdByName: string } {
   const name = channelKey(typeof input.name === 'string' ? input.name : '');
   if (RESERVED_CHANNEL_NAMES.includes(name)) return channelRefusal('reserved', `"${name}" is reserved.`);
   if (!CHANNEL_NAME.test(name)) return channelRefusal('invalid', 'A channel name is 1 to 40 lowercase letters, digits or hyphens, and starts with a letter or digit.');
@@ -345,7 +424,8 @@ export function checkNewChannel(input: NewPublicChannel): Extract<PublicChannelO
   }
   const createdByName = typeof input.createdBy === 'string' ? input.createdBy.trim() : '';
   if (!createdByName) return channelRefusal('invalid', 'A channel needs the person who opens it.');
-  return { name, description, link, createdBy: nameKey(createdByName), createdByName };
+  if (input.createdById !== null && (!Number.isInteger(input.createdById) || input.createdById < 1)) return channelRefusal('invalid', 'A channel needs the person who opens it.');
+  return { name, description, link, createdById: input.createdById, createdByName };
 }
 
 /** The key of the person a stored direct message was written by, folded (#1269): `person:<folded name>` in `from_session` for a message to someone else's agent or to one's own, and the row's owner in a conversation between two of that person's own agents. */

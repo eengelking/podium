@@ -4,14 +4,13 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { AsyncLock } from '../lock.js';
 import { conversationsOver } from './conversations.js';
-import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 
-const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
+const GROUP_COLS = 'id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 
 /** Which messages of a table: one person's group, or one public channel (#1035). */
@@ -46,8 +45,8 @@ class Channel {
   }
 
   /** The `WHERE` for the channel and the values that fill it. */
-  private where(scope: Scope): { sql: string; args: string[] } {
-    return 'channel' in scope ? { sql: 'channel = ?', args: [scope.channel] } : { sql: 'owner = ? AND group_id = ?', args: [channelOwner(scope.owner), scope.groupId] };
+  private where(scope: Scope): { sql: string; args: (string | number)[] } {
+    return 'channel' in scope ? { sql: 'channel = ?', args: [scope.channel] } : { sql: 'owner_id = ?', args: [scope.ownerId] };
   }
 
   private byId(id: string, scope: Scope): DbChannelRow | undefined {
@@ -63,9 +62,10 @@ class Channel {
     const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions), kind === 'person' ? (input.authorId ?? null) : null] as const;
     if (!('channel' in scope)) {
       this.stmt(
-        `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
-      ).run(common[0], channelOwner(scope.owner), scope.groupId, ...common.slice(1));
+        `INSERT INTO group_messages (id, owner, group_id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
+        // `owner` and `group_id` are the older name key and are not read (#1284); they hold the id's key so a name never lands in them.
+      ).run(common[0], personKey(scope.ownerId), personKey(scope.ownerId), scope.ownerId, ...common.slice(1));
     } else {
       // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
       if (scope.channel !== GENERAL_CHANNEL && !this.stmt('SELECT 1 AS x FROM public_channels WHERE name = ?').get(scope.channel)) throw new Error('There is no such public channel.');
@@ -175,10 +175,11 @@ class PublicChannels {
     // The limit is in the insert itself, so no second insert can pass it between a count and this statement.
     const made = this.db
       .prepare(
-        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_name, created_at, updated_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM public_channels) < ?`,
+        // `created_by` is the older name key and is not read (#1284); the opener is `created_by_id`.
+        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_id, created_by_name, created_at, updated_at)
+         SELECT ?, ?, ?, ?, ?, '', ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM public_channels) < ?`,
       )
-      .run(c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdBy, c.createdByName, at, at, MAX_PUBLIC_CHANNELS);
+      .run(c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdById, c.createdByName, at, at, MAX_PUBLIC_CHANNELS);
     if (Number(made.changes) === 0) return channelRefusal('limit-reached', `There are already ${MAX_PUBLIC_CHANNELS} channels besides General.`);
     return { ok: true, channel: toPublicChannel(this.row(c.name) as DbPublicChannel) };
   }
@@ -222,8 +223,9 @@ class PublicChannels {
   }
 }
 
+/** A read state row. `person` is the older name key, which holds `#<id>` now and is not read (#1284); the person is `person_id`. */
 interface DbReadState {
-  person: string;
+  person_id: number;
   thread: string;
   last_read: string | null;
   unread: number;
@@ -231,7 +233,7 @@ interface DbReadState {
   updated_at: number;
 }
 
-const toState = (r: DbReadState): ThreadReadState => ({ person: r.person, thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
+const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(r.person_id), thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
 
 class ReadState {
   constructor(
@@ -239,33 +241,33 @@ class ReadState {
     private readonly now: () => number,
   ) {}
 
-  get(person: string, thread: string): ThreadReadState {
-    const r = this.db.prepare('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person = ? AND thread = ?').get(nameKey(person), thread) as unknown as DbReadState | undefined;
-    return r ? toState(r) : emptyReadState(person, thread);
+  get(personId: number, thread: string): ThreadReadState {
+    const r = this.db.prepare('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? AND thread = ?').get(personId, thread) as unknown as DbReadState | undefined;
+    return r ? toState(r) : emptyReadState(personId, thread);
   }
 
-  list(person: string): ThreadReadState[] {
-    return (this.db.prepare('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person = ? ORDER BY thread').all(nameKey(person)) as unknown as DbReadState[]).map(toState);
+  list(personId: number): ThreadReadState[] {
+    return (this.db.prepare('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? ORDER BY thread').all(personId) as unknown as DbReadState[]).map(toState);
   }
 
-  bump(person: string, thread: string, mention: boolean): ThreadReadState {
+  bump(personId: number, thread: string, mention: boolean): ThreadReadState {
     this.db
       .prepare(
-        `INSERT INTO chat_read_state (person, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, NULL, 1, ?, ?)
+        `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, NULL, 1, ?, ?)
          ON CONFLICT(person, thread) DO UPDATE SET unread = unread + 1, mentions = mentions + excluded.mentions, updated_at = excluded.updated_at`,
       )
-      .run(nameKey(person), thread, mention ? 1 : 0, this.now());
-    return this.get(person, thread);
+      .run(personKey(personId), personId, thread, mention ? 1 : 0, this.now());
+    return this.get(personId, thread);
   }
 
-  markRead(person: string, thread: string, upTo: string | null): ThreadReadState {
+  markRead(personId: number, thread: string, upTo: string | null): ThreadReadState {
     this.db
       .prepare(
-        `INSERT INTO chat_read_state (person, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, 0, 0, ?)
+        `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?)
          ON CONFLICT(person, thread) DO UPDATE SET last_read = excluded.last_read, unread = 0, mentions = 0, updated_at = excluded.updated_at`,
       )
-      .run(nameKey(person), thread, upTo, this.now());
-    return this.get(person, thread);
+      .run(personKey(personId), personId, thread, upTo, this.now());
+    return this.get(personId, thread);
   }
 
   forget(thread: string): number {
@@ -296,15 +298,15 @@ interface DbOwed {
 const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
 
 /** One person owed one Admin record (#1061). */
-const owe = (db: DatabaseSync, thread: string, adminKey: string, startedAt: number, people: string[]): void => {
-  for (const p of people) db.prepare('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING').run(p, thread, adminKey, startedAt);
+const owe = (db: DatabaseSync, thread: string, adminKey: string, startedAt: number, people: number[]): void => {
+  for (const p of people) db.prepare('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p), p, thread, adminKey, startedAt);
 };
 
 /** Once, fills `chat_admin_owed` from the lists of the records made before it (#1061); the key is set last, so an interrupted fill runs again and adds nothing twice. */
 export function fillOwed(db: DatabaseSync): void {
   if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
   const rows = db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as DbOwed[];
-  for (const r of rows) owe(db, r.thread, r.admin_key, r.started_at, owedKeys(r));
+  for (const r of rows) owe(db, r.thread, r.admin_key, r.started_at, owedIds(r));
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(OWED_FILLED_KEY, '1');
 }
 
@@ -317,13 +319,13 @@ class AdminReads {
     fillOwed(db);
   }
 
-  private owe(thread: string, adminKey: string, startedAt: number, people: string[]): void {
+  private owe(thread: string, adminKey: string, startedAt: number, people: number[]): void {
     owe(this.db, thread, adminKey, startedAt, people);
   }
 
-  touch(thread: string, admin: string, gapMs: number, people: string[] = []): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
+  touch(thread: string, admin: string, adminId: number | null, gapMs: number, people: number[] = []): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
     const now = this.now();
-    const key = nameKey(admin);
+    const key = adminKeyOf(admin, adminId);
     const last = this.db.prepare("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND kind = 'read' ORDER BY last_seen_at DESC, started_at DESC LIMIT 1").get(thread, key) as unknown as DbAdminRead | undefined;
     if (last && now - last.last_seen_at <= gapMs) {
       const seen = Math.max(now, last.last_seen_at);
@@ -334,16 +336,16 @@ class AdminReads {
     return { record: row, started: true, previousSeenAt: null };
   }
 
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[] = []): AdminReadRow {
-    return this.insert(thread, nameKey(admin), admin, this.now(), kind, people);
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people: number[] = []): AdminReadRow {
+    return this.insert(thread, adminKeyOf(admin, adminId), admin, this.now(), kind, people);
   }
 
   /** One record at `at`, or the first free millisecond after it, since (thread, admin, time) is the key. */
-  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: string[]): AdminReadRow {
+  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: number[]): AdminReadRow {
     let t = at;
     while (this.db.prepare('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').get(thread, key, t)) t++;
-    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, keyText(people), '[]');
-    this.owe(thread, key, t, keyList(keyText(people)));
+    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, idText(people), '[]');
+    this.owe(thread, key, t, idList(idText(people)));
     return { admin, startedAt: t, lastSeenAt: t, kind };
   }
 
@@ -371,18 +373,18 @@ class AdminReads {
     return (this.db.prepare('SELECT DISTINCT thread FROM chat_admin_reads WHERE substr(thread, 1, ?) = ? ORDER BY thread').all(prefix.length, prefix) as unknown as { thread: string }[]).map((r) => r.thread);
   }
 
-  seen(thread: string, person: string): number {
-    return Number(this.db.prepare('DELETE FROM chat_admin_owed WHERE person_key = ? AND thread = ?').run(nameKey(person), thread).changes);
+  seen(thread: string, personId: number): number {
+    return Number(this.db.prepare('DELETE FROM chat_admin_owed WHERE person_id = ? AND thread = ?').run(personId, thread).changes);
   }
 
-  unseenFor(person: string): (AdminReadRow & { thread: string })[] {
+  unseenFor(personId: number): (AdminReadRow & { thread: string })[] {
     const rows = this.db
       .prepare(
         `SELECT r.thread, r.admin, r.started_at, r.last_seen_at, r.kind FROM chat_admin_owed o
          JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at
-         WHERE o.person_key = ? ORDER BY r.started_at DESC, r.thread, r.admin_key, r.kind`,
+         WHERE o.person_id = ? ORDER BY r.started_at DESC, r.thread, r.admin_key, r.kind`,
       )
-      .all(nameKey(person)) as unknown as DbAdminRead[];
+      .all(personId) as unknown as DbAdminRead[];
     return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
 
@@ -441,8 +443,8 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     threads: (prefix) => step(() => state.threads(prefix)),
   };
   const adminReads: ChatAdminReadsApi = {
-    touch: (thread, admin, gapMs, people) => step(() => reads.touch(thread, admin, gapMs, people)),
-    mark: (thread, admin, kind, people) => step(() => reads.mark(thread, admin, kind, people)),
+    touch: (thread, admin, adminId, gapMs, people) => step(() => reads.touch(thread, admin, adminId, gapMs, people)),
+    mark: (thread, admin, adminId, kind, people) => step(() => reads.mark(thread, admin, adminId, kind, people)),
     list: (thread) => step(() => reads.list(thread)),
     live: (threads, since) => step(() => reads.live(threads, since)),
     recent: (since) => step(() => reads.recent(since)),

@@ -15,7 +15,7 @@ describe('unseenFor reaches only the rows of the person asked (#1061)', () => {
       const reads = s.chat({ now: () => clock.now }).adminReads;
       for (let i = 0; i < RECORDS; i++) {
         clock.now += 1;
-        await reads.mark(`dm:t${i}`, 'Root', 'cleared', [`p${String(i % PEOPLE).padStart(2, '0')}`]);
+        await reads.mark(`dm:t${i}`, 'Root', null, 'cleared', [100 + (i % PEOPLE)]);
       }
       const db = s.sqliteHandle;
       const run: string[] = [];
@@ -24,7 +24,7 @@ describe('unseenFor reaches only the rows of the person asked (#1061)', () => {
         run.push(sql);
         return prepare(sql);
       }) as typeof db.prepare;
-      const rows = await reads.unseenFor('p07');
+      const rows = await reads.unseenFor(107);
       db.prepare = prepare;
       expect(rows).toHaveLength(RECORDS / PEOPLE);
       expect(run.length).toBeGreaterThan(0);
