@@ -612,7 +612,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.get('/sessions/:id/asks/:askId', asyncHandler(async (req, res) => {
     const got = await browserSession(req, res);
     if (!got) return;
-    const detail = fleet.respond.detail(got.row.id, req.params.askId!, got.v.name, got.row.last_seen_at);
+    const detail = fleet.respond.detail(got.row.id, req.params.askId!, got.v.name, got.row.last_seen_at, got.v.personId);
     if (!detail) {
       res.status(404).json({ ok: false, error: 'unknown ask' });
       return;
@@ -632,7 +632,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.post('/sessions/:id/asks/:askId/answer', asyncHandler(async (req, res) => {
     const got = await browserSession(req, res, true);
     if (!got) return;
-    const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body);
+    const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body, got.v.personId);
     if (!out.ok) {
       if (out.err.status !== 400) logger.info('respond.refused', `podium: an answer to session ${got.row.id} was refused: ${out.err.error}`, { session_id: got.row.id, status: out.err.status, reason: out.err.error });
       answerError(res, out.err);
@@ -646,7 +646,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.post('/sessions/:id/messages', asyncHandler(async (req, res) => {
     const got = await browserSession(req, res, true);
     if (!got) return;
-    const out = fleet.respond.message(got.row.id, got.v.name, req.body, false, null, { via: 'console', adminOf: ownsOutright(got.v, got.row) ? null : got.row.owner });
+    const out = fleet.respond.message(got.row.id, got.v.name, req.body, false, null, { via: 'console', adminOf: ownsOutright(got.v, got.row) ? null : got.row.owner }, got.v.personId);
     if (!out.ok) {
       answerError(res, out.err);
       return;
@@ -667,7 +667,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'sign in to respond');
       return;
     }
-    const out = withSource(sourceOf(req), () => fleet.respond.discard(req.params.deliveryId!, v.name, v.admin));
+    const out = withSource(sourceOf(req), () => fleet.respond.discard(req.params.deliveryId!, v.name, v.admin, v.personId));
     if (out === 'unknown') res.status(404).json({ ok: false, error: 'unknown delivery' });
     else if (out === 'forbidden') refuse(req, res, 403, 'not your answer');
     else if (out === 'handed-over') res.status(409).json({ ok: false, error: 'handed over' });

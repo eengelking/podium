@@ -327,7 +327,7 @@ export class ConversationChat {
     const skipped: string[] = [];
     for (const m of c.members) {
       if (m.leftAt !== null || m.kind !== 'agent') continue;
-      const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true);
+      const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId);
       if (!out.ok) {
         skipped.push(`${m.name}: ${out.error}`);
         continue;

@@ -400,6 +400,39 @@ describe('RespondStore', () => {
     expect(s.discard(b.delivery.id, 'Alex', true)).toBe('handed-over');
     expect(s.discard('dlv_nope', 'Ed', true)).toBe('unknown');
   });
+
+  it('tells people apart by id, never by name, for mine and for discarding (#1284)', () => {
+    const { s, sid } = store();
+    s.announce(sid, QUESTION);
+    const a = s.answer(sid, 'toolu_q', 'Ed', { kind: 'reply', text: 'x' }, 7);
+    if (!a.ok) throw new Error('refused');
+    // A newcomer with the same name and a different id sees nothing of it as theirs and cannot discard it.
+    expect(s.detail(sid, 'toolu_q', 'Ed', 0, 9)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Ed', false, 9)).toBe('forbidden');
+    // The admin secret (no id) with the same name is not the person either.
+    expect(s.detail(sid, 'toolu_q', 'Ed', 0, null)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Ed', false, null)).toBe('forbidden');
+    // The owner, even under a new name, still is.
+    expect(s.detail(sid, 'toolu_q', 'Edward', 0, 7)?.delivery).toMatchObject({ mine: true });
+    // An Admin may discard, as before.
+    expect(s.discard(a.delivery.id, 'Alex', true, 9)).toBe('ok');
+    // A message works the same way.
+    const m = s.message(sid, 'Ed', { text: 'hi' }, false, null, undefined, 7);
+    if (!m.ok) throw new Error('refused');
+    expect(s.discard(m.delivery.id, 'Ed', false, 9)).toBe('forbidden');
+    expect(s.discard(m.delivery.id, 'Ed', false, 7)).toBe('ok');
+  });
+
+  it('matches a delivery of the admin secret on the admin account, with no id', () => {
+    const { s, sid } = store();
+    s.announce(sid, QUESTION);
+    const a = s.answer(sid, 'toolu_q', 'Admin', { kind: 'reply', text: 'x' }, null);
+    if (!a.ok) throw new Error('refused');
+    expect(s.detail(sid, 'toolu_q', 'admin', 0, null)?.delivery).toMatchObject({ mine: true });
+    expect(s.detail(sid, 'toolu_q', 'Admin', 0, 3)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Admin', false, 3)).toBe('forbidden');
+    expect(s.discard(a.delivery.id, 'admin', false, null)).toBe('ok');
+  });
 });
 
 // ---- routes ---------------------------------------------------------------------------------

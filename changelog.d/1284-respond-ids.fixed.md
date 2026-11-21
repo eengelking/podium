@@ -1,0 +1,1 @@
+An answer or message waiting to be handed to a session is now remembered as its sender's by the person's id, never by name, so a new person who takes the name of someone else no longer sees that person's waiting answer as their own or discards it. An Admin can still discard any waiting delivery, and one made with the admin secret still belongs to the admin account.

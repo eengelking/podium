@@ -485,7 +485,7 @@ export class ChannelChat {
         } else if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${channelName(channel)} is disconnected for ${o.name}'s person` };
         else if (flags.paused) input = { ...input, state: 'held', why: `${channelName(channel)} is paused` };
         else {
-          const sent = this.core.deliver(o.sessionId, viewer.name, o.name, framed, 'channel', false, o.peers === true ? channelName(channel) : null);
+          const sent = this.core.deliver(o.sessionId, viewer.name, o.name, framed, 'channel', false, o.peers === true ? channelName(channel) : null, viewer.personId);
           if (sent.ok) {
             sentTo.set(inputs.length, { sessionId: o.sessionId, deliveryId: sent.delivery.id });
             input = { ...input, state: 'waiting' };
@@ -814,7 +814,7 @@ export class ChannelChat {
       const claimed = await h.setMention(message.id, index, { state: 'waiting' });
       if (!claimed) continue;
       // The message goes out as its author's, not as the one who resumed the channel (an Admin resuming for everyone sent nothing, #1051).
-      const sent = this.core.deliver(target.sessionId, claimed.authorName, target.name, `From Podium Chat, ${channelName(channel)}, ${claimed.authorName} wrote:\n${claimed.text}`, 'channel', false, target.peers === true ? channelName(channel) : null);
+      const sent = this.core.deliver(target.sessionId, claimed.authorName, target.name, `From Podium Chat, ${channelName(channel)}, ${claimed.authorName} wrote:\n${claimed.text}`, 'channel', false, target.peers === true ? channelName(channel) : null, claimed.authorId ?? null);
       if (sent.ok) {
         this.follow(channel, owner, message.id, index, sent.delivery.id, target.sessionId);
         delivered++;
