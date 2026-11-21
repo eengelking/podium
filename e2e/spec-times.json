@@ -26,6 +26,7 @@
     "cypress/e2e/chat/chat-admin.cy.js": 53,
     "cypress/e2e/chat/chat-button.cy.js": 5,
     "cypress/e2e/chat/chat-channels.cy.js": 22,
+    "cypress/e2e/chat/chat-concluded.cy.js": 18,
     "cypress/e2e/chat/chat-conversation-mention.cy.js": 8,
     "cypress/e2e/chat/chat-conversations.cy.js": 8,
     "cypress/e2e/chat/chat-direct.cy.js": 47,

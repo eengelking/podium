@@ -216,6 +216,7 @@ describe('chat: People and agents', () => {
 
 describe('chat: a conversation whose agents have left', () => {
   // The seeded sessions go stale after two seconds and stay on the wall, so each can be removed with the card's own Remove button, which is how an agent leaves.
+  // That is a lost heartbeat, which is not final (#1283): the conversation is hidden and comes back when the agent reports again. A finished agent concludes it: chat-concluded.cy.js.
   before(() => cy.resetServer({ seedArgs: '--talk', env: ['STALE_AFTER_MS=2000', 'HOOK_STALE_AFTER_MS=2000', 'DROP_AFTER_MS=7200000', 'LINGER_MS=7200000'] }));
   const remove = (key) => {
     cy.openConsole('#/');

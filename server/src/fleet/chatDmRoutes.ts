@@ -17,6 +17,21 @@ export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
     res.json({ ok: true, targets: await direct().targets(v, typeof req.query.q === 'string' ? req.query.q : '') });
   }));
 
+  /** What was concluded for the viewer because an agent in a Direct Message ended (#1283): names and times, never text. */
+  browser.get('/chat/concluded', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    res.json({ ok: true, concluded: v.personId === null ? [] : d.fleet.chat.core.concluded.of(v.personId) });
+  }));
+
+  /** The viewer dismisses one of their own. Another person's id answers 404, as an unknown one does. */
+  browser.delete('/chat/concluded/:id', asyncHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    if (v.personId === null || !d.fleet.chat.core.concluded.dismiss(v.personId, req.params.id!)) return void res.status(404).json({ ok: false, error: 'There is no such notice.' });
+    res.json({ ok: true });
+  }));
+
   browser.get('/chat/dm/:a/:b/messages', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;

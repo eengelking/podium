@@ -438,6 +438,8 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   with the copy, which closes that approval request on a delete. A mention of a person never locks. Logged as `group_message_edited`, `group_message_deleted`, and the same with `general_` and `channel_` (7.7).
 - `GET /api/fleet/respond/chat/addresses?channel=&q=`: what a typed `@` can mean in a channel, narrowed by `q` (the start of
   `name@location`). `200 { ok: true, addresses }`.
+- `GET /api/fleet/respond/chat/concluded` and `DELETE /api/fleet/respond/chat/concluded/:id` (#1283): the Direct Messages that were concluded because an agent in them ended, for the signed-in person only
+  (`{ id, thread, agent, with[], at, undelivered? }`: names, a time and a count, never text), and the person's dismissal of one. The list is memory only, kept 24 hours, at most 20 for a person. Another person's id answers `404`, as an unknown one does.
 - `GET /api/fleet/respond/chat/direct-targets?q=`: who the viewer can start a Direct Message with (#1035), for the **New direct message** picker: the live orchestrators of the viewer, then those of other people whose reporter takes part
   in messaging (`peers` on), never a subagent, a fork or an ended session, narrowed by `q` (a part of the name, the owner or the machine). `200 { ok: true, targets }`, each `{ sessionId, name, machine, address, owner, own, status,
   waitReason, canMessage, why, needsApproval, link, thread }`: `why` says in words when `canMessage` is false (responding is off, the reporter takes no messages, or the owner removed the link), `needsApproval` is true for another person's

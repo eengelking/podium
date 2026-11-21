@@ -302,7 +302,7 @@ export class Fleet {
       isLive: (id) => this.live.has(id),
       sessionOf: async (id) => {
         const row = await this.db.getSession(id);
-        return row ? { name: row.name, owner: row.owner, ownerId: row.owner_id } : null;
+        return row ? { name: row.name, owner: row.owner, ownerId: row.owner_id, ended: row.status === 'done' } : null;
       },
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),
@@ -978,7 +978,7 @@ export class Fleet {
     this.respond.dropSession(id);
     // `person:<name>` is how Chat names a person's end, never a session; deleting by it would wipe that person's conversations (#1051).
     if (!isPersonId(id.toLowerCase())) await this.peers.deleted([id]);
-    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner, row?.owner_id ?? null));
+    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner, row?.owner_id ?? null, true));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
@@ -1024,7 +1024,8 @@ export class Fleet {
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
     await this.peers.ended(row.id);
-    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner, row.owner_id));
+    // A finished session ends for good (and a /clear is the old one finishing); a lost heartbeat may be undone by a report, so it only hides (#1283).
+    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner, row.owner_id, reason === 'done'));
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);

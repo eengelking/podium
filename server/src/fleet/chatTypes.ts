@@ -78,6 +78,8 @@ export type ChatEvent =
   | { kind: 'across'; owner: string; person: string; by: string; messageId: string; sessionId: string; approval: boolean }
   | { kind: 'message_edited' | 'message_deleted'; scope: 'channel' | 'dm'; channel: ChannelId | null; owner: string | null; by: string; messageId: string }
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
+  // A Direct Message concluded because an agent in it ended (#1283); nobody did it, so there is no `by`.
+  | { kind: 'dm_concluded'; owner: string; a: string; b: string; count: number }
   | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
   // `owners` are the names the Admin log shows; who is told is found by id (#1284).
   | { kind: 'admin_browse'; by: string; person: string }
@@ -110,7 +112,8 @@ export interface ChatHost {
   isLive(sessionId: string): boolean;
   /** A session's name and owner as last stored (a session that has ended is still known), or null when it is not. */
   /** A stored session's name and owner: `owner` is display text, and who owns it is `ownerId` (#1284), null for the admin secret's session or one whose person was deleted. */
-  sessionOf(sessionId: string): Promise<{ name: string; owner: string | null; ownerId: number | null } | null>;
+  /** `ended` is true for a session that finished (#1283); a lost heartbeat is not that, because a report may undo it. */
+  sessionOf(sessionId: string): Promise<{ name: string; owner: string | null; ownerId: number | null; ended?: boolean } | null>;
   liveIds(): string[];
   /** The admin secret and anything else that must never be stored or sent on. */
   secrets(): string[];

@@ -62,6 +62,9 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
       case 'dm_deleted':
         row('chat_deleted', `Deleted a conversation, ${e.owner}'s: ${e.count} messages (${short(e.a)}, ${short(e.b)})`, actorName(e.by), { owner: e.owner, count: e.count });
         break;
+      case 'dm_concluded':
+        row('chat_concluded', `Concluded a conversation, ${e.owner}'s, because an agent in it ended: ${e.count} messages (${short(e.a)}, ${short(e.b)})`, 'Podium', { owner: e.owner, count: e.count });
+        break;
       case 'admin_read': {
         const where = e.scope === 'group' ? `${e.owners.join(', ')}'s My group` : `a Direct Message of ${e.owners.join(' and ')}`;
         row('chat_admin_read', `${e.by} read ${where}`, actorName(e.by), { scope: e.scope, thread: e.thread, owners: e.owners.join(','), by: e.by });

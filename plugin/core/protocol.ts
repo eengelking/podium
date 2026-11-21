@@ -721,6 +721,12 @@ export interface PeerDelivery {
   text: string;
 }
 
+/**
+ * What every notice that tells an orchestrator a direct message it was in has ended begins with (#1283). The server writes it and every reporter reads it, so a
+ * reporter turns that one notice into a turn in Podium's own words (the agent must not continue the conversation or open a new one) while any other notice stays a log line.
+ */
+export const ENDED_NOTICE_MARK = 'A direct message you were in has ended.';
+
 /** What became of a peer delivery, as the mod reports it. */
 export type PeerResult = 'took' | 'queued' | 'refused';
 export const PEER_RESULTS: readonly PeerResult[] = ['took', 'queued', 'refused'];

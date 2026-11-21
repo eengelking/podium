@@ -1,6 +1,6 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { AdminNotice, Ask, Delivery, PeerDelivery, PeerRequest, Report } from '../../core/protocol.ts'
+import { ENDED_NOTICE_MARK, type AdminNotice, type Ask, type Delivery, type PeerDelivery, type PeerRequest, type Report } from '../../core/protocol.ts'
 import { HELD_LEAD } from './midTurn.ts'
 import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
 import { assertKeptApart, assertSubmittedFramed, type AfterPeerMessage } from './peerChecks.ts'
@@ -623,6 +623,25 @@ describe('peers: receiving', () => {
     expect(w.submitted.map((s) => s.text)).toEqual([expect.stringMatching(/^A notice from Podium itself[\s\S]*\n───\nEd allowed your request for access to build-pi/)])
     expect(w.submitted[0]!.asUser).toBeUndefined()
     expect(peerResults(w)).toEqual([['dlv_n1', 'took'], ['dlv_n2', 'took']])
+  })
+})
+
+describe('peers: a direct message that ended (#1283)', () => {
+  test('the agent that remains is told in Podium\'s own words, once; an ordinary notice is still only a log line', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    const dropped = 'Your message to Tester on ci-runner-01 was not delivered: the receiver ended first. It stays in Podium > Traffic.'
+    const ended = `${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`
+    w.server.peerDeliveries.push(notice(dropped, 'dlv_n1'), notice(ended, 'dlv_n2'))
+    await nextReply(w)
+    expect(w.logs).toEqual(expect.arrayContaining([dropped]))
+    expect(w.submitted.map((s) => s.text)).toEqual([expect.stringMatching(/^A notice from Podium itself, about a direct message this orchestrator was in[\s\S]*\n───\nA direct message you were in has ended\. Tester ended/)])
+    expect(w.submitted[0]!.asUser).toBeUndefined()
+    expect(peerResults(w)).toEqual([['dlv_n1', 'took'], ['dlv_n2', 'took']])
+    // The same delivery handed over again is acted on once.
+    w.server.peerDeliveries.push(notice(ended, 'dlv_n2'))
+    await nextReply(w)
+    expect(w.submitted).toHaveLength(1)
   })
 })
 

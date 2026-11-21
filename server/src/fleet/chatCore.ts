@@ -9,6 +9,7 @@ import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '.
 import type { Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
 import { AdminNotices } from './chatAdminNotices.js';
+import { ConcludedList } from './chatConcluded.js';
 import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 const MINUTE = 60_000;
@@ -64,6 +65,10 @@ export class ChatCore {
   onEvent: (e: ChatEvent) => void = () => {};
   /** What an Admin's reading or stopping tells the person's reporter sessions (#1034); the report reply carries it, to the person only. */
   readonly notices: AdminNotices;
+  /** Conversations concluded because an agent in them ended, for each person (#1283); memory only, never any text. */
+  readonly concluded: ConcludedList;
+  /** Which agent was told which agent ended, per conversation that stayed (#1283), so a second end of the same session does not tell it again. Memory only. */
+  readonly noticed = new Set<string>();
   /** Replaced by the routes: the names of everyone who can sign in, for the counts a post changes for all of them. */
   people: (Pick<PeopleStoreApi, 'list'> & Partial<Pick<PeopleStoreApi, 'findByName'>>) | null = null;
   /** Replaced by the Chat service: hands a person's @ of another person's agent to the direct-message side. */
@@ -80,6 +85,7 @@ export class ChatCore {
     readonly store: ChatStoreApi,
   ) {
     this.notices = new AdminNotices(host.now);
+    this.concluded = new ConcludedList(host.now);
     host.respond.watch((t) => this.onTrail(t));
   }
 
