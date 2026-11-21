@@ -3,6 +3,13 @@ import { useRef, type ReactNode } from "react";
 /** The id of the update notice (#499). Closing it hides one release, not the notice, so it is closed through its own route. */
 export const UPDATE_NOTICE_ID = "update-available";
 
+/**
+ * The notice for a Direct Message concluded because an agent ended (#1283). Each conclusion is its own notice (`concluded:<id>`), and its X dismisses only that one,
+ * as the update notice's X hides one release; the on/off switch for the kind is `concluded-direct-messages` in Admin > Settings.
+ */
+export const CONCLUDED_NOTICE_ID = "concluded-direct-messages";
+export const CONCLUDED_PREFIX = "concluded:";
+
 /** One informational wall notice. A later notice adds an entry where the stack is built, and gets its X for free. */
 export interface NoticeItem {
   id: string;
@@ -37,7 +44,7 @@ export function NoticeStack({ items, onClose }: { items: NoticeItem[]; onClose: 
  * The confirmation after a notice is closed: which notice, and the link to Admin > Settings. It has its own X. A notice that
  * only hides one release (the update notice) passes `until`, the release it hid, and says it comes back for a newer one.
  */
-export function NoticeClosed({ name, until, onDismiss, onHold }: { name: string; until?: string; onDismiss: () => void; onHold: (held: boolean) => void }) {
+export function NoticeClosed({ name, until, once, onDismiss, onHold }: { name: string; until?: string; once?: boolean; onDismiss: () => void; onHold: (held: boolean) => void }) {
   // Pointer and focus are tracked apart: the timer waits while either is on the toast, so a pointer leaving must not release a focused one.
   const over = useRef({ pointer: false, focus: false });
   const set = (k: "pointer" | "focus", v: boolean) => {
@@ -56,11 +63,13 @@ export function NoticeClosed({ name, until, onDismiss, onHold }: { name: string;
       }}
     >
       <div className="t">
-        <b>{until ? "Notice dismissed" : "Notice turned off"}</b>
+        <b>{until || once ? "Notice dismissed" : "Notice turned off"}</b>
         <span>
-          {until
-            ? `“${name}” will show again when a release newer than ${until} comes out. You can turn the release check off in Admin > Settings.`
-            : `“${name}” will not show again. You can turn it back on or off in Admin > Settings.`}
+          {once
+            ? `“${name}” will show again the next time a direct message is concluded. You can turn it off in Admin > Settings.`
+            : until
+              ? `“${name}” will show again when a release newer than ${until} comes out. You can turn the release check off in Admin > Settings.`
+              : `“${name}” will not show again. You can turn it back on or off in Admin > Settings.`}
         </span>
         <br />
         <a className="go" href="#/admin/settings">

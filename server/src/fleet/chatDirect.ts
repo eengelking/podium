@@ -5,7 +5,7 @@
 import { isSentToAgent, mergesAsOne } from '../storage/peerEdit.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
-import { PEER_DROP_WORDS } from './protocol.js';
+import { ENDED_NOTICE_MARK, PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, type DeliveryOutcome } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
@@ -501,7 +501,15 @@ export class DirectChat {
     if (c && !role) return fail(404, 'There is no such conversation.');
     if (c && role !== 'owner') return fail(403, 'Only the people in a conversation can add to it, and an Admin can read it.');
     const fresh = c ? null : this.newWith(viewer, a, b);
-    if (!c && !fresh) return fail(404, 'There is no such conversation.');
+    if (!c && !fresh) {
+      // A conversation with an agent that ended is concluded and gone (#1283), so a new message to it is told why, not that nothing is there. A session that is still live
+      // but not open to this person is not that, and keeps the answer of a conversation that does not exist.
+      const other = a === me ? b : b === me ? a : null;
+      const known = other !== null && !isPersonId(other) && !this.liveOf(other) ? await this.core.host.sessionOf(other) : null;
+      // Only the person's own agent is named: another person's stored session is not theirs to learn exists, or what it is called.
+      if (known !== null && viewer.personId !== null && known.ownerId === viewer.personId) return fail(409, `${known.name} has ended, so Podium did not queue the message. It would never be taken.`);
+      return fail(404, 'There is no such conversation.');
+    }
     if (fresh && !fresh.own) return this.sendAcrossDm(viewer, fresh.sessionId, body);
     if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     // The checks that cost nothing come before the scan for secrets, which reads every character: type, length, then rate (#1051).
@@ -868,6 +876,53 @@ export class DirectChat {
     const ownerId = await this.idOf(owner);
     if (ownerId !== null) await this.reconcileOwner(owner, ownerId, sessionId);
     this.core.signal({ scope: 'dm', owner: nameKey(owner) });
+  }
+
+  /**
+   * An agent ended for good (#1283): every Direct Message it is in is concluded. The conversation and its text are deleted, as a person's Delete conversation does,
+   * the agent that remains (if one is live) is told in Podium's own voice once, and the consoles are told the list changed. Concluding twice finds nothing the second
+   * time and does nothing. A conversation between people alone has no agent, so it is never found here. A session that only lost its heartbeat does not come
+   * here: it may report again, and its conversation is hidden instead (`reconcileOwner`).
+   */
+  async conclude(sessionId: string): Promise<void> {
+    const told = new Set<string>();
+    const found = (await this.peers.conversations({})).filter((c) => c.a.sessionId === sessionId || c.b.sessionId === sessionId);
+    for (const c of found) {
+      if (c.ownerId === null) continue;
+      const [gone, other] = c.a.sessionId === sessionId ? [c.a, c.b] : [c.b, c.a];
+      const thread = dmThread(c.a.sessionId, c.b.sessionId);
+      // A person's message the agent never took, one still waiting for its owner's approval among them, goes with the conversation; the person is told how many.
+      const undelivered = (await this.peers.conversation(c.a.sessionId, c.b.sessionId)).filter((m) => m.author === 'person' && m.state === 'dropped').length;
+      const removed = await this.peers.deleteConversation(c.ownerId, c.a.sessionId, c.b.sessionId);
+      if (removed === 0) continue;
+      await this.core.store.readState.forget(thread);
+      await this.reads.forget(thread);
+      if (!isPersonId(other.sessionId) && !told.has(other.sessionId) && this.core.host.isLive(other.sessionId)) {
+        told.add(other.sessionId);
+        await this.peers.notice(other.sessionId, `${ENDED_NOTICE_MARK} ${gone.name} ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone.name}.`);
+      }
+      await this.remember(c, gone, other, thread, undelivered);
+      this.core.onEvent({ kind: 'dm_concluded', owner: nameKey(c.owner), a: c.a.sessionId, b: c.b.sessionId, count: removed });
+      this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+      const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+      if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal({ scope: 'dm', owner: nameKey(person.name) });
+    }
+  }
+
+  /** Records a conclusion for the people in it: the conversation's owner, a person in the pair, and the owner of the agent that remains. */
+  private async remember(c: OwnerConversation | ConversationSummary, gone: { name: string }, other: { sessionId: string; name: string }, thread: string, undelivered: number): Promise<void> {
+    const people = new Set<number>();
+    if (c.ownerId !== null) people.add(c.ownerId);
+    for (const p of [c.a, c.b]) {
+      const id = isPersonId(p.sessionId) ? Number(p.sessionId.slice('person:'.length)) : Number.NaN;
+      if (Number.isInteger(id)) people.add(id);
+    }
+    if (!isPersonId(other.sessionId)) {
+      const owner = (await this.core.host.sessionOf(other.sessionId))?.ownerId ?? null;
+      if (owner !== null) people.add(owner);
+    }
+    this.core.concluded.add(people, { thread, agent: gone.name, with: [other.name], ...(undelivered > 0 ? { undelivered } : {}) });
+    this.core.signal({ scope: 'dm', owner: null });
   }
 
   /** A session reported: its hidden conversations come back. `reconcileOwner` signals the consoles only when one did. */

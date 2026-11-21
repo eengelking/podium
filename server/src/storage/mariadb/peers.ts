@@ -43,6 +43,8 @@ export function peerStoreOver(db: MariaDbConn, lookup: AsyncPeerReporterLookup, 
     messages: {
       live: (sessionId) => svc.messages.live(sessionId),
       ...stepped(svc.messages, ['list', 'message', 'send', 'result', 'conversations', 'conversation', 'conversationOf', 'conversationCounts', 'sendFromPerson', 'sendAcross', 'page', 'editMessage', 'deleteMessage', 'deleteConversation', 'ownerConversations', 'hideConversation', 'showConversation', 'purgeHidden']),
+      // Memory only, so it answers at once; the interface is async like the rest.
+      notice: async (sessionId, text) => svc.messages.notice(sessionId, text),
     },
     note: (sessionId, reporterKey, owner, ownerId, report) => step(() => svc.note(sessionId, reporterKey, owner, ownerId, report)),
     replyFor: (sessionId, allowed) => step(() => svc.replyFor(sessionId, allowed)),

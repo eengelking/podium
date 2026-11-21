@@ -5,6 +5,7 @@
 // that read is recorded before it is answered and every person in it is told (the shared `AdminReads`). A conversation of people alone answers an Admin with `404`, as it
 // answers any stranger, so nothing says whether it exists, who is in it or how many messages it has.
 import { nameKey } from '../storage/rows.js';
+import { ENDED_NOTICE_MARK } from './protocol.js';
 import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage } from '../storage/types.js';
 import type { AdminReads, ReadSubject } from './chatAdminReads.js';
 import { type ChatCore } from './chatCore.js';
@@ -24,7 +25,11 @@ export interface MemberView {
   you: boolean;
   /** The person who added them, by name when they are known; null for the person who opened it. */
   addedBy: string | null;
+  /** An agent that ended for good (#1283): it can no longer send or be sent to. Absent for a person and for an agent that has not. */
+  ended?: boolean;
 }
+
+const NONE: ReadonlySet<string> = new Set();
 
 /** One conversation in the overview. Names, counts and times only, never any text. */
 export interface ConversationInfo {
@@ -122,7 +127,7 @@ export class ConversationChat {
     return c && this.hasAgent(c) ? this.subject(c) : null;
   }
 
-  private views(viewer: ChatViewer, c: Conversation): MemberView[] {
+  private views(viewer: ChatViewer, c: Conversation, ended: ReadonlySet<string> = NONE): MemberView[] {
     const byRef = new Map(c.members.map((m) => [`${m.kind}:${m.ref}`, m.name]));
     return c.members
       .filter((m) => m.leftAt === null)
@@ -131,7 +136,20 @@ export class ConversationChat {
         name: m.name,
         you: m.kind === 'person' && viewer.personId !== null && m.ref === String(viewer.personId),
         addedBy: m.addedBy === null ? null : (byRef.get(`person:${m.addedBy}`) ?? null),
+        ...(m.kind === 'agent' && ended.has(m.ref) ? { ended: true } : {}),
       }));
+  }
+
+  /** The agents of these conversations that ended for good (#1283): finished, or gone from the server. Read from the session, so it holds after a restart. A lost heartbeat is not that. */
+  private async endedIn(list: Conversation[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    const refs = new Set(list.flatMap((c) => c.members.filter((m) => m.leftAt === null && m.kind === 'agent').map((m) => m.ref)));
+    for (const ref of refs) {
+      if (this.core.host.isLive(ref)) continue;
+      const s = await this.core.host.sessionOf(ref);
+      if (s === null || s.ended === true) out.add(ref);
+    }
+    return out;
   }
 
   /** The viewer's conversations, newest activity first, for the overview: names, counts and times. */
@@ -139,7 +157,8 @@ export class ConversationChat {
     if (viewer.personId === null) return [];
     const counts = new Map((await this.core.store.readState.list(viewer.personId)).map((r) => [r.thread, r]));
     const mine = await this.store.listFor({ kind: 'person', ref: String(viewer.personId) });
-    return mine.map((c) => this.info(viewer, c, counts.get(conversationThread(c.id))));
+    const ended = await this.endedIn(mine);
+    return mine.map((c) => this.info(viewer, c, counts.get(conversationThread(c.id)), ended));
   }
 
   /**
@@ -150,14 +169,16 @@ export class ConversationChat {
     const person = (await this.directory()).find((p) => p.key === nameKey(name));
     if (!person) return [];
     const mine = await this.store.listFor({ kind: 'person', ref: String(person.id) });
-    return mine.filter((c) => this.hasAgent(c)).map((c) => this.info({ ...viewer, personId: person.id }, c, undefined));
+    const withAgent = mine.filter((c) => this.hasAgent(c));
+    const ended = await this.endedIn(withAgent);
+    return withAgent.map((c) => this.info({ ...viewer, personId: person.id }, c, undefined, ended));
   }
 
-  info(viewer: ChatViewer, c: Conversation, state: { unread: number; mentions: number } | undefined): ConversationInfo {
+  info(viewer: ChatViewer, c: Conversation, state: { unread: number; mentions: number } | undefined, ended: ReadonlySet<string> = NONE): ConversationInfo {
     return {
       id: c.id,
       thread: conversationThread(c.id),
-      members: this.views(viewer, c),
+      members: this.views(viewer, c, ended),
       hasAgent: this.hasAgent(c),
       unread: state?.unread ?? 0,
       mentions: state?.mentions ?? 0,
@@ -278,7 +299,7 @@ export class ConversationChat {
     }
     if (opened.created) this.core.onEvent({ kind: 'conversation_opened', by: viewer.actor, conversation: opened.conversation.id, members: opened.conversation.members.length });
     const c = (await this.store.get(opened.conversation.id)) as Conversation;
-    return { ok: true, created: opened.created, conversation: this.info(viewer, c, undefined), ...(message ? { message } : {}), skipped };
+    return { ok: true, created: opened.created, conversation: this.info(viewer, c, undefined, await this.endedIn([c])), ...(message ? { message } : {}), skipped };
   }
 
   /** One page of a conversation. A member reads their own; an Admin reads one with an agent in it, recorded and told before it answers; anyone else gets a `404`. */
@@ -297,7 +318,7 @@ export class ConversationChat {
     const thread = conversationThread(id);
     const adminReads = await this.reads.list(thread);
     if (role === 'member' && viewer.personId !== null) await this.reads.seen(thread, viewer.personId);
-    return { ok: true as const, conversation: this.info(viewer, c, undefined), messages: page.messages.map((m) => this.view(viewer, m)), older: page.older, total: c.messages, adminReads };
+    return { ok: true as const, conversation: this.info(viewer, c, undefined, await this.endedIn([c])), messages: page.messages.map((m) => this.view(viewer, m)), older: page.older, total: c.messages, adminReads };
   }
 
   /** An Admin's open conversation says it is still being read, every 15 seconds. Content-free. */
@@ -325,8 +346,14 @@ export class ConversationChat {
     // Everyone else in it is told there is something new: a count, never text.
     for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
     const skipped: string[] = [];
+    const ended = await this.endedIn([c]);
     for (const m of c.members) {
       if (m.leftAt !== null || m.kind !== 'agent') continue;
+      // An agent that ended for good is not sent anything (#1283); the person is told, as for any agent that did not take it.
+      if (ended.has(m.ref)) {
+        skipped.push(`${m.name}: it ended, so it did not get this message.`);
+        continue;
+      }
       const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId);
       if (!out.ok) {
         skipped.push(`${m.name}: ${out.error}`);
@@ -390,7 +417,7 @@ export class ConversationChat {
     if (!next) return fail(404, 'There is no such conversation.');
     this.core.onEvent({ kind: 'conversation_members_added', by: viewer.actor, conversation: id, count: got.members.length });
     for (const m of next.members) if (m.leftAt === null && m.kind === 'person') this.core.signal({ scope: 'dm', owner: nameKey(m.name) });
-    return { ok: true, conversation: this.info(viewer, next, undefined) };
+    return { ok: true, conversation: this.info(viewer, next, undefined, await this.endedIn([next])) };
   }
 
   /** The viewer leaves. A conversation with no person left in it is deleted with its messages. */
@@ -404,6 +431,38 @@ export class ConversationChat {
     this.core.onEvent({ kind: 'conversation_left', by: viewer.actor, conversation: id, deleted: out.deleted });
     this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
     return { ok: true, deleted: out.deleted };
+  }
+
+  /**
+   * An agent ended for good (#1283). A conversation that still has two or more people stays: the agent is marked ended (read from its session, so nothing is stored), it
+   * can no longer send or be sent to, and the agents that remain are told once. A conversation with fewer than two people left is concluded: it is deleted with its
+   * messages, the people in it are told in the console (`ConcludedList`), and the agents that remain are told once. Concluding twice finds nothing the second time.
+   */
+  async conclude(sessionId: string): Promise<void> {
+    for (const c of await this.store.listFor({ kind: 'agent', ref: sessionId })) {
+      const gone = c.members.find((m) => m.kind === 'agent' && m.ref === sessionId)!;
+      const people = this.personIdsOf(c);
+      const stays = people.length >= 2;
+      const others = c.members.filter((m) => m.leftAt === null && m.kind === 'agent' && m.ref !== sessionId && this.core.host.isLive(m.ref));
+      if (!stays) {
+        const out = await this.store.remove(c.id);
+        if (!out.removed) continue;
+        await this.core.store.readState.forget(conversationThread(c.id));
+        await this.reads.forget(conversationThread(c.id));
+        const withNames = c.members.filter((m) => m.leftAt === null && m.ref !== sessionId).map((m) => m.name);
+        this.core.concluded.add(people, { thread: conversationThread(c.id), agent: gone.name, with: withNames });
+        this.core.onEvent({ kind: 'dm_concluded', owner: people.map(String).join(','), a: c.id, b: sessionId, count: out.messages });
+      }
+      const told = `${ENDED_NOTICE_MARK} ${stays ? `${gone.name} ended. It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.` : `${gone.name} ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone.name}.`}`;
+      // A conversation that stays is found again by a later end of the same session (finished, then deleted), so each agent is told once per conversation.
+      for (const m of others) {
+        const key = `${c.id}|${sessionId}|${m.ref}`;
+        if (this.core.noticed.has(key)) continue;
+        this.core.noticed.add(key);
+        await this.core.host.peers.messages.notice(m.ref, told);
+      }
+      this.core.signal({ scope: 'dm', owner: null });
+    }
   }
 
   /** Retention: the messages older than the Admin's days go. Returns how many. */

@@ -666,7 +666,7 @@ export class MariaPeerMessages {
     const target = this.liveDir.get(input.toSession);
     if (!target) {
       // order-insensitive: only whether there is any row counts.
-      const known = await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages WHERE to_session = ? OR from_session = ?', [input.toSession, input.toSession]);
+      const known = await this.db.get<{ n: number }>('SELECT (SELECT COUNT(*) FROM peer_messages WHERE to_session = ? OR from_session = ?) + (SELECT COUNT(*) FROM sessions WHERE id = ?) AS n', [input.toSession, input.toSession, input.toSession]);
       return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not queue the message. It would never be taken.') : refuse(404, 'There is no such agent.');
     }
     if (target.ownerId !== input.ownerId) return refuse(404, 'There is no such agent.');
@@ -707,7 +707,7 @@ export class MariaPeerMessages {
     const target = this.liveDir.get(input.toSession);
     if (!target) {
       // order-insensitive: only whether there is any row counts.
-      const known = await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages WHERE to_session = ? OR from_session = ?', [input.toSession, input.toSession]);
+      const known = await this.db.get<{ n: number }>('SELECT (SELECT COUNT(*) FROM peer_messages WHERE to_session = ? OR from_session = ?) + (SELECT COUNT(*) FROM sessions WHERE id = ?) AS n', [input.toSession, input.toSession, input.toSession]);
       return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not send the message. It would never be taken.') : refuse(404, 'There is no such agent.');
     }
     if (target.ownerId === input.personId) return refuse(422, 'That agent is yours. Write to it from your own conversation with it.');

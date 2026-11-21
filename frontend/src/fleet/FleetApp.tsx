@@ -21,7 +21,8 @@ import { TopBarTab } from "./components/TopBarTab";
 import { Legend } from "./components/Legend";
 import { Wall } from "./components/Wall";
 import { Board } from "./components/Board";
-import { NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/NoticeStack";
+import { CONCLUDED_PREFIX, NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/NoticeStack";
+import { useConcluded } from "./useConcluded";
 import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
 import { useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
@@ -213,7 +214,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const sorted = useMemo(() => sortSessions(all, sort), [all, sort]);
   const showDetached = state.wall.showBackgroundSessions;
   /** The notice just closed, for the confirmation; `until` is the release an update notice was closed for. */
-  const [closed, setClosed] = useState<{ name: string; until?: string } | null>(null);
+  const [closed, setClosed] = useState<{ name: string; until?: string; once?: boolean } | null>(null);
   /** The pointer or focus is on the confirmation, so its timer waits. */
   const [held, setHeld] = useState(false);
   const sets = splitDetached(sorted, now, showDetached);
@@ -230,6 +231,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   // requests wait; often while the page is open. The admin secret has no reporters of its own.
   const peersOn = state.features["peer-messaging"] === true;
   const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters, state.chatRev);
+  // Direct Messages concluded because an agent in them ended (#1283): a notice each on the wall, read again whenever the console's chat signal moves.
+  const concluded = useConcluded(chatApiProp ?? chatApi, peersOn && me !== null, state.chatRev);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
   const peopleFilter: PeopleFilter = groupBy === "me" && me && active ? meFilter(me) : pf;
@@ -388,6 +391,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   };
   const selectSession = (id: string | null) => open(id);
   const onCloseNotice = (n: NoticeItem) => {
+    // A concluded Direct Message is dismissed on its own; the kind is switched off in Admin > Settings (#1283).
+    if (n.id.startsWith(CONCLUDED_PREFIX)) {
+      void concluded.dismiss(n.id.slice(CONCLUDED_PREFIX.length)).then((why) => (why === null ? setClosed({ name: n.name, once: true }) : setNotice(`Could not close the notice: ${why}. Try again.`)));
+      return;
+    }
     const version = n.id === UPDATE_NOTICE_ID ? state.wall.update?.latest : undefined;
     (version ? closeUpdateNotice(version) : closeNotice(n.id))
       .then(() => setClosed({ name: n.name, until: version }))
@@ -631,12 +639,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     }}
                     noticeOn={(id) => state.wall.notices[id] !== false}
                     onCloseNotice={onCloseNotice}
+                    concluded={concluded.items}
                     update={state.wall.update}
                     runningVersion={state.server?.version ?? null}
                     people={wallPeople}
                   />
                 )}
-                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
+                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} once={closed.once} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
               </main>
             )}
             {/* My reporters and My usage show no legend (#446, #726). */}

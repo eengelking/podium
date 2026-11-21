@@ -296,6 +296,8 @@ export interface PeerStoreApi {
     showConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Deletes the messages of every conversation hidden longer than the longest resume window of its two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
     purgeHidden(now: number, graceMs: number): Promise<number>;
+    /** Tells a live agent something in Podium's own voice (#1283): it is handed over with its next reply as a notice with no sender, until the agent confirms it. Memory only; a session that is not live is not told. */
+    notice(sessionId: string, text: string): Promise<void>;
   };
   /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
   note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void>;

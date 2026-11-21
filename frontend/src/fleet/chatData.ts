@@ -228,6 +228,8 @@ interface ConversationMemberInfo {
   name: string;
   you: boolean;
   addedBy: string | null;
+  /** An agent that ended for good (#1283): it can no longer send or be sent to. Absent for a person and for an agent that has not. */
+  ended?: boolean;
 }
 
 /** A conversation of two or more people and agents (#1278, DECISIONS 74): names, counts and times, never any text. */
@@ -433,7 +435,27 @@ const qs = (o: {
   return `?${q}`;
 };
 
+/** A Direct Message that was concluded and deleted because an agent in it ended (#1283): who ended, who it was with, and when. Never any text. */
+export interface Concluded {
+  id: string;
+  thread: string;
+  agent: string;
+  with: string[];
+  at: number;
+  /** How many messages the person wrote that the agent never took, one still waiting for its owner's approval among them (#1283). Absent when none. */
+  undelivered?: number;
+}
+
+/** The sentence that says a person's messages were not delivered when the agent ended; empty when none was waiting. */
+export function undeliveredWords(n: number | undefined): string {
+  if (!n) return "";
+  return n === 1 ? " A message you wrote to it was not delivered." : ` ${n} messages you wrote to it were not delivered.`;
+}
+
 export const chatApi = {
+  /** What was concluded for the signed-in person and not yet dismissed (#1283). */
+  concluded: () => call<{ ok: true; concluded: Concluded[] }>("GET", `${BASE}/concluded`),
+  dismissConcluded: (id: string) => call<{ ok: true }>("DELETE", `${BASE}/concluded/${enc(id)}`),
   /** An Admin names the person whose conversations to read with `owner`; the server answers that person's My group and Direct Messages. */
   overview: (owner?: string | null) =>
     call<ChatOverview>("GET", owner ? `${BASE}?owner=${enc(owner)}` : BASE),

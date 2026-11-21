@@ -353,9 +353,22 @@ export class ChatService {
 
   // ---- The fleet tells Chat when a session leaves or returns --------------------------------------------------------
 
-  /** A session left the live set (ended, dropped or deleted). */
-  async sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null): Promise<void> {
+  /**
+   * A session left the live set (ended, dropped or deleted). `final` is an end that cannot be undone (the session finished or was deleted), as against a lost heartbeat
+   * that a report may undo (#1283): a final end concludes the Direct Messages the agent is in, and any other only hides them.
+   */
+  async sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null, final = false): Promise<void> {
     this.seen.delete(sessionId);
+    if (final) {
+      // Each side on its own, so a failure of one does not skip the other.
+      for (const [what, run] of [['direct messages', () => this.direct.conclude(sessionId)], ['conversations', () => this.conversations.conclude(sessionId)]] as const) {
+        try {
+          await run();
+        } catch (err) {
+          this.core.host.warn(`concluding the ${what} of a session that ended`, err);
+        }
+      }
+    }
     if (!owner) return;
     await this.channels.sessionLeft(sessionId, ownerId === null ? null : { id: ownerId, name: owner });
     await this.direct.sessionChanged(sessionId, owner);

@@ -87,6 +87,12 @@ export const ChEye = () => (
     <circle cx="8" cy="8" r="2" />
   </Ic>
 );
+export const ChInfo = () => (
+  <Ic>
+    <circle cx="8" cy="8" r="6.5" />
+    <path d="M8 7.2v4M8 4.8v.2" />
+  </Ic>
+);
 export const ChLock = () => (
   <Ic>
     <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />

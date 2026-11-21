@@ -90,7 +90,9 @@ import {
   deliveredLine,
   errorOf,
   findRequest,
+  endedNoticePrompt,
   isAccessAnswer,
+  isEndedNotice,
   isRequestId,
   listAnswer,
   noticePrompt,
@@ -1551,7 +1553,9 @@ function peerDelivery($: Engine, r: Runtime, d: PeerDelivery): void {
     // Podium's own sentence: a log line. The answer to an access request is also a turn, as the tool promised.
     transcriptLine($, oneLine(d.text, 1000));
     queuePeerResult(sid, d.id, 'took');
-    if (isAccessAnswer(d.text)) void submitNotice($, d.text);
+    if (isAccessAnswer(d.text)) void submitNotice($, noticePrompt(d.text), 'peers.notice');
+    // A direct message this orchestrator was in has ended (#1283): the agent is told in Podium's own words, so it neither continues it nor opens a new one.
+    if (isEndedNotice(d.text)) void submitNotice($, endedNoticePrompt(d.text), 'peers.ended');
     return;
   }
   // In the middle of a turn only while the main loop works: an idle main loop with a subagent running is at its prompt (#1252).
@@ -1614,12 +1618,12 @@ async function submitPeerMessage($: Engine, sid: string, d: PeerDelivery, text: 
   }
 }
 
-/** The answer to this orchestrator's access request, as a turn in Podium's own words. */
-async function submitNotice($: Engine, text: string): Promise<void> {
+/** A notice that is also a turn, in Podium's own words: the answer to this orchestrator's access request, or a direct message of its that ended. `prompt` is the finished, framed text. */
+async function submitNotice($: Engine, prompt: string, where: string): Promise<void> {
   try {
-    await $.prompt.submit({ text: noticePrompt(text) });
+    await $.prompt.submit({ text: prompt });
   } catch (err) {
-    record($, 'peers.notice', err);
+    record($, where, err);
   }
 }
 

@@ -130,6 +130,8 @@ function fakeChat(over: Partial<Fake> = {}) {
     return list[at]!;
   };
   const api = {
+    concluded: vi.fn(async () => ({ ok: true as const, concluded: [] })),
+    dismissConcluded: vi.fn(async () => ({ ok: true as const })),
     overview: vi.fn(async () => structuredClone(overview)),
     markRead: vi.fn(async () => ({ ok: true as const, unread: 0, mentions: 0 })),
     addresses: vi.fn(async () => ({ ok: true as const, addresses: structuredClone(BOOK) })),

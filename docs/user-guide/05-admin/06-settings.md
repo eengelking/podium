@@ -91,7 +91,8 @@ was saved and which value still applies.
 **Wall notices.** The notes Podium shows at the bottom of the wall each have a switch here, and the X on a note turns its
 switch off for everyone. After you close one, Podium says so and links to this page. The update notice is the exception:
 its X hides the release it names for everyone and the notice comes back when a newer release is published, so its switch
-is **Release check** under Feature flags.
+is **Release check** under Feature flags. The **Concluded direct messages** note (#1283) is the other one: it appears once for each conversation that was deleted because an agent in it ended, for the people in it only, its X
+dismisses just that note, and its switch here turns the whole kind off.
 
 **Background sessions.** **Show background sessions on the wall** keeps sessions nobody is attached to in view. It is off
 by default.
