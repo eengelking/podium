@@ -91,18 +91,18 @@ export function chatAnswerHint(by: string): string {
 const CONVO_ID = /^[A-Za-z0-9_-]{1,80}$/;
 
 /** The conversation id an address or a delivery names; null for anything else. */
-export function convoArgument(v: unknown): string | null {
+function convoArgument(v: unknown): string | null {
   const s = oneLine(v);
   return CONVO_ID.test(s) ? s : null;
 }
 
 /** Where an answer in a Direct Message of people and agents goes (#1299): `convo:<id>`. `person:<name>` cannot say which conversation when a person and the agent share several. */
-export function convoAddress(id: string): string {
+function convoAddress(id: string): string {
   return `convo:${id}`;
 }
 
 /** The sentence after a message written in a Direct Message of people and agents (#1299): the address to answer to, so the answer shows in that conversation for the people in it. The other agents in it are not handed the answer. */
-export const CONVO_ANSWER_HINT = (id: string): string => `To answer in this conversation, so that the people in it see the answer, use podium_send to "${convoAddress(id)}".`;
+const CONVO_ANSWER_HINT = (id: string): string => `To answer in this conversation, so that the people in it see the answer, use podium_send to "${convoAddress(id)}".`;
 
 export const CONVO_ADDRESS_REFUSAL = 'Not sent. A conversation is convo:<id>, the id the message gave you.';
 

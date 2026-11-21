@@ -350,6 +350,17 @@ describe('an agent answering in a conversation', () => {
     expect((await ANSWER(w, 'sess-dev', w.id, 'All green.')).status).toBe(201);
   });
 
+  it('refuses an answer to a message written more than an hour ago, even when the conversation has since filled more than a page', async () => {
+    const w = await room();
+    expect((await SEND(w.edB, w.id, '@dev status?')).status).toBe(201);
+    w.tick(61 * 60 * 1000);
+    const store = w.fleet.chat.core.store.conversations;
+    for (let i = 0; i < 120; i++) expect(await store.post(w.id, { authorKind: 'person', authorRef: String(w.ed.person.id), authorName: 'Ed', authorId: w.ed.person.id, text: `later ${i}` }, w.now() + i), `later ${i} was stored`).not.toBeNull();
+    const out = await ANSWER(w, 'sess-dev', w.id, 'All green.');
+    expect(out.status).toBe(403);
+    expect(out.body.error).toContain('last hour');
+  });
+
   it('does not take an answer from an agent whose delivery was dropped, since it was never handed the message', async () => {
     const w = await room();
     const sent = await SEND(w.edB, w.id, '@dev status?');
