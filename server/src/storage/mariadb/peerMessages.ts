@@ -47,9 +47,6 @@ import type { AsyncPeerReporterLookup } from '../types.js';
 import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, shownCount, type TripRow } from '../peerText.js';
 import type { MariaDbConn } from './conn.js';
 
-/** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
-const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;
-
 const RATE_WINDOW_MS = 60_000;
 
 interface DbMessage {
@@ -261,15 +258,12 @@ export class MariaPeerMessages {
     const sender = await this.sender(sessionId);
     if (!sender) return { peers: [], leftOut: [], people: [] };
     const others = (await this.reachable(sender)).filter((o) => o.sessionId !== sender.sessionId);
-    const copies = new Map<string, number>();
-    for (const o of others) copies.set(addressKey(o), (copies.get(addressKey(o)) ?? 0) + 1);
     const peers: PeerListing[] = [];
     for (const o of others) {
       const right = await this.rights.effective(sender.reporterKey, o.reporterKey);
       peers.push({
         address: `${o.name}@${o.machine}`,
         id: String(o.agentId),
-        duplicate: (copies.get(addressKey(o)) ?? 0) > 1,
         name: o.name,
         machine: o.machine,
         os: o.os,

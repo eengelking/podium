@@ -209,15 +209,15 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
       expect(s.live('s-ann')?.name).toBe('Tester');
     });
 
-    it('lists each agent by an id the server gave it, never flags a duplicate, and sends to the id on its own or after the name (#1284)', async () => {
+    it('lists each agent by an id the server gave it, and sends to the id on its own or after the name (#1284)', async () => {
       const { s, count } = await setup();
       await s.note(orch('abcd1234-0000', 'r-ci', 'Tester', 'ci-runner-01'));
       await s.note(orch('ef567890-0000', 'r-ci', 'Tester', 'ci-runner-01'));
       const twins = (await s.list('s-mbp')).peers.filter((p) => p.name.startsWith('Tester'));
-      expect(twins.map((p) => [p.address, p.id, p.duplicate])).toEqual([
-        ['Tester 2@ci-runner-01', '4', false],
-        ['Tester 3@ci-runner-01', '5', false],
-        ['Tester@ci-runner-01', '2', false],
+      expect(twins.map((p) => [p.address, p.id])).toEqual([
+        ['Tester 2@ci-runner-01', '4'],
+        ['Tester 3@ci-runner-01', '5'],
+        ['Tester@ci-runner-01', '2'],
       ]);
       const sent = ok(await s.send('s-mbp', '#5', 'hi'));
       expect(await s.deliveriesFor('abcd1234-0000', true)).toEqual([]);
@@ -553,9 +553,9 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
       pause('r-mbp', 'r-pi');
       const { peers, leftOut } = await s.list('s-mbp');
       expect(peers).toEqual([
-        { address: 'arm64-check@build-pi', id: '3', duplicate: false, name: 'arm64-check', machine: 'build-pi', os: null, project: '~/dev/podium', status: 'running', level: 'ask', paused: true },
-        { address: 'second@ed-mbp', id: '7', duplicate: false, name: 'second', machine: 'ed-mbp', os: null, project: '~/dev/podium', status: 'running', level: 'see', paused: false },
-        { address: 'Tester@ci-runner-01', id: '2', duplicate: false, name: 'Tester', machine: 'ci-runner-01', os: 'Ubuntu 24.04', project: '~/dev/podium', status: 'waiting', level: 'send', paused: false },
+        { address: 'arm64-check@build-pi', id: '3', name: 'arm64-check', machine: 'build-pi', os: null, project: '~/dev/podium', status: 'running', level: 'ask', paused: true },
+        { address: 'second@ed-mbp', id: '7', name: 'second', machine: 'ed-mbp', os: null, project: '~/dev/podium', status: 'running', level: 'see', paused: false },
+        { address: 'Tester@ci-runner-01', id: '2', name: 'Tester', machine: 'ci-runner-01', os: 'Ubuntu 24.04', project: '~/dev/podium', status: 'waiting', level: 'send', paused: false },
       ]);
       expect(leftOut).toEqual([
         { machine: 'win-lab', why: 'messaging off on the machine' },

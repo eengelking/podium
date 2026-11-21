@@ -190,20 +190,8 @@ describe('peers: what the tools answer', () => {
     expect(framingLine(old)).toContain('To answer, use podium_send to "claude-dashboard@ed-mbp".')
   })
 
-  test('podium_peers shows an id for same-named orchestrators, says a plain address is refused, and the footer names an id (#500)', () => {
-    const twin = (id: string, status: string) => ({ address: 'Silverbolt@ed-mbp', id, duplicate: true, name: 'Silverbolt', machine: 'ed-mbp', os: null, project: '~/dev/podium', status, level: 'send', paused: false })
-    const text = listAnswer({ peers: [twin('a1b2c3d4', 'waiting'), twin('e5f60718', 'waiting'), twin('99aa00bb', 'running')], leftOut: [] }, 'Ed')
-    expect(text.split('\n')).toEqual([
-      "Orchestrators you can see, on 1 of Ed's reporters:",
-      '- Silverbolt on ed-mbp, id a1b2c3d4, waiting at the prompt, project ~/dev/podium. Can send, but only to "Silverbolt@ed-mbp#a1b2c3d4": 3 share the name.',
-      '- Silverbolt on ed-mbp, id e5f60718, waiting at the prompt, project ~/dev/podium. Can send, but only to "Silverbolt@ed-mbp#e5f60718": 3 share the name.',
-      '- Silverbolt on ed-mbp, id 99aa00bb, running, project ~/dev/podium. Can send, but only to "Silverbolt@ed-mbp#99aa00bb": 3 share the name.',
-      'To send, use podium_send with to set to "name@machine", or "name@machine#id" where the list gives an id, such as "Silverbolt@ed-mbp#a1b2c3d4".',
-    ])
-  })
-
   test('podium_peers lists the id Podium gave each orchestrator, and the footer names the id as the surest address (#1284)', () => {
-    const text = listAnswer({ peers: [{ address: 'Tester@ci-runner-01', id: '7', duplicate: false, name: 'Tester', machine: 'ci-runner-01', os: null, project: '~/dev/podium', status: 'waiting', level: 'send', paused: false }], leftOut: [] }, 'Ed')
+    const text = listAnswer({ peers: [{ address: 'Tester@ci-runner-01', id: '7', name: 'Tester', machine: 'ci-runner-01', os: null, project: '~/dev/podium', status: 'waiting', level: 'send', paused: false }], leftOut: [] }, 'Ed')
     expect(text.split('\n')).toEqual([
       "Orchestrators you can see, on 1 of Ed's reporters:",
       '- Tester on ci-runner-01, id 7, waiting at the prompt, project ~/dev/podium. Can send.',

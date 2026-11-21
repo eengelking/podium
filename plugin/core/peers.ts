@@ -253,8 +253,6 @@ interface PeerListing {
   address: string;
   /** The id the server gave the agent (#1284), never reused; absent from an older server. */
   id?: string;
-  /** Other orchestrators share this name and machine, so a plain `address` is refused (#500). */
-  duplicate?: boolean;
   name: string;
   machine: string;
   os: string | null;
@@ -273,18 +271,8 @@ const LEFT_OUT_WORDS: Record<string, string> = {
 };
 const LIST_LEVEL_WORDS: Record<string, string> = { see: 'Can see, cannot send.', ask: 'Can send, with approval.', send: 'Can send.' };
 
-const twinAddress = (p: PeerListing): string => `${oneLine(p.name)}@${oneLine(p.machine)}#${oneLine(p.id)}`;
-
 /** The surest address of a listing: its id alone (#1284). */
 const idAddress = (p: PeerListing): string => `#${oneLine(p.id)}`;
-
-/** The level sentence of a listing; for a same-named orchestrator it also says only its id-qualified address is accepted (#500). */
-function levelWords(p: PeerListing, all: readonly PeerListing[]): string {
-  const words = LIST_LEVEL_WORDS[p.level] ?? '';
-  if (!p.duplicate || !oneLine(p.id) || p.level === 'see') return words;
-  const share = all.filter((q) => q.duplicate && oneLine(q.name).toLowerCase() === oneLine(p.name).toLowerCase() && oneLine(q.machine).toLowerCase() === oneLine(p.machine).toLowerCase()).length;
-  return `${words.replace(/\.$/, '')}, but only to "${twinAddress(p)}": ${share} share the name.`;
-}
 
 /** What `podium_peers` answers, from `GET …/peers` (the mockup's section 2). */
 export function listAnswer(body: { peers?: unknown; leftOut?: unknown; people?: unknown }, owner: string): string {
@@ -301,7 +289,7 @@ export function listAnswer(body: { peers?: unknown; leftOut?: unknown; people?: 
       parts.push(STATUS_WORDS[p.status] ?? oneLine(p.status));
       if (oneLine(p.project, 200)) parts.push(`project ${oneLine(p.project, 200)}`);
       const paused = p.paused ? ` The link is paused, so a message waits until ${owner} resumes it.` : '';
-      lines.push(`- ${parts.join(', ')}. ${levelWords(p, peers)}${paused}`.trimEnd());
+      lines.push(`- ${parts.join(', ')}. ${LIST_LEVEL_WORDS[p.level] ?? ''}${paused}`.trimEnd());
     }
   } else {
     lines.push(`You cannot see any other orchestrator of ${possessive(owner)} right now.`);
@@ -313,10 +301,8 @@ export function listAnswer(body: { peers?: unknown; leftOut?: unknown; people?: 
   if (named.length) {
     lines.push(`People who wrote to you through Podium Chat, and that you can answer with podium_send, to "person:name": ${named.map((p) => `${oneLine(p.name)} (${oneLine(p.address)})${p.paused ? `, whose link is paused until ${owner} or they resume it` : ''}`).join('; ')}. Your answer goes to that person, and ${owner} can read it too.`);
   }
-  const twin = peers.find((p) => p.duplicate && oneLine(p.id));
   const withId = peers.find((p) => oneLine(p.id));
-  if (twin) lines.push(`To send, use podium_send with to set to "name@machine", or "name@machine#id" where the list gives an id, such as "${twinAddress(twin)}".`);
-  else if (withId) lines.push(`To send, use podium_send with to set to the id, such as "${idAddress(withId)}" (an id is never reused, so it never reaches a later agent that took the name), or to "name@machine", such as "${oneLine(withId.name)}@${oneLine(withId.machine)}".`);
+  if (withId) lines.push(`To send, use podium_send with to set to the id, such as "${idAddress(withId)}" (an id is never reused, so it never reaches a later agent that took the name), or to "name@machine", such as "${oneLine(withId.name)}@${oneLine(withId.machine)}".`);
   else if (peers.length) lines.push(`To send, use podium_send with to set to "name@machine", such as "${oneLine(peers[0]!.name)}@${oneLine(peers[0]!.machine)}".`);
   else lines.push(`To reach one, ask ${owner} for a right with podium_request_access.`);
   return lines.join('\n');

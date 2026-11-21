@@ -272,8 +272,8 @@ take part`, `not your session`, `messaging is off on this machine: turn on the r
 refusal is `{ ok: false, error }`, the error in words the mod can show the model as is.
 
 **`GET /api/fleet/sessions/:id/peers`**: what `podium_peers` answers.
-- `200 { ok: true, peers, leftOut, people }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", id, duplicate, name,
-  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the id the server gave the agent when it first heard of its session (#1284), as text of digits: it is never reused, a new session (a `/clear` makes one) has a new id, and it is always present. No two live agents of one owner hold the same name (the later one holds \"Name 2\"), so `duplicate` is false; it is kept for a reporter that reads it. `leftOut` lists the owner's reporters with no
+- `200 { ok: true, peers, leftOut, people }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", id, name,
+  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the id the server gave the agent when it first heard of its session (#1284), as text of digits: it is never reused, a new session (a `/clear` makes one) has a new id, and it is always present. No two live agents of one owner hold the same name (the later one holds \"Name 2\"). A reporter older than #1290 may still read a `duplicate` field, which the server no longer sends; it reads as absent, which is what it always was. `leftOut` lists the owner's reporters with no
   orchestrator listed, and why: `messaging off on the machine`, `reporter too old to message`, `no right to see it`, `no
   orchestrator running`. `people` (#1034) are the people who wrote to this orchestrator through Chat and whom it may answer, because
   the owner's link to them is open or paused: `{ address: "person:eve", name, paused }`. A person with no link, or whose link was removed, is not listed. A paused one is listed with `paused: true`, and an answer to them is refused until the link is resumed.

@@ -417,7 +417,7 @@ describe('the messaging tools (#969)', () => {
     await reported(x);
     x.server.answer = (method) =>
       method === 'GET'
-        ? { status: 200, text: JSON.stringify({ peers: [{ address: 'build-pi@pi', id: '7', duplicate: false, name: 'build-pi', machine: 'pi', os: 'Linux', project: 'api', status: 'running', level: 'send', paused: false }], leftOut: [] }) }
+        ? { status: 200, text: JSON.stringify({ peers: [{ address: 'build-pi@pi', id: '7', name: 'build-pi', machine: 'pi', os: 'Linux', project: 'api', status: 'running', level: 'send', paused: false }], leftOut: [] }) }
         : { status: 409, text: JSON.stringify({ error: 'The agent build-pi (id 7) is no longer available: its session has ended, so Podium did not queue the message.' }) };
     const listed = await tool(x, 'podium_peers', {});
     expect(listed).toContain('build-pi on pi, Linux, id 7, running, project api. Can send.');
