@@ -2,7 +2,7 @@
 // section with a "+" in its title. One row is a button that opens it and a "..." button that opens its menu; a right-click opens the same
 // menu. A People and agents row takes the color of the agent's state when pointed at or focused, the same colors as its avatar's mark.
 // People and agents is paged ten at a time (#1272, mockup/podium-chat-people-cap.html), and its "+" opens New direct message.
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { adminPauseOf, channelTag, MAX_PUBLIC_CHANNELS, PEOPLE_PER_PAGE, dmKey, orderPeople, peopleSort, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
@@ -124,6 +124,12 @@ export function ChatSidebar(p: SidebarProps) {
   const [shut, setShut] = useState<Record<string, boolean>>({});
   const [pePage, setPePage] = useState(0);
   const [said, setSaid] = useState("");
+  // The page announcement is spoken once, then cleared, so it does not linger after the list changes.
+  useEffect(() => {
+    if (!said) return;
+    const t = setTimeout(() => setSaid(""), 2000);
+    return () => clearTimeout(t);
+  }, [said]);
   const fold = (id: string) => () => setShut((m) => ({ ...m, [id]: !m[id] }));
   const row = (key: string, spec: MenuSpec | null, content: ReactNode, opts: { open: () => void; aria: string; cls?: string; title?: string; menuOwner?: boolean; leaving?: boolean; unread?: boolean }) => {
     const on = p.selected === key;
@@ -216,11 +222,13 @@ export function ChatSidebar(p: SidebarProps) {
   const others = o.people.filter((x) => !x.you);
   // People and agents, paged ten at a time (#1272): rows that need this person first (unread, mentions, a running agent), then the newest last message.
   const peopleEntries = orderPeople([
-    ...agentRows.map((it) => ({ key: `a:${it.item.sessionId}`, name: it.item.name, ...peopleSort(o.directs, (x) => x.sessionId === it.item.sessionId, agentState(p.sessions, it.item.sessionId, it.item.status) === "running"), node: () => agentRow(it) })),
+    ...agentRows.map((it) => ({ key: `a:${it.item.sessionId}`, name: it.item.name, ...peopleSort(o.directs, (x) => x.sessionId === it.item.sessionId, it.leaving || agentState(p.sessions, it.item.sessionId, it.item.status) === "running"), node: () => agentRow(it) })),
     ...others.map((x) => ({ key: `p:${x.name}`, name: x.name, ...peopleSort(o.directs, (q) => q.kind === "person" && q.name === x.name, false), node: () => personRow(x.name) })),
   ]);
   const pePages = Math.max(1, Math.ceil(peopleEntries.length / PEOPLE_PER_PAGE));
   const peAt = Math.min(pePage, pePages - 1);
+  // The list shrank under the page: the state follows, so it does not jump back when the list grows again.
+  if (pePage !== peAt) setPePage(peAt);
   const peFrom = peAt * PEOPLE_PER_PAGE;
   const peShown = peopleEntries.slice(peFrom, peFrom + PEOPLE_PER_PAGE);
   const goPe = (n: number) => {
@@ -264,12 +272,14 @@ export function ChatSidebar(p: SidebarProps) {
             <ul className="ch-list" id="list-pe">
               {peopleEntries.length ? peShown.map((e) => e.node()) : <li className="hint ch-pad">No orchestrator is reporting yet.</li>}
             </ul>
-            {peopleEntries.length > 0 && (
+            {peopleEntries.length > 0 && !shut.pe && (
               <PageNav label="People and agents pages" compact at={peAt} pages={pePages} from={peFrom} shown={peShown.length} total={peopleEntries.length} perPage={PEOPLE_PER_PAGE} onPage={goPe} />
             )}
-            <div className="vh" role="status">
-              {said}
-            </div>
+            {pePages > 1 && !shut.pe && (
+              <div className="vh" role="status">
+                {said}
+              </div>
+            )}
           </Sec>
         </>
       ) : (

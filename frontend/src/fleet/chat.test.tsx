@@ -3858,6 +3858,18 @@ describe("the redesigned sidebar", () => {
       expect(rows()).not.toContain("chat-row-a:s-dash");
     });
 
+    it("folds with the list: the footer and its page buttons go when the section is folded, and come back when it opens", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      const fold = within(screen.getByRole("heading", { level: 2, name: /^People and agents/ })).getByRole("button", { name: /^People and agents/ });
+      expect(screen.getByRole("navigation", { name: "People and agents pages" })).toBeInTheDocument();
+      fireEvent.click(fold);
+      expect(screen.queryByRole("navigation", { name: "People and agents pages" })).toBeNull();
+      expect(screen.queryByText(/^Showing 1–10 of 17$/)).toBeNull();
+      fireEvent.click(fold);
+      expect(screen.getByRole("navigation", { name: "People and agents pages" })).toBeInTheDocument();
+    });
+
     it("says ten a page when everyone fits on one page", async () => {
       page();
       await flush();

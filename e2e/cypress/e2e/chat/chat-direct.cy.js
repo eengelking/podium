@@ -15,12 +15,11 @@ const openMenu = (row) => {
 const showRow = (key, pagesLeft = 6) => {
   cy.get('#list-pe > li').should('have.length.greaterThan', 0);
   return cy.get('body').then(($b) => {
-    if ($b.find(`[data-testid="chat-row-${key}"]`).length || pagesLeft === 0) return;
+    if ($b.find(`[data-testid="chat-row-${key}"]`).length) return;
     const next = $b.find('nav[aria-label="People and agents pages"] button[aria-label="Next page"]:not(:disabled)');
-    if (next.length) {
-      cy.wrap(next).click();
-      showRow(key, pagesLeft - 1);
-    }
+    if (!next.length || pagesLeft === 0) throw new Error(`chat-row-${key} is on no page of People and agents`);
+    cy.wrap(next).click();
+    showRow(key, pagesLeft - 1);
   });
 };
 const openDm = () => {
@@ -356,7 +355,7 @@ describe('chat: the menu on a sender\'s avatar (#1235)', () => {
 });
 
 describe('chat: People and agents is paged (#1272)', () => {
-  // Ten agents are launched on top of the seeded ones, so the list is longer than one page. They are never used, so they sort after the agents that need Ed.
+  // Ten agents are launched on top of the seeded ones, so the list is longer than one page. The spec reads the total from the footer and does not depend on their order.
   before(() => cy.resetServer({ seedArgs: '--talk' }));
 
   it('shows ten rows with the standard footer, pages with Previous and Next, and opens New direct message from its +', () => {
