@@ -119,7 +119,7 @@ const toRow = (r: DbMessage): MessageRow => ({
 function dropReason(m: MessageRow, why: Exclude<DropWhy, 'messaging-off'>): string {
   switch (why) {
     case 'receiver-ended':
-      return `${m.toName} ended first`;
+      return `${m.toName}${m.toAgent === null ? '' : ` (id ${m.toAgent})`} is no longer available, because it ended first`;
     case 'session-deleted':
       return `${m.toName}'s session was deleted in Podium`;
     case 'link-removed':

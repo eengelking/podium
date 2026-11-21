@@ -146,7 +146,7 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     s.tick(4000);
     const working = await testerReport(s, { status: 'running', waitReason: null });
     expect(working.body.peerDeliveries[0]).toEqual(
-      { id: sent.body.id, kind: 'message', at: expect.any(Number), from: { name: 'dev', machine: 'ed-mbp', owner: 'Ed', id: 'sess-dev' }, text: 'Please run the systemd unit tests' },
+      { id: sent.body.id, kind: 'message', at: expect.any(Number), from: { name: 'dev', machine: 'ed-mbp', owner: 'Ed', id: expect.stringMatching(/^\d+$/) }, text: 'Please run the systemd unit tests' },
     );
     expect(working.body.peerDeliveries).toHaveLength(3);
     const took = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/deliveries/${sent.body.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took', at: 1 });

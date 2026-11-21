@@ -493,7 +493,7 @@ describe.skipIf(!TEST_PG)('postgres peer messages', () => {
       expect((await stateOf(fromCi.id)).state).toBe('ready');
       expect(closed).toEqual([[toCi.id, 'dropped']]);
       expect(trails.at(-1)).toMatchObject({ kind: 'dropped', why: 'receiver-ended' });
-      expect((await s.deliveriesFor('s-mbp', false)).map((d) => d.text)).toEqual(['Your message to Tester on ci-runner-01 was not delivered: Tester ended first. It stays in Podium > Traffic.']);
+      expect((await s.deliveriesFor('s-mbp', false)).map((d) => d.text)).toEqual(['Your message to Tester on ci-runner-01 was not delivered: Tester (id 2) is no longer available, because it ended first. It stays in Podium > Traffic.']);
       expect(s.live('s-ci')).toBeNull();
     });
 

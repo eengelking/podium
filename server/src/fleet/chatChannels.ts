@@ -404,7 +404,7 @@ export class ChannelChat {
       }
       const wantName = nameKey(m.name);
       const here = m.kind === 'address' ? agents.filter((o) => nameKey(o.name) === wantName && nameKey(o.machine) === nameKey(m.location)) : agents.filter((o) => nameKey(o.name) === wantName);
-      const matches = m.kind === 'address' && m.id ? here.filter((o) => o.sessionId.toLowerCase().startsWith((m.id as string).toLowerCase())) : here;
+      const matches = m.kind === 'address' && m.id ? here.filter((o) => String(o.agentId) === m.id || o.sessionId.toLowerCase().startsWith((m.id as string).toLowerCase())) : here;
       if (m.kind === 'address' && nameKey(m.location) === 'console') {
         if (person(m.name) && (isPublicChannel(channel) || nameKey(m.name) === owner)) add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'done', why: 'notified' }, bump: wantName, deliver: null });
         else add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'not-delivered', why: channel === 'group' ? `${m.name} is not in this group` : `there is no person called ${m.name}` }, bump: null, deliver: null });

@@ -302,29 +302,30 @@ describe('addressing with @', () => {
     expect(m.why).toMatch(/refused/);
   });
 
-  it('refuses a plain @Name that two agents share, naming the candidates, and stores nothing', async () => {
+  it('gives the second of two agents of one name a number, so a plain @Name reaches the first and the second is not called by the name (#1284)', async () => {
     const s = await world();
     await post(s, s.ed.token, report('Ed', 'sess-tester-2', 'Tester', PI));
     const res = await say(s.edB, 'group', 'hey @Tester please');
-    expect(res.status).toBe(409);
-    expect(res.body.error).toContain('Tester@ci-runner-01');
-    expect(res.body.error).toContain('Tester@build-pi');
-    expect(texts(await read(s.edB, 'group'))).toEqual([]);
-    // Typing the location picks one.
-    expect((await say(s.edB, 'group', 'hey @Tester@build-pi please')).status).toBe(201);
+    expect(res.status).toBe(201);
+    expect(res.body.message.mentions[0]).toMatchObject({ typed: 'Tester', sessionId: 'sess-tester' });
+    // The second holds "Tester 2" while the first is live, so the location of the first picks the first and the second's old name is nobody's.
+    expect((await say(s.edB, 'group', 'hey @Tester@ci-runner-01 please')).body.message.mentions[0]).toMatchObject({ sessionId: 'sess-tester' });
+    expect((await say(s.edB, 'group', 'hey @Tester@build-pi please')).body.message.mentions[0]).toMatchObject({ sessionId: null, state: 'not-delivered' });
   });
 
   it('takes a plain @Name when one agent has it, and tells the id of same-named agents on one machine apart', async () => {
     const s = await world();
     const one = await say(s.edB, 'group', '@dev look at this');
     expect(one.body.message.mentions[0]).toMatchObject({ typed: 'dev', sessionId: 'sess-dev' });
+    // A same-named agent on the same machine is "dev 2" (#1284), so the name still picks one agent, and the id of the first picks it too.
     await post(s, s.ed.token, report('Ed', 'xyz98765-dev', 'dev', MAC));
     const twin = await say(s.edB, 'group', '@dev@ed-mbp hello');
-    expect(twin.status).toBe(409);
-    expect(twin.body.error).toContain('dev@ed-mbp#xyz98765');
-    const id = /dev@ed-mbp#([A-Za-z0-9_-]+)/.exec(twin.body.error)![1];
+    expect(twin.status).toBe(201);
+    expect(twin.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-dev' });
+    const id = (await s.fleet.peers.messages.live('sess-dev'))!.agentId;
     const picked = await say(s.edB, 'group', `@dev@ed-mbp#${id} hello`);
     expect(picked.status).toBe(201);
+    expect(picked.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-dev' });
   });
 
   it('marks a mention of an agent that is not there not-delivered, and still posts the message', async () => {
@@ -342,6 +343,8 @@ describe('addressing with @', () => {
     // The orchestrator restarted: a new session of the same name on the same reporter, and the old one ended.
     await post(s, s.ed.token, report('Ed', 'sess-tester-new', 'Tester', LINUX));
     await tester(s, { status: 'done', waitReason: null });
+    // It reports again, and with the first one ended it holds the name (#1284).
+    await post(s, s.ed.token, report('Ed', 'sess-tester-new', 'Tester', LINUX));
     s.tick(10_000);
     await s.fleet.sweep();
     expect((await read(s.edB, 'group')).body.messages[0].mentions[0]).toMatchObject({ state: 'held', sessionId: 'sess-tester' });
