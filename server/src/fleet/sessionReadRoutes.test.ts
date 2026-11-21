@@ -102,7 +102,7 @@ describe('noteSession', () => {
     const boss = { name: 'Boss', actor: 'Boss', admin: true, personId: 3 };
     await expect(fleet.chat.adminReads.noteSession(boss, 'activity', { id: SID, name, owner: 'Ed', owner_id: 1 })).rejects.toThrow('needs a loop id');
     await expect(fleet.chat.adminReads.noteSession(boss, 'activity', { id: SID, name, owner: 'Ed', owner_id: 1 }, 'a:b')).rejects.toThrow('needs a loop id');
-    await expect(fleet.chat.adminReads.note(boss, { scope: 'session', thread: 'ask:x', owners: ['ed'], phrase: 'x' })).rejects.toThrow('noteSession');
+    await expect(fleet.chat.adminReads.note(boss, { scope: 'session', thread: 'ask:x', owners: ['ed'], people: [1], phrase: 'x' })).rejects.toThrow('noteSession');
     expect(await fleet.chat.adminReads.list(`activity:${SID}:`)).toEqual([]);
   });
 
@@ -141,7 +141,7 @@ describe('the person is told', () => {
     expect(rec.body.adminReads).toEqual([{ admin: 'Boss', startedAt: T0, lastSeenAt: T0 + 20_000, kind: 'read' }]);
     expect(rec.body.adminReading).toEqual([]);
     expect(JSON.stringify(rec.body)).not.toMatch(/text|plan/i);
-    expect(await fleet.chat.adminReads.unseenFor('Ed')).toEqual([]);
+    expect(await fleet.chat.adminReads.unseenFor(1)).toEqual([]);
   });
 
   it('wakes the consoles again when a read that lapsed resumes inside the same record', async () => {

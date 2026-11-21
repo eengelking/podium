@@ -502,6 +502,17 @@ ALTER TABLE peer_owner_settings ADD COLUMN owner_id INTEGER;  -- the owner's def
 
 The rights, requests, messages and owner defaults of a person are found by `owner_id`, never by `owner`, which stays as display text. A person's end of a link is `person:<people.id>`; the migration rewrites each stored `person:<name>` (in `from_key`, `to_key`, `from_session`, `to_session` and the link names) to `person:<id>`, or to `person:gone:<name>` when no person has the name, a key no live person's can equal (`fillPeerOwnerIds`, with the pure part in `storage/peerOwnerIds.ts`). `peer_owner_settings` kept the folded name as its primary key `owner_lower`; it now holds the id as text, and a row whose name matches no person is dropped, since defaults nobody can read are not worth a key a newcomer could meet. Deleting a person removes their peer rows, their end of every link and their defaults by id. A reporter row that changes hands (a report for its key from another person's id, or from a person claiming a row with no id) first loses its links, rights, requests and session links, so a newcomer who takes a deleted person's name inherits none of them. The agent-facing address `person:<name>` still works: `replyToPerson` finds the person among those who wrote to that very session.
 
+Migration 51 (#1284; PostgreSQL and MariaDB main step 27) binds Chat to a person by id, never by name, as migration 49 does for sessions and reporters:
+
+```sql
+ALTER TABLE group_messages ADD COLUMN owner_id INTEGER;       -- the group's person (people.id); NULL for a group whose name matched no person
+ALTER TABLE chat_read_state ADD COLUMN person_id INTEGER;     -- whose counts these are
+ALTER TABLE chat_admin_owed ADD COLUMN person_id INTEGER;     -- who is owed an Admin record
+ALTER TABLE public_channels ADD COLUMN created_by_id INTEGER; -- who opened the channel; NULL once that person is deleted
+```
+
+None has a foreign key, and a `people.id` is never reused, so a person who takes a deleted person's name finds none of that person's group channel, read counts, owed Admin records or opened channels. The older name keys beside them (`group_messages.owner` and `.group_id`, `chat_read_state.person`, `chat_admin_owed.person_key`, `public_channels.created_by`) are not read: for a row written now they hold `#<id>` (or are empty), because they stay part of a primary key. The `people` and `seen` lists of an Admin record hold ids, and so do the person parts of the names `group:`, `list:` and `act:` (a thread) and of the flag scopes `group:`, `public:person:` and `channel:<name>:person:` in `settings`. An Admin's record is kept under `#<id>` for an Admin who signed in as a person, and under the folded name for the admin secret. The step gives each row already stored the id of the person whose folded name it holds (`fillChatPersonIds`, in code because SQL cannot fold a name as `nameKey` does) and only when that person existed when the row was written: a row older than the person, or whose name matches no person, is left to nobody. The same check clears an author id that migration 46 gave a message older than the person it names. Deleting a person removes the group channel, counts, owed records and flags found by their id, and sets `created_by_id` to NULL on the channels they opened.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql

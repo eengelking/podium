@@ -137,6 +137,8 @@ export interface ReporterRow {
   /** False when the reporter sends no machine name and `name` is made up from its newest project or its address (issue #166). */
   named: boolean;
   who: string;
+  /** The owner's `people.id` (#1284); null for the admin secret and for a reporter whose person was deleted. `who` is only the name shown. */
+  whoId: number | null;
   /** The token's key id (`pdm_...`) or the words "admin secret"; null when the server had no authentication. Never a token. */
   credential: string | null;
   /** True when it reports with the admin secret instead of a token made for a person (issue #166). Always warned about. */

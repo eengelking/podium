@@ -21,7 +21,7 @@ import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { ChatService } from './chat.js';
 import { ADMIN_PERSON_KEY, type Actor, type Refusal } from './peerTypes.js';
-import { AdminActs } from './adminActs.js';
+import { AdminActs, type AdminRef } from './adminActs.js';
 import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
@@ -313,9 +313,9 @@ export class Fleet {
     this.chat = new ChatService(host, storage.chat({ now }));
     const reads = this.chat.adminReads;
     this.adminActs = new AdminActs({
-      mark: (thread, admin, kind, people) => reads.record(thread, admin, kind, people),
+      mark: (thread, admin, kind, people) => reads.record(thread, admin.name, admin.id, kind, people),
       tell: (sessionId, text) => reads.tell(sessionId, text),
-      sessionsOf: (owner) => reads.sessionsOf(owner),
+      sessionsOf: (ownerId) => reads.sessionsOf(ownerId),
       sessionOf: (id) => host.sessionOf(id),
     });
     this.wall = new LiveWallSettings(storage.wallSettings, () => {
@@ -952,12 +952,12 @@ export class Fleet {
    * nothing, and lets only the session's owner delete it. `asOwnerId` is the caller's `people.id` (#1284), or undefined for the admin
    * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's; one whose person was deleted (a name but no id) is nobody's, so only the admin secret deletes it.
    */
-  deleteSessionAs(id: string, asOwnerId: number | undefined, byAdmin?: string): Promise<'deleted' | 'unknown' | 'forbidden'> {
+  deleteSessionAs(id: string, asOwnerId: number | undefined, byAdmin?: AdminRef): Promise<'deleted' | 'unknown' | 'forbidden'> {
     return this.serial.run(id, () => this.deleteNow(id, { asOwnerId, byAdmin }));
   }
 
   /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwnerId` must own it. */
-  private async deleteNow(id: string, check: { asOwnerId: number | undefined; byAdmin?: string } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
+  private async deleteNow(id: string, check: { asOwnerId: number | undefined; byAdmin?: AdminRef } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
     const row = await this.db.getSession(id);
     if (check) {
       if (!row) return 'unknown';
@@ -978,7 +978,7 @@ export class Fleet {
     this.respond.dropSession(id);
     // `person:<name>` is how Chat names a person's end, never a session; deleting by it would wipe that person's conversations (#1051).
     if (!isPersonId(id.toLowerCase())) await this.peers.deleted([id]);
-    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner));
+    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner, row?.owner_id ?? null));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
@@ -1024,7 +1024,7 @@ export class Fleet {
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
     await this.peers.ended(row.id);
-    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner));
+    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner, row.owner_id));
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);

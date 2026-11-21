@@ -341,9 +341,8 @@ export interface ChannelMention {
 export interface ChannelMessage {
   /** `grp_` or `pub_`, the server's 8 hex digits of scope, then 24 hex digits: `grp_3fa9c1d2_9e1b0c47d5a86f3e2b4a7c10`. */
   id: string;
-  /** The group's owner, folded (`nameKey`); null in a public channel. */
-  owner: string | null;
-  groupId: string | null;
+  /** The group's person, by `people.id` (#1284); null in a public channel. */
+  ownerId: number | null;
   /** The public channel's key (`general` or a channel's name, #1035); null in the group channel. */
   channel: string | null;
   authorKind: ChatAuthorKind;
@@ -389,10 +388,9 @@ export interface ChannelPage {
   older: string | null;
 }
 
-/** Which group channel: one person's group. */
+/** Which group channel: one person's group, by `people.id` (#1284). A group belongs to the person, never to a name: a person who takes a deleted person's name has a group of their own, with none of the earlier one's messages. */
 export interface GroupScope {
-  owner: string;
-  groupId: string;
+  ownerId: number;
 }
 
 /**
@@ -436,8 +434,8 @@ export interface PublicChannel {
   description: string;
   /** What the channel is about, or null for a channel about any other topic. At most one channel has a given link. */
   link: { kind: PublicChannelLinkKind; ref: string } | null;
-  /** The person who opened it, folded (`nameKey`); empty once that person is deleted, so a new person of the same name does not inherit it. */
-  createdBy: string;
+  /** The person who opened it, by `people.id` (#1284); null once that person is deleted, so a new person of the same name does not inherit it. */
+  createdById: number | null;
   /** The opener's name as it was written. */
   createdByName: string;
   createdAt: number;
@@ -448,8 +446,10 @@ export interface NewPublicChannel {
   name: string;
   description?: string;
   link?: { kind: PublicChannelLinkKind; ref: string } | null;
-  /** The person's name; the store folds it. */
+  /** The person's name, kept as the text the page shows. */
   createdBy: string;
+  /** The person's `people.id`, which is who opened it (#1284); null for the admin secret, which has no person. */
+  createdById: number | null;
 }
 
 /** Why a public channel was not made or changed. `reserved`: `general` or `group`. `name-taken` and `link-taken`: another channel has it (compared without case). `limit-reached`: 50 besides General. */
@@ -478,8 +478,8 @@ export interface PublicChannelsApi {
 
 /** One person's counts in one thread (`dm:<a>|<b>` with the two session ids sorted, `group:<group id>`, or `public`). The server keeps them so SSE can carry the counts and no text. */
 export interface ThreadReadState {
-  /** The person, folded (`nameKey`). */
-  person: string;
+  /** The person, by `people.id` (#1284). */
+  personId: number;
   thread: string;
   /** The cursor of the newest message the person had read, as the last `markRead` gave it; null before any. */
   lastRead: string | null;
@@ -490,13 +490,13 @@ export interface ThreadReadState {
 
 export interface ChatReadStateApi {
   /** Zeros (and `updatedAt` 0) for a thread never counted. */
-  get(person: string, thread: string): Promise<ThreadReadState>;
+  get(personId: number, thread: string): Promise<ThreadReadState>;
   /** Every thread the person has a row for, by thread. */
-  list(person: string): Promise<ThreadReadState[]>;
+  list(personId: number): Promise<ThreadReadState[]>;
   /** One more unread message for the person, and one more mention when `mention`. */
-  bump(person: string, thread: string, mention: boolean): Promise<ThreadReadState>;
+  bump(personId: number, thread: string, mention: boolean): Promise<ThreadReadState>;
   /** The person read up to `upTo` (the cursor of the newest message they saw, or null): unread and mentions go to 0. */
-  markRead(person: string, thread: string, upTo: string | null): Promise<ThreadReadState>;
+  markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Every thread, for any person, that starts with `prefix`, once each, by thread. Used to forget the rows of conversations that no longer exist (#1051). */
@@ -550,22 +550,23 @@ export interface AdminReadRow {
 /**
  * The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text.
  *
- * A record names the people it is owed to (`people`, folded names) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
+ * A record names the people it is owed to (`people`, by `people.id`, #1284) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
  * retention sweep, the purge of a hidden conversation or a writer deleting a conversation never erases what the person was never shown. A record made
  * with no people (General's, or one made before this was kept) owes nothing and goes by retention alone. "Seen" is `seen`: the person loaded the
  * thread's records, or their own overview for the record of a look at their list.
  */
 export interface ChatAdminReadsApi {
   /**
-   * An Admin read `thread` now. A read within `gapMs` of that Admin's last read of it (names compared folded) is the same session and refreshes its
-   * `lastSeenAt`; a longer gap starts a new record, owed to `people`. `previousSeenAt` is the session's last read before this one, or null when it began now.
+   * An Admin read `thread` now. `admin` is the name shown and `adminId` the Admin's `people.id`, null for the admin secret (#1284): a read within `gapMs` of that Admin's last read of it
+   * (the same id, or for the admin secret the same name) is the same session and refreshes its `lastSeenAt`; a longer gap starts a new record, owed to `people` (their ids).
+   * `previousSeenAt` is the session's last read before this one, or null when it began now.
    */
-  touch(thread: string, admin: string, gapMs: number, people?: string[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
+  touch(thread: string, admin: string, adminId: number | null, gapMs: number, people?: number[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
   /**
-   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people`. Two
+   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people` (their ids). Two
    * records of one Admin in the same millisecond are kept apart by moving the later one on by a millisecond.
    */
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people?: string[]): Promise<AdminReadRow>;
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people?: number[]): Promise<AdminReadRow>;
   /** The thread's records of every kind, oldest first. */
   list(thread: string): Promise<AdminReadRow[]>;
   /** The reading records (never a stop) of these threads last read after `since`, by thread, then oldest first. */
@@ -574,13 +575,13 @@ export interface ChatAdminReadsApi {
   recent(since: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** Every thread that has a record and starts with `prefix`, by name. */
   threads(prefix: string): Promise<string[]>;
-  /** `person` (names compared folded) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
-  seen(thread: string, person: string): Promise<number>;
+  /** The person (`people.id`) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
+  seen(thread: string, personId: number): Promise<number>;
   /**
-   * Every record `person` (names compared folded) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
+   * Every record the person (`people.id`) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
    * The caller decides which of them it can show on a thread and which can only be shown on the person's overview (#1051).
    */
-  unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]>;
+  unseenFor(personId: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** The thread is gone (a conversation deleted): removes its records that nobody is still owed a look at. Remove all messages does not call this. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Removes the records last read before `olderThan` that nobody is still owed a look at. Returns how many. */

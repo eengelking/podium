@@ -1,7 +1,6 @@
 // The Chat page's shared types and small helpers (#1034). Nothing here touches a database.
 import type { PeerStoreApi } from '../storage/types.js';
 import type { RespondStore } from './respond.js';
-import { nameKey } from '../storage/rows.js';
 import { personKeyOf } from './peerTypes.js';
 
 /**
@@ -40,7 +39,14 @@ export const publicThread = 'public';
 export const channelThread = (c: ChannelId): string => (c === GENERAL ? publicThread : `${publicThread}:${c}`);
 /** The channel a thread names, when it is a public channel other than General (`public:<name>`). */
 export const channelOfThread = (thread: string): string | null => (thread.startsWith(`${publicThread}:`) ? thread.slice(publicThread.length + 1) : null);
-export const groupThread = (owner: string): string => `group:${nameKey(owner)}`;
+/** A person's group thread: `group:` and the person's `people.id` (#1284), never a name, so a person who takes a deleted person's name has a thread of their own. */
+export const groupThread = (ownerId: number): string => `group:${ownerId}`;
+
+/** A person by `people.id` and the name shown for them (#1284). The id is who they are; the name is only text and can be anything a person is called. */
+export interface PersonRef {
+  id: number;
+  name: string;
+}
 
 /** An Admin who is reading a thread now (#1034): since when, and until when it counts as live if the Admin reads no more. Epoch milliseconds. */
 export interface AdminReading {
@@ -56,11 +62,11 @@ export const isPersonId = (id: string): boolean => id.startsWith('person:');
 
 /** The scope keys of a channel's flags in `settings`: General for everyone, General for one person's agents, and a group. */
 const GLOBAL_SCOPE = 'public:global';
-const personScope = (owner: string): string => `public:person:${nameKey(owner)}`;
-export const groupScope = (owner: string): string => `group:${nameKey(owner)}`;
-/** The same two flags of a public channel other than General (#1035): its own keys, so pausing one never touches General or another. General keeps its keys. */
+const personScope = (personId: number): string => `public:person:${personId}`;
+export const groupScope = (ownerId: number): string => `group:${ownerId}`;
+/** The same two flags of a public channel other than General (#1035): its own keys, so pausing one never touches General or another. General keeps its keys. A person is named by `people.id` (#1284). */
 export const channelGlobalScope = (c: ChannelId): string => (c === GENERAL ? GLOBAL_SCOPE : `channel:${c}:global`);
-export const channelPersonScope = (c: ChannelId, owner: string): string => (c === GENERAL ? personScope(owner) : `channel:${c}:person:${nameKey(owner)}`);
+export const channelPersonScope = (c: ChannelId, personId: number): string => (c === GENERAL ? personScope(personId) : `channel:${c}:person:${personId}`);
 /** The prefix every flag scope of one public channel starts with, to forget them when it is removed. */
 export const channelScopePrefix = (c: ChannelId): string => `channel:${c}:`;
 
@@ -73,6 +79,7 @@ export type ChatEvent =
   | { kind: 'message_edited' | 'message_deleted'; scope: 'channel' | 'dm'; channel: ChannelId | null; owner: string | null; by: string; messageId: string }
   | { kind: 'dm_deleted'; owner: string; by: string; a: string; b: string; count: number }
   | { kind: 'admin_read'; by: string; scope: 'group' | 'dm'; thread: string; owners: string[] }
+  // `owners` are the names the Admin log shows; who is told is found by id (#1284).
   | { kind: 'admin_browse'; by: string; person: string }
   | { kind: 'conversation_opened'; by: string; conversation: string; members: number }
   | { kind: 'conversation_sent'; by: string; conversation: string; messageId: string }

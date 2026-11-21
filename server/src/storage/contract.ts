@@ -89,7 +89,7 @@ const PERSON_SHAPE: Shape<PersonRow> = { id: 'int', name: 'text', keyId: 'text',
 const PERSON_LIST_SHAPE: Shape<PersonListRow> = { id: 'int', name: 'text', groupId: 'int?', createdAt: 'int', rotatedAt: 'int?', revokedAt: 'int?', lastReportAt: 'int?', credential: 'text', groupName: 'text?', machines: 'texts' };
 const GROUP_LIST_SHAPE: Shape<GroupListRow> = { id: 'int', name: 'text', createdAt: 'int', members: 'texts', builtIn: 'bool' };
 const REPORTER_SHAPE: Shape<ReporterRow> = {
-  key: 'text', state: 'text', name: 'text', named: 'bool', who: 'text', credential: 'text?', adminSecret: 'bool', version: 'text', reporterName: 'text', compat: 'text',
+  key: 'text', state: 'text', name: 'text', named: 'bool', who: 'text', whoId: 'int?', credential: 'text?', adminSecret: 'bool', version: 'text', reporterName: 'text', compat: 'text',
   firstSeenAt: 'int', lastSeenAt: 'int', sessions: 'int', live: 'int', os: 'text?', peers: 'bool?',
 };
 const MESSAGE_SHAPE: Shape<MessageRow> = {

@@ -263,9 +263,9 @@ export function conversationCases(o: Openers): void {
     const chat = s.chat({ now: () => T0 });
     const { conversation } = await chat.conversations.open({ members: [ED, MAYA], createdBy: 1 }, T0);
     await chat.conversations.post(conversation.id, say(ED, 'only in the conversation'), T0 + 1);
-    await chat.group.post({ owner: 'ed', groupId: 'g1' }, { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'only in the group' });
+    await chat.group.post({ ownerId: 11 }, { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'only in the group' });
     await chat.public.post('general', { authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text: 'only in general' });
-    expect((await chat.group.page({ owner: 'ed', groupId: 'g1' }, { limit: 50 })).messages.map((m) => m.text)).toEqual(['only in the group']);
+    expect((await chat.group.page({ ownerId: 11 }, { limit: 50 })).messages.map((m) => m.text)).toEqual(['only in the group']);
     expect((await chat.public.page('general', { limit: 50 })).messages.map((m) => m.text)).toEqual(['only in general']);
     expect(texts(await chat.conversations.page(conversation.id, { limit: 50 }))).toEqual(['only in the conversation']);
   });

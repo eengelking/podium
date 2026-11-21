@@ -314,7 +314,7 @@ export class DirectChat {
   /** The viewer's conversations, without hidden ones. Never any text. */
   async list(viewer: ChatViewer): Promise<DirectInfo[]> {
     if (viewer.personId === null) return [];
-    const rs = await this.core.store.readState.list(viewer.name);
+    const rs = await this.core.store.readState.list(viewer.personId);
     const counts = new Map(rs.map((r) => [r.thread, { unread: r.unread, mentions: r.mentions }]));
     const mine = await this.peers.ownerConversations(viewer.personId);
     return Promise.all(mine.map(async (c) => ({ ...this.info(c, counts), cross: await this.crossOf(c, viewer) })));
@@ -406,23 +406,37 @@ export class DirectChat {
       return fail(400, (err as Error).message);
     }
     // An Admin's read is recorded before it is answered, so no conversation is read without a record, and its people are told. A refused read (above) records nothing.
-    if (role === 'admin') await this.reads.note(viewer, this.subject(c));
+    if (role === 'admin') await this.reads.note(viewer, await this.subject(c));
     const info = this.info({ ...c, hiddenAt: null }, new Map());
     const adminReads = await this.reads.list(info.thread);
     // The records go to the person's own console here, so what is owed to them is seen (#1051).
-    if (role !== 'admin') await this.reads.seen(info.thread, viewer.name);
+    if (role !== 'admin' && viewer.personId !== null) await this.reads.seen(info.thread, viewer.personId);
     return { ok: true as const, thread: info.thread, a: info.a, b: info.b, messages: directMessages(page.messages, viewer), older: page.older, total: c.messages, ended: info.ended, owner: c.owner, paused: info.paused, pausedBy: info.pausedBy, pausedByAdmin: info.pausedByAdmin, adminReads, roundTrips: c.roundTrips, cross: await this.crossOf(c, viewer) };
   }
 
   /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners, in every live reporter session of each. */
-  private subject(c: ConversationSummary): ReadSubject {
-    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: this.peopleOf(c), phrase: `is reading your Podium conversation between ${c.a.name} and ${c.b.name}` };
+  private async subject(c: ConversationSummary): Promise<ReadSubject> {
+    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: this.peopleOf(c), people: this.peopleIdsOf(c), phrase: `is reading your Podium conversation between ${c.a.name} and ${c.b.name}` };
   }
 
-  /** The people of a conversation, folded: its owner, and the person who wrote when it is across owners. */
+  /** The people of a conversation, folded: its owner, and the person who wrote when it is across owners. Names, for the Admin log and the console's signals. */
   private peopleOf(c: ConversationSummary): string[] {
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
     return [...new Set([nameKey(c.owner), ...(person ? [nameKey(person.name)] : [])])];
+  }
+
+  /**
+   * The people of a conversation by `people.id` (#1284), who are told and owed the record: the owner by the id the conversation kept, and the person who wrote by the id in their end of the link
+   * (`person:<id>`). An end that is no person (`person:gone:<name>`, a deleted person) is no one, never a newcomer who has since taken the name.
+   */
+  private peopleIdsOf(c: ConversationSummary): number[] {
+    const ids = new Set<number>();
+    if (c.ownerId !== null) ids.add(c.ownerId);
+    for (const p of [c.a, c.b]) {
+      const id = isPersonId(p.sessionId) ? Number(p.sessionId.slice('person:'.length)) : NaN;
+      if (Number.isInteger(id)) ids.add(id);
+    }
+    return [...ids];
   }
 
   /**
@@ -434,7 +448,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) return false;
     // Only an Admin who is not in the conversation is noticed, as in Chat: its owner, and the person who wrote to it, read their own (the read is still served).
-    if (this.role(viewer, c) === 'admin') await this.reads.note(viewer, this.subject(c));
+    if (this.role(viewer, c) === 'admin') await this.reads.note(viewer, await this.subject(c));
     return true;
   }
 
@@ -450,14 +464,15 @@ export class DirectChat {
    * The sessions of a conversation's people that are live, each told in words that name the conversation. Every live session of the owner and of the person
    * who wrote is told, not only the agents in it (#1051).
    */
-  private told(c: ConversationSummary, about: string): Told[] {
-    return this.peopleOf(c).flatMap((p) => this.reads.sessionsOf(p).map((sessionId) => ({ sessionId, about })));
+  private told(people: number[], about: string): Told[] {
+    return people.flatMap((p) => this.reads.sessionsOf(p).map((sessionId) => ({ sessionId, about })));
   }
 
   /** An Admin is about to pause or resume a link: it stays on the conversation's record, and each of its people's sessions is told which link it was. */
   private async stoppedLink(viewer: ChatViewer, c: ConversationSummary, op: 'pause' | 'resume'): Promise<void> {
     const link = `the link between ${c.a.name} and ${c.b.name}`;
-    await this.reads.stopped(viewer, dmThread(c.a.sessionId, c.b.sessionId), op === 'pause' ? 'paused' : 'resumed', this.told(c, link), this.peopleOf(c));
+    const people = this.peopleIdsOf(c);
+    await this.reads.stopped(viewer, dmThread(c.a.sessionId, c.b.sessionId), op === 'pause' ? 'paused' : 'resumed', this.told(people, link), people);
   }
 
   /** An Admin's open conversation says it is still being read, so its people keep seeing it. Content-free. */
@@ -467,7 +482,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) return fail(404, 'There is no such conversation.');
     if (this.role(viewer, c) !== 'admin') return fail(403, 'That conversation is yours, so reading it is not recorded.');
-    await this.reads.note(viewer, this.subject(c), true);
+    await this.reads.note(viewer, await this.subject(c), true);
     return { ok: true };
   }
 
@@ -765,16 +780,17 @@ export class DirectChat {
    * (the owner of the agent a person wrote to). A person's message to their own agent counts for no one: they wrote it.
    */
   private async count(m: MessageRow): Promise<void> {
-    const owner = nameKey(m.owner);
     const ownerKey = m.ownerId === null ? null : personId(m.ownerId);
     if (m.author === 'person' && isPersonId(m.fromSession) && m.fromSession === ownerKey) return;
     const thread = dmThread(m.fromSession, m.toSession);
     // An agent's answer to the person who wrote to it (#1034): one more unread for the person, and a mention, since it is addressed to them. When that person
     // is the agent's own owner there is one reader, so one count, and it is the mention.
     const toPerson = m.author === 'agent' && isPersonId(m.toSession) ? m.toSession : null;
-    if (toPerson === null || toPerson !== ownerKey) await this.core.count(owner, thread, 'dm', m.author === 'person');
-    // The person's name as the agent's answer shows it (`toName`): Chat's counts are still kept by name.
-    if (toPerson !== null) await this.core.count(nameKey(m.toName), thread, 'dm', true);
+    // Counts are kept under the person's id (#1284). A conversation whose owner is no person counts for no one.
+    if (m.ownerId !== null && (toPerson === null || toPerson !== ownerKey)) await this.core.count({ id: m.ownerId, name: m.owner }, thread, 'dm', m.author === 'person');
+    // The person's name as the agent's answer shows it (`toName`) is display only; `person:gone:<name>` is no person and counts for no one.
+    const toId = toPerson === null ? NaN : Number(toPerson.slice('person:'.length));
+    if (Number.isInteger(toId)) await this.core.count({ id: toId, name: m.toName }, thread, 'dm', true);
   }
 
   /** What the owner's answer, a drop or a delivery did to a person's message to another person's agent: the channel side moves the mention the person wrote. */
@@ -783,8 +799,11 @@ export class DirectChat {
     // An agent's answer to a person is stored delivered, and counts like a new message (#1034).
     if (t.kind === 'sent' || (t.kind === 'delivered' && m.author === 'agent' && isPersonId(m.toSession))) void this.count(m).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be counted', err));
     if (m.author !== 'person' || !isPersonId(m.fromSession) || (m.ownerId !== null && m.fromSession === personId(m.ownerId))) return;
-    const person = nameKey(m.fromName);
-    const update = (from: ('approval' | 'waiting')[], state: 'waiting' | 'working' | 'dropped', why: string | null) => this.core.tellAcross({ person, sessionId: m.toSession, from, state, why });
+    // The person who wrote it is found by the id the message kept (#1284); a message whose writer is not known (stored before ids, and matched no one) moves no mention.
+    const writerId = m.authorId ?? null;
+    const update = (from: ('approval' | 'waiting')[], state: 'waiting' | 'working' | 'dropped', why: string | null) => {
+      if (writerId !== null) this.core.tellAcross({ personId: writerId, sessionId: m.toSession, from, state, why });
+    };
     if (t.kind === 'approved') update(['approval'], 'waiting', null);
     else if (t.kind === 'declined') update(['approval'], 'dropped', `${m.owner} declined it`);
     else if (t.kind === 'delivered') update(['waiting', 'approval'], 'working', null);

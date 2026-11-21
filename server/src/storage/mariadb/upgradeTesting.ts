@@ -5,20 +5,20 @@ import { MariaDbConn, parseTarget } from './conn.js';
 import { MAIN_MIGRATIONS, MAIN_STEPS, migrate } from './schema.js';
 import { openMariaDbStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyAdminRead, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyChat, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedMariaDb(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedMariaDb(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras), td };
+    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras, chat), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[], extras: LegacyExtras): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[], extras: LegacyExtras, chat?: LegacyChat): Promise<Storage> {
   const old = new MariaDbConn({ target: parseTarget(td.url), max: 2 });
   try {
     await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.slice(0, 1));
@@ -127,6 +127,19 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
         if (!r.bound) continue;
         await old.run('INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.machineId, r.machineName, r.owner, r.version, r.firstSeenAt, r.lastSeenAt]);
       }
+    }
+    if (chat) {
+      // Chat kept under a person's name comes from steps 7, 20 and 21; step 27 bound it to the person's id, so it goes in at the schema before it, with the people it will be matched to.
+      await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.filter((s) => s.version <= 24));
+      for (const p of chat.people ?? []) {
+        if (!(await old.get('SELECT 1 AS x FROM people WHERE name_lower = ?', [nameKey(p.name)]))) {
+          await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, ?)', [p.name, nameKey(p.name), `key${nameKey(p.name).replace(/\W/g, '')}`, '0'.repeat(64), p.createdAt]);
+        }
+      }
+      for (const r of chat.readState ?? []) await old.run('INSERT INTO chat_read_state (person, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, NULL, ?, 0, 0)', [r.person, r.thread, r.unread]);
+      for (const c of chat.channels ?? []) await old.run("INSERT INTO public_channels (name, description, created_by, created_by_name, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)", [c.name, c.createdBy, c.createdByName, c.createdAt, c.createdAt]);
+      for (const o of chat.owed ?? []) await old.run('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?)', [o.person, o.thread, o.adminKey, o.startedAt]);
+      for (const f of chat.flags ?? []) await old.run('INSERT INTO settings (key, value) VALUES (?, ?)', [`chat.flag.${f.scope}`, f.value]);
     }
   } finally {
     await old.close();

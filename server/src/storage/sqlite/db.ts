@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { peerPersonKey } from '../chatRows.js';
+import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
 import { OWNED_PEER_TABLES, PERSON_END_COLUMNS, personEndKey, renameLinkEnd } from '../peerOwnerIds.js';
 import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
@@ -112,6 +112,67 @@ function fillPeerOwnerIds(db: DatabaseSync): void {
   for (const s of settings) {
     const id = ids.get(s.owner_lower);
     if (id !== undefined) db.prepare('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)').run(String(id), id, s.trust, s.on_request, s.new_send, s.limits_json);
+  }
+}
+
+/**
+ * Binds the Chat data the older server kept under a person's NAME to the person's id (#1284): a person's group channel (`group_messages.owner`), their read counts (`chat_read_state.person`), the
+ * Admin records they are owed (`chat_admin_owed.person_key` and the `people` and `seen` lists of `chat_admin_reads`), the channels they opened (`public_channels.created_by`), and the names inside the
+ * thread names (`group:`, `list:`, `act:`) and flag scopes (`settings`, `chat.flag.`). It is JS because SQL cannot fold a name the way `nameKey` does. A row whose name matches no current person keeps no id
+ * and is not handed to anyone: a newcomer who takes the name finds none of it. A person only gets what was written after they existed (a row older than the person is not theirs), so a newcomer is not
+ * credited with the messages of an earlier person of the same name, and the same check clears an author id #1269 gave a message that predates the person it names. Every step writes only what still holds a name,
+ * so a run that is repeated adds nothing.
+ */
+function fillChatPersonIds(db: DatabaseSync): void {
+  // order-insensitive: the rows are folded into a map by name.
+  const people: PersonIndex = new Map((db.prepare('SELECT id, name_lower, created_at FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string; created_at: number }[]).map((r) => [r.name_lower, { id: r.id, createdAt: r.created_at }]));
+  if (people.size === 0) return;
+  const setGroup = db.prepare('UPDATE group_messages SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND created_at >= ?');
+  // order-insensitive: each owner name is written on its own rows, whatever the order.
+  for (const r of db.prepare('SELECT DISTINCT owner FROM group_messages WHERE owner_id IS NULL ORDER BY owner').all() as unknown as { owner: string }[]) {
+    const p = people.get(nameKey(r.owner));
+    if (p) setGroup.run(p.id, r.owner, p.createdAt);
+  }
+  for (const p of people.values()) {
+    for (const table of ['group_messages', 'public_messages']) db.prepare(`UPDATE ${table} SET author_id = NULL WHERE author_id = ? AND created_at < ?`).run(p.id, p.createdAt);
+  }
+  // order-insensitive: each channel is written on its own row.
+  for (const r of db.prepare("SELECT name, created_by, created_at FROM public_channels WHERE created_by_id IS NULL AND created_by <> '' ORDER BY name").all() as unknown as { name: string; created_by: string; created_at: number }[]) {
+    const p = people.get(nameKey(r.created_by));
+    if (p && p.createdAt <= r.created_at) db.prepare('UPDATE public_channels SET created_by_id = ? WHERE name = ?').run(p.id, r.name);
+  }
+  // The thread names inside the records, then the rows that key a person by name: read counts and what is owed. Those two are rewritten whole, because their name key is part of the primary key.
+  // order-insensitive: each thread is renamed on its own rows, whatever the order.
+  for (const r of db.prepare('SELECT DISTINCT thread FROM chat_admin_reads ORDER BY thread').all() as unknown as { thread: string }[]) {
+    const to = threadWithId(r.thread, people);
+    if (to) db.prepare('UPDATE chat_admin_reads SET thread = ? WHERE thread = ?').run(to, r.thread);
+  }
+  const state = db.prepare('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id IS NULL ORDER BY person, thread').all() as unknown as { person: string; thread: string; last_read: string | null; unread: number; mentions: number; updated_at: number }[];
+  db.exec('DELETE FROM chat_read_state WHERE person_id IS NULL');
+  for (const r of state) {
+    const p = people.get(nameKey(r.person));
+    const thread = threadWithId(r.thread, people);
+    if (!p || thread === '') continue;
+    db.prepare('INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p.id), p.id, thread ?? r.thread, r.last_read, r.unread, r.mentions, r.updated_at);
+  }
+  const owed = db.prepare('SELECT person_key, thread, admin_key, started_at FROM chat_admin_owed WHERE person_id IS NULL ORDER BY person_key, thread, admin_key, started_at').all() as unknown as { person_key: string; thread: string; admin_key: string; started_at: number }[];
+  db.exec('DELETE FROM chat_admin_owed WHERE person_id IS NULL');
+  for (const r of owed) {
+    const p = people.get(nameKey(r.person_key));
+    if (!p) continue;
+    const thread = threadWithId(r.thread, people);
+    db.prepare('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p.id), p.id, thread || r.thread, r.admin_key, r.started_at);
+  }
+  for (const r of db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' OR seen <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[]) {
+    const ps = listWithIds(r.people, people);
+    const ss = listWithIds(r.seen, people);
+    if (ps !== null || ss !== null) db.prepare('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(ps ?? r.people, ss ?? r.seen, r.thread, r.admin_key, r.started_at);
+  }
+  for (const r of db.prepare("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key").all() as unknown as { key: string }[]) {
+    const to = flagScopeWithId(r.key.slice('chat.flag.'.length), people);
+    if (to === null) continue;
+    if (to === '') db.prepare('DELETE FROM settings WHERE key = ?').run(r.key);
+    else db.prepare('UPDATE settings SET key = ? WHERE key = ?').run(`chat.flag.${to}`, r.key);
   }
 }
 
@@ -768,6 +829,22 @@ ALTER TABLE peer_messages ADD COLUMN owner_id INTEGER;
 ALTER TABLE peer_owner_settings ADD COLUMN owner_id INTEGER;
 CREATE INDEX IF NOT EXISTS peer_owner_settings_owner_id ON peer_owner_settings(owner_id);`,
     after: fillPeerOwnerIds,
+  },
+  {
+    version: 51,
+    // Chat belongs to a person by id, never by name (#1284), as sessions and reporters do (49): a person's group channel (`group_messages.owner_id`), their read counts and the Admin records
+    // they are owed (`person_id`, with the older name key beside it now holding `#<id>`), and the channel they opened (`public_channels.created_by_id`). `people.id` is never reused and has no
+    // foreign key, so a person who is deleted leaves rows that name nobody and a newcomer with the same name inherits none of them. NULL for a row whose name matched no person.
+    // `fillChatPersonIds` gives the rest their person's id and rewrites the names inside thread names, flag scopes and the Admin records' `people` lists. The same step is PostgreSQL step 27 and MariaDB step 27.
+    sql: `
+ALTER TABLE group_messages ADD COLUMN owner_id INTEGER;
+CREATE INDEX group_messages_owner ON group_messages(owner_id, created_at, seq);
+ALTER TABLE chat_read_state ADD COLUMN person_id INTEGER;
+CREATE INDEX chat_read_state_person ON chat_read_state(person_id, thread);
+ALTER TABLE chat_admin_owed ADD COLUMN person_id INTEGER;
+CREATE INDEX chat_admin_owed_person ON chat_admin_owed(person_id, thread);
+ALTER TABLE public_channels ADD COLUMN created_by_id INTEGER;`,
+    after: fillChatPersonIds,
   },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;

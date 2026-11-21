@@ -4,7 +4,7 @@ import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
-import { fail, GROUP, GENERAL, isPublicChannel, type ChannelId, type ChatViewer, type Fail } from './chatTypes.js';
+import { fail, GROUP, GENERAL, isPublicChannel, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 /** What Chat's browser routes share: the gate (messaging on, and a signed-in viewer) and how a refusal is answered. */
 export interface ChatBrowserDeps {
@@ -31,7 +31,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   const channels = () => fleet.chat.channels;
 
   /** The viewer and the channel a route is about, or an answer already sent. */
-  const target = async (req: Request, res: Response, named: unknown): Promise<{ v: ChatViewer; channel: ChannelId; owner: string | null } | null> => {
+  const target = async (req: Request, res: Response, named: unknown): Promise<{ v: ChatViewer; channel: ChannelId; owner: PersonRef | null } | null> => {
     const v = await d.viewer(req, res);
     if (!v) return null;
     const channel = await channels().resolve(req.params.channel);
@@ -39,7 +39,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
       res.status(404).json({ ok: false, error: 'no such channel' });
       return null;
     }
-    const scope = channels().scopeFor(v, channel, str(named));
+    const scope = await channels().scopeFor(v, channel, str(named));
     if ('status' in scope) {
       d.refuse(req, res, scope);
       return null;
@@ -103,7 +103,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
     if (!v.admin) return void d.refuse(req, res, fail(403, 'Only an Admin reads a group that is not their own.'));
     if (isPublicChannel(channel)) return void res.status(400).json({ ok: false, error: `${channel === GENERAL ? 'General' : 'A public channel'} is public, so reading it is not recorded.` });
-    const scope = channels().scopeFor(v, channel, str(((req.body ?? {}) as Record<string, unknown>).owner));
+    const scope = await channels().scopeFor(v, channel, str(((req.body ?? {}) as Record<string, unknown>).owner));
     if ('status' in scope) return void d.refuse(req, res, scope);
     const out = await channels().reading(v, scope.owner);
     if ('status' in out) return void d.refuse(req, res, out);
@@ -120,7 +120,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** The viewer and the channel a change of one of their own messages is about (#1269), or an answer already sent. The admin secret has no messages, so it is refused before anything is read. */
-  const changeTarget = async (req: Request, res: Response): Promise<{ v: ChatViewer; channel: ChannelId; owner: string | null; id: string } | null> => {
+  const changeTarget = async (req: Request, res: Response): Promise<{ v: ChatViewer; channel: ChannelId; owner: PersonRef | null; id: string } | null> => {
     const v = await d.viewer(req, res);
     if (!v) return null;
     if (v.personId === null) {
@@ -133,7 +133,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
       return null;
     }
     // Only the person's own group, as for a post: an owner is never named here.
-    const scope = channels().scopeFor(v, channel, undefined);
+    const scope = await channels().scopeFor(v, channel, undefined);
     if ('status' in scope) {
       d.refuse(req, res, scope);
       return null;
@@ -194,7 +194,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     // A public channel's list is General's: everyone who can be reached from it. Anything that is not a channel is the viewer's group, as before.
     const named = await channels().resolve(req.query.channel);
     const channel: ChannelId = named !== null && isPublicChannel(named) ? named : GROUP;
-    const scope = channels().scopeFor(v, channel, undefined);
+    const scope = await channels().scopeFor(v, channel, undefined);
     if ('status' in scope) return void d.refuse(req, res, scope);
     const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase() : '';
     const all = await channels().addressBook(channel, scope.owner);

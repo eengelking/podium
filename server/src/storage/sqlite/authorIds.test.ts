@@ -39,7 +39,7 @@ describe('migration 46 on direct messages', () => {
     try {
       const file = path.join(dir, 'podium.sqlite');
       const old = openDb(file, 45);
-      const person = old.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)');
+      const person = old.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 0)');
       person.run('Ana', 'ana', 'k1', '0'.repeat(64));
       person.run('Zoe', 'zoe', 'k2', '0'.repeat(64));
       const group = old.prepare(

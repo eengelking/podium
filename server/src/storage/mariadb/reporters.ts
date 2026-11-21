@@ -236,6 +236,7 @@ export class MariaReporterStore implements ReporterStoreApi {
       name: r.machine_name ?? (r.kind === 'hooks' ? 'Hooks only' : (r.project ?? r.source_address ?? 'Unnamed reporter')),
       named: r.machine_name !== null,
       who: r.owner ?? 'Unassigned',
+      whoId: r.owner_id ?? null,
       credential: r.credential,
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,

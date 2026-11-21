@@ -6,11 +6,11 @@ import path from 'node:path';
 import { openDb } from './db.js';
 import { nameKey } from '../rows.js';
 import { openSqliteStorage } from './index.js';
-import type { LegacyAdminRead, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyChat, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
-export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}): { storage: Storage; dir: string } {
+export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat): { storage: Storage; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'podium-upgrade-'));
   const file = path.join(dir, 'podium.sqlite');
   const old = openDb(file, 25);
@@ -103,6 +103,19 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     for (const x of sessions) if (x.bound) insertOwned.run(x.id, x.name, x.startedAt, x.startedAt, x.model, x.costUsd, x.owner ?? null);
     const insertOwnedReporter = late.prepare('INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     for (const r of reporters) if (r.bound) insertOwnedReporter.run(r.key, r.kind, r.machineId, r.machineName, r.owner, r.version, r.firstSeenAt, r.lastSeenAt);
+    late.close();
+  }
+  if (chat) {
+    // Chat kept under a person's name comes from migrations 31, 44 and 45; migration 51 bound it to the person's id, so it goes in at the schema before it, with the people it will be matched to.
+    const late = openDb(file, 48);
+    const insertPerson = late.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, ?)');
+    for (const p of chat.people ?? []) {
+      if (!late.prepare('SELECT 1 FROM people WHERE name_lower = ?').get(nameKey(p.name))) insertPerson.run(p.name, nameKey(p.name), `key${nameKey(p.name).replace(/\W/g, '')}`, '0'.repeat(64), p.createdAt);
+    }
+    for (const r of chat.readState ?? []) late.prepare('INSERT INTO chat_read_state (person, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, NULL, ?, 0, 0)').run(r.person, r.thread, r.unread);
+    for (const c of chat.channels ?? []) late.prepare("INSERT INTO public_channels (name, description, created_by, created_by_name, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)").run(c.name, c.createdBy, c.createdByName, c.createdAt, c.createdAt);
+    for (const o of chat.owed ?? []) late.prepare('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?)').run(o.person, o.thread, o.adminKey, o.startedAt);
+    for (const f of chat.flags ?? []) late.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(`chat.flag.${f.scope}`, f.value);
     late.close();
   }
   return { storage: openSqliteStorage(file, 0), dir };
