@@ -168,7 +168,7 @@ export type AsyncPeerReporterLookup = Async<PeerReporterLookup>;
 /** Reporters, ignore rules and the forget setting. `peerLookup()` stays synchronous: it reads nothing until a method is called. */
 export interface ReporterStoreApi {
   /** Every key a report from this sender can be known by: its own, and the row that already holds its session (#166). */
-  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]>;
+  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null; ownerId?: number | null }): Promise<string[]>;
   /** Notes one accepted report: creates the reporter or updates it, and links the session. Resolves with the reporter's key. */
   record(s: ReporterSeen, now: number): Promise<string>;
   /** Reporters as orchestrator messaging needs them (#347). Answers at once; each read through it is async. */
@@ -297,7 +297,7 @@ export interface PeerStoreApi {
     purgeHidden(now: number, graceMs: number): Promise<number>;
   };
   /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void>;
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void>;
   replyFor(sessionId: string, allowed: boolean): Promise<PeerReply>;
   answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
   answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
@@ -306,7 +306,8 @@ export interface PeerStoreApi {
   setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
   setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
-  ownerView(owner: string, now: number): Promise<OwnerPeersView>;
+  /** `owner` is the person's name, which the rights, defaults and requests are still kept under; `ownerId` is their `people.id`, which finds their reporters (#1284). */
+  ownerView(owner: string, ownerId: number | null, now: number): Promise<OwnerPeersView>;
   adminView(key: string): Promise<AdminPeersView | null>;
   /** The orchestrator is forgotten, and what still waits for it is dropped. */
   ended(sessionId: string): Promise<void>;

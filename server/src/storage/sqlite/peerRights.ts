@@ -371,7 +371,7 @@ export class PeerRights implements PeerRightsApi {
     if (!eligible(r)) return refuse(403, NO_ADMIN);
     // A bulk pause by an Admin is the Admin's, named like a pause of one link, and only an Admin lifts it (#1077).
     const by: LinkPauser | null = actor.admin ? 'admin' : null;
-    const others = new Set([key, ...this.reporters.ofOwner(r.owner).filter(eligible).map((o) => o.key)]);
+    const others = new Set([key, ...this.reporters.ofOwner(r.ownerId).filter(eligible).map((o) => o.key)]);
     this.tx(() => {
       for (const o of others) this.pausePair(r.owner, key, o, paused, by, by ? actor.name : null);
     });

@@ -45,6 +45,18 @@ async function fillAgentIds(db: DB): Promise<void> {
   await db.run('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
 }
 
+/** Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`. See SQLite's `fillOwnerIds`. Only rows without an id are written, so a step run again adds nothing. */
+async function fillOwnerIds(db: DB): Promise<void> {
+  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  if (ids.size === 0) return;
+  for (const table of ['sessions', 'reporters']) {
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner IS NOT NULL AND owner_id IS NULL ORDER BY owner`)) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`, [id, r.owner]);
+    }
+  }
+}
+
 /** `TXT` is long text; `K(n)` is text of at most n characters that can be a key; `INT` is a 64-bit integer (times are milliseconds); `REAL` a double. */
 const typed = (sql: string): string =>
   sql
@@ -503,6 +515,16 @@ ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS from_agent INT;
 ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS to_agent INT;
 `),
     after: fillAgentIds,
+  },
+  {
+    version: 25,
+    // A session and a reporter belong to a person by id, never by name (#1284), as SQLite migration 49 keeps it: `owner_id` is `people.id` (no foreign key), NULL for the admin secret's rows and
+    // for a row whose owner matches no person. `fillOwnerIds` gives the others their person's id; it writes only rows without one, so a step that stopped half way runs again and adds nothing twice.
+    statements: steps(`
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_id INT;
+ALTER TABLE reporters ADD COLUMN IF NOT EXISTS owner_id INT;
+`),
+    after: fillOwnerIds,
   },
 ];
 

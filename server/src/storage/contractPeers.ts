@@ -21,7 +21,7 @@ const asRow = (v: unknown): MessageRow => v as MessageRow;
 const SERVER_LIMITS = { roundTrips: 10, perMinute: 6, maxChars: 20_000 };
 
 const seen = (id: string, name: string, owner: string, sessionId: string): ReporterSeen => ({
-  kind: 'mod', machineId: id, machineName: name, source: '127.0.0.1', owner, credential: 'person', version: '1.2.0', engineVersion: null, sessionId, os: 'macOS', peers: true,
+  kind: 'mod', machineId: id, machineName: name, source: '127.0.0.1', owner, ownerId: owner === 'ed' ? ED_ID : EVE_ID, credential: 'person', version: '1.2.0', engineVersion: null, sessionId, os: 'macOS', peers: true,
 });
 const waiting = (name: string, machine: string): Report =>
   ({ session: { name, status: 'waiting', waitReason: 'input', peers: true, repoName: null, projectRoot: '~/dev' }, machine: { name: machine, os: 'macOS' } }) as unknown as Report;
@@ -38,10 +38,10 @@ export async function setUp(s: Storage, clock: { now: number }): Promise<{ peers
   const c = await s.reporters.record(seen('c', 'box-c', 'ed', 'sc'), T0);
   const eve = await s.reporters.record(seen('e', 'box-e', 'eve', 'se'), T0);
   for (const [id, owner] of [['sa', 'ed'], ['sb', 'ed'], ['sc', 'ed'], ['se', 'eve']] as const) await s.fleet.upsertSession(session({ id, owner }));
-  await peers.note('sa', a, 'ed', waiting('alpha', 'box-a'));
-  await peers.note('sb', b, 'ed', waiting('beta', 'box-b'));
-  await peers.note('sc', c, 'ed', waiting('gamma', 'box-c'));
-  await peers.note('se', eve, 'eve', waiting('delta', 'box-e'));
+  await peers.note('sa', a, 'ed', ED_ID, waiting('alpha', 'box-a'));
+  await peers.note('sb', b, 'ed', ED_ID, waiting('beta', 'box-b'));
+  await peers.note('sc', c, 'ed', ED_ID, waiting('gamma', 'box-c'));
+  await peers.note('se', eve, 'eve', EVE_ID, waiting('delta', 'box-e'));
   return { peers, a, b, c, eve };
 }
 
@@ -191,13 +191,13 @@ export function peerCases(o: Openers): void {
       const clock = { now: T0 };
       const { peers, a, b } = await setUp(s, clock);
       for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
-      await peers.note('sb', b, 'ed', working('beta', 'box-b'));
+      await peers.note('sb', b, 'ed', ED_ID, working('beta', 'box-b'));
       await rec('send to a running agent', peers.messages.send('sa', 'beta@box-b', 'the runners are down'));
       await rec('running agent reports', peers.replyFor('sb', true));
-      await peers.note('sb', b, 'ed', working('beta', 'box-b', 'permission'));
+      await peers.note('sb', b, 'ed', ED_ID, working('beta', 'box-b', 'permission'));
       await rec('send to an agent at a permission prompt', peers.messages.send('sa', 'beta@box-b', 'after the prompt'));
       await rec('prompt open: nothing handed over', peers.replyFor('sb', true));
-      await peers.note('sb', b, 'ed', working('beta', 'box-b'));
+      await peers.note('sb', b, 'ed', ED_ID, working('beta', 'box-b'));
       await rec('prompt answered: handed over', peers.replyFor('sb', true));
     });
     expect(t.get('send to a running agent')).toMatchObject({ ok: true, state: 'sent' });
@@ -231,7 +231,7 @@ export function peerCases(o: Openers): void {
       await rec('reply for a (not allowed)', (await peers.replyFor('sa', false)));
       await rec('reply for c', (await peers.replyFor('sc', true)));
       await rec('reply for unknown', (await peers.replyFor('nope', true)));
-      await peers.note('sb', b, 'ed', done('beta', 'box-b'));
+      await peers.note('sb', b, 'ed', ED_ID, done('beta', 'box-b'));
       await rec('live after done', peers.messages.live('sb'));
       await peers.ended('sa');
       await rec('live after ended', peers.messages.live('sa'));
@@ -252,8 +252,8 @@ export function peerCases(o: Openers): void {
       await peers.messages.send('sa', 'beta@box-b', 'hello');
       await peers.messages.send('sb', 'alpha@box-a', 'hi back');
       await peers.rights.requestAccess({ owner: 'ed', fromKey: c, toKey: a, right: 'see', reason: 'look', by: 'gamma', fromSession: 'sc' });
-      await rec('owner view', (await peers.ownerView('ed', T0 + 10)));
-      await rec('owner view (nobody)', (await peers.ownerView('zed', T0 + 10)));
+      await rec('owner view', (await peers.ownerView('ed', ED_ID, T0 + 10)));
+      await rec('owner view (nobody)', (await peers.ownerView('zed', null, T0 + 10)));
       await rec('admin view', (await peers.adminView(a)));
       await rec('admin view (unknown)', peers.adminView('nope'));
       await rec('retain (nothing old)', peers.retain());
@@ -275,7 +275,7 @@ export function peerCases(o: Openers): void {
       await peers.rights.setRight('ed', a, b, 'send', ED);
       await peers.rights.setRight('ed', b, a, 'send', ED);
       // A live orchestrator whose id has no sessions row, and whose id differs from the prefix only in case.
-      await peers.note('Person:ghost', a, 'ed', waiting('ghost', 'box-a'));
+      await peers.note('Person:ghost', a, 'ed', ED_ID, waiting('ghost', 'box-a'));
       await rec('send from the look-alike', peers.messages.send('Person:ghost', 'beta@box-b', 'who am I'));
       await rec('person writes', peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'from the person' }));
       await rec('retain', peers.retain());
@@ -494,7 +494,7 @@ export function peerCases(o: Openers): void {
       // Three more agents of ed on box-a, so a flood can pass the cap on what one person may have waiting.
       for (const n of [1, 2, 3, 4]) {
         await s.fleet.upsertSession(session({ id: `sx${n}`, owner: 'ed' }));
-        await peers.note(`sx${n}`, a, 'ed', waiting(`extra${n}`, 'box-a'));
+        await peers.note(`sx${n}`, a, 'ed', ED_ID, waiting(`extra${n}`, 'box-a'));
       }
       const m = peers.messages;
       await rec('empty', m.sendAcross({ person: 'Eve', toSession: 'sb', text: ' ' }));
@@ -523,7 +523,7 @@ export function peerCases(o: Openers): void {
       await rec('requests after the end', peers.rights.openRequests('ed'));
       // An allow opens the link and delivers.
       const toB = (await peers.rights.openRequests('ed')).find((r) => r.toKey === b)!;
-      await rec('request view', peers.ownerView('ed', T0));
+      await rec('request view', peers.ownerView('ed', ED_ID, T0));
       await rec('allow', peers.answer(toB.id, 'ed', 'deliver', ED));
       await rec('the link', peers.rights.personLink('person:eve', b));
       await rec('effective', peers.rights.effective('person:eve', b));
@@ -622,7 +622,7 @@ export function peerCases(o: Openers): void {
       const { peers, a } = await setUp(s, clock);
       const m = peers.messages;
       await s.fleet.upsertSession(session({ id: 'sx1', owner: 'ed' }));
-      await peers.note('sx1', a, 'ed', waiting('alpha two', 'box-a'));
+      await peers.note('sx1', a, 'ed', ED_ID, waiting('alpha two', 'box-a'));
       await m.sendAcross({ person: 'Eve', toSession: 'sa', text: 'one' });
       await m.sendAcross({ person: 'Eve', toSession: 'sx1', text: 'two' });
       const [first, second] = (await peers.rights.openRequests('ed')).filter((r) => r.toKey === a);
@@ -825,7 +825,7 @@ export function peerCases(o: Openers): void {
       const clock = { now: T0 };
       const { peers, a } = await setUp(s, clock);
       await s.fleet.upsertSession(session({ id: 'sd', owner: 'ed' }));
-      await peers.note('sd', a, 'ed', waiting('delta2', 'box-a'));
+      await peers.note('sd', a, 'ed', ED_ID, waiting('delta2', 'box-a'));
       const m = peers.messages;
       await m.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'ready one', authorId: ED_ID });
       clock.now += 5;
@@ -846,7 +846,7 @@ export function peerCases(o: Openers): void {
       const open = await peers.rights.openRequests('ed');
       const requestOf = (id: string): string => open.find((r) => r.messageId === id)!.id;
       await rec('edit a message that waits for approval', m.editMessage(first.id, { author: EVE_ID, text: 'across one edited', now: T0 + 10 }));
-      await rec("the owner's view shows the edited text", peers.ownerView('ed', T0 + 11));
+      await rec("the owner's view shows the edited text", peers.ownerView('ed', ED_ID, T0 + 11));
       await rec('delete a message that waits for approval', m.deleteMessage(second.id, { author: EVE_ID, now: T0 + 20 }));
       await rec('open requests, the deleted one gone', peers.rights.openRequests('ed'));
       await rec('the owner answers the deleted one', peers.answer(requestOf(second.id), 'ed', 'deliver', ED));
@@ -1049,7 +1049,7 @@ export function peerCases(o: Openers): void {
       for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
       for (const n of [1, 2, 3, 4]) {
         await s.fleet.upsertSession(session({ id: `sx${n}`, owner: 'ed' }));
-        await peers.note(`sx${n}`, a, 'ed', waiting(`extra${n}`, 'box-a'));
+        await peers.note(`sx${n}`, a, 'ed', ED_ID, waiting(`extra${n}`, 'box-a'));
       }
       const m = peers.messages;
       const first = (await m.send('sa', 'beta@box-b', 'hello')) as { id: string };
@@ -1072,7 +1072,7 @@ export function peerCases(o: Openers): void {
       await m.deleteMessage(waits.id, { author: EVE_ID, now: T0 + 6 });
       await rec('eve no longer waits', m.ownerConversations('eve'));
       await rec('no request for the owner', peers.rights.openRequests('ed'));
-      await rec('no request in the owner view', peers.ownerView('ed', T0 + 7));
+      await rec('no request in the owner view', peers.ownerView('ed', ED_ID, T0 + 7));
       await rec('nothing handed over to gamma', peers.replyFor('sc', true));
       await rec('answering the deleted message: deliver', peers.answer(waitsRequest, 'ed', 'deliver', ED));
       await rec('answering the deleted message: decline', peers.answer(waitsRequest, 'ed', 'decline', ED));
@@ -1227,8 +1227,8 @@ export function peerCases(o: Openers): void {
       await rec('ids and names, one each', ids(['sa', 'sb', 'sc', 'se']));
       // A second session of the same name on the same machine: it holds "beta 2" and has its own id.
       await s.fleet.upsertSession(session({ id: 'sb2', owner: 'ed' }));
-      await peers.note('sb2', b, 'ed', waiting('beta', 'box-b'));
-      await peers.note('sb2', b, 'ed', waiting('beta', 'box-b'));
+      await peers.note('sb2', b, 'ed', ED_ID, waiting('beta', 'box-b'));
+      await peers.note('sb2', b, 'ed', ED_ID, waiting('beta', 'box-b'));
       await rec('ids and names, a twin', ids(['sb', 'sb2']));
       await rec('list shows the ids', m.list('sa'));
       await rec('send by the id alone', m.send('sa', '#2', 'to the first'));
@@ -1237,11 +1237,11 @@ export function peerCases(o: Openers): void {
       await rec('send to an id nobody has', m.send('sa', '#99', 'nobody'));
       await rec('send to oneself by id', m.send('sa', '#1', 'myself'));
       // The first beta ends; what was aimed at it is not delivered, and a newcomer of its name is a new agent.
-      await peers.note('sb', b, 'ed', done('beta', 'box-b'));
+      await peers.note('sb', b, 'ed', ED_ID, done('beta', 'box-b'));
       await rec('send to the ended agent', m.send('sa', '#2', 'again'));
       await rec('send to the ended agent by name', m.send('sa', 'beta@box-b#2', 'again'));
       await s.fleet.upsertSession(session({ id: 'sb3', owner: 'ed' }));
-      await peers.note('sb3', b, 'ed', waiting('beta', 'box-b'));
+      await peers.note('sb3', b, 'ed', ED_ID, waiting('beta', 'box-b'));
       await rec('ids and names, a newcomer', ids(['sb2', 'sb3']));
       await rec('the newcomer has none of the first one\'s mail', peers.replyFor('sb3', true));
       await rec('the ended agent is still no longer available', m.send('sa', '#2', 'still'));

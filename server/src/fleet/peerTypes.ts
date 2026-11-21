@@ -51,8 +51,10 @@ export interface ReporterRef {
   key: string;
   /** The machine name, or the key when the reporter sent none. */
   machine: string;
-  /** The owner's name as the server recorded it; null with authentication off. */
+  /** The owner's name as the server recorded it; null with authentication off. Display text: who owns the reporter is `ownerId`. */
   owner: string | null;
+  /** The owner's `people.id` (#1284); null for the admin secret's reporter, with no sign-in, and for one whose person was deleted: it belongs to nobody. */
+  ownerId: number | null;
   /** True when it reports with the admin secret: such a reporter belongs to no one and never takes part. */
   adminSecret: boolean;
   os: string | null;
@@ -69,7 +71,8 @@ export type MachineName = (key: string) => string;
 /** Looks a reporter up by key, and lists one owner's reporters (compared case-insensitively, `nameKey`). */
 export interface ReporterLookup {
   get(key: string): ReporterRef | null;
-  ofOwner(owner: string): ReporterRef[];
+  /** The reporters of the person with this id (#1284); none for null. */
+  ofOwner(ownerId: number | null): ReporterRef[];
 }
 
 /** A reporter with its state and last report, worked out as Admin > Reporters works them out (#415). */
@@ -84,7 +87,7 @@ export interface SeenReporterRef extends ReporterRef {
 export interface PeerReporterLookup extends ReporterLookup {
   /** When the server started: a reporter last heard before it is "Not since restart". */
   readonly startedAt: number;
-  ofOwnerSeen(owner: string, now: number): SeenReporterRef[];
+  ofOwnerSeen(ownerId: number | null, now: number): SeenReporterRef[];
 }
 
 // ---- Rights, defaults and requests (peerRights.ts, agent A) ---------------------------------------------------
@@ -235,8 +238,10 @@ export interface LiveOrchestrator {
   /** The id the server gave this agent when it first heard of its session (#1284): never reused, so a new session, a `/clear` included, is a new agent whatever name it takes. `name@machine#id` and a bare `#id` address it. */
   agentId: number;
   reporterKey: string;
-  /** The session's owner as the server decided it from the token. */
+  /** The session's owner as the server decided it from the token: display text. Who owns it is `ownerId`. */
   owner: string;
+  /** The owner's `people.id` (#1284); null for a session reported with the admin secret. */
+  ownerId: number | null;
   name: string;
   machine: string;
   os: string | null;

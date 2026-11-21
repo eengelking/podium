@@ -33,9 +33,14 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
     await td.drop();
   });
 
+  /** The `people.id` each owner name here stands for (#1284): a person's reporters are found by it. The Admin has none. */
+  const IDS: Record<string, number> = { dana: 7, eve: 8, émile: 9 };
+  const idOf = (owner: string | null | undefined): number | null => IDS[(owner ?? 'Dana').toLowerCase()] ?? null;
+
+
   /** Adds one reporter; the machine name is its key. */
   const add = (key: string, over: Partial<ReporterRef> = {}) => {
-    reps.set(key, { key, machine: key, owner: 'Dana', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...over });
+    reps.set(key, { key, machine: key, owner: 'Dana', ownerId: idOf(over.owner), adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...over });
   };
 
   beforeEach(async () => {

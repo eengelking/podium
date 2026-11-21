@@ -267,13 +267,13 @@ export function differentialCases(o: Openers): void {
         await s.people.setAdminReporting(false);
         await rec('admin reporting after', s.people.adminReportingAllowed());
         await rec('any reporter', s.reporters.hasAny());
-        const key = await rec('record', s.reporters.record({ kind: 'mod', machineId: 'm1', machineName: 'box', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '0.1.0', engineVersion: null, sessionId: 's1' }, 50));
+        const key = await rec('record', s.reporters.record({ kind: 'mod', machineId: 'm1', machineName: 'box', source: '127.0.0.1', owner: 'ed', ownerId: 11, credential: 'person', version: '0.1.0', engineVersion: null, sessionId: 's1' }, 50));
         await rec('any reporter after', s.reporters.hasAny());
         const p = s.peers({ now: () => 60, flagOn: () => true, startedAt: 0 });
         await rec('flag', p.flagOn());
         await rec('get', p.reporters.get(key));
-        await rec('of owner', p.reporters.ofOwner('ED'));
-        await rec('of owner seen', p.reporters.ofOwnerSeen('ed', 60));
+        await rec('of owner', p.reporters.ofOwner(11));
+        await rec('of owner seen', p.reporters.ofOwnerSeen(11, 60));
       });
       expect(t.get('admin reporting at first')).toBe(true);
       expect(t.get('admin reporting after')).toBe(false);

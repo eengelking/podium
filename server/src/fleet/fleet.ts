@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, BACKGROUND_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, BACKGROUND_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -302,7 +302,7 @@ export class Fleet {
       isLive: (id) => this.live.has(id),
       sessionOf: async (id) => {
         const row = await this.db.getSession(id);
-        return row ? { name: row.name, owner: row.owner } : null;
+        return row ? { name: row.name, owner: row.owner, ownerId: row.owner_id } : null;
       },
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),
@@ -455,13 +455,13 @@ export class Fleet {
   // ---- ingest ---------------------------------------------------------------------------------
 
   /** Stores one report and brings the live set, the feeds and the consoles up to date. Reports for one session are handled one at a time. */
-  ingest(report: Report, owner: string | null = null): Promise<IngestResult> {
-    return this.serial.run(report.session.id, () => this.ingestNow(report, owner));
+  ingest(report: Report, owner: string | null = null, ownerId: number | null = null): Promise<IngestResult> {
+    return this.serial.run(report.session.id, () => this.ingestNow(report, owner, ownerId));
   }
 
   /** `ingest` for a caller that already holds the session's turn. */
-  private async ingestNow(report: Report, owner: string | null): Promise<IngestResult> {
-    const res = await ingestReport(this.storage, report, this.now(), owner);
+  private async ingestNow(report: Report, owner: string | null, ownerId: number | null): Promise<IngestResult> {
+    const res = await ingestReport(this.storage, report, this.now(), owner, ownerId);
     this.clockSkew.set(res.sessionId, res.clockSkewMs);
     this.activity.ingest(report, res.clockSkewMs);
     // The stored session, read once: the Stored activity table and a recording's carry-over start from it, and so does the live set below.
@@ -568,20 +568,20 @@ export class Fleet {
   }
 
   /** A classic settings-hook payload (T5.1): merged with what is stored, then ingested as a report. */
-  ingestHook(payload: unknown, owner: string | null = null): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
+  ingestHook(payload: unknown, owner: string | null = null, ownerId: number | null = null): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
     // What a hook is merged with is read and the report written under the session's one turn, so two hooks cannot both start from the same stored state.
     const sid = hookSessionId(payload);
-    return sid ? this.serial.run(sid, () => this.ingestHookNow(payload, owner, sid)) : this.ingestHookNow(payload, owner, '');
+    return sid ? this.serial.run(sid, () => this.ingestHookNow(payload, owner, ownerId, sid)) : this.ingestHookNow(payload, owner, ownerId, '');
   }
 
-  private async ingestHookNow(payload: unknown, owner: string | null, sid: string): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
+  private async ingestHookNow(payload: unknown, owner: string | null, ownerId: number | null, sid: string): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
     const stored = sid ? { session: await this.db.getSession(sid), agents: await this.db.getAgents(sid) } : { agents: [] };
     const res = hookToReport(payload, stored, this.now());
     if (!res.ok) return res;
     if ('ignored' in res) return { ok: true, sessionId: res.sessionId };
     const v = validateReport(res.report);
     if (!v.ok) return v;
-    await this.ingestNow(v.report, owner);
+    await this.ingestNow(v.report, owner, ownerId);
     return { ok: true, sessionId: v.report.session.id };
   }
 
@@ -923,12 +923,12 @@ export class Fleet {
    * Puts the reporting orchestrator in the peer directory, in the session's own turn and only if the session is still there: a delete or an end
    * that ran after this report was stored, or a done report that followed it, is not undone by a note that arrives late (#313).
    */
-  noteOrchestrator(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void> {
+  noteOrchestrator(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void> {
     return this.serial.run(sessionId, async () => {
       if (!this.live.has(sessionId)) return;
       const row = await this.db.getSession(sessionId);
       if (!row || (row.status === 'done' && report.session.status !== 'done')) return;
-      await this.peers.note(sessionId, reporterKey, owner, report);
+      await this.peers.note(sessionId, reporterKey, owner, ownerId, report);
       await this.chatSafely('a session reported', () => this.chat.sessionSeen(sessionId, owner));
     });
   }
@@ -949,19 +949,19 @@ export class Fleet {
 
   /**
    * The Delete route (#1051): looks the session up first, so an id that is no session (a `person:` id included) changes
-   * nothing, and lets only the session's owner delete it. `asOwner` is the caller's name, or undefined for the admin
-   * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's.
+   * nothing, and lets only the session's owner delete it. `asOwnerId` is the caller's `people.id` (#1284), or undefined for the admin
+   * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's; one whose person was deleted (a name but no id) is nobody's, so only the admin secret deletes it.
    */
-  deleteSessionAs(id: string, asOwner: string | undefined, byAdmin?: string): Promise<'deleted' | 'unknown' | 'forbidden'> {
-    return this.serial.run(id, () => this.deleteNow(id, { asOwner, byAdmin }));
+  deleteSessionAs(id: string, asOwnerId: number | undefined, byAdmin?: string): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    return this.serial.run(id, () => this.deleteNow(id, { asOwnerId, byAdmin }));
   }
 
-  /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwner` must own it. */
-  private async deleteNow(id: string, check: { asOwner: string | undefined; byAdmin?: string } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
+  /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwnerId` must own it. */
+  private async deleteNow(id: string, check: { asOwnerId: number | undefined; byAdmin?: string } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
     const row = await this.db.getSession(id);
     if (check) {
       if (!row) return 'unknown';
-      if (check.asOwner !== undefined && row.owner && nameKey(row.owner) !== nameKey(check.asOwner)) return 'forbidden';
+      if (check.asOwnerId !== undefined && row.owner && row.owner_id !== check.asOwnerId) return 'forbidden';
     }
     const owner = row?.owner ?? null;
     // An Admin deleting a person's session tells the person first, so a failure to record it stops the delete (#1078).

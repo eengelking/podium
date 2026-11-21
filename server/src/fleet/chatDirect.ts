@@ -273,13 +273,12 @@ export class DirectChat {
    */
   async targets(viewer: ChatViewer, q: string): Promise<DirectTarget[]> {
     if (viewer.personId === null) return [];
-    const me = nameKey(viewer.name);
     const want = q.trim().toLowerCase();
     const out: DirectTarget[] = [];
     for (const id of this.core.host.liveIds()) {
       const o = this.liveOf(id);
       if (!o) continue;
-      const own = nameKey(o.owner) === me;
+      const own = viewer.personId !== null && o.ownerId === viewer.personId;
       if (!own && o.peers !== true) continue;
       if (want && !`${o.name} ${o.owner} ${o.machine}`.toLowerCase().includes(want)) continue;
       const row = own ? null : await this.peerStore.rights.personLink(personId(viewer.name), o.reporterKey);
@@ -366,7 +365,7 @@ export class DirectChat {
     const other = a === me ? b : b === me ? a : null;
     const o = other ? this.liveOf(other) : null;
     if (!o) return null;
-    if (nameKey(o.owner) === nameKey(viewer.name)) return { sessionId: o.sessionId, own: true };
+    if (o.ownerId === viewer.personId) return { sessionId: o.sessionId, own: true };
     return o.peers === true ? { sessionId: o.sessionId, own: false } : null;
   }
 
@@ -495,7 +494,7 @@ export class DirectChat {
     const stored: MessageRow[] = [];
     for (const sid of live) {
       const o = this.liveOf(sid)!;
-      if (nameKey(o.owner) !== owner) return fail(404, 'There is no such conversation.');
+      if (o.ownerId === null || o.ownerId !== viewer.personId) return fail(404, 'There is no such conversation.');
       const other = agents.find((x) => x !== sid);
       // The person's own conversation with this one agent: it may answer in the thread. A word added to a conversation between two agents has no such thread to answer in.
       const sent = this.core.deliver(sid, viewer.name, o.name, text, 'chat', !other);

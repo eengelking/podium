@@ -67,12 +67,13 @@ export class MariaPeerService {
   }
 
   /** After every accepted report from a reporter the server recorded (not the simulator, not settings hooks). */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void> {
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void> {
     const s = report.session;
     return this.messages.note({
       sessionId,
       reporterKey,
       owner,
+      ownerId,
       name: s.name,
       machine: report.machine?.name ?? reporterKey,
       os: report.machine?.os ?? null,
@@ -176,14 +177,14 @@ export class MariaPeerService {
   }
 
   /** What My reporters (GET /respond/peers) shows of one owner, read in one step. */
-  ownerView(owner: string, now: number): Promise<OwnerPeersView> {
+  ownerView(owner: string, ownerId: number | null, now: number): Promise<OwnerPeersView> {
     return this.db.tx(async () => {
       const server = await this.settings.limits();
       const requests: OwnerRequestView[] = [];
       for (const r of await this.rights.openRequests(owner)) requests.push(await this.ownerRequestView(r));
       return {
         serverStartedAt: this.reporters.startedAt,
-        reporters: (await this.reporters.ofOwnerSeen(owner, now)).filter((r) => !r.adminSecret),
+        reporters: (await this.reporters.ofOwnerSeen(ownerId, now)).filter((r) => !r.adminSecret),
         rights: await this.rights.rightsOf(owner),
         defaults: await this.rights.defaults(owner),
         limits: { server, effective: await this.rights.limits(owner, server) },
@@ -203,7 +204,7 @@ export class MariaPeerService {
       const ref = await this.reporters.get(key);
       if (!ref) return null;
       const owner = ref.owner;
-      const mine = owner && !ref.adminSecret ? (await this.reporters.ofOwner(owner)).filter((r) => !r.adminSecret) : [];
+      const mine = owner && !ref.adminSecret ? (await this.reporters.ofOwner(ref.ownerId)).filter((r) => !r.adminSecret) : [];
       const keys = new Set(mine.map((r) => r.key));
       const effective: AdminPeersView['effective'] = [];
       for (const o of mine) {

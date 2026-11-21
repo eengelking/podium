@@ -48,12 +48,13 @@ export class PeerService {
   private readonly machineOf: MachineName = (key) => this.reporters.get(key)?.machine ?? key;
 
   /** After every accepted report from a reporter the server recorded (not the simulator, not settings hooks). */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): void {
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): void {
     const s = report.session;
     this.messages.note({
       sessionId,
       reporterKey,
       owner,
+      ownerId,
       name: s.name,
       machine: report.machine?.name ?? reporterKey,
       os: report.machine?.os ?? null,
@@ -153,11 +154,11 @@ export class PeerService {
   }
 
   /** What My reporters (GET /respond/peers) shows of one owner, read in one step. */
-  ownerView(owner: string, now: number): OwnerPeersView {
+  ownerView(owner: string, ownerId: number | null, now: number): OwnerPeersView {
     const server = this.settings.limits();
     return {
       serverStartedAt: this.reporters.startedAt,
-      reporters: this.reporters.ofOwnerSeen(owner, now).filter((r) => !r.adminSecret),
+      reporters: this.reporters.ofOwnerSeen(ownerId, now).filter((r) => !r.adminSecret),
       rights: this.rights.rightsOf(owner),
       defaults: this.rights.defaults(owner),
       limits: { server, effective: this.rights.limits(owner, server) },
@@ -175,7 +176,7 @@ export class PeerService {
     const ref = this.reporters.get(key);
     if (!ref) return null;
     const owner = ref.owner;
-    const mine = owner && !ref.adminSecret ? this.reporters.ofOwner(owner).filter((r) => !r.adminSecret) : [];
+    const mine = owner && !ref.adminSecret ? this.reporters.ofOwner(ref.ownerId).filter((r) => !r.adminSecret) : [];
     const keys = new Set(mine.map((r) => r.key));
     return {
       reporter: ref,

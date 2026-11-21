@@ -209,7 +209,7 @@ export class ConversationChat {
       } else if (m.kind === 'agent' && typeof m.sessionId === 'string') {
         const s = await this.core.host.sessionOf(m.sessionId);
         if (!s || !this.core.host.isLive(m.sessionId)) return fail(409, 'That agent is not running, so it cannot be added.');
-        if (!s.owner || nameKey(s.owner) !== nameKey(viewer.name)) return fail(403, `Adding another person's agent to a conversation is not available yet. Ask ${s.owner ?? 'its owner'} to add it from their own conversation.`);
+        if (s.ownerId === null || s.ownerId !== viewer.personId) return fail(403, `Adding another person's agent to a conversation is not available yet. Ask ${s.owner ?? 'its owner'} to add it from their own conversation.`);
         out.push({ kind: 'agent', ref: m.sessionId, name: s.name });
       } else return fail(400, 'A member is { kind: "person", name } or { kind: "agent", sessionId }.');
     }

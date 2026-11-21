@@ -3,7 +3,7 @@
 // A record holds who, which thread and when, never any text. General is public and is never recorded.
 import type { AdminReadKind, AdminReadRow, ChatAdminReadsApi } from '../storage/types.js';
 import { NOTICE_TTL_MS, type AdminNotice } from './chatAdminNotices.js';
-import { ADMIN_OWNER, nameKey } from '../storage/rows.js';
+import { nameKey } from '../storage/rows.js';
 import { LOOP_ID, parseSessionThread, readNeedsLoop, sessionPhrase, sessionSubject, sessionThreadPrefix, type ParsedSessionThread, type SessionReadKind } from './sessionReads.js';
 import type { ChatCore } from './chatCore.js';
 import type { AdminReading, ChatViewer } from './chatTypes.js';
@@ -134,8 +134,9 @@ export class AdminReads {
    * the same record (reads of one thread by one Admin less than 30 minutes apart are one session). The Admin log line is the route's (`recording_read`), so this
    * writes no Chat event. Returns whether a person was told, so the route can wake that person's console.
    */
-  async noteReplay(viewer: ChatViewer, session: { id: string; name: string; owner: string | null }): Promise<boolean> {
-    if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return false;
+  async noteReplay(viewer: ChatViewer, session: { id: string; name: string; owner: string | null; owner_id: number | null }): Promise<boolean> {
+    // Whose a session is, is its owner's id (#1284): one with none (the admin secret's, or whose person was deleted) has no person to tell.
+    if (!viewer.admin || session.owner === null || session.owner_id === null || session.owner_id === viewer.personId) return false;
     const subject: ReplaySubject = { scope: 'replay', thread: replayThread(session.id), owners: [nameKey(session.owner)], phrase: replayPhrase(session.name) };
     await this.store.touch(subject.thread, viewer.actor, SESSION_GAP_MS, subject.owners);
     this.changed();
@@ -175,12 +176,12 @@ export class AdminReads {
     else if (thread.startsWith('dm:')) subject = await this.resolve(thread);
     else if (thread.startsWith('replay:')) {
       const row = await this.core.host.sessionOf(thread.slice('replay:'.length));
-      if (row && row.owner !== null && row.owner !== ADMIN_OWNER) subject = { scope: 'replay', thread, owners: [nameKey(row.owner)], phrase: replayPhrase(row.name) };
+      if (row && row.owner !== null && row.ownerId !== null) subject = { scope: 'replay', thread, owners: [nameKey(row.owner)], phrase: replayPhrase(row.name) };
     } else {
       // A session read (an ask, stored Activity): whose it is comes from the stored session, so a session peer messaging does not know is still told.
       const parsed = parseSessionThread(thread);
       const row = parsed ? await this.core.host.sessionOf(parsed.sessionId) : null;
-      if (parsed && row && row.owner !== null && row.owner !== ADMIN_OWNER) subject = { scope: 'session', thread, owners: [nameKey(row.owner)], phrase: sessionPhrase(parsed.kind, row.name) };
+      if (parsed && row && row.owner !== null && row.ownerId !== null) subject = { scope: 'session', thread, owners: [nameKey(row.owner)], phrase: sessionPhrase(parsed.kind, row.name) };
     }
     this.known.set(thread, { subject, at: now });
     return subject;
@@ -222,9 +223,9 @@ export class AdminReads {
    * Returns whether a person is told and whether the read just began, so the route can wake that person's console. A route that serves the read passes
    * `serving`, and `logDue` is then true once for each record: the first read of it, even when a ping began it, so the Admin log line is never missed (#1166).
    */
-  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null }, loop?: string, serving = false): Promise<{ told: boolean; changed: boolean; logDue: boolean }> {
+  async noteSession(viewer: ChatViewer, kind: SessionReadKind, session: { id: string; name: string; owner: string | null; owner_id: number | null }, loop?: string, serving = false): Promise<{ told: boolean; changed: boolean; logDue: boolean }> {
     const none = { told: false, changed: false, logDue: false };
-    if (!viewer.admin || session.owner === null || session.owner === ADMIN_OWNER || nameKey(session.owner) === nameKey(viewer.name)) return none;
+    if (!viewer.admin || session.owner === null || session.owner_id === null || session.owner_id === viewer.personId) return none;
     if (readNeedsLoop(kind) && !(loop && LOOP_ID.test(loop))) throw new Error(`a ${kind} read needs a loop id`);
     const s = sessionSubject(kind, { id: session.id, name: session.name, owner: session.owner }, loop);
     const got = await this.store.touch(s.thread, viewer.actor, SESSION_GAP_MS, [s.owner]);

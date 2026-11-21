@@ -482,6 +482,15 @@ CREATE INDEX conversation_members_ref ON conversation_members(member_kind, membe
 
 A person's counts for a conversation are kept like a channel's, under the thread `convo:<id>`, and so are an Admin's records of a conversation with an agent in it. A page orders by `created_at, seq` like every other. A conversation has no Admin read, so it has no `chat_admin_reads` row while no agent is a member. The retention days apply to its messages as they do to a channel's. Deleting a person removes their membership and a conversation left with no person is deleted with its messages.
 
+Migration 49 (#1284; PostgreSQL and MariaDB main step 25) binds a session and a reporter to a person by id, never by name:
+
+```sql
+ALTER TABLE sessions ADD COLUMN owner_id INTEGER;    -- the owner's people.id; NULL for the admin secret's sessions and for one whose person was deleted
+ALTER TABLE reporters ADD COLUMN owner_id INTEGER;   -- the same for a reporter
+```
+
+`owner_id` has no foreign key, and a `people.id` is never reused, so a session or reporter kept after its person is deleted names nobody and a new person who takes the name owns none of it. `owner` stays as the display text. Who owns a session or a reporter (who may answer it, delete it, read its asks, activity and recording as its owner, or sees it in My reporters) is decided by `owner_id` and never by `owner`; a row with no `owner_id` is nobody's, and only an Admin reaches it. A report from a person's token writes that person's id, and a session already owned by another id, or by nobody, is refused (`OwnerConflict`). The migration gives each row already stored the id of the person whose folded name matches its `owner` (`fillOwnerIds`, in code because SQL cannot fold a name as `nameKey` does) and leaves the others without one; deleting a person sets `owner_id` to NULL on their sessions and reporters in the same step.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql

@@ -46,6 +46,25 @@ function fillAgentIds(db: DatabaseSync): void {
   db.exec('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
 }
 
+/**
+ * Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, which `nameKey` also writes. It is JS because SQL
+ * cannot fold a name the way `nameKey` does. A row whose owner matches no current person (the admin secret's, or a person since deleted) keeps no id: it belongs to nobody, and no
+ * newcomer who takes the name can claim it. Only rows without an id are written, so a run that is repeated adds nothing.
+ */
+function fillOwnerIds(db: DatabaseSync): void {
+  // order-insensitive: the rows are folded into a map by name.
+  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
+  if (ids.size === 0) return;
+  for (const table of ['sessions', 'reporters']) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`);
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner IS NOT NULL AND owner_id IS NULL ORDER BY owner`).all() as unknown as { owner: string }[]) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) set.run(id, r.owner);
+    }
+  }
+}
+
 const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
   {
     version: 1,
@@ -676,6 +695,16 @@ CREATE TABLE IF NOT EXISTS agent_ids (id INTEGER PRIMARY KEY AUTOINCREMENT, sess
 ALTER TABLE peer_messages ADD COLUMN from_agent INTEGER;
 ALTER TABLE peer_messages ADD COLUMN to_agent INTEGER;`,
     after: fillAgentIds,
+  },
+  {
+    version: 49,
+    // A session and a reporter belong to a person by id, never by name (#1284): `owner_id` is `people.id` (never reused, no foreign key), so a person who is deleted leaves rows that name
+    // nobody and a newcomer with the same name inherits none of them. `owner` stays as the display text. NULL for the admin secret's rows and for a row whose owner matches no person;
+    // `fillOwnerIds` gives the others their person's id. The same step is PostgreSQL step 25 and MariaDB step 25.
+    sql: `
+ALTER TABLE sessions ADD COLUMN owner_id INTEGER;
+ALTER TABLE reporters ADD COLUMN owner_id INTEGER;`,
+    after: fillOwnerIds,
   },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;

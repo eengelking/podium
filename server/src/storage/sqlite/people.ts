@@ -164,6 +164,9 @@ export class PeopleStore {
     try {
       for (const p of found) {
         this.stmt('DELETE FROM people WHERE id = ?').run(p.id);
+        // Their sessions and reporters keep the name as text but are no one's now (#1284): a new person who takes the name owns none of them.
+        this.stmt('UPDATE sessions SET owner_id = NULL WHERE owner_id = ?').run(p.id);
+        this.stmt('UPDATE reporters SET owner_id = NULL WHERE owner_id = ?').run(p.id);
         this.forgetChat(p.name, p.id);
       }
       this.db.exec('COMMIT');

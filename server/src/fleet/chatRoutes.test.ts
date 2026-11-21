@@ -703,18 +703,18 @@ describe('direct messages', () => {
     expect(none.body.error).toBe("This session's reporter does not take /clear from Podium. Send it in the terminal.");
   });
 
-  it('lets an owner delete their session whatever the case or spacing of their name, and leaves a person: id alone, in any case (#1051)', async () => {
+  it('lets an owner delete their session by their id, and leaves a person: id alone, in any case (#1051, #1284)', async () => {
     const w = await world();
     await linkedConversation(w);
     const before = (await w.edB.get(CH)).body.directs.length;
     expect(before).toBeGreaterThan(0);
     // `person:<name>` is no session in any case, and deleting by it wipes no one's conversations.
-    expect(await w.fleet.deleteSessionAs('PERSON:ed', 'Ed')).toBe('unknown');
+    expect(await w.fleet.deleteSessionAs('PERSON:ed', w.ed.person.id)).toBe('unknown');
     expect(await w.fleet.deleteSessionAs('person:ed', undefined)).toBe('unknown');
     expect((await w.edB.get(CH)).body.directs).toHaveLength(before);
-    // Owner names are compared folded, as everywhere else: spaces collapsed, case ignored.
-    expect(await w.fleet.deleteSessionAs('sess-alex', '  ED ')).toBe('forbidden');
-    expect(await w.fleet.deleteSessionAs('sess-tester', '  ED ')).toBe('deleted');
+    // A session is its owner's by the owner's id, never by name (#1284).
+    expect(await w.fleet.deleteSessionAs('sess-alex', w.ed.person.id)).toBe('forbidden');
+    expect(await w.fleet.deleteSessionAs('sess-tester', w.ed.person.id)).toBe('deleted');
   });
 
   it('lets the person add to a conversation between two agents, reaching both, shown once; the round trips are unchanged', async () => {

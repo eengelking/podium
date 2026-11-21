@@ -118,6 +118,8 @@ export interface ReporterSeen {
   machineName: string | null;
   source: string | null;
   owner: string | null;
+  /** The owner's `people.id`, which binds the row to the person (#1284); null for the admin secret, with no sign-in, and from a caller that has no id. */
+  ownerId?: number | null;
   credential: string | null;
   version: string;
   engineVersion: string | null;
@@ -263,7 +265,10 @@ export interface SessionRow {
   usage_json: string | null;
   attached: number | null;
   detached_at: number | null;
+  /** The owner's name as the server recorded it: display text only (#1284). Who owns the session is `owner_id`. */
   owner: string | null;
+  /** The owner's `people.id` (#1284), never reused and with no foreign key. NULL for the admin secret's sessions and for one whose person was deleted: it belongs to nobody, and a newcomer with the same name cannot claim it. */
+  owner_id: number | null;
   machine_json: string | null;
   /** The session this one continues after a /clear (Report.session.clearedFrom, #206); NULL otherwise. */
   cleared_from: string | null;
@@ -569,6 +574,12 @@ export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'r
 
 /** The longest owner name a second account's key holds, cut here for the same reason as `SOURCE_MAX` (#1153). */
 const OWNER_KEY_MAX = 120;
+
+/** Whether a stored row's owner is the one a report names (#1284): by the person's id when it has one, and otherwise (the admin secret, which has no person) by the name it is recorded under, with no id on the row. */
+export function sameAccount(stored: { owner: string | null; owner_id: number | null }, s: { owner: string | null; ownerId?: number | null }): boolean {
+  if (s.ownerId !== undefined && s.ownerId !== null) return stored.owner_id === s.ownerId;
+  return stored.owner_id === null && stored.owner === s.owner;
+}
 
 /** The key a second account on one machine is filed under: `<machine id>#<owner>` plus the name suffix (#221). */
 export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> & { owner?: string | null }): string {

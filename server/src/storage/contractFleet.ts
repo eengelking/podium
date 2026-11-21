@@ -486,6 +486,53 @@ export function peopleCases(o: Openers): void {
     expect(String((t.get('last administrator') as { threw?: string }).threw ?? '')).not.toBe('');
     expect(t.get('not in the group')).toBeUndefined();
   });
+  it('binds a session and a reporter to a person by id, so deleting the person leaves them to nobody and a new person of the same name owns none of them, on every adapter (#1284)', async () => {
+    const report = (id: string) => {
+      const x = loadFixture() as { session: { id: string } };
+      x.session.id = id;
+      const v = validateReport(x);
+      if (!v.ok) throw new Error(`the fixture is not a report: ${v.error}`);
+      return v.report;
+    };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const { person: bob } = await s.people.createPerson('Bob', null, T0);
+      const { person: ann } = await s.people.createPerson('Ann', null, T0);
+      await rec('bob starts a session', ingestReport(s, report('b1'), T0, 'Bob', bob.id).then((r) => r.created));
+      await rec('ann starts a session', ingestReport(s, report('a1'), T0, 'Ann', ann.id).then((r) => r.created));
+      await rec('the admin secret starts one', ingestReport(s, report('adm'), T0, 'Admin', null).then((r) => r.created));
+      const owners = async () => Promise.all(['b1', 'a1', 'adm'].map(async (id) => { const r = (await s.fleet.getSession(id))!; return [id, r.owner, r.owner_id]; }));
+      await rec('who owns what', owners());
+      await rec('bob reports again', ingestReport(s, report('b1'), T0 + 1, 'Bob', bob.id).then((r) => r.created));
+      await rec('ann reports into bob\'s session', ingestReport(s, report('b1'), T0 + 2, 'Ann', ann.id));
+      const keyB = await s.reporters.record(seen('m-bob', 'box-b', { owner: 'Bob', ownerId: bob.id, sessionId: 'b1' }), T0);
+      await s.reporters.record(seen('m-ann', 'box-a', { owner: 'Ann', ownerId: ann.id, sessionId: 'a1' }), T0);
+      const lookup = s.reporters.peerLookup();
+      await rec('bob\'s reporters', lookup.ofOwner(bob.id).then((l) => l.map((r) => r.key)));
+      await rec('delete bob', s.people.deleteMany([bob.id]).then((l) => l.map((p) => p.name)));
+      const { person: newBob } = await s.people.createPerson('Bob', null, T0 + 3);
+      await rec('the id is not reused', newBob.id !== bob.id);
+      await rec('who owns what after', owners());
+      await rec('bob\'s old reporters', lookup.ofOwner(bob.id).then((l) => l.map((r) => r.key)));
+      await rec('the new bob\'s reporters', lookup.ofOwner(newBob.id).then((l) => l.map((r) => r.key)));
+      await rec('ann\'s reporters', lookup.ofOwner(ann.id).then((l) => l.map((r) => r.key)));
+      await rec('the reporter row keeps the name and no owner', lookup.get(keyB).then((r) => r && [r.owner, r.ownerId]));
+      await rec('the new bob takes the old session', ingestReport(s, report('b1'), T0 + 4, 'Bob', newBob.id));
+      await rec('the admin secret takes the old session', ingestReport(s, report('b1'), T0 + 5, 'Admin', null));
+      await rec('the new bob starts his own', ingestReport(s, report('b2'), T0 + 6, 'Bob', newBob.id).then((r) => r.created));
+      await rec('and owns it', s.fleet.getSession('b2').then((r) => r && [r.owner, r.owner_id === newBob.id]));
+    });
+    expect(t.get('who owns what')).toEqual([['b1', 'Bob', expect.any(Number)], ['a1', 'Ann', expect.any(Number)], ['adm', 'Admin', null]]);
+    expect(String((t.get('ann reports into bob\'s session') as { threw?: string }).threw)).toContain('another owner');
+    expect(t.get('bob\'s reporters')).toEqual(['m-bob']);
+    expect(t.get('who owns what after')).toEqual([['b1', 'Bob', null], ['a1', 'Ann', expect.any(Number)], ['adm', 'Admin', null]]);
+    expect(t.get('bob\'s old reporters')).toEqual([]);
+    expect(t.get('the new bob\'s reporters')).toEqual([]);
+    expect(t.get('ann\'s reporters')).toEqual(['m-ann']);
+    expect(t.get('the reporter row keeps the name and no owner')).toEqual(['Bob', null]);
+    expect(String((t.get('the new bob takes the old session') as { threw?: string }).threw)).toContain('another owner');
+    expect(String((t.get('the admin secret takes the old session') as { threw?: string }).threw)).toContain('another owner');
+    expect(t.get('and owns it')).toEqual(['Bob', true]);
+  });
 }
 
 export function reporterCases(o: Openers): void {

@@ -35,7 +35,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     }
     const id = d.identityOf(res);
     if (id.kind !== 'person') return no(403, 'a reporter on the admin secret cannot take part');
-    if (row.owner === null || nameKey(row.owner) !== nameKey(id.person.name)) return no(403, 'not your session');
+    if (row.owner_id === null || row.owner_id !== id.person.id) return no(403, 'not your session');
     const o = fleet.peers.messages.live(row.id);
     if (o?.peers !== true) return no(403, "messaging is off on this machine: turn on the reporter's peers option there");
     return o;

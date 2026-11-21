@@ -54,14 +54,14 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer store', () => {
     await truncate(db, 'peer_messages', 'peer_requests', 'peer_rights', 'peer_owner_settings', 'settings', 'admin_log', 'sessions');
     let now = T0;
     const fake = fakeReporters(T0);
-    for (const k of ['a', 'b']) fake.reps.set(k, { key: k, machine: `box-${k}`, owner: 'ed', adminSecret: false, os: 'macOS', peers: true, version: '1.4.0', reporterName: 'podium-reporter' });
+    for (const k of ['a', 'b']) fake.reps.set(k, { key: k, machine: `box-${k}`, owner: 'ed', ownerId: 1, adminSecret: false, os: 'macOS', peers: true, version: '1.4.0', reporterName: 'podium-reporter' });
     const peers = peerStoreOver(db, fake.lookup, { now: () => now, flagOn: () => true, startedAt: T0 });
     const trails: MessageTrail[] = [];
     peers.onMessage = (t) => void trails.push(t);
     await session('sa');
     await session('sb');
-    await peers.note('sa', 'a', 'ed', report('alpha', 'box-a'));
-    await peers.note('sb', 'b', 'ed', report('beta', 'box-b'));
+    await peers.note('sa', 'a', 'ed', 1, report('alpha', 'box-a'));
+    await peers.note('sb', 'b', 'ed', 1, report('beta', 'box-b'));
     await peers.rights.setRight('ed', 'a', 'b', ab, ED);
     if (ba !== 'none') await peers.rights.setRight('ed', 'b', 'a', ba, ED);
     return { peers, trails, keys: { a: 'a', b: 'b' }, tick: (ms = 1) => (now += ms) };
@@ -205,7 +205,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer store', () => {
     it('forgets a session that reports done, and drops what waited for it', async () => {
       const w = await world('ask');
       sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-      await w.peers.note('sb', w.keys.b, 'ed', report('beta', 'box-b', 'done'));
+      await w.peers.note('sb', w.keys.b, 'ed', 1, report('beta', 'box-b', 'done'));
       expect(w.peers.messages.live('sb')).toBeNull();
       expect(await rows('SELECT state, why FROM peer_messages')).toEqual([{ state: 'dropped', why: 'receiver-ended' }]);
     });
@@ -319,7 +319,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer store', () => {
     it('gives the owner view and the admin view from one step each', async () => {
       const w = await world('ask');
       sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-      const view = await w.peers.ownerView('ed', T0 + 1);
+      const view = await w.peers.ownerView('ed', 1, T0 + 1);
       expect(view.reporters.map((r) => r.key).sort()).toEqual([w.keys.a, w.keys.b].sort());
       expect(view.limits.server.perMinute).toBe(6);
       expect(view.requests).toHaveLength(1);

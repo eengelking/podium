@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 const seen = (machineId: string) => ({
-  kind: 'mod' as const, machineId, machineName: `box-${machineId}`, source: '10.0.0.1', owner: 'ed', credential: 'person' as const,
+  kind: 'mod' as const, machineId, machineName: `box-${machineId}`, source: '10.0.0.1', owner: 'ed', ownerId: 1, credential: 'person' as const,
   version: '1.4.0', engineVersion: null, sessionId: `s-${machineId}`, os: 'macOS', peers: true,
 });
 
@@ -45,8 +45,8 @@ async function world(ab: 'ask' | 'send' = 'ask', ba: 'ask' | 'send' | 'none' = '
   const b = await storage.reporters.record(seen('b'), T0);
   await storage.fleet.upsertSession(session({ id: 'sa', owner: 'ed' }));
   await storage.fleet.upsertSession(session({ id: 'sb', owner: 'ed' }));
-  await peers.note('sa', a, 'ed', report('alpha', 'box-a'));
-  await peers.note('sb', b, 'ed', report('beta', 'box-b'));
+  await peers.note('sa', a, 'ed', 1, report('alpha', 'box-a'));
+  await peers.note('sb', b, 'ed', 1, report('beta', 'box-b'));
   await peers.rights.setRight('ed', a, b, ab, ED);
   if (ba !== 'none') await peers.rights.setRight('ed', b, a, ba, ED);
   return { storage, peers, trails, keys: { a, b }, tick: (ms = 1) => (now += ms) };
@@ -189,7 +189,7 @@ describe('peer store: ended and deleted sessions', () => {
   it('forgets a session that reports done, and drops what waited for it', async () => {
     const w = await world('ask');
     sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-    await w.peers.note('sb', w.keys.b, 'ed', report('beta', 'box-b', 'done'));
+    await w.peers.note('sb', w.keys.b, 'ed', 1, report('beta', 'box-b', 'done'));
     expect(w.peers.messages.live('sb')).toBeNull();
     expect(rows(w, 'SELECT state, why FROM peer_messages')).toEqual([{ state: 'dropped', why: 'receiver-ended' }]);
   });
@@ -294,7 +294,7 @@ describe('peer store: views', () => {
   it('gives the owner view and the admin view from one step each', async () => {
     const w = await world('ask');
     sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-    const view = await w.peers.ownerView('ed', T0 + 1);
+    const view = await w.peers.ownerView('ed', 1, T0 + 1);
     expect(view.reporters.map((r) => r.key).sort()).toEqual([w.keys.a, w.keys.b].sort());
     expect(view.limits.server.perMinute).toBe(6);
     expect(view.requests).toHaveLength(1);

@@ -13,7 +13,7 @@ const T0 = 1_800_000_000_000;
 const ID = /^dlv_[0-9a-f]{24}$/;
 
 function reporter(key: string, machine: string, extra: Partial<ReporterRef> = {}): ReporterRef {
-  return { key, machine, owner: 'Ed', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...extra };
+  return { key, machine, owner: 'Ed', ownerId: 1, adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...extra };
 }
 
 const REPORTERS: ReporterRef[] = [
@@ -25,11 +25,11 @@ const REPORTERS: ReporterRef[] = [
   reporter('r-hid', 'hidden-box'),
   reporter('r-idle', 'idle-box'),
   reporter('r-adm', 'admin-box', { adminSecret: true }),
-  reporter('r-ann', 'ann-box', { owner: 'Ann' }),
+  reporter('r-ann', 'ann-box', { owner: 'Ann', ownerId: 2 }),
 ];
 
 function orch(sessionId: string, reporterKey: string, name: string, machine: string, extra: Partial<LiveInput> = {}): LiveInput {
-  return { sessionId, reporterKey, owner: 'Ed', name, machine, os: null, project: '~/dev/podium', status: 'running', waitReason: null, peers: true, ...extra };
+  return { sessionId, reporterKey, owner: 'Ed', ownerId: 1, name, machine, os: null, project: '~/dev/podium', status: 'running', waitReason: null, peers: true, ...extra };
 }
 
 const MBP = orch('s-mbp', 'r-mbp', 'claude-dashboard', 'ed-mbp');
@@ -45,7 +45,7 @@ const lookupOf = (reps: Map<string, ReporterRef>, list: ReporterRef[]): AsyncPee
   ({
     startedAt: T0,
     get: async (k: string) => reps.get(k) ?? null,
-    ofOwner: async (o: string) => list.filter((r) => r.owner?.toLowerCase() === o.toLowerCase()),
+    ofOwner: async (o: number | null) => list.filter((r) => o !== null && r.ownerId === o),
   }) as AsyncPeerReporterLookup;
 
 describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
@@ -176,7 +176,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
 
     it("never finds another owner's orchestrator, whatever the rights say, and stores nothing", async () => {
       const { s, set, count } = await setup();
-      await s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann' }));
+      await s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann', ownerId: 2 }));
       set('r-mbp', 'r-ann', 'send');
       expect(await s.send('s-mbp', 'Helper@ann-box', 'hi')).toMatchObject({ ok: false, status: 404 });
       expect(await count()).toBe(0);
@@ -205,7 +205,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
 
     it('keeps the rule per owner: an agent of another owner may hold the same name (#1284)', async () => {
       const { s } = await setup();
-      await s.note(orch('s-ann', 'r-ann', 'Tester', 'ann-box', { owner: 'Ann' }));
+      await s.note(orch('s-ann', 'r-ann', 'Tester', 'ann-box', { owner: 'Ann', ownerId: 2 }));
       expect(s.live('s-ann')?.name).toBe('Tester');
     });
 
@@ -547,7 +547,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       set('r-mbp', 'r-adm', 'send');
       await s.note(orch('s-hid', 'r-hid', 'Hidden', 'hidden-box'));
       await s.note(orch('s-adm', 'r-adm', 'Adm', 'admin-box'));
-      await s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann' }));
+      await s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann', ownerId: 2 }));
       await s.note(orch('s-mbp2', 'r-mbp', 'second', 'ed-mbp'));
       set('r-mbp', 'r-mbp', 'see');
       pause('r-mbp', 'r-pi');

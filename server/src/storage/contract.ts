@@ -31,7 +31,7 @@ export function session(over: Partial<SessionRow> = {}): SessionRow {
     git_json: null, model: 'm', effort: null, context_tokens: null, context_window: null, context_percent: null,
     cost_usd: 1.5, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4, rate_limits_json: null, blowouts: 0, plan_json: null,
     reporter_version: null, engine_version: null, loop_json: null, files_json: null, background_json: null,
-    usage_json: null, attached: null, detached_at: null, owner: 'ed', machine_json: null, cleared_from: null,
+    usage_json: null, attached: null, detached_at: null, owner: 'ed', owner_id: null, machine_json: null, cleared_from: null,
     harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
@@ -71,7 +71,7 @@ const SESSION_SHAPE: Shape<SessionRow> = {
   cost_usd: 'real?', tok_in: 'int', tok_out: 'int', tok_cr: 'int', tok_cw: 'int', rate_limits_json: 'text?', blowouts: 'int',
   plan_json: 'text?', plan_kept_json: 'text?', reporter_version: 'text?', reporter_build: 'text?', engine_version: 'text?',
   loop_json: 'text?', files_json: 'text?', background_json: 'text?', usage_json: 'text?', attached: 'int?', detached_at: 'int?',
-  owner: 'text?', machine_json: 'text?', cleared_from: 'text?', harness: 'text', cost_source: 'text?',
+  owner: 'text?', owner_id: 'int?', machine_json: 'text?', cleared_from: 'text?', harness: 'text', cost_source: 'text?',
   capabilities_json: 'text?', model_label: 'text?', model_provider: 'text?', resume_window_days: 'int?', signals_json: 'text?',
 };
 const AGENT_SHAPE: Shape<AgentRow> = {
@@ -102,8 +102,10 @@ const RECORDING_SHAPE: Shape<RecordingAdminRow> = {
 };
 const STORED_SHAPE: Shape<StoredSessionRow> = { sessionId: 'text', name: 'text', project: 'text?', owner: 'text?', live: 'bool', entries: 'int', bytes: 'int', oldestAt: 'int' };
 
+/** The `people.id` of `ed` in these cases (#1284): reporters and sessions are bound to a person by this id, never by the name. */
+const ED_PERSON = 11;
 const mkSeen = (id: string, name: string | null, over: Partial<ReporterSeen> = {}): ReporterSeen => ({
-  kind: 'mod', machineId: id, machineName: name, source: '127.0.0.1', owner: 'ed', credential: 'person', version: '0.1.0', engineVersion: null,
+  kind: 'mod', machineId: id, machineName: name, source: '127.0.0.1', owner: 'ed', ownerId: ED_PERSON, credential: 'person', version: '0.1.0', engineVersion: null,
   sessionId: `s-${id}`, os: 'macOS', peers: true, ...over,
 });
 
@@ -304,7 +306,7 @@ function ownCases(adapter: ContractAdapter): void {
 
       // Reporters: by machine name ignoring case, then key; a reporter without a name sorts by its key.
       for (const [id, name] of [['m-c', 'Charlie'], ['m-a', 'alpha'], ['m-b', 'Bravo'], ['m-2', 'bravo']] as const) await store.reporters.record(mkSeen(id, name), T0);
-      const owned = await store.reporters.peerLookup().ofOwner('ED');
+      const owned = await store.reporters.peerLookup().ofOwner(ED_PERSON);
       expect(owned.map((r) => r.key)).toEqual(['m-a', 'm-2', 'm-b', 'm-c']);
       expect((await store.reporters.list({ sort: 'name', dir: 1 }, T0)).rows.map((r) => r.key)).toEqual(['m-a', 'm-2', 'm-b', 'm-c']);
       // One rule for text (#822): bytes compare as they are, and a case-insensitive key folds ASCII letters only. So `zed` sorts before
@@ -335,7 +337,7 @@ function ownCases(adapter: ContractAdapter): void {
       const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '9.0.0' }), T0);
       const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '9.0.0', reporterName: 'podium-reporter-opencode' }), T0 + 5);
       const lookup = store.reporters.peerLookup();
-      const seen = await lookup.ofOwnerSeen('Ed', T0 + 10);
+      const seen = await lookup.ofOwnerSeen(ED_PERSON, T0 + 10);
       const by = Object.fromEntries(seen.map((r) => [r.key, [r.reporterName, r.compat]]));
       expect(by[claude]).toEqual(['podium-reporter-claudecode', 'newer']);
       expect(by[other]).toEqual(['podium-reporter-opencode', 'newer']);
@@ -407,8 +409,8 @@ function ownCases(adapter: ContractAdapter): void {
       await store.fleet.upsertSession(session({ id: 'sb', owner: 'ed' }));
       const waiting = (name: string, machine: string): Report =>
         ({ session: { name, status: 'waiting', waitReason: 'input', peers: true, repoName: null, projectRoot: '~/dev' }, machine: { name: machine, os: 'macOS' } }) as unknown as Report;
-      await peers.note('sa', a, 'ed', waiting('alpha', 'box-a'));
-      await peers.note('sb', b, 'ed', waiting('beta', 'box-b'));
+      await peers.note('sa', a, 'ed', ED_PERSON, waiting('alpha', 'box-a'));
+      await peers.note('sb', b, 'ed', ED_PERSON, waiting('beta', 'box-b'));
       const ed = { name: 'ed', admin: false };
       await peers.rights.setRight('ed', a, b, 'send', ed);
       await peers.rights.setRight('ed', b, a, 'send', ed);

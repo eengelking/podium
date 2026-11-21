@@ -19,6 +19,10 @@ let t: number;
 let trails: RightsTrail[];
 let rights: PeerRights;
 
+/** The `people.id` each owner name here stands for (#1284): a person's reporters are found by it. The Admin has none. */
+const IDS: Record<string, number> = { dana: 7, eve: 8, émile: 9 };
+const idOf = (owner: string | null | undefined): number | null => IDS[(owner ?? 'Dana').toLowerCase()] ?? null;
+
 /** Records one reporter; the machine id is its key. */
 const add = (key: string, over: Partial<ReporterSeen> = {}) =>
   reporters.record(
@@ -28,6 +32,7 @@ const add = (key: string, over: Partial<ReporterSeen> = {}) =>
       machineName: key,
       source: null,
       owner: 'Dana',
+      ownerId: idOf(over.owner),
       credential: 'pdm_3f9a1c07b2e4',
       version: '1.2.0',
       engineVersion: null,

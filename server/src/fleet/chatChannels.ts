@@ -397,7 +397,7 @@ export class ChannelChat {
     for (const m of parsed) {
       if (m.kind === 'group' || m.kind === 'everyone') {
         // Both reach the sender's own orchestrators; @everyone also gives every person a mention badge.
-        const mine = this.live().filter((o) => !author || nameKey(o.owner) === nameKey(author.name));
+        const mine = this.live().filter((o) => !author || (o.ownerId !== null && o.ownerId === author.personId));
         for (const o of mine) add({ input: { sessionId: o.sessionId, peerKey: o.reporterKey, typed: m.typed }, bump: null, deliver: o });
         if (m.kind === 'everyone') for (const n of people) add({ input: { sessionId: null, peerKey: null, typed: `${n}@console`, state: 'done', why: 'notified' }, bump: n, deliver: null });
         continue;
@@ -453,7 +453,7 @@ export class ChannelChat {
       if (o) {
         const flags = await this.bindingFlags(channel, owner, o.owner);
         // Another person's agent needs that person's say-so from everyone, an Administrator included (#1034). An Admin keeps read and stop powers only.
-        if (nameKey(o.owner) !== nameKey(viewer.name)) {
+        if (o.ownerId === null || o.ownerId !== viewer.personId) {
           if (viewer.personId === null) {
             input = { ...input, state: 'not-delivered', why: `The admin secret has no person name, so Podium cannot ask ${o.owner} for you. Sign in with your own name to message ${o.name}.` };
             warnings.push(`${o.name}: ${input.why}`);

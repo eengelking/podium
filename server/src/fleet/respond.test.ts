@@ -925,12 +925,15 @@ describe("an Admin acts on another person's session only when its owner allowed 
   });
 
   it('treats a session owned by Admin or by no one as an Admin\'s, and a person\'s as theirs alone', () => {
-    const row = (owner: string | null) => ({ owner }) as SessionRow;
-    expect(ownsOutright({ name: 'Root', admin: true }, row('Ed'))).toBe(false);
-    expect(ownsOutright({ name: 'Ed', admin: false }, row('Ed'))).toBe(true);
-    expect(ownsOutright({ name: 'Root', admin: true }, row('Admin'))).toBe(true);
-    expect(ownsOutright({ name: 'Root', admin: true }, row(null))).toBe(true);
-    expect(ownsOutright({ name: 'Ed', admin: false }, row(null))).toBe(false);
+    const row = (owner: string | null, owner_id: number | null = null) => ({ owner, owner_id }) as SessionRow;
+    expect(ownsOutright({ personId: 9, admin: true }, row('Ed', 1))).toBe(false);
+    expect(ownsOutright({ personId: 1, admin: false }, row('Ed', 1))).toBe(true);
+    expect(ownsOutright({ personId: 9, admin: true }, row('Admin'))).toBe(true);
+    expect(ownsOutright({ personId: 9, admin: true }, row(null))).toBe(true);
+    expect(ownsOutright({ personId: 1, admin: false }, row(null))).toBe(false);
+    // A session whose person was deleted keeps the name but is nobody's, even for a new person who takes it (#1284); an Admin's own consent route is still open.
+    expect(ownsOutright({ personId: 2, admin: false }, row('Ed'))).toBe(false);
+    expect(ownsOutright({ personId: 2, admin: true }, row('Ed'))).toBe(false);
   });
 
   it('says in the session view whether the owner has allowed an Admin, and in the owner\'s own list of reporters', async () => {

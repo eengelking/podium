@@ -11,7 +11,7 @@ import { Router, type Request, type RequestHandler, type Response } from 'expres
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -87,24 +87,31 @@ function readCookie(req: Request, name: string): string | null {
 
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
-/** Whether a mod's credential owns the session: a person's token their own sessions, the admin secret those owned by Admin. */
+/** Whether a mod's credential owns the session: a person's token their own sessions (by id, never by name: #1284), the admin secret those owned by Admin. */
 export function credentialOwns(id: Identity, row: SessionRow): boolean {
   if (row.owner === null) return false;
-  if (id.kind === 'person') return nameKey(id.person.name) === nameKey(row.owner);
+  if (id.kind === 'person') return row.owner_id !== null && row.owner_id === id.person.id;
   return id.kind === 'admin' && row.owner === ADMIN_OWNER;
 }
 
 /** Whether a signed-in viewer may respond to a session: its owner, or an Admin. A session owned by Admin needs an Admin. */
-export function viewerOwns(v: { name: string; admin: boolean }, row: SessionRow): boolean {
+export function viewerOwns(v: { personId: number | null; admin: boolean }, row: SessionRow): boolean {
   if (v.admin) return true;
-  return row.owner !== null && row.owner !== ADMIN_OWNER && nameKey(row.owner) === nameKey(v.name);
+  return row.owner_id !== null && v.personId !== null && row.owner_id === v.personId;
 }
 
 /** Whether the viewer owns the session outright: its owner, or an Admin for a session owned by Admin or by no one. An Admin on a person's session does not (#1251). */
-export function ownsOutright(v: { name: string; admin: boolean }, row: SessionRow): boolean {
+export function ownsOutright(v: { personId: number | null; admin: boolean }, row: SessionRow): boolean {
   // A session owned by Admin, or by no one, has no person to allow anything: an Admin responds to it as before.
   if (row.owner === ADMIN_OWNER || row.owner === null) return v.admin;
-  return row.owner !== null && nameKey(row.owner) === nameKey(v.name);
+  // Owned by a person: only that person's id owns it. One whose person was deleted (a name, no id) is nobody's.
+  return row.owner_id !== null && v.personId !== null && row.owner_id === v.personId;
+}
+
+/** Whether the viewer may open this session's file diffs: its owner by id, or the admin secret for a session the admin secret owns (#1284). */
+function ownsDiffs(v: { personId: number | null }, row: SessionRow): boolean {
+  if (row.owner_id !== null) return row.owner_id === v.personId;
+  return row.owner === ADMIN_OWNER && v.personId === null;
 }
 
 function answerError(res: Response, err: AnswerError): void {
@@ -534,7 +541,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
     }
-    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+    if (!ownsDiffs(v, row)) {
       refuse(req, res, 403, 'not your session', { owner: row.owner });
       return;
     }
@@ -584,7 +591,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
     }
-    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+    if (!ownsDiffs(v, row)) {
       refuse(req, res, 403, 'not your session', { owner: row.owner });
       return;
     }

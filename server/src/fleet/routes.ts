@@ -99,7 +99,7 @@ async function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: Repo
 }
 
 /** The key a sender is known by, and any other row that already holds its session, for the ignore check. */
-async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null; reporterName?: string }): Promise<{ key: string; otherKeys: string[] }> {
+async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null; ownerId?: number | null; reporterName?: string }): Promise<{ key: string; otherKeys: string[] }> {
   const own = keyOf(s);
   try {
     const keys = (await opts.reporters?.keysFor(s)) ?? [own];
@@ -126,6 +126,8 @@ async function refuseIgnored(opts: FleetRouterOptions, logger: Logger, fleet: Fl
 }
 
 const ownerOf = (id: Identity): string | null => (id.kind === 'person' ? id.person.name : id.kind === 'admin' ? ADMIN_OWNER : null);
+/** The person's `people.id`, which binds what they report to them (#1284); null for the admin secret and for a server with no sign-in. */
+const ownerIdOf = (id: Identity): number | null => (id.kind === 'person' ? id.person.id : null);
 
 /** Rows per page on `GET /history` (#195): the choices the page offers, and the default. */
 export const HISTORY_PAGE_SIZES = [25, 50, 100];
@@ -247,7 +249,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (
       result.report.reporter.hostSurface !== SIMULATOR_SURFACE &&
       (await refuseIgnored(opts, logger, fleet, req, res, {
-        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', reporterName: result.report.reporter.name, machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
+        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', reporterName: result.report.reporter.name, machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id), ownerId: ownerIdOf(id) })),
         source: machineOf(req),
         version: result.report.reporter.version,
       }))
@@ -255,7 +257,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       return;
     }
     try {
-      const out = await fleet.ingest(result.report, ownerOf(id));
+      const out = await fleet.ingest(result.report, ownerOf(id), ownerIdOf(id));
       if (id.kind === 'person') await opts.people?.touch(id.person.id, machineOf(req), fleet.now(), result.report.machine); // only a report that was stored counts
       const r = result.report;
       // The simulator (`npm run podium:sim`) says so in hostSurface; it is never listed, so a run leaves no reporter row behind (#168).
@@ -270,6 +272,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
             machineName: r.machine?.name ?? null,
             source: machineOf(req),
             owner: ownerOf(id),
+            ownerId: ownerIdOf(id),
             credential: credentialOf(id),
             version: r.reporter.version,
             engineVersion: r.reporter.engineVersion,
@@ -281,7 +284,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         );
         if (key) opts.transport?.note(key, !refusableOverHttp(req), fleet.now());
         // Orchestrator messaging (#347) knows a session by its reporter, and only a person's own reporter takes part.
-        if (key && id.kind === 'person' && !asHooks) await fleet.noteOrchestrator(out.sessionId, key, id.person.name, r);
+        if (key && id.kind === 'person' && !asHooks) await fleet.noteOrchestrator(out.sessionId, key, id.person.name, id.person.id, r);
       }
       logger.debug('report.accepted', `podium: report for session ${out.sessionId}`, {
         session_id: out.sessionId,
@@ -331,7 +334,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       const id = identityOf(res);
       const hookSession = typeof req.body?.session_id === 'string' ? (req.body.session_id as string) : '';
       if (await refuseIgnored(opts, logger, fleet, req, res, { ...(await keyTarget(opts, { kind: 'hooks', machineId: null, source: machineOf(req), sessionId: hookSession })), source: machineOf(req), version: 'hooks' })) return;
-      const out = await fleet.ingestHook(req.body, ownerOf(id));
+      const out = await fleet.ingestHook(req.body, ownerOf(id), ownerIdOf(id));
       if (!out.ok) {
         logger.warn('hook.rejected', `podium: rejected hook payload at ${out.path}: ${out.error}`, {
           reason: out.error,
@@ -347,7 +350,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       const hookKey = await noteReporter(
         opts,
         logger,
-        { kind: 'hooks', machineId: null, machineName: null, source: machineOf(req), owner: ownerOf(id), credential: credentialOf(id), version: 'hooks', engineVersion: null, sessionId: out.sessionId },
+        { kind: 'hooks', machineId: null, machineName: null, source: machineOf(req), owner: ownerOf(id), ownerId: ownerIdOf(id), credential: credentialOf(id), version: 'hooks', engineVersion: null, sessionId: out.sessionId },
         fleet.now(),
       );
       if (hookKey) opts.transport?.note(hookKey, !refusableOverHttp(req), fleet.now());
@@ -454,7 +457,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
     const id = identityOf(res);
     // The admin secret deletes any session; the owner is told who did it (#1078). A server with no sign-in has no Admin to name.
-    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.name : undefined, id.kind === 'admin' ? 'Admin' : undefined);
+    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.id : undefined, id.kind === 'admin' ? 'Admin' : undefined);
     if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;

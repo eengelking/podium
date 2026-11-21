@@ -2,7 +2,7 @@
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, sameAccount, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import { asciiLower, LIKE_ESCAPE, type MariaDbConn } from './conn.js';
 import { mariaPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -26,6 +26,7 @@ interface DbReporter {
   machine_name: string | null;
   source_address: string | null;
   owner: string | null;
+  owner_id: number | null;
   credential: string | null;
   reporter_version: string;
   engine_version: string | null;
@@ -99,14 +100,14 @@ export class MariaReporterStore implements ReporterStoreApi {
    * the first one keeps the machine id as its key (rows and ignore rules made before this stay valid) and each
    * other account gets `<machine id>#<owner>`. A reporter with no machine id is keyed by `keyOf` alone.
    */
-  private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): Promise<string> {
+  private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'ownerId' | 'reporterName'>): Promise<string> {
     const own = keyOf(s);
     if (!s.machineId) return own;
     const apart = apartKeyOf(s);
-    const has = (key: string) => this.db.get<{ owner: string | null }>('SELECT owner FROM reporters WHERE key = ?', [key]);
+    const has = (key: string) => this.db.get<{ owner: string | null; owner_id: number | null }>('SELECT owner, owner_id FROM reporters WHERE key = ?', [key]);
     if (await has(apart)) return apart;
     const bare = await has(own);
-    return !bare || bare.owner === s.owner ? own : apart;
+    return !bare || sameAccount(bare, s) ? own : apart;
   }
 
   /**
@@ -128,7 +129,7 @@ export class MariaReporterStore implements ReporterStoreApi {
     return hit?.key;
   }
 
-  async keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]> {
+  async keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null; ownerId?: number | null }): Promise<string[]> {
     const own = keyOf(s);
     const known = await this.knownKey(s);
     const account = await this.accountKey({ ...s, owner: s.owner ?? null });
@@ -149,10 +150,10 @@ export class MariaReporterStore implements ReporterStoreApi {
       if (known && known !== own) await this.merge(own, known);
       const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
       await this.db.run(
-        `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, owner_id, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE kind = VALUES(kind), reporter_name = VALUES(reporter_name), machine_name = VALUES(machine_name), source_address = VALUES(source_address),
-           owner = VALUES(owner), credential = VALUES(credential), reporter_version = VALUES(reporter_version),
+           owner = VALUES(owner), owner_id = VALUES(owner_id), credential = VALUES(credential), reporter_version = VALUES(reporter_version),
            engine_version = VALUES(engine_version), last_seen_at = VALUES(last_seen_at),
            os = COALESCE(VALUES(os), reporters.os), peers = COALESCE(VALUES(peers), reporters.peers)`,
         [
@@ -163,6 +164,7 @@ export class MariaReporterStore implements ReporterStoreApi {
           s.machineName?.slice(0, 64) ?? null,
           s.source?.slice(0, SOURCE_MAX) ?? null,
           s.owner,
+          s.ownerId ?? null,
           s.credential,
           s.version.slice(0, 64),
           s.engineVersion?.slice(0, 64) ?? null,

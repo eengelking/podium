@@ -33,6 +33,8 @@ export interface LegacyReporter {
   lastSeenAt: number;
   /** Sessions this reporter already carries a link to. */
   sessionIds?: string[];
+  /** Set to store the row as a database holds it after a row named its owner and before it was bound to the owner's id (#1284); `person` is a person of that name the older database holds too (made once, however many rows name it), so the upgrade can match it. */
+  bound?: { person?: string };
 }
 
 /** A right between a person and another person's agent as an older database stores it, before it kept who paused it (#1034). */
@@ -64,6 +66,9 @@ export interface LegacySession {
   startedAt: number;
   /** The id of an agent the session had, stored before an agent had a model label (#945). */
   agent?: string;
+  /** The owner's name the row holds, with `bound`: the row as a database holds it after a row named its owner and before it was bound to the owner's id (#1284). `person` is a person of that name the older database holds too, so the upgrade can match it. */
+  owner?: string | null;
+  bound?: { person?: string };
 }
 
 /** A peer message as an older database stores it, before a row said who wrote it (#1034). */
@@ -481,5 +486,49 @@ export function upgradeCases(o: UpgradeOpeners): void {
       await s.close();
     }
   });
-
+  it('gives every session and reporter an older database holds the id of the person its owner name matches, leaves one that matches nobody with none, and lets no newcomer who takes the name own it, when the database is upgraded (#1284)', async () => {
+    const reporter = (key: string, owner: string | null, person?: string): LegacyReporter => ({ key, kind: 'mod', machineId: key, machineName: `box-${key}`, owner, version: '1.0.0', firstSeenAt: T0, lastSeenAt: T0, bound: person ? { person } : {} });
+    const owned = (id: string, owner: string | null, startedAt: number, person?: string): LegacySession => ({ id, name: id, model: null, costUsd: null, startedAt, owner, bound: person ? { person } : {} });
+    const s = await o.openUpgraded([], [
+      // The owner differs from the person's name in case and in the spaces between its words, and folds to it.
+      reporter('r-ed', 'ED   Smith', 'Ed Smith'),
+      reporter('r-ann', 'ann', 'Ann'),
+      reporter('r-ghost', 'ghost'),
+      reporter('r-admin', 'Admin'),
+      reporter('r-none', null),
+    ], [
+      owned('s-ed', 'ed smith', T0, 'Ed Smith'),
+      owned('s-ann', 'Ann', T0 + 1, 'Ann'),
+      owned('s-ghost', 'ghost', T0 + 2),
+      owned('s-admin', 'Admin', T0 + 3),
+      owned('s-none', null, T0 + 4),
+    ]);
+    try {
+      const ed = (await s.people.findByName('ed smith'))!.id;
+      const ann = (await s.people.findByName('ann'))!.id;
+      expect(ed).not.toBe(ann);
+      const sessions = async () => Object.fromEntries(await Promise.all(['s-ed', 's-ann', 's-ghost', 's-admin', 's-none'].map(async (id) => [id, (await s.fleet.getSession(id))!.owner_id])));
+      // The owner's id is set where a person matches the name, and the name stays as the text it was.
+      expect(await sessions()).toEqual({ 's-ed': ed, 's-ann': ann, 's-ghost': null, 's-admin': null, 's-none': null });
+      expect((await s.fleet.getSession('s-ed'))!.owner).toBe('ed smith');
+      expect((await s.fleet.getSession('s-ghost'))!.owner).toBe('ghost');
+      const lookup = s.reporters.peerLookup();
+      expect((await lookup.ofOwner(ed)).map((r) => r.key)).toEqual(['r-ed']);
+      expect((await lookup.ofOwner(ann)).map((r) => r.key)).toEqual(['r-ann']);
+      expect(await Promise.all(['r-ed', 'r-ann', 'r-ghost', 'r-admin', 'r-none'].map(async (k) => (await lookup.get(k))!.ownerId))).toEqual([ed, ann, null, null, null]);
+      expect(await lookup.ofOwner(null)).toEqual([]);
+      // Deleting the person detaches what they own, and a new person who takes the name owns none of it: ids are never reused.
+      expect((await s.people.deleteMany([ed])).map((p) => p.name)).toEqual(['Ed Smith']);
+      const again = (await s.people.createPerson('Ed Smith', null, T0 + 10)).person.id;
+      expect(again).not.toBe(ed);
+      expect(await sessions()).toEqual({ 's-ed': null, 's-ann': ann, 's-ghost': null, 's-admin': null, 's-none': null });
+      expect((await s.fleet.getSession('s-ed'))!.owner).toBe('ed smith');
+      expect(await lookup.ofOwner(ed)).toEqual([]);
+      expect(await lookup.ofOwner(again)).toEqual([]);
+      expect((await lookup.ofOwner(ann)).map((r) => r.key)).toEqual(['r-ann']);
+      expect(await lookup.get('r-ed')).toMatchObject({ owner: 'ED   Smith', ownerId: null });
+    } finally {
+      await s.close();
+    }
+  });
 }

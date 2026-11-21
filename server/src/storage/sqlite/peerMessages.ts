@@ -275,7 +275,7 @@ export class PeerMessages implements PeerMessagesApi {
       .sort((a, b) => a.address.localeCompare(b.address) || a.id.localeCompare(b.id));
     const listed = new Set(others.map((o) => o.reporterKey));
     const leftOut: LeftOut[] = [];
-    for (const r of this.reporters.ofOwner(sender.owner)) {
+    for (const r of this.reporters.ofOwner(sender.ownerId)) {
       // The sender's own reporter is where it runs, not a machine left out (the mockup lists only the others).
       if (r.adminSecret || r.key === sender.reporterKey || listed.has(r.key)) continue;
       let why: LeftOut['why'] = 'no orchestrator running';

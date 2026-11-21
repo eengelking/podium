@@ -147,6 +147,9 @@ class PgPeopleStore implements PeopleStoreApi {
       }
       for (const p of found) {
         await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
+        // Their sessions and reporters keep the name as text but are no one's now (#1284): a new person who takes the name owns none of them.
+        await this.db.run('UPDATE sessions SET owner_id = NULL WHERE owner_id = ?', [p.id]);
+        await this.db.run('UPDATE reporters SET owner_id = NULL WHERE owner_id = ?', [p.id]);
         await this.forgetChat(p.name, p.id);
       }
       return found;

@@ -9,7 +9,7 @@ import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
-import { ADMIN_OWNER, nameKey, sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
 import { replayThread } from './chatAdminReads.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
@@ -182,7 +182,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     const got = await access(req, res);
     if (!got) return;
     // The owner's own look at the replay's record (#1075): who replayed it and when, and who is replaying it now. Never any text. Loading it is the owner seeing it.
-    const own = got.row.owner !== null && got.row.owner !== ADMIN_OWNER && nameKey(got.row.owner) === nameKey(got.v.name);
+    const own = got.row.owner_id !== null && got.row.owner_id === got.v.personId;
     const reads = fleet.chat.adminReads;
     const thread = replayThread(got.row.id);
     const adminReads = own ? await reads.list(thread) : [];
