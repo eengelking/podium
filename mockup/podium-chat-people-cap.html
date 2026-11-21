@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Podium Chat, a capped People and agents list with a + (#1272)</title>
+<title>Podium Chat, a paged People and agents list with a + to message anyone (#1272)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -9,18 +9,15 @@
 <link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
 <link rel="stylesheet" href="../frontend/src/fleet/chat.css">
 <style>
-/* Mockup for #1272: the People and agents list in the Chat sidebar shows a few rows, not everyone. Colors and fonts come from tokens.css
-   through fleet.css; this file defines no tokens of its own. Example data only.
-   Rule shown (the maintainer's, 2026-11-20): the list holds at most 8 rows, a fixed number, not a setting.
-     Order    Most recently used first.
-     Used     You opened it, sent it a message, or mentioned it (@). Adding it with + counts as using it.
-     Add      + beside the title opens a picker of every person and agent not shown, with search. Choosing one puts it at the top.
-     Drop     When the list is full, adding one removes the row used least recently. The picker says which one before you choose.
-     Stays    A row with unread messages, a message held for approval, or a running agent is never dropped. If all 8 are like that the list
-              grows past 8 and shrinks again as they are read. (Open question for the maintainer.)
-     Back     A row that dropped is still in the picker, and a new message from it brings it back to the top, dropping the next least used.
-   New classes: pe-cap ("Showing N of M" under the list), pe-note (the line that says who left). Everything else is the sidebar and the
-   New direct message dialog as they are. */
+/* Mockup for #1272, round 2 (the maintainer's decision, 2026-11-20): the People and agents list is paged, not capped. Colors and fonts come
+   from tokens.css through fleet.css; this file defines no tokens of its own. Example data only.
+     Page     10 people and agents a page, with the Files tab's footer: "Showing 1–10 of 14", then Previous, "1 of 2" and Next (PageNav, compact).
+              Under 11 there is one page and the footer reads "Showing 1–8 of 8" and "10 per page".
+     Order    Rows that need you first (unread messages, a message held for approval, a running agent), then the rest by the last message
+              with them, newest first, then by name. It comes from the conversations Podium already stores: nothing new is stored per person.
+     +        Beside the title: "Find a person or an agent to message". Search over everyone, not only the page shown, then a first message.
+     A message from someone moves them to the top of page 1.
+   New classes: none. pe-why and pe-empty are mockup-only helper lines (the picker's hint and the empty state). */
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui); }
 .demo { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
@@ -436,9 +433,6 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .modal.ed-confirm { width: min(440px, 100%); }
 .ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; }
 .modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
-.pe-cap { margin: 0; padding: 4px 20px 8px; font-size: 12px; color: var(--muted); }
-.pe-note { margin: 0; padding: 6px 20px; font-size: 12px; color: var(--ink2); border-left: 2px solid var(--axis); margin-left: 12px; }
-.pe-note b { color: var(--ink); }
 .pe-why { margin: 0; font-size: 12px; color: var(--ink2); }
 .pe-why b { color: var(--ink); }
 [data-shut] { display: none; }
@@ -473,16 +467,18 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   <symbol id="s-off" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
 </svg>
 
+
 <div class="demo" role="toolbar" aria-label="Mockup controls">
-  <b>People and agents, capped list (#1272)</b>
+  <b>People and agents, paged list (#1272)</b>
   <span class="grp" role="group" aria-label="State">State
-    <button type="button" data-st="full" aria-pressed="true">Full, 8 of 14</button>
-    <button type="button" data-st="added" aria-pressed="false">After adding Priya</button>
+    <button type="button" data-st="p1" aria-pressed="true">Page 1 of 3</button>
+    <button type="button" data-st="p2" aria-pressed="false">Page 2 of 3</button>
+    <button type="button" data-st="p3" aria-pressed="false">Last page, 3 rows</button>
     <button type="button" data-st="back" aria-pressed="false">Sam messages you</button>
-    <button type="button" data-st="stuck" aria-pressed="false">All 8 stay</button>
+    <button type="button" data-st="few" aria-pressed="false">Only 8 people</button>
     <button type="button" data-st="empty" aria-pressed="false">Nobody yet</button>
   </span>
-  <span class="grp" role="group" aria-label="Picker">Picker
+  <span class="grp" role="group" aria-label="Dialog">Dialog
     <button type="button" data-dlg="m-pe">Open the +</button>
   </span>
   <span class="grp" role="group" aria-label="Mode">Mode
@@ -512,11 +508,10 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <li class="ch-item"><button type="button" class="ch-row"><span class="ch-av agent sonnet" aria-hidden="true"><svg><use href="#i-chip"/></svg></span><span class="stack"><span class="nm">Tester</span><span class="sub">You and one agent</span></span></button></li>
         <li class="ch-item"><button type="button" class="ch-row"><span class="ch-pair" aria-hidden="true"><span class="ch-av person">MK</span><span class="ch-av agent opus"><svg><use href="#i-chip"/></svg></span></span><span class="stack"><span class="nm">Maya Kim, maya-main</span><span class="sub">You and Maya Kim's agent</span></span></button></li>
       </ul></section>
-    <section class="ch-sec sec-pe" id="sec-pe"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n" id="pe-n">8</span></button><button type="button" class="add" id="pe-add" aria-label="Add a person or an agent to the list" data-tip="Add a person or an agent" data-dlg="m-pe" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
-      <p class="pe-note" id="pe-note" role="status" hidden></p>
+    <section class="ch-sec sec-pe" id="sec-pe"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n" id="pe-n">23</span></button><button type="button" class="add" id="pe-add" aria-label="Find a person or an agent to message" data-tip="Find a person or an agent to message" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
       <ul class="ch-list" id="pe-list"></ul>
-      <p class="pe-empty" id="pe-empty" hidden>No one is on the list yet. Use + to add a person or an agent.</p>
-      <p class="pe-cap" id="pe-cap"></p>
+      <p class="pe-empty" id="pe-empty" hidden>No people or agents yet. They appear here when they sign in or an agent connects.</p>
+      <div class="pager" id="pe-pager"></div>
     </section>
   </nav>
 
@@ -526,14 +521,15 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 
 <div class="scrim" id="m-pe" hidden>
   <div class="modal cr-modal ch-dlg" role="dialog" aria-modal="true" aria-labelledby="pe-h">
-    <div class="mh"><div class="ttl"><h2 id="pe-h">Add to People and agents</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="mh"><div class="ttl"><h2 id="pe-h">Message a person or an agent</h2></div><button type="button" class="x" data-close aria-label="Close"><svg width="14" height="14" aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div class="mb"><form class="ch-form" id="f-pe" novalidate>
       <label>Find a person or an agent<input class="field" id="pe-q" type="search" autocomplete="off" placeholder="Search by person or agent"></label>
-      <fieldset class="dm-set"><legend class="vh">Add</legend>
+      <fieldset class="dm-set"><legend class="vh">To</legend>
         <ul class="dm-pick" id="pe-pick"></ul>
       </fieldset>
-      <p class="pe-why" id="pe-why" role="status"></p>
-      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri" id="pe-go" disabled>Add to list</button></div>
+      <label>Message<textarea class="field" id="pe-msg" rows="3" placeholder="Write the first message."></textarea></label>
+      <p class="pe-why" id="pe-why">Choose someone to message. Anyone on this server is here, not only the page you are on.</p>
+      <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri" id="pe-go" disabled>Send message</button></div>
     </form></div>
   </div>
 </div>
@@ -545,61 +541,51 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 (function () {
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var root = document.documentElement, stage = $('#stage');
-  var N = 8;
-  // used: higher is more recent. unread, held: messages that keep a row on the list. st: run, wait, done, off.
+  var PER = 10;
+  // last: how recent the last message with this one is (higher is newer). unread, held: messages that need you. st: run, wait, done, off.
   var P = {
-    tester:  { n: 'Tester', k: 'agent', m: 'sonnet', st: 'wait', sub: 'Orchestrator on ed-mbp, waiting for you', unread: 1 },
-    main:    { n: 'podium-main', k: 'agent', m: 'opus', st: 'run', sub: 'Orchestrator on ed-mbp, running' },
-    bot:     { n: 'release-bot', k: 'agent', m: 'opus', st: 'run', sub: 'Orchestrator on ed-mbp, running' },
-    maya:    { n: 'Maya Kim', k: 'person', i: 'MK', sub: 'Person, online' },
-    mmain:   { n: 'maya-main', k: 'agent', m: 'opus', st: 'run', sub: 'Maya Kim’s orchestrator, running' },
-    notes:   { n: 'infra-notes', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done' },
-    docs:    { n: 'docs-sweeper', k: 'agent', m: 'fable', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost' },
-    jo:      { n: 'Jo Okafor', k: 'person', i: 'JO', sub: 'Person, away', held: 1 },
-    priya:   { n: 'Priya Nair', k: 'person', i: 'PN', sub: 'Person, online' },
-    sam:     { n: 'Sam Ortiz', k: 'person', i: 'SO', sub: 'Person, away' },
-    lena:    { n: 'Lena Park', k: 'person', i: 'LP', sub: 'Person, offline' },
-    watch:   { n: 'build-watcher', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done' },
-    mig:     { n: 'db-migrator', k: 'agent', m: 'sonnet', st: 'done', sub: 'Orchestrator on ed-mbp, done' },
-    bench:   { n: 'perf-bench', k: 'agent', m: 'opus', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost' }
+    tester: { n: 'Tester', k: 'agent', m: 'sonnet', st: 'wait', sub: 'Orchestrator on ed-mbp, waiting for you', last: 30, unread: 1 },
+    jo:     { n: 'Jo Okafor', k: 'person', i: 'JO', sub: 'Person, away', last: 9, held: 1 },
+    main:   { n: 'podium-main', k: 'agent', m: 'opus', st: 'run', sub: 'Orchestrator on ed-mbp, running', last: 29 },
+    bot:    { n: 'release-bot', k: 'agent', m: 'opus', st: 'run', sub: 'Orchestrator on ed-mbp, running', last: 21 },
+    mmain:  { n: 'maya-main', k: 'agent', m: 'opus', st: 'run', sub: 'Maya Kim’s orchestrator, running', last: 20 },
+    maya:   { n: 'Maya Kim', k: 'person', i: 'MK', sub: 'Person, online', last: 28 },
+    notes:  { n: 'infra-notes', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done', last: 27 },
+    docs:   { n: 'docs-sweeper', k: 'agent', m: 'fable', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost', last: 26 },
+    priya:  { n: 'Priya Nair', k: 'person', i: 'PN', sub: 'Person, online', last: 25 },
+    watch:  { n: 'build-watcher', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done', last: 24 },
+    mig:    { n: 'db-migrator', k: 'agent', m: 'sonnet', st: 'done', sub: 'Orchestrator on ed-mbp, done', last: 19 },
+    lena:   { n: 'Lena Park', k: 'person', i: 'LP', sub: 'Person, offline', last: 18 },
+    bench:  { n: 'perf-bench', k: 'agent', m: 'opus', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost', last: 17 },
+    ana:    { n: 'Ana Reyes', k: 'person', i: 'AR', sub: 'Person, away', last: 16 },
+    lint:   { n: 'lint-bot', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done', last: 15 },
+    ben:    { n: 'Ben Ito', k: 'person', i: 'BI', sub: 'Person, offline', last: 14 },
+    e2e:    { n: 'e2e-runner', k: 'agent', m: 'sonnet', st: 'done', sub: 'Orchestrator on ed-mbp, done', last: 13 },
+    chen:   { n: 'Chen Wu', k: 'person', i: 'CW', sub: 'Person, offline', last: 12 },
+    sec:    { n: 'sec-scan', k: 'agent', m: 'opus', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost', last: 11 },
+    dara:   { n: 'Dara Cole', k: 'person', i: 'DC', sub: 'Person, offline', last: 10 },
+    cost:   { n: 'cost-watch', k: 'agent', m: 'haiku', st: 'done', sub: 'Orchestrator on ed-mbp, done', last: 8 },
+    sam:    { n: 'Sam Ortiz', k: 'person', i: 'SO', sub: 'Person, away', last: 6 },
+    old:    { n: 'old-spike', k: 'agent', m: 'sonnet', st: 'off', sub: 'Orchestrator on ed-mbp, heartbeat lost', last: 3 }
   };
-  var TOTAL = Object.keys(P).length;
+  var ALL = Object.keys(P), live = ALL.slice(), at = 0, tick = 40, note = '';
   var HL = { run: 'hl-running', wait: 'hl-waiting', done: 'hl-done', off: 'hl-stale' };
-  var shown, used, note = '', sel = null;
-
+  function need(e) { return !!(e.unread || e.held || (e.k === 'agent' && e.st === 'run')); }
+  function sorted() {
+    return live.slice().sort(function (a, b) {
+      var x = P[a], y = P[b];
+      return (need(y) - need(x)) || (y.last - x.last) || x.n.localeCompare(y.n);
+    });
+  }
   function setState(s) {
-    var u = { tester: 14, main: 13, bot: 12, maya: 11, mmain: 10, notes: 9, docs: 8, jo: 7, priya: 5, sam: 4, lena: 3, watch: 2, mig: 1, bench: 0 };
-    used = u; note = '';
-    Object.keys(P).forEach(function (k) { delete P[k].fresh; });
-    P.tester.unread = 1; P.jo.held = 1; delete P.sam.unread;
-    P.docs.st = 'off'; P.notes.st = 'done';
-    shown = ['tester', 'main', 'bot', 'maya', 'mmain', 'notes', 'docs', 'jo'];
-    if (s === 'added') add('priya');
-    if (s === 'back') { P.sam.unread = 1; P.sam.sub = 'Person, online. 1 new message'; bringBack('sam'); }
-    if (s === 'stuck') {
-      shown = ['tester', 'main', 'bot', 'maya', 'mmain', 'notes', 'docs', 'jo'];
-      P.notes.st = 'run'; P.docs.st = 'run'; P.maya.unread = 2; add('priya');
-      note = 'Every row has unread or held messages, or is an agent that is running, so no one left to make room for Priya Nair. The list is 9 until you read them.';
-    }
-    if (s === 'empty') shown = [];
+    P.sam.unread = 0; P.sam.last = 6; P.sam.sub = 'Person, away'; live = ALL.slice(); at = 0; note = '';
+    if (s === 'p2') at = 1;
+    if (s === 'p3') at = 2;
+    if (s === 'back') { P.sam.unread = 1; P.sam.last = ++tick; P.sam.sub = 'Person, online'; note = 'Sam Ortiz messaged you and moved to the top.'; }
+    if (s === 'few') live = ['tester', 'jo', 'main', 'maya', 'notes', 'priya', 'watch', 'sam'];
+    if (s === 'empty') live = [];
     render();
   }
-  function prot(k) { var e = P[k]; return !!(e.unread || e.held || (e.k === 'agent' && e.st === 'run')); }
-  function lru() {
-    var c = shown.filter(function (k) { return !prot(k); }).sort(function (a, b) { return used[a] - used[b]; });
-    return c[0] || null;
-  }
-  var tick = 20;
-  function touch(k) { used[k] = ++tick; shown = [k].concat(shown.filter(function (x) { return x !== k; })); }
-  function add(k) {
-    var gone = null;
-    if (shown.length >= N) { gone = lru(); if (gone) shown = shown.filter(function (x) { return x !== gone; }); }
-    touch(k);
-    note = gone ? P[gone].n + ' left the list to make room. Find it with +.' : '';
-    return gone;
-  }
-  function bringBack(k) { var gone = add(k); note = P[k].n + ' messaged you and is back on the list' + (gone ? '. ' + P[gone].n + ' left to make room. Find it with +.' : '.'); }
-
   function av(e) {
     if (e.k === 'person') return '<span class="ch-av person" aria-hidden="true">' + e.i + '</span>';
     return '<span class="ch-av agent ' + e.m + '" aria-hidden="true"><svg><use href="#i-chip"/></svg><span class="cr-st st-' + e.st + '"><svg><use href="#s-' + e.st + '"/></svg></span></span>';
@@ -612,19 +598,25 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
       '<span class="stack"><span class="nm">' + e.n + '</span><span class="sub">' + e.sub + '</span>' + held + '</span>' + badge + '</button></li>';
   }
   function render() {
+    var all = sorted(), pages = Math.max(1, Math.ceil(all.length / PER));
+    if (at > pages - 1) at = pages - 1;
+    var from = at * PER, shown = all.slice(from, from + PER);
     $('#pe-list').innerHTML = shown.map(row).join('');
-    $('#pe-n').textContent = shown.length;
-    var nt = $('#pe-note'); nt.textContent = note; nt.hidden = !note;
-    $('#pe-empty').hidden = shown.length > 0;
-    $('#pe-cap').hidden = shown.length === 0;
-    $('#pe-cap').textContent = 'Showing ' + shown.length + ' of ' + TOTAL + '. Use + for the rest.';
+    $('#pe-n').textContent = all.length;
+    $('#pe-empty').hidden = all.length > 0;
+    var pg = $('#pe-pager'); pg.hidden = all.length === 0;
+    pg.innerHTML = '<span>Showing ' + (from + 1) + '–' + (from + shown.length) + ' of ' + all.length + '</span>' +
+      (pages > 1 ? '<nav class="pg" aria-label="People and agents pages"><button type="button" aria-label="Previous page"' + (at === 0 ? ' disabled' : '') + ' data-go="' + (at - 1) + '">‹</button><span class="at">' + (at + 1) + ' of ' + pages + '</span><button type="button" aria-label="Next page"' + (at === pages - 1 ? ' disabled' : '') + ' data-go="' + (at + 1) + '">›</button></nav>' : '<span>' + PER + ' per page</span>');
     if (note) $('#announce').textContent = note;
   }
+  $('#pe-pager').addEventListener('click', function (e) { var b = e.target.closest('button[data-go]'); if (!b || b.disabled) return; at = +b.dataset.go; note = ''; render(); $('#announce').textContent = 'Page ' + (at + 1); });
+  $('#pe-list').addEventListener('click', function (e) { var li = e.target.closest('li[data-key]'); if (li) { P[li.dataset.key].unread = 0; render(); } });
 
-  // The picker: everyone not shown, grouped, with search; says before you choose who would leave.
+  // The +: search over everyone, then a first message. Sending moves the person to the top of page 1.
+  var sel = null, openedBy = null, open = false;
   function pickList(q) {
     var out = { 'Agents': [], 'People': [] };
-    Object.keys(P).filter(function (k) { return shown.indexOf(k) < 0; }).sort(function (a, b) { return used[b] - used[a]; }).forEach(function (k) {
+    ALL.slice().sort(function (a, b) { return P[b].last - P[a].last; }).forEach(function (k) {
       var e = P[k]; if (q && (e.n + ' ' + e.sub).toLowerCase().indexOf(q) < 0) return;
       out[e.k === 'agent' ? 'Agents' : 'People'].push(k);
     });
@@ -634,40 +626,28 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
       out[g].forEach(function (k) { n++; var e = P[k];
         h += '<li><label><input type="radio" name="pe-to" value="' + k + '">' + av(e) + '<span class="stack"><span><bdi>' + e.n + '</bdi></span><span class="sub">' + e.sub + '</span></span></label></li>'; });
     });
-    if (!n) h = '<li class="none">' + (q ? 'No one matches that.' : 'Everyone is already on the list.') + '</li>';
-    $('#pe-pick').innerHTML = h;
+    $('#pe-pick').innerHTML = n ? h : '<li class="none">No one matches that.</li>';
   }
-  function why() {
-    var w = $('#pe-why');
-    if (!sel) { w.textContent = shown.length >= N ? 'The list holds ' + N + '. Adding someone removes the row you used least recently.' : 'Choose someone to add.'; return; }
-    if (shown.length < N) { w.innerHTML = '<b>' + P[sel].n + '</b> goes to the top of the list.'; return; }
-    var g = lru();
-    w.innerHTML = g ? '<b>' + P[sel].n + '</b> goes to the top. <b>' + P[g].n + '</b> leaves the list, because you used it least recently. It stays in this picker.'
-                    : '<b>' + P[sel].n + '</b> goes to the top. Every row has unread or held messages, or an agent that is running, so none leaves and the list grows past ' + N + '.';
-  }
-  var openedBy = null, open = false;
-  function dlgOpen(from) {
-    openedBy = from || document.activeElement; open = true; sel = null; $('#pe-q').value = ''; pickList(''); why(); $('#pe-go').disabled = true;
-    $('#m-pe').hidden = false; $('#pe-q').focus();
-  }
+  function ready() { $('#pe-go').disabled = !(sel && $('#pe-msg').value.trim()); }
+  function dlgOpen(from) { openedBy = from || document.activeElement; open = true; sel = null; $('#pe-q').value = ''; $('#pe-msg').value = ''; pickList(''); ready(); $('#m-pe').hidden = false; $('#pe-q').focus(); }
   function dlgClose() { if (!open) return; open = false; $('#m-pe').hidden = true; if (openedBy && openedBy.focus) openedBy.focus(); }
-  $('#pe-q').addEventListener('input', function () { sel = null; $('#pe-go').disabled = true; pickList(this.value.trim().toLowerCase()); why(); });
-  $('#pe-pick').addEventListener('change', function (e) { sel = e.target.value; $('#pe-go').disabled = false; why(); });
-  $('#f-pe').addEventListener('submit', function (e) { e.preventDefault(); if (!sel) return; add(sel); dlgClose(); render(); var b = $('#pe-add'); if (b.focus) b.focus(); });
+  $('#pe-q').addEventListener('input', function () { sel = null; pickList(this.value.trim().toLowerCase()); ready(); });
+  $('#pe-msg').addEventListener('input', ready);
+  $('#pe-pick').addEventListener('change', function (e) { sel = e.target.value; ready(); });
+  $('#f-pe').addEventListener('submit', function (e) { e.preventDefault(); if ($('#pe-go').disabled) return;
+    var k = sel; if (live.indexOf(k) < 0) live.push(k); P[k].last = ++tick; at = 0; note = 'Message sent to ' + P[k].n + '. They are at the top of the list.'; dlgClose(); render(); });
   document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', dlgClose); });
   $('#m-pe').addEventListener('mousedown', function (e) { if (e.target === this) dlgClose(); });
   document.addEventListener('keydown', function (e) {
     if (!open) return;
     if (e.key === 'Escape') { e.preventDefault(); dlgClose(); }
     if (e.key === 'Tab') {
-      var f = Array.prototype.filter.call($('#m-pe').querySelectorAll('input:not([disabled]), button:not([disabled])'), function (x) { return x.offsetParent !== null; });
+      var f = Array.prototype.filter.call($('#m-pe').querySelectorAll('input:not([disabled]), textarea, button:not([disabled])'), function (x) { return x.offsetParent !== null; });
       if (!f.length) return; var a = f[0], z = f[f.length - 1];
       if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     }
   });
   $('#pe-add').addEventListener('click', function () { dlgOpen(this); });
-  // Opening or messaging a row counts as using it.
-  $('#pe-list').addEventListener('click', function (e) { var li = e.target.closest('li[data-key]'); if (!li) return; var k = li.dataset.key; delete P[k].unread; touch(k); note = ''; render(); });
 
   function press(attr, val) { document.querySelectorAll('.demo [' + attr + ']').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); }); }
   document.querySelectorAll('.demo button').forEach(function (b) {
@@ -678,8 +658,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
       if (b.dataset.w) { stage.classList.toggle('narrow', b.dataset.w === 'narrow'); stage.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : 'none'); press('data-w', b.dataset.w); }
     });
   });
-  document.querySelectorAll('.cr-fold').forEach(function (b) { b.addEventListener('click', function () { var sec = b.closest('.ch-sec'); var ex = b.getAttribute('aria-expanded') === 'true'; b.setAttribute('aria-expanded', String(!ex)); sec.querySelectorAll('ul, p').forEach(function (x) { if (ex) x.setAttribute('data-shut', ''); else x.removeAttribute('data-shut'); }); }); });
+  document.querySelectorAll('.cr-fold').forEach(function (b) { b.addEventListener('click', function () { var sec = b.closest('.ch-sec'); var ex = b.getAttribute('aria-expanded') === 'true'; b.setAttribute('aria-expanded', String(!ex)); sec.querySelectorAll('ul, p, .pager').forEach(function (x) { if (ex) x.setAttribute('data-shut', ''); else x.removeAttribute('data-shut'); }); }); });
   root.setAttribute('data-theme', 'dark');
-  setState('full');
+  setState('p1');
 })();
 </script>
