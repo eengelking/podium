@@ -365,6 +365,42 @@ export function upgradeCases(o: UpgradeOpeners): void {
       await s.close();
     }
   });
+  it('gives a person who takes a name an older database kept Chat under none of it, and gives the person who holds the name their own, when the database is upgraded (#1284)', async () => {
+    const MIN = 60_000;
+    const legacyGroup = (id: string, seq: number, owner: string, createdAt: number): LegacyPublicMessage => ({
+      id, authorKind: 'orchestrator', authorRef: 'sa', authorName: 'alpha', text: id, createdAt, mentionsJson: '[]', seq, group: { owner, groupId: owner },
+    });
+    const s = await o.openUpgraded([], [], [], [], [], [{ thread: 'group:ghost', adminKey: 'root', admin: 'Root', startedAt: T0, lastSeenAt: T0, lists: { kind: 'read', people: ['ghost', 'ed'], seen: [] } }], [
+      legacyGroup('grp_00000000_ed', 1, 'ed', T0), legacyGroup('grp_00000000_ghost', 2, 'ghost', T0),
+      // A message older than the person it names is not theirs, so a person made after it is not credited with it.
+      legacyGroup('grp_00000000_early', 3, 'ed', 500),
+    ], {
+      people: [{ name: 'Ed', createdAt: 1000 }],
+      readState: [{ person: 'ed', thread: 'public', unread: 4 }, { person: 'ghost', thread: 'public', unread: 9 }],
+      channels: [{ name: 'eds', createdBy: 'ed', createdByName: 'Ed', createdAt: T0 }, { name: 'ghosts', createdBy: 'ghost', createdByName: 'Ghost', createdAt: T0 }],
+      flags: [{ scope: 'group:ed', value: 'p' }, { scope: 'group:ghost', value: 'p' }, { scope: 'public:person:ghost', value: 'd' }],
+    });
+    try {
+      const chat = s.chat({ now: () => T0 + MIN });
+      const ed = (await s.people.findByName('ed'))!.id;
+      // The person who held the name when the rows were made has theirs, found by id.
+      expect((await chat.group.page({ ownerId: ed }, { limit: 10 })).messages.map((m) => m.text)).toEqual(['grp_00000000_ed']);
+      expect((await chat.readState.list(ed)).map((r) => [r.thread, r.unread])).toEqual([['public', 4]]);
+      expect(await chat.channels.get('eds')).toMatchObject({ createdById: ed });
+      expect(await chat.settings.flags(`group:${ed}`)).toMatchObject({ paused: true });
+      // The rows of a name that is no person's go to nobody: a person who takes it later finds none of them.
+      await s.people.deleteMany([ed]);
+      const ghost = (await s.people.createPerson('Ghost', null, T0 + 2 * MIN)).person;
+      expect(await chat.group.page({ ownerId: ghost.id }, { limit: 10 })).toEqual({ messages: [], older: null });
+      expect(await chat.readState.list(ghost.id)).toEqual([]);
+      expect(await chat.channels.get('ghosts')).toMatchObject({ createdById: null });
+      expect(await chat.settings.flags(`group:${ghost.id}`)).toMatchObject({ paused: false });
+      expect(await chat.settings.flags(`public:person:${ghost.id}`)).toMatchObject({ disconnected: false });
+      expect(await chat.adminReads.unseenFor(ghost.id)).toEqual([]);
+    } finally {
+      await s.close();
+    }
+  });
   it('puts every public message an older database holds in General, in order and with its mentions, and lets a channel be opened beside it, when the database is upgraded (#1035)', async () => {
     const old = (id: string, createdAt: number, seq: number, text: string, mentionsJson = '[]'): LegacyPublicMessage => ({ id, authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, createdAt, mentionsJson, seq });
     const held = JSON.stringify([{ sessionId: 'sa', peerKey: 'k', typed: 'alpha@box', state: 'held', why: null, stateAt: T0 }]);

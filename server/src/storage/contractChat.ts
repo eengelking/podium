@@ -20,6 +20,34 @@ const texts = (p: ChannelPage): string[] => p.messages.map((m) => m.text);
 
 export function chatCases(o: Openers): void {
   chatChangeCases(o);
+  onEachAdapter(o, 'gives a person who takes a deleted person\'s name none of their group channel, read counts, flags, owed Admin records or opened channels (#1284)', async (s) => {
+    const chat = s.chat({ now: () => T0 });
+    const first = (await s.people.createPerson('Ed', null, T0 - 1)).person;
+    await chat.group.post({ ownerId: first.id }, input('EDS-GROUP', { authorId: first.id }));
+    await chat.readState.bump(first.id, `group:${first.id}`, true);
+    await chat.settings.setFlags(`group:${first.id}`, { paused: true });
+    await chat.settings.setFlags(`public:person:${first.id}`, { disconnected: true });
+    await chat.adminReads.mark(`group:${first.id}`, 'Root', null, 'cleared', [first.id]);
+    await chat.channels.create({ name: 'eds-channel', createdBy: 'Ed', createdById: first.id }, T0);
+    expect(await chat.adminReads.unseenFor(first.id)).toHaveLength(1);
+    await s.people.deleteMany([first.id]);
+    // Everything found by the deleted person's id is gone, and the channel they opened stays with no opener.
+    expect(await chat.group.count({ ownerId: first.id })).toBe(0);
+    expect(await chat.readState.list(first.id)).toEqual([]);
+    expect(await chat.adminReads.unseenFor(first.id)).toEqual([]);
+    expect(await chat.settings.allFlags()).toEqual({});
+    expect(await chat.channels.get('eds-channel')).toMatchObject({ createdById: null, createdByName: 'Ed' });
+    // A person of the same name is a new person with a new id, and finds none of it, whatever is left behind under the old id.
+    const again = (await s.people.createPerson('Ed', null, T0 + 1)).person;
+    expect(again.id).not.toBe(first.id);
+    await chat.group.post({ ownerId: first.id }, input('LEFT-BEHIND', { authorId: first.id }));
+    await chat.readState.bump(first.id, 'public', false);
+    expect(await chat.group.page({ ownerId: again.id }, { limit: 10 })).toEqual({ messages: [], older: null });
+    expect(await chat.readState.list(again.id)).toEqual([]);
+    expect(await chat.adminReads.unseenFor(again.id)).toEqual([]);
+    expect(await chat.channels.get('eds-channel')).toMatchObject({ createdById: null });
+    expect(await chat.settings.flags(`group:${again.id}`)).toMatchObject({ paused: false });
+  });
   it('agrees on every adapter for the group channel: posting, pages back with a cursor, mentions, scope, counting, clearing and retention', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
