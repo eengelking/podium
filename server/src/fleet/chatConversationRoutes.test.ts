@@ -340,4 +340,22 @@ describe('an agent answering in a conversation', () => {
     const solo = await OPEN(w.edB, [{ kind: 'agent', sessionId: 'sess-dev' }, person('Alex')]);
     expect((await ANSWER(w, 'sess-tester', solo.body.conversation.id, 'hi')).status).toBe(404);
   });
+
+  it('still lets an agent answer a message that more than 50 later messages have pushed out of the newest page', async () => {
+    const w = await room();
+    expect((await SEND(w.edB, w.id, '@dev status?')).status).toBe(201);
+    const store = w.fleet.chat.core.store.conversations;
+    for (let i = 0; i < 120; i++) expect(await store.post(w.id, { authorKind: 'person', authorRef: String(w.ed.person.id), authorName: 'Ed', authorId: w.ed.person.id, text: `chatter ${i}` }, w.now() + i + 1), `chatter ${i} was stored`).not.toBeNull();
+    expect((await page(w.edB, w.id)).body.older, 'the conversation is longer than its newest page').not.toBeNull();
+    expect((await ANSWER(w, 'sess-dev', w.id, 'All green.')).status).toBe(201);
+  });
+
+  it('does not take an answer from an agent whose delivery was dropped, since it was never handed the message', async () => {
+    const w = await room();
+    const sent = await SEND(w.edB, w.id, '@dev status?');
+    expect(sent.status).toBe(201);
+    await w.fleet.chat.core.store.conversations.setDelivery(w.id, sent.body.message.id, { kind: 'agent', ref: 'sess-dev' }, 'dropped', w.now());
+    const out = await ANSWER(w, 'sess-dev', w.id, 'All green.');
+    expect(out.status).toBe(403);
+  });
 });

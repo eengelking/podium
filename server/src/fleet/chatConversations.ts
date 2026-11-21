@@ -20,6 +20,8 @@ export const conversationOfThread = (thread: string): string | null => (thread.s
 const TEXT_MAX_GUARD = 100_000;
 /** How long after a person's message an agent may answer it in the conversation (#1299): the window a channel gives an agent called into it. */
 const AGENT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
+/** How many pages of the conversation one answer may read back through to find the message it answers: 10 of 100 is 1,000 messages. */
+const AGENT_ANSWER_PAGES = 10;
 
 /** One member as a person sees it. `you` is the viewer's own place. */
 export interface MemberView {
@@ -397,15 +399,30 @@ export class ConversationChat {
     const limits = await this.core.limits();
     const wait = this.core.rate(`convo-agent:${o.sessionId}`, limits.perMinute);
     if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
-    const since = this.core.host.now() - AGENT_ANSWER_WINDOW_MS;
-    const recent = (await this.store.page(id, { limit: 50 })).messages;
-    const asked = recent.some((m) => m.authorKind === 'person' && m.deletedAt === null && m.createdAt >= since && m.deliveries.some((d) => d.kind === 'agent' && d.ref === o.sessionId));
-    if (!asked) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
+    if (!(await this.askedWithinWindow(id, o.sessionId))) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
     const stored = await this.store.post(id, { authorKind: 'agent', authorRef: o.sessionId, authorName: o.name, text: t.text }, this.core.host.now());
     if (!stored) return fail(404, 'There is no such conversation.');
     for (const m of c.members) if (m.leftAt === null && m.kind === 'person') await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
     this.core.onEvent({ kind: 'conversation_sent', by: o.name, conversation: id, messageId: stored.id });
     return { ok: true, id: stored.id, createdAt: stored.createdAt };
+  }
+
+  /**
+   * Whether a person's message in the last hour was handed, or is to be handed, to this agent (#1299). It looks back through the newest pages until a message is older than the
+   * window, so a busy conversation does not hide the message the agent is answering, and stops after a fixed number of pages so one call cannot read the whole conversation.
+   * A delivery Podium dropped never reached the agent, so it does not count.
+   */
+  private async askedWithinWindow(id: string, sessionId: string): Promise<boolean> {
+    const since = this.core.host.now() - AGENT_ANSWER_WINDOW_MS;
+    let before: string | null = null;
+    for (let i = 0; i < AGENT_ANSWER_PAGES; i++) {
+      const got = await this.store.page(id, { limit: MAX_LIMIT, before });
+      if (got.messages.some((m) => m.authorKind === 'person' && m.deletedAt === null && m.createdAt >= since && m.deliveries.some((d) => d.kind === 'agent' && d.ref === sessionId && d.state !== 'dropped'))) return true;
+      // The page is oldest first within itself; once its oldest message is outside the window, nothing older is inside it.
+      if (got.older === null || (got.messages[0] !== undefined && got.messages[0].createdAt < since)) return false;
+      before = got.older;
+    }
+    return false;
   }
 
   /** The author edits their own message, until Podium has handed it to an agent. */

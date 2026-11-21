@@ -147,7 +147,7 @@ describe('the sentence that points an addressed agent at the tool (#1034)', () =
   });
 
   test('a message written in a conversation of people and agents gives convo:<id>, not person:<name> (#1299)', () => {
-    expect(withChatHint('x', { by: 'Ed', chat: true, convo: 'cnv_ab12' })).toBe('x\n\nTo answer in this conversation, so that everyone in it sees the answer, use podium_send to "convo:cnv_ab12".');
+    expect(withChatHint('x', { by: 'Ed', chat: true, convo: 'cnv_ab12' })).toBe('x\n\nTo answer in this conversation, so that the people in it see the answer, use podium_send to "convo:cnv_ab12".');
     // An id that is not an id is ignored, and a message that is not a chat message never gets it.
     expect(withChatHint('x', { by: 'Ed', chat: true, convo: 'a b"c' })).toBe('x\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
     expect(withChatHint('x', { by: 'Ed', convo: 'cnv_ab12' })).toBe('x');
