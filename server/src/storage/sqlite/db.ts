@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
 import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
-import { CHAT_IDS_DONE_KEY, idsOf, OWNED_PEER_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndKey, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
+import { CHAT_IDS_DONE_KEY, keepOwnerSettings, OWNED_PEER_TABLES, OWNER_EVIDENCE_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndRewrite, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
@@ -80,16 +80,15 @@ function firstRun(db: DatabaseSync, key: string): boolean {
 /**
  * Binds the peer-messaging tables to a person by id (#1284). The rights, requests and messages that exist get the id of their owner, by the owner's folded name against `people.name_lower`
  * (JS, because SQL cannot fold a name the way `nameKey` does); a row whose owner matches no person keeps none, so it belongs to nobody and a newcomer with the name cannot reach it. A person's
- * end of a link (`person:<name>`) becomes `person:<id>`, or `person:gone:<name>` when no person has the name, in every column and link name that holds one. An owner's defaults are kept under
- * the id (the table's key now holds it as text, never a name); a row whose name matches no person is dropped, because defaults nobody can read or write are not worth a key that a newcomer
- * could meet. A row is only given to a person who existed when it was written (`people.created_at` is not after its `set_at`, `created_at` or `sent_at`), so a newcomer who takes a deleted person's
+ * end of a link (`person:<name>`) becomes `person:<id>` for a row written since the person was made, or `person:gone:<name>` for an older row or when no person has the name (#1292), in every column
+ * and link name that holds one. An owner's defaults have no time, so they are kept under the id (the table's key now holds it as text) only for a person who provably owns them (`keepOwnerSettings`); every other
+ * row is dropped, because defaults nobody can read or that an earlier person of the name left are not worth a key a newcomer could meet. A row is only given to a person who existed when it was written (`people.created_at` is not after its `set_at`, `created_at` or `sent_at`), so a newcomer who takes a deleted person's
  * name is not handed what the person left. The key rewrite goes through a marker so no new key is rewritten again within a run, and a mark in `settings` (`PEER_IDS_DONE_KEY`) makes the step run
  * once: a key `person:5` is a person named "5" before it and the id 5 after it, and only the mark tells which, so a second run would read an id as a name.
  */
 function fillPeerOwnerIds(db: DatabaseSync): void {
   if (!firstRun(db, PEER_IDS_DONE_KEY)) return;
   const people = peopleIndex(db);
-  const ids = idsOf(people);
   for (const { table, at } of OWNED_PEER_TABLES) {
     const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`);
     // order-insensitive: each owner name is written on its own rows, whatever the order.
@@ -98,34 +97,51 @@ function fillPeerOwnerIds(db: DatabaseSync): void {
       if (p) set.run(p.id, r.owner, p.createdAt);
     }
   }
-  // The link names first, while the session columns still say which end is the person.
+  // The link names first, while the session columns still say which end is the person. A row older than the person gets the gone end (#1292).
   // order-insensitive: each link name is rewritten on its own rows, whatever the order.
   const links = db.prepare("SELECT DISTINCT link, from_session, to_session FROM peer_messages WHERE substr(from_session, 1, 7) = 'person:' OR substr(to_session, 1, 7) = 'person:' ORDER BY link, from_session, to_session").all() as unknown as { link: string; from_session: string; to_session: string }[];
+  const setLink = db.prepare('UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?) AND sent_at >= ? AND sent_at < ?');
   for (const l of links) {
     const end = l.from_session.startsWith('person:') ? l.from_session : l.to_session;
-    const next = renameLinkEnd(l.link, end, personEndKey(end, ids));
-    if (next !== null && next !== l.link) db.prepare('UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?)').run(next, l.link, l.from_session, l.to_session);
+    const w = personEndRewrite(end, people);
+    if (w === null) continue;
+    const live = renameLinkEnd(l.link, end, w.to);
+    const old = renameLinkEnd(l.link, end, w.earlier);
+    if (live !== null) setLink.run(`~${live}`, l.link, l.from_session, l.to_session, w.since, Number.MAX_SAFE_INTEGER);
+    if (old !== null) setLink.run(`~${old}`, l.link, l.from_session, l.to_session, 0, w.since);
   }
-  for (const { table, columns } of PERSON_END_COLUMNS) {
+  db.prepare("UPDATE peer_messages SET link = substr(link, 2) WHERE substr(link, 1, 1) = '~'").run();
+  for (const { table, columns, at } of PERSON_END_COLUMNS) {
     for (const col of columns) {
       // order-insensitive: each old key is moved to its new one, through a marker, so a new key is never taken for an old one.
       const olds = db.prepare(`SELECT DISTINCT ${col} AS k FROM ${table} WHERE substr(${col}, 1, 7) = 'person:' ORDER BY ${col}`).all() as unknown as { k: string }[];
+      const move = db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ? AND ${at} >= ? AND ${at} < ?`);
       let moved = false;
       for (const { k } of olds) {
-        const to = personEndKey(k, ids);
-        if (to === k) continue;
-        db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(`~${to}`, k);
+        const w = personEndRewrite(k, people);
+        if (w === null) continue;
+        move.run(`~${w.to}`, k, w.since, Number.MAX_SAFE_INTEGER);
+        move.run(`~${w.earlier}`, k, 0, w.since);
         moved = true;
       }
       if (moved) db.prepare(`UPDATE ${table} SET ${col} = substr(${col}, 2) WHERE substr(${col}, 1, 8) = '~person:'`).run();
     }
   }
+  // An owner's defaults have no time, so they are kept only for a person who provably owns them (#1292, `keepOwnerSettings`); every other row is dropped and the person has the server's defaults.
+  const ownIds = new Set<number>();
+  const olderNames = new Set<string>();
+  for (const table of OWNER_EVIDENCE_TABLES) {
+    // order-insensitive: the rows are folded into sets.
+    for (const r of db.prepare(`SELECT DISTINCT owner_id AS id FROM ${table} WHERE owner_id IS NOT NULL ORDER BY owner_id`).all() as unknown as { id: number }[]) ownIds.add(r.id);
+    // order-insensitive: the rows are folded into sets.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL AND owner IS NOT NULL ORDER BY owner`).all() as unknown as { owner: string }[]) olderNames.add(nameKey(r.owner));
+  }
   // order-insensitive: the rows are all dropped and written again, whatever the order.
   const settings = db.prepare('SELECT owner_lower, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IS NULL ORDER BY owner_lower').all() as unknown as { owner_lower: string; trust: number; on_request: string; new_send: string; limits_json: string | null }[];
   db.prepare('DELETE FROM peer_owner_settings WHERE owner_id IS NULL').run();
   for (const s of settings) {
-    const id = ids.get(s.owner_lower);
-    if (id !== undefined) db.prepare('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)').run(String(id), id, s.trust, s.on_request, s.new_send, s.limits_json);
+    const id = keepOwnerSettings(s.owner_lower, people, ownIds, olderNames);
+    if (id !== null) db.prepare('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)').run(String(id), id, s.trust, s.on_request, s.new_send, s.limits_json);
   }
 }
 
