@@ -5,7 +5,7 @@ import { MariaDbConn, parseTarget } from './conn.js';
 import { MAIN_MIGRATIONS, MAIN_STEPS, migrate } from './schema.js';
 import { openMariaDbStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import { legacyDailyInsert, type LegacyAdminRead, type LegacyChat, type LegacyDaily, type LegacyExtras, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
+import { LEGACY_RIGHT_AT, legacyDailyInsert, NEWCOMER_AT, type LegacyAdminRead, type LegacyChat, type LegacyDaily, type LegacyExtras, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 export async function openUpgradedMariaDb(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat, daily: LegacyDaily[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
@@ -24,6 +24,7 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
     await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.slice(0, 1));
     // The people this older database holds (#1284), in order, so an owner's name can be matched to one when the upgrade binds rows to ids, and the owner defaults it kept under a name.
     for (const name of extras.people ?? []) await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64)]);
+    for (const name of extras.newcomers ?? []) await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, ?)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64), NEWCOMER_AT]);
     for (const x of extras.ownerSettings ?? []) await old.run("INSERT INTO peer_owner_settings (owner_lower, trust, on_request, new_send, limits_json) VALUES (?, ?, 'ask', 'ask', NULL)", [nameKey(x.owner), Number(x.trust)]);
     for (const r of rows) {
       await old.run(
@@ -56,7 +57,7 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
       );
     }
     for (const x of rights) {
-      await old.run('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, 0)', [x.fromKey, x.toKey, x.owner, x.level, Number(x.paused)]);
+      await old.run('INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES (?, ?, ?, ?, ?, ?)', [x.fromKey, x.toKey, x.owner, x.level, Number(x.paused), LEGACY_RIGHT_AT]);
     }
     if (adminReads.length > 0) {
       // The Admin read records come from step 9; step 10 gave them a kind, so the rows go in at the schema before it.

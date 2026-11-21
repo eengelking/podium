@@ -107,6 +107,8 @@ export interface LegacyPublicMessage {
 /** What else an older database holds for the peer tables (#1284): the people it has, so the upgrade can match an owner's name to one, and owner defaults kept under a name. */
 export interface LegacyExtras {
   people?: string[];
+  /** People made after every row the older database holds (at `NEWCOMER_AT`): a newcomer who took the name of an earlier holder, so a row that names one is not theirs (#1284). */
+  newcomers?: string[];
   ownerSettings?: { owner: string; trust: boolean }[];
 }
 
@@ -131,6 +133,11 @@ export interface LegacyDaily {
   group: string;
   person?: string;
 }
+
+/** When a person in `LegacyExtras.newcomers` was made: after every row a test writes (rows are at 1.8e12 ms or earlier, days in 2026), so the person did not exist when they were written. */
+export const NEWCOMER_AT = 2_800_000_000_000;
+/** When a legacy right was set: after the people a test makes (1000 ms), before the newcomers. */
+export const LEGACY_RIGHT_AT = 1_700_000_000_000;
 
 /** The statement and values that write a `LegacyDaily` at the schema before it had an owner id: every other column is filled with one fixed value. */
 export function legacyDailyInsert(r: LegacyDaily): { sql: string; args: (string | number)[] } {
@@ -664,6 +671,80 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const usage = (ownerId: number, costUsd: number) => ({ day: D1, ownerId, owner: 'Ann', group: '', model: 'm', project: 'p', sessions: 1, agents: 0, costUsd, unpricedSessions: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0 });
       await s.fleet.insertUsage([usage(ann, 1), usage(again, 2), usage(0, 4)]);
       expect((await s.fleet.rollupRows('usage_daily', D1, D1)).filter((r) => r.owner === 'Ann').map((r) => Number(r.cost_usd))).toEqual([4, 1, 2]);
+    } finally {
+      await s.close();
+    }
+  });
+  it('gives a person made after a row the name only, never the row, for sessions, reporters, peer rows and daily spend, and gives a person who existed before the row theirs, when the database is upgraded (#1284)', async () => {
+    const D1 = '2026-10-01';
+    const reporter = (key: string, owner: string): LegacyReporter => ({ key, kind: 'mod', machineId: key, machineName: `box-${key}`, owner, version: '1.0.0', firstSeenAt: T0, lastSeenAt: T0 });
+    const session = (id: string, owner: string, startedAt: number): LegacySession => ({ id, name: id, model: null, costUsd: null, startedAt, owner, bound: {} });
+    const message = (id: string, owner: string, from: string, to: string, seq: number): LegacyMessage => ({ id, owner, fromSession: from, toSession: to, text: id, sentAt: T0, seq });
+    const row = (table: LegacyDaily['table'], owner: string, person: string): LegacyDaily => ({ table, day: D1, owner, group: 'Crew', person });
+    // Ed was made before every row. Zed was made after every row: the rows name a Zed who held the name earlier and is gone, and the newcomer must not be handed them.
+    const s = await o.openUpgraded(
+      [req('prq_ed', T0, { owner: 'Ed' }), req('prq_zed', T0 + 1, { owner: 'Zed' })],
+      [reporter('r-ed', 'Ed'), reporter('r-zed', 'Zed')],
+      [session('s-ed', 'Ed', T0), session('s-zed', 'Zed', T0 + 1)],
+      [message('m_ed', 'Ed', 'sa', 'sb', 1), message('m_zed', 'Zed', 'sc', 'sd', 2)],
+      [{ fromKey: 'rk-a', toKey: 'rk-b', owner: 'Ed', level: 'send', paused: false }, { fromKey: 'rk-c', toKey: 'rk-d', owner: 'Zed', level: 'send', paused: false }],
+      [], [], { people: ['Ed'], newcomers: ['Zed'] }, undefined,
+      (['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const).flatMap((t) => [row(t, 'Ed', 'Ed'), row(t, 'Zed', 'Zed')]),
+    );
+    try {
+      const ed = (await s.people.findByName('ed'))!.id;
+      const zed = (await s.people.findByName('zed'))!.id;
+      expect(zed).not.toBe(ed);
+      const peers = s.peers({ now: () => T0 + 10_000, flagOn: () => true, startedAt: T0 });
+      // Sessions and reporters.
+      expect((await s.fleet.getSession('s-ed'))!.owner_id).toBe(ed);
+      expect((await s.fleet.getSession('s-zed'))!.owner_id).toBeNull();
+      expect((await s.fleet.getSession('s-zed'))!.owner).toBe('Zed');
+      const lookup = s.reporters.peerLookup();
+      expect((await lookup.get('r-ed'))!.ownerId).toBe(ed);
+      expect((await lookup.get('r-zed'))!.ownerId).toBeNull();
+      expect(await lookup.ofOwner(zed)).toEqual([]);
+      // Requests, messages and rights.
+      expect((await peers.rights.openRequests(ed)).map((r) => r.id)).toEqual(['prq_ed']);
+      expect(await peers.rights.openRequests(zed)).toEqual([]);
+      expect((await peers.messages.page(ed, 'sa', 'sb', { limit: 10 })).messages.map((m) => m.id)).toEqual(['m_ed']);
+      expect((await peers.messages.page(zed, 'sc', 'sd', { limit: 10 })).messages).toEqual([]);
+      expect((await peers.rights.rightsOf(ed)).map((r) => r.from)).toEqual(['rk-a']);
+      expect(await peers.rights.rightsOf(zed)).toEqual([]);
+      // Daily spend: a row of a day before the person was made stays with nobody and loses its group.
+      for (const t of ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const) {
+        const rows = await s.fleet.rollupRows(t, D1, D1);
+        expect(rows.map((r) => [r.owner, Number(r.owner_id)]).sort(), t).toEqual([['Ed', ed], ['Zed', 0]]);
+        if (t !== 'failures_daily' && t !== 'skills_daily') expect(rows.filter((r) => r.owner === 'Zed').map((r) => r.group_name), t).toEqual(['']);
+      }
+    } finally {
+      await s.close();
+    }
+  });
+  it('reads an all-digit person name the same way in the Chat and the peer upgrades: as a name, to the person\'s id, and never as an id already (#1284)', async () => {
+    const MIN = 60_000;
+    // The person called "42" is not the person with id 42: ids here are 1 and 2.
+    const s = await o.openUpgraded([], [], [], [], [{ fromKey: 'person:42', toKey: 'rk-a', owner: 'ed', level: 'send', paused: false }, { fromKey: 'person:7', toKey: 'rk-a', owner: 'ed', level: 'send', paused: true }], [], [], { people: ['ed', '42'] }, {
+      people: [{ name: '42', createdAt: 1000 }],
+      readState: [{ person: '42', thread: 'dm:person:42|sa', unread: 5 }, { person: '42', thread: 'group:42', unread: 1 }],
+      flags: [{ scope: 'group:42', value: 'p' }],
+    });
+    try {
+      const ed = (await s.people.findByName('ed'))!.id;
+      const num = (await s.people.findByName('42'))!.id;
+      expect(num).not.toBe(42);
+      expect(num).not.toBe(ed);
+      const peers = s.peers({ now: () => T0, flagOn: () => true, startedAt: T0 });
+      // Peer: the end that was `person:42` is the person's id, and nothing is left under the name; `person:7` matches nobody and is kept under a key no person's equals.
+      expect(await peers.rights.personLink(personKeyOf(num), 'rk-a')).toMatchObject({ level: 'send', paused: false });
+      expect(await peers.rights.personLink('person:42', 'rk-a')).toBeNull();
+      expect(await peers.rights.personLink('person:gone:7', 'rk-a')).toMatchObject({ paused: true });
+      // Chat: the same name is the same person, in a direct message thread, a thread and a flag scope.
+      const chat = s.chat({ now: () => T0 + MIN });
+      expect((await chat.readState.list(num)).map((r) => [r.thread, r.unread]).sort()).toEqual([[`dm:person:${num}|sa`, 5], [`group:${num}`, 1]]);
+      expect(await chat.readState.list(42)).toEqual([]);
+      expect(await chat.settings.flags(`group:${num}`)).toMatchObject({ paused: true });
+      expect(await chat.settings.flags('group:42')).toMatchObject({ paused: false });
     } finally {
       await s.close();
     }
