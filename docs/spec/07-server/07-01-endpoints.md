@@ -383,7 +383,7 @@ the channels, the direct messages, and what an agent may do with its reporter's 
 beside General's, keyed by the channel, so no route of a public channel can return a group's or a Direct Message's text (DECISIONS 69).
 
 - `GET /api/fleet/respond/chat`: what the page opens with, counts and names and never a message's text. `{ enabled: true,
-  serverTime, me: { name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
+  serverTime, me: { id, name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
   channels, directs, agents, people, approvals }`. `channels` has General, then every public channel by name, then My group for a person: each `{ id: "general" |
   "group" | <a public channel's name>, kind: "public" | "group", name, description, link, openedBy, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
   adminReading, can: { pause, pauseEveryone, disconnect, removeAll, editDescription, removeChannel } }`. `description` is empty for General and My group, `link` is `{ kind: "issue" | "milestone" | "project", ref }` or null, and

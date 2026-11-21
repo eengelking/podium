@@ -40,13 +40,12 @@ const famWord = (f: ModelFamily, model: string | null) => (f === "other" ? (mode
  * orchestrators with the subagents and forks the console knows. A channel is the people and agents the overview lists, which is not
  * everyone who can read it, so it is partial (decision 16 on #1229: no route to list a large channel).
  */
-export function membersOf(o: ChatOverview, sessions: Record<string, SessionView>, opts: { group: boolean; person: string | null }): { members: Member[]; partial: boolean } {
+export function membersOf(o: ChatOverview, sessions: Record<string, SessionView>, opts: { group: boolean; person: string | null; mine: boolean }): { members: Member[]; partial: boolean } {
   const members: Member[] = [];
-  const me = o.me.name.toLowerCase();
   if (opts.group) {
     if (opts.person) {
-      const mine = opts.person.toLowerCase() === me && o.me.person;
-      members.push({ key: `p:${opts.person}`, kind: mine ? "you" : "person", name: opts.person, line: "Owner", state: null, word: null });
+      // Whether My group is the viewer's own is the caller's: it is, unless an Admin reads as someone. Never a name comparison.
+      members.push({ key: `p:${opts.person}`, kind: opts.mine ? "you" : "person", name: opts.person, line: "Owner", state: null, word: null });
     }
   } else {
     for (const p of o.people) members.push({ key: `p:${p.name}`, kind: p.you ? "you" : "person", name: p.name, line: "Member", state: null, word: null });

@@ -27,6 +27,7 @@ const link = (a: TrafficEnd, b: TrafficEnd, over: Partial<TrafficLink> = {}): Tr
   a,
   b,
   owner: "Ed",
+  ownerId: 1,
   messages: 2,
   lastAt: T0 - 60_000,
   state: "active",
@@ -531,6 +532,18 @@ describe("for anyone but the owner", () => {
     expect(traffic.api.conversation).not.toHaveBeenCalled();
   });
 
+  it("gives a newcomer who took the owner's name no text and no Pause or Remove: the link's owner id is another (#1284)", async () => {
+    const NEWCOMER: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 9, admin: false };
+    const { traffic } = page({ me: NEWCOMER });
+    await flush();
+    const p = panel();
+    expect(p.querySelector(".offnote")).toHaveTextContent("Only Ed and an Admin can read this conversation.");
+    expect(within(p).queryByRole("list")).toBeNull();
+    expect(within(p).queryByRole("button", { name: "Pause link" })).toBeNull();
+    expect(within(p).queryByRole("button", { name: "Remove link…" })).toBeNull();
+    expect(traffic.api.conversation).not.toHaveBeenCalled();
+  });
+
   it("names a machine's system from another live session on it, once the conversation's own sessions have ended", async () => {
     // The reporter key is the machine id, or `<machine id>#<owner>` for a second account on that machine.
     const OLD = end("s-old", "old-run", "lab-box", "m9");
@@ -789,7 +802,7 @@ describe("the empty, off and error cases", () => {
   });
 
   it("says what the page is for once, in the banner, and not again in the page body (#1209)", async () => {
-    page({ traffic: fakeTraffic([link(DEV, TESTER), link(ARM, NOTES, { owner: "Ann" })]) });
+    page({ traffic: fakeTraffic([link(DEV, TESTER), link(ARM, NOTES, { owner: "Ann", ownerId: 6 })]) });
     await flush();
     expect(screen.getAllByText(PAGE_INFO.traffic.description)).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1, name: "Traffic" })).toHaveClass("vh");

@@ -46,7 +46,7 @@ const cmsg = (id: string, text: string, over: Partial<ChannelMessage> = {}): Cha
 const dmsg = (id: string, text: string, over: Partial<DirectMessage> = {}): DirectMessage => ({
   id,
   author: "person",
-  from: { kind: "person", sessionId: "person:ed", name: "Ed", machine: "" },
+  from: { kind: "person", sessionId: "person:ed", personId: 1, name: "Ed", machine: "" },
   to: [{ sessionId: "s-tester", name: "Tester", machine: "ci-runner-01", state: "queued", why: null }],
   text,
   sentAt: T0 - 50 * MIN,
@@ -116,7 +116,7 @@ function fakeChat(over: Partial<Fake> = {}) {
   const overview: ChatOverview = {
     enabled: true,
     serverTime: T0,
-    me: { name: "Ed", admin: false, person: true },
+    me: { id: 1, name: "Ed", admin: false, person: true },
     settings: { maxChars: 20000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false },
     channels: [channelOf("general", "General", "general"), channelOf("group", "My group", "group"), channelOf("release", "release", "public")],
     directs: [dm],
@@ -575,6 +575,27 @@ describe("the editor", () => {
     await flush();
     expect(chat.fake.editDmMessage).toHaveBeenCalledWith("person:ed", "s-tester", "d1", "Also Debian 13.");
     expect(msg(0).querySelector(".ed-edited")).toHaveTextContent("edited 14:30");
+  });
+
+  it("decides by id: a Direct Message from another person with your name is not yours, and has no Edit or Delete (#1284)", async () => {
+    const chat = fakeChat();
+    // The earlier Ed (id 9) was deleted; this Ed is id 1. The server would send canChange true to no one but the author, so even a stale flag must not show controls.
+    chat.w.dmMsgs[0] = { ...chat.w.dmMsgs[0]!, from: { kind: "person", sessionId: "person:ed", personId: 9, name: "Ed", machine: "" } };
+    await groupPage(chat);
+    await open("d:dm:person:ed|s-tester");
+    expect(msg(0).querySelector(".who.me")).toBeNull();
+    focus(msg(0));
+    key(msg(0), "e");
+    expect(screen.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+    key(msg(0), "Delete");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("still gives the real author, whose id matches, the message as theirs", async () => {
+    const chat = fakeChat();
+    await groupPage(chat);
+    await open("d:dm:person:ed|s-tester");
+    expect(msg(0).querySelector(".who.me")).not.toBeNull();
   });
 });
 

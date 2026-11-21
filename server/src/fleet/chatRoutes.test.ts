@@ -128,7 +128,7 @@ describe('the gate and the overview', () => {
   it('lists General and My group, the agents and the settings, with zero counts', async () => {
     const s = await world();
     const res = await s.edB.get(CH);
-    expect(res.body).toMatchObject({ enabled: true, me: { name: 'Ed', admin: false }, settings: { maxChars: 4000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false } });
+    expect(res.body).toMatchObject({ enabled: true, me: { id: 1, name: 'Ed', admin: false }, settings: { maxChars: 4000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false } });
     expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general', 'group']);
     expect(res.body.channels[0]).toMatchObject({ name: 'General', thread: 'public', unread: 0, mentions: 0, paused: false, disconnected: false, can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false } });
     expect(res.body.channels[1]).toMatchObject({ name: 'My group', thread: `group:${s.ed.person.id}`, can: { pause: true, disconnect: true, removeAll: true } });
@@ -142,7 +142,7 @@ describe('the gate and the overview', () => {
     const s = await world();
     const a = await signedIn(s, 'Admin', SECRET);
     const res = await a.get(CH);
-    expect(res.body.me).toMatchObject({ name: 'Admin', admin: true });
+    expect(res.body.me).toMatchObject({ id: null, name: 'Admin', admin: true });
     expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general']);
     expect(res.body.channels[0].can).toMatchObject({ pauseEveryone: true, removeAll: true });
   });
@@ -594,7 +594,7 @@ describe('direct messages', () => {
     expect(took.status).toBe(200);
     const page = await s.edB.get(`${CH}/dm/me/sess-tester/messages`);
     expect(page.body.messages.map((m: { state: string; text: string }) => [m.text, m.state])).toEqual([['please run the suite', 'delivered']]);
-    expect(page.body.messages[0].from).toMatchObject({ kind: 'person', name: 'Ed' });
+    expect(page.body.messages[0].from).toMatchObject({ kind: 'person', personId: 1, name: 'Ed' });
     expect(page.body).toMatchObject({ a: expect.anything(), b: expect.anything(), older: null, total: 1 });
     const list = (await s.edB.get(CH)).body.directs;
     expect(list).toHaveLength(1);

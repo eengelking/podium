@@ -1,0 +1,1 @@
+The console now decides whose a Direct Message, a member entry, a conversation link and a file diff is by person id, never by name, so a newcomer who takes a deleted person's name no longer sees the earlier person's messages as their own, with Edit and Delete, or gets their link and diff controls.

@@ -89,7 +89,8 @@ export interface CrossInfo {
 interface DirectMessageView {
   id: string;
   author: 'agent' | 'person';
-  from: { kind: 'agent' | 'person'; sessionId: string | null; name: string; machine: string };
+  /** `name` is display text. `personId` is the author's `people.id` for a person's message (what the console compares to the viewer's id to decide whose it is, #1284); null for an agent and for a message whose author has since been deleted. */
+  from: { kind: 'agent' | 'person'; sessionId: string | null; personId: number | null; name: string; machine: string };
   /** Who it went to: one agent, or both when the person added to a conversation between two. */
   to: { sessionId: string; name: string; machine: string; state: MessageState; why: string | null }[];
   /** '' for a message its author deleted (#1269). */
@@ -150,7 +151,7 @@ function groupRows(rows: MessageRow[], viewer: ChatViewer | null): { view: Direc
       view: {
         id: m.id,
         author: m.author,
-        from: m.author === 'person' ? { kind: 'person', sessionId: null, name: m.fromName, machine: '' } : { kind: 'agent', sessionId: m.fromSession, name: m.fromName, machine: m.fromMachine },
+        from: m.author === 'person' ? { kind: 'person', sessionId: null, personId: m.authorId, name: m.fromName, machine: '' } : { kind: 'agent', sessionId: m.fromSession, personId: null, name: m.fromName, machine: m.fromMachine },
         to: [target],
         text: m.text,
         sentAt: m.sentAt,

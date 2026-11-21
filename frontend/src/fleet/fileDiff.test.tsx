@@ -82,9 +82,18 @@ describe("who gets a button", () => {
     expect(screen.queryByRole("button", { name: /Open diff of/ })).toBeNull();
     expect(screen.getByRole("note").textContent).toBe("Only Ed can open diffs.");
   });
-  it("compares names the way the server does: without regard to case", async () => {
+  it("compares ids, as the server does: the owner's id opens, whatever the name's case", async () => {
     await show({ me: { enabled: true, signedIn: true, name: "ED", id: 1, admin: false } });
     expect(screen.getAllByRole("button", { name: /Open diff of/ })).toHaveLength(3);
+  });
+  it("gives a newcomer who took the owner's name nothing: the id is different (#1284)", async () => {
+    await show({ me: { enabled: true, signedIn: true, name: "Ed", id: 9, admin: false } });
+    expect(screen.queryByRole("button", { name: /Open diff of/ })).toBeNull();
+    expect(screen.getByRole("note").textContent).toBe("Only Ed can open diffs.");
+  });
+  it("gives a session whose owner was deleted (no owner id) to nobody, a same-named newcomer included", async () => {
+    await show({ me: { enabled: true, signedIn: true, name: "Ed", id: 9, admin: false }, s: { ownerId: null } });
+    expect(screen.queryByRole("button", { name: /Open diff of/ })).toBeNull();
   });
   it("says so for a session with no owner, and for a reporter without the option", async () => {
     await show({ s: { owner: null } });
@@ -552,7 +561,7 @@ describe("loading ahead (#631)", () => {
   });
   it("loads nothing where the viewer cannot open diffs", async () => {
     const fileDiff = vi.fn(async () => ok());
-    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true, owner: "Alex" } });
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true, owner: "Alex", ownerId: 2 } });
     expect(fileDiff).not.toHaveBeenCalled();
   });
   it("loads nothing while the tab is hidden, and starts when it is shown", async () => {

@@ -80,7 +80,7 @@ const cmsg = (id: string, text: string, over: Partial<ChannelMessage> = {}): Cha
 const dmsg = (id: string, from: Party, to: Party, text: string, over: Partial<DirectMessage> = {}): DirectMessage => ({
   id,
   author: from.kind === "person" ? "person" : "agent",
-  from: { kind: from.kind, sessionId: from.sessionId, name: from.name, machine: from.machine },
+  from: { kind: from.kind, sessionId: from.sessionId, personId: from.kind === "person" ? (from.name === "Ed" ? 1 : 2) : null, name: from.name, machine: from.machine },
   to: [{ sessionId: to.sessionId, name: to.name, machine: to.machine, state: "delivered", why: null }],
   text,
   sentAt: T0 - 500_000,
@@ -125,7 +125,7 @@ function world(over: Partial<Fake> = {}): Fake {
     overview: {
       enabled: true,
       serverTime: T0,
-      me: { name: "Ed", admin: false, person: true },
+      me: { id: 1, name: "Ed", admin: false, person: true },
       settings: { maxChars: 20000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false },
       channels: [channelOf("general"), channelOf("group", { mentions: 1, messages: 2 })],
       directs: [d1, d2, d3],

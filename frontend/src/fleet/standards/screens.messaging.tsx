@@ -103,7 +103,7 @@ const NOTES = end("s-notes", "infra-notes", "ed-mbp", "k1");
 const TESTER = end("s-tester", "Tester", "ci-runner-01", "k2");
 const ARM = end("s-arm", "arm64-check", "build-pi", "k3");
 const link = (a: TrafficEnd, b: TrafficEnd, over: Partial<TrafficLink> = {}): TrafficLink => ({
-  link: `${a.reporterKey}|${b.reporterKey}`, a, b, owner: "Ed", messages: 2, lastAt: T0 - MIN, state: "active", aToB: true, bToA: true, roundTrips: { used: 2, cap: 10 }, ...over,
+  link: `${a.reporterKey}|${b.reporterKey}`, a, b, owner: "Ed", ownerId: 1, messages: 2, lastAt: T0 - MIN, state: "active", aToB: true, bToA: true, roundTrips: { used: 2, cap: 10 }, ...over,
 });
 const LINKS = (): TrafficLink[] => [
   link(DEV, TESTER, { messages: 5 }),

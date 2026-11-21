@@ -198,7 +198,7 @@ export interface ChatOverview {
   enabled: true;
   serverTime: number;
   /** The name the server records an Admin's pause, reading or stop under; absent from an older server. */
-  me: { name: string; actor?: string; admin: boolean; person: boolean };
+  me: { name: string; actor?: string; admin: boolean; person: boolean; /** The viewer's person id, the one that decides which messages are theirs (a name can change hands). Null for the admin secret; absent from an older server. */ id?: number | null };
   settings: {
     maxChars: number;
     perMinute: number;
@@ -348,6 +348,8 @@ export interface DirectMessage {
   from: {
     kind: "agent" | "person";
     sessionId: string | null;
+    /** For a person's message, the author's person id (display uses `name`; ownership uses this). Null for an agent, and for a message whose author is gone. */
+    personId?: number | null;
     name: string;
     machine: string;
   };
