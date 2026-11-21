@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import "../chat.css";
 import type { AdminRead } from "../chatData";
 import type { SessionReadKind } from "../respondApi";
-import { nameKey } from "../respond";
+import { nameKey, ownsSession } from "../respond";
 import { readingKey, readingLine, readingRest, readRecordLine, recordLabel, useDismissed, useSessionReads } from "../sessionReads";
 import { useRespond } from "../useRespond";
 import { ChEye } from "./ChatIcons";
@@ -15,12 +15,12 @@ export type SessionReadPlacement = "band" | "above";
 
 const SHOWN = 3;
 
-export function SessionReadNotes({ kind, session, placement = "band" }: { kind: SessionReadKind; session: { id: string; name: string; owner: string | null }; placement?: SessionReadPlacement }) {
+export function SessionReadNotes({ kind, session, placement = "band" }: { kind: SessionReadKind; session: { id: string; name: string; owner: string | null; ownerId: number | null }; placement?: SessionReadPlacement }) {
   const respond = useRespond();
   const reads = useSessionReads();
   const dismissed = useDismissed();
   const me = respond?.me;
-  const owns = !!me?.signedIn && !!me.name && !!session.owner && session.owner !== "Admin" && nameKey(session.owner) === nameKey(me.name);
+  const owns = ownsSession(session, me);
   const [records, setRecords] = useState<AdminRead[]>([]);
   const rev = reads?.rev ?? 0;
   const api = respond?.api;

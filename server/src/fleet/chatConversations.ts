@@ -104,10 +104,15 @@ export class ConversationChat {
     return [...new Set(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => nameKey(m.name)))];
   }
 
+  /** The people in it by `people.id` (a person member's `ref`, #1284): who is told and owed the record, whatever they are called now. */
+  private personIdsOf(c: Conversation): number[] {
+    return [...new Set(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => Number(m.ref)))];
+  }
+
   /** Who is told when an Admin reads it: every person in it, in every live reporter session. */
   private subject(c: Conversation): ReadSubject {
     const names = c.members.filter((m) => m.leftAt === null).map((m) => m.name).join(', ');
-    return { scope: 'dm', thread: conversationThread(c.id), owners: this.peopleOf(c), phrase: `is reading your Podium conversation with ${names}` };
+    return { scope: 'dm', thread: conversationThread(c.id), owners: this.peopleOf(c), people: this.personIdsOf(c), phrase: `is reading your Podium conversation with ${names}` };
   }
 
   /** The thread's subject for the Admin records, from its conversation. Null when there is none, or none an Admin may read. */
@@ -132,7 +137,7 @@ export class ConversationChat {
   /** The viewer's conversations, newest activity first, for the overview: names, counts and times. */
   async list(viewer: ChatViewer): Promise<ConversationInfo[]> {
     if (viewer.personId === null) return [];
-    const counts = new Map((await this.core.store.readState.list(viewer.name)).map((r) => [r.thread, r]));
+    const counts = new Map((await this.core.store.readState.list(viewer.personId)).map((r) => [r.thread, r]));
     const mine = await this.store.listFor({ kind: 'person', ref: String(viewer.personId) });
     return mine.map((c) => this.info(viewer, c, counts.get(conversationThread(c.id))));
   }
@@ -209,7 +214,7 @@ export class ConversationChat {
       } else if (m.kind === 'agent' && typeof m.sessionId === 'string') {
         const s = await this.core.host.sessionOf(m.sessionId);
         if (!s || !this.core.host.isLive(m.sessionId)) return fail(409, 'That agent is not running, so it cannot be added.');
-        if (!s.owner || nameKey(s.owner) !== nameKey(viewer.name)) return fail(403, `Adding another person's agent to a conversation is not available yet. Ask ${s.owner ?? 'its owner'} to add it from their own conversation.`);
+        if (s.ownerId === null || s.ownerId !== viewer.personId) return fail(403, `Adding another person's agent to a conversation is not available yet. Ask ${s.owner ?? 'its owner'} to add it from their own conversation.`);
         out.push({ kind: 'agent', ref: m.sessionId, name: s.name });
       } else return fail(400, 'A member is { kind: "person", name } or { kind: "agent", sessionId }.');
     }
@@ -291,7 +296,7 @@ export class ConversationChat {
     if (role === 'admin') await this.reads.note(viewer, this.subject(c));
     const thread = conversationThread(id);
     const adminReads = await this.reads.list(thread);
-    if (role === 'member') await this.reads.seen(thread, viewer.name);
+    if (role === 'member' && viewer.personId !== null) await this.reads.seen(thread, viewer.personId);
     return { ok: true as const, conversation: this.info(viewer, c, undefined), messages: page.messages.map((m) => this.view(viewer, m)), older: page.older, total: c.messages, adminReads };
   }
 
@@ -318,11 +323,11 @@ export class ConversationChat {
     const stored = await this.store.post(id, { authorKind: 'person', authorRef: String(viewer.personId), authorName: viewer.name, authorId: viewer.personId, text: t.text, replyTo }, this.core.host.now());
     if (!stored) return fail(404, 'There is no such conversation.');
     // Everyone else in it is told there is something new: a count, never text.
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count(m.name, conversationThread(id), 'dm', false);
+    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
     const skipped: string[] = [];
     for (const m of c.members) {
       if (m.leftAt !== null || m.kind !== 'agent') continue;
-      const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true);
+      const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId);
       if (!out.ok) {
         skipped.push(`${m.name}: ${out.error}`);
         continue;

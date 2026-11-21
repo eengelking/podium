@@ -5,13 +5,15 @@
 // what (another person, the admin secret).
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
 
+import { personDmRow, personKey } from '../../../support/commands';
+
 const API = '/api/fleet/respond/chat';
 const H = { 'X-Podium-Respond': '1' };
 const GROUP = 'c:group';
 const GENERAL = 'c:general';
 const INVOICE = 'e2e-s-invoice';
-const AGENT_ROW = 'd:dm:e2e-s-invoice|person:alex';
-const OWN_ROW = 'd:dm:e2e-s-invoice|person:ed';
+const AGENT_ROW = () => personDmRow(INVOICE, 'Alex');
+const OWN_ROW = () => personDmRow(INVOICE, 'Ed');
 const REQUEST = '[role=group][aria-label="A person\'s message waiting for approval"]';
 const LOCKED = 'Podium has already sent this message to invoice-v2, so it can no longer be changed.';
 const NO_MENTIONS = 'To change who is mentioned, delete this message and send a new one.';
@@ -388,8 +390,8 @@ describe('chat: a Direct Message you wrote to an agent', () => {
     cy.openConsole('#/chat');
     cy.chatRow(GENERAL).find('button.ch-row').click();
     cy.tid('chat-box').type(`@invoice-v2@ed-mbp ${ASK}{enter}`);
-    cy.chatRow(AGENT_ROW).should('contain.text', 'Waiting for approval');
-    cy.chatRow(AGENT_ROW).find('button.ch-row').click();
+    cy.chatRow(AGENT_ROW()).should('contain.text', 'Waiting for approval');
+    cy.chatRow(AGENT_ROW()).find('button.ch-row').click();
     msg(ASK).should('contain.text', 'Waiting for Ed to approve it.');
     rightClick(ASK);
     menuItem(/^Edit message/).should('not.have.attr', 'aria-disabled');
@@ -406,7 +408,7 @@ describe('chat: a Direct Message you wrote to an agent', () => {
 
   it('can be deleted while it waits: the note replaces it, and the owner\'s request goes', () => {
     watchChanges();
-    open(AGENT_ROW, 'Alex');
+    open(AGENT_ROW(), 'Alex');
     choose('and the lint on invoice-v2.', /^Delete message/);
     dialog().should('contain.text', 'It will be deleted for you and for invoice-v2, and invoice-v2 will not see it.');
     dialog().find('.ed-q').should('contain.text', 'Please run the unit tests and the lint on invoice-v2.');
@@ -423,7 +425,7 @@ describe('chat: a Direct Message you wrote to an agent', () => {
     watchChanges();
     open(`a:${INVOICE}`);
     cy.tid('chat-box').type('Please check the failing test.{enter}');
-    cy.chatRow(OWN_ROW).should('exist');
+    cy.chatRow(OWN_ROW()).should('exist');
     msg('Please check the failing test.').should('exist');
     rightClick('Please check the failing test.');
     menuItem(/^Edit message/).should('have.attr', 'aria-disabled', 'true');
@@ -432,14 +434,14 @@ describe('chat: a Direct Message you wrote to an agent', () => {
     menuItem(/^Edit message/).click();
     cy.tid('chat-edit').should('not.exist');
     cy.focused().type('{esc}');
-    cy.request({ url: `${API}/dm/person:ed/${INVOICE}/messages?limit=50`, log: false }).its('body.messages', { log: false }).then((ms) => {
+    cy.request({ url: `${API}/dm/${personKey('Ed')}/${INVOICE}/messages?limit=50`, log: false }).its('body.messages', { log: false }).then((ms) => {
       const m = ms.find((x) => x.text === 'Please check the failing test.');
       expect(m.canChange).to.eq(false);
-      cy.request({ method: 'PATCH', url: `${API}/dm/person:ed/${INVOICE}/messages/${m.id}`, headers: H, body: { text: 'Changed.' }, failOnStatusCode: false, log: false }).then((r) => {
+      cy.request({ method: 'PATCH', url: `${API}/dm/${personKey('Ed')}/${INVOICE}/messages/${m.id}`, headers: H, body: { text: 'Changed.' }, failOnStatusCode: false, log: false }).then((r) => {
         expect(r.status).to.eq(409);
         expect(r.body.reason).to.eq('locked');
       });
-      cy.request({ method: 'DELETE', url: `${API}/dm/person:ed/${INVOICE}/messages/${m.id}`, headers: H, failOnStatusCode: false, log: false }).its('status').should('eq', 409);
+      cy.request({ method: 'DELETE', url: `${API}/dm/${personKey('Ed')}/${INVOICE}/messages/${m.id}`, headers: H, failOnStatusCode: false, log: false }).its('status').should('eq', 409);
     });
     msg('Please check the failing test.').should('not.contain.text', 'Changed.').find('.ed-edited').should('not.exist');
   });

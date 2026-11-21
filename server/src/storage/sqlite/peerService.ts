@@ -33,7 +33,7 @@ export class PeerService {
       db,
       {
         effective: (from, to) => this.rights.effective(from, to),
-        limits: (owner) => this.rights.limits(owner, this.settings.limits()),
+        limits: (ownerId) => this.rights.limits(ownerId, this.settings.limits()),
         personLink: (k, t) => this.rights.personLink(k, t),
         openMessageRequest: (input) => this.rights.openMessageRequest(input),
         closeMessageRequest: (id, outcome) => this.rights.closeMessageRequest(id, outcome),
@@ -48,12 +48,13 @@ export class PeerService {
   private readonly machineOf: MachineName = (key) => this.reporters.get(key)?.machine ?? key;
 
   /** After every accepted report from a reporter the server recorded (not the simulator, not settings hooks). */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): void {
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): void {
     const s = report.session;
     this.messages.note({
       sessionId,
       reporterKey,
       owner,
+      ownerId,
       name: s.name,
       machine: report.machine?.name ?? reporterKey,
       os: report.machine?.os ?? null,
@@ -71,7 +72,7 @@ export class PeerService {
   reply(sessionId: string, on: boolean): PeerReply {
     const o = on ? this.messages.live(sessionId) : null;
     if (!o) return { peers: false, peerDeliveries: [], peerRequests: [] };
-    const requests = this.rights.openRequests(o.owner, o.reporterKey).slice(0, PEER_LIMITS.requests);
+    const requests = this.rights.openRequests(o.ownerId, o.reporterKey).slice(0, PEER_LIMITS.requests);
     return { peers: true, peerDeliveries: this.messages.deliveriesFor(sessionId, takesMessages(o)), peerRequests: requests.map((r) => this.requestView(r)) };
   }
 
@@ -109,16 +110,16 @@ export class PeerService {
   }
 
   /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
-  setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): ReturnType<PeerRights['setDefaults']> {
-    return this.rights.setDefaults(owner, patch, this.settings.limits(), actor);
+  setDefaults(ownerId: number, patch: Record<string, unknown>, actor: Actor): ReturnType<PeerRights['setDefaults']> {
+    return this.rights.setDefaults(ownerId, patch, this.settings.limits(), actor);
   }
 
   /**
    * The owner answers a request, from the browser or a session. A message's answer delivers or declines it; an access
    * request's answer reaches the orchestrator that asked as a notice. Either way it closes everywhere at once.
    */
-  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): AnswerOutcome | Refusal {
-    const out = this.rights.answer(id, owner, answer, actor);
+  answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): AnswerOutcome | Refusal {
+    const out = this.rights.answer(id, ownerId, answer, actor);
     if (!out.ok) return out;
     if ('message' in out) {
       if (out.message.deliver) {
@@ -136,7 +137,7 @@ export class PeerService {
       const words = level ? LEVEL_WORDS[level].toLowerCase() : 'access';
       this.messages.notice(
         r.fromSession,
-        r.outcome === 'allowed' ? `${owner} allowed your request for access to ${to}: ${words}. Run podium_peers to see what you can reach now.` : `${owner} declined your request for access to ${to}.`,
+        r.outcome === 'allowed' ? `${r.owner} allowed your request for access to ${to}: ${words}. Run podium_peers to see what you can reach now.` : `${r.owner} declined your request for access to ${to}.`,
       );
     }
     return out;
@@ -146,22 +147,22 @@ export class PeerService {
    * `answer`, and for a delivered message whether its link is paused, read in the same step so the answer's `paused` flag
    * is the one the delivery was made under.
    */
-  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): { out: AnswerOutcome | Refusal; paused: boolean } {
-    const out = this.answer(id, owner, answer, actor);
+  answerPaused(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): { out: AnswerOutcome | Refusal; paused: boolean } {
+    const out = this.answer(id, ownerId, answer, actor);
     const paused = out.ok && 'message' in out && out.message.deliver && this.rights.effective(out.request.fromKey, out.request.toKey).paused;
     return { out, paused };
   }
 
   /** What My reporters (GET /respond/peers) shows of one owner, read in one step. */
-  ownerView(owner: string, now: number): OwnerPeersView {
+  ownerView(ownerId: number, now: number): OwnerPeersView {
     const server = this.settings.limits();
     return {
       serverStartedAt: this.reporters.startedAt,
-      reporters: this.reporters.ofOwnerSeen(owner, now).filter((r) => !r.adminSecret),
-      rights: this.rights.rightsOf(owner),
-      defaults: this.rights.defaults(owner),
-      limits: { server, effective: this.rights.limits(owner, server) },
-      requests: this.rights.openRequests(owner).map((r) => this.ownerRequestView(r)),
+      reporters: this.reporters.ofOwnerSeen(ownerId, now).filter((r) => !r.adminSecret),
+      rights: this.rights.rightsOf(ownerId),
+      defaults: this.rights.defaults(ownerId),
+      limits: { server, effective: this.rights.limits(ownerId, server) },
+      requests: this.rights.openRequests(ownerId).map((r) => this.ownerRequestView(r)),
     };
   }
 
@@ -174,25 +175,25 @@ export class PeerService {
   adminView(key: string): AdminPeersView | null {
     const ref = this.reporters.get(key);
     if (!ref) return null;
-    const owner = ref.owner;
-    const mine = owner && !ref.adminSecret ? this.reporters.ofOwner(owner).filter((r) => !r.adminSecret) : [];
+    const owner = ref.ownerId;
+    const mine = owner !== null && !ref.adminSecret ? this.reporters.ofOwner(ref.ownerId).filter((r) => !r.adminSecret) : [];
     const keys = new Set(mine.map((r) => r.key));
     return {
       reporter: ref,
       peers: mine,
-      trust: owner && mine.length ? this.rights.defaults(owner).trust : false,
-      rights: owner ? this.rights.rightsOf(owner).filter((r) => keys.has(r.from) && keys.has(r.to)) : [],
+      trust: owner !== null && mine.length ? this.rights.defaults(owner).trust : false,
+      rights: owner !== null ? this.rights.rightsOf(owner).filter((r) => keys.has(r.from) && keys.has(r.to)) : [],
       effective: mine.flatMap((o) => [
         { from: ref.key, to: o.key, ...this.rights.effective(ref.key, o.key) },
         ...(o.key === ref.key ? [] : [{ from: o.key, to: ref.key, ...this.rights.effective(o.key, ref.key) }]),
       ]),
-      requests: mine.length && owner ? this.rights.openRequests(owner).filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)).map((r) => this.ownerRequestView(r)) : [],
+      requests: mine.length && owner !== null ? this.rights.openRequests(owner).filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)).map((r) => this.ownerRequestView(r)) : [],
     };
   }
 
   /** Removes a link, and drops what still waits on it. */
-  removeLink(owner: string | null, a: string, b: string, actor: Actor): { ok: true } | Refusal {
-    const out = this.rights.removeLink(owner, a, b, actor);
+  removeLink(ownerId: number | null, a: string, b: string, actor: Actor): { ok: true } | Refusal {
+    const out = this.rights.removeLink(ownerId, a, b, actor);
     if (out.ok) this.messages.linkRemoved(a, b);
     return out;
   }
@@ -225,7 +226,7 @@ export class PeerService {
     const cutoff = this.now() - this.settings.retainMs();
     const quiet = this.messages.retain(cutoff);
     const orphans = Number(
-      // A person's end of a conversation (`person:<name>`, #1034) is not a session, so only a missing agent makes a message an orphan.
+      // A person's end of a conversation (`person:<id>`, #1034) is not a session, so only a missing agent makes a message an orphan.
       this.db.prepare("DELETE FROM peer_messages WHERE (substr(from_session, 1, 7) <> 'person:' AND from_session NOT IN (SELECT id FROM sessions)) OR (substr(to_session, 1, 7) <> 'person:' AND to_session NOT IN (SELECT id FROM sessions))").run().changes,
     );
     return { messages: quiet + orphans, requests: this.rights.retain(cutoff) };

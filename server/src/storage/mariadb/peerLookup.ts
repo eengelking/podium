@@ -15,6 +15,7 @@ interface DbPeerRef {
   key: string;
   machine_name: string | null;
   owner: string | null;
+  owner_id: number | null;
   credential: string | null;
   os: string | null;
   peers: number | null;
@@ -26,6 +27,7 @@ const ref = (r: DbPeerRef): ReporterRef => ({
   key: r.key,
   machine: r.machine_name ?? r.key,
   owner: r.owner,
+  ownerId: r.owner_id,
   adminSecret: r.credential === ADMIN_SECRET,
   os: r.os,
   peers: r.peers === null ? null : r.peers === 1,
@@ -33,17 +35,19 @@ const ref = (r: DbPeerRef): ReporterRef => ({
   reporterName: canonicalReporterName(r.reporter_name),
 });
 
-const COLS = 'key, machine_name, owner, credential, os, peers, reporter_version, reporter_name';
-const MINE = `${asciiLower('owner')} = ${asciiLower(':owner')} AND kind = 'mod' ORDER BY ${asciiLower('COALESCE(machine_name, key)')}, key`;
+const COLS = 'key, machine_name, owner, owner_id, credential, os, peers, reporter_version, reporter_name';
+// A person's reporters are the rows that carry the person's id (#1284): a row with none (the admin secret's, or one whose person was deleted) is nobody's.
+const MINE = `owner_id = :ownerId AND kind = 'mod' ORDER BY ${asciiLower('COALESCE(machine_name, key)')}, key`;
 
 /** `startedAt` is when the server started: a reporter last heard before it is "Not since restart". */
 export function mariaPeerLookup(db: MariaDbConn, startedAt: number = Date.now()): AsyncPeerReporterLookup {
   return {
     startedAt,
-    ofOwnerSeen: async (owner, now) => {
+    ofOwnerSeen: async (ownerId, now) => {
+      if (ownerId === null) return [];
       const rows = await db.all<DbPeerRef & { last_seen_at: number; state: ReporterState }>(
         `SELECT ${COLS}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${MINE}`,
-        { owner, now, started: startedAt },
+        { ownerId, now, started: startedAt },
       );
       return rows.map((r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)) }));
     },
@@ -51,6 +55,6 @@ export function mariaPeerLookup(db: MariaDbConn, startedAt: number = Date.now())
       const r = await db.get<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE key = ? AND kind = 'mod'`, [key]);
       return r ? ref(r) : null;
     },
-    ofOwner: async (owner) => (await db.all<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE ${MINE}`, { owner })).map(ref),
+    ofOwner: async (ownerId) => (ownerId === null ? [] : (await db.all<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE ${MINE}`, { ownerId })).map(ref)),
   };
 }

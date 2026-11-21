@@ -27,18 +27,24 @@ beforeEach(async () => {
   store = new PgReporterStore(db, START);
 });
 
-const seen = (over: Partial<ReporterSeen> = {}): ReporterSeen => ({
-  kind: 'mod',
-  machineId: '9f3a1c7d2e40',
-  machineName: 'studio-m2',
-  source: '192.168.1.24',
-  owner: 'Dana',
-  credential: 'pdm_3f9a1c07b2e4',
-  version: '0.13.0',
-  engineVersion: '2.1.299',
-  sessionId: 's1',
-  ...over,
-});
+/** The `people.id` an owner name stands for (#1284): a reporter is the person's by this id, never by the name. */
+const IDS: Record<string, number> = { dana: 7, alex: 8, ana: 21, ben: 22 };
+
+const seen = (over: Partial<ReporterSeen> = {}): ReporterSeen => {
+  const row: ReporterSeen = {
+    kind: 'mod',
+    machineId: '9f3a1c7d2e40',
+    machineName: 'studio-m2',
+    source: '192.168.1.24',
+    owner: 'Dana',
+    credential: 'pdm_3f9a1c07b2e4',
+    version: '0.13.0',
+    engineVersion: '2.1.299',
+    sessionId: 's1',
+    ...over,
+  };
+  return { ...row, ownerId: over.ownerId !== undefined ? over.ownerId : (IDS[(row.owner ?? '').toLowerCase()] ?? null) };
+};
 
 describe.skipIf(!TEST_PG)('reporters', () => {
   it('says whether any reporter has reported', async () => {
@@ -116,17 +122,17 @@ describe.skipIf(!TEST_PG)('reporters', () => {
 
   it('looks reporters up for messaging, by key and by owner whatever the case (#347)', async () => {
     await store.record(seen({ os: 'macOS 27.0.1', peers: true }), START + MIN);
-    await store.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: null, owner: 'dana', credential: 'admin secret', sessionId: 's2' }), START + MIN);
-    await store.record(seen({ machineId: 'cccccccccccc', owner: 'Alex', sessionId: 's3' }), START + MIN);
+    await store.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: null, owner: 'dana', ownerId: 7, credential: 'admin secret', sessionId: 's2' }), START + MIN);
+    await store.record(seen({ machineId: 'cccccccccccc', owner: 'Alex', ownerId: 8, sessionId: 's3' }), START + MIN);
     const look = store.peerLookup();
-    expect((await look.get('9f3a1c7d2e40'))).toEqual({ key: '9f3a1c7d2e40', machine: 'studio-m2', owner: 'Dana', adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0', reporterName: 'podium-reporter-claudecode' });
+    expect((await look.get('9f3a1c7d2e40'))).toEqual({ key: '9f3a1c7d2e40', machine: 'studio-m2', owner: 'Dana', ownerId: 7, adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0', reporterName: 'podium-reporter-claudecode' });
     expect((await look.get('bbbbbbbbbbbb'))).toMatchObject({ machine: 'bbbbbbbbbbbb', adminSecret: true, peers: null });
     expect((await look.get('nope'))).toBeNull();
-    expect((await look.ofOwner('DANA')).map((r) => r.key)).toEqual(['bbbbbbbbbbbb', '9f3a1c7d2e40']);
+    expect((await look.ofOwner(7)).map((r) => r.key)).toEqual(['bbbbbbbbbbbb', '9f3a1c7d2e40']);
     // A hooks-only reporter has no orchestrator: neither lookup knows it, so no right can name it.
     expect((await store.record(seen({ kind: 'hooks', machineId: 'dddddddddddd', sessionId: 's4' }), START + MIN))).toBe('dddddddddddd');
     expect((await look.get('dddddddddddd'))).toBeNull();
-    expect((await look.ofOwner('Dana')).map((r) => r.key)).not.toContain('dddddddddddd');
+    expect((await look.ofOwner(7)).map((r) => r.key)).not.toContain('dddddddddddd');
   });
 
   it('gives one owner its reporters with the state and last report Admin > Reporters shows (#415)', async () => {
@@ -139,7 +145,7 @@ describe.skipIf(!TEST_PG)('reporters', () => {
     const now = START + 91 * MIN;
     const look = store.peerLookup();
     expect(look.startedAt).toBe(START);
-    const mine = (await look.ofOwnerSeen('dana', now));
+    const mine = (await look.ofOwnerSeen(7, now));
     expect(mine.map((r) => [r.machine, r.state, r.lastSeenAt])).toEqual([
       ['build-pi', 'idle', START + 60 * MIN],
       ['ci', 'reporting', START + 90 * MIN],
@@ -150,7 +156,7 @@ describe.skipIf(!TEST_PG)('reporters', () => {
     // The same words and version check as the Admin's list, row for row.
     const admin = new Map((await store.list({}, now)).rows.map((r) => [r.key, [r.state, r.lastSeenAt, r.compat]]));
     for (const r of mine) expect([r.state, r.lastSeenAt, r.compat]).toEqual(admin.get(r.key));
-    expect((await look.ofOwnerSeen('Alex', now))).toEqual([]);
+    expect((await look.ofOwnerSeen(8, now))).toEqual([]);
   });
 
   it('counts a session once however often it reports', async () => {

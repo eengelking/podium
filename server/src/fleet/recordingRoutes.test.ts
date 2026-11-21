@@ -588,11 +588,11 @@ describe('POST …/stop and DELETE …', () => {
     const b = await signedIn(app, 'Boss', boss.token);
     expect((await b.post(`${BASE}/stop`).set(H)).status).toBe(200);
     expect((await b.delete(BASE).set(H)).status).toBe(200);
-    expect(told.mock.calls.map((c) => [c[0], c[1]])).toEqual([['Boss', 'recording_stopped'], ['Boss', 'recording_deleted']]);
-    // The owner's own stop is passed to the same call and is dropped there, since the Admin and the owner are one name.
+    expect(told.mock.calls.map((c) => [c[0], c[1]])).toEqual([[{ id: boss.person.id, name: 'Boss' }, 'recording_stopped'], [{ id: boss.person.id, name: 'Boss' }, 'recording_deleted']]);
+    // The owner's own stop is passed to the same call and is dropped there, since the Admin and the owner are one person (the same id).
     told.mockClear();
     await a.post(`${BASE}/stop`).set(H);
-    expect(await fleet.chat.adminReads.unseenFor('Boss')).toEqual([]);
+    expect(await fleet.chat.adminReads.unseenFor(999_999)).toEqual([]);
   });
 
   it('stop is 404 when there is no recording', async () => {

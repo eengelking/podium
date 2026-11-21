@@ -52,6 +52,10 @@ While the runs go it prints one progress line a minute naming the runs still goi
 script prints nothing else until the last run ends (a CI step log would look stalled). E2E_HEARTBEAT=<seconds> changes the interval
 and 0 turns it off.
 
+It holds the machine's database lock (scripts/db-lock.sh) for the whole run: only one database test job (this, `npm run e2e:fast`,
+`scripts/e2e-up.sh run` or `scripts/test-db.sh`) runs at a time per user, and a second one waits its turn and says so. PODIUM_DB_LOCK=off
+skips the lock, PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting, and CI skips it.
+
 On INT or TERM it stops its runs (each run's own script removes its containers, network and volume when it exits).
 USAGE
 }
@@ -116,6 +120,12 @@ esac
 if [[ "$cpus" =~ ^[0-9]+$ ]] && ((runs > cpus)); then
   echo "e2e-all: warning: $runs runs at once on an engine with $cpus CPUs; each will be slower (see --help, Choosing --shards)"
 fi
+
+# One heavy database job at a time on this machine (#1284): the whole run holds the lock, and the e2e-up.sh runs below, started from
+# here, see that and do not wait for it.
+# shellcheck source=scripts/db-lock.sh
+source "$ROOT/scripts/db-lock.sh"
+db_lock_acquire "scripts/e2e-all.sh"
 
 PIDS=() ; NAMES=() ; DBOF=() ; HB_PID=""
 stop() { for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; [[ -z "$HB_PID" ]] || kill "$HB_PID" 2>/dev/null; }

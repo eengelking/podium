@@ -61,21 +61,28 @@ export function planBackOnly(s: Pick<SessionView, "respond">): boolean {
 export const nameKey = (n: string) => n.trim().replace(/ +/g, " ").toLowerCase();
 
 /** Whether the signed-in person may open this session's asks and read them: its owner, or an Admin (whose read the owner is told of). A session owned by Admin needs an Admin. */
-export function isMine(s: Pick<SessionView, "owner">, me: RespondMe | null): boolean {
+export function isMine(s: Pick<SessionView, "ownerId">, me: RespondMe | null): boolean {
   if (!me?.signedIn || !me.name) return false;
   if (me.admin) return true;
-  return !!s.owner && s.owner !== "Admin" && nameKey(s.owner) === nameKey(me.name);
+  return ownsSession(s, me);
+}
+
+/**
+ * Whether the signed-in person owns the session, by id (#1284): a name can change, or be taken by a newcomer, so it never decides ownership. A session whose person
+ * was deleted (`ownerId` null) is nobody's, and so is any session for the admin secret (`me.id` null).
+ */
+export function ownsSession(s: Pick<SessionView, "ownerId">, me: Pick<RespondMe, "signedIn" | "id"> | null | undefined): boolean {
+  return !!me?.signedIn && typeof me.id === "number" && typeof s.ownerId === "number" && s.ownerId === me.id;
 }
 
 /**
  * Whether the signed-in person may answer and send to this session, not only read it (#1251): its owner; or an Admin, for a session with no person as its
  * owner (owned by Admin, or by no one) or one whose owner has allowed an Admin to respond.
  */
-export function canRespond(s: Pick<SessionView, "owner" | "adminRespond">, me: RespondMe | null): boolean {
+export function canRespond(s: Pick<SessionView, "owner" | "ownerId" | "adminRespond">, me: RespondMe | null): boolean {
   if (!isMine(s, me)) return false;
   if (!me!.admin) return true;
-  const owns = !!s.owner && s.owner !== "Admin" && nameKey(s.owner) === nameKey(me!.name!);
-  return owns || !s.owner || s.owner === "Admin" || s.adminRespond;
+  return ownsSession(s, me) || !s.owner || s.owner === "Admin" || s.adminRespond;
 }
 
 /** The Respond button on a band: gone, live, or dimmed with whose session it is (mockup section 1, "Rules for the button"). */

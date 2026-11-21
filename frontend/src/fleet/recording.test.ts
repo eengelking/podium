@@ -7,9 +7,9 @@ import type { RecordingGrant, RespondMe } from "./types";
 
 const at = (h: number, m: number, day = 20) => new Date(2026, 9, day, h, m).getTime();
 const NOW = at(12, 0);
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Priya", admin: true };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Priya", id: 3, admin: true };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
 
 const grant = (over: Partial<RecordingGrant> = {}): RecordingGrant => ({
   state: "recording",
@@ -40,11 +40,11 @@ describe("times", () => {
 
 describe("who may record", () => {
   it("is the session's owner or an Admin, signed in", () => {
-    expect(mayRecord({ owner: "Ed" }, ME)).toBe(true);
-    expect(mayRecord({ owner: "Maya" }, ME)).toBe(false);
-    expect(mayRecord({ owner: "Maya" }, ADMIN)).toBe(true);
-    expect(mayRecord({ owner: "Ed" }, OUT)).toBe(false);
-    expect(mayRecord({ owner: "Ed" }, null)).toBe(false);
+    expect(mayRecord({ ownerId: 1 }, ME)).toBe(true);
+    expect(mayRecord({ ownerId: 2 }, ME)).toBe(false);
+    expect(mayRecord({ ownerId: 2 }, ADMIN)).toBe(true);
+    expect(mayRecord({ ownerId: 1 }, OUT)).toBe(false);
+    expect(mayRecord({ ownerId: 1 }, null)).toBe(false);
   });
 
   it("is possible only while the session runs", () => {
@@ -165,13 +165,13 @@ describe("the replay's header line", () => {
 });
 
 describe("what the picker says", () => {
-  const s = (over = {}) => makeSession({ owner: "Ed", status: "running", ...over });
+  const s = (over = {}) => makeSession({ owner: "Ed", ownerId: 1, status: "running", ...over });
   const on = { flagOn: true, me: ME, s: s(), grant: null };
 
   it("walks through the states in order", () => {
     expect(pickerState({ ...on, flagOn: false })).toBe("adminoff");
     expect(pickerState({ ...on, me: OUT })).toBe("signin");
-    expect(pickerState({ ...on, s: s({ owner: "Maya" }) })).toBe("other");
+    expect(pickerState({ ...on, s: s({ owner: "Maya", ownerId: 2 }) })).toBe("other");
     expect(pickerState({ ...on, s: s({ status: "done" }) })).toBe("ended");
     expect(pickerState(on)).toBe("ok");
     expect(pickerState({ ...on, me: ADMIN })).toBe("ok");

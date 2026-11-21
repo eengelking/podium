@@ -360,8 +360,8 @@ function pausedByRights(peers: MyPeers, l: TrafficLink): boolean {
 
 function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string) => void }) {
   const { link, me, api } = p;
-  const readable = canRead(me, link.owner);
-  const manage = canManage(me, link.owner);
+  const readable = canRead(me, link.ownerId);
+  const manage = canManage(me, link.ownerId);
   const conv = useConversation(api, link, readable, p.tick);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

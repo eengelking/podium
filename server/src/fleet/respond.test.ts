@@ -400,6 +400,39 @@ describe('RespondStore', () => {
     expect(s.discard(b.delivery.id, 'Alex', true)).toBe('handed-over');
     expect(s.discard('dlv_nope', 'Ed', true)).toBe('unknown');
   });
+
+  it('tells people apart by id, never by name, for mine and for discarding (#1284)', () => {
+    const { s, sid } = store();
+    s.announce(sid, QUESTION);
+    const a = s.answer(sid, 'toolu_q', 'Ed', { kind: 'reply', text: 'x' }, 7);
+    if (!a.ok) throw new Error('refused');
+    // A newcomer with the same name and a different id sees nothing of it as theirs and cannot discard it.
+    expect(s.detail(sid, 'toolu_q', 'Ed', 0, 9)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Ed', false, 9)).toBe('forbidden');
+    // The admin secret (no id) with the same name is not the person either.
+    expect(s.detail(sid, 'toolu_q', 'Ed', 0, null)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Ed', false, null)).toBe('forbidden');
+    // The owner, even under a new name, still is.
+    expect(s.detail(sid, 'toolu_q', 'Edward', 0, 7)?.delivery).toMatchObject({ mine: true });
+    // An Admin may discard, as before.
+    expect(s.discard(a.delivery.id, 'Alex', true, 9)).toBe('ok');
+    // A message works the same way.
+    const m = s.message(sid, 'Ed', { text: 'hi' }, false, null, undefined, 7);
+    if (!m.ok) throw new Error('refused');
+    expect(s.discard(m.delivery.id, 'Ed', false, 9)).toBe('forbidden');
+    expect(s.discard(m.delivery.id, 'Ed', false, 7)).toBe('ok');
+  });
+
+  it('matches a delivery of the admin secret on the admin account, with no id', () => {
+    const { s, sid } = store();
+    s.announce(sid, QUESTION);
+    const a = s.answer(sid, 'toolu_q', 'Admin', { kind: 'reply', text: 'x' }, null);
+    if (!a.ok) throw new Error('refused');
+    expect(s.detail(sid, 'toolu_q', 'admin', 0, null)?.delivery).toMatchObject({ mine: true });
+    expect(s.detail(sid, 'toolu_q', 'Admin', 0, 3)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Admin', false, 3)).toBe('forbidden');
+    expect(s.discard(a.delivery.id, 'admin', false, null)).toBe('ok');
+  });
 });
 
 // ---- routes ---------------------------------------------------------------------------------
@@ -453,7 +486,7 @@ describe('the plain-HTTP note on sign-in (#306)', () => {
 describe('the switches', () => {
   it('is off with authentication off, and with either Admin flag off: the routes refuse and the reply says so', async () => {
     const off = await setup({ secret: null });
-    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false, myUsage: false });
+    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, id: null, admin: false, myUsage: false });
     expect((await request(off.app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: off.ed.token })).status).toBe(403);
     const r = await request(off.app).post('/api/fleet/report').send(report('Ed'));
     expect(r.body).toMatchObject({ respond: false, deliveries: [] });
@@ -481,9 +514,9 @@ describe('signing in', () => {
   it('takes a person’s name (any case) with their token, and the name Admin with the admin secret', async () => {
     const { app, ed, people } = await setup();
     const agent = await signedIn(app, 'ed', ed.token);
-    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false, myUsage: false });
+    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', id: ed.person.id, admin: false, myUsage: false });
     const admin = await signedIn(app, 'Admin', SECRET);
-    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true, myUsage: false });
+    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', id: null, admin: true, myUsage: false });
     expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
   });
 
@@ -925,12 +958,15 @@ describe("an Admin acts on another person's session only when its owner allowed 
   });
 
   it('treats a session owned by Admin or by no one as an Admin\'s, and a person\'s as theirs alone', () => {
-    const row = (owner: string | null) => ({ owner }) as SessionRow;
-    expect(ownsOutright({ name: 'Root', admin: true }, row('Ed'))).toBe(false);
-    expect(ownsOutright({ name: 'Ed', admin: false }, row('Ed'))).toBe(true);
-    expect(ownsOutright({ name: 'Root', admin: true }, row('Admin'))).toBe(true);
-    expect(ownsOutright({ name: 'Root', admin: true }, row(null))).toBe(true);
-    expect(ownsOutright({ name: 'Ed', admin: false }, row(null))).toBe(false);
+    const row = (owner: string | null, owner_id: number | null = null) => ({ owner, owner_id }) as SessionRow;
+    expect(ownsOutright({ personId: 9, admin: true }, row('Ed', 1))).toBe(false);
+    expect(ownsOutright({ personId: 1, admin: false }, row('Ed', 1))).toBe(true);
+    expect(ownsOutright({ personId: 9, admin: true }, row('Admin'))).toBe(true);
+    expect(ownsOutright({ personId: 9, admin: true }, row(null))).toBe(true);
+    expect(ownsOutright({ personId: 1, admin: false }, row(null))).toBe(false);
+    // A session whose person was deleted keeps the name but is nobody's, even for a new person who takes it (#1284); an Admin's own consent route is still open.
+    expect(ownsOutright({ personId: 2, admin: false }, row('Ed'))).toBe(false);
+    expect(ownsOutright({ personId: 2, admin: true }, row('Ed'))).toBe(false);
   });
 
   it('says in the session view whether the owner has allowed an Admin, and in the owner\'s own list of reporters', async () => {

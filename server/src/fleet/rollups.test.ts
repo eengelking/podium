@@ -164,7 +164,7 @@ describe('writeRollups', () => {
     await w.fdb.upsertSession(session({ id: 'old', owner: 'Dana', started_at: at(40, 9), last_seen_at: at(40, 10), ended_at: at(40, 10), cost_usd: 9 }));
     const cost = costFn(w.deps.pricing());
     // The day 40 days back was written by an earlier run, when its sessions were all there.
-    w.storage.sqliteHandle.prepare("INSERT INTO usage_daily VALUES (?, 'Dana', '', 'm', 'p', 5, 0, 7, 0, 1, 1, 1, 1)").run(addDays(TODAY, -40));
+    w.storage.sqliteHandle.prepare("INSERT INTO usage_daily VALUES (?, 'Dana', '', 'm', 'p', 5, 0, 7, 0, 1, 1, 1, 1, 0)").run(addDays(TODAY, -40));
     await writeRollups(w.storage, NOW, cost, policy);
     expect(w.storage.sqliteHandle.prepare('SELECT sessions FROM usage_daily WHERE day = ?').all(addDays(TODAY, -40))).toEqual([{ sessions: 5 }]);
     // Once the sessions are gone the rollup is all that is left, and nothing touches it.
@@ -204,7 +204,7 @@ describe('writeRollups', () => {
     const put = (day: string) => w.storage.sqliteHandle.prepare("INSERT INTO fleet_daily VALUES (?, 1, 1, 1, 1, '{}', '{}')").run(day);
     put(addDays(TODAY, -396));
     put(addDays(TODAY, -394));
-    w.storage.sqliteHandle.prepare("INSERT INTO failures_daily VALUES (?, 'x', 'c', 't', 1)").run(addDays(TODAY, -400));
+    w.storage.sqliteHandle.prepare("INSERT INTO failures_daily VALUES (?, 'x', 'c', 't', 1, 0)").run(addDays(TODAY, -400));
     expect((await writeRollups(w.storage, NOW, costFn(undefined), policy)).deleted).toBe(2);
     expect(w.storage.sqliteHandle.prepare('SELECT day FROM fleet_daily').all()).toEqual([{ day: addDays(TODAY, -394) }]);
     put(addDays(TODAY, -20));

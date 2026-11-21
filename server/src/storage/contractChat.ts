@@ -5,17 +5,56 @@ import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
 import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState } from './types.js';
 import { setUp } from './contractPeers.js';
+import { personKeyOf } from '../fleet/peerTypes.js';
 
 const T0 = 1_800_000_000_000;
 const DAY = 86_400_000;
 const ED = { name: 'ed', admin: false };
 
-const G = { owner: 'ed', groupId: 'g1' };
+/** The `people.id` these cases give each person label (#1284): the store binds Chat to the id, so a label is only a way to write the same id each time. */
+const IDS: Record<string, number> = { ed: 11, eve: 12, zed: 13, alex: 14, zoe: 15, fay: 16, nobody: 99 };
+/** The digits a label ends with, scanned from the end (empty when it ends in no digit). */
+const trailingDigits = (label: string): string => {
+  let i = label.length;
+  while (i > 0 && label.charCodeAt(i - 1) >= 48 && label.charCodeAt(i - 1) <= 57) i--;
+  return label.slice(i);
+};
+const pid = (label: string): number => IDS[label.trim().toLowerCase().split(' ')[0] ?? ''] ?? 200 + Number(trailingDigits(label) || 0);
+
+const G = { ownerId: 11 };
 const input = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostInput => ({ authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, ...over });
 const texts = (p: ChannelPage): string[] => p.messages.map((m) => m.text);
 
 export function chatCases(o: Openers): void {
   chatChangeCases(o);
+  onEachAdapter(o, 'gives a person who takes a deleted person\'s name none of their group channel, read counts, flags, owed Admin records or opened channels (#1284)', async (s) => {
+    const chat = s.chat({ now: () => T0 });
+    const first = (await s.people.createPerson('Ed', null, T0 - 1)).person;
+    await chat.group.post({ ownerId: first.id }, input('EDS-GROUP', { authorId: first.id }));
+    await chat.readState.bump(first.id, `group:${first.id}`, true);
+    await chat.settings.setFlags(`group:${first.id}`, { paused: true });
+    await chat.settings.setFlags(`public:person:${first.id}`, { disconnected: true });
+    await chat.adminReads.mark(`group:${first.id}`, 'Root', null, 'cleared', [first.id]);
+    await chat.channels.create({ name: 'eds-channel', createdBy: 'Ed', createdById: first.id }, T0);
+    expect(await chat.adminReads.unseenFor(first.id)).toHaveLength(1);
+    await s.people.deleteMany([first.id]);
+    // Everything found by the deleted person's id is gone, and the channel they opened stays with no opener.
+    expect(await chat.group.count({ ownerId: first.id })).toBe(0);
+    expect(await chat.readState.list(first.id)).toEqual([]);
+    expect(await chat.adminReads.unseenFor(first.id)).toEqual([]);
+    expect(await chat.settings.allFlags()).toEqual({});
+    expect(await chat.channels.get('eds-channel')).toMatchObject({ createdById: null, createdByName: 'Ed' });
+    // A person of the same name is a new person with a new id, and finds none of it, whatever is left behind under the old id.
+    const again = (await s.people.createPerson('Ed', null, T0 + 1)).person;
+    expect(again.id).not.toBe(first.id);
+    await chat.group.post({ ownerId: first.id }, input('LEFT-BEHIND', { authorId: first.id }));
+    await chat.readState.bump(first.id, 'public', false);
+    expect(await chat.group.page({ ownerId: again.id }, { limit: 10 })).toEqual({ messages: [], older: null });
+    expect(await chat.readState.list(again.id)).toEqual([]);
+    expect(await chat.adminReads.unseenFor(again.id)).toEqual([]);
+    expect(await chat.channels.get('eds-channel')).toMatchObject({ createdById: null });
+    expect(await chat.settings.flags(`group:${again.id}`)).toMatchObject({ paused: false });
+  });
   it('agrees on every adapter for the group channel: posting, pages back with a cursor, mentions, scope, counting, clearing and retention', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
@@ -34,20 +73,19 @@ export function chatCases(o: Openers): void {
       const p2 = await g.page(G, { before: p1.older, limit: 2 });
       await rec('page 3', g.page(G, { before: p2.older, limit: 2 }));
       await rec('page (everything)', g.page(G, { limit: 50 }));
-      await rec('page (ED, another case of the owner)', g.page({ owner: 'ED', groupId: 'g1' }, { limit: 50 }));
-      await rec('page (another group)', g.page({ owner: 'ed', groupId: 'g2' }, { limit: 50 }));
-      await rec('page (another owner, the same group id)', g.page({ owner: 'eve', groupId: 'g1' }, { limit: 50 }));
+      await rec('page (another group)', g.page({ ownerId: 1011 }, { limit: 50 }));
+      await rec('page (another owner, the same group id)', g.page({ ownerId: pid('eve') }, { limit: 50 }));
       await rec('page (bad cursor)', g.page(G, { before: 'junk', limit: 2 }));
       await rec('post (bad author kind)', g.post(G, input('x', { authorKind: 'robot' as never })));
       await rec('count', g.count(G));
-      await rec('count (another group)', g.count({ owner: 'ed', groupId: 'g2' }));
+      await rec('count (another group)', g.count({ ownerId: 1011 }));
       const five = (await g.page(G, { limit: 1 })).messages[0]!;
       clock.now += 7;
       await rec('mention: not delivered', g.setMention(G, five.id, 0, { state: 'not-delivered', why: 'the agent ended' }));
       await rec('mention: working', g.setMention(G, five.id, 0, { state: 'working' }));
       await rec('mention: no such index', g.setMention(G, five.id, 5, { state: 'done' }));
       await rec('mention: no such message', g.setMention(G, 'grp_00000000_000000000000000000000000', 0, { state: 'done' }));
-      await rec('mention: another owner', g.setMention({ owner: 'eve', groupId: 'g1' }, five.id, 0, { state: 'done' }));
+      await rec('mention: another owner', g.setMention({ ownerId: pid('eve') }, five.id, 0, { state: 'done' }));
       await rec('page after mentions', g.page(G, { limit: 50 }));
       // A cursor whose row is gone: the three oldest are purged between the fetches.
       const early = await g.page(G, { limit: 3 });
@@ -55,7 +93,7 @@ export function chatCases(o: Openers): void {
       await rec('purge (the three oldest)', g.purge(T0 + 1));
       await rec('page back from a purged cursor', g.page(G, { before: early.older, limit: 3 }));
       await rec('count (after purge)', g.count(G));
-      await rec('clear (another group)', g.clear({ owner: 'ed', groupId: 'g2' }));
+      await rec('clear (another group)', g.clear({ ownerId: 1011 }));
       await rec('clear', g.clear(G));
       await rec('page (cleared)', g.page(G, { limit: 50 }));
     });
@@ -66,7 +104,6 @@ export function chatCases(o: Openers): void {
     expect(texts(t.get('page 2') as ChannelPage)).toEqual(['two', 'three']);
     expect(texts(t.get('page 3') as ChannelPage)).toEqual(['one']);
     expect((t.get('page 3') as ChannelPage).older).toBeNull();
-    expect(texts(t.get('page (ED, another case of the owner)') as ChannelPage)).toHaveLength(5);
     expect(texts(t.get('page (another group)') as ChannelPage)).toEqual([]);
     expect(texts(t.get('page (another owner, the same group id)') as ChannelPage)).toEqual([]);
     expect(t.get('page (bad cursor)')).toEqual({ threw: 'The cursor is not one this server gave out.' });
@@ -74,7 +111,7 @@ export function chatCases(o: Openers): void {
     expect(t.get('count')).toBe(5);
     expect(t.get('count (another group)')).toBe(0);
     const four = everything.messages[3] as ChannelMessage;
-    expect(four).toMatchObject({ owner: 'ed', groupId: 'g1', authorKind: 'orchestrator', authorRef: 'sa', authorName: 'alpha', issue: '#12', project: 'podium', milestone: 'v1.6', replyTo: null, createdAt: T0 + 5, updatedAt: T0 + 5, mentions: [] });
+    expect(four).toMatchObject({ ownerId: 11, authorKind: 'orchestrator', authorRef: 'sa', authorName: 'alpha', issue: '#12', project: 'podium', milestone: 'v1.6', replyTo: null, createdAt: T0 + 5, updatedAt: T0 + 5, mentions: [] });
     const five = everything.messages[4] as ChannelMessage;
     expect(five.mentions).toEqual([
       { sessionId: 'sb', peerKey: 'k-b', typed: 'beta@box-b', state: 'waiting', why: null, stateAt: T0 + 5 },
@@ -118,7 +155,7 @@ export function chatCases(o: Openers): void {
     const p1 = t.get('page 1') as ChannelPage;
     expect(texts(p1)).toEqual(['b', 'c', 'd']);
     expect(texts(t.get('page 2') as ChannelPage)).toEqual(['a']);
-    expect(p1.messages[2]).toMatchObject({ owner: null, groupId: null, authorKind: 'reporter', authorRef: 'k-a' });
+    expect(p1.messages[2]).toMatchObject({ ownerId: null, authorKind: 'reporter', authorRef: 'k-a' });
     expect(t.get('page (bad cursor)')).toEqual({ threw: 'The cursor is not one this server gave out.' });
     expect(t.get('count')).toBe(4);
     expect(t.get('purge (older than a day)')).toBe(3);
@@ -142,14 +179,14 @@ export function chatCases(o: Openers): void {
       // Two at one moment: the insertion number decides the order. The second holds a mention for sa and another for sb.
       await g.post(G, input('held for sb', { mentions: held('sb', 'held') }));
       await g.post(G, input('held for both', { mentions: [...held('sa', 'held')!, ...held('sb', 'held')!] }));
-      await g.post({ owner: 'ed', groupId: 'g2' }, input('another group', { mentions: held('sa', 'held') }));
-      await g.post({ owner: 'eve', groupId: 'g1' }, input('another owner', { mentions: held('sa', 'held') }));
+      await g.post({ ownerId: 1011 }, input('another group', { mentions: held('sa', 'held') }));
+      await g.post({ ownerId: pid('eve') }, input('another owner', { mentions: held('sa', 'held') }));
       await pub.post('general', input('general held', { mentions: held('sa', 'held') }));
       await pub.post('general', input('general held for sc', { mentions: held('sc', 'held') }));
       await rec('group: every held', g.heldMentions(G, {}));
       await rec('group: held for sa', g.heldMentions(G, { sessionId: 'sa' }));
       await rec('group: held for nobody', g.heldMentions(G, { sessionId: 'nobody' }));
-      await rec('group: another group', g.heldMentions({ owner: 'ed', groupId: 'g2' }, {}));
+      await rec('group: another group', g.heldMentions({ ownerId: 1011 }, {}));
       await rec('general: every held', pub.heldMentions('general', {}));
       await rec('general: held for sc', pub.heldMentions('general', { sessionId: 'sc' }));
       clock.now += 1;
@@ -195,34 +232,34 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const rs = s.chat({ now: () => clock.now }).readState;
-      await rec('get (never seen)', rs.get('ed', 'public'));
-      await rec('bump', rs.bump('ed', 'public', false));
+      await rec('get (never seen)', rs.get(pid('ed'), 'public'));
+      await rec('bump', rs.bump(pid('ed'), 'public', false));
       clock.now += 1;
-      await rec('bump (again)', rs.bump('ED', 'public', false));
-      await rec('bump (a mention)', rs.bump('ed', 'public', true));
-      await rec('bump (another thread)', rs.bump('ed', 'group:g1', true));
-      await rec('bump (another person)', rs.bump('eve', 'public', false));
-      await rec('list', rs.list('ed'));
+      await rec('bump (again)', rs.bump(pid('ED'), 'public', false));
+      await rec('bump (a mention)', rs.bump(pid('ed'), 'public', true));
+      await rec('bump (another thread)', rs.bump(pid('ed'), 'group:g1', true));
+      await rec('bump (another person)', rs.bump(pid('eve'), 'public', false));
+      await rec('list', rs.list(pid('ed')));
       clock.now += 1;
-      await rec('mark read', rs.markRead('ed', 'public', '1800000000005.7'));
-      await rec('mark read (a thread never bumped)', rs.markRead('ed', 'dm:a|b', null));
-      await rec('get (read)', rs.get('ed', 'public'));
-      await rec('list (after)', rs.list('ed'));
-      await rec('list (another person)', rs.list('eve'));
+      await rec('mark read', rs.markRead(pid('ed'), 'public', '1800000000005.7'));
+      await rec('mark read (a thread never bumped)', rs.markRead(pid('ed'), 'dm:a|b', null));
+      await rec('get (read)', rs.get(pid('ed'), 'public'));
+      await rec('list (after)', rs.list(pid('ed')));
+      await rec('list (another person)', rs.list(pid('eve')));
       await rec('threads that start with dm:', rs.threads('dm:'));
       await rec('threads that start with group:', rs.threads('group:'));
       await rec('threads that start with nothing there', rs.threads('zz'));
       await rec('forget the thread', rs.forget('public'));
-      await rec('list (after forget)', rs.list('ed'));
-      await rec('list (another person, after forget)', rs.list('eve'));
+      await rec('list (after forget)', rs.list(pid('ed')));
+      await rec('list (another person, after forget)', rs.list(pid('eve')));
     });
     expect(t.get('threads that start with dm:')).toEqual(['dm:a|b']);
     expect(t.get('threads that start with group:')).toEqual(['group:g1']);
     expect(t.get('threads that start with nothing there')).toEqual([]);
-    expect(t.get('get (never seen)')).toEqual({ person: 'ed', thread: 'public', lastRead: null, unread: 0, mentions: 0, updatedAt: 0 });
-    expect(t.get('bump (a mention)')).toEqual({ person: 'ed', thread: 'public', lastRead: null, unread: 3, mentions: 1, updatedAt: T0 + 1 });
+    expect(t.get('get (never seen)')).toEqual({ personId: 11, thread: 'public', lastRead: null, unread: 0, mentions: 0, updatedAt: 0 });
+    expect(t.get('bump (a mention)')).toEqual({ personId: 11, thread: 'public', lastRead: null, unread: 3, mentions: 1, updatedAt: T0 + 1 });
     expect((t.get('list') as { thread: string }[]).map((r) => r.thread)).toEqual(['group:g1', 'public']);
-    expect(t.get('get (read)')).toEqual({ person: 'ed', thread: 'public', lastRead: '1800000000005.7', unread: 0, mentions: 0, updatedAt: T0 + 2 });
+    expect(t.get('get (read)')).toEqual({ personId: 11, thread: 'public', lastRead: '1800000000005.7', unread: 0, mentions: 0, updatedAt: T0 + 2 });
     expect((t.get('list (after)') as { thread: string }[]).map((r) => r.thread)).toEqual(['dm:a|b', 'group:g1', 'public']);
     expect(t.get('forget the thread')).toBe(2);
     expect((t.get('list (after forget)') as { thread: string }[]).map((r) => r.thread)).toEqual(['dm:a|b', 'group:g1']);
@@ -281,21 +318,21 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
       // Session ids hold characters a prefix match must not treat as a pattern.
-      await rec('touch (an ask)', reads.touch('ask:s_1', 'Root', GAP, ['ed']));
-      await rec('touch (an ask of a session that only starts alike)', reads.touch('ask:s_10', 'Root', GAP, ['eve']));
-      await rec('touch (an ask of a session with a wildcard)', reads.touch('ask:s%', 'Root', GAP, ['zoe']));
-      await rec('touch (activity, one loop)', reads.touch('activity:s_1:@orchestrator', 'Root', GAP, ['ed']));
-      await rec('touch (activity, another loop)', reads.touch('activity:s_1:a1', 'Zoe', GAP, ['ed']));
+      await rec('touch (an ask)', reads.touch('ask:s_1', 'Root', null, GAP, ['ed'].map(pid)));
+      await rec('touch (an ask of a session that only starts alike)', reads.touch('ask:s_10', 'Root', null, GAP, ['eve'].map(pid)));
+      await rec('touch (an ask of a session with a wildcard)', reads.touch('ask:s%', 'Root', null, GAP, ['zoe'].map(pid)));
+      await rec('touch (activity, one loop)', reads.touch('activity:s_1:@orchestrator', 'Root', null, GAP, ['ed'].map(pid)));
+      await rec('touch (activity, another loop)', reads.touch('activity:s_1:a1', 'Zoe', null, GAP, ['ed'].map(pid)));
       clock.now += 10 * MIN;
-      await rec('touch (the same ask, 10 minutes on: one record)', reads.touch('ask:s_1', 'root', GAP, ['ed']));
+      await rec('touch (the same ask, 10 minutes on: one record)', reads.touch('ask:s_1', 'root', null, GAP, ['ed'].map(pid)));
       await rec('list (the ask)', reads.list('ask:s_1'));
       await rec('threads (activity of one session)', reads.threads('activity:s_1:'));
       await rec('threads (ask prefix)', reads.threads('ask:s_1'));
       await rec('live (only what was read in the last 30 seconds)', reads.live(['ask:s_1', 'activity:s_1:a1', 'activity:s_1:@orchestrator'], clock.now - 30_000));
-      await rec('unseen (Ed)', reads.unseenFor('ed').then((l) => l.map((r) => `${r.thread}|${r.admin}`)));
-      await rec('seen (the ask, by Ed)', reads.seen('ask:s_1', 'ED'));
-      await rec('unseen (Ed, after the ask)', reads.unseenFor('ed').then((l) => l.map((r) => `${r.thread}|${r.admin}`)));
-      await rec('seen (the ask again)', reads.seen('ask:s_1', 'ed'));
+      await rec('unseen (Ed)', reads.unseenFor(pid('ed')).then((l) => l.map((r) => `${r.thread}|${r.admin}`)));
+      await rec('seen (the ask, by Ed)', reads.seen('ask:s_1', pid('ED')));
+      await rec('unseen (Ed, after the ask)', reads.unseenFor(pid('ed')).then((l) => l.map((r) => `${r.thread}|${r.admin}`)));
+      await rec('seen (the ask again)', reads.seen('ask:s_1', pid('ed')));
       await rec('forget (the ask)', reads.forget('ask:s_1'));
       await rec('threads (after forgetting the ask)', reads.threads('ask:'));
     });
@@ -317,10 +354,10 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
-      await rec('touch (text, one agent)', reads.touch('text:s_1:a1', 'Root', GAP, ['ed']));
-      await rec('touch (text, another agent)', reads.touch('text:s_1:a2', 'Root', GAP, ['ed']));
-      await rec('touch (live, one agent)', reads.touch('live:s_1:a1', 'Zoe', GAP, ['ed']));
-      await rec('touch (live, the orchestrator)', reads.touch('live:s_1:@orchestrator', 'Zoe', GAP, ['ed']));
+      await rec('touch (text, one agent)', reads.touch('text:s_1:a1', 'Root', null, GAP, ['ed'].map(pid)));
+      await rec('touch (text, another agent)', reads.touch('text:s_1:a2', 'Root', null, GAP, ['ed'].map(pid)));
+      await rec('touch (live, one agent)', reads.touch('live:s_1:a1', 'Zoe', null, GAP, ['ed'].map(pid)));
+      await rec('touch (live, the orchestrator)', reads.touch('live:s_1:@orchestrator', 'Zoe', null, GAP, ['ed'].map(pid)));
       await rec('threads (text of one session)', reads.threads('text:s_1:'));
       await rec('threads (live of one session)', reads.threads('live:s_1:'));
       await rec('list (live, one agent)', reads.list('live:s_1:a1'));
@@ -339,13 +376,13 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
       await rec('list (none)', reads.list('group:ed'));
-      await rec('touch (first)', reads.touch('group:ed', 'Root', GAP));
+      await rec('touch (first)', reads.touch('group:ed', 'Root', null, GAP));
       clock.now += 10 * MIN;
-      await rec('touch (10 minutes on: the same session)', reads.touch('group:ed', 'root', GAP));
-      await rec('touch (another Admin)', reads.touch('group:ed', 'Zoe', GAP));
+      await rec('touch (10 minutes on: the same session)', reads.touch('group:ed', 'root', null, GAP));
+      await rec('touch (another Admin)', reads.touch('group:ed', 'Zoe', null, GAP));
       clock.now += 31 * MIN;
-      await rec('touch (another thread)', reads.touch('dm:a|b', 'Root', GAP));
-      await rec('touch (31 minutes after the last: a second session)', reads.touch('group:ed', 'Root', GAP));
+      await rec('touch (another thread)', reads.touch('dm:a|b', 'Root', null, GAP));
+      await rec('touch (31 minutes after the last: a second session)', reads.touch('group:ed', 'Root', null, GAP));
       await rec('list', reads.list('group:ed'));
       await rec('live (just touched)', reads.live(['group:ed', 'dm:a|b'], clock.now - 30_000));
       clock.now += 30_000;
@@ -356,26 +393,26 @@ export function chatCases(o: Openers): void {
       await rec('purge (the first session and the other Admin)', reads.purge(T0 + 11 * MIN));
       await rec('list (after purge)', reads.list('group:ed'));
       // An Admin's stop stays on the record: it is a line of its own, never a session or live, and it shares a millisecond with a read without losing either.
-      await rec('mark (cleared)', reads.mark('group:ed', 'Zoe', 'cleared'));
-      await rec('mark (paused, the same moment)', reads.mark('group:ed', 'zoe', 'paused'));
-      await rec('mark (resumed, the same moment)', reads.mark('group:ed', 'zoe', 'resumed'));
-      await rec('touch (a read the same moment as a stop)', reads.touch('group:ed', 'Zoe', GAP));
+      await rec('mark (cleared)', reads.mark('group:ed', 'Zoe', null, 'cleared'));
+      await rec('mark (paused, the same moment)', reads.mark('group:ed', 'zoe', null, 'paused'));
+      await rec('mark (resumed, the same moment)', reads.mark('group:ed', 'zoe', null, 'resumed'));
+      await rec('touch (a read the same moment as a stop)', reads.touch('group:ed', 'Zoe', null, GAP));
       await rec('list (with stops)', reads.list('group:ed'));
       await rec('live (a stop is never live)', reads.live(['group:ed'], clock.now - 30_000));
-      await rec('threads (a stop only)', (async () => { await reads.mark('public', 'Root', 'paused'); return reads.threads('public'); })());
+      await rec('threads (a stop only)', (async () => { await reads.mark('public', 'Root', null, 'paused'); return reads.threads('public'); })());
       await rec('purge (a stop is retained by its time like a read)', reads.purge(clock.now + 10));
       await rec('list (after the stops are purged)', reads.list('group:ed'));
-      await rec('mark (disconnected and reconnected)', (async () => { await reads.mark('group:fay', 'Root', 'disconnected'); await reads.mark('group:fay', 'root', 'reconnected'); const l = await reads.list('group:fay'); await reads.forget('group:fay'); return l.map((r) => r.kind); })());
+      await rec('mark (disconnected and reconnected)', (async () => { await reads.mark('group:fay', 'Root', null, 'disconnected'); await reads.mark('group:fay', 'root', null, 'reconnected'); const l = await reads.list('group:fay'); await reads.forget('group:fay'); return l.map((r) => r.kind); })());
       await rec('mark (an Admin act on a person\'s things, owed to them, seen once)', (async () => {
-        await reads.mark('act:ed', 'Root', 'recording_stopped', ['ed']);
-        await reads.mark('act:ed', 'Root', 'reporter_removed', ['ed']);
-        const owed = (await reads.unseenFor('Ed')).filter((r) => r.thread === 'act:ed').map((r) => r.kind);
-        await reads.seen('act:ed', 'ed');
-        const after = (await reads.unseenFor('Ed')).filter((r) => r.thread === 'act:ed').length;
+        await reads.mark('act:ed', 'Root', null, 'recording_stopped', ['ed'].map(pid));
+        await reads.mark('act:ed', 'Root', null, 'reporter_removed', ['ed'].map(pid));
+        const owed = (await reads.unseenFor(pid('Ed'))).filter((r) => r.thread === 'act:ed').map((r) => r.kind);
+        await reads.seen('act:ed', pid('ed'));
+        const after = (await reads.unseenFor(pid('Ed'))).filter((r) => r.thread === 'act:ed').length;
         await reads.forget('act:ed');
         return { owed, after, left: (await reads.list('act:ed')).length };
       })());
-      await rec('touch (the other thread again, so forgetting keeps it)', reads.touch('dm:a|b', 'Root', GAP));
+      await rec('touch (the other thread again, so forgetting keeps it)', reads.touch('dm:a|b', 'Root', null, GAP));
       await rec('forget the thread', reads.forget('group:ed'));
       await rec('forget (nothing left)', reads.forget('group:ed'));
       await rec('list (after forget)', reads.list('group:ed'));
@@ -419,25 +456,25 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
-      await reads.touch('group:ed', 'Root', GAP, ['Ed']);
-      await reads.mark('dm:a|b', 'Root', 'paused', ['Ed', 'eve']);
-      await reads.touch('list:ed', 'Root', GAP, ['ed']);
-      await reads.mark('public', 'Root', 'cleared');
+      await reads.touch('group:ed', 'Root', null, GAP, ['Ed'].map(pid));
+      await reads.mark('dm:a|b', 'Root', null, 'paused', ['Ed', 'eve'].map(pid));
+      await reads.touch('list:ed', 'Root', null, GAP, ['ed'].map(pid));
+      await reads.mark('public', 'Root', null, 'cleared');
       clock.now += 2 * MIN;
-      await reads.touch('group:zed', 'Zoe', GAP, ['zed']);
+      await reads.touch('group:zed', 'Zoe', null, GAP, ['zed'].map(pid));
       await rec('recent (the last minute)', reads.recent(clock.now - MIN).then((l) => l.map((r) => r.thread)));
       await rec('recent (the last hour)', reads.recent(clock.now - 60 * MIN).then((l) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}`)));
       clock.now += 60 * MIN;
       await rec('purge (only what nobody is owed)', reads.purge(clock.now));
       await rec('threads (the unseen are kept)', reads.threads(''));
       await rec('forget (unseen)', reads.forget('dm:a|b'));
-      await rec('seen (a person it does not name)', reads.seen('dm:a|b', 'zed'));
-      await rec('seen (Ed, folded)', reads.seen('dm:a|b', 'ED'));
-      await rec('seen (Ed again)', reads.seen('dm:a|b', 'ed'));
+      await rec('seen (a person it does not name)', reads.seen('dm:a|b', pid('zed')));
+      await rec('seen (Ed, folded)', reads.seen('dm:a|b', pid('ED')));
+      await rec('seen (Ed again)', reads.seen('dm:a|b', pid('ed')));
       await rec('forget (Eve has not seen it)', reads.forget('dm:a|b'));
-      await rec('seen (Eve)', reads.seen('dm:a|b', 'Eve'));
+      await rec('seen (Eve)', reads.seen('dm:a|b', pid('Eve')));
       await rec('forget (all have seen it)', reads.forget('dm:a|b'));
-      await rec('seen (the group, Ed)', reads.seen('group:ed', 'Ed'));
+      await rec('seen (the group, Ed)', reads.seen('group:ed', pid('Ed')));
       await rec('purge (seen now)', reads.purge(clock.now));
       await rec('threads (after)', reads.threads(''));
     });
@@ -464,21 +501,21 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
-      await reads.touch('dm:a|b', 'Root', GAP, ['Ed', 'eve']);
+      await reads.touch('dm:a|b', 'Root', null, GAP, ['Ed', 'eve'].map(pid));
       clock.now += MIN;
-      await reads.mark('dm:a|b', 'Zoe', 'cleared', ['ed']);
+      await reads.mark('dm:a|b', 'Zoe', null, 'cleared', ['ed'].map(pid));
       clock.now += MIN;
-      await reads.touch('group:ed', 'Root', GAP, ['ed']);
-      await reads.touch('dm:c|d', 'Root', GAP, ['zed']);
-      await reads.mark('public', 'Root', 'paused');
-      await reads.touch('dm:old|older', 'Root', GAP);
+      await reads.touch('group:ed', 'Root', null, GAP, ['ed'].map(pid));
+      await reads.touch('dm:c|d', 'Root', null, GAP, ['zed'].map(pid));
+      await reads.mark('public', 'Root', null, 'paused');
+      await reads.touch('dm:old|older', 'Root', null, GAP);
       const brief = (l: { thread: string; admin: string; kind: string; startedAt: number }[]) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}:${r.startedAt - T0}`);
-      await rec('Ed, folded', reads.unseenFor('ED').then(brief));
-      await rec('Eve', reads.unseenFor('Eve').then(brief));
-      await rec('nobody', reads.unseenFor('nobody').then(brief));
-      await rec('seen (Ed, the conversation)', reads.seen('dm:a|b', 'ed'));
-      await rec('Ed after seeing it', reads.unseenFor('ed').then(brief));
-      await rec('Eve after Ed saw it', reads.unseenFor('eve').then(brief));
+      await rec('Ed, folded', reads.unseenFor(pid('ED')).then(brief));
+      await rec('Eve', reads.unseenFor(pid('Eve')).then(brief));
+      await rec('nobody', reads.unseenFor(pid('nobody')).then(brief));
+      await rec('seen (Ed, the conversation)', reads.seen('dm:a|b', pid('ed')));
+      await rec('Ed after seeing it', reads.unseenFor(pid('ed')).then(brief));
+      await rec('Eve after Ed saw it', reads.unseenFor(pid('eve')).then(brief));
     });
     expect(t.get('Ed, folded')).toEqual([`group:ed:Root:read:${2 * MIN}`, `dm:a|b:Zoe:cleared:${MIN}`, 'dm:a|b:Root:read:0']);
     expect(t.get('Eve')).toEqual(['dm:a|b:Root:read:0']);
@@ -496,17 +533,17 @@ export function chatCases(o: Openers): void {
       for (let i = 0; i < 10_000; i++) {
         clock.now += 1;
         const people = [`p${String(i % 50).padStart(2, '0')}`, ...(i % 5 === 0 ? [`p${String((i + 1) % 50).padStart(2, '0')}`] : [])];
-        await reads.mark(`dm:t${String(i).padStart(5, '0')}`, 'Root', 'cleared', people);
+        await reads.mark(`dm:t${String(i).padStart(5, '0')}`, 'Root', null, 'cleared', people.map(pid));
       }
-      const mine = await reads.unseenFor('P07');
+      const mine = await reads.unseenFor(pid('P07'));
       await rec('count (p07)', mine.length);
       await rec('newest three (p07)', mine.slice(0, 3).map((r) => r.thread));
-      await rec('count (p06, owed the shared ones too)', reads.unseenFor('p06').then((l) => l.length));
-      await rec('count (nobody)', reads.unseenFor('p99').then((l) => l.length));
-      await rec('seen (p06, a conversation shared with p05)', reads.seen('dm:t00005', 'p06'));
-      await rec('count (p06, after)', reads.unseenFor('p06').then((l) => l.length));
-      await rec('count (p05, after p06 saw it)', reads.unseenFor('p05').then((l) => l.length));
-      await rec('count (p07, after)', reads.unseenFor('p07').then((l) => l.length));
+      await rec('count (p06, owed the shared ones too)', reads.unseenFor(pid('p06')).then((l) => l.length));
+      await rec('count (nobody)', reads.unseenFor(pid('p99')).then((l) => l.length));
+      await rec('seen (p06, a conversation shared with p05)', reads.seen('dm:t00005', pid('p06')));
+      await rec('count (p06, after)', reads.unseenFor(pid('p06')).then((l) => l.length));
+      await rec('count (p05, after p06 saw it)', reads.unseenFor(pid('p05')).then((l) => l.length));
+      await rec('count (p07, after)', reads.unseenFor(pid('p07')).then((l) => l.length));
     });
     expect(t.get('count (p07)')).toBe(200);
     expect(t.get('newest three (p07)')).toEqual(['dm:t09957', 'dm:t09907', 'dm:t09857']);
@@ -523,16 +560,16 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
-      await reads.touch('group:ed', 'Root', 30 * 60_000, ['ed', 'eve']);
-      await reads.touch('group:zed', 'Root', 30 * 60_000, ['zed']);
-      await rec('Eve sees hers', reads.seen('group:ed', 'eve'));
+      await reads.touch('group:ed', 'Root', null, 30 * 60_000, ['ed', 'eve'].map(pid));
+      await reads.touch('group:zed', 'Root', null, 30 * 60_000, ['zed'].map(pid));
+      await rec('Eve sees hers', reads.seen('group:ed', pid('eve')));
       clock.now = T0 + 89 * DAYS;
       await rec('purge (89 days, retention passed)', reads.purge(clock.now));
-      await rec('Ed (89 days)', reads.unseenFor('ed').then((l) => l.length));
+      await rec('Ed (89 days)', reads.unseenFor(pid('ed')).then((l) => l.length));
       clock.now = T0 + 91 * DAYS;
       await rec('purge (91 days)', reads.purge(clock.now));
-      await rec('Ed (91 days)', reads.unseenFor('ed').then((l) => l.length));
-      await rec('Zed (91 days)', reads.unseenFor('zed').then((l) => l.length));
+      await rec('Ed (91 days)', reads.unseenFor(pid('ed')).then((l) => l.length));
+      await rec('Zed (91 days)', reads.unseenFor(pid('zed')).then((l) => l.length));
       await rec('threads', reads.threads(''));
     });
     expect(t.get('Eve sees hers')).toBe(1);
@@ -552,12 +589,12 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
       await rec('list (before any read)', reads.list(thread));
-      await rec('the Admin reads', reads.touch(thread, 'Admin secret', GAP, ['ed']));
+      await rec('the Admin reads', reads.touch(thread, 'Admin secret', null, GAP, ['ed'].map(pid)));
       clock.now += MIN;
-      await rec('the Admin reads again', reads.touch(thread, 'Admin secret', GAP, ['ed']));
+      await rec('the Admin reads again', reads.touch(thread, 'Admin secret', null, GAP, ['ed'].map(pid)));
       await rec('list', reads.list(thread));
-      await rec('owed to the owner', reads.unseenFor('Ed').then((l) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}`)));
-      await rec('owed to someone else', reads.unseenFor('alex').then((l) => l.length));
+      await rec('owed to the owner', reads.unseenFor(pid('Ed')).then((l) => l.map((r) => `${r.thread}:${r.admin}:${r.kind}`)));
+      await rec('owed to someone else', reads.unseenFor(pid('alex')).then((l) => l.length));
       await rec('live', reads.live([thread], clock.now - 30_000).then((l) => l.map((r) => r.admin)));
     });
     expect(t.get('list (before any read)')).toEqual([]);
@@ -576,21 +613,21 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const reads = s.chat({ now: () => clock.now }).adminReads;
       const ed = (await s.people.createPerson('Ed', null, T0)).person;
-      await s.people.createPerson('Eve', null, T0);
-      await reads.touch('group:ed', 'Root', GAP, ['Ed']);
-      await reads.touch('list:ed', 'Root', GAP, ['ed']);
-      await reads.mark('dm:ed-only', 'Root', 'paused', ['ED']);
-      await reads.touch('dm:a|b', 'Root', GAP, ['ed', 'eve']);
-      await reads.mark('dm:a|b', 'Zoe', 'cleared', ['eve', 'Ed']);
-      await reads.touch('group:eve', 'Root', GAP, ['eve']);
+      const eve = (await s.people.createPerson('Eve', null, T0)).person;
+      await reads.touch('group:ed', 'Root', null, GAP, [ed.id]);
+      await reads.touch('list:ed', 'Root', null, GAP, [ed.id]);
+      await reads.mark('dm:ed-only', 'Root', null, 'paused', [ed.id]);
+      await reads.touch('dm:a|b', 'Root', null, GAP, [ed.id, eve.id]);
+      await reads.mark('dm:a|b', 'Zoe', null, 'cleared', [eve.id, ed.id]);
+      await reads.touch('group:eve', 'Root', null, GAP, [eve.id]);
       // Made before people were kept, or about General: it names nobody and goes by retention alone.
-      await reads.touch('dm:none', 'Root', GAP);
-      await reads.mark('public', 'Root', 'paused');
+      await reads.touch('dm:none', 'Root', null, GAP);
+      await reads.mark('public', 'Root', null, 'paused');
       await rec('delete Ed', s.people.deleteMany([ed.id]).then((r) => r.length));
       await rec('threads', reads.threads(''));
-      await rec('Ed is owed none', reads.unseenFor('ed').then((l) => l.length));
-      await rec('Eve is owed', reads.unseenFor('eve').then((l) => l.map((r) => `${r.thread}:${r.kind}`)));
-      await rec('Eve has seen the conversation', reads.seen('dm:a|b', 'eve'));
+      await rec('Ed is owed none', reads.unseenFor(ed.id).then((l) => l.length));
+      await rec('Eve is owed', reads.unseenFor(eve.id).then((l) => l.map((r) => `${r.thread}:${r.kind}`)));
+      await rec('Eve has seen the conversation', reads.seen('dm:a|b', eve.id));
       await rec('purge (nobody is owed the shared ones now)', reads.purge(clock.now + MIN));
       await rec('threads (after)', reads.threads(''));
     });
@@ -618,28 +655,30 @@ export function chatCases(o: Openers): void {
   it('forgets a deleted person\'s Chat data, so a new person of the same name inherits none of it, and leaves everyone else\'s (#1051)', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
-      const { peers, a, b, eve } = await setUp(s, clock);
-      const chat = s.chat({ now: () => clock.now });
       const ed = (await s.people.createPerson('Ed', null, T0)).person;
-      await s.people.createPerson('Eve', null, T0);
-      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const eveP = (await s.people.createPerson('Eve', null, T0)).person;
+      const { peers, a, b, eve } = await setUp(s, clock, { ed: ed.id, eve: eveP.id });
+      const chat = s.chat({ now: () => clock.now });
+      const edKey = personKeyOf(ed.id);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ed.id, from, to, 'send', ED);
       await peers.messages.send('sa', 'beta@box-b', 'agent to agent');
-      await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'from the person' });
-      await peers.setPersonLink('person:ed', eve, 'allow', ED);
-      await chat.group.post(G, input('ED GROUP'));
-      await chat.group.post({ owner: 'eve', groupId: 'g1' }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
-      await chat.readState.bump('ed', 'group:ed', true);
-      await chat.readState.bump('eve', 'group:eve', false);
-      await rec('before: person link', peers.rights.personLink('person:ed', eve));
+      await peers.messages.sendFromPerson({ ownerId: ed.id, person: 'Ed', toSession: 'sb', text: 'from the person' });
+      await peers.setPersonLink(edKey, eve, 'allow', ED);
+      const edGroup = { ownerId: ed.id };
+      await chat.group.post(edGroup, input('ED GROUP'));
+      await chat.group.post({ ownerId: eveP.id }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
+      await chat.readState.bump(ed.id, 'group:ed', true);
+      await chat.readState.bump(eveP.id, 'group:eve', false);
+      await rec('before: person link', peers.rights.personLink(edKey, eve));
       await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
-      await rec('group (Ed)', chat.group.page(G, { limit: 10 }).then(texts));
-      await rec('group (Eve)', chat.group.page({ owner: 'eve', groupId: 'g1' }, { limit: 10 }).then(texts));
-      await rec('read state (Ed)', chat.readState.list('ed'));
-      await rec('read state (Eve)', chat.readState.list('eve').then((l) => l.length));
-      await rec('person link', peers.rights.personLink('person:ed', eve));
+      await rec('group (Ed)', chat.group.page(edGroup, { limit: 10 }).then(texts));
+      await rec('group (Eve)', chat.group.page({ ownerId: eveP.id }, { limit: 10 }).then(texts));
+      await rec('read state (Ed)', chat.readState.list(ed.id));
+      await rec('read state (Eve)', chat.readState.list(eveP.id).then((l) => l.length));
+      await rec('person link', peers.rights.personLink(edKey, eve));
       await rec('agent conversation', peers.messages.conversation('sa', 'sb'));
-      await rec('person conversation', peers.messages.conversation('person:ed', 'sb'));
-      await rec('Ed conversations', peers.messages.ownerConversations('ed'));
+      await rec('person conversation', peers.messages.conversation(edKey, 'sb'));
+      await rec('Ed conversations', peers.messages.ownerConversations(ed.id));
     });
     expect(t.get('before: person link')).not.toBeNull();
     expect(t.get('group (Ed)')).toEqual([]);
@@ -656,23 +695,23 @@ export function chatCases(o: Openers): void {
   onEachAdapter(o, 'never returns a direct message from a channel read, nor a channel message from a direct message read', async (s) => {
     const clock = { now: T0 };
     const { peers, a, b } = await setUp(s, clock);
-    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
     const dm = 'DIRECT-ONLY-TEXT';
     await peers.messages.send('sa', 'beta@box-b', dm);
-    await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
+    await peers.messages.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
     const chat = s.chat({ now: () => clock.now });
     await chat.group.post(G, input('GROUP-ONLY-TEXT'));
     await chat.public.post('general', input('PUBLIC-ONLY-TEXT'));
-    await chat.readState.bump('ed', 'public', true);
+    await chat.readState.bump(pid('ed'), 'public', true);
     const channelReads = JSON.stringify([
       await chat.group.page(G, { limit: 100 }), await chat.group.count(G), await chat.public.page('general', { limit: 100 }), await chat.public.count('general'),
-      await chat.readState.list('ed'),
+      await chat.readState.list(pid('ed')),
     ]);
     expect(channelReads).not.toContain(dm);
     expect(channelReads).toContain('GROUP-ONLY-TEXT');
     expect(channelReads).toContain('PUBLIC-ONLY-TEXT');
     const dmReads = JSON.stringify([
-      await peers.messages.page('ed', 'sa', 'sb', { limit: 100 }), await peers.messages.conversation('sa', 'sb'), await peers.messages.ownerConversations('ed'),
+      await peers.messages.page(ED_ID, 'sa', 'sb', { limit: 100 }), await peers.messages.conversation('sa', 'sb'), await peers.messages.ownerConversations(ED_ID),
       await peers.messages.conversations({}),
     ]);
     expect(dmReads).toContain(dm);
@@ -683,7 +722,7 @@ export function chatCases(o: Openers): void {
     await chat.public.clear('general');
     expect((await peers.messages.conversation('sa', 'sb')).map((m) => m.text)).toEqual([dm, `${dm} from the person`]);
     await chat.group.post(G, input('kept'));
-    await peers.messages.deleteConversation('ed', 'sa', 'sb');
+    await peers.messages.deleteConversation(ED_ID, 'sa', 'sb');
     expect(texts(await chat.group.page(G, { limit: 10 }))).toEqual(['kept']);
   });
 
@@ -692,23 +731,23 @@ export function chatCases(o: Openers): void {
   it('agrees on every adapter for opening a public channel: the folded name, the description, the link, who opened it, and every refusal', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const ch = s.chat({ now: () => T0 }).channels;
-      await rec('create', ch.create({ name: 'Podium-Dev', description: 'About Podium', createdBy: 'Ed  Engelking' }, T0));
-      await rec('create (linked to an issue)', ch.create({ name: 'issue-1035', description: '', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'Eve' }, T0 + 1));
-      await rec('create (linked to a milestone)', ch.create({ name: 'v1-7', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed' }, T0 + 2));
-      await rec('create (linked to a project)', ch.create({ name: 'podium', link: { kind: 'project', ref: 'Podium' }, createdBy: 'ed' }, T0 + 3));
-      await rec('refuse: name taken (another case)', ch.create({ name: 'PODIUM-DEV', createdBy: 'eve' }, T0 + 4));
-      await rec('refuse: link taken (another case and spacing)', ch.create({ name: 'other', link: { kind: 'project', ref: ' PODIUM' }, createdBy: 'eve' }, T0 + 5));
-      await rec('create (the same reference, another kind)', ch.create({ name: 'milestone-podium', link: { kind: 'milestone', ref: 'podium' }, createdBy: 'eve' }, T0 + 6));
-      await rec('refuse: reserved general', ch.create({ name: 'general', createdBy: 'eve' }, T0 + 7));
-      await rec('refuse: reserved group (any case)', ch.create({ name: 'Group', createdBy: 'eve' }, T0 + 8));
-      for (const bad of ['', '-x', 'a b', 'a_b', 'x'.repeat(41), 'ünï']) await rec(`refuse: invalid name ${JSON.stringify(bad)}`, ch.create({ name: bad, createdBy: 'eve' }, T0 + 9));
-      await rec('create (40 characters)', ch.create({ name: 'x'.repeat(40), createdBy: 'eve' }, T0 + 10));
-      await rec('refuse: description too long', ch.create({ name: 'long', description: 'd'.repeat(281), createdBy: 'eve' }, T0 + 11));
-      await rec('create (description at the limit)', ch.create({ name: 'long', description: 'd'.repeat(280), createdBy: 'eve' }, T0 + 12));
-      await rec('refuse: bad link kind', ch.create({ name: 'bad-kind', link: { kind: 'repo' as never, ref: 'x' }, createdBy: 'eve' }, T0 + 13));
-      await rec('refuse: empty link reference', ch.create({ name: 'bad-ref', link: { kind: 'issue', ref: '  ' }, createdBy: 'eve' }, T0 + 14));
-      await rec('refuse: link reference too long', ch.create({ name: 'bad-ref', link: { kind: 'issue', ref: 'r'.repeat(101) }, createdBy: 'eve' }, T0 + 15));
-      await rec('refuse: no opener', ch.create({ name: 'nobody', createdBy: ' ' }, T0 + 16));
+      await rec('create', ch.create({ name: 'Podium-Dev', description: 'About Podium', createdBy: 'Ed  Engelking', createdById: pid('Ed  Engelking') }, T0));
+      await rec('create (linked to an issue)', ch.create({ name: 'issue-1035', description: '', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'Eve', createdById: pid('Eve') }, T0 + 1));
+      await rec('create (linked to a milestone)', ch.create({ name: 'v1-7', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 2));
+      await rec('create (linked to a project)', ch.create({ name: 'podium', link: { kind: 'project', ref: 'Podium' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 3));
+      await rec('refuse: name taken (another case)', ch.create({ name: 'PODIUM-DEV', createdBy: 'eve', createdById: pid('eve') }, T0 + 4));
+      await rec('refuse: link taken (another case and spacing)', ch.create({ name: 'other', link: { kind: 'project', ref: ' PODIUM' }, createdBy: 'eve', createdById: pid('eve') }, T0 + 5));
+      await rec('create (the same reference, another kind)', ch.create({ name: 'milestone-podium', link: { kind: 'milestone', ref: 'podium' }, createdBy: 'eve', createdById: pid('eve') }, T0 + 6));
+      await rec('refuse: reserved general', ch.create({ name: 'general', createdBy: 'eve', createdById: pid('eve') }, T0 + 7));
+      await rec('refuse: reserved group (any case)', ch.create({ name: 'Group', createdBy: 'eve', createdById: pid('eve') }, T0 + 8));
+      for (const bad of ['', '-x', 'a b', 'a_b', 'x'.repeat(41), 'ünï']) await rec(`refuse: invalid name ${JSON.stringify(bad)}`, ch.create({ name: bad, createdBy: 'eve', createdById: pid('eve') }, T0 + 9));
+      await rec('create (40 characters)', ch.create({ name: 'x'.repeat(40), createdBy: 'eve', createdById: pid('eve') }, T0 + 10));
+      await rec('refuse: description too long', ch.create({ name: 'long', description: 'd'.repeat(281), createdBy: 'eve', createdById: pid('eve') }, T0 + 11));
+      await rec('create (description at the limit)', ch.create({ name: 'long', description: 'd'.repeat(280), createdBy: 'eve', createdById: pid('eve') }, T0 + 12));
+      await rec('refuse: bad link kind', ch.create({ name: 'bad-kind', link: { kind: 'repo' as never, ref: 'x' }, createdBy: 'eve', createdById: pid('eve') }, T0 + 13));
+      await rec('refuse: empty link reference', ch.create({ name: 'bad-ref', link: { kind: 'issue', ref: '  ' }, createdBy: 'eve', createdById: pid('eve') }, T0 + 14));
+      await rec('refuse: link reference too long', ch.create({ name: 'bad-ref', link: { kind: 'issue', ref: 'r'.repeat(101) }, createdBy: 'eve', createdById: pid('eve') }, T0 + 15));
+      await rec('refuse: no opener', ch.create({ name: 'nobody', createdBy: ' ', createdById: pid(' ') }, T0 + 16));
       await rec('list', ch.list().then((l) => l.map((c) => c.name)));
       await rec('get (any case)', ch.get('PODIUM-dev'));
       await rec('get (general)', ch.get('general'));
@@ -717,8 +756,8 @@ export function chatCases(o: Openers): void {
     });
     const made = (k: string): { ok: boolean; channel: Record<string, unknown> } => t.get(k) as never;
     expect(made('create').ok).toBe(true);
-    expect(made('create').channel).toEqual({ name: 'podium-dev', description: 'About Podium', link: null, createdBy: 'ed engelking', createdByName: 'Ed  Engelking', createdAt: T0, updatedAt: T0 });
-    expect(made('create (linked to an issue)').channel).toMatchObject({ name: 'issue-1035', link: { kind: 'issue', ref: '1035' }, createdBy: 'eve', createdByName: 'Eve' });
+    expect(made('create').channel).toEqual({ name: 'podium-dev', description: 'About Podium', link: null, createdById: 11, createdByName: 'Ed  Engelking', createdAt: T0, updatedAt: T0 });
+    expect(made('create (linked to an issue)').channel).toMatchObject({ name: 'issue-1035', link: { kind: 'issue', ref: '1035' }, createdById: 12, createdByName: 'Eve' });
     expect(t.get('refuse: name taken (another case)')).toMatchObject({ ok: false, error: 'name-taken' });
     expect(t.get('refuse: link taken (another case and spacing)')).toMatchObject({ ok: false, error: 'link-taken' });
     expect(made('create (the same reference, another kind)').ok).toBe(true);
@@ -741,8 +780,8 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const chat = s.chat({ now: () => clock.now });
       const ch = chat.channels;
-      await ch.create({ name: 'one', description: 'first', link: { kind: 'issue', ref: '#1' }, createdBy: 'ed' }, T0);
-      await ch.create({ name: 'two', createdBy: 'ed' }, T0);
+      await ch.create({ name: 'one', description: 'first', link: { kind: 'issue', ref: '#1' }, createdBy: 'ed', createdById: pid('ed') }, T0);
+      await ch.create({ name: 'two', createdBy: 'ed', createdById: pid('ed') }, T0);
       await chat.public.post('one', input('in one'));
       await chat.public.post('one', input('also in one'));
       await chat.public.post('two', input('in two'));
@@ -762,8 +801,8 @@ export function chatCases(o: Openers): void {
       await rec('messages of one', chat.public.page('one', { limit: 50 }).then(texts));
       await rec('messages of two', chat.public.page('two', { limit: 50 }).then(texts));
       await rec('messages of general', chat.public.page('general', { limit: 50 }).then(texts));
-      await rec('the link is free again', ch.create({ name: 'one-again', link: { kind: 'issue', ref: '#1' }, createdBy: 'ed' }, T0 + 20));
-      await rec('the name is free again', ch.create({ name: 'one', createdBy: 'ed' }, T0 + 21));
+      await rec('the link is free again', ch.create({ name: 'one-again', link: { kind: 'issue', ref: '#1' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 20));
+      await rec('the name is free again', ch.create({ name: 'one', createdBy: 'ed', createdById: pid('ed') }, T0 + 21));
       await rec('post to a removed channel', chat.public.post('gone', input('x')));
       await rec('messages of the new one', chat.public.page('one', { limit: 50 }).then(texts));
     });
@@ -792,8 +831,8 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const chat = s.chat({ now: () => clock.now });
       const pub = chat.public;
-      await chat.channels.create({ name: 'alpha', createdBy: 'ed' }, T0);
-      await chat.channels.create({ name: 'beta', createdBy: 'ed' }, T0);
+      await chat.channels.create({ name: 'alpha', createdBy: 'ed', createdById: pid('ed') }, T0);
+      await chat.channels.create({ name: 'beta', createdBy: 'ed', createdById: pid('ed') }, T0);
       for (const text of ['g1', 'g2']) await pub.post('general', input(text));
       for (const text of ['a1', 'a2', 'a3']) await pub.post('alpha', input(text));
       clock.now += 5;
@@ -816,7 +855,7 @@ export function chatCases(o: Openers): void {
     });
     const p1 = t.get('alpha page 1') as ChannelPage;
     expect(texts(p1)).toEqual(['a3', 'a4']);
-    expect(p1.messages[0]).toMatchObject({ channel: 'alpha', owner: null, groupId: null });
+    expect(p1.messages[0]).toMatchObject({ channel: 'alpha', ownerId: null });
     expect(texts(t.get('alpha page 2') as ChannelPage)).toEqual(['a1', 'a2']);
     expect(texts(t.get('general page') as ChannelPage)).toEqual(['g1', 'g2']);
     expect((t.get('general page') as ChannelPage).messages[0]).toMatchObject({ channel: 'general' });
@@ -835,7 +874,7 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const chat = s.chat({ now: () => T0 });
       const pub = chat.public;
-      for (const name of ['alpha', 'beta', 'empty']) await chat.channels.create({ name, createdBy: 'ed' }, T0);
+      for (const name of ['alpha', 'beta', 'empty']) await chat.channels.create({ name, createdBy: 'ed', createdById: pid('ed') }, T0);
       await rec('counts (nothing posted)', pub.counts());
       for (const text of ['g1', 'g2']) await pub.post('general', input(text));
       for (const text of ['a1', 'a2', 'a3']) await pub.post('alpha', input(text));
@@ -861,8 +900,8 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const chat = s.chat({ now: () => clock.now });
       const pub = chat.public;
-      await chat.channels.create({ name: 'alpha', createdBy: 'ed' }, T0);
-      await chat.channels.create({ name: 'beta', createdBy: 'ed' }, T0);
+      await chat.channels.create({ name: 'alpha', createdBy: 'ed', createdById: pid('ed') }, T0);
+      await chat.channels.create({ name: 'beta', createdBy: 'ed', createdById: pid('ed') }, T0);
       await pub.post('alpha', input('alpha first', { mentions: held('sa') }));
       clock.now += 3;
       await pub.post('general', input('general second', { mentions: held('sa') }));
@@ -894,7 +933,7 @@ export function chatCases(o: Openers): void {
     const clock = { now: T0 };
     const chat = s.chat({ now: () => clock.now });
     const pub = chat.public;
-    await chat.channels.create({ name: 'alpha', createdBy: 'ed' }, T0);
+    await chat.channels.create({ name: 'alpha', createdBy: 'ed', createdById: pid('ed') }, T0);
     const held = (sessionId: string): ChannelPostInput['mentions'] => [{ sessionId, peerKey: 'k', typed: `${sessionId}@box`, state: 'held' }];
     const cost = async (): Promise<number> => {
       let best = Infinity;
@@ -921,14 +960,14 @@ export function chatCases(o: Openers): void {
     const t = await sameOnAll(o, async (s, rec) => {
       const ch = s.chat({ now: () => T0 }).channels;
       const names = Array.from({ length: 60 }, (_, i) => `c${String(i).padStart(2, '0')}`);
-      const results = await Promise.all(names.map((name) => ch.create({ name, createdBy: 'ed' }, T0)));
+      const results = await Promise.all(names.map((name) => ch.create({ name, createdBy: 'ed', createdById: pid('ed') }, T0)));
       await rec('accepted', results.filter((r) => r.ok).length);
       await rec('refused', results.filter((r) => !r.ok).map((r) => (r.ok ? '' : r.error)));
       await rec('count', ch.count());
       const first = (await ch.list())[0]!;
       await rec('remove one', ch.remove(first.name));
-      await rec('create after a removal', ch.create({ name: 'after', createdBy: 'ed' }, T0 + 1).then((r) => r.ok));
-      await rec('create over the limit again', ch.create({ name: 'over', createdBy: 'ed' }, T0 + 2));
+      await rec('create after a removal', ch.create({ name: 'after', createdBy: 'ed', createdById: pid('ed') }, T0 + 1).then((r) => r.ok));
+      await rec('create over the limit again', ch.create({ name: 'over', createdBy: 'ed', createdById: pid('ed') }, T0 + 2));
       await rec('count (after)', ch.count());
     });
     expect(t.get('accepted')).toBe(50);
@@ -942,15 +981,15 @@ export function chatCases(o: Openers): void {
   it('agrees on every adapter that an issue is one link however it is typed: with or without the #, with spaces; a milestone in another case is the same link', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const ch = s.chat({ now: () => T0 }).channels;
-      await rec('first', ch.create({ name: 'one', link: { kind: 'issue', ref: '#1035' }, createdBy: 'ed' }, T0));
-      await rec('without the hash', ch.create({ name: 'two', link: { kind: 'issue', ref: '1035' }, createdBy: 'ed' }, T0 + 1));
-      await rec('with spaces', ch.create({ name: 'three', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'ed' }, T0 + 2));
-      await rec('hash and space inside', ch.create({ name: 'four', link: { kind: 'issue', ref: '# 1035' }, createdBy: 'ed' }, T0 + 3));
-      await rec('hash alone', ch.create({ name: 'five', link: { kind: 'issue', ref: '#' }, createdBy: 'ed' }, T0 + 4));
-      await rec('hash and spaces alone', ch.create({ name: 'six', link: { kind: 'issue', ref: ' # ' }, createdBy: 'ed' }, T0 + 5));
-      await rec('milestone', ch.create({ name: 'seven', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed' }, T0 + 6));
-      await rec('milestone in another case', ch.create({ name: 'eight', link: { kind: 'milestone', ref: ' V1.7 ' }, createdBy: 'ed' }, T0 + 7));
-      await rec('a second hash is part of the reference', ch.create({ name: 'nine', link: { kind: 'issue', ref: '##5' }, createdBy: 'ed' }, T0 + 8));
+      await rec('first', ch.create({ name: 'one', link: { kind: 'issue', ref: '#1035' }, createdBy: 'ed', createdById: pid('ed') }, T0));
+      await rec('without the hash', ch.create({ name: 'two', link: { kind: 'issue', ref: '1035' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 1));
+      await rec('with spaces', ch.create({ name: 'three', link: { kind: 'issue', ref: ' #1035 ' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 2));
+      await rec('hash and space inside', ch.create({ name: 'four', link: { kind: 'issue', ref: '# 1035' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 3));
+      await rec('hash alone', ch.create({ name: 'five', link: { kind: 'issue', ref: '#' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 4));
+      await rec('hash and spaces alone', ch.create({ name: 'six', link: { kind: 'issue', ref: ' # ' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 5));
+      await rec('milestone', ch.create({ name: 'seven', link: { kind: 'milestone', ref: 'v1.7' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 6));
+      await rec('milestone in another case', ch.create({ name: 'eight', link: { kind: 'milestone', ref: ' V1.7 ' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 7));
+      await rec('a second hash is part of the reference', ch.create({ name: 'nine', link: { kind: 'issue', ref: '##5' }, createdBy: 'ed', createdById: pid('ed') }, T0 + 8));
       await rec('count', ch.count());
     });
     expect(t.get('first')).toMatchObject({ ok: true, channel: { link: { kind: 'issue', ref: '1035' } } });
@@ -965,7 +1004,7 @@ export function chatCases(o: Openers): void {
   it('lets two channels with the same new link open at once with exactly one winner', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const ch = s.chat({ now: () => T0 }).channels;
-      const rs = await Promise.all(['x1', 'x2', 'x3'].map((name) => ch.create({ name, link: { kind: 'issue', ref: '#9' }, createdBy: 'ed' }, T0)));
+      const rs = await Promise.all(['x1', 'x2', 'x3'].map((name) => ch.create({ name, link: { kind: 'issue', ref: '#9' }, createdBy: 'ed', createdById: pid('ed') }, T0)));
       await rec('ok', rs.filter((r) => r.ok).length);
       await rec('errors', rs.filter((r) => !r.ok).map((r) => (r.ok ? '' : r.error)));
       await rec('count', ch.count());
@@ -980,17 +1019,17 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const chat = s.chat({ now: () => clock.now });
       const ed = (await s.people.createPerson('Ed', null, T0)).person;
-      await s.people.createPerson('Eve', null, T0);
-      await chat.channels.create({ name: 'eds', createdBy: 'Ed' }, T0);
-      await chat.channels.create({ name: 'eves', createdBy: 'Eve' }, T0);
+      const eve = (await s.people.createPerson('Eve', null, T0)).person;
+      await chat.channels.create({ name: 'eds', createdBy: 'Ed', createdById: ed.id }, T0);
+      await chat.channels.create({ name: 'eves', createdBy: 'Eve', createdById: eve.id }, T0);
       await chat.public.post('eds', input('ED POST'));
       await chat.public.post('general', input('ED IN GENERAL'));
       await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
-      await rec('channels', chat.channels.list().then((l) => l.map((c) => [c.name, c.createdBy, c.createdByName])));
+      await rec('channels', chat.channels.list().then((l) => l.map((c) => [c.name, c.createdById === eve.id ? 'eve' : c.createdById, c.createdByName])));
       await rec('messages in the channel', chat.public.page('eds', { limit: 10 }).then(texts));
       await rec('messages in General', chat.public.page('general', { limit: 10 }).then(texts));
     });
-    expect(t.get('channels')).toEqual([['eds', '', 'Ed'], ['eves', 'eve', 'Eve']]);
+    expect(t.get('channels')).toEqual([['eds', null, 'Ed'], ['eves', 'eve', 'Eve']]);
     expect(t.get('messages in the channel')).toEqual(['ED POST']);
     expect(t.get('messages in General')).toEqual(['ED IN GENERAL']);
   });
@@ -999,14 +1038,14 @@ export function chatCases(o: Openers): void {
   onEachAdapter(o, 'never shows a group message or a direct message in any public channel, and never puts a public channel\'s message in a group or a conversation', async (s) => {
     const clock = { now: T0 };
     const { peers, a, b } = await setUp(s, clock);
-    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
     const dm = 'DM-NEVER-PUBLIC';
     await peers.messages.send('sa', 'beta@box-b', dm);
-    await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
+    await peers.messages.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
     const chat = s.chat({ now: () => clock.now });
-    await chat.channels.create({ name: 'open', createdBy: 'ed' }, T0);
+    await chat.channels.create({ name: 'open', createdBy: 'ed', createdById: pid('ed') }, T0);
     await chat.group.post(G, input('GROUP-NEVER-PUBLIC'));
-    await chat.group.post({ owner: 'eve', groupId: 'g1' }, input('EVE-GROUP-NEVER-PUBLIC'));
+    await chat.group.post({ ownerId: pid('eve') }, input('EVE-GROUP-NEVER-PUBLIC'));
     await chat.public.post('open', input('PUBLIC-OPEN-ONLY'));
     await chat.public.post('general', input('PUBLIC-GENERAL-ONLY'));
     const publicReads = JSON.stringify([
@@ -1043,9 +1082,9 @@ interface Surface {
 
 async function surfaces(chat: ChatStoreApi): Promise<Surface[]> {
   const g = chat.group;
-  const other = { owner: 'ed', groupId: 'g2' };
-  await chat.channels.create({ name: 'dev', createdBy: 'ed' }, T0);
-  await chat.channels.create({ name: 'ops', createdBy: 'ed' }, T0);
+  const other = { ownerId: 1011 };
+  await chat.channels.create({ name: 'dev', createdBy: 'ed', createdById: pid('ed') }, T0);
+  await chat.channels.create({ name: 'ops', createdBy: 'ed', createdById: pid('ed') }, T0);
   const p = chat.public;
   return [
     {

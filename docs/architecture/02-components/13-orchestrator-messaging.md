@@ -25,7 +25,7 @@ reporter lookup from its own `ReporterStore` on the same database.
 **Flow.** The report route records the reporter (`ReporterStore.record` now returns its key), then calls
 `fleet.peers.note` with the session, the key and the token's person. The reply spreads `peerReplyFor`, which checks the
 switches the server knows of and asks `PeerService.reply` for the deliveries (messages only while the session reports
-idle) and the open requests about that reporter. A send resolves `to` (`name@machine`, or `name@machine#id` to pick among same-named ones) among the live directory, checks the right, the
+idle) and the open requests about that reporter. A send resolves `to` (`#id`, `name@machine`, or `name@machine#id`) among the live directory, where every agent has a server-given id from `agent_ids` (never reused, one row per session id, #1284) and a name no other live agent of its owner holds (`settleName`), checks the right, the
 length, the rate and the round trips, and stores the message as `ready` or `approval`. The next idle report hands it
 over (`handed`), and the mod's result moves it to `delivered`, `queued` or `dropped`.
 
@@ -135,21 +135,21 @@ channels' retention (`retainDays`).
 **Changing your own message (#1269).** `ChannelChat` and `DirectChat` each have `editMessage` and `deleteMessage`, called by `PATCH` and `DELETE` on a message's id. They check the text as a send does (`maxChars`, `perMinute`, redaction), find the message through the store (`getMessage` for a channel), and leave the decision to the store, so every adapter refuses the same way: the author is `author_id`, the person's id and never the name, then a tombstone, then the lock (`lockedByDelivery` for a channel's mentions, `isSentToAgent` for a Direct Message's states, both in the storage's pure part). A channel edit also refuses a text that adds or removes an `@` (`sameMentions`, 422). A channel mention that waits for another person's approval keeps `copyId`, the id of its Direct Message copy, so `ChannelChat` changes the copy first through `core.changeAcross`, which `DirectChat.changeAcross` answers (the same one-way carry as `across`), puts the copies back if the row then refuses, and a delete closes the copy's request. A message to two agents in a conversation is two `peer_messages` rows and the store changes every row the thread merges, in one step. Each change is one `message_edited` or `message_deleted` event, which `wireChatLogs` writes as `group_`, `general_`, `channel_` or `chat_message_edited` and `_deleted` (ids and place, never text), and the same `chat` signal as a post moves. No Admin path exists: an Admin or the admin secret is refused (403) before the store is asked. The views carry `editedAt`, `deletedAt`, `canChange` and `changeWhy`, and an agent's read (`agentMessageView`) carries `editedAt` or, for a deleted message, `deleted` and `deletedAt` with no text.
 
 **Across owners.** `sendAcross` stores a person's message to another person's agent as `approval` with a request in the owner's
-list (`fromKey` is `person:<name>`; `fromPerson` on the view). A link from a person (`person:<name>`) to a reporter is a row in
+list (`fromKey` is `person:<id>`, the person's `people.id`, #1284; `fromPerson` on the view). A link from a person (`person:<id>`) to a reporter is a row in
 `peer_rights` (`personLink`, `setPersonLink`; the SQLite, PostgreSQL and MariaDB stores each), so it holds until removed. Allow
 delivers the message and opens the link, so the next one goes without asking; Decline drops it and tells the sender; Pause, Remove
 and `paused_by` (who may resume) are the link's. At most 5 messages from a person wait at one owner. The plugin frames the text
 by `PeerParty.person` (`plugin/core/peers.ts`), so it is never taken for its owner's words, and the frame gives the agent the address to
-answer: `person:<name>`.
+answer: `person:<name>` (the server finds the person by id among those who wrote to that session, so the name picks and the id binds).
 
 **An agent answers a person.** `podium_send` with `to` `person:<name>` reaches `replyToPerson` in each adapter's `peerMessages` store (SQLite,
 PostgreSQL and MariaDB, one test in `contractPeers.ts`), before the usual resolution of `name@machine`. It needs a stored message from that person to
 this very session and a person link (`personLink`) that is open or paused; otherwise it returns the same `404` words as an orchestrator
 the sender cannot see (`REPLY_WORDS.unseen` in `peerText.ts`, which every adapter shares), so a refusal says nothing about the owner's
 other agents. A removed link is a `403`, a paused one a `409` (refused and not held), and the per-minute limit a `429`, counted over
-the agent's answers to that person. The answer is stored at once as an `agent` message, `delivered`, with `to_session` `person:<key>`, and
+the agent's answers to that person. The answer is stored at once as an `agent` message, `delivered`, with `to_session` `person:<id>`, and
 the `delivered` trail runs, which is how `peer_delivered` reaches the Admin log and how `DirectChat.peerTrail` adds one unread and a mention for the person and one
-unread for the owner (one count when the person is the owner) and sends the content-free `chat` signal. When the person is the agent's own owner, `replyToPerson` needs no link, only a stored message from `person:<owner>` to the session; the owner's Chat message is delivered through the console path with `chat: true` on the `Delivery`, and `plugin/core/peers.ts` (`withChatHint`) ends it with the address to answer to, for Claude Code and OpenCode alike. `podium_peers` lists the people it may answer (`people`). The route
+unread for the owner (one count when the person is the owner) and sends the content-free `chat` signal. When the person is the agent's own owner, `replyToPerson` needs no link, only a stored message from the owner's `person:<id>` to the session; the owner's Chat message is delivered through the console path with `chat: true` on the `Delivery`, and `plugin/core/peers.ts` (`withChatHint`) ends it with the address to answer to, for Claude Code and OpenCode alike. `podium_peers` lists the people it may answer (`people`). The route
 answers `202` with `person: true`, and `plugin/core/peers.ts` words it for the agent, so Claude Code and OpenCode share it; each has a test. A
 Podium reporter from before this change keeps the old frame and has no such address, and fails safe. The hourly sweep that drops orphan
 messages treats a `person:` end as present. The reporter that took part is
@@ -178,7 +178,7 @@ transcript line. Neither reaches the model or depends on the `peers` option. In 
 banners, the red tags and the record lines, and the Admin's page hides People and agents while it reads.
 
 **An Admin's stop or delete (#1078).** `AdminActs` (`adminActs.ts`, on `Fleet` as `adminActs`) is what the Admin router and the session delete call after an
-Admin stops or deletes a person's recording, stored activity, session, access or reporter. It writes a `chat_admin_reads` row on the `act:<name>` thread
+Admin stops or deletes a person's recording, stored activity, session, access or reporter. It writes a `chat_admin_reads` row on the `act:<id>` thread (the person's `people.id`, #1284)
 (`AdminReads.record`) and pushes the sentence to each live session of the person (`AdminReads.tell`), so the reporter side is unchanged. Chat's
 `goneReadsOf` puts those rows on the overview with the conversations that are gone, and `isActRecord` in `chatData.ts` words them without a conversation.
 No table or column changed: the kinds are text in every adapter.

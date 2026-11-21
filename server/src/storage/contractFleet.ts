@@ -48,15 +48,15 @@ export function fleetCases(o: Openers): void {
       const { person } = await s.people.createPerson('Ann', null, T0);
       const crew = await s.people.createGroup('Crew', T0);
       await s.people.setGroup(person.id, crew.id);
-      await s.people.createPerson('ann-two', null, T0);
+      const { person: annTwo } = await s.people.createPerson('ann-two', null, T0);
       // equal spend on three owners, so the order of the split is decided by the tie rule and not by the amounts
       const rows = [
-        session({ id: 'a', name: 'a', owner: 'Ann', cost_usd: 2, last_seen_at: T0 + 10 }),
-        session({ id: 'b', name: 'b', owner: 'ann-two', cost_usd: 2, last_seen_at: T0 + 10 }),
+        session({ id: 'a', name: 'a', owner: 'Ann', owner_id: person.id, cost_usd: 2, last_seen_at: T0 + 10 }),
+        session({ id: 'b', name: 'b', owner: 'ann-two', owner_id: annTwo.id, cost_usd: 2, last_seen_at: T0 + 10 }),
         session({ id: 'c', name: 'c', owner: null, cost_usd: 2, last_seen_at: T0 + 10 }),
-        session({ id: 'd', name: 'd', owner: 'Ann', cost_usd: 0.5, last_seen_at: T0 + 20, usage_json: '[]' }),
+        session({ id: 'd', name: 'd', owner: 'Ann', owner_id: person.id, cost_usd: 0.5, last_seen_at: T0 + 20, usage_json: '[]' }),
         session({ id: 'e', name: 'e', owner: 'ghost', cost_usd: null, last_seen_at: T0 + 20 }),
-        session({ id: 'old', name: 'old', owner: 'Ann', cost_usd: 9, last_seen_at: T0 - DAY }),
+        session({ id: 'old', name: 'old', owner: 'Ann', owner_id: person.id, cost_usd: 9, last_seen_at: T0 - DAY }),
       ];
       for (const r of rows) await f.upsertSession(r);
       await f.upsertAgent(agent('a', 'a1'));
@@ -69,10 +69,10 @@ export function fleetCases(o: Openers): void {
       await rec('cost since (everything)', f.costSince(0, priced));
       await rec('by owner', f.costByOwnerSince(T0, priced));
       await rec('totals', f.spendTotals(T0, priced));
-      await rec('group of Ann', f.groupOfOwner('Ann'));
-      await rec('group of the person with none', f.groupOfOwner('ann-two'));
+      await rec('group of Ann', f.groupOfOwner(person.id));
+      await rec('group of the person with none', f.groupOfOwner(annTwo.id));
       await rec('group of nobody', f.groupOfOwner(null));
-      await rec('group of an unknown name', f.groupOfOwner('ghost'));
+      await rec('group of an id nobody holds', f.groupOfOwner(person.id + 1000));
     });
     expect(t.get('group of nobody')).toBeNull();
     expect(t.get('group of Ann')).toBe('Crew');
@@ -137,9 +137,9 @@ export function fleetCases(o: Openers): void {
       const { person } = await s.people.createPerson('Ann', null, T0);
       const crew = await s.people.createGroup('Crew', T0);
       await s.people.setGroup(person.id, crew.id);
-      await s.people.createPerson('solo', null, T0);
-      await f.upsertSession(session({ id: 'b', owner: 'Ann', started_at: T0 + 2 }));
-      await f.upsertSession(session({ id: 'a', owner: 'solo', started_at: T0 + 1 }));
+      const { person: solo } = await s.people.createPerson('solo', null, T0);
+      await f.upsertSession(session({ id: 'b', owner: 'Ann', owner_id: person.id, started_at: T0 + 2 }));
+      await f.upsertSession(session({ id: 'a', owner: 'solo', owner_id: solo.id, started_at: T0 + 1 }));
       await f.upsertSession(session({ id: 'c', owner: null }));
       // one statement for each of three agents, one of them with texts and one that is rewritten
       await f.upsertAgents([agent('a', 'a2', { started_at: T0 + 5 }), agent('a', 'a1', { started_at: T0 + 5 }), agent('b', 'b1')]);
@@ -163,7 +163,7 @@ export function fleetCases(o: Openers): void {
       const compactions = await rec('auto compactions', f.countAutoCompactionsOf(ids));
       const samples = await rec('samples', f.samplesSinceOf(ids, 95));
       const latest = await rec('latest samples', f.latestSamplesOf(ids));
-      const owners: (string | null)[] = ['solo', null, 'Ann', 'ghost'];
+      const owners: (number | null)[] = [solo.id, null, person.id, person.id + 1000];
       const groups = await rec('groups', f.groupsOfOwners(owners));
       await rec('nothing asked', [await f.getSessions([]), await f.getAgentsOf([]), await f.samplesSinceOf([], 0), await f.latestSamplesOf([]), await f.groupsOfOwners([])]);
       // the batch answers what the one-at-a-time methods answer, in the order the ids were given
@@ -340,7 +340,6 @@ export function fleetCases(o: Openers): void {
       await rec('person by name', s.people.findByName(long).then((p) => p?.name.length ?? null));
       await rec('feature', s.featureFlags.setFeature(long, true));
       await rec('feature read', s.featureFlags.featureOn(long));
-      await rec('group of owner', s.fleet.groupOfOwner(long));
       await rec('reporter', s.reporters.record({ kind: 'mod', machineId: 'k1', machineName: long, source: long, owner: long, credential: 'person', version: long, engineVersion: null, sessionId: 's1' }, T0));
       await rec('reporter on its own', s.reporters.record({ kind: 'hooks', machineId: null, machineName: long, source: long, owner: long, credential: 'person', version: long, engineVersion: null, sessionId: 's2' }, T0));
       await rec('reporter list', s.reporters.list({}, T0).then((l) => l.counts.all));
@@ -485,6 +484,53 @@ export function peopleCases(o: Openers): void {
     });
     expect(String((t.get('last administrator') as { threw?: string }).threw ?? '')).not.toBe('');
     expect(t.get('not in the group')).toBeUndefined();
+  });
+  it('binds a session and a reporter to a person by id, so deleting the person leaves them to nobody and a new person of the same name owns none of them, on every adapter (#1284)', async () => {
+    const report = (id: string) => {
+      const x = loadFixture() as { session: { id: string } };
+      x.session.id = id;
+      const v = validateReport(x);
+      if (!v.ok) throw new Error(`the fixture is not a report: ${v.error}`);
+      return v.report;
+    };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const { person: bob } = await s.people.createPerson('Bob', null, T0);
+      const { person: ann } = await s.people.createPerson('Ann', null, T0);
+      await rec('bob starts a session', ingestReport(s, report('b1'), T0, 'Bob', bob.id).then((r) => r.created));
+      await rec('ann starts a session', ingestReport(s, report('a1'), T0, 'Ann', ann.id).then((r) => r.created));
+      await rec('the admin secret starts one', ingestReport(s, report('adm'), T0, 'Admin', null).then((r) => r.created));
+      const owners = async () => Promise.all(['b1', 'a1', 'adm'].map(async (id) => { const r = (await s.fleet.getSession(id))!; return [id, r.owner, r.owner_id]; }));
+      await rec('who owns what', owners());
+      await rec('bob reports again', ingestReport(s, report('b1'), T0 + 1, 'Bob', bob.id).then((r) => r.created));
+      await rec('ann reports into bob\'s session', ingestReport(s, report('b1'), T0 + 2, 'Ann', ann.id));
+      const keyB = await s.reporters.record(seen('m-bob', 'box-b', { owner: 'Bob', ownerId: bob.id, sessionId: 'b1' }), T0);
+      await s.reporters.record(seen('m-ann', 'box-a', { owner: 'Ann', ownerId: ann.id, sessionId: 'a1' }), T0);
+      const lookup = s.reporters.peerLookup();
+      await rec('bob\'s reporters', lookup.ofOwner(bob.id).then((l) => l.map((r) => r.key)));
+      await rec('delete bob', s.people.deleteMany([bob.id]).then((l) => l.map((p) => p.name)));
+      const { person: newBob } = await s.people.createPerson('Bob', null, T0 + 3);
+      await rec('the id is not reused', newBob.id !== bob.id);
+      await rec('who owns what after', owners());
+      await rec('bob\'s old reporters', lookup.ofOwner(bob.id).then((l) => l.map((r) => r.key)));
+      await rec('the new bob\'s reporters', lookup.ofOwner(newBob.id).then((l) => l.map((r) => r.key)));
+      await rec('ann\'s reporters', lookup.ofOwner(ann.id).then((l) => l.map((r) => r.key)));
+      await rec('the reporter row keeps the name and no owner', lookup.get(keyB).then((r) => r && [r.owner, r.ownerId]));
+      await rec('the new bob takes the old session', ingestReport(s, report('b1'), T0 + 4, 'Bob', newBob.id));
+      await rec('the admin secret takes the old session', ingestReport(s, report('b1'), T0 + 5, 'Admin', null));
+      await rec('the new bob starts his own', ingestReport(s, report('b2'), T0 + 6, 'Bob', newBob.id).then((r) => r.created));
+      await rec('and owns it', s.fleet.getSession('b2').then((r) => r && [r.owner, r.owner_id === newBob.id]));
+    });
+    expect(t.get('who owns what')).toEqual([['b1', 'Bob', expect.any(Number)], ['a1', 'Ann', expect.any(Number)], ['adm', 'Admin', null]]);
+    expect(String((t.get('ann reports into bob\'s session') as { threw?: string }).threw)).toContain('another owner');
+    expect(t.get('bob\'s reporters')).toEqual(['m-bob']);
+    expect(t.get('who owns what after')).toEqual([['b1', 'Bob', null], ['a1', 'Ann', expect.any(Number)], ['adm', 'Admin', null]]);
+    expect(t.get('bob\'s old reporters')).toEqual([]);
+    expect(t.get('the new bob\'s reporters')).toEqual([]);
+    expect(t.get('ann\'s reporters')).toEqual(['m-ann']);
+    expect(t.get('the reporter row keeps the name and no owner')).toEqual(['Bob', null]);
+    expect(String((t.get('the new bob takes the old session') as { threw?: string }).threw)).toContain('another owner');
+    expect(String((t.get('the admin secret takes the old session') as { threw?: string }).threw)).toContain('another owner');
+    expect(t.get('and owns it')).toEqual(['Bob', true]);
   });
 }
 

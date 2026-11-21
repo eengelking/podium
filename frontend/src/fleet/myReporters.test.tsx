@@ -10,7 +10,7 @@ import { gridCellId, VIEW_KEY } from "./components/PeerRights";
 import type { PeerLevel, PeerLimitsView, PeerReporter, PeerRequestView, PeersRead } from "./peers";
 import type { RespondMe } from "./types";
 
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const T0 = 2_000_000;
 
 const HOUR = 3_600_000;
@@ -119,7 +119,7 @@ const flush = () =>
 
 function page(opts: { server?: ReturnType<typeof fakeServer>; me?: RespondMe; peersFlag?: boolean; myReporters?: boolean; sessions?: ReturnType<typeof makeSession>[] } = {}) {
   const server = opts.server ?? fakeServer();
-  const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" }), ...(opts.sessions ?? [])], features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
+  const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed", ownerId: 1 }), ...(opts.sessions ?? [])], features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
   const view = render(<FleetView myReporters={opts.myReporters ?? true} state={state} respondApi={respondApi(opts.me)} peersApi={server.api} />);
   return { server, ...view };
 }
@@ -196,7 +196,7 @@ describe("the top bar", () => {
 
   it("still leaves a wall left on from the fleet with Esc (#415)", async () => {
     const server = fakeServer();
-    const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": true } });
+    const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed", ownerId: 1 })], features: { "activity-feed": true, "peer-messaging": true } });
     const api = respondApi();
     localStorage.setItem("podium.shortcuts", "true");
     const { container, rerender } = render(<FleetView myReporters={false} state={state} respondApi={api} peersApi={server.api} />);
@@ -286,7 +286,7 @@ describe("the rail and the Activity panel around the page (#446)", () => {
 
   it("shows the whole fleet in the rail, and selects nothing there", async () => {
     const server = fakeServer();
-    const sessions = [makeSession({ id: "s-mac", name: "claude-dashboard", owner: "Ed" }), makeSession({ id: "s-kim", name: "kims-work", owner: "Kim" })];
+    const sessions = [makeSession({ id: "s-mac", name: "claude-dashboard", owner: "Ed", ownerId: 1 }), makeSession({ id: "s-kim", name: "kims-work", owner: "Kim", ownerId: 10 })];
     render(<FleetView myReporters state={stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": true } })} respondApi={respondApi()} peersApi={server.api} />);
     await flush();
     fireEvent.click(left());
@@ -522,7 +522,7 @@ describe("Your reporters", () => {
   });
 
   it("explains messaging in the harness the machine runs, from the sessions the console holds on it (#857)", async () => {
-    page({ sessions: [makeSession({ id: "s-oc", harness: "opencode", owner: "Ed", machine: { name: "win-lab", id: "k4" } })] });
+    page({ sessions: [makeSession({ id: "s-oc", harness: "opencode", owner: "Ed", ownerId: 1, machine: { name: "win-lab", id: "k4" } })] });
     await flush();
     const table = within(screen.getByRole("region", { name: "Table of your reporters" }));
     fireEvent.focus(within(table.getByText("win-lab").closest("tr")!).getByText("Off on the machine"));
@@ -530,7 +530,7 @@ describe("Your reporters", () => {
     expect(note).toHaveTextContent("In OpenCode there, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart.");
     expect(note).not.toHaveTextContent("Claude Code");
     cleanup();
-    page({ sessions: [makeSession({ id: "s-cc", harness: "claude-code", owner: "Ed", machine: { name: "win-lab", id: "k4" } })] });
+    page({ sessions: [makeSession({ id: "s-cc", harness: "claude-code", owner: "Ed", ownerId: 1, machine: { name: "win-lab", id: "k4" } })] });
     await flush();
     const again = within(screen.getByRole("region", { name: "Table of your reporters" }));
     fireEvent.focus(within(again.getByText("win-lab").closest("tr")!).getByText("Off on the machine"));
@@ -995,7 +995,7 @@ describe("cases", () => {
   });
 
   it("asks a signed-out person to sign in", async () => {
-    page({ me: { enabled: true, signedIn: false, name: null, admin: false } });
+    page({ me: { enabled: true, signedIn: false, name: null, id: null, admin: false } });
     await flush();
     expect(screen.getByText("Sign in to see your reporters")).toBeInTheDocument();
   });
@@ -1007,7 +1007,7 @@ describe("cases", () => {
   });
 
   it("says the admin secret has no reporters", async () => {
-    page({ me: { enabled: true, signedIn: true, name: "Admin", admin: true } });
+    page({ me: { enabled: true, signedIn: true, name: "Admin", id: null, admin: true } });
     await flush();
     expect(screen.getByText("The admin secret has no reporters")).toBeInTheDocument();
   });

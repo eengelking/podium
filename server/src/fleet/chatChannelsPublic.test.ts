@@ -334,7 +334,7 @@ describe('describing and removing a public channel', () => {
     expect(texts(await read(w.secretB, 'open-air'))).toEqual(['PUBLIC-LINE for everyone']);
     expect((await w.rootB.post(`${CH}/channels/open-air/reading`).set(H).send({})).status).toBe(400);
     expect(await w.fleet.chat.adminReads.list('public:open-air')).toEqual([]);
-    expect(await w.fleet.chat.adminReads.unseenFor('ed')).toEqual([]);
+    expect(await w.fleet.chat.adminReads.unseenFor(w.ed.person.id)).toEqual([]);
     for (const who of ['dev', 'tester', 'alex'] as const) expect(await noticesOf(w, who), who).toEqual([]);
     await settle();
     expect(await logKinds(w)).not.toContain('chat_admin_read');
@@ -651,7 +651,7 @@ describe('the privacy rule: a private message is never reachable through a publi
     return w;
   }
   const dmTotal = async (w: W) => ((await w.edB.get(CH)).body.directs as { messages: number }[]).reduce((n, d) => n + d.messages, 0);
-  const groupTotal = async (w: W) => (await w.fleet.chat.core.store.group.count({ owner: 'ed', groupId: 'ed' })) + (await w.fleet.chat.core.store.group.count({ owner: 'alex', groupId: 'alex' }));
+  const groupTotal = async (w: W) => (await w.fleet.chat.core.store.group.count({ ownerId: w.ed.person.id })) + (await w.fleet.chat.core.store.group.count({ ownerId: w.alex.person.id }));
   const none = (body: unknown) => { for (const p of PRIVATE) expect(JSON.stringify(body)).not.toContain(p); };
 
   it('returns no private text from any public channel route, for any name that is not a channel, and only the channel\'s own text for the one that is', async () => {
@@ -761,8 +761,8 @@ describe('starting a Direct Message from the picker (#1035)', () => {
     expect(r.status).toBe(200);
     const list = r.body.targets as T[];
     expect(list.map((t) => t.address)).toEqual(['dev@ed-mbp', 'Tester@ci-runner-01', 'review@alex-box']);
-    expect(list[0]).toEqual({ sessionId: 'sess-dev', name: 'dev', machine: 'ed-mbp', address: 'dev@ed-mbp', owner: 'Ed', own: true, status: 'running', waitReason: null, canMessage: true, why: null, needsApproval: false, link: null, thread: 'dm:person:ed|sess-dev' });
-    expect(list[2]).toMatchObject({ sessionId: 'sess-alex', owner: 'Alex', own: false, canMessage: true, needsApproval: true, link: 'none', thread: 'dm:person:ed|sess-alex' });
+    expect(list[0]).toEqual({ sessionId: 'sess-dev', name: 'dev', machine: 'ed-mbp', address: 'dev@ed-mbp', owner: 'Ed', own: true, status: 'running', waitReason: null, canMessage: true, why: null, needsApproval: false, link: null, thread: 'dm:person:1|sess-dev' });
+    expect(list[2]).toMatchObject({ sessionId: 'sess-alex', owner: 'Alex', own: false, canMessage: true, needsApproval: true, link: 'none', thread: 'dm:person:1|sess-alex' });
     const alex = (await targets(w.alexB)).body.targets as T[];
     expect(alex.map((t) => `${t.address}:${t.own}`)).toEqual(['review@alex-box:true', 'dev@ed-mbp:false', 'Tester@ci-runner-01:false']);
   });
@@ -801,7 +801,7 @@ describe('starting a Direct Message from the picker (#1035)', () => {
     expect(first.body).toMatchObject({ ok: true, message: { author: 'person', text: 'hello Tester' }, skipped: [], errors: [] });
     const listed = (await w.edB.get(CH)).body.directs as { thread: string; messages: number }[];
     expect(listed).toHaveLength(1);
-    expect(listed[0]).toMatchObject({ thread: 'dm:person:ed|sess-tester', messages: 1 });
+    expect(listed[0]).toMatchObject({ thread: 'dm:person:1|sess-tester', messages: 1 });
     expect(((await tester(w)).body.deliveries ?? []).map((d: { text?: string }) => d.text)).toEqual(['hello Tester']);
     expect((await w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'and again' })).status).toBe(202);
     expect(((await w.edB.get(CH)).body.directs as unknown[]).length).toBe(1);
@@ -935,7 +935,7 @@ describe('Chat reads in batches, not one query per channel (#1213)', () => {
     const pub = w.fleet.chat.core.store.public;
     const across = vi.spyOn(pub, 'mentionsAcross');
     const page = vi.spyOn(pub, 'page');
-    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ personId: w.ed.person.id, sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
     expect(across).toHaveBeenCalledTimes(1);
     expect(page).not.toHaveBeenCalled();
     page.mockClear();
@@ -943,7 +943,7 @@ describe('Chat reads in batches, not one query per channel (#1213)', () => {
     expect(await stateIn(w, 'general')).toEqual(['approval']);
     expect(await stateIn(w, 'three')).toEqual(['approval']);
     page.mockClear();
-    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['approval'], state: 'dropped', why: 'no' });
+    await w.fleet.chat.channels.acrossUpdate({ personId: w.ed.person.id, sessionId: 'sess-alex', from: ['approval'], state: 'dropped', why: 'no' });
     expect(page).not.toHaveBeenCalled();
     expect(await stateIn(w, 'general')).toEqual(['dropped']);
     expect(await stateIn(w, 'two')).toEqual(['working']);
@@ -956,14 +956,14 @@ describe('Chat reads in batches, not one query per channel (#1213)', () => {
     const pub = w.fleet.chat.core.store.public;
     const setMention = vi.spyOn(pub, 'setMention');
     const across = vi.spyOn(pub, 'mentionsAcross');
-    await w.fleet.chat.channels.acrossUpdate({ person: 'alex', sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
-    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-other', from: ['approval'], state: 'working', why: null });
-    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['held'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ personId: w.alex.person.id, sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ personId: w.ed.person.id, sessionId: 'sess-other', from: ['approval'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ personId: w.ed.person.id, sessionId: 'sess-alex', from: ['held'], state: 'working', why: null });
     expect(across).toHaveBeenCalledTimes(3);
     expect(setMention).not.toHaveBeenCalled();
     expect(await stateIn(w, 'two')).toEqual(['approval']);
     // The positive control: the same call with the right person, agent and state does find one, so the three misses above are not a store that finds nothing.
-    await w.fleet.chat.channels.acrossUpdate({ person: 'ed', sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
+    await w.fleet.chat.channels.acrossUpdate({ personId: w.ed.person.id, sessionId: 'sess-alex', from: ['approval'], state: 'working', why: null });
     expect(setMention).toHaveBeenCalledTimes(1);
     expect(await stateIn(w, 'two')).toEqual(['working']);
     setMention.mockRestore();

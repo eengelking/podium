@@ -6,7 +6,7 @@ import { TopBarSignIn } from "./components/SignIn";
 import { RespondError, type RespondApi } from "./respondApi";
 import type { RespondMe } from "./types";
 
-const OUT: RespondMe = { enabled: true, signedIn: false, name: "", admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: "", id: null, admin: false };
 const api = () => ({ me: vi.fn(async () => OUT) }) as unknown as RespondApi & { me: ReturnType<typeof vi.fn> };
 const flush = () =>
   act(async () => {
@@ -161,7 +161,7 @@ describe("focus after a successful sign-in (#636)", () => {
   it("moves to who is signed in, because the Sign in button it came from is gone", async () => {
     let signed = false;
     const a = {
-      me: vi.fn(async () => (signed ? { enabled: true, signedIn: true, name: "Ed", admin: false } : OUT)),
+      me: vi.fn(async () => (signed ? { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false } : OUT)),
       signIn: vi.fn(async () => {
         signed = true;
         return {};

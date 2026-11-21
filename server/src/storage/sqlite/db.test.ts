@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openDb, FleetDb } from './db.js';
+import { openDb, FleetDb, MIGRATIONS } from './db.js';
 import { PeopleStore } from './people.js';
 import type { SessionRow } from '../rows.js';
 
@@ -12,7 +12,7 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
     started_at: 1000, last_seen_at: 2000, ended_at: null, dropped_at: null, cwd: '/tmp/demo', project_root: null,
     repo_name: null, git_json: null, model: 'opus', effort: 'high', context_tokens: null, context_window: null,
     context_percent: null, cost_usd: 1.5, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, rate_limits_json: null,
-    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
+    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, owner_id: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -27,7 +27,7 @@ describe('openDb', () => {
     const db = openDb(':memory:');
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
     expect(tables).toEqual(expect.arrayContaining(['admin_log', 'agent_texts', 'agents', 'blowouts', 'events', 'groups', 'people', 'person_machines', 'peer_messages', 'peer_owner_settings', 'peer_requests', 'peer_rights', 'reporter_ignores', 'reporter_sessions', 'reporters', 'samples', 'schema_migrations', 'sessions', 'settings']));
-    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }, { version: 30 }, { version: 31 }, { version: 32 }, { version: 33 }, { version: 34 }, { version: 35 }, { version: 36 }, { version: 37 }, { version: 38 }, { version: 39 }, { version: 40 }, { version: 41 }, { version: 42 }, { version: 43 }, { version: 44 }, { version: 45 }, { version: 46 }, { version: 47 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }, { version: 30 }, { version: 31 }, { version: 32 }, { version: 33 }, { version: 34 }, { version: 35 }, { version: 36 }, { version: 37 }, { version: 38 }, { version: 39 }, { version: 40 }, { version: 41 }, { version: 42 }, { version: 43 }, { version: 44 }, { version: 45 }, { version: 46 }, { version: 47 }, { version: 48 }, { version: 49 }, { version: 50 }, { version: 51 }, { version: 52 }]);
     db.close();
   });
 
@@ -88,6 +88,7 @@ describe('openDb', () => {
     old.exec('ALTER TABLE sessions DROP COLUMN files_json');
     old.exec('ALTER TABLE sessions DROP COLUMN attached');
     old.exec('ALTER TABLE sessions DROP COLUMN detached_at');
+    old.exec('ALTER TABLE sessions DROP COLUMN owner_id');
     old.exec('ALTER TABLE sessions DROP COLUMN owner');
     old.exec('ALTER TABLE sessions DROP COLUMN machine_json');
     old.exec('ALTER TABLE sessions DROP COLUMN background_json');
@@ -107,6 +108,9 @@ describe('openDb', () => {
     old.exec('ALTER TABLE sessions DROP COLUMN signals_json');
     old.exec('ALTER TABLE agents DROP COLUMN model_label');
     old.exec('ALTER TABLE agents DROP COLUMN model_provider');
+    old.exec('DROP INDEX peer_owner_settings_owner_id');
+    for (const t of ['peer_owner_settings', 'peer_rights', 'peer_requests']) old.exec(`ALTER TABLE ${t} DROP COLUMN owner_id`);
+    old.exec('ALTER TABLE peer_messages DROP COLUMN owner_id');
     old.exec('ALTER TABLE peer_rights DROP COLUMN paused_by_admin');
     old.exec('ALTER TABLE peer_rights DROP COLUMN paused_by');
     old.exec('DROP INDEX peer_messages_hidden');
@@ -115,7 +119,10 @@ describe('openDb', () => {
     old.exec('ALTER TABLE peer_messages DROP COLUMN edited_at');
     old.exec('ALTER TABLE peer_messages DROP COLUMN deleted_at');
     old.exec('ALTER TABLE peer_messages DROP COLUMN author_id');
-    for (const t of ['group_messages', 'public_messages', 'chat_read_state', 'chat_admin_reads']) old.exec(`DROP TABLE ${t}`);
+    old.exec('ALTER TABLE peer_messages DROP COLUMN from_agent');
+    old.exec('ALTER TABLE peer_messages DROP COLUMN to_agent');
+    old.exec('DROP TABLE agent_ids');
+    for (const t of ['group_messages', 'public_messages', 'chat_read_state', 'chat_admin_reads', 'chat_admin_owed', 'public_channels']) old.exec(`DROP TABLE ${t}`);
     for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
       old.exec(`DROP INDEX ${t}_seq`);
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
@@ -124,7 +131,7 @@ describe('openDb', () => {
     old.exec('DELETE FROM schema_migrations WHERE version >= 2');
     old.close();
     const db = openDb(file);
-    expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }, { version: 30 }, { version: 31 }, { version: 32 }, { version: 33 }, { version: 34 }, { version: 35 }, { version: 36 }, { version: 37 }, { version: 38 }, { version: 39 }, { version: 40 }, { version: 41 }, { version: 42 }, { version: 43 }, { version: 44 }, { version: 45 }, { version: 46 }, { version: 47 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }, { version: 30 }, { version: 31 }, { version: 32 }, { version: 33 }, { version: 34 }, { version: 35 }, { version: 36 }, { version: 37 }, { version: 38 }, { version: 39 }, { version: 40 }, { version: 41 }, { version: 42 }, { version: 43 }, { version: 44 }, { version: 45 }, { version: 46 }, { version: 47 }, { version: 48 }, { version: 49 }, { version: 50 }, { version: 51 }, { version: 52 }]);
     expect(db.prepare("SELECT tool_calls, tool_counts_json FROM agents WHERE id = 'a'").get()).toEqual({ tool_calls: 7, tool_counts_json: null });
     expect(db.prepare("SELECT name, loop_json, files_json, attached, detached_at, owner, machine_json, cleared_from FROM sessions WHERE id = 's1'").get()).toEqual({ name: 'demo', loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, cleared_from: null });
     db.close();
@@ -186,7 +193,7 @@ describe('openDb', () => {
     const rotated = people.rotate(made.person.id);
     expect(rotated?.token).not.toBe(made.token);
     expect(people.findByKeyId('aabbccddeeff')?.name).toBe('Ada');
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 47 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 52 });
     db.close();
   });
 
@@ -274,7 +281,7 @@ describe('openDb', () => {
     a.close();
     const db = openDb(file);
     expect(db.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 47 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 52 });
     expect(db.prepare('SELECT name FROM sessions').all()).toEqual([{ name: 'demo' }]);
     expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
     db.close();
@@ -408,15 +415,15 @@ describe('openDb', () => {
     const f = new FleetDb(openDb(':memory:'));
     const people = new PeopleStore(f.db);
     const backend = people.createGroup('Backend');
-    people.createPerson('Priya N.', backend.id);
-    people.createPerson('Dana K.');
-    f.upsertSession(session({ id: 'a', owner: 'Priya N.', cost_usd: 2, started_at: 5000 }));
-    f.upsertSession(session({ id: 'b', owner: 'Priya N.', cost_usd: 3, started_at: 6000 }));
-    f.upsertSession(session({ id: 'c', owner: 'Dana K.', cost_usd: 1, started_at: 6000 }));
+    const { person: priya } = people.createPerson('Priya N.', backend.id);
+    const { person: dana } = people.createPerson('Dana K.');
+    f.upsertSession(session({ id: 'a', owner: 'Priya N.', owner_id: priya.id, cost_usd: 2, started_at: 5000 }));
+    f.upsertSession(session({ id: 'b', owner: 'Priya N.', owner_id: priya.id, cost_usd: 3, started_at: 6000 }));
+    f.upsertSession(session({ id: 'c', owner: 'Dana K.', owner_id: dana.id, cost_usd: 1, started_at: 6000 }));
     f.upsertSession(session({ id: 'd', owner: 'Admin', cost_usd: 0.5, started_at: 6000 }));
     f.upsertSession(session({ id: 'e', owner: null, cost_usd: 0.25, started_at: 6000 }));
-    f.upsertSession(session({ id: 'old', owner: 'Dana K.', cost_usd: 9, started_at: 10 }));
-    f.upsertSession(session({ id: 'unpriced', owner: 'Dana K.', cost_usd: null, started_at: 6000 }));
+    f.upsertSession(session({ id: 'old', owner: 'Dana K.', owner_id: dana.id, cost_usd: 9, started_at: 10 }));
+    f.upsertSession(session({ id: 'unpriced', owner: 'Dana K.', owner_id: dana.id, cost_usd: null, started_at: 6000 }));
     expect(f.costByOwnerSince(1000)).toEqual([
       { owner: 'Priya N.', group: 'Backend', costUsd: 5 },
       { owner: 'Dana K.', group: null, costUsd: 1 },
@@ -424,11 +431,32 @@ describe('openDb', () => {
       { owner: null, group: null, costUsd: 0.25 },
     ]);
     expect(f.costByOwnerSince(1000).reduce((n, r) => n + r.costUsd, 0)).toBe(f.costSince(1000));
-    expect(f.groupOfOwner('Priya N.')).toBe('Backend');
-    expect(f.groupOfOwner('Dana K.')).toBeNull();
-    expect(f.groupOfOwner('Admin')).toBeNull();
+    expect(f.groupOfOwner(priya.id)).toBe('Backend');
+    expect(f.groupOfOwner(dana.id)).toBeNull();
+    expect(f.groupOfOwner(priya.id + 1000)).toBeNull();
     expect(f.groupOfOwner(null)).toBeNull();
     f.close();
+  });
+});
+
+describe('the peer step that binds a person\'s end of a link to the id (#1284)', () => {
+  it('runs once: a second run leaves an id and a gone key as they are, and reads an all-digit name as a name on the first', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
+    tmpDirs.push(dir);
+    const file = path.join(dir, 'fleet.db');
+    const old = openDb(file, 49);
+    // Ids 1, 2 and 3: "a", "b" and a person called "1" (not the person with id 1).
+    for (const n of ['a', 'b', '1']) old.exec(`INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES ('${n}', '${n}', 'key${n}', '${'0'.repeat(64)}', 1000)`);
+    for (const k of ['person:a', 'person:1', 'person:zz']) old.exec(`INSERT INTO peer_rights (from_key, to_key, owner, level, paused, set_at) VALUES ('${k}', 'rk', 'a', 'send', 0, 5000)`);
+    old.close();
+    const db = openDb(file);
+    const keys = (): string[] => (db.prepare('SELECT from_key FROM peer_rights ORDER BY from_key').all() as { from_key: string }[]).map((r) => r.from_key);
+    // "a" is id 1, the person called "1" is id 3, and "zz" is nobody.
+    expect(keys()).toEqual(['person:1', 'person:3', 'person:gone:zz']);
+    MIGRATIONS.find((m) => m.version === 50)!.after!(db);
+    MIGRATIONS.find((m) => m.version === 51)!.after!(db);
+    expect(keys()).toEqual(['person:1', 'person:3', 'person:gone:zz']);
+    db.close();
   });
 });
 

@@ -11,7 +11,7 @@ import { Router, type Request, type RequestHandler, type Response } from 'expres
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -87,24 +87,31 @@ function readCookie(req: Request, name: string): string | null {
 
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
-/** Whether a mod's credential owns the session: a person's token their own sessions, the admin secret those owned by Admin. */
+/** Whether a mod's credential owns the session: a person's token their own sessions (by id, never by name: #1284), the admin secret those owned by Admin. */
 export function credentialOwns(id: Identity, row: SessionRow): boolean {
   if (row.owner === null) return false;
-  if (id.kind === 'person') return nameKey(id.person.name) === nameKey(row.owner);
+  if (id.kind === 'person') return row.owner_id !== null && row.owner_id === id.person.id;
   return id.kind === 'admin' && row.owner === ADMIN_OWNER;
 }
 
 /** Whether a signed-in viewer may respond to a session: its owner, or an Admin. A session owned by Admin needs an Admin. */
-export function viewerOwns(v: { name: string; admin: boolean }, row: SessionRow): boolean {
+export function viewerOwns(v: { personId: number | null; admin: boolean }, row: SessionRow): boolean {
   if (v.admin) return true;
-  return row.owner !== null && row.owner !== ADMIN_OWNER && nameKey(row.owner) === nameKey(v.name);
+  return row.owner_id !== null && v.personId !== null && row.owner_id === v.personId;
 }
 
 /** Whether the viewer owns the session outright: its owner, or an Admin for a session owned by Admin or by no one. An Admin on a person's session does not (#1251). */
-export function ownsOutright(v: { name: string; admin: boolean }, row: SessionRow): boolean {
+export function ownsOutright(v: { personId: number | null; admin: boolean }, row: SessionRow): boolean {
   // A session owned by Admin, or by no one, has no person to allow anything: an Admin responds to it as before.
   if (row.owner === ADMIN_OWNER || row.owner === null) return v.admin;
-  return row.owner !== null && nameKey(row.owner) === nameKey(v.name);
+  // Owned by a person: only that person's id owns it. One whose person was deleted (a name, no id) is nobody's.
+  return row.owner_id !== null && v.personId !== null && row.owner_id === v.personId;
+}
+
+/** Whether the viewer may open this session's file diffs: its owner by id, or the admin secret for a session the admin secret owns (#1284). */
+function ownsDiffs(v: { personId: number | null }, row: SessionRow): boolean {
+  if (row.owner_id !== null) return row.owner_id === v.personId;
+  return row.owner === ADMIN_OWNER && v.personId === null;
 }
 
 function answerError(res: Response, err: AnswerError): void {
@@ -383,7 +390,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
 
   browser.get('/me', asyncHandler(async (req, res) => {
     const v = signInEnabled() ? await viewerOf(req) : null;
-    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false, myUsage: myUsageEnabled() };
+    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, id: v?.personId ?? null, admin: v?.admin ?? false, myUsage: myUsageEnabled() };
     res.json(me);
   }));
 
@@ -402,7 +409,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     const format = req.query.format;
     if (format !== undefined && format !== 'csv' && format !== 'json') return void res.status(400).json({ ok: false, error: 'format must be json or csv' });
     try {
-      const reply = await runMyReport(reportDepsOf(fleet), v.name, name, req.query);
+      const reply = await runMyReport(reportDepsOf(fleet), { name: v.name, id: v.personId }, name, req.query);
       if (format === 'csv') sendReport(res, reply);
       else res.json(reply);
     } catch (err) {
@@ -499,7 +506,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     // Reading is an Admin's to do, and is told. Sending, a command and an answer are the owner's, or an Admin's the owner allowed (#1251).
     if (acts && !ownsOutright(v, row) && !(await fleet.adminAllowedForSession(row.id, true))) {
       await people?.log('respond_refused', `${v.name} was refused a send or an answer in ${row.name} (${shortId(row.id)}): ${row.owner} has not allowed it`, sourceOf(req), now(), v.actor);
-      await fleet.adminActs.onSession(v.name, 'respond_refused', row.id, fleet.peers.messages.live(row.id)?.machine);
+      await fleet.adminActs.onSession({ name: v.name, id: v.personId }, 'respond_refused', row.id, fleet.peers.messages.live(row.id)?.machine);
       refuse(req, res, 403, `${row.owner} has not allowed an Admin to respond. ${row.owner} can turn it on in My reporters.`, { owner: row.owner, code: 'admin-not-allowed' });
       return null;
     }
@@ -534,7 +541,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
     }
-    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+    if (!ownsDiffs(v, row)) {
       refuse(req, res, 403, 'not your session', { owner: row.owner });
       return;
     }
@@ -584,7 +591,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
     }
-    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+    if (!ownsDiffs(v, row)) {
       refuse(req, res, 403, 'not your session', { owner: row.owner });
       return;
     }
@@ -605,7 +612,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.get('/sessions/:id/asks/:askId', asyncHandler(async (req, res) => {
     const got = await browserSession(req, res);
     if (!got) return;
-    const detail = fleet.respond.detail(got.row.id, req.params.askId!, got.v.name, got.row.last_seen_at);
+    const detail = fleet.respond.detail(got.row.id, req.params.askId!, got.v.name, got.row.last_seen_at, got.v.personId);
     if (!detail) {
       res.status(404).json({ ok: false, error: 'unknown ask' });
       return;
@@ -625,7 +632,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.post('/sessions/:id/asks/:askId/answer', asyncHandler(async (req, res) => {
     const got = await browserSession(req, res, true);
     if (!got) return;
-    const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body);
+    const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body, got.v.personId);
     if (!out.ok) {
       if (out.err.status !== 400) logger.info('respond.refused', `podium: an answer to session ${got.row.id} was refused: ${out.err.error}`, { session_id: got.row.id, status: out.err.status, reason: out.err.error });
       answerError(res, out.err);
@@ -639,7 +646,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.post('/sessions/:id/messages', asyncHandler(async (req, res) => {
     const got = await browserSession(req, res, true);
     if (!got) return;
-    const out = fleet.respond.message(got.row.id, got.v.name, req.body, false, null, { via: 'console', adminOf: ownsOutright(got.v, got.row) ? null : got.row.owner });
+    const out = fleet.respond.message(got.row.id, got.v.name, req.body, false, null, { via: 'console', adminOf: ownsOutright(got.v, got.row) ? null : got.row.owner }, got.v.personId);
     if (!out.ok) {
       answerError(res, out.err);
       return;
@@ -660,7 +667,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'sign in to respond');
       return;
     }
-    const out = withSource(sourceOf(req), () => fleet.respond.discard(req.params.deliveryId!, v.name, v.admin));
+    const out = withSource(sourceOf(req), () => fleet.respond.discard(req.params.deliveryId!, v.name, v.admin, v.personId));
     if (out === 'unknown') res.status(404).json({ ok: false, error: 'unknown delivery' });
     else if (out === 'forbidden') refuse(req, res, 403, 'not your answer');
     else if (out === 'handed-over') res.status(409).json({ ok: false, error: 'handed over' });

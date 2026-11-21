@@ -5,8 +5,8 @@ import { MERGE_MS, shownCount } from './peerText.js';
 import { LOCKED_STATES, decideChange, isSentToAgent, mergesAsOne } from './peerEdit.js';
 
 const row = (over: Partial<MessageRow> = {}): MessageRow => ({
-  id: 'm1', owner: 'ed', link: 'l', fromKey: '', toKey: 'kb', fromSession: 'sa', toSession: 'sb', fromName: 'Ed', fromMachine: '', toName: 'beta', toMachine: 'box-b', text: 'hi', sentAt: 1000,
-  state: 'ready', stateAt: 1000, why: null, approved: false, author: 'person', authorId: 7, editedAt: null, deletedAt: null, ...over,
+  id: 'm1', owner: 'ed', ownerId: 1, link: 'l', fromKey: '', toKey: 'kb', fromSession: 'sa', toSession: 'sb', fromName: 'Ed', fromMachine: '', toName: 'beta', toMachine: 'box-b', text: 'hi', sentAt: 1000,
+  state: 'ready', stateAt: 1000, why: null, approved: false, author: 'person', authorId: 7, fromAgent: null, toAgent: null, editedAt: null, deletedAt: null, ...over,
 });
 
 describe('isSentToAgent', () => {

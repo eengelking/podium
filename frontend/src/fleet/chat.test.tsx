@@ -13,9 +13,9 @@ import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
 import type { Address, AdminRead, ChannelLink, ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
-const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", admin: true };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
+const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", id: null, admin: true };
 const T0 = new Date(2026, 9, 12, 14, 30).getTime();
 
 const agent = (sessionId: string, name: string, machine = "ed-mbp", over: Partial<Party> = {}): Party => ({ sessionId, name, machine, reporterKey: `k-${machine}`, kind: "agent", live: true, status: "running", ...over });
@@ -80,7 +80,7 @@ const cmsg = (id: string, text: string, over: Partial<ChannelMessage> = {}): Cha
 const dmsg = (id: string, from: Party, to: Party, text: string, over: Partial<DirectMessage> = {}): DirectMessage => ({
   id,
   author: from.kind === "person" ? "person" : "agent",
-  from: { kind: from.kind, sessionId: from.sessionId, name: from.name, machine: from.machine },
+  from: { kind: from.kind, sessionId: from.sessionId, personId: from.kind === "person" ? (from.name === "Ed" ? 1 : 2) : null, name: from.name, machine: from.machine },
   to: [{ sessionId: to.sessionId, name: to.name, machine: to.machine, state: "delivered", why: null }],
   text,
   sentAt: T0 - 500_000,
@@ -125,7 +125,7 @@ function world(over: Partial<Fake> = {}): Fake {
     overview: {
       enabled: true,
       serverTime: T0,
-      me: { name: "Ed", admin: false, person: true },
+      me: { id: 1, name: "Ed", admin: false, person: true },
       settings: { maxChars: 20000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false },
       channels: [channelOf("general"), channelOf("group", { mentions: 1, messages: 2 })],
       directs: [d1, d2, d3],
@@ -321,8 +321,8 @@ const flush = () =>
 function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean; sessions?: ReturnType<typeof makeSession>[] } = {}) {
   const chat = opts.chat ?? fakeChat();
   const sessions = [
-    makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-    makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
+    makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+    makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
     ...(opts.sessions ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
@@ -1487,7 +1487,7 @@ describe("commands in a message to your own agent (#1051, mockup/podium-chat-sec
   const type = (v: string) => fireEvent.change(box(), { target: { value: v } });
   const commands = () => screen.queryByRole("listbox", { name: "Commands" });
   const names = () => within(commands()!).getAllByRole("option").map((o) => o.querySelector(".cn")!.textContent);
-  const opencode = () => makeSession({ id: "s-notes", name: "infra-notes", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" }, capabilities: { context: false, effort: false, commands: ["compact"] } });
+  const opencode = () => makeSession({ id: "s-notes", name: "infra-notes", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" }, capabilities: { context: false, effort: false, commands: ["compact"] } });
 
   it("lists /clear and /compact on a slash, with the footer, and chooses with the arrow keys and Tab", async () => {
     page();
@@ -2644,7 +2644,7 @@ describe("the Chat button on the orchestrator page (#1067)", () => {
   const consoleWith = (peers: boolean) => {
     window.location.hash = "#/?open=s-dash";
     const state = stateFrom({
-      sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed" })],
+      sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1 })],
       features: { "activity-feed": true, "peer-messaging": peers },
     });
     return render(<FleetView respondApi={respondApi(ED)} peersApi={peersApi()} chatApi={fakeChat().api} state={state} />);

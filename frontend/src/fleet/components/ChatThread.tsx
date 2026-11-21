@@ -98,20 +98,20 @@ const QUIET_MS = 150;
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-/** Whether the viewer wrote this message: a channel says so itself; a Direct Message is yours when a person with your name sent it. */
-function mineOf(m: ThreadMessage, me: string): boolean {
+type MeId = Pick<ChatOverview["me"], "id">;
+
+/** Whether the viewer wrote this message: a channel says so itself; a Direct Message is yours when its author's person id is yours. Never by name: a newcomer may take a deleted person's name. */
+function mineOf(m: ThreadMessage, me: MeId): boolean {
   if (m.channel) return m.channel.mine;
   const d = m.direct!;
-  return (
-    d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase()
-  );
+  return d.from.kind === "person" && typeof me.id === "number" && d.from.personId === me.id;
 }
 
 /** The fields of a message both kinds share (#1269). */
 const bodyOf = (m: ThreadMessage) => (m.channel ?? m.direct)!;
 const deletedOf = (m: ThreadMessage): boolean => !!bodyOf(m).deletedAt;
 /** Whether one of your own messages has a menu: it stands, and the server either lets you change it or says why not. */
-const hasMenu = (m: ThreadMessage, me: string): boolean => mineOf(m, me) && !deletedOf(m) && (bodyOf(m).canChange === true || !!bodyOf(m).changeWhy);
+const hasMenu = (m: ThreadMessage, me: MeId): boolean => mineOf(m, me) && !deletedOf(m) && (bodyOf(m).canChange === true || !!bodyOf(m).changeWhy);
 /** Why one of your own messages cannot be edited or deleted now, or "" when it can. */
 function whyNot(m: ThreadMessage): string {
   const b = bodyOf(m);
@@ -120,7 +120,7 @@ function whyNot(m: ThreadMessage): string {
   return b.changeWhy ?? "This message cannot be changed.";
 }
 /** The note a deleted message leaves in its place. */
-const tombstone = (m: ThreadMessage, me: string): string => `This message was deleted by ${mineOf(m, me) ? "You" : m.channel ? m.channel.authorName : m.direct!.from.name} at ${hm(bodyOf(m).deletedAt ?? 0)}.`;
+const tombstone = (m: ThreadMessage, me: MeId): string => `This message was deleted by ${mineOf(m, me) ? "You" : m.channel ? m.channel.authorName : m.direct!.from.name} at ${hm(bodyOf(m).deletedAt ?? 0)}.`;
 const noPeriod = (s: string): string => { let n = s.length; while (n > 0 && ".!?".includes(s[n - 1]!)) n--; return s.slice(0, n); };
 
 /** Who sent a message, for the menu on its avatar: a person, or an agent with its session. You have none. The key is the one the members panel's row for the same sender has, behind `t:`. */
@@ -131,7 +131,7 @@ interface Sender {
   ref: string;
 }
 
-function senderOf(m: ThreadMessage, me: string): Sender | null {
+function senderOf(m: ThreadMessage, me: MeId): Sender | null {
   if (mineOf(m, me)) return null;
   if (m.channel) {
     const c = m.channel;
@@ -381,7 +381,7 @@ function Message({
 }: {
   m: ThreadMessage;
   all: ThreadMessage[];
-  me: string;
+  me: ChatOverview["me"];
   now: number;
   paused: boolean;
   owner: string;
@@ -433,7 +433,7 @@ function Message({
   ) : (
     <ChatAvatar
       kind={mine ? "you" : "person"}
-      name={mine ? me : name}
+      name={mine ? me.name : name}
       size={40}
     />
   );
@@ -650,8 +650,8 @@ export function ChatThread(p: ThreadProps) {
     t.messages.length,
     (i) => {
       const m = t.messages[i];
-      if (m && mineOf(m, o.me.name)) return; // yours opens its own menu, from the keys below
-      const sender = m && senderOf(m, o.me.name);
+      if (m && mineOf(m, o.me)) return; // yours opens its own menu, from the keys below
+      const sender = m && senderOf(m, o.me);
       if (!sender) return;
       const item = body.current?.querySelector<HTMLElement>(`[data-roving="${i}"]`);
       const r = (item?.querySelector(".ch-gut") ?? item)?.getBoundingClientRect();
@@ -660,9 +660,9 @@ export function ChatThread(p: ThreadProps) {
     {
       onKey: (e, i, onItem) => {
         const m = t.messages[i];
-        if (!onItem || !m || !mineOf(m, o.me.name) || p.readAs !== null || e.altKey || e.metaKey || e.ctrlKey) return false;
+        if (!onItem || !m || !mineOf(m, o.me) || p.readAs !== null || e.altKey || e.metaKey || e.ctrlKey) return false;
         const k = e.key;
-        const mine = t.messages.flatMap((x, n) => (mineOf(x, o.me.name) ? [n] : []));
+        const mine = t.messages.flatMap((x, n) => (mineOf(x, o.me) ? [n] : []));
         const here = mine.indexOf(i);
         if (ownNav.current && k === "Escape") {
           e.preventDefault();
@@ -690,7 +690,7 @@ export function ChatThread(p: ThreadProps) {
           else p.change.onDelete(m.id);
           return true;
         }
-        if ((k === "Enter" || k === "ContextMenu" || (k === "F10" && e.shiftKey)) && hasMenu(m, o.me.name)) {
+        if ((k === "Enter" || k === "ContextMenu" || (k === "F10" && e.shiftKey)) && hasMenu(m, o.me)) {
           e.preventDefault();
           openOwnMenu(i);
           return true;
@@ -708,7 +708,7 @@ export function ChatThread(p: ThreadProps) {
     const gone = !!b.deletedAt;
     const dl = m.channel ? channelDelivery(m.channel) : dmDelivery(m.direct!, t.head?.paused ?? p.direct?.paused ?? false, t.head?.owner ?? p.direct?.owner ?? o.me.name, undefined, (t.head?.cross ?? p.direct?.cross ?? null) !== null);
     const edited = !gone && b.editedAt ? ` (edited ${hm(b.editedAt)})` : "";
-    return `Your message, ${hm(m.at)}: ${noPeriod(gone ? tombstone(m, o.me.name) : b.text.trim())}${edited}. ${gone ? "" : `${noPeriod(dl.text)}. `}${whyNot(m) || "Press E to edit or Delete to delete."}`;
+    return `Your message, ${hm(m.at)}: ${noPeriod(gone ? tombstone(m, o.me) : b.text.trim())}${edited}. ${gone ? "" : `${noPeriod(dl.text)}. `}${whyNot(m) || "Press E to edit or Delete to delete."}`;
   };
   // A message of yours takes the focus from the keyboard (the box's Up, Up and Down among them), and says what it is.
   const toMessageAt = (i: number) => {
@@ -781,7 +781,7 @@ export function ChatThread(p: ThreadProps) {
   ) {
     const at = t.messages.findIndex((x) => x.id === was.newest);
     announce =
-      at >= 0 && t.messages.slice(at + 1).some((x) => !mineOf(x, o.me.name));
+      at >= 0 && t.messages.slice(at + 1).some((x) => !mineOf(x, o.me));
   }
   // A commit that draws what is not announced holds the list "off" for a moment, so a render right behind it does not turn it back on early.
   const hold = useRef(false);
@@ -961,7 +961,7 @@ export function ChatThread(p: ThreadProps) {
   const senderOpts = { mention: p.sel.kind === "channel" && !ro, reading: ro };
   const specOf = (s: Sender): MenuSpec => (s.person ? personMenu(s.name, senderOpts) : agentMenu(s.name, s.ref, agentState(p.sessions, s.ref, null, false), true, senderOpts));
   const openKey = p.menu?.startsWith("t:") ? p.menu.slice(2) : null;
-  const openSender = openKey ? (t.messages.map((m) => senderOf(m, o.me.name)).find((s) => s?.key === openKey) ?? null) : null;
+  const openSender = openKey ? (t.messages.map((m) => senderOf(m, o.me)).find((s) => s?.key === openKey) ?? null) : null;
   // The index of each message among the messages (a record, a day divider and the New line are not in the list's order).
   let at = 0;
   const msgAt = rows.map((r) => (r.k === "msg" ? at++ : -1));
@@ -972,6 +972,7 @@ export function ChatThread(p: ThreadProps) {
       ? membersOf(o, p.sessions, {
           group: p.sel.id === "group",
           person: ro ? p.readAs : o.me.person ? o.me.name : null,
+          mine: !ro && o.me.person,
         })
       : null;
   // A Direct Message names its parties with their avatars before the title: the two agents overlapped, a person and the agent, or one agent.
@@ -991,7 +992,7 @@ export function ChatThread(p: ThreadProps) {
     const box = e.target;
     if (e.key !== "ArrowUp" || e.defaultPrevented || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing) return;
     if (!(box instanceof HTMLTextAreaElement) || !box.closest(".ch-composer") || box.value !== "" || p.readAs !== null) return;
-    const last = t.messages.reduce((at, x, n) => (mineOf(x, o.me.name) ? n : at), -1);
+    const last = t.messages.reduce((at, x, n) => (mineOf(x, o.me) ? n : at), -1);
     if (last < 0) return;
     e.preventDefault();
     toMessageAt(last);
@@ -1010,7 +1011,7 @@ export function ChatThread(p: ThreadProps) {
           editing: p.change.editing?.id === m.id ? p.change.editing : null,
           onSave: (text) => p.change.onSave(m.id, text),
           onCancel: () => p.change.onCancel(m.id),
-          onContext: hasMenu(m, o.me.name) && p.change.editing?.id !== m.id
+          onContext: hasMenu(m, o.me) && p.change.editing?.id !== m.id
             ? (e) => {
                 e.preventDefault();
                 ownNav.current = true;
@@ -1166,16 +1167,16 @@ export function ChatThread(p: ThreadProps) {
                       all={t.messages}
                       cont={conts[i]!}
                       rove={roving.itemProps(msgAt[i]!)}
-                      own={ownOf(r.m, mineOf(r.m, o.me.name))}
+                      own={ownOf(r.m, mineOf(r.m, o.me))}
                       onSender={
-                        senderOf(r.m, o.me.name)
-                          ? (pos) => p.onMenu(`t:${senderOf(r.m, o.me.name)!.key}`, "context", pos)
+                        senderOf(r.m, o.me)
+                          ? (pos) => p.onMenu(`t:${senderOf(r.m, o.me)!.key}`, "context", pos)
                           : undefined
                       }
                       sessions={p.sessions}
                       people={o.people.map((x) => x.name)}
                       machineOf={machineOf}
-                      me={o.me.name}
+                      me={o.me}
                       now={p.now}
                       across={cross !== null}
                       heldBy={pause ? adminWho(pause.name) : undefined}

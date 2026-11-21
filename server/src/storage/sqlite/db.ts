@@ -6,7 +6,8 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { peerPersonKey } from '../chatRows.js';
+import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
+import { CHAT_IDS_DONE_KEY, idsOf, OWNED_PEER_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndKey, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
@@ -36,7 +37,188 @@ function fillAuthorIds(db: DatabaseSync): void {
   }
 }
 
-const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
+/**
+ * Gives every session that exists an agent id, oldest first so the numbers follow the order the sessions started (#1284), then binds each stored message to the agents of its two
+ * sessions. A person's end (`person:<name>`) has no agent and keeps NULL. A message whose session is gone is left NULL, so it is never matched to a newcomer.
+ */
+function fillAgentIds(db: DatabaseSync): void {
+  db.exec('INSERT OR IGNORE INTO agent_ids (session_id) SELECT id FROM sessions ORDER BY started_at, id');
+  db.exec('UPDATE peer_messages SET from_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.from_session) WHERE from_agent IS NULL');
+  db.exec('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
+}
+
+/**
+ * Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, which `nameKey` also writes. It is JS because SQL
+ * cannot fold a name the way `nameKey` does. A row whose owner matches no current person (the admin secret's, or a person since deleted) keeps no id: it belongs to nobody, and no
+ * newcomer who takes the name can claim it. A person is only given what was written after they existed (`people.created_at` is not after the row's `started_at` or `first_seen_at`), so a
+ * newcomer is not handed the sessions an earlier person of the same name left. Only rows without an id are written, so a run that is repeated adds nothing.
+ */
+function fillOwnerIds(db: DatabaseSync): void {
+  const people = peopleIndex(db);
+  if (people.size === 0) return;
+  for (const [table, at] of [['sessions', 'started_at'], ['reporters', 'first_seen_at']] as const) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`);
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner IS NOT NULL AND owner_id IS NULL ORDER BY owner`).all() as unknown as { owner: string }[]) {
+      const p = people.get(nameKey(r.owner));
+      if (p) set.run(p.id, r.owner, p.createdAt);
+    }
+  }
+}
+
+/** The people by folded name, with the time each was made, for the upgrade steps that bind rows to a person's id. */
+function peopleIndex(db: DatabaseSync): PersonIndex {
+  // order-insensitive: the rows are folded into a map by name.
+  return new Map((db.prepare('SELECT id, name_lower, created_at FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string; created_at: number }[]).map((r) => [r.name_lower, { id: r.id, createdAt: r.created_at }]));
+}
+
+/** True the first time it is called for `key` (an upgrade step's mark, `PEER_IDS_DONE_KEY` or `CHAT_IDS_DONE_KEY`), and writes the mark; false after, so the step's rewrite of name keys runs once. */
+function firstRun(db: DatabaseSync, key: string): boolean {
+  return Number(db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '1')").run(key).changes) > 0;
+}
+
+/**
+ * Binds the peer-messaging tables to a person by id (#1284). The rights, requests and messages that exist get the id of their owner, by the owner's folded name against `people.name_lower`
+ * (JS, because SQL cannot fold a name the way `nameKey` does); a row whose owner matches no person keeps none, so it belongs to nobody and a newcomer with the name cannot reach it. A person's
+ * end of a link (`person:<name>`) becomes `person:<id>`, or `person:gone:<name>` when no person has the name, in every column and link name that holds one. An owner's defaults are kept under
+ * the id (the table's key now holds it as text, never a name); a row whose name matches no person is dropped, because defaults nobody can read or write are not worth a key that a newcomer
+ * could meet. A row is only given to a person who existed when it was written (`people.created_at` is not after its `set_at`, `created_at` or `sent_at`), so a newcomer who takes a deleted person's
+ * name is not handed what the person left. The key rewrite goes through a marker so no new key is rewritten again within a run, and a mark in `settings` (`PEER_IDS_DONE_KEY`) makes the step run
+ * once: a key `person:5` is a person named "5" before it and the id 5 after it, and only the mark tells which, so a second run would read an id as a name.
+ */
+function fillPeerOwnerIds(db: DatabaseSync): void {
+  if (!firstRun(db, PEER_IDS_DONE_KEY)) return;
+  const people = peopleIndex(db);
+  const ids = idsOf(people);
+  for (const { table, at } of OWNED_PEER_TABLES) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`);
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`).all() as unknown as { owner: string }[]) {
+      const p = people.get(nameKey(r.owner));
+      if (p) set.run(p.id, r.owner, p.createdAt);
+    }
+  }
+  // The link names first, while the session columns still say which end is the person.
+  // order-insensitive: each link name is rewritten on its own rows, whatever the order.
+  const links = db.prepare("SELECT DISTINCT link, from_session, to_session FROM peer_messages WHERE substr(from_session, 1, 7) = 'person:' OR substr(to_session, 1, 7) = 'person:' ORDER BY link, from_session, to_session").all() as unknown as { link: string; from_session: string; to_session: string }[];
+  for (const l of links) {
+    const end = l.from_session.startsWith('person:') ? l.from_session : l.to_session;
+    const next = renameLinkEnd(l.link, end, personEndKey(end, ids));
+    if (next !== null && next !== l.link) db.prepare('UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?)').run(next, l.link, l.from_session, l.to_session);
+  }
+  for (const { table, columns } of PERSON_END_COLUMNS) {
+    for (const col of columns) {
+      // order-insensitive: each old key is moved to its new one, through a marker, so a new key is never taken for an old one.
+      const olds = db.prepare(`SELECT DISTINCT ${col} AS k FROM ${table} WHERE substr(${col}, 1, 7) = 'person:' ORDER BY ${col}`).all() as unknown as { k: string }[];
+      let moved = false;
+      for (const { k } of olds) {
+        const to = personEndKey(k, ids);
+        if (to === k) continue;
+        db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(`~${to}`, k);
+        moved = true;
+      }
+      if (moved) db.prepare(`UPDATE ${table} SET ${col} = substr(${col}, 2) WHERE substr(${col}, 1, 8) = '~person:'`).run();
+    }
+  }
+  // order-insensitive: the rows are all dropped and written again, whatever the order.
+  const settings = db.prepare('SELECT owner_lower, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IS NULL ORDER BY owner_lower').all() as unknown as { owner_lower: string; trust: number; on_request: string; new_send: string; limits_json: string | null }[];
+  db.prepare('DELETE FROM peer_owner_settings WHERE owner_id IS NULL').run();
+  for (const s of settings) {
+    const id = ids.get(s.owner_lower);
+    if (id !== undefined) db.prepare('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)').run(String(id), id, s.trust, s.on_request, s.new_send, s.limits_json);
+  }
+}
+
+/**
+ * Binds the Chat data the older server kept under a person's NAME to the person's id (#1284): a person's group channel (`group_messages.owner`), their read counts (`chat_read_state.person`), the
+ * Admin records they are owed (`chat_admin_owed.person_key` and the `people` and `seen` lists of `chat_admin_reads`), the channels they opened (`public_channels.created_by`), and the names inside the
+ * thread names (`group:`, `list:`, `act:`) and flag scopes (`settings`, `chat.flag.`). It is JS because SQL cannot fold a name the way `nameKey` does. A row whose name matches no current person keeps no id
+ * and is not handed to anyone: a newcomer who takes the name finds none of it. A person only gets what was written after they existed (a row older than the person is not theirs), so a newcomer is not
+ * credited with the messages of an earlier person of the same name, and the same check clears an author id #1269 gave a message that predates the person it names. Every step writes only what still holds a name,
+ * so a run that is repeated adds nothing. Every name in a thread name or scope is read as a name, an all-digit one included (`group:42` is the person called "42" before the step and the person with
+ * id 42 after it), as the peer step reads `person:42`; a mark in `settings` (`CHAT_IDS_DONE_KEY`) makes the step run once, so an id is never read as a name.
+ */
+function fillChatPersonIds(db: DatabaseSync): void {
+  if (!firstRun(db, CHAT_IDS_DONE_KEY)) return;
+  const people = peopleIndex(db);
+  if (people.size === 0) return;
+  const setGroup = db.prepare('UPDATE group_messages SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND created_at >= ?');
+  // order-insensitive: each owner name is written on its own rows, whatever the order.
+  for (const r of db.prepare('SELECT DISTINCT owner FROM group_messages WHERE owner_id IS NULL ORDER BY owner').all() as unknown as { owner: string }[]) {
+    const p = people.get(nameKey(r.owner));
+    if (p) setGroup.run(p.id, r.owner, p.createdAt);
+  }
+  for (const p of people.values()) {
+    for (const table of ['group_messages', 'public_messages']) db.prepare(`UPDATE ${table} SET author_id = NULL WHERE author_id = ? AND created_at < ?`).run(p.id, p.createdAt);
+  }
+  // order-insensitive: each channel is written on its own row.
+  for (const r of db.prepare("SELECT name, created_by, created_at FROM public_channels WHERE created_by_id IS NULL AND created_by <> '' ORDER BY name").all() as unknown as { name: string; created_by: string; created_at: number }[]) {
+    const p = people.get(nameKey(r.created_by));
+    if (p && p.createdAt <= r.created_at) db.prepare('UPDATE public_channels SET created_by_id = ? WHERE name = ?').run(p.id, r.name);
+  }
+  // The thread names inside the records, then the rows that key a person by name: read counts and what is owed. Those two are rewritten whole, because their name key is part of the primary key.
+  // order-insensitive: each thread is renamed on its own rows, whatever the order.
+  for (const r of db.prepare('SELECT DISTINCT thread FROM chat_admin_reads ORDER BY thread').all() as unknown as { thread: string }[]) {
+    const to = threadWithId(r.thread, people);
+    if (to) db.prepare('UPDATE chat_admin_reads SET thread = ? WHERE thread = ?').run(to, r.thread);
+  }
+  // order-insensitive: each read count is rewritten under its own new key; two old rows never share one.
+  const state = db.prepare('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id IS NULL ORDER BY person, thread').all() as unknown as { person: string; thread: string; last_read: string | null; unread: number; mentions: number; updated_at: number }[];
+  db.exec('DELETE FROM chat_read_state WHERE person_id IS NULL');
+  for (const r of state) {
+    const p = people.get(nameKey(r.person));
+    const thread = threadWithId(r.thread, people);
+    if (!p || thread === '') continue;
+    db.prepare('INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p.id), p.id, thread ?? r.thread, r.last_read, r.unread, r.mentions, r.updated_at);
+  }
+  // order-insensitive: each owed row is rewritten under its own new key; two old rows never share one.
+  const owed = db.prepare('SELECT person_key, thread, admin_key, started_at FROM chat_admin_owed WHERE person_id IS NULL ORDER BY person_key, thread, admin_key, started_at').all() as unknown as { person_key: string; thread: string; admin_key: string; started_at: number }[];
+  db.exec('DELETE FROM chat_admin_owed WHERE person_id IS NULL');
+  for (const r of owed) {
+    const p = people.get(nameKey(r.person_key));
+    if (!p) continue;
+    const thread = threadWithId(r.thread, people);
+    db.prepare('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p.id), p.id, thread || r.thread, r.admin_key, r.started_at);
+  }
+  // order-insensitive: each record is rewritten on its own key.
+  for (const r of db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' OR seen <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[]) {
+    const ps = listWithIds(r.people, people);
+    const ss = listWithIds(r.seen, people);
+    if (ps !== null || ss !== null) db.prepare('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(ps ?? r.people, ss ?? r.seen, r.thread, r.admin_key, r.started_at);
+  }
+  // order-insensitive: each flag is renamed or dropped on its own key.
+  for (const r of db.prepare("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key").all() as unknown as { key: string }[]) {
+    const to = flagScopeWithId(r.key.slice('chat.flag.'.length), people);
+    if (to === null) continue;
+    if (to === '') db.prepare('DELETE FROM settings WHERE key = ?').run(r.key);
+    else db.prepare('UPDATE settings SET key = ? WHERE key = ?').run(`chat.flag.${to}`, r.key);
+  }
+}
+
+/** The daily tables that carry a person (#1284): their rows are bound to `people.id` by `owner_id`, with 0 for no person. `group_name` is on every one of them but skills and failures. */
+const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const;
+
+/**
+ * Gives the daily rows that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, as `fillOwnerIds` does for sessions. A row whose owner matches no
+ * current person (the admin secret's, or a person since deleted) keeps 0 and loses its group: it is counted in the fleet's figures and in no person's or group's. A person is only given the rows of
+ * the day they were made and after (`day` is not before `personFirstDay`), so a newcomer who takes a deleted person's name is not handed that person's spend. Only rows with no id are
+ * written, so a run that is repeated adds nothing.
+ */
+function fillDailyOwnerIds(db: DatabaseSync): void {
+  const people = peopleIndex(db);
+  for (const table of OWNED_DAILY) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0 AND day >= ?`);
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`).all() as unknown as { owner: string }[]) {
+      const p = people.get(nameKey(r.owner));
+      if (p) set.run(p.id, r.owner, personFirstDay(p.createdAt));
+    }
+    if (table !== 'failures_daily' && table !== 'skills_daily') db.exec(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
+  }
+}
+
+/** The migrations, in order. Exported so a test can run a step's `after` hook a second time. */
+export const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
   {
     version: 1,
     sql: `
@@ -655,6 +837,104 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE INDEX IF NOT EXISTS conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
 CREATE INDEX IF NOT EXISTS conversation_messages_created ON conversation_messages(created_at);`,
   },
+  {
+    version: 48,
+    // Every agent has an id the server gives it, never reused (#1284). `id` is an auto-increment key, so a number is never handed out twice even after its row's session is deleted
+    // (no foreign key, and rows are never removed); `session_id` is unique, so one session has one id and a new session (a `/clear` makes one) gets a new id, whatever name it takes.
+    // `peer_messages.from_agent` and `to_agent` bind a message to the agent it was written by and aimed at (NULL for a person's end). The sessions that exist are given ids in the order
+    // they started, and the messages the ids of their sessions, by `fillAgentIds`. The same step is PostgreSQL step 24 and MariaDB step 24.
+    sql: `
+CREATE TABLE IF NOT EXISTS agent_ids (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE);
+ALTER TABLE peer_messages ADD COLUMN from_agent INTEGER;
+ALTER TABLE peer_messages ADD COLUMN to_agent INTEGER;`,
+    after: fillAgentIds,
+  },
+  {
+    version: 49,
+    // A session and a reporter belong to a person by id, never by name (#1284): `owner_id` is `people.id` (never reused, no foreign key), so a person who is deleted leaves rows that name
+    // nobody and a newcomer with the same name inherits none of them. `owner` stays as the display text. NULL for the admin secret's rows and for a row whose owner matches no person;
+    // `fillOwnerIds` gives the others their person's id. The same step is PostgreSQL step 25 and MariaDB step 25.
+    sql: `
+ALTER TABLE sessions ADD COLUMN owner_id INTEGER;
+ALTER TABLE reporters ADD COLUMN owner_id INTEGER;`,
+    after: fillOwnerIds,
+  },
+  {
+    version: 50,
+    // The peer-messaging tables belong to a person by id, never by name (#1284): `owner_id` is `people.id` on the rights, requests and messages, and the owner defaults are found by it. `owner` stays as
+    // display text. NULL for a row whose owner matches no person. `fillPeerOwnerIds` gives the others their person's id, rewrites a person's end of a link (`person:<name>`) to `person:<id>`, and rekeys the
+    // defaults. The same step is PostgreSQL step 26 and MariaDB step 26.
+    sql: `
+ALTER TABLE peer_rights ADD COLUMN owner_id INTEGER;
+ALTER TABLE peer_requests ADD COLUMN owner_id INTEGER;
+ALTER TABLE peer_messages ADD COLUMN owner_id INTEGER;
+ALTER TABLE peer_owner_settings ADD COLUMN owner_id INTEGER;
+CREATE INDEX IF NOT EXISTS peer_owner_settings_owner_id ON peer_owner_settings(owner_id);`,
+    after: fillPeerOwnerIds,
+  },
+  {
+    version: 51,
+    // Chat belongs to a person by id, never by name (#1284), as sessions and reporters do (49): a person's group channel (`group_messages.owner_id`), their read counts and the Admin records
+    // they are owed (`person_id`, with the older name key beside it now holding `#<id>`), and the channel they opened (`public_channels.created_by_id`). `people.id` is never reused and has no
+    // foreign key, so a person who is deleted leaves rows that name nobody and a newcomer with the same name inherits none of them. NULL for a row whose name matched no person.
+    // `fillChatPersonIds` gives the rest their person's id and rewrites the names inside thread names, flag scopes and the Admin records' `people` lists. The same step is PostgreSQL step 27 and MariaDB step 27.
+    sql: `
+ALTER TABLE group_messages ADD COLUMN owner_id INTEGER;
+CREATE INDEX group_messages_owner ON group_messages(owner_id, created_at, seq);
+ALTER TABLE chat_read_state ADD COLUMN person_id INTEGER;
+CREATE INDEX chat_read_state_person ON chat_read_state(person_id, thread);
+ALTER TABLE chat_admin_owed ADD COLUMN person_id INTEGER;
+CREATE INDEX chat_admin_owed_person ON chat_admin_owed(person_id, thread);
+ALTER TABLE public_channels ADD COLUMN created_by_id INTEGER;`,
+    after: fillChatPersonIds,
+  },
+  {
+    version: 52,
+    // The daily rows that name a person are bound to the person by id (#1284), as sessions are in migration 49: `owner_id` is `people.id` (never reused, no foreign key), and 0 is no person (the
+    // admin secret, or a person who was deleted). A row's key gains it, so a person deleted and a newcomer who takes the name keep apart their rows of one day; SQLite cannot change a key, so each
+    // table is made again and its rows copied. `owner` stays as the display text. `fillDailyOwnerIds` gives the rows of people that exist their id and takes the group off the others. The same
+    // step is PostgreSQL step 28 and MariaDB step 28.
+    sql: `
+CREATE TABLE usage_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, model TEXT NOT NULL, project TEXT NOT NULL,
+  sessions INTEGER NOT NULL, agents INTEGER NOT NULL, cost_usd REAL NOT NULL,
+  unpriced_sessions INTEGER NOT NULL, tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, model, project)
+);
+INSERT INTO usage_daily_new (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw)
+  SELECT day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw FROM usage_daily;
+DROP TABLE usage_daily;
+ALTER TABLE usage_daily_new RENAME TO usage_daily;
+CREATE TABLE failures_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, tool TEXT NOT NULL, count INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, class, tool)
+);
+INSERT INTO failures_daily_new (day, owner, class, tool, count) SELECT day, owner, class, tool, count FROM failures_daily;
+DROP TABLE failures_daily;
+ALTER TABLE failures_daily_new RENAME TO failures_daily;
+CREATE TABLE person_sessions_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, harness)
+);
+INSERT INTO person_sessions_daily_new (day, owner, group_name, harness, sessions) SELECT day, owner, group_name, harness, sessions FROM person_sessions_daily;
+DROP TABLE person_sessions_daily;
+ALTER TABLE person_sessions_daily_new RENAME TO person_sessions_daily;
+CREATE TABLE skills_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, harness TEXT NOT NULL, skill TEXT NOT NULL, sessions INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, harness, skill)
+);
+INSERT INTO skills_daily_new (day, owner, harness, skill, sessions) SELECT day, owner, harness, skill, sessions FROM skills_daily;
+DROP TABLE skills_daily;
+ALTER TABLE skills_daily_new RENAME TO skills_daily;
+CREATE TABLE person_places_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, sessions INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, harness, project, branch)
+);
+INSERT INTO person_places_daily_new (day, owner, group_name, harness, project, branch, sessions) SELECT day, owner, group_name, harness, project, branch, sessions FROM person_places_daily;
+DROP TABLE person_places_daily;
+ALTER TABLE person_places_daily_new RENAME TO person_places_daily;`,
+    after: fillDailyOwnerIds,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -831,7 +1111,7 @@ export class FleetDb {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.t < :sec AND m.cost_usd IS NOT NULL ORDER BY m.t DESC LIMIT 1),
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
-       FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
+       FROM sessions s LEFT JOIN people p ON p.id = s.owner_id LEFT JOIN groups g ON g.id = p.group_id
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
        ORDER BY s.id`,
     ).all({ since, sec: Math.floor(since / 1000) }) as unknown as (CostRow & {
@@ -936,20 +1216,20 @@ export class FleetDb {
     return [...by.values()].sort((a, b) => b.costUsd - a.costUsd || (a.owner ?? '').localeCompare(b.owner ?? ''));
   }
 
-  /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
-  groupOfOwner(owner: string | null): string | null {
-    if (owner === null) return null;
-    const r = this.stmt('SELECT g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name = ?').get(owner) as { grp: string } | undefined;
+  /** The group a session's owner is in, by the owner's `people.id` (#1284); null for the admin secret, a person who was deleted (no id) or a person with no group. */
+  groupOfOwner(ownerId: number | null): string | null {
+    if (ownerId === null) return null;
+    const r = this.stmt('SELECT g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.id = ?').get(ownerId) as { grp: string } | undefined;
     return r?.grp ?? null;
   }
 
   /** `groupOfOwner` for many owners (#906). */
-  groupsOfOwners(owners: (string | null)[]): Map<string | null, string | null> {
-    const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
-    for (const part of pieces([...new Set(owners.filter((o): o is string => o !== null))])) {
-      // order-insensitive: the rows are put in a map by the owner's name.
-      const rows = this.many(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part) as unknown as { name: string; grp: string }[];
-      for (const r of rows) out.set(r.name, r.grp);
+  groupsOfOwners(ownerIds: (number | null)[]): Map<number | null, string | null> {
+    const out = new Map<number | null, string | null>(ownerIds.map((o) => [o, null]));
+    for (const part of pieces([...new Set(ownerIds.filter((o): o is number => o !== null))])) {
+      // order-insensitive: the rows are put in a map by the owner's id.
+      const rows = this.many(`SELECT p.id AS id, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.id IN (${marks(part.length)})`, part) as unknown as { id: number; grp: string }[];
+      for (const r of rows) out.set(r.id, r.grp);
     }
     return out;
   }

@@ -18,6 +18,8 @@ The server stores nothing new about people. It adds three things:
   `userName`.
 - `SessionView.ownerGroup`, joined from the people and groups tables by the owner's exact name when the view is
   built.
+- `SessionView.ownerId` (#1284), the owner's `people.id`, and `me.id` from `GET /respond/me`. Whose a session is
+  is decided by comparing the two, never by name; a session whose person was deleted carries null and is no one's.
 - `Kpis.costTodayByOwner`, the `costToday` sum split by owner with each owner's group.
 
 **What the browser does**
@@ -27,8 +29,8 @@ The server stores nothing new about people. It adds three things:
   sessions is live.
 - The view switches on when any live session's owner is a person (not `Admin`, not null).
 - Who is looking comes from the browser's respond sign-in (`useRespond`, `GET /respond/me`). `FleetView` is
-  wrapped in `RespondProvider` so the wall can read it. A signed-in name that is not `Admin` is "me": the Me
-  wall, the "you" tag, and the viewer's band first.
+  wrapped in `RespondProvider` so the wall can read it. A signed-in person (not `Admin`) is "me", and their sessions are
+  the ones whose `ownerId` equals `me.id`: the Me wall, the "you" tag, and the viewer's band first.
 - The other choices are in `localStorage` under `podium.people`. The old `podium.me` is no longer read.
 - The people controls are `PeopleCluster` in `components/People.tsx`, drawn by `Toolbar` in `components/Wall.tsx`
   in the same row as the filters. `fleet.css` narrows that row with container queries on the toolbar's own width

@@ -3,7 +3,6 @@
 // nothing here can reach a group or a Direct Message, and `chatSeparation.test.ts` holds this file to that. A person or an Admin opens one; its opener or an
 // Admin edits the description; only an Admin removes one. An Admin who edits or removes a channel somebody else opened tells that person, in words, with who
 // did it, in each of their live reporter sessions (PROJECT.md "An Admin Never Reads in Silence": an Admin's power to stop things is always told).
-import { ADMIN_OWNER, nameKey } from '../storage/rows.js';
 import { channelKey, linkRef, linkText } from '../storage/chatRows.js';
 import type { PublicChannel, PublicChannelLinkKind, PublicChannelOutcome } from '../storage/types.js';
 import type { AdminReads } from './chatAdminReads.js';
@@ -24,7 +23,8 @@ export class PublicChannels {
 
   /** Whether the viewer may change this channel's description: the person who opened it, or an Admin. */
   canEdit(viewer: ChatViewer, c: PublicChannel): boolean {
-    return viewer.admin || (viewer.personId !== null && c.createdBy !== '' && c.createdBy === nameKey(viewer.name));
+    // The opener is a person by id (#1284): a person who takes a deleted opener's name does not own the channel.
+    return viewer.admin || (viewer.personId !== null && c.createdById !== null && c.createdById === viewer.personId);
   }
 
   /** The refusal for a store's answer, in the words the New channel form shows. `name` and `link` are what was asked, to name what is already there. */
@@ -68,7 +68,7 @@ export class PublicChannels {
     if (viewer.personId === null && !viewer.admin) return fail(403, 'Only a signed-in person or an Admin can open a channel.');
     const asked = this.shape(body);
     if ('ok' in asked) return asked;
-    const out = await this.store.channels.create({ name: asked.name, description: asked.description, link: asked.link, createdBy: viewer.name }, this.core.host.now());
+    const out = await this.store.channels.create({ name: asked.name, description: asked.description, link: asked.link, createdBy: viewer.name, createdById: viewer.personId }, this.core.host.now());
     if (!out.ok) return this.refusal(out, asked);
     this.core.onEvent({ kind: 'channel_opened', channel: out.channel.name, by: viewer.actor });
     this.core.signal({ scope: 'public', owner: null });
@@ -112,7 +112,7 @@ export class PublicChannels {
 
   /** An Admin did something to a channel somebody else opened: every live session of that person says who did what. Nothing for the Admin's own channel or one whose opener is gone. */
   private tellOpener(viewer: ChatViewer, c: PublicChannel, what: string): void {
-    if (!viewer.admin || c.createdBy === '' || c.createdBy === nameKey(ADMIN_OWNER) || c.createdBy === nameKey(viewer.name)) return;
-    for (const sessionId of this.reads.sessionsOf(c.createdBy)) this.reads.tell(sessionId, `${this.reads.who(viewer)} ${what}.`);
+    if (!viewer.admin || c.createdById === null || c.createdById === viewer.personId) return;
+    for (const sessionId of this.reads.sessionsOf(c.createdById)) this.reads.tell(sessionId, `${this.reads.who(viewer)} ${what}.`);
   }
 }

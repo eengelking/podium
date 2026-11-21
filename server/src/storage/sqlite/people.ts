@@ -3,7 +3,8 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 import { stripFormat } from '../peerText.js';
-import { withoutPerson } from '../chatRows.js';
+import { personKeyOf } from '../../fleet/peerTypes.js';
+import { FLAG_PREFIX, isFlagOfPerson, withoutPerson } from '../chatRows.js';
 import { fillOwed } from './chat.js';
 import { removePersonOf } from './conversations.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
@@ -164,6 +165,11 @@ export class PeopleStore {
     try {
       for (const p of found) {
         this.stmt('DELETE FROM people WHERE id = ?').run(p.id);
+        // Their sessions and reporters keep the name as text but are no one's now (#1284): a new person who takes the name owns none of them.
+        this.stmt('UPDATE sessions SET owner_id = NULL WHERE owner_id = ?').run(p.id);
+        this.stmt('UPDATE reporters SET owner_id = NULL WHERE owner_id = ?').run(p.id);
+        // Their daily rows keep the id, which no one holds now, and lose the group they were counted in, so their spend is in the fleet's figures and in no group's.
+        for (const table of ['usage_daily', 'person_sessions_daily', 'person_places_daily']) this.stmt(`UPDATE ${table} SET group_name = '' WHERE owner_id = ?`).run(p.id);
         this.forgetChat(p.name, p.id);
       }
       this.db.exec('COMMIT');
@@ -175,36 +181,38 @@ export class PeopleStore {
   }
 
   /**
-   * Everything Chat and the peer stores keep under a deleted person's name (#1051): their group channel, read counts, direct messages (the ones they own
-   * and the ones with their `person:<name>` end), links and requests, and their owner defaults. A new person of the same name starts with none of it.
+   * Everything Chat and the peer stores keep for a deleted person (#1051): their group channel, read counts, direct messages (the ones they own
+   * and the ones with their `person:<id>` end), links and requests, and their owner defaults. The peer rows go by the person's id, never the name (#1284), and
+   * a new person of the same name starts with none of it.
    * Sessions, spend and the Admin log keep the name as text, and so does General, a channel for everyone.
    */
   private forgetChat(name: string, personId: number): void {
-    const key = nameKey(name);
     // The conversations of people and agents (#1278): they leave each one, and one left with no person goes with its messages.
     removePersonOf(this.db, personId);
-    const pk = `person:${key}`;
-    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
-      const owners = (this.db.prepare(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`).all() as unknown as { owner: string }[]).map((r) => r.owner).filter((o) => nameKey(o) === key);
-      for (const o of owners) this.db.prepare(`DELETE FROM ${table} WHERE owner = ?`).run(o);
-    }
+    const pk = personKeyOf(personId);
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests', 'peer_owner_settings']) this.db.prepare(`DELETE FROM ${table} WHERE owner_id = ?`).run(personId);
     this.db.prepare('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?').run(pk, pk);
     this.db.prepare('DELETE FROM peer_rights WHERE from_key = ?').run(pk);
     this.db.prepare('DELETE FROM peer_requests WHERE from_key = ?').run(pk);
-    this.db.prepare('DELETE FROM peer_owner_settings WHERE owner_lower = ?').run(key);
-    this.db.prepare('DELETE FROM group_messages WHERE owner = ?').run(key);
+    // What Chat keeps for the person is found by their id (#1284), never by their name: a new person of the same name has a different id and starts with none of it.
+    this.db.prepare('DELETE FROM group_messages WHERE owner_id = ?').run(personId);
     // The channels they opened stay, public like General, but no longer name them as the opener, so a new person of the same name cannot edit them (#1035).
-    this.db.prepare("UPDATE public_channels SET created_by = '' WHERE created_by = ?").run(key);
-    this.db.prepare('DELETE FROM chat_read_state WHERE person = ?').run(key);
+    this.db.prepare('UPDATE public_channels SET created_by_id = NULL WHERE created_by_id = ?').run(personId);
+    this.db.prepare('DELETE FROM chat_read_state WHERE person_id = ?').run(personId);
+    // Their own flags (a paused or disconnected group or channel) go too, so a new person of the same name does not start paused.
+    // order-insensitive: each flag is deleted on its own key.
+    for (const s of this.db.prepare("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key").all() as unknown as { key: string }[]) {
+      if (isFlagOfPerson(s.key.slice(FLAG_PREFIX.length), personId)) this.db.prepare('DELETE FROM settings WHERE key = ?').run(s.key);
+    }
     // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
     // The records still owed to this person are found by the person (#1061); one they have already seen is not owed and stays by retention.
     fillOwed(this.db);
     const owed = this.db
-      .prepare('SELECT r.thread, r.admin_key, r.started_at, r.people, r.seen FROM chat_admin_owed o JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at WHERE o.person_key = ? ORDER BY r.thread, r.started_at, r.admin_key')
-      .all(key) as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[];
-    this.db.prepare('DELETE FROM chat_admin_owed WHERE person_key = ?').run(key);
+      .prepare('SELECT r.thread, r.admin_key, r.started_at, r.people, r.seen FROM chat_admin_owed o JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at WHERE o.person_id = ? ORDER BY r.thread, r.started_at, r.admin_key')
+      .all(personId) as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[];
+    this.db.prepare('DELETE FROM chat_admin_owed WHERE person_id = ?').run(personId);
     for (const r of owed) {
-      const out = withoutPerson(r, key);
+      const out = withoutPerson(r, personId);
       if (out === 'none') continue;
       if (out === 'drop') this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at);
       else this.db.prepare('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(out.people, out.seen, r.thread, r.admin_key, r.started_at);

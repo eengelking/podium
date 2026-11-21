@@ -179,11 +179,11 @@ Issue #206 ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#responding-fr
 Every route except `GET /respond/me` needs the browser's respond session ([7.7](07-07-hardening.md)).
 
 **`GET /api/fleet/respond/me`**
-- Body: `{ enabled, signedIn, name, admin, myUsage }`.
+- Body: `{ enabled, signedIn, name, id, admin, myUsage }`.
 - `enabled`: whether a browser can sign in on this server (authentication on, and the `respond` flag, the file-diff, recording or Activity history setting, or the `my-usage` flag on,
   [7.7](07-07-hardening.md)).
 - `myUsage`: whether the `my-usage` flag is on (authentication on and the flag on), so the top bar offers My usage (#726).
-- `name` is a person's name or `Admin`. `admin` is true for the admin secret or a person in Administrators.
+- `name` is a person's name or `Admin`. `id` is the person's `people.id`, or null for the admin secret and when nobody is signed in (#1284): the console decides which sessions are the viewer's by comparing it with a session's `ownerId`, never by name. `admin` is true for the admin secret or a person in Administrators.
 - No credential needed.
 
 **`POST /api/fleet/respond/sign-in`**
@@ -273,16 +273,13 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
 
 **`GET /api/fleet/sessions/:id/peers`**: what `podium_peers` answers.
 - `200 { ok: true, peers, leftOut, people }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", id, duplicate, name,
-  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the first eight characters of the
-  session id; `duplicate` is true when more than one orchestrator the asker can reach has that name and machine. `leftOut` lists the owner's reporters with no
+  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the id the server gave the agent when it first heard of its session (#1284), as text of digits: it is never reused, a new session (a `/clear` makes one) has a new id, and it is always present. No two live agents of one owner hold the same name (the later one holds \"Name 2\"), so `duplicate` is false; it is kept for a reporter that reads it. `leftOut` lists the owner's reporters with no
   orchestrator listed, and why: `messaging off on the machine`, `reporter too old to message`, `no right to see it`, `no
   orchestrator running`. `people` (#1034) are the people who wrote to this orchestrator through Chat and whom it may answer, because
   the owner's link to them is open or paused: `{ address: "person:eve", name, paused }`. A person with no link, or whose link was removed, is not listed. A paused one is listed with `paused: true`, and an answer to them is refused until the link is resumed.
 
 **`POST /api/fleet/sessions/:id/peers/messages`**: `podium_send`.
-- Body `{ to: "name@machine" | "name@machine#id" | "person:name", text }`, at most 128 KB. `id` is a prefix of the target's session id,
-  as `podium_peers` lists it; it picks one of several orchestrators that share the name. A plain `name@machine` that
-  matches more than one is a `409` that lists the `name@machine#id` forms to use (#500).
+- Body `{ to: "#id" | "name@machine" | "name@machine#id" | "person:name", text }`, at most 128 KB. `id` is the target's agent id as `podium_peers` lists it (#1284). `#id` alone names one agent; after `name@machine` it must be the id of the agent that holds that name, or the answer is a `404`. An id whose session has ended is a `409`, "The agent Name (id N) is no longer available", and an id of the sender itself a `422`. A plain `name@machine` that matches more than one is a `409` that lists the `name@machine#id` forms to use (#500); an older short session id after the `#` still picks one.
 - `202 { ok: true, id, state, paused, approvalWhy, requestId, to: { name, machine }, roundTrips: { used, cap } }`.
   `state` is `sent` (the receiver gets it in its next reply, running or idle), `turn` (a permission prompt is open there, so it is held until that is answered) or
   `approval` (it waits for the owner; `approvalWhy` is `link` or `round-trips`, and `requestId` names the request).
@@ -335,7 +332,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   says the link is paused either way). `retainDays` is the Admin's setting for how long a conversation is kept, so
   Traffic can name it, and `serverTime` the clock Traffic counts "ago" by (#417). `live` (the
   default) keeps conversations with a live orchestrator; `24h` and `30d` those with a message in that time. While
-  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range. A conversation with a person at either end (a session id `person:<name>`) is that person's Chat, not for everyone who can read the console, so it is left out of the list.
+  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range. A conversation with a person at either end (a session id `person:<id>`, #1284) is that person's Chat, not for everyone who can read the console, so it is left out of the list.
 
 ## Browser routes for orchestrator messaging
 
@@ -350,7 +347,7 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
   orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
   `requests` are the open ones, each a `PeerRequest` with `fromKey` and `toKey` (the two reporter keys, so the page
   can tell apart two machines that share a name) and `messageId`, and `fromPerson`, true for a person's message to
-  this owner's agent from Chat (`fromKey` is then `person:<name>`, not a reporter; see Chat below). The mod's
+  this owner's agent from Chat (`fromKey` is then `person:<id>`, not a reporter; see Chat below). The mod's
   `peerRequests` carry the `PeerRequest` alone.
 - `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `level` is `none`, `see`, `ask` or `send`; `none` takes the right away. `400` for any other level (`level must be none, see, ask or send`) and for a `from` or `to` that is not a reporter key. `200 { ok: true, right }`. `403` when
   either reporter is another person's, on the admin secret, or the two belong to different people.
@@ -386,7 +383,7 @@ the channels, the direct messages, and what an agent may do with its reporter's 
 beside General's, keyed by the channel, so no route of a public channel can return a group's or a Direct Message's text (DECISIONS 69).
 
 - `GET /api/fleet/respond/chat`: what the page opens with, counts and names and never a message's text. `{ enabled: true,
-  serverTime, me: { name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
+  serverTime, me: { id, name, actor, admin, person }, settings: { maxChars, perMinute, retainDays, graceHours, everyone },
   channels, directs, agents, people, approvals }`. `channels` has General, then every public channel by name, then My group for a person: each `{ id: "general" |
   "group" | <a public channel's name>, kind: "public" | "group", name, description, link, openedBy, thread, unread, mentions, messages, paused, pausedByAdmin, pausedForEveryone, disconnected,
   adminReading, can: { pause, pauseEveryone, disconnect, removeAll, editDescription, removeChannel } }`. `description` is empty for General and My group, `link` is `{ kind: "issue" | "milestone" | "project", ref }` or null, and
@@ -454,7 +451,7 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   - `POST /api/fleet/respond/chat/conversations/:id/members`: `{ members }`, a member adds people or their own agents (`200 { ok, conversation }`). `DELETE /api/fleet/respond/chat/conversations/:id/members/me`: the viewer leaves (`{ ok, deleted }`; the last person to leave deletes it). `POST .../reading`: an Admin's open conversation with an agent in it says it is still read, every 15 seconds.
   - `GET /api/fleet/respond/chat` lists the viewer's conversations in `conversations` (not `directs`, which keeps the conversations of agents) with the members, the unread count and the last time, names and counts only. An Admin's `?owner=` browse leaves out every conversation that has no agent in it.
 - `GET /api/fleet/respond/chat/dm/:a/:b/messages?limit=&before=`: one page of a conversation between two ids (a session
-  id, or `person:<name>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
+  id, or `person:<id>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
   owner, the person who wrote in one across owners, and an Admin may read it (`403` otherwise, `404` when there is none). The answer also holds
   `pausedBy`, `pausedByAdmin` and `adminReads` (the conversation's record, as for a channel). An Admin's read is recorded and the people in it told before it answers.
 - `POST /api/fleet/respond/chat/dm/:a/:b/reading`: an Admin's open conversation says it is still being read, every 15 seconds. `200 { ok: true }`;

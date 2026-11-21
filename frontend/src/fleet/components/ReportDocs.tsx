@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { nameKey } from "../respond";
+import { ownsSession } from "../respond";
 import { RespondError } from "../respondApi";
 import { useReadingPing } from "../sessionReads";
 import { useRespond } from "../useRespond";
@@ -77,7 +77,7 @@ export function ReportDocs(props: { s: SessionView; a: AgentView; fetchText?: Fe
   const request = useRef(0);
   // An Admin's open read of another person's agent keeps that person's notice alive (#1082); the fetch itself was recorded by the route.
   const me = useRespond()?.me;
-  const readingOthers = open !== null && load.state === "ready" && !!me?.signedIn && me.admin === true && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  const readingOthers = open !== null && load.state === "ready" && !!me?.signedIn && me.admin === true && !!s.owner && s.owner !== "Admin" && !ownsSession(s, me);
   useReadingPing("text", s.id, a.id, readingOthers);
 
   const onOpen = useCallback(

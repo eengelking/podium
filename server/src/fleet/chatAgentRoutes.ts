@@ -5,7 +5,7 @@
 import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import { jsonBody } from '../jsonBody.js';
-import { nameKey, sourceAddress } from '../storage/rows.js';
+import { sourceAddress } from '../storage/rows.js';
 import { peersEnabled, type PeerDeps } from './peerRoutes.js';
 import { agentMessageView } from './chatChannels.js';
 import type { Fail } from './chatTypes.js';
@@ -35,7 +35,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     }
     const id = d.identityOf(res);
     if (id.kind !== 'person') return no(403, 'a reporter on the admin secret cannot take part');
-    if (row.owner === null || nameKey(row.owner) !== nameKey(id.person.name)) return no(403, 'not your session');
+    if (row.owner_id === null || row.owner_id !== id.person.id) return no(403, 'not your session');
     const o = fleet.peers.messages.live(row.id);
     if (o?.peers !== true) return no(403, "messaging is off on this machine: turn on the reporter's peers option there");
     return o;
@@ -53,7 +53,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   router.get('/sessions/:id/chat/channels', d.requireToken, asyncHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
-    const person = nameKey(o.owner);
+    const person = o.ownerId;
     // Every flag that is on, read once, so a catalogue of 51 channels is not 102 reads of the settings.
     const known = await fleet.chat.core.store.settings.allFlags();
     const entry = async (name: string, meta: PublicChannel | null) => {

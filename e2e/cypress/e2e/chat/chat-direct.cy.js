@@ -1,7 +1,7 @@
 // SPEC 8.1 Chat page (#1034), Direct Messages: the controls Traffic had, now in the menu on each Direct Message (Pause link, Resume link, Remove link…, Delete conversation…), who may
 // use them, what a failure says, messaging an agent from People and agents, an agent's menu, and a conversation that leaves the list when its agents have ended.
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
-import { seeded } from '../../../support/commands';
+import { personDmRow, seeded } from '../../../support/commands';
 
 const DM = 'd:dm:e2e-s-invoice|e2e-s-tester';
 const GENERAL = 'c:general';
@@ -162,16 +162,16 @@ describe('chat: People and agents', () => {
   it('starts a Direct Message with an agent, which joins the list once the first message is sent', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('not.exist');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).should('not.exist');
     cy.chatRow('a:e2e-s-arm64-check').find('button.ch-row').should('have.attr', 'title', 'Message arm64-check').click();
     cy.get('#th-h').should('have.text', 'arm64-check');
     cy.get('label').contains('Message arm64-check');
     cy.tid('chat-intro').should('contain', 'This is the start of');
     cy.tid('chat-box').should('have.attr', 'placeholder', 'Write a message, or type / for a command.').type('Is the arm64 build ready?{enter}');
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'Is the arm64 build ready?').and('contain.text', 'Waiting:');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
     // A conversation with one agent has no link to pause: only Delete is offered.
-    openMenu('d:dm:e2e-s-arm64-check|person:ed').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
+    openMenu(personDmRow('e2e-s-arm64-check', 'Ed')).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
     cy.focused().type('{esc}');
   });
 
@@ -179,13 +179,13 @@ describe('chat: People and agents', () => {
     // Reads the message Ed sent to arm64-check in the test above. The agent answers through its reporter's route, as podium_send to the person does.
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('.unread').should('not.exist');
     cy.request({ method: 'POST', url: '/api/fleet/sessions/e2e-s-arm64-check/peers/messages', headers: { 'X-Podium-Token': seeded().people.Ed.token }, body: { to: 'person:ed', text: 'The arm64 build is ready.' }, log: false }).its('status', { log: false }).should('eq', 202);
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('button.ch-row').click();
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 2).first().should('contain.text', 'Is the arm64 build ready?');
     cy.tid('chat-message').last().should('contain.text', 'arm64-check').and('contain.text', 'The arm64 build is ready.').and('not.contain.text', 'You');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('.unread').should('not.exist');
   });
 
   it('opens an agent\'s orchestration page from its row in the members panel of My group (#1236)', () => {
@@ -382,5 +382,30 @@ describe('chat: People and agents is paged (#1272)', () => {
     cy.get('@pe').find('h2 button[aria-label="New direct message"]').click();
     cy.get('[role=dialog][aria-labelledby="dm-h"]').should('contain.text', 'New direct message');
     cy.focused().type('{esc}');
+  });
+});
+
+describe('chat: two live agents never share a name (#1284)', () => {
+  const TWIN = 'twin-e2e0001';
+  const RESPOND = { 'X-Podium-Respond': '1' };
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  it('lists the later of two same-named agents of one owner as "<name> 2", and leaves the first with its name', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('exist').and('contain.text', 'invoice-v2').and('not.contain.text', 'invoice-v2 2');
+    cy.task('fleet:launch', { id: TWIN, name: 'invoice-v2' }, { log: false });
+    // The twin joins the open list, on its first page beside the first agent.
+    cy.chatRow(`a:${TWIN}`).should('exist').and('contain.text', 'invoice-v2 2');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('not.contain.text', 'invoice-v2 2');
+  });
+
+  it('reaches the first agent by @name@machine and refuses nothing as ambiguous, because the second is not called by that name', () => {
+    cy.signIn('Ed');
+    cy.request({ method: 'POST', url: '/api/fleet/respond/chat/channels/general/messages', headers: RESPOND, body: { text: '@invoice-v2@ed-mbp are you there?' }, log: false }).then((r) => {
+      expect(r.status).to.eq(201);
+      expect(r.body.message.mentions).to.have.length(1);
+      expect(r.body.message.mentions[0].sessionId).to.eq(seeded().sessions.invoice);
+    });
   });
 });

@@ -10,7 +10,6 @@
 //   conversation, since the last message its owner approved.
 // - An orchestrator is a session's main loop. Only an orchestrator sends or receives; a session is one.
 
-import { shortId } from './protocol.js';
 import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery, ReporterCompat } from './protocol.js';
 import type { PeerLimits, ReporterState } from '../storage/rows.js';
 
@@ -21,10 +20,12 @@ export function linkKey(a: string, b: string): string {
 }
 
 /**
- * A person's end of a link (#1034): `person:<name, folded>`. A link joins two reporters, but when one person writes to another person's agent the
- * link joins that person to the agent's reporter, and `from` is this key. Such a row is owned by the agent's owner, who answers for it; the person
- * may pause or remove it too, and neither may do more than that to the other.
+ * A person's end of a link (#1034): `person:<people.id>` (#1284), never the name, so a person who takes a deleted person's name is not their end. A link joins two reporters, but when
+ * one person writes to another person's agent the link joins that person to the agent's reporter, and `from` is this key. Such a row is owned by the agent's owner, who answers for it;
+ * the person may pause or remove it too, and neither may do more than that to the other.
  */
+export const personKeyOf = (personId: number): string => `person:${personId}`;
+
 /** The key under which an owner's allow for an Administrator to respond to their sessions is kept: a link from it to the owner's reporter (#1251). */
 export const ADMIN_PERSON_KEY = 'person:admin';
 
@@ -38,8 +39,6 @@ export interface Refusal {
   status: 400 | 403 | 404 | 409 | 410 | 422 | 429;
   error: string;
 }
-/** The short id of a session (`shortId`): enough to tell same-named orchestrators apart in `name@machine#id`. */
-export const peerShortId = (sessionId: string): string => shortId(sessionId);
 
 export const refuse = (status: Refusal['status'], error: string): Refusal => ({ ok: false, status, error });
 
@@ -54,8 +53,10 @@ export interface ReporterRef {
   key: string;
   /** The machine name, or the key when the reporter sent none. */
   machine: string;
-  /** The owner's name as the server recorded it; null with authentication off. */
+  /** The owner's name as the server recorded it; null with authentication off. Display text: who owns the reporter is `ownerId`. */
   owner: string | null;
+  /** The owner's `people.id` (#1284); null for the admin secret's reporter, with no sign-in, and for one whose person was deleted: it belongs to nobody. */
+  ownerId: number | null;
   /** True when it reports with the admin secret: such a reporter belongs to no one and never takes part. */
   adminSecret: boolean;
   os: string | null;
@@ -69,10 +70,11 @@ export interface ReporterRef {
 /** A reporter's machine name by key, or the key itself when it is unknown. A trail handler gets one that answers at once. */
 export type MachineName = (key: string) => string;
 
-/** Looks a reporter up by key, and lists one owner's reporters (compared case-insensitively, `nameKey`). */
+/** Looks a reporter up by key, and lists one owner's reporters (by the owner's `people.id`, #1284). */
 export interface ReporterLookup {
   get(key: string): ReporterRef | null;
-  ofOwner(owner: string): ReporterRef[];
+  /** The reporters of the person with this id (#1284); none for null. */
+  ofOwner(ownerId: number | null): ReporterRef[];
 }
 
 /** A reporter with its state and last report, worked out as Admin > Reporters works them out (#415). */
@@ -87,7 +89,7 @@ export interface SeenReporterRef extends ReporterRef {
 export interface PeerReporterLookup extends ReporterLookup {
   /** When the server started: a reporter last heard before it is "Not since restart". */
   readonly startedAt: number;
-  ofOwnerSeen(owner: string, now: number): SeenReporterRef[];
+  ofOwnerSeen(ownerId: number | null, now: number): SeenReporterRef[];
 }
 
 // ---- Rights, defaults and requests (peerRights.ts, agent A) ---------------------------------------------------
@@ -139,7 +141,10 @@ export type PersonLinkOp = 'allow' | 'pause' | 'resume' | 'remove';
 
 export interface PeerRequestRow {
   id: string;
+  /** The owner's name as recorded: display text. Who owns the request is `ownerId` (#1284). */
   owner: string;
+  /** The owner's `people.id`; null for a request whose owner matched no person when ids were added (nobody can answer it). */
+  ownerId: number | null;
   kind: PeerRequestKind;
   /** The reporter that would get the right, or the sending reporter of a message. */
   fromKey: string;
@@ -177,30 +182,30 @@ export type AccessOutcome =
   | { ok: true; state: 'declined' };
 
 /**
- * The rights store. Every write that joins two reporters refuses (403) when their owners differ (case-insensitive) or
- * either reports with the admin secret or is owned by `Admin`, whatever the settings say, and stores nothing then.
- * Owner checks of the caller (is this browser's person the owner of `from`) are done by the caller, through `owner`
- * arguments, so the store can say "not your reporter" (403).
+ * The rights store. Every write that joins two reporters refuses (403) when their owners differ (by `people.id`, #1284) or
+ * either reports with the admin secret or has no owner, whatever the settings say, and stores nothing then.
+ * Owner checks of the caller (is this browser's person the owner of `from`) are done by the caller, through `ownerId`
+ * arguments, so the store can say "not your reporter" (403). An owner is its `people.id`, never its name: a person who takes a deleted person's name owns nothing they had.
  */
 export interface PeerRightsApi {
-  defaults(owner: string): OwnerDefaults;
+  defaults(ownerId: number | null): OwnerDefaults;
   /** Changes some defaults. A limit over the Admin's (`server`) or out of range is a 400 and nothing changes. */
-  setDefaults(owner: string, patch: Record<string, unknown>, server: PeerLimits, actor: Actor): { ok: true; defaults: OwnerDefaults } | Refusal;
+  setDefaults(ownerId: number, patch: Record<string, unknown>, server: PeerLimits, actor: Actor): { ok: true; defaults: OwnerDefaults } | Refusal;
   /** The limits that apply to an owner's links: the stricter of the Admin's and the owner's. */
-  limits(owner: string, server: PeerLimits): PeerLimits;
+  limits(ownerId: number | null, server: PeerLimits): PeerLimits;
 
   effective(from: string, to: string): EffectiveRight;
   /** Every stored row between the owner's reporters. */
-  rightsOf(owner: string): RightRow[];
+  rightsOf(ownerId: number | null): RightRow[];
   /** The owner sets one direction (`none` deletes it, keeping a paused flag only if it was paused). */
-  setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; right: RightRow | null } | Refusal;
-  /** The owner, or an Admin at once, pauses or resumes both directions of a link. Keeps the rights. */
-  pauseLink(owner: string | null, a: string, b: string, paused: boolean, actor: Actor): { ok: true } | Refusal;
-  /** The owner, or an Admin at once, removes both directions of a link. Under Trust it leaves the link paused, so a removal holds. */
-  removeLink(owner: string | null, a: string, b: string, actor: Actor): { ok: true } | Refusal;
+  setRight(ownerId: number, from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; right: RightRow | null } | Refusal;
+  /** The owner, or an Admin at once (null), pauses or resumes both directions of a link. Keeps the rights. */
+  pauseLink(ownerId: number | null, a: string, b: string, paused: boolean, actor: Actor): { ok: true } | Refusal;
+  /** The owner, or an Admin at once (null), removes both directions of a link. Under Trust it leaves the link paused, so a removal holds. */
+  removeLink(ownerId: number | null, a: string, b: string, actor: Actor): { ok: true } | Refusal;
   /** An Admin's Pause all links (or resume) for one reporter: every link it is in, at once, under Trust too. */
   pauseReporter(key: string, paused: boolean, actor: Actor): { ok: true; links: number } | Refusal;
-  /** The link from a person (`person:<name>`) to an agent's reporter, or null when there is none. A `none` row is a removed link: it holds, so the person cannot ask again by writing again. */
+  /** The link from a person (`person:<id>`) to an agent's reporter, or null when there is none. A `none` row is a removed link: it holds, so the person cannot ask again by writing again. */
   personLink(personKey: string, toKey: string): RightRow | null;
   /**
    * Changes the link between a person and another person's reporter (#1034): `allow` opens it (sending without approval), `pause` and `resume` hold and
@@ -213,19 +218,19 @@ export interface PeerRightsApi {
   /** An Admin proposes a right; it applies only when the owner accepts it. No default accepts it. */
   propose(from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; request: PeerRequestRow } | Refusal;
   /** An orchestrator asks for a right to see or send, through the owner's default. A right to send is created as `newSend`. */
-  requestAccess(input: { owner: string; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): AccessOutcome | Refusal;
+  requestAccess(input: { ownerId: number; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): AccessOutcome | Refusal;
   /** Opens the approval request for a message that waits for its owner. */
-  openMessageRequest(input: { owner: string; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): PeerRequestRow;
+  openMessageRequest(input: { owner: string; ownerId: number; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): PeerRequestRow;
   /** Closes a message's request when the message is dropped or delivered some other way. A no-op when there is none. */
   closeMessageRequest(messageId: string, outcome: 'delivered' | 'dropped' | 'declined'): void;
   /** Open requests of one owner, oldest first; with `about`, only those whose from or to reporter is that key. */
-  openRequests(owner: string, about?: string): PeerRequestRow[];
+  openRequests(ownerId: number | null, about?: string): PeerRequestRow[];
   getRequest(id: string): PeerRequestRow | null;
   /**
    * The owner answers (from the browser or a session): `allow` a proposal or access request, `deliver` a message,
    * `decline` either. 404 unknown, 403 another owner's, 410 already closed (with how), 422 an answer that does not fit.
    */
-  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): AnswerOutcome | Refusal;
+  answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): AnswerOutcome | Refusal;
   /** Deletes closed requests older than `cutoff`, and requests about a reporter that no longer exists. */
   retain(cutoff: number): number;
 }
@@ -235,9 +240,13 @@ export interface PeerRightsApi {
 /** One live orchestrator, as its last report described it. Kept in memory and refilled by the next report after a restart. */
 export interface LiveOrchestrator {
   sessionId: string;
+  /** The id the server gave this agent when it first heard of its session (#1284): never reused, so a new session, a `/clear` included, is a new agent whatever name it takes. `name@machine#id` and a bare `#id` address it. */
+  agentId: number;
   reporterKey: string;
-  /** The session's owner as the server decided it from the token. */
+  /** The session's owner as the server decided it from the token: display text. Who owns it is `ownerId`. */
   owner: string;
+  /** The owner's `people.id` (#1284); null for a session reported with the admin secret. */
+  ownerId: number | null;
   name: string;
   machine: string;
   os: string | null;
@@ -247,6 +256,9 @@ export interface LiveOrchestrator {
   /** The `peers` option in this report; undefined from a reporter too old to send it, whose sessions are never listed. */
   peers: boolean | undefined;
 }
+
+/** What a report says of an orchestrator: a `LiveOrchestrator` before the store gives it its id and settles its name (#1284). */
+export type LiveInput = Omit<LiveOrchestrator, 'agentId'>;
 
 /**
  * A session that can be handed a message now: any live session with no permission dialog open (#1252). A running turn and a
@@ -258,7 +270,7 @@ export const takesMessages = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>
 export interface PeerRightsView {
   effective(from: string, to: string): EffectiveRight;
   personLink: PeerRightsApi['personLink'];
-  limits(owner: string): PeerLimits;
+  limits(ownerId: number | null): PeerLimits;
   openMessageRequest: PeerRightsApi['openMessageRequest'];
   closeMessageRequest: PeerRightsApi['closeMessageRequest'];
 }
@@ -275,12 +287,18 @@ export type MessageAuthor = 'agent' | 'person';
 
 export interface MessageRow {
   id: string;
+  /** The owner's name as recorded: display text. Who owns the conversation is `ownerId` (#1284). */
   owner: string;
+  /** The owner's `people.id`; null for a message whose owner matched no person when ids were added: no one reads it. */
+  ownerId: number | null;
   link: string;
   fromKey: string;
   toKey: string;
   fromSession: string;
   toSession: string;
+  /** The agents the message was written by and aimed at (#1284), bound at the time it was sent, so a later agent that takes a name never reads it; null for a person's end and for a message whose session was gone before the ids existed. */
+  fromAgent: number | null;
+  toAgent: number | null;
   fromName: string;
   fromMachine: string;
   toName: string;
@@ -294,7 +312,7 @@ export interface MessageRow {
   approved: boolean;
   /**
    * Who wrote it. A person's message has `fromName` the person's name and no machine; its `fromSession` is the other agent of the conversation when the
-   * person added to a conversation between two agents, and `person:<owner, folded>` when it is the person with one agent (a conversation of their own).
+   * person added to a conversation between two agents, and `person:<owner's people.id>` when it is the person with one agent (a conversation of their own).
    */
   author: MessageAuthor;
   /** The `people.id` of the person who wrote it (#1269); null for an agent's message, and for a person's written before the id was kept whose name matches no person. Authorship is this id, never a name. */
@@ -327,7 +345,8 @@ export interface MessagePage {
 
 /** What the person writes in the Chat page to one of their agents (#1034). */
 export interface PersonMessageInput {
-  owner: string;
+  /** The `people.id` of the agent's owner, the person writing (#1284). */
+  ownerId: number;
   /** The name the message shows. */
   person: string;
   /** The agent that gets it. */
@@ -345,6 +364,8 @@ export interface PersonMessageInput {
 export interface AcrossInput {
   /** The person's name as shown. */
   person: string;
+  /** The `people.id` of the person writing (#1284): their end of the link is `person:<id>`. */
+  personId: number;
   /** The agent that would get it. */
   toSession: string;
   text: string;
@@ -387,7 +408,7 @@ export interface PeerListResult {
 /** One orchestrator in podium_peers' answer. */
 export interface PeerListing {
   address: string;
-  /** The session's short id (`peerShortId`), which `address#id` accepts when other orchestrators share the name (#500). */
+  /** The agent's id (#1284, `LiveOrchestrator.agentId`), as text. `address#id` and a bare `#id` accept it; it is always listed. */
   id: string;
   /** More than one orchestrator the asker can reach has this name on this machine, so a plain `address` is refused. */
   duplicate: boolean;
@@ -413,7 +434,9 @@ export interface ConversationSummary {
   /** The two orchestrators, ordered by session id. */
   a: { sessionId: string; name: string; machine: string; reporterKey: string };
   b: { sessionId: string; name: string; machine: string; reporterKey: string };
+  /** The owner's name as recorded: display text. Who owns the conversation is `ownerId` (#1284). */
   owner: string;
+  ownerId: number | null;
   messages: number;
   lastAt: number;
   /** `waiting` while a message waits for approval, `paused` while the link is paused, else `active`. */
@@ -463,7 +486,7 @@ export type RightsTrail =
  */
 export interface PeerMessagesApi {
   /** Notes a live orchestrator from its report (the server calls it after every accepted report). */
-  note(o: LiveOrchestrator): void;
+  note(o: LiveInput): void;
   live(sessionId: string): LiveOrchestrator | null;
   /** One stored message by id, with its text, or null. */
   message(id: string): MessageRow | null;
@@ -488,7 +511,7 @@ export interface PeerMessagesApi {
   linkRemoved(a: string, b: string): void;
   /** The flag went off: every held message is dropped, notices are cleared. */
   dropAll(): void;
-  conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): ConversationSummary[];
+  conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): ConversationSummary[];
   /** Every message of one conversation, oldest first, with text. The caller checks who may read it. */
   conversation(a: string, b: string): MessageRow[];
   /** Deletes messages on links whose newest message is older than `cutoff`. Returns how many. */
@@ -496,7 +519,7 @@ export interface PeerMessagesApi {
   /** The person writes to one of their live agents (#1034); see `PersonMessageInput`. Stored `ready`, so the agent's next delivery carries it. */
   sendFromPerson(input: PersonMessageInput): MessageRow | Refusal;
   /** One page of the owner's conversation, the newest page first; `before` is the `older` of the page after it. A cursor that was not given out throws. */
-  page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): MessagePage;
+  page(ownerId: number, a: string, b: string, opts: { before?: string | null; limit: number }): MessagePage;
   /**
    * A person writes to an agent of another person (#1034). Stored `approval` with a request for the agent's owner when no link is open, `ready` when one
    * is, and refused when the link was removed or is paused, when a message from this person already waits for the owner, or when the person already has
@@ -515,17 +538,17 @@ export interface PeerMessagesApi {
    */
   deleteMessage(id: string, x: { author: number; now: number }): PeerChange;
   /** Deletes the owner's messages of one conversation. Returns how many. */
-  deleteConversation(owner: string, a: string, b: string): number;
+  deleteConversation(ownerId: number, a: string, b: string): number;
   /** The summary of the one conversation between two sessions (either order), or null when they have no messages (#1046). */
   conversationOf(a: string, b: string): ConversationSummary | null;
-  /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). */
-  conversationCounts(owners: string[]): Record<string, number>;
-  /** The conversations `owner` owns, newest first, hidden ones only when `includeHidden`; and those `owner` took part in as the person who wrote to another person's agent (#1034). Never another person's other conversations. */
-  ownerConversations(owner: string, opts?: { includeHidden?: boolean; pairs?: string[] }): OwnerConversation[];
+  /** How many conversations each of the people with these ids takes part in, hidden ones left out, keyed by the id (#1046). */
+  conversationCounts(ownerIds: number[]): Record<number, number>;
+  /** The conversations the person owns, newest first, hidden ones only when `includeHidden`; and those they took part in as the person who wrote to another person's agent (#1034). Never another person's other conversations. */
+  ownerConversations(ownerId: number, opts?: { includeHidden?: boolean; pairs?: string[] }): OwnerConversation[];
   /** Hides the owner's conversation (every agent in it has left), keeping its messages. Returns how many it marked; 0 when it is hidden already. */
-  hideConversation(owner: string, a: string, b: string): number;
+  hideConversation(ownerId: number, a: string, b: string): number;
   /** Shows a hidden conversation again (the same peers are back). Returns how many it cleared. */
-  showConversation(owner: string, a: string, b: string): number;
+  showConversation(ownerId: number, a: string, b: string): number;
   /** Deletes the messages of conversations hidden longer than the longest resume window of their two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
   purgeHidden(now: number, graceMs: number): number;
 }

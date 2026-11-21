@@ -23,6 +23,8 @@ Ends with one "E2E RESULT:" line naming each shard. Exit code: 0 every shard pas
 The shard count is the smallest of ${MAX_SHARDS}, the engine's CPUs divided by the number of databases, and its memory in GB divided by ${GB_PER_RUN}
 times the number of databases (each rounded down), and at least 1. It is printed with the reason.
 --shards N uses N instead (e2e-all.sh warns when N is more than the CPUs). When the machine supports one shard, one runs.
+It waits for the machine's database lock first (scripts/db-lock.sh, taken by e2e-all.sh): one database test job runs at a time per user,
+so while another e2e run or scripts/test-db.sh is going, this one prints that it is waiting and starts when that one ends.
 "npm run e2e" is the serial run: use it to reproduce a failure that only shows when sharded, or on a machine too small to shard.
 `;
 

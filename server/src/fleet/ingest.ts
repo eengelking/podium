@@ -1,6 +1,6 @@
 // Report -> rows, events, blowouts and samples (SPEC 7.3 steps 1-4). One transaction per report.
 import type { AgentReport, Plan, PlanStepView, PlanView, Report, TokenCounts } from './protocol.js';
-import { SAME_USAGE, type AgentRow, type EventRow, type SampleRow, type SessionRow } from '../storage/rows.js';
+import { SAME_USAGE, sameAccount, type AgentRow, type EventRow, type SampleRow, type SessionRow } from '../storage/rows.js';
 import type { Storage } from '../storage/types.js';
 import { family } from './derive.js';
 import { advanceWait, waitKindOf } from './waits.js';
@@ -107,7 +107,7 @@ function modelNames(
   };
 }
 
-function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number, owner: string | null): SessionRow {
+function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number, owner: string | null, ownerId: number | null): SessionRow {
   const s = r.session;
   const done = s.status === 'done';
   const fromHarness = harnessCost(s, prev);
@@ -154,6 +154,8 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     // The clock starts at the first report with nobody attached and keeps running while that stays true.
     detached_at: s.attached === false ? (prev?.attached === 0 && prev.detached_at !== null ? prev.detached_at : serverTime) : null,
     owner: owner ?? prev?.owner ?? null,
+    // The id binds the session to its person (#1284); a stored id is kept while a report names no owner (auth off). A report that names an owner never changes an owner the session already has (`OwnerConflict`).
+    owner_id: owner !== null ? ownerId : (prev?.owner_id ?? null),
     // A settings hook carries no machine, so a session keeps the one its reporter last sent.
     machine_json: r.machine ? JSON.stringify(r.machine) : prev?.machine_json ?? null,
     // Set once: a later report that leaves it out (an older reporter, a hook) keeps the link.
@@ -224,16 +226,16 @@ export class HarnessConflict extends Error {}
 
 /**
  * Stores one validated report. `serverTime` (never the reporter's clock) sets last_seen_at.
- * `owner` is the name the server decided from the token; null (auth off) leaves a stored owner alone.
+ * `owner` is the name the server decided from the token and `ownerId` the person's `people.id` (null for the admin secret); `owner` null (auth off) leaves a stored owner alone.
  */
-export function ingestReport(storage: Storage, report: Report, serverTime: number, owner: string | null = null): Promise<IngestResult> {
+export function ingestReport(storage: Storage, report: Report, serverTime: number, owner: string | null = null, ownerId: number | null = null): Promise<IngestResult> {
   const f = storage.fleet;
   return storage.tx(async () => {
     const sid = report.session.id;
     const prev = await f.getSession(sid);
-    if (owner !== null && prev?.owner && prev.owner !== owner) throw new OwnerConflict('session belongs to another owner');
+    if (owner !== null && prev?.owner && !sameAccount(prev, { owner, ownerId })) throw new OwnerConflict('session belongs to another owner');
     if (prev && namedHarness(report) !== null && prev.harness !== namedHarness(report)) throw new HarnessConflict('session belongs to another harness');
-    const row = sessionRow(report, prev, serverTime, owner);
+    const row = sessionRow(report, prev, serverTime, owner, ownerId);
     await f.upsertSession(row);
     // What the session waits on its person for, added up as reports arrive (#722). Nothing is written while the state is the same.
     const wait = advanceWait(await f.getSessionWait(sid), waitKindOf({ waitReason: row.wait_reason, waitNote: row.wait_note, reporterVersion: row.reporter_version }), sid, serverTime, prev?.last_seen_at ?? null);

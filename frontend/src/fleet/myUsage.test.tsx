@@ -22,8 +22,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false, myUsage: true };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false, myUsage: true };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false, myUsage: true };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false, myUsage: true };
 
 const reply = (report: string, over: Partial<ReportReply>): ReportReply => ({ report, from: "2026-09-21", to: "2026-10-20", by: "day", tz: "Europe/Berlin", basedOn: "rollups and live", oldestDay: "2026-03-02", partial: false, columns: [], rows: [], total: {}, ...over });
 

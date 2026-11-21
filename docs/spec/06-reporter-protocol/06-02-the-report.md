@@ -211,7 +211,7 @@ interface PeerDelivery {
   id: string;                           // 'dlv_' and 24 hex characters, made by the server
   kind: 'message' | 'notice';
   at: number;                           // when the server took it (server time)
-  from: { name: string; machine: string; owner: string; id?: string; person?: boolean } | null;   // the sending orchestrator, its machine and its owner; `id` is its short session id (the `name@machine#id` form); `person` is true when `name` is a person who wrote through Chat, and then `machine` is empty and `owner` is the person who owns this session
+  from: { name: string; machine: string; owner: string; id?: string; person?: boolean } | null;   // the sending orchestrator, its machine and its owner; `id` is the id the server gave it (#1284), never reused (the `#id` form); `person` is true when `name` is a person who wrote through Chat, and then `machine` is empty and `owner` is the person who owns this session
   text: string;                         // ≤ 20,000 chars, line breaks kept; redacted on the sending machine
 }
 

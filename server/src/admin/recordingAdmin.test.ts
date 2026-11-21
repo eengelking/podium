@@ -186,7 +186,7 @@ describe('an Admin\'s stop or delete tells the person (#1078)', () => {
     await record(service, 's1');
     await agent.post('/api/admin/recordings/s1/stop').set(H);
     await agent.post('/api/admin/recordings/s1/stop').set(H);
-    expect(acts.onSession.mock.calls).toEqual([['Admin', 'recording_stopped', 's1']]);
+    expect(acts.onSession.mock.calls).toEqual([[{ id: null, name: 'Admin' }, 'recording_stopped', 's1']]);
   });
 
   it('deleting a recording, one or by the Stored activity page, tells for each session', async () => {
@@ -198,9 +198,9 @@ describe('an Admin\'s stop or delete tells the person (#1078)', () => {
     await agent.delete('/api/admin/recordings/s1').set(H);
     await agent.post('/api/admin/stored-activity/delete').set(H).send({ ids: ['s2', 's3'], source: 'recordings' });
     expect(acts.onSession.mock.calls).toEqual([
-      ['Admin', 'recording_deleted', 's1'],
-      ['Admin', 'recording_deleted', 's2'],
-      ['Admin', 'recording_deleted', 's3'],
+      [{ id: null, name: 'Admin' }, 'recording_deleted', 's1'],
+      [{ id: null, name: 'Admin' }, 'recording_deleted', 's2'],
+      [{ id: null, name: 'Admin' }, 'recording_deleted', 's3'],
     ]);
   });
 

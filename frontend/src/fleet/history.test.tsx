@@ -68,7 +68,7 @@ describe("history page", () => {
   it("shows Signed in as and a My reporters link with its waiting count while messaging is on (#452)", async () => {
     server([row]);
     const quiet = { onerror: null, readyState: 1, addEventListener() {}, close() {} };
-    const respondApi = { me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", admin: false })) } as unknown as RespondApi;
+    const respondApi = { me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", id: 1, admin: false })) } as unknown as RespondApi;
     const peersApi = { read: vi.fn(async () => ({ requests: [{ id: "a" }, { id: "b" }] })) } as unknown as PeersApi;
     const fleetOptions = {
       open: () => quiet,

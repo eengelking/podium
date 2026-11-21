@@ -44,7 +44,7 @@ function run(args: string[], env: Record<string, string> = {}) {
   mkdirSync(join(root, "server"));
   mkdirSync(join(root, "bin"));
   mkdirSync(join(root, "state"));
-  for (const f of ["test-db.sh", "db-adapters.mjs"]) copyFileSync(join(REPO, "scripts", f), join(root, "scripts", f));
+  for (const f of ["test-db.sh", "db-lock.sh", "db-adapters.mjs"]) copyFileSync(join(REPO, "scripts", f), join(root, "scripts", f));
   writeFileSync(join(root, "bin", "engine"), FAKE_ENGINE);
   writeFileSync(join(root, "bin", "npx"), FAKE_NPX);
   chmodSync(join(root, "bin", "engine"), 0o755);
@@ -53,7 +53,7 @@ function run(args: string[], env: Record<string, string> = {}) {
   // A clean environment: the suite running this test may itself have the test server variables set.
   const r = spawnSync("bash", [join(root, "scripts", "test-db.sh"), ...args], {
     encoding: "utf8",
-    env: { PATH: `${join(root, "bin")}:${process.env.PATH}`, HOME: process.env.HOME ?? "", CONTAINER_ENGINE: join(root, "bin", "engine"), FAKE_DIR: state, ...env },
+    env: { PATH: `${join(root, "bin")}:${process.env.PATH}`, HOME: process.env.HOME ?? "", CONTAINER_ENGINE: join(root, "bin", "engine"), FAKE_DIR: state, PODIUM_DB_LOCK: "off", ...env },
   });
   const read = (f: string) => (existsSync(join(state, f)) ? readFileSync(join(state, f), "utf8") : "");
   const vitest = Object.fromEntries(read("vitest").trim().split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));

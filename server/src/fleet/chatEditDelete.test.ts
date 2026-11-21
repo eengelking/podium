@@ -91,7 +91,7 @@ const dmDel = (b: B, path: string, id: string) => b.delete(`${CH}/dm/${path}/mes
 const settle = () => new Promise((r) => setTimeout(r, 20));
 const logRows = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 200 })).rows;
 const LOCKED_WORDS = 'Podium has already sent this message to Tester, so it can no longer be changed.';
-const group = (s: S, owner = 'Ed') => ({ owner, groupId: owner.toLowerCase() });
+const group = (s: S) => ({ ownerId: s.ed.person.id });
 /** Both agents linked by a right, with one agent message between them, so there is a conversation a person can add to. */
 async function linkedConversation(w: W) {
   const set = await w.edB.put('/api/fleet/respond/peers/rights').set(H).send({ from: MAC.id, to: LINUX.id, level: 'send' });
@@ -284,13 +284,13 @@ describe('who may change a channel message, and when (#1269)', () => {
 
   it('does not let a person who was deleted and made again under the same name change the old one\'s message', async () => {
     const w = await world();
-    // A message written by an earlier person who had this name: the same name, another id.
+    // A message written by an earlier person who had this name: the same name, another id. It is not the new person's (`mine` is by id, #1284).
     const old = await w.fleet.chat.core.store.public.post('general', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: 'from the earlier Ed', authorId: w.ed.person.id + 1000 });
     const res = await edit(w.edB, 'general', old.id, 'mine now');
     expect(res.status).toBe(403);
     expect((await del(w.edB, 'general', old.id)).status).toBe(403);
     const view = (await read(w.edB, 'general')).body.messages[0];
-    expect(view).toMatchObject({ text: 'from the earlier Ed', mine: true, canChange: false, changeWhy: null });
+    expect(view).toMatchObject({ text: 'from the earlier Ed', mine: false, canChange: false, changeWhy: null });
   });
 
   it.each(['waiting', 'working', 'done'] as const)('refuses a message an agent has (%s) with 409 locked, in words that name the agent, and leaves it as it was', async (state) => {
@@ -475,7 +475,7 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     expect(res.body.message).toMatchObject({ id: m.id, text: expect.stringContaining('[redacted]'), editedAt: w.now(), deletedAt: null, canChange: true, changeWhy: null, state: 'approval' });
     expect(res.body.message).not.toHaveProperty('authorId');
     // The owner reads the new text, and cannot change it.
-    const theirs = await thread(w.alexB, 'person:ed/sess-alex');
+    const theirs = await thread(w.alexB, 'person:1/sess-alex');
     expect(theirs.body.messages[0]).toMatchObject({ text: expect.stringContaining('Look at the build please'), editedAt: w.now(), canChange: false, changeWhy: null });
     expect(await requestsOf(w.alexB)).toHaveLength(1);
     expect(JSON.stringify((await thread(w.edB)).body)).not.toContain('Please look at the build, Alex.');
@@ -499,7 +499,7 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     expect(res.status).toBe(200);
     expect(res.body.message).toMatchObject({ id: m.id, text: '', deletedAt: w.now(), canChange: false, changeWhy: null, state: 'dropped', reason: 'Deleted by its sender.', waitingFor: null });
     expect(await requestsOf(w.alexB)).toHaveLength(0);
-    for (const [b, path] of [[w.edB, 'me/sess-alex'], [w.alexB, 'person:ed/sess-alex']] as const) {
+    for (const [b, path] of [[w.edB, 'me/sess-alex'], [w.alexB, 'person:1/sess-alex']] as const) {
       const t = await thread(b, path);
       expect(t.body.messages).toHaveLength(1);
       expect(t.body.messages[0]).toMatchObject({ id: m.id, text: '', deletedAt: w.now(), canChange: false, reason: 'Deleted by its sender.' });
@@ -587,13 +587,13 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
   it('refuses the owner of the agent, an Admin who reads, another person, the admin secret and a signed-out request', async () => {
     const w = await world();
     const m = await toAlex(w);
-    for (const res of [await dmEdit(w.alexB, 'person:ed/sess-alex', m.id, 'Alex rewrites'), await dmDel(w.alexB, 'person:ed/sess-alex', m.id)]) {
+    for (const res of [await dmEdit(w.alexB, 'person:1/sess-alex', m.id, 'Alex rewrites'), await dmDel(w.alexB, 'person:1/sess-alex', m.id)]) {
       expect(res.status).toBe(403);
       expect(res.body.error).toBe('Only the person who wrote a message can change it.');
     }
     const root = await signedIn(w, 'Admin', SECRET);
-    for (const res of [await dmEdit(root, 'person:ed/sess-alex', m.id, 'x'), await dmDel(root, 'person:ed/sess-alex', m.id), await dmEdit(root, 'me/sess-alex', m.id, 'x')]) expect([403, 404]).toContain(res.status);
-    expect((await dmEdit(root, 'person:ed/sess-alex', m.id, 'x')).status).toBe(403);
+    for (const res of [await dmEdit(root, 'person:1/sess-alex', m.id, 'x'), await dmDel(root, 'person:1/sess-alex', m.id), await dmEdit(root, 'me/sess-alex', m.id, 'x')]) expect([403, 404]).toContain(res.status);
+    expect((await dmEdit(root, 'person:1/sess-alex', m.id, 'x')).status).toBe(403);
     expect((await request(w.app).patch(`${CH}/dm/me/sess-alex/messages/${m.id}`).set(H).send({ text: 'x' })).status).toBe(403);
     expect((await request(w.app).delete(`${CH}/dm/me/sess-alex/messages/${m.id}`).set(H)).status).toBe(403);
     expect((await thread(w.edB)).body.messages[0]).toMatchObject({ text: MSG, editedAt: null, deletedAt: null });
@@ -607,7 +607,7 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     expect((await dmEdit(w.edB, 'me/sess-alex', m.id, 'a private reword')).status).toBe(200);
     expect(stream.count()).toBeGreaterThan(before);
     const afterEdit = stream.count();
-    expect((await dmEdit(w.alexB, 'person:ed/sess-alex', m.id, 'x')).status).toBe(403);
+    expect((await dmEdit(w.alexB, 'person:1/sess-alex', m.id, 'x')).status).toBe(403);
     expect(stream.count()).toBe(afterEdit);
     expect((await dmDel(w.edB, 'me/sess-alex', m.id)).status).toBe(200);
     expect(stream.count()).toBeGreaterThan(afterEdit);
@@ -624,8 +624,8 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     await linkedConversation(w);
     const person = w.ed.person;
     const peers = w.fleet.peers.messages;
-    const a = await peers.sendFromPerson({ owner: 'Ed', person: 'Ed', toSession: 'sess-dev', withSession: 'sess-tester', text: 'carry on, both', authorId: person.id });
-    const b = await peers.sendFromPerson({ owner: 'Ed', person: 'Ed', toSession: 'sess-tester', withSession: 'sess-dev', text: 'carry on, both', authorId: person.id });
+    const a = await peers.sendFromPerson({ ownerId: person.id, person: 'Ed', toSession: 'sess-dev', withSession: 'sess-tester', text: 'carry on, both', authorId: person.id });
+    const b = await peers.sendFromPerson({ ownerId: person.id, person: 'Ed', toSession: 'sess-tester', withSession: 'sess-dev', text: 'carry on, both', authorId: person.id });
     expect('ok' in a || 'ok' in b).toBe(false);
     const path = 'sess-dev/sess-tester';
     const view = async () => ((await thread(w.edB, path)).body.messages as { id: string; text: string; to: unknown[]; canChange: boolean }[]).filter((m) => m.text !== 'agent hello');
@@ -647,8 +647,8 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     const w = await world();
     await linkedConversation(w);
     const peers = w.fleet.peers.messages;
-    await peers.sendFromPerson({ owner: 'Ed', person: 'Ed', toSession: 'sess-dev', withSession: 'sess-tester', text: 'both of you', authorId: w.ed.person.id });
-    await peers.sendFromPerson({ owner: 'Ed', person: 'Ed', toSession: 'sess-tester', withSession: 'sess-dev', text: 'both of you', authorId: w.ed.person.id, state: 'queued' });
+    await peers.sendFromPerson({ ownerId: w.ed.person.id, person: 'Ed', toSession: 'sess-dev', withSession: 'sess-tester', text: 'both of you', authorId: w.ed.person.id });
+    await peers.sendFromPerson({ ownerId: w.ed.person.id, person: 'Ed', toSession: 'sess-tester', withSession: 'sess-dev', text: 'both of you', authorId: w.ed.person.id, state: 'queued' });
     const m = ((await thread(w.edB, 'sess-dev/sess-tester')).body.messages as { id: string; text: string; canChange: boolean; changeWhy: string | null }[]).find((x) => x.text === 'both of you')!;
     expect(m.canChange).toBe(false);
     expect(m.changeWhy).toBe('Podium has already sent this message to Tester, so it can no longer be changed.');
@@ -660,7 +660,7 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
   it('does not let a person who was deleted and made again under the same name change the old one\'s message', async () => {
     const w = await world();
     const peers = w.fleet.peers.messages;
-    const old = await peers.sendFromPerson({ owner: 'Ed', person: 'Ed', toSession: 'sess-tester', text: 'from the earlier Ed', authorId: w.ed.person.id + 1000 });
+    const old = await peers.sendFromPerson({ ownerId: w.ed.person.id, person: 'Ed', toSession: 'sess-tester', text: 'from the earlier Ed', authorId: w.ed.person.id + 1000 });
     expect('ok' in old).toBe(false);
     const row = old as { id: string };
     expect((await dmEdit(w.edB, 'me/sess-tester', row.id, 'mine now')).status).toBe(403);
@@ -670,7 +670,7 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
 });
 
 describe('a message that waits for another person\'s approval, and the copy Alex is asked about (#1269)', () => {
-  const copies = async (b: B, agent = 'sess-alex') => (await b.get(`${CH}/dm/person:ed/${agent}/messages`)).body.messages as { id: string; text: string; state: string; deletedAt: number | null }[];
+  const copies = async (b: B, agent = 'sess-alex') => (await b.get(`${CH}/dm/person:1/${agent}/messages`)).body.messages as { id: string; text: string; state: string; deletedAt: number | null }[];
   const requestsOf = async (b: B) => ((await b.get('/api/fleet/respond/peers')).body.requests ?? []) as { id: string }[];
   const approveAll = async (b: B) => {
     for (const r of await requestsOf(b)) expect((await b.post(`/api/fleet/respond/peers/requests/${r.id}`).set(H).send({ answer: 'deliver' })).status).toBe(200);
@@ -780,7 +780,7 @@ describe('a message that waits for another person\'s approval, and the copy Alex
   describe('the length limit of the agent\'s owner', () => {
     const LIMIT = 20;
     const words = (n: number) => `The message is ${n} characters, over the limit of ${LIMIT}. Send a shorter one.`;
-    const limitAlex = async (w: W) => expect(await w.fleet.peers.setDefaults('Alex', { limits: { maxChars: LIMIT } }, { name: 'Alex', admin: false })).toMatchObject({ ok: true });
+    const limitAlex = async (w: W) => expect(await w.fleet.peers.setDefaults(w.alex.person.id, { limits: { maxChars: LIMIT } }, { name: 'Alex', admin: false })).toMatchObject({ ok: true });
 
     it('refuses an edit of a direct message to it in the words of a send, and changes nothing', async () => {
       const w = await world();

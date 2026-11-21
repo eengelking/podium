@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import "../chat.css";
 import { adminWho, type AdminRead } from "../chatData";
 import { RespondError } from "../respondApi";
-import { nameKey } from "../respond";
-import { ADMIN } from "../people";
+import { ownsSession } from "../respond";
 import { readingKey, replayersLine, replayersRest, replayRecordLine, useDismissed, useReplayReads } from "../replayReads";
 import { ChEye } from "./ChatIcons";
 import { fmtAt, fmtWhen, joinWords, loopNames, mayRecord, openReplay, sizeWords, stoppedWords } from "../recording";
@@ -60,7 +59,7 @@ function ReplayNotes({ s }: { s: SessionView }) {
   const reads = useReplayReads();
   const dismissed = useDismissed();
   const me = respond?.me;
-  const owns = !!me?.signedIn && !!me.name && !!s.owner && s.owner !== ADMIN && nameKey(s.owner) === nameKey(me.name);
+  const owns = ownsSession(s, me);
   const [records, setRecords] = useState<AdminRead[]>([]);
   const rev = reads?.rev ?? 0;
   const api = respond?.api;

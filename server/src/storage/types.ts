@@ -56,10 +56,10 @@ export interface FleetStoreApi {
   costByOwnerSince(since: number, cost?: CostOf): Promise<{ owner: string | null; group: string | null; costUsd: number }[]>;
   /** `costSince` and `costByOwnerSince` from one pass over the sessions, so the total is the sum of the split. */
   spendTotals(since: number, cost?: CostOf): Promise<{ total: number; byOwner: { owner: string | null; group: string | null; costUsd: number }[] }>;
-  /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
-  groupOfOwner(owner: string | null): Promise<string | null>;
-  /** `groupOfOwner` for many owners at once (#906): a key for every owner asked. */
-  groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>>;
+  /** The group a session's owner is in, by the owner's `people.id` (#1284); null for the admin secret, a person who was deleted (no id) or a person with no group. */
+  groupOfOwner(ownerId: number | null): Promise<string | null>;
+  /** `groupOfOwner` for many owners at once (#906): a key for every id asked. */
+  groupsOfOwners(ownerIds: (number | null)[]): Promise<Map<number | null, string | null>>;
   distinctReporterVersions(): Promise<string[]>;
   /** What the database says about itself: its engine and version, the schema version Podium reached and its size (null when it cannot be told) (#862). */
   engineInfo(): Promise<StorageInfo>;
@@ -168,7 +168,7 @@ export type AsyncPeerReporterLookup = Async<PeerReporterLookup>;
 /** Reporters, ignore rules and the forget setting. `peerLookup()` stays synchronous: it reads nothing until a method is called. */
 export interface ReporterStoreApi {
   /** Every key a report from this sender can be known by: its own, and the row that already holds its session (#166). */
-  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]>;
+  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null; ownerId?: number | null }): Promise<string[]>;
   /** Notes one accepted report: creates the reporter or updates it, and links the session. Resolves with the reporter's key. */
   record(s: ReporterSeen, now: number): Promise<string>;
   /** Reporters as orchestrator messaging needs them (#347). Answers at once; each read through it is async. */
@@ -229,17 +229,18 @@ export interface PeerSettingsStoreApi {
 /** The rights between reporters, the owners' defaults and the requests for access. */
 export interface PeerRightsStoreApi {
   effective(from: string, to: string): Promise<EffectiveRight>;
-  rightsOf(owner: string): Promise<RightRow[]>;
-  defaults(owner: string): Promise<OwnerDefaults>;
-  limits(owner: string, server: PeerLimits): Promise<PeerLimits>;
-  setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
-  pauseLink(owner: string | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
+  /** An owner is a person's `people.id` (#1284), never the name: null owns nothing. */
+  rightsOf(ownerId: number | null): Promise<RightRow[]>;
+  defaults(ownerId: number | null): Promise<OwnerDefaults>;
+  limits(ownerId: number | null, server: PeerLimits): Promise<PeerLimits>;
+  setRight(ownerId: number, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
+  pauseLink(ownerId: number | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
   pauseReporter(key: string, paused: boolean, actor: Actor): Promise<{ ok: true; links: number } | Refusal>;
-  /** The link from a person (`person:<name>`) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
+  /** The link from a person (`person:<id>`, #1284) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
   personLink(personKey: string, toKey: string): Promise<RightRow | null>;
   propose(from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; request: PeerRequestRow } | Refusal>;
-  requestAccess(input: { owner: string; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
-  openRequests(owner: string, about?: string): Promise<PeerRequestRow[]>;
+  requestAccess(input: { ownerId: number; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
+  openRequests(ownerId: number | null, about?: string): Promise<PeerRequestRow[]>;
 }
 
 /**
@@ -269,44 +270,45 @@ export interface PeerStoreApi {
     message(id: string): Promise<MessageRow | null>;
     send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal>;
     result(sessionId: string, id: string, result: PeerResult): Promise<'new' | 'repeat' | 'unknown'>;
-    conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
+    conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
     conversation(a: string, b: string): Promise<MessageRow[]>;
     /** The person writes to one of their live agents, alone or into a conversation between two agents (#1034). Refused when the agent is not live (404 when unknown, 409 when it has ended). */
     sendFromPerson(input: PersonMessageInput): Promise<MessageRow | Refusal>;
     /** A person writes to another person's agent (#1034): held for the owner's approval, or sent over an open link; refused over a removed or paused one. */
     sendAcross(input: AcrossInput): Promise<MessageRow | Refusal>;
     /** One page of the owner's conversation, the newest page first. `before` is the `older` of the page after it; a page back starts strictly before it, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
-    page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
+    page(ownerId: number, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
     /** The author changes the text of one of their own direct messages and of the rows it is merged with (#1269). See `PeerMessagesApi.editMessage`; one step, so a delivery cannot split it. */
     editMessage(id: string, x: PeerMessageEdit): Promise<PeerChange>;
     /** The author deletes one of their own direct messages and the rows it is merged with (#1269): each stays as a tombstone, and one that was not yet handed over ends `dropped` (why `deleted`). See `PeerMessagesApi.deleteMessage`. */
     deleteMessage(id: string, x: { author: number; now: number }): Promise<PeerChange>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
-    deleteConversation(owner: string, a: string, b: string): Promise<number>;
+    deleteConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
     conversationOf(a: string, b: string): Promise<ConversationSummary | null>;
-    /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). One grouped read for all of them; the same number as `ownerConversations(owner).length`. */
-    conversationCounts(owners: string[]): Promise<Record<string, number>>;
+    /** How many conversations each of the people with these ids takes part in, hidden ones left out, keyed by the id (#1046). One grouped read for all of them; the same number as `ownerConversations(id).length`. */
+    conversationCounts(ownerIds: number[]): Promise<Record<number, number>>;
     /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. `pairs` limits it to those pairs, each `<session id>|<session id>` in id order, as in a Direct Message thread's name (#1063); an empty list gives none. */
-    ownerConversations(owner: string, opts?: { includeHidden?: boolean; pairs?: string[] }): Promise<OwnerConversation[]>;
+    ownerConversations(ownerId: number, opts?: { includeHidden?: boolean; pairs?: string[] }): Promise<OwnerConversation[]>;
     /** Hides the owner's conversation and keeps its messages for the grace period. Returns how many rows it marked; 0 when already hidden. */
-    hideConversation(owner: string, a: string, b: string): Promise<number>;
+    hideConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Shows a hidden conversation again: the same peers are back, and the history with them. Returns how many rows it cleared. */
-    showConversation(owner: string, a: string, b: string): Promise<number>;
+    showConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Deletes the messages of every conversation hidden longer than the longest resume window of its two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
     purgeHidden(now: number, graceMs: number): Promise<number>;
   };
   /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void>;
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void>;
   replyFor(sessionId: string, allowed: boolean): Promise<PeerReply>;
-  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
-  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
-  removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
+  answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
+  answerPaused(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
+  removeLink(ownerId: number | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
   /** Opens, pauses, resumes or removes the link between a person and another person's agent's reporter (#1034). A removal also drops what still waits on it. The caller checks who may ask. */
   setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
-  setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
-  ownerView(owner: string, now: number): Promise<OwnerPeersView>;
+  setDefaults(ownerId: number, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
+  /** What My reporters shows of the person with this `people.id`: their reporters, rights, defaults and requests all found by it (#1284). */
+  ownerView(ownerId: number, now: number): Promise<OwnerPeersView>;
   adminView(key: string): Promise<AdminPeersView | null>;
   /** The orchestrator is forgotten, and what still waits for it is dropped. */
   ended(sessionId: string): Promise<void>;
@@ -339,9 +341,8 @@ export interface ChannelMention {
 export interface ChannelMessage {
   /** `grp_` or `pub_`, the server's 8 hex digits of scope, then 24 hex digits: `grp_3fa9c1d2_9e1b0c47d5a86f3e2b4a7c10`. */
   id: string;
-  /** The group's owner, folded (`nameKey`); null in a public channel. */
-  owner: string | null;
-  groupId: string | null;
+  /** The group's person, by `people.id` (#1284); null in a public channel. */
+  ownerId: number | null;
   /** The public channel's key (`general` or a channel's name, #1035); null in the group channel. */
   channel: string | null;
   authorKind: ChatAuthorKind;
@@ -387,10 +388,9 @@ export interface ChannelPage {
   older: string | null;
 }
 
-/** Which group channel: one person's group. */
+/** Which group channel: one person's group, by `people.id` (#1284). A group belongs to the person, never to a name: a person who takes a deleted person's name has a group of their own, with none of the earlier one's messages. */
 export interface GroupScope {
-  owner: string;
-  groupId: string;
+  ownerId: number;
 }
 
 /**
@@ -434,8 +434,8 @@ export interface PublicChannel {
   description: string;
   /** What the channel is about, or null for a channel about any other topic. At most one channel has a given link. */
   link: { kind: PublicChannelLinkKind; ref: string } | null;
-  /** The person who opened it, folded (`nameKey`); empty once that person is deleted, so a new person of the same name does not inherit it. */
-  createdBy: string;
+  /** The person who opened it, by `people.id` (#1284); null once that person is deleted, so a new person of the same name does not inherit it. */
+  createdById: number | null;
   /** The opener's name as it was written. */
   createdByName: string;
   createdAt: number;
@@ -446,8 +446,10 @@ export interface NewPublicChannel {
   name: string;
   description?: string;
   link?: { kind: PublicChannelLinkKind; ref: string } | null;
-  /** The person's name; the store folds it. */
+  /** The person's name, kept as the text the page shows. */
   createdBy: string;
+  /** The person's `people.id`, which is who opened it (#1284); null for the admin secret, which has no person. */
+  createdById: number | null;
 }
 
 /** Why a public channel was not made or changed. `reserved`: `general` or `group`. `name-taken` and `link-taken`: another channel has it (compared without case). `limit-reached`: 50 besides General. */
@@ -476,8 +478,8 @@ export interface PublicChannelsApi {
 
 /** One person's counts in one thread (`dm:<a>|<b>` with the two session ids sorted, `group:<group id>`, or `public`). The server keeps them so SSE can carry the counts and no text. */
 export interface ThreadReadState {
-  /** The person, folded (`nameKey`). */
-  person: string;
+  /** The person, by `people.id` (#1284). */
+  personId: number;
   thread: string;
   /** The cursor of the newest message the person had read, as the last `markRead` gave it; null before any. */
   lastRead: string | null;
@@ -488,13 +490,13 @@ export interface ThreadReadState {
 
 export interface ChatReadStateApi {
   /** Zeros (and `updatedAt` 0) for a thread never counted. */
-  get(person: string, thread: string): Promise<ThreadReadState>;
+  get(personId: number, thread: string): Promise<ThreadReadState>;
   /** Every thread the person has a row for, by thread. */
-  list(person: string): Promise<ThreadReadState[]>;
+  list(personId: number): Promise<ThreadReadState[]>;
   /** One more unread message for the person, and one more mention when `mention`. */
-  bump(person: string, thread: string, mention: boolean): Promise<ThreadReadState>;
+  bump(personId: number, thread: string, mention: boolean): Promise<ThreadReadState>;
   /** The person read up to `upTo` (the cursor of the newest message they saw, or null): unread and mentions go to 0. */
-  markRead(person: string, thread: string, upTo: string | null): Promise<ThreadReadState>;
+  markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Every thread, for any person, that starts with `prefix`, once each, by thread. Used to forget the rows of conversations that no longer exist (#1051). */
@@ -548,22 +550,23 @@ export interface AdminReadRow {
 /**
  * The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text.
  *
- * A record names the people it is owed to (`people`, folded names) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
+ * A record names the people it is owed to (`people`, by `people.id`, #1284) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
  * retention sweep, the purge of a hidden conversation or a writer deleting a conversation never erases what the person was never shown. A record made
  * with no people (General's, or one made before this was kept) owes nothing and goes by retention alone. "Seen" is `seen`: the person loaded the
  * thread's records, or their own overview for the record of a look at their list.
  */
 export interface ChatAdminReadsApi {
   /**
-   * An Admin read `thread` now. A read within `gapMs` of that Admin's last read of it (names compared folded) is the same session and refreshes its
-   * `lastSeenAt`; a longer gap starts a new record, owed to `people`. `previousSeenAt` is the session's last read before this one, or null when it began now.
+   * An Admin read `thread` now. `admin` is the name shown and `adminId` the Admin's `people.id`, null for the admin secret (#1284): a read within `gapMs` of that Admin's last read of it
+   * (the same id, or for the admin secret the same name) is the same session and refreshes its `lastSeenAt`; a longer gap starts a new record, owed to `people` (their ids).
+   * `previousSeenAt` is the session's last read before this one, or null when it began now.
    */
-  touch(thread: string, admin: string, gapMs: number, people?: string[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
+  touch(thread: string, admin: string, adminId: number | null, gapMs: number, people?: number[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
   /**
-   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people`. Two
+   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people` (their ids). Two
    * records of one Admin in the same millisecond are kept apart by moving the later one on by a millisecond.
    */
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people?: string[]): Promise<AdminReadRow>;
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people?: number[]): Promise<AdminReadRow>;
   /** The thread's records of every kind, oldest first. */
   list(thread: string): Promise<AdminReadRow[]>;
   /** The reading records (never a stop) of these threads last read after `since`, by thread, then oldest first. */
@@ -572,13 +575,13 @@ export interface ChatAdminReadsApi {
   recent(since: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** Every thread that has a record and starts with `prefix`, by name. */
   threads(prefix: string): Promise<string[]>;
-  /** `person` (names compared folded) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
-  seen(thread: string, person: string): Promise<number>;
+  /** The person (`people.id`) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
+  seen(thread: string, personId: number): Promise<number>;
   /**
-   * Every record `person` (names compared folded) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
+   * Every record the person (`people.id`) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
    * The caller decides which of them it can show on a thread and which can only be shown on the person's overview (#1051).
    */
-  unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]>;
+  unseenFor(personId: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** The thread is gone (a conversation deleted): removes its records that nobody is still owed a look at. Remove all messages does not call this. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Removes the records last read before `olderThan` that nobody is still owed a look at. Returns how many. */

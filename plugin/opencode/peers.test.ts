@@ -391,6 +391,20 @@ describe('the messaging tools (#969)', () => {
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/peers/messages', body: { to: 'build-pi@pi', text: 'deploy with token=[redacted] now' } });
   });
 
+  it('lists each orchestrator with the id Podium gave it, sends to the id as it is, and says an ended one is no longer available (#1284)', async () => {
+    const x = rig();
+    await reported(x);
+    x.server.answer = (method) =>
+      method === 'GET'
+        ? { status: 200, text: JSON.stringify({ peers: [{ address: 'build-pi@pi', id: '7', duplicate: false, name: 'build-pi', machine: 'pi', os: 'Linux', project: 'api', status: 'running', level: 'send', paused: false }], leftOut: [] }) }
+        : { status: 409, text: JSON.stringify({ error: 'The agent build-pi (id 7) is no longer available: its session has ended, so Podium did not queue the message.' }) };
+    const listed = await tool(x, 'podium_peers', {});
+    expect(listed).toContain('build-pi on pi, Linux, id 7, running, project api. Can send.');
+    expect(listed).toContain('to set to the id, such as "#7"');
+    expect(await tool(x, 'podium_send', { to: '#7', text: 'hello' })).toBe('Not sent. The agent build-pi (id 7) is no longer available: its session has ended, so Podium did not queue the message.');
+    expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/peers/messages', body: { to: '#7', text: 'hello' } });
+  });
+
   it('checks what a send and an access request were given before it asks Podium', async () => {
     const x = rig();
     await reported(x);

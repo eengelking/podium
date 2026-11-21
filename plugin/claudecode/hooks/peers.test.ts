@@ -189,6 +189,19 @@ describe('peers: what the tools answer', () => {
     ])
   })
 
+  test('podium_peers lists the id Podium gave each orchestrator, and the footer names the id as the surest address (#1284)', () => {
+    const text = listAnswer({ peers: [{ address: 'Tester@ci-runner-01', id: '7', duplicate: false, name: 'Tester', machine: 'ci-runner-01', os: null, project: '~/dev/podium', status: 'waiting', level: 'send', paused: false }], leftOut: [] }, 'Ed')
+    expect(text.split('\n')).toEqual([
+      "Orchestrators you can see, on 1 of Ed's reporters:",
+      '- Tester on ci-runner-01, id 7, waiting at the prompt, project ~/dev/podium. Can send.',
+      'To send, use podium_send with to set to the id, such as "#7" (an id is never reused, so it never reaches a later agent that took the name), or to "name@machine", such as "Tester@ci-runner-01".',
+    ])
+  })
+
+  test('a send to an ended agent shows the server\'s "no longer available" refusal as it is (#1284)', () => {
+    expect(refusalAnswer('Not sent. ', 'Tester (id 2) is no longer available: its session has ended.')).toContain('Tester (id 2) is no longer available')
+  })
+
   test('podium_peers with nobody to see, a paused link, a see-only right, and every reason left out', () => {
     expect(listAnswer({ peers: [], leftOut: [] }, 'Ed')).toBe("You cannot see any other orchestrator of Ed's right now.\nTo reach one, ask Ed for a right with podium_request_access.")
     const t = listAnswer(

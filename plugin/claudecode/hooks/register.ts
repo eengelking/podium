@@ -112,6 +112,7 @@ import {
   SUBAGENT_ACCESS,
   SUBAGENT_CHAT_READ,
   SUBAGENT_PEERS,
+  SEND_NO_TO,
   SUBAGENT_SEND,
   TOOL_DESCRIPTIONS,
 } from '../../core/peers.ts';
@@ -1792,7 +1793,7 @@ async function sendTool($: Engine, e: { agentId?: unknown; to?: unknown; text?: 
   if (!peersOn(r)) return notTakingPart('Not sent.');
   const to = typeof e.to === 'string' ? e.to.trim() : '';
   const raw = typeof e.text === 'string' ? e.text : '';
-  if (!to) return 'Not sent. Say who it is for: to is "name@machine", as podium_peers lists it.';
+  if (!to) return SEND_NO_TO;
   if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
   // Secrets go before the text leaves the machine, with the same redactor as a file's diff (SPEC 6.4).
   const red = redactText(raw);

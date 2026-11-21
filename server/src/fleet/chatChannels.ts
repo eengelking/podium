@@ -2,14 +2,14 @@
 // Disconnect, Remove all). This file never reads a direct message: a channel's text and a conversation's text are kept in different tables and
 // read by different code, and `chatSeparation.test.ts` holds this file to it.
 import { nameKey } from '../storage/rows.js';
-import { peerShortId, type LiveOrchestrator } from './peerTypes.js';
+import type { LiveOrchestrator } from './peerTypes.js';
 import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
 import { ChatCore, type AcrossUpdate, type ChatLimits } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { CHANNEL_NAME, lockedByDelivery } from '../storage/chatRows.js';
 import {
-  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, type ChannelId, type ChatViewer, type Fail,
+  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, type ChannelId, type ChatViewer, type Fail, type PersonRef,
 } from './chatTypes.js';
 
 /** How far back a held mention is looked for when a channel resumes: 10 pages of 100, far more than a person pauses over. */
@@ -26,7 +26,8 @@ const MAX_ID = 64;
 /** The mention states in which the agent was in fact called: it has the message, is working on it or answered it. */
 const CALLED: ReadonlySet<MentionState> = new Set<MentionState>(['waiting', 'working', 'done']);
 const NOT_CALLED = 'You were not called into this channel in the last hour.';
-const NOT_YET = 'Agents addressing each other in a channel arrive in a later release, so this was not delivered.';
+const NO_PERSON = 'This agent belongs to no person, so it has no group.';
+const NOT_YET ='Agents addressing each other in a channel arrive in a later release, so this was not delivered.';
 
 interface MentionView {
   typed: string;
@@ -107,7 +108,7 @@ export function messageView(m: ChannelMessage, viewer: ChatViewer | null, owners
     project: m.project,
     milestone: m.milestone,
     authorOwner: m.authorKind === 'person' ? null : (owners.get(m.authorRef) ?? null),
-    mine: m.authorKind === 'person' && viewer !== null && nameKey(m.authorRef) === nameKey(viewer.name),
+    mine: m.authorKind === 'person' && viewer !== null && viewer.personId !== null && m.authorId === viewer.personId,
     mentions: m.deletedAt === null ? m.mentions.map((x) => ({ typed: x.typed, sessionId: x.sessionId, state: x.state, why: x.why, stateAt: x.stateAt })) : [],
     editedAt: m.editedAt,
     deletedAt: m.deletedAt,
@@ -149,7 +150,11 @@ export interface ChannelState {
   disconnected: boolean;
 }
 
-type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump: string | null; deliver: LiveOrchestrator | null };
+/** The folded name the Admin log and the console's signals carry for a person (#1284). It is text for people to read and is never what a group, a count or a notice is found by. */
+const oname = (owner: PersonRef | null): string | null => (owner === null ? null : nameKey(owner.name));
+
+/** A mention worked out: what to store, the person it gives a mention badge (`people.id`, #1284), and the agent to hand it to. */
+type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump: number | null; deliver: LiveOrchestrator | null };
 
 /** The refusal when an Admin tries to write in a group that is not their own. */
 const ADMIN_NO_WRITE = 'An Admin can read and stop a person\'s group but cannot write in it.';
@@ -171,16 +176,21 @@ export class ChannelChat {
     });
   }
 
+  /** The person an agent belongs to, by the owner id its session carries (#1284). Null for an agent with no person: the admin secret's, or one whose person was deleted. */
+  private ownerOf(o: LiveOrchestrator): PersonRef | null {
+    return o.ownerId === null ? null : { id: o.ownerId, name: o.owner };
+  }
+
   private liveOf(sessionId: string): LiveOrchestrator | null {
     return this.core.host.isLive(sessionId) ? this.core.host.peers.messages.live(sessionId) : null;
   }
 
   // ---- The store behind a channel ----------------------------------------------------------------------------------
 
-  private handle(channel: ChannelId, owner: string | null) {
+  private handle(channel: ChannelId, owner: PersonRef | null) {
     const st = this.store;
     if (channel === 'group') {
-      const g: GroupScope = { owner: owner as string, groupId: nameKey(owner as string) };
+      const g: GroupScope = { ownerId: (owner as PersonRef).id };
       return {
         post: (i: ChannelPostInput) => st.group.post(g, i),
         page: (o: { before?: string | null; limit: number }) => st.group.page(g, o),
@@ -206,8 +216,8 @@ export class ChannelChat {
     };
   }
 
-  private threadOf(channel: ChannelId, owner: string | null): string {
-    return channel === GROUP ? groupThread(owner as string) : channelThread(channel);
+  private threadOf(channel: ChannelId, owner: PersonRef | null): string {
+    return channel === GROUP ? groupThread((owner as PersonRef).id) : channelThread(channel);
   }
 
   /**
@@ -221,7 +231,7 @@ export class ChannelChat {
     return (await this.store.channels.get(raw))?.name ?? null;
   }
 
-  /** The owners of the agents that wrote these messages, as their sessions were last stored; a session that is gone has none (#1035). One lookup per agent, all at once. */
+  /** The owners' names of the agents that wrote these messages, as their sessions were last stored (display text, #1284); a session that is gone has none (#1035). One lookup per agent, all at once. */
   async ownersOf(messages: ChannelMessage[]): Promise<Map<string, string | null>> {
     const refs = [...new Set(messages.filter((m) => m.authorKind !== 'person').map((m) => m.authorRef))];
     const owners = await Promise.all(refs.map(async (ref) => [ref, (await this.core.host.sessionOf(ref))?.owner ?? null] as const));
@@ -234,39 +244,44 @@ export class ChannelChat {
   }
 
   /** The channel a request is about: the group of the person asking, or the owner an Admin names. Fails when there is none to use. */
-  scopeFor(viewer: ChatViewer, channel: ChannelId, named: string | null | undefined): { owner: string | null } | Fail {
+  async scopeFor(viewer: ChatViewer, channel: ChannelId, named: string | null | undefined): Promise<{ owner: PersonRef | null } | Fail> {
     if (isPublicChannel(channel)) return { owner: null };
-    if (named && nameKey(named) !== nameKey(viewer.name)) {
-      if (!viewer.admin) return fail(403, 'Only its person and an Admin can use a group.');
-      return { owner: nameKey(named) };
+    if (named) {
+      // A typed name becomes a person here, once, and from then on the group is the person's id (#1284). The viewer naming themselves is the viewer's own group; a name that is no person's is no group.
+      const p = await this.core.personNamed(named);
+      if (!p) return fail(404, `There is no person named ${named.slice(0, 80)}.`);
+      if (p.id !== viewer.personId) {
+        if (!viewer.admin) return fail(403, 'Only its person and an Admin can use a group.');
+        return { owner: { id: p.id, name: p.name } };
+      }
     }
     if (viewer.personId === null) return fail(viewer.admin ? 400 : 403, 'The admin secret has no group of its own. Name the person whose group you mean.');
-    return { owner: nameKey(viewer.name) };
+    return { owner: { id: viewer.personId, name: viewer.name } };
   }
 
   // ---- Flags ---------------------------------------------------------------------------------------------------------
 
-  async flagsOf(channel: ChannelId, owner: string | null, person: string | null, known?: Record<string, ChannelFlags>): Promise<ChannelState> {
+  async flagsOf(channel: ChannelId, owner: PersonRef | null, personId: number | null, known?: Record<string, ChannelFlags>): Promise<ChannelState> {
     const f = this.store.settings;
     // `known` is every flag that is on, read once by a caller that asks about many channels (the overview); a scope not in it is off.
     const flags = async (scope: string): Promise<ChannelFlags> => (known ? (known[scope] ?? { paused: false, disconnected: false }) : f.flags(scope));
     if (channel === GROUP) {
-      const g = await flags(groupScope(owner as string));
+      const g = await flags(groupScope((owner as PersonRef).id));
       return { paused: g.paused, pausedByAdmin: g.paused ? (g.pausedByAdmin ?? null) : null, pausedForEveryone: false, disconnected: g.disconnected };
     }
     const all = await flags(channelGlobalScope(channel));
-    const mine: ChannelFlags = person ? await flags(channelPersonScope(channel, person)) : { paused: false, disconnected: false };
+    const mine: ChannelFlags = personId !== null ? await flags(channelPersonScope(channel, personId)) : { paused: false, disconnected: false };
     return { paused: all.paused || mine.paused, pausedByAdmin: all.paused ? (all.pausedByAdmin ?? null) : null, pausedForEveryone: all.paused, disconnected: mine.disconnected };
   }
 
   /** The flags that bind a message to an agent of `agentOwner` in `channel`. */
-  private async bindingFlags(channel: ChannelId, groupOwner: string | null, agentOwner: string): Promise<ChannelState> {
-    return channel === GROUP ? this.flagsOf(GROUP, groupOwner, null) : this.flagsOf(channel, null, agentOwner);
+  private async bindingFlags(channel: ChannelId, groupOwner: PersonRef | null, agentOwnerId: number | null): Promise<ChannelState> {
+    return channel === GROUP ? this.flagsOf(GROUP, groupOwner, null) : this.flagsOf(channel, null, agentOwnerId);
   }
 
   // ---- Reading -------------------------------------------------------------------------------------------------------
 
-  async page(viewer: ChatViewer, channel: ChannelId, owner: string | null, opts: { before?: string | null; limit: number }): Promise<{ page: ChannelPage; total: number } | Fail> {
+  async page(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, opts: { before?: string | null; limit: number }): Promise<{ page: ChannelPage; total: number } | Fail> {
     const h = this.handle(channel, owner);
     try {
       return { page: await h.page(opts), total: await h.count() };
@@ -276,8 +291,8 @@ export class ChannelChat {
   }
 
   /** The subject of an Admin's reading of a person's group: the person is told in the console and in each of their reporter sessions. */
-  private groupSubject(owner: string): ReadSubject {
-    return { scope: 'group', thread: groupThread(owner), owners: [nameKey(owner)], phrase: 'is reading your Podium group' };
+  private groupSubject(owner: PersonRef): ReadSubject {
+    return { scope: 'group', thread: groupThread(owner.id), owners: [nameKey(owner.name)], people: [owner.id], phrase: 'is reading your Podium group' };
   }
 
   /**
@@ -285,25 +300,25 @@ export class ChannelChat {
    * for the group, the readings and the Admin's stops; for General and every other public channel, which are public and never read-recorded, only the Admin's stops
    * (#1034, #1035): what an Admin reads there is what every signed-in person reads, so it raises no notice and writes no record.
    */
-  async readRecord(viewer: ChatViewer, channel: ChannelId, owner: string | null) {
+  async readRecord(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null) {
     if (isPublicChannel(channel)) return this.reads.list(channelThread(channel));
     if (owner === null) return [];
-    if (viewer.admin && nameKey(owner) !== nameKey(viewer.name)) await this.reads.note(viewer, this.groupSubject(owner));
-    const records = await this.reads.list(groupThread(owner));
+    if (viewer.admin && owner.id !== viewer.personId) await this.reads.note(viewer, this.groupSubject(owner));
+    const records = await this.reads.list(groupThread(owner.id));
     // The records go to the person's own console here, so what is owed to them is seen (#1051).
-    if (viewer.personId !== null && nameKey(owner) === nameKey(viewer.name)) await this.reads.seen(groupThread(owner), viewer.name);
+    if (viewer.personId !== null && owner.id === viewer.personId) await this.reads.seen(groupThread(owner.id), viewer.personId);
     return records;
   }
 
   /** An Admin's open group says it is still being read. Content-free. */
-  async reading(viewer: ChatViewer, owner: string | null): Promise<{ ok: true } | Fail> {
+  async reading(viewer: ChatViewer, owner: PersonRef | null): Promise<{ ok: true } | Fail> {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a group that is not their own.');
-    if (owner === null || nameKey(owner) === nameKey(viewer.name)) return fail(400, 'That group is yours, so reading it is not recorded.');
+    if (owner === null || owner.id === viewer.personId) return fail(400, 'That group is yours, so reading it is not recorded.');
     await this.reads.note(viewer, this.groupSubject(owner), true);
     return { ok: true };
   }
 
-  async total(channel: ChannelId, owner: string | null): Promise<number> {
+  async total(channel: ChannelId, owner: PersonRef | null): Promise<number> {
     return this.handle(channel, owner).count();
   }
 
@@ -313,9 +328,11 @@ export class ChannelChat {
    * still inside the hour. Reading changes no mention.
    */
   async agentRead(o: LiveOrchestrator, channel: ChannelId, before: string | null): Promise<{ messages: ChannelMessage[]; older: string | null } | Fail> {
-    const flags = await this.flagsOf(channel, nameKey(o.owner), nameKey(o.owner));
+    const owner = this.ownerOf(o);
+    if (channel === GROUP && owner === null) return fail(403, NO_PERSON);
+    const flags = await this.flagsOf(channel, owner, o.ownerId);
     if (flags.disconnected) return fail(403, `${channelName(channel)} is disconnected for your agents. Your person reconnects it.`);
-    const h = this.handle(channel, nameKey(o.owner));
+    const h = this.handle(channel, owner);
     const since = this.core.host.now() - AGENT_READ_WINDOW_MS;
     try {
       if (!(await this.calledInto(h, o, since))) return fail(403, NOT_CALLED);
@@ -372,11 +389,11 @@ export class ChannelChat {
   }
 
   /** The agents and people a typed `@` can mean in this channel, for the address list and for resolving a mention. */
-  async addressBook(channel: ChannelId, owner: string | null): Promise<{ typed: string; label: string; role: 'orchestrator' | 'person' | 'group' | 'everyone'; sessionId: string | null; disabled?: boolean; why?: string }[]> {
+  async addressBook(channel: ChannelId, owner: PersonRef | null): Promise<{ typed: string; label: string; role: 'orchestrator' | 'person' | 'group' | 'everyone'; sessionId: string | null; disabled?: boolean; why?: string }[]> {
     const out: { typed: string; label: string; role: 'orchestrator' | 'person' | 'group' | 'everyone'; sessionId: string | null; disabled?: boolean; why?: string }[] = [];
-    const agents = this.live().filter((o) => isPublicChannel(channel) || nameKey(o.owner) === owner);
+    const agents = this.live().filter((o) => isPublicChannel(channel) || (owner !== null && o.ownerId === owner.id));
     for (const o of agents.sort((a, b) => `${a.name}@${a.machine}`.localeCompare(`${b.name}@${b.machine}`))) out.push({ typed: `${o.name}@${o.machine}`, label: 'Orchestrator', role: 'orchestrator', sessionId: o.sessionId });
-    for (const p of await this.core.persons()) if (isPublicChannel(channel) || p.key === owner) out.push({ typed: `${p.name}@console`, label: 'Person', role: 'person', sessionId: null });
+    for (const p of await this.core.persons()) if (isPublicChannel(channel) || (owner !== null && p.id === owner.id)) out.push({ typed: `${p.name}@console`, label: 'Person', role: 'person', sessionId: null });
     const everyone = (await this.core.limits()).everyone;
     const off = { disabled: true, why: 'Off. An Admin turns it on in Admin > Settings.' };
     out.push({ typed: 'group', label: 'Everyone in My group', role: 'group', sessionId: null, ...(everyone ? {} : off) });
@@ -385,50 +402,53 @@ export class ChannelChat {
   }
 
   /** Works out each typed mention. Fails (nothing stored) for an `@group` or `@everyone` that is off, and for a name two agents share. */
-  private async plan(parsed: ParsedMention[], channel: ChannelId, owner: string | null, author: ChatViewer | null, limits: ChatLimits): Promise<Planned[] | Fail> {
-    const people = await this.core.everyone();
-    const agents = this.live().filter((o) => isPublicChannel(channel) || nameKey(o.owner) === owner);
+  private async plan(parsed: ParsedMention[], channel: ChannelId, owner: PersonRef | null, author: ChatViewer | null, limits: ChatLimits): Promise<Planned[] | Fail> {
+    const people = await this.core.persons();
+    const agents = this.live().filter((o) => isPublicChannel(channel) || (owner !== null && o.ownerId === owner.id));
     const out: Planned[] = [];
     const add = (p: Planned): void => void out.push(p);
-    const person = (name: string): boolean => people.includes(nameKey(name));
+    const personOf = (name: string) => people.find((p) => p.key === nameKey(name));
     if (!limits.everyone && parsed.some((m) => m.kind === 'group' || m.kind === 'everyone')) {
       return fail(422, '@group and @everyone are off, so nothing was sent. An Admin turns them on in Admin > Settings. Address one agent as name@location instead.');
     }
     for (const m of parsed) {
       if (m.kind === 'group' || m.kind === 'everyone') {
         // Both reach the sender's own orchestrators; @everyone also gives every person a mention badge.
-        const mine = this.live().filter((o) => !author || nameKey(o.owner) === nameKey(author.name));
+        const mine = this.live().filter((o) => !author || (o.ownerId !== null && o.ownerId === author.personId));
         for (const o of mine) add({ input: { sessionId: o.sessionId, peerKey: o.reporterKey, typed: m.typed }, bump: null, deliver: o });
-        if (m.kind === 'everyone') for (const n of people) add({ input: { sessionId: null, peerKey: null, typed: `${n}@console`, state: 'done', why: 'notified' }, bump: n, deliver: null });
+        if (m.kind === 'everyone') for (const n of people) add({ input: { sessionId: null, peerKey: null, typed: `${n.key}@console`, state: 'done', why: 'notified' }, bump: n.id, deliver: null });
         continue;
       }
       const wantName = nameKey(m.name);
       const here = m.kind === 'address' ? agents.filter((o) => nameKey(o.name) === wantName && nameKey(o.machine) === nameKey(m.location)) : agents.filter((o) => nameKey(o.name) === wantName);
-      const matches = m.kind === 'address' && m.id ? here.filter((o) => o.sessionId.toLowerCase().startsWith((m.id as string).toLowerCase())) : here;
+      // A numeric `#id` is an agent id and nothing else (#1284), as `podium_send` reads it: it must not also match a session id that happens to start with those digits.
+      const matches = m.kind === 'address' && m.id ? here.filter((o) => (/^\d+$/.test(m.id as string) ? String(o.agentId) === m.id : o.sessionId.toLowerCase().startsWith((m.id as string).toLowerCase()))) : here;
       if (m.kind === 'address' && nameKey(m.location) === 'console') {
-        if (person(m.name) && (isPublicChannel(channel) || nameKey(m.name) === owner)) add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'done', why: 'notified' }, bump: wantName, deliver: null });
+        const there = personOf(m.name);
+        if (there && (isPublicChannel(channel) || there.id === owner?.id)) add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'done', why: 'notified' }, bump: there.id, deliver: null });
         else add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'not-delivered', why: channel === 'group' ? `${m.name} is not in this group` : `there is no person called ${m.name}` }, bump: null, deliver: null });
         continue;
       }
-      const personHit = m.kind === 'plain' && person(m.name) && (isPublicChannel(channel) || wantName === owner);
+      const hit = m.kind === 'plain' ? personOf(m.name) : undefined;
+      const personHit = hit !== undefined && (isPublicChannel(channel) || hit.id === owner?.id);
       const total = matches.length + (personHit ? 1 : 0);
       if (m.kind === 'plain' && total === 0) continue; // an @ with a word after it that names nobody is only text
       if (total > 1) {
-        const list = [...matches.map((o) => `${o.name}@${o.machine}${here.length > 1 ? `#${peerShortId(o.sessionId)}` : ''}`), ...(personHit ? [`${m.name}@console`] : [])];
+        const list = [...matches.map((o) => `${o.name}@${o.machine}${here.length > 1 ? `#${o.agentId}` : ''}`), ...(personHit ? [`${m.name}@console`] : [])];
         return fail(409, `More than one agent or person is called ${m.kind === 'address' ? `${m.name}@${m.location}` : m.name}, so Podium cannot tell which you mean. Address one as ${list.join(', ')}.`);
       }
       const o = matches[0];
       if (o) add({ input: { sessionId: o.sessionId, peerKey: o.reporterKey, typed: m.typed }, bump: null, deliver: o });
-      else if (personHit) add({ input: { sessionId: null, peerKey: null, typed: `${m.name}@console`, state: 'done', why: 'notified' }, bump: wantName, deliver: null });
+      else if (personHit) add({ input: { sessionId: null, peerKey: null, typed: `${m.name}@console`, state: 'done', why: 'notified' }, bump: hit.id, deliver: null });
       else add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'not-delivered', why: `no live agent called ${m.name} on ${m.kind === 'address' ? m.location : 'any machine'}` }, bump: null, deliver: null });
     }
     return out;
   }
 
   /** A person posts. Returns the stored message and anything the person should hear about (a mention that could not be delivered). */
-  async post(viewer: ChatViewer, channel: ChannelId, owner: string | null, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage; warnings: string[] } | Fail> {
+  async post(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage; warnings: string[] } | Fail> {
     // An Admin reads and stops a person's group and never writes in it (#1034); only its person writes there.
-    if (channel === 'group' && (owner === null || nameKey(owner) !== nameKey(viewer.name))) return fail(403, ADMIN_NO_WRITE);
+    if (channel === 'group' && (owner === null || owner.id !== viewer.personId)) return fail(403, ADMIN_NO_WRITE);
     const limits = await this.core.limits();
     const checked = this.checkText(body.text, limits);
     if ('ok' in checked) return checked;
@@ -451,9 +471,9 @@ export class ChannelChat {
       let input = p.input;
       const o = p.deliver;
       if (o) {
-        const flags = await this.bindingFlags(channel, owner, o.owner);
+        const flags = await this.bindingFlags(channel, owner, o.ownerId);
         // Another person's agent needs that person's say-so from everyone, an Administrator included (#1034). An Admin keeps read and stop powers only.
-        if (nameKey(o.owner) !== nameKey(viewer.name)) {
+        if (o.ownerId === null || o.ownerId !== viewer.personId) {
           if (viewer.personId === null) {
             input = { ...input, state: 'not-delivered', why: `The admin secret has no person name, so Podium cannot ask ${o.owner} for you. Sign in with your own name to message ${o.name}.` };
             warnings.push(`${o.name}: ${input.why}`);
@@ -466,7 +486,7 @@ export class ChannelChat {
         } else if (flags.disconnected) input = { ...input, state: 'not-delivered', why: `${channelName(channel)} is disconnected for ${o.name}'s person` };
         else if (flags.paused) input = { ...input, state: 'held', why: `${channelName(channel)} is paused` };
         else {
-          const sent = this.core.deliver(o.sessionId, viewer.name, o.name, framed, 'channel', false, o.peers === true ? channelName(channel) : null);
+          const sent = this.core.deliver(o.sessionId, viewer.name, o.name, framed, 'channel', false, o.peers === true ? channelName(channel) : null, viewer.personId);
           if (sent.ok) {
             sentTo.set(inputs.length, { sessionId: o.sessionId, deliveryId: sent.delivery.id });
             input = { ...input, state: 'waiting' };
@@ -498,13 +518,13 @@ export class ChannelChat {
     }
     for (const [index, sent] of sentTo) this.follow(channel, owner, message.id, index, sent.deliveryId, sent.sessionId);
     for (const x of across) await this.askAcross(viewer, channel, owner, message, x, text, warnings);
-    await this.afterPost(channel, owner, viewer.name, planned);
-    this.core.onEvent({ kind: 'sent', channel, owner, by: viewer.actor, messageId: message.id, sessionId: null });
+    await this.afterPost(channel, owner, viewer.personId, planned);
+    this.core.onEvent({ kind: 'sent', channel, owner: oname(owner), by: viewer.actor, messageId: message.id, sessionId: null });
     return { ok: true, message, warnings };
   }
 
   /** Asks the agent's owner, through the direct-message side, and moves the mention the person wrote to what came of it. */
-  private async askAcross(viewer: ChatViewer, channel: ChannelId, owner: string | null, message: ChannelMessage, x: { index: number; o: LiveOrchestrator }, text: string, warnings: string[]): Promise<void> {
+  private async askAcross(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, message: ChannelMessage, x: { index: number; o: LiveOrchestrator }, text: string, warnings: string[]): Promise<void> {
     const asked = this.core.across ? await this.core.across(viewer, x.o.sessionId, text, { rate: false }) : null;
     const patch: { state: MentionState; why: string | null } = asked?.ok
       ? asked.state === 'approval'
@@ -534,7 +554,7 @@ export class ChannelChat {
     // One read for all of them: the person's messages that mention that agent in one of the states it may move from, oldest first, each carrying its channel (#1213).
     let hit: { channel: ChannelId; message: ChannelMessage; index: number } | null = null;
     for (const message of await this.store.public.mentionsAcross({ sessionId: u.sessionId, states: u.from })) {
-      if (message.authorKind !== 'person' || nameKey(message.authorRef) !== u.person) continue;
+      if (message.authorKind !== 'person' || message.authorId !== u.personId) continue;
       const index = message.mentions.findIndex((m) => m.sessionId === u.sessionId && u.from.includes(m.state));
       if (index >= 0) {
         hit = { channel: message.channel as ChannelId, message, index };
@@ -547,38 +567,38 @@ export class ChannelChat {
   }
 
   /** What becomes of a delivered mention moves its state: taken is working, refused is not delivered, a drop is dropped. */
-  private follow(channel: ChannelId, owner: string | null, messageId: string, index: number, deliveryId: string, sessionId: string): void {
+  private follow(channel: ChannelId, owner: PersonRef | null, messageId: string, index: number, deliveryId: string, sessionId: string): void {
     this.core.watch(deliveryId, (o) => {
       const patch = o.kind === 'took' ? { state: 'working' as const } : o.kind === 'queued' ? null : o.kind === 'dropped' ? { state: 'dropped' as const, why: o.why } : { state: 'not-delivered' as const, why: o.why };
       if (!patch) return;
       void this.handle(channel, owner)
         .setMention(messageId, index, patch)
         .then(() => {
-          this.core.onEvent({ kind: o.kind === 'took' ? 'delivered' : 'dropped', channel, owner, by: 'server', messageId, sessionId, ...(o.kind === 'took' ? {} : { why: 'why' in o ? o.why : undefined }) });
-          this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
+          this.core.onEvent({ kind: o.kind === 'took' ? 'delivered' : 'dropped', channel, owner: oname(owner), by: 'server', messageId, sessionId, ...(o.kind === 'took' ? {} : { why: 'why' in o ? o.why : undefined }) });
+          this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
         })
         .catch((err: unknown) => this.core.host.warn('a mention in Chat could not be updated', err));
     });
   }
 
   /** The counts a post changes, and the stream signal. A person's own post never counts against them. */
-  private async afterPost(channel: ChannelId, owner: string | null, authorName: string | null, planned: Planned[]): Promise<void> {
+  private async afterPost(channel: ChannelId, owner: PersonRef | null, authorId: number | null, planned: Planned[]): Promise<void> {
     const thread = this.threadOf(channel, owner);
-    const author = authorName === null ? null : nameKey(authorName);
-    const audience = channel === 'group' ? (owner ? [owner] : []) : await this.core.everyone();
-    const mentioned = new Set(planned.flatMap((p) => (p.bump ? [p.bump] : [])));
+    const audience: PersonRef[] = channel === 'group' ? (owner ? [owner] : []) : await this.core.persons();
+    const mentioned = new Set(planned.flatMap((p) => (p.bump !== null ? [p.bump] : [])));
     for (const who of audience) {
-      if (who === author) continue;
-      const row = await this.store.readState.bump(who, thread, mentioned.has(who));
-      if (mentioned.has(who)) this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: who, unread: row.unread, mentions: row.mentions });
+      if (who.id === authorId) continue;
+      const row = await this.store.readState.bump(who.id, thread, mentioned.has(who.id));
+      if (mentioned.has(who.id)) this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
     }
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
+    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
   }
 
   /** An agent posts (its main loop, with its person's token). The channel's flags bind it; a mention of another agent waits for a later release. */
   async agentPost(o: LiveOrchestrator, channel: ChannelId, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
-    const owner = nameKey(o.owner);
-    const flags = await this.flagsOf(channel, owner, owner);
+    const owner = this.ownerOf(o);
+    if (channel === GROUP && owner === null) return fail(403, NO_PERSON);
+    const flags = await this.flagsOf(channel, owner, o.ownerId);
     if (flags.disconnected) return fail(403, `${channelName(channel)} is disconnected for your agents. Your person reconnects it.`);
     if (flags.paused) return fail(409, `${channelName(channel)} is paused${flags.pausedForEveryone ? ' for everyone' : ' for your agents'}, so nothing can be posted until it is resumed.`);
     const limits = await this.core.limits();
@@ -612,12 +632,12 @@ export class ChannelChat {
       }
     }
     await this.afterPost(channel, channel === 'group' ? owner : null, null, Array.isArray(planned) ? planned : []);
-    this.core.onEvent({ kind: 'sent', channel, owner: channel === 'group' ? owner : null, by: o.name, messageId: message.id, sessionId: o.sessionId });
+    this.core.onEvent({ kind: 'sent', channel, owner: channel === 'group' ? oname(owner) : null, by: o.name, messageId: message.id, sessionId: o.sessionId });
     return { ok: true, message };
   }
 
   /** One message of a channel by id, looking back through the newest pages; null when it is not there (or is older than that). */
-  private async find(channel: ChannelId, owner: string | null, id: string): Promise<ChannelMessage | null> {
+  private async find(channel: ChannelId, owner: PersonRef | null, id: string): Promise<ChannelMessage | null> {
     const h = this.handle(channel, owner);
     let before: string | null = null;
     for (let i = 0; i < HELD_PAGES; i++) {
@@ -641,9 +661,9 @@ export class ChannelChat {
   }
 
   /** Tells the consoles that a message changed, as a post does for its scope, and the Admin log: ids and where, never the text. */
-  private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, channel: ChannelId, owner: string | null, messageId: string): void {
-    this.core.onEvent({ kind, scope: 'channel', channel, owner: channel === GROUP ? owner : null, by: viewer.actor, messageId });
-    this.core.signal({ scope: channel === GROUP ? 'group' : 'public', owner: channel === GROUP ? owner : null });
+  private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, messageId: string): void {
+    this.core.onEvent({ kind, scope: 'channel', channel, owner: channel === GROUP ? oname(owner) : null, by: viewer.actor, messageId });
+    this.core.signal({ scope: channel === GROUP ? 'group' : 'public', owner: channel === GROUP ? oname(owner) : null });
   }
 
   /** The copies of a message that waits for another person's approval, with the id each kept; `null` when one has none (stored before copies were kept), which cannot be reached. */
@@ -685,7 +705,7 @@ export class ChannelChat {
    * it never delivers anything, so it may not add or remove an @mention. The store decides who may and whether it is locked. A mention that waits for another person's
    * approval has a copy of the text for them: it is changed first (`changeCopies`), under that person's own length limit.
    */
-  async editMessage(viewer: ChatViewer, channel: ChannelId, owner: string | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+  async editMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
     const gate = this.mayChange(viewer, channel, owner);
     if (gate) return gate;
     const limits = await this.core.limits();
@@ -720,7 +740,7 @@ export class ChannelChat {
   }
 
   /** The author deletes their own message: a tombstone stays, and a copy for another person's approval goes with it. The store decides who may and whether it is locked. */
-  async deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: string | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+  async deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
     const gate = this.mayChange(viewer, channel, owner);
     if (gate) return gate;
     const h = this.handle(channel, owner);
@@ -742,16 +762,16 @@ export class ChannelChat {
   }
 
   /** The checks before a message is looked up: a signed-in person (the admin secret has no messages), and only in their own group. */
-  private mayChange(viewer: ChatViewer, channel: ChannelId, owner: string | null): Fail | null {
+  private mayChange(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null): Fail | null {
     if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
-    if (channel === GROUP && (owner === null || nameKey(owner) !== nameKey(viewer.name))) return fail(403, 'Only the person who wrote a message can change it.');
+    if (channel === GROUP && (owner === null || owner.id !== viewer.personId)) return fail(403, 'Only the person who wrote a message can change it.');
     return null;
   }
 
   // ---- The stop buttons ------------------------------------------------------------------------------------------------
 
   /** Every held mention of a channel, oldest first; with `sessionId`, only those of that session. One query for the held ones, not a read of the channel's pages (#1046). */
-  private async held(channel: ChannelId, owner: string | null, sessionId?: string): Promise<{ message: ChannelMessage; index: number }[]> {
+  private async held(channel: ChannelId, owner: PersonRef | null, sessionId?: string): Promise<{ message: ChannelMessage; index: number }[]> {
     const messages = await this.handle(channel, owner).heldMentions(sessionId === undefined ? {} : { sessionId });
     return messages.flatMap((message) => message.mentions.flatMap((m, index) => (m.state === 'held' && (sessionId === undefined || m.sessionId === sessionId) ? [{ message, index }] : [])));
   }
@@ -768,7 +788,7 @@ export class ChannelChat {
   }
 
   /** Delivers what was held for a channel, in order. `only` limits it to the agents of one person. Returns how many reached an agent. */
-  private async release(channel: ChannelId, owner: string | null, only: string | null): Promise<number> {
+  private async release(channel: ChannelId, owner: PersonRef | null, only: number | null): Promise<number> {
     let delivered = 0;
     const h = this.handle(channel, owner);
     const everyoneOn = (await this.core.limits()).everyone;
@@ -779,12 +799,12 @@ export class ChannelChat {
         await h.setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
         continue;
       }
-      if (only !== null && nameKey(target.owner) !== only) continue;
+      if (only !== null && target.ownerId !== only) continue;
       if ((m.typed === 'group' || m.typed === 'everyone') && !everyoneOn) {
         await h.setMention(message.id, index, { state: 'not-delivered', why: `@${m.typed} was turned off by an Admin while the message was held` });
         continue;
       }
-      const flags = await this.bindingFlags(channel, owner, target.owner);
+      const flags = await this.bindingFlags(channel, owner, target.ownerId);
       if (flags.paused) continue;
       if (flags.disconnected) {
         await h.setMention(message.id, index, { state: 'not-delivered', why: `${channelName(channel)} is disconnected for ${target.name}'s person` });
@@ -795,7 +815,7 @@ export class ChannelChat {
       const claimed = await h.setMention(message.id, index, { state: 'waiting' });
       if (!claimed) continue;
       // The message goes out as its author's, not as the one who resumed the channel (an Admin resuming for everyone sent nothing, #1051).
-      const sent = this.core.deliver(target.sessionId, claimed.authorName, target.name, `From Podium Chat, ${channelName(channel)}, ${claimed.authorName} wrote:\n${claimed.text}`, 'channel', false, target.peers === true ? channelName(channel) : null);
+      const sent = this.core.deliver(target.sessionId, claimed.authorName, target.name, `From Podium Chat, ${channelName(channel)}, ${claimed.authorName} wrote:\n${claimed.text}`, 'channel', false, target.peers === true ? channelName(channel) : null, claimed.authorId ?? null);
       if (sent.ok) {
         this.follow(channel, owner, message.id, index, sent.delivery.id, target.sessionId);
         delivered++;
@@ -805,84 +825,85 @@ export class ChannelChat {
   }
 
   /** A target left the live set: the mentions held for it are dropped, unless another live session can take its place. */
-  async sessionLeft(sessionId: string, owner: string): Promise<void> {
-    const key = nameKey(owner);
+  async sessionLeft(sessionId: string, owner: PersonRef | null): Promise<void> {
+    // An agent with no person has no group, so only the public channels can hold a message held for it (#1284).
     for (const channel of [GROUP, ...(await this.publicIds())]) {
-      const scope = channel === GROUP ? key : null;
+      if (channel === GROUP && owner === null) continue;
+      const scope = channel === GROUP ? owner : null;
       const h = this.handle(channel, scope);
       for (const { message, index } of await this.held(channel, scope, sessionId)) {
         const m = message.mentions[index]!;
         if (this.retarget(m)) continue;
         await h.setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
-        this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: scope });
+        this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: oname(scope) });
       }
     }
   }
 
   /** Pause or resume. `everyone` is General for all agents (an Admin); otherwise it is the person's own agents, or the group. */
-  async setPaused(viewer: ChatViewer, channel: ChannelId, owner: string | null, paused: boolean, everyone: boolean): Promise<(ChannelState & { ok: true; delivered: number }) | Fail> {
+  async setPaused(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, paused: boolean, everyone: boolean): Promise<(ChannelState & { ok: true; delivered: number }) | Fail> {
     if (everyone && (channel === GROUP || !viewer.admin)) return fail(403, `Only an Admin can pause ${channel === GROUP ? 'General' : channelName(channel)} for everyone.`);
     const scope = this.scopeKey(viewer, channel, owner, everyone);
     if ('ok' in scope) return scope;
     const before = await this.store.settings.flags(scope.key);
     // An Admin's pause is named and stays theirs: the person it binds cannot lift it, and pausing again does not take it over.
-    const mine = scope.owner !== null && nameKey(scope.owner) === nameKey(viewer.name);
-    if (before.pausedByAdmin && !viewer.admin) return paused ? { ok: true, delivered: 0, ...(await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name))) } : fail(403, `${before.pausedByAdmin}, an Administrator, paused this, so only an Administrator can resume it.`);
+    const mine = scope.owner !== null && scope.owner.id === viewer.personId;
+    if (before.pausedByAdmin && !viewer.admin) return paused ? { ok: true, delivered: 0, ...(await this.flagsOf(channel, owner, viewer.personId)) } : fail(403, `${before.pausedByAdmin}, an Administrator, paused this, so only an Administrator can resume it.`);
     const byAdmin = paused && viewer.admin && (everyone || !mine) ? viewer.actor : undefined;
     // The record and the Admin log come first, then the stop (#1051): a stop that could not be recorded is not done, and one that fails midway is already on both.
     // An Admin's stop on what is not theirs stays on the record, and the people it stops are told (#1034).
     if (viewer.admin && before.paused !== paused && (everyone || (channel === 'group' && !mine))) await this.reads.stopped(viewer, this.threadOf(channel, owner), paused ? 'paused' : 'resumed', this.stopTells(channel, owner, everyone ? `${channelName(channel)} for everyone` : 'your Podium group'), this.peopleOf(channel, owner));
-    this.core.onEvent({ kind: paused ? 'paused' : 'resumed', channel, owner: scope.owner, by: viewer.actor, everyone, count: 0 });
+    this.core.onEvent({ kind: paused ? 'paused' : 'resumed', channel, owner: oname(scope.owner), by: viewer.actor, everyone, count: 0 });
     await this.store.settings.setFlags(scope.key, { paused, ...(byAdmin ? { pausedByAdmin: byAdmin } : {}) });
     let delivered = 0;
-    if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : nameKey(viewer.name));
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
-    const state = await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name));
+    if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : viewer.personId);
+    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    const state = await this.flagsOf(channel, owner, viewer.personId);
     return { ok: true, delivered, ...state };
   }
 
-  async setDisconnected(viewer: ChatViewer, channel: ChannelId, owner: string | null, disconnected: boolean): Promise<(ChannelState & { ok: true }) | Fail> {
+  async setDisconnected(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, disconnected: boolean): Promise<(ChannelState & { ok: true }) | Fail> {
     const scope = this.scopeKey(viewer, channel, owner, false);
     if ('ok' in scope) return scope;
     // An Admin's disconnect of a group that is not theirs stays on the record, and the group's person is told (#1034). Recorded and logged before it is done (#1051).
-    const aboutGroup = channel === 'group' && scope.owner !== null && nameKey(scope.owner) !== nameKey(viewer.name);
+    const aboutGroup = channel === 'group' && scope.owner !== null && scope.owner.id !== viewer.personId;
     if (viewer.admin && aboutGroup) await this.reads.stopped(viewer, this.threadOf(channel, owner), disconnected ? 'disconnected' : 'reconnected', this.stopTells(channel, owner, 'your Podium group'), this.peopleOf(channel, owner));
-    this.core.onEvent({ kind: disconnected ? 'disconnected' : 'reconnected', channel, owner: scope.owner, by: viewer.actor, everyone: false, count: 0 });
+    this.core.onEvent({ kind: disconnected ? 'disconnected' : 'reconnected', channel, owner: oname(scope.owner), by: viewer.actor, everyone: false, count: 0 });
     await this.store.settings.setFlags(scope.key, { disconnected });
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
-    return { ok: true, ...(await this.flagsOf(channel, owner, viewer.personId === null ? null : nameKey(viewer.name))) };
+    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    return { ok: true, ...(await this.flagsOf(channel, owner, viewer.personId)) };
   }
 
-  private scopeKey(viewer: ChatViewer, channel: ChannelId, owner: string | null, everyone: boolean): { key: string; owner: string | null } | Fail {
-    if (channel === GROUP) return { key: groupScope(owner as string), owner };
+  private scopeKey(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, everyone: boolean): { key: string; owner: PersonRef | null } | Fail {
+    if (channel === GROUP) return { key: groupScope((owner as PersonRef).id), owner };
     if (everyone) return { key: channelGlobalScope(channel), owner: null };
     if (viewer.personId === null) return fail(400, `The admin secret has no agents of its own to pause or disconnect. Pause ${channelName(channel)} for everyone instead.`);
-    return { key: channelPersonScope(channel, viewer.name), owner: nameKey(viewer.name) };
+    return { key: channelPersonScope(channel, viewer.personId), owner: { id: viewer.personId, name: viewer.name } };
   }
 
   /** Who is owed a look at an Admin's stop: the group's person. General's stop is for everyone and is shown on General, so it is owed to no one in particular. */
-  private peopleOf(channel: ChannelId, owner: string | null): string[] {
-    return channel === 'group' && owner !== null ? [nameKey(owner)] : [];
+  private peopleOf(channel: ChannelId, owner: PersonRef | null): number[] {
+    return channel === 'group' && owner !== null ? [owner.id] : [];
   }
 
   /** Who is told of an Admin's stop: the group's person's sessions, or every session for General. */
-  private stopTells(channel: ChannelId, owner: string | null, about: string): Told[] {
-    return this.reads.sessionsOf(channel === 'group' ? owner : null).map((sessionId) => ({ sessionId, about }));
+  private stopTells(channel: ChannelId, owner: PersonRef | null, about: string): Told[] {
+    return this.reads.sessionsOf(channel === 'group' ? (owner?.id ?? null) : null).map((sessionId) => ({ sessionId, about }));
   }
 
   /**
    * Remove all messages: a group's person or an Admin, General's Admin. The messages go; the record of who read the thread does not, and an Admin's removal
    * of what is not theirs is added to it (#1034).
    */
-  async clear(viewer: ChatViewer, channel: ChannelId, owner: string | null): Promise<{ ok: true; removed: number } | Fail> {
+  async clear(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null): Promise<{ ok: true; removed: number } | Fail> {
     if (isPublicChannel(channel) && !viewer.admin) return fail(403, `Only an Admin can remove the messages of ${channelName(channel)}.`);
     const h = this.handle(channel, owner);
     // Recorded and logged first (#1051): an Admin's removal that could not be recorded is not done. The count is what is there to remove.
-    if (viewer.admin && (isPublicChannel(channel) || nameKey(owner as string) !== nameKey(viewer.name))) await this.reads.stopped(viewer, this.threadOf(channel, owner), 'cleared', this.stopTells(channel, owner, channel === GROUP ? 'your Podium group' : channelName(channel)), this.peopleOf(channel, owner));
-    this.core.onEvent({ kind: 'cleared', channel, owner, by: viewer.actor, everyone: false, count: await h.count() });
+    if (viewer.admin && (isPublicChannel(channel) || (owner as PersonRef).id !== viewer.personId)) await this.reads.stopped(viewer, this.threadOf(channel, owner), 'cleared', this.stopTells(channel, owner, channel === GROUP ? 'your Podium group' : channelName(channel)), this.peopleOf(channel, owner));
+    this.core.onEvent({ kind: 'cleared', channel, owner: oname(owner), by: viewer.actor, everyone: false, count: await h.count() });
     const removed = await h.clear();
     await this.store.readState.forget(this.threadOf(channel, owner));
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? owner : null });
+    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
     return { ok: true, removed };
   }
 

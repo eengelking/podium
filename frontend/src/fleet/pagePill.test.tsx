@@ -50,7 +50,7 @@ describe("the page pill in the top bar", () => {
   // #470: History left Traffic (now Chat) off the shared bar.
   it("gives History the Chat button while orchestrator messaging is on, signed in or not, and not while it is off", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
-    const out = { me: vi.fn(async () => ({ enabled: true, signedIn: false, name: null, admin: false })) } as unknown as RespondApi;
+    const out = { me: vi.fn(async () => ({ enabled: true, signedIn: false, name: null, id: null, admin: false })) } as unknown as RespondApi;
     const on = render(<HistoryView initialDay="2026-10-10" fleetOptions={flags(true)} respondApi={out} peersApi={{ read: vi.fn() } as unknown as PeersApi} />);
     expect(await screen.findByRole("link", { name: "Chat" })).toHaveAttribute("href", "#/chat");
     expect(names(on.container)).toEqual(["Fleet", "Board", "Chat"]);
@@ -65,7 +65,7 @@ describe("the page pill in the top bar", () => {
   it.each(["checking", "locked", "disabled", "open"] as const)("draws the shared top bar on Admin when it is %s, with no Admin button", async (state) => {
     const session = state === "checking" ? new Promise<Response>(() => {}) : Promise.resolve(Response.json({ enabled: state !== "disabled", unlocked: state === "open" }));
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url).includes("/session") ? session : new Response("{}", { status: 404 }))));
-    const admin = render(<AdminView fleetOptions={flags(true)} respondApi={{ me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", admin: true })) } as unknown as RespondApi} />);
+    const admin = render(<AdminView fleetOptions={flags(true)} respondApi={{ me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", id: 1, admin: true })) } as unknown as RespondApi} />);
     expect(await screen.findByRole("link", { name: "Chat" })).toBeInTheDocument();
     await waitFor(() => expect(names(admin.container)).toEqual(["Fleet", "Board", "History", "Chat", "My reporters"]));
     expect(screen.queryByRole("link", { name: "Back to fleet" })).toBeNull();

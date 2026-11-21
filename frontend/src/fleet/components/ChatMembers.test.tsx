@@ -49,13 +49,13 @@ const sessions = {
 
 describe("membersOf", () => {
   it("lists you, then your orchestrators and their subagents and forks, in My group", () => {
-    const { members, partial } = membersOf(overview(), sessions, { group: true, person: "Ed" });
+    const { members, partial } = membersOf(overview(), sessions, { group: true, person: "Ed", mine: true });
     expect(members.map((m) => `${m.kind}:${m.name}`)).toEqual(["you:Ed", "agent:agent-1", "agent:agent-2", "agent:storage-fork", "agent:Map call sites", "agent:agent-3"]);
     expect(partial).toBe(false);
   });
 
   it("says what each agent is and what it is doing", () => {
-    const { members } = membersOf(overview(), sessions, { group: true, person: "Ed" });
+    const { members } = membersOf(overview(), sessions, { group: true, person: "Ed", mine: true });
     const by = Object.fromEntries(members.map((m) => [m.name, m]));
     expect(by["agent-1"]!.state).toBe("waiting");
     expect(by["agent-1"]!.word).toBe("Waiting");
@@ -67,26 +67,31 @@ describe("membersOf", () => {
   });
 
   it("lists the person an Admin reads as, not the Admin", () => {
-    const { members } = membersOf(overview({ me: { name: "Root", admin: true, person: false } }), sessions, { group: true, person: "Maya Kim" });
+    const { members } = membersOf(overview({ me: { name: "Root", admin: true, person: false } }), sessions, { group: true, person: "Maya Kim", mine: false });
     expect(members[0]).toMatchObject({ kind: "person", name: "Maya Kim", line: "Owner" });
   });
 
+  it("does not call a person who has your name You when the caller says it is not you (an id decides, never the name)", () => {
+    const { members } = membersOf(overview(), sessions, { group: true, person: "Ed", mine: false });
+    expect(members[0]).toMatchObject({ kind: "person", name: "Ed" });
+  });
+
   it("lists the people and agents the page knows in a channel, and says the list is partial", () => {
-    const { members, partial } = membersOf(overview(), sessions, { group: false, person: "Ed" });
+    const { members, partial } = membersOf(overview(), sessions, { group: false, person: "Ed", mine: true });
     expect(members.filter((m) => m.kind !== "agent").map((m) => m.name)).toEqual(["Ed", "Maya Kim"]);
     expect(members.filter((m) => m.kind === "agent").map((m) => m.name)).toEqual(["agent-1", "agent-2", "agent-3"]);
     expect(partial).toBe(true);
   });
 
   it("gives a person who is not you the Member line and no state", () => {
-    const { members } = membersOf(overview(), sessions, { group: false, person: "Ed" });
+    const { members } = membersOf(overview(), sessions, { group: false, person: "Ed", mine: true });
     const maya = members.find((m) => m.name === "Maya Kim")!;
     expect(maya).toMatchObject({ kind: "person", line: "Member", state: null, word: null });
   });
 });
 
 describe("filterMembers", () => {
-  const all = membersOf(overview(), sessions, { group: true, person: "Ed" }).members;
+  const all = membersOf(overview(), sessions, { group: true, person: "Ed", mine: true }).members;
 
   it("keeps everyone for All and an empty search", () => {
     expect(filterMembers(all, "", "all")).toHaveLength(all.length);

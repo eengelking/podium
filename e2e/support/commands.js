@@ -7,7 +7,17 @@ export const seeded = () => {
   return manifest;
 };
 
-const H_ADMIN = { 'X-Podium-Admin': '1' };
+/** A seeded person's end of a conversation: `person:<people.id>` (#1284), never the name. Call it inside a test or hook, after cy.resetServer(). */
+export const personKey = (name) => {
+  const p = seeded().people[name];
+  if (!p) throw new Error(`no seeded person "${name}"`);
+  return `person:${p.id}`;
+};
+
+/** The sidebar key of a person's Direct Message with an agent's session (an agent's id sorts before `person:`), for cy.chatRow(). */
+export const personDmRow = (sessionId, name) => `d:dm:${sessionId}|${personKey(name)}`;
+
+const H_ADMIN ={ 'X-Podium-Admin': '1' };
 const H_RESPOND = { 'X-Podium-Respond': '1' };
 
 /** Restarts the server on a wiped database and reseeds it; yields the manifest. Options: env ['NAME=VALUE'], seedArgs, history, noSeed. */

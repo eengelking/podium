@@ -9,6 +9,7 @@ import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel
 import {
   OWNER_DEFAULTS,
   isPersonKey,
+  personKeyOf,
   refuse,
   type LinkPauser,
   type PersonLinkOp,
@@ -25,7 +26,7 @@ import {
   type RightRow,
   type RightsTrail,
 } from '../../fleet/peerTypes.js';
-import { ADMIN_OWNER, nameKey } from '../rows.js';
+import { ADMIN_OWNER } from '../rows.js';
 import { PEER_LIMIT_KEYS, peerSettingError, type PeerLimits } from '../settings.js';
 
 /** How far each level reaches, so a request that is allowed never lowers a right the owner already gave. */
@@ -39,6 +40,7 @@ interface DbRight {
   from_key: string;
   to_key: string;
   owner: string;
+  owner_id: number | null;
   level: PeerLevel;
   paused: number;
   paused_by: string | null;
@@ -49,6 +51,7 @@ interface DbRight {
 interface DbRequest {
   id: string;
   owner: string;
+  owner_id: number | null;
   kind: PeerRequestKind;
   from_key: string;
   to_key: string;
@@ -69,10 +72,13 @@ interface DbDefaults {
   limits_json: string | null;
 }
 
-type Owned = ReporterRef & { owner: string };
+type Owned = ReporterRef & { owner: string; ownerId: number };
 
-/** A reporter that can take part: owned by a person, not by no one or `Admin`, and not on the admin secret. */
-const eligible = (r: ReporterRef): r is Owned => !r.adminSecret && r.owner !== null && nameKey(r.owner) !== nameKey(ADMIN_OWNER);
+/** The owner a write is made for: the name as recorded (display text) and the `people.id` that binds it (#1284). */
+type Who = { owner: string; ownerId: number };
+
+/** A reporter that can take part: owned by a person (it has their `people.id`), not by no one, and not on the admin secret. A reporter whose person was deleted has no id and takes no part. */
+const eligible = (r: ReporterRef): r is Owned => !r.adminSecret && r.owner !== null && r.ownerId !== null;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -96,6 +102,7 @@ const toRight = (r: DbRight): RightRow => ({ from: r.from_key, to: r.to_key, own
 const toRequest = (r: DbRequest): PeerRequestRow => ({
   id: r.id,
   owner: r.owner,
+  ownerId: r.owner_id == null ? null : Number(r.owner_id),
   kind: r.kind,
   fromKey: r.from_key,
   toKey: r.to_key,
@@ -143,25 +150,23 @@ export class PeerRights implements PeerRightsApi {
   }
 
   /**
-   * The checks every write that joins two reporters makes. `owner` is the person acting from the browser or a session,
-   * who must own both; null is an Admin acting. Returns the owner's name as the server stored it.
+   * The checks every write that joins two reporters makes. `ownerId` is the `people.id` of the person acting from the browser or a session,
+   * who must own both; null is an Admin acting. Returns the owner as the server stored it: the name (display) and the id (#1284).
    */
-  private pair(owner: string | null, a: string, b: string): { ok: true; owner: string } | Refusal {
+  private pair(ownerId: number | null, a: string, b: string): ({ ok: true } & Who) | Refusal {
     const ra = this.reporters.get(a);
     const rb = a === b ? ra : this.reporters.get(b);
     if (!ra || !rb) return refuse(404, 'no such reporter');
     if (!eligible(ra) || !eligible(rb)) return refuse(403, NO_ADMIN);
-    if (owner !== null && (nameKey(owner) !== nameKey(ra.owner) || nameKey(owner) !== nameKey(rb.owner))) return refuse(403, 'not your reporter');
-    if (nameKey(ra.owner) !== nameKey(rb.owner)) return refuse(403, 'a link can only join two reporters with the same owner');
-    return { ok: true, owner: ra.owner };
+    if (ownerId !== null && (ownerId !== ra.ownerId || ownerId !== rb.ownerId)) return refuse(403, 'not your reporter');
+    if (ra.ownerId !== rb.ownerId) return refuse(403, 'a link can only join two reporters with the same owner');
+    return { ok: true, owner: ra.owner, ownerId: ra.ownerId };
   }
 
   // ---- defaults and limits -----------------------------------------------------------------------------------
 
-  defaults(owner: string): OwnerDefaults {
-    const r = this.stmt('SELECT trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_lower = ?').get(nameKey(owner)) as
-      | DbDefaults
-      | undefined;
+  defaults(ownerId: number | null): OwnerDefaults {
+    const r = ownerId === null ? undefined : (this.stmt('SELECT trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id = ?').get(ownerId) as DbDefaults | undefined);
     if (!r) return { ...OWNER_DEFAULTS, limits: {} };
     let saved: Record<string, unknown> = {};
     try {
@@ -197,9 +202,9 @@ export class PeerRights implements PeerRightsApi {
     return null;
   }
 
-  setDefaults(owner: string, patch: Record<string, unknown>, server: PeerLimits, actor: Actor): { ok: true; defaults: OwnerDefaults } | Refusal {
+  setDefaults(ownerId: number, patch: Record<string, unknown>, server: PeerLimits, actor: Actor): { ok: true; defaults: OwnerDefaults } | Refusal {
     if (!isObj(patch) || !Object.keys(patch).length) return refuse(400, 'nothing to change');
-    const next = this.defaults(owner);
+    const next = this.defaults(ownerId);
     for (const [k, v] of Object.entries(patch)) {
       if (k === 'trust') {
         if (typeof v !== 'boolean') return refuse(400, 'trust must be true or false');
@@ -219,17 +224,18 @@ export class PeerRights implements PeerRightsApi {
         return refuse(400, `unknown setting: ${k}`);
       }
     }
+    // A row is the person's by `owner_id` (#1284). `owner_lower` was the folded name and is still the primary key, so it holds the id as text: no name, so a newcomer's row never meets another's.
     this.stmt(
-      `INSERT INTO peer_owner_settings (owner_lower, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(owner_lower) DO UPDATE SET trust = excluded.trust, on_request = excluded.on_request,
+      `INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(owner_lower) DO UPDATE SET owner_id = excluded.owner_id, trust = excluded.trust, on_request = excluded.on_request,
          new_send = excluded.new_send, limits_json = excluded.limits_json`,
-    ).run(nameKey(owner), Number(next.trust), next.onRequest, next.newSend, JSON.stringify(next.limits));
-    this.trail({ kind: 'defaults', owner, actor });
+    ).run(String(ownerId), ownerId, Number(next.trust), next.onRequest, next.newSend, JSON.stringify(next.limits));
+    this.trail({ kind: 'defaults', owner: actor.name, actor });
     return { ok: true, defaults: next };
   }
 
-  limits(owner: string, server: PeerLimits): PeerLimits {
-    const own = this.defaults(owner).limits;
+  limits(ownerId: number | null, server: PeerLimits): PeerLimits {
+    const own = this.defaults(ownerId).limits;
     return {
       roundTrips: Math.min(server.roundTrips, own.roundTrips ?? server.roundTrips),
       perMinute: Math.min(server.perMinute, own.perMinute ?? server.perMinute),
@@ -244,14 +250,15 @@ export class PeerRights implements PeerRightsApi {
     return r ? toRight(r) : null;
   }
 
-  private write(from: string, to: string, owner: string, level: PeerLevel, paused: boolean, pausedBy: LinkPauser | null = null, adminName: string | null = null): RightRow {
+  private write(from: string, to: string, who: Who, level: PeerLevel, paused: boolean, pausedBy: LinkPauser | null = null, adminName: string | null = null): RightRow {
+    const { owner } = who;
     const setAt = this.now();
     const by = paused ? pausedBy : null;
     const named = by === 'admin' ? adminName : null;
     this.stmt(
-      `INSERT INTO peer_rights (from_key, to_key, owner, level, paused, paused_by, paused_by_admin, set_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(from_key, to_key) DO UPDATE SET owner = excluded.owner, level = excluded.level, paused = excluded.paused, paused_by = excluded.paused_by, paused_by_admin = excluded.paused_by_admin, set_at = excluded.set_at`,
-    ).run(from, to, owner, level, Number(paused), by, named, setAt);
+      `INSERT INTO peer_rights (from_key, to_key, owner, owner_id, level, paused, paused_by, paused_by_admin, set_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(from_key, to_key) DO UPDATE SET owner = excluded.owner, owner_id = excluded.owner_id, level = excluded.level, paused = excluded.paused, paused_by = excluded.paused_by, paused_by_admin = excluded.paused_by_admin, set_at = excluded.set_at`,
+    ).run(from, to, owner, who.ownerId, level, Number(paused), by, named, setAt);
     return { from, to, owner, level, paused, ...(by ? { pausedBy: by } : {}), ...(named ? { pausedByAdmin: named } : {}), setAt };
   }
 
@@ -260,22 +267,22 @@ export class PeerRights implements PeerRightsApi {
   }
 
   /** Gives `from` at least `level` to `to`, keeping a pause and never lowering what is there. */
-  private raise(from: string, to: string, owner: string, level: PeerLevel): { right: RightRow; changed: boolean } {
+  private raise(from: string, to: string, who: Who, level: PeerLevel): { right: RightRow; changed: boolean } {
     const had = this.row(from, to);
     if (had && RANK[had.level] >= RANK[level]) return { right: had, changed: false };
-    return { right: this.write(from, to, owner, level, had?.paused ?? false), changed: true };
+    return { right: this.write(from, to, who, level, had?.paused ?? false), changed: true };
   }
 
   /** Pauses or resumes every direction of a link. A pause with no right yet is kept as a `none` row so it holds; a resume drops such rows. */
-  private pausePair(owner: string, a: string, b: string, paused: boolean, by: LinkPauser | null = null, adminName: string | null = null): void {
+  private pausePair(who: Who, a: string, b: string, paused: boolean, by: LinkPauser | null = null, adminName: string | null = null): void {
     for (const [f, t] of directions(a, b)) {
       const had = this.row(f, t);
       // An Admin's pause stays an Admin's: a pause by anyone else does not take it over, and only an Admin lifts it (#1034).
       const theirs = had?.paused === true && had.pausedBy === 'admin';
-      if (paused) this.write(f, t, owner, had?.level ?? 'none', true, theirs ? 'admin' : by, theirs ? (had?.pausedByAdmin ?? null) : adminName);
+      if (paused) this.write(f, t, who, had?.level ?? 'none', true, theirs ? 'admin' : by, theirs ? (had?.pausedByAdmin ?? null) : adminName);
       else if (theirs && by !== 'admin') continue;
       else if (had?.level === 'none') this.drop(f, t);
-      else if (had) this.write(f, t, owner, had.level, false);
+      else if (had) this.write(f, t, who, had.level, false);
     }
   }
 
@@ -288,14 +295,14 @@ export class PeerRights implements PeerRightsApi {
     const p = this.pair(null, from, to);
     if (!p.ok) return { level: 'none', paused: false };
     const had = this.row(from, to);
-    return { level: this.defaults(p.owner).trust ? 'send' : (had?.level ?? 'none'), paused: had?.paused ?? false, ...pauser(had) };
+    return { level: this.defaults(p.ownerId).trust ? 'send' : (had?.level ?? 'none'), paused: had?.paused ?? false, ...pauser(had) };
   }
 
-  /** Owners are compared with `nameKey` in JS: SQLite's lower() folds only ASCII, so `Émile` would never match `émile`. */
-  rightsOf(owner: string): RightRow[] {
-    const key = nameKey(owner);
+  /** The rows of the person with this `people.id` (#1284); a name never finds one. */
+  rightsOf(ownerId: number | null): RightRow[] {
+    if (ownerId === null) return [];
     // A person's link (#1034) is not one of the reporters' Grid, so it is left out; `personLink` reads it.
-    return (this.stmt('SELECT * FROM peer_rights ORDER BY from_key, to_key').all() as unknown as DbRight[]).filter((r) => nameKey(r.owner) === key && !isPersonKey(r.from_key)).map(toRight);
+    return (this.stmt('SELECT * FROM peer_rights WHERE owner_id = ? ORDER BY from_key, to_key').all(ownerId) as unknown as DbRight[]).filter((r) => !isPersonKey(r.from_key)).map(toRight);
   }
 
   personLink(personKey: string, toKey: string): RightRow | null {
@@ -307,57 +314,57 @@ export class PeerRights implements PeerRightsApi {
     const r = this.reporters.get(toKey);
     if (!r) return refuse(404, 'no such reporter');
     if (!eligible(r)) return refuse(403, NO_ADMIN);
-    if (`person:${nameKey(r.owner)}` === personKey) return refuse(403, "a person's own agents need no link");
+    if (personKeyOf(r.ownerId) === personKey) return refuse(403, "a person's own agents need no link");
     const had = this.row(personKey, toKey);
     let right: RightRow | null;
     // An allow opens a link that is removed or not there yet. It never lifts a pause: whoever paused it (the sender, the owner or an Admin) resumes it (#1051).
     if (op === 'allow') {
       if (had?.paused) return refuse(409, 'this link is paused, so it is resumed, not allowed again');
-      right = this.write(personKey, toKey, r.owner, 'send', false);
+      right = this.write(personKey, toKey, r, 'send', false);
     }
     else if (op === 'remove') {
       if (!had || had.level === 'none') return refuse(404, 'there is no link to remove');
       // A `none` row is kept, so a removed link holds: the person's next message is refused, not asked about again.
-      right = this.write(personKey, toKey, r.owner, 'none', false);
+      right = this.write(personKey, toKey, r, 'none', false);
     } else {
       if (!had || had.level === 'none') return refuse(404, 'there is no link to pause');
-      right = this.write(personKey, toKey, r.owner, had.level, op === 'pause', op === 'pause' ? (pausedBy ?? null) : null, actor.name);
+      right = this.write(personKey, toKey, r, had.level, op === 'pause', op === 'pause' ? (pausedBy ?? null) : null, actor.name);
     }
     this.trail({ kind: 'person-link', op, owner: r.owner, person: personKey, toKey, actor });
     return { ok: true, right };
   }
 
-  setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
+  setRight(ownerId: number, from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
     if (!PEER_LEVELS.includes(level)) return refuse(400, 'level must be none, see, ask or send');
-    const p = this.pair(owner, from, to);
+    const p = this.pair(ownerId, from, to);
     if (!p.ok) return p;
     const paused = this.row(from, to)?.paused ?? false;
     let right: RightRow | null = null;
     if (level === 'none' && !paused) this.drop(from, to);
-    else right = this.write(from, to, p.owner, level, paused);
+    else right = this.write(from, to, p, level, paused);
     this.trail({ kind: 'set', right: right ?? { from, to, owner: p.owner, level: 'none' }, actor });
     return { ok: true, right };
   }
 
-  pauseLink(owner: string | null, a: string, b: string, paused: boolean, actor: Actor): { ok: true } | Refusal {
-    const p = this.pair(owner, a, b);
+  pauseLink(ownerId: number | null, a: string, b: string, paused: boolean, actor: Actor): { ok: true } | Refusal {
+    const p = this.pair(ownerId, a, b);
     if (!p.ok) return p;
-    // owner === null is an Admin acting on someone else's link: their pause is theirs, and the owner cannot lift it.
-    const admin = owner === null;
+    // ownerId === null is an Admin acting on someone else's link: their pause is theirs, and the owner cannot lift it.
+    const admin = ownerId === null;
     if (!paused && !admin && directions(a, b).some(([f, t]) => this.row(f, t)?.pausedBy === 'admin')) return refuse(403, ADMIN_PAUSED);
-    this.tx(() => this.pausePair(p.owner, a, b, paused, admin ? 'admin' : null, admin ? actor.name : null));
+    this.tx(() => this.pausePair(p, a, b, paused, admin ? 'admin' : null, admin ? actor.name : null));
     this.trail({ kind: paused ? 'paused' : 'resumed', owner: p.owner, a, b, actor });
     return { ok: true };
   }
 
-  removeLink(owner: string | null, a: string, b: string, actor: Actor): { ok: true } | Refusal {
-    const p = this.pair(owner, a, b);
+  removeLink(ownerId: number | null, a: string, b: string, actor: Actor): { ok: true } | Refusal {
+    const p = this.pair(ownerId, a, b);
     if (!p.ok) return p;
     // Under Trust a link with no rows can still send, so a removal leaves it paused instead, or it would not hold.
-    const trust = this.defaults(p.owner).trust;
+    const trust = this.defaults(p.ownerId).trust;
     this.tx(() => {
       for (const [f, t] of directions(a, b)) {
-        if (trust) this.write(f, t, p.owner, 'none', true);
+        if (trust) this.write(f, t, p, 'none', true);
         else this.drop(f, t);
       }
     });
@@ -371,9 +378,9 @@ export class PeerRights implements PeerRightsApi {
     if (!eligible(r)) return refuse(403, NO_ADMIN);
     // A bulk pause by an Admin is the Admin's, named like a pause of one link, and only an Admin lifts it (#1077).
     const by: LinkPauser | null = actor.admin ? 'admin' : null;
-    const others = new Set([key, ...this.reporters.ofOwner(r.owner).filter(eligible).map((o) => o.key)]);
+    const others = new Set([key, ...this.reporters.ofOwner(r.ownerId).filter(eligible).map((o) => o.key)]);
     this.tx(() => {
-      for (const o of others) this.pausePair(r.owner, key, o, paused, by, by ? actor.name : null);
+      for (const o of others) this.pausePair(r, key, o, paused, by, by ? actor.name : null);
     });
     for (const o of others) this.trail({ kind: paused ? 'paused' : 'resumed', owner: r.owner, a: key, b: o, actor });
     return { ok: true, links: others.size };
@@ -384,9 +391,9 @@ export class PeerRights implements PeerRightsApi {
   private insertRequest(r: Omit<PeerRequestRow, 'id' | 'createdAt' | 'closedAt' | 'outcome'>): PeerRequestRow {
     const row: PeerRequestRow = { ...r, id: `prq_${randomBytes(12).toString('hex')}`, createdAt: this.now(), closedAt: null, outcome: null };
     this.stmt(
-      `INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at, seq)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_requests))`,
-    ).run(row.id, row.owner, row.kind, row.fromKey, row.toKey, row.level, row.reason, row.by, row.fromSession, row.messageId, row.createdAt);
+      `INSERT INTO peer_requests (id, owner, owner_id, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_requests))`,
+    ).run(row.id, row.owner, row.ownerId, row.kind, row.fromKey, row.toKey, row.level, row.reason, row.by, row.fromSession, row.messageId, row.createdAt);
     return row;
   }
 
@@ -412,24 +419,24 @@ export class PeerRights implements PeerRightsApi {
       request = { ...toRequest(open), level, createdAt: this.now() };
       this.stmt('UPDATE peer_requests SET level = ?, created_at = ? WHERE id = ?').run(level, request.createdAt, request.id);
     } else {
-      request = this.insertRequest({ owner: p.owner, kind: 'proposal', fromKey: from, toKey: to, level, reason: null, by: ADMIN_OWNER, fromSession: null, messageId: null });
+      request = this.insertRequest({ owner: p.owner, ownerId: p.ownerId, kind: 'proposal', fromKey: from, toKey: to, level, reason: null, by: ADMIN_OWNER, fromSession: null, messageId: null });
     }
     this.trail({ kind: 'proposed', request, actor });
     return { ok: true, request };
   }
 
-  requestAccess(input: { owner: string; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): AccessOutcome | Refusal {
+  requestAccess(input: { ownerId: number; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): AccessOutcome | Refusal {
     if (input.right !== 'see' && input.right !== 'send') return refuse(400, 'right must be see or send');
     if (typeof input.reason !== 'string') return refuse(400, 'reason must be text');
     const reason = cleanReason(input.reason);
     if (reason.length > PEER_LIMITS.reason) return refuse(400, `the reason must be at most ${PEER_LIMITS.reason} characters`);
-    const p = this.pair(input.owner, input.fromKey, input.toKey);
+    const p = this.pair(input.ownerId, input.fromKey, input.toKey);
     if (!p.ok) return p;
-    const d = this.defaults(p.owner);
+    const d = this.defaults(p.ownerId);
     const level: PeerLevel = input.right === 'see' ? 'see' : d.newSend;
     if (d.onRequest === 'decline') return { ok: true, state: 'declined' };
     if (d.onRequest === 'allow') {
-      const { right, changed } = this.raise(input.fromKey, input.toKey, p.owner, level);
+      const { right, changed } = this.raise(input.fromKey, input.toKey, p, level);
       if (changed) this.trail({ kind: 'set', right, actor: { name: p.owner, admin: false } });
       return { ok: true, state: 'allowed', applied: right };
     }
@@ -439,6 +446,7 @@ export class PeerRights implements PeerRightsApi {
     if (same) return { ok: true, state: 'asked', request: toRequest(same) };
     const request = this.insertRequest({
       owner: p.owner,
+      ownerId: p.ownerId,
       kind: 'access',
       fromKey: input.fromKey,
       toKey: input.toKey,
@@ -452,22 +460,21 @@ export class PeerRights implements PeerRightsApi {
     return { ok: true, state: 'asked', request };
   }
 
-  openMessageRequest(input: { owner: string; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): PeerRequestRow {
-    return this.insertRequest({ owner: input.owner, kind: 'message', fromKey: input.fromKey, toKey: input.toKey, level: null, reason: null, by: input.by, fromSession: input.fromSession, messageId: input.messageId });
+  openMessageRequest(input: { owner: string; ownerId: number; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): PeerRequestRow {
+    return this.insertRequest({ owner: input.owner, ownerId: input.ownerId, kind: 'message', fromKey: input.fromKey, toKey: input.toKey, level: null, reason: null, by: input.by, fromSession: input.fromSession, messageId: input.messageId });
   }
 
   closeMessageRequest(messageId: string, outcome: 'delivered' | 'dropped' | 'declined'): void {
     this.stmt("UPDATE peer_requests SET closed_at = ?, outcome = ? WHERE kind = 'message' AND message_id = ? AND closed_at IS NULL").run(this.now(), outcome, messageId);
   }
 
-  openRequests(owner: string, about?: string): PeerRequestRow[] {
-    // The owner is compared in JS (see rightsOf): SQLite's lower() folds only ASCII.
-    const key = nameKey(owner);
+  openRequests(ownerId: number | null, about?: string): PeerRequestRow[] {
+    if (ownerId === null) return [];
     const rows =
       about === undefined
         ? this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, seq').all()
         : this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, seq').all(about, about);
-    return (rows as unknown as DbRequest[]).filter((r) => nameKey(r.owner) === key).map(toRequest);
+    return (rows as unknown as DbRequest[]).filter((r) => r.owner_id !== null && Number(r.owner_id) === ownerId).map(toRequest);
   }
 
   getRequest(id: string): PeerRequestRow | null {
@@ -475,10 +482,10 @@ export class PeerRights implements PeerRightsApi {
     return r ? toRequest(r) : null;
   }
 
-  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): AnswerOutcome | Refusal {
+  answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): AnswerOutcome | Refusal {
     const req = this.getRequest(id);
     if (!req) return refuse(404, 'no such request');
-    if (nameKey(owner) !== nameKey(req.owner)) return refuse(403, 'not your request');
+    if (req.ownerId === null || ownerId !== req.ownerId) return refuse(403, 'not your request');
     if (req.closedAt !== null) return refuse(410, `already ${req.outcome}`);
     if (!PEER_ANSWERS.includes(answer)) return refuse(422, 'the answer must be allow, decline or deliver');
     if (req.kind === 'message') {
@@ -493,11 +500,11 @@ export class PeerRights implements PeerRightsApi {
       this.trail({ kind: 'declined', request, actor });
       return { ok: true, request, applied: null };
     }
-    const p = this.pair(owner, req.fromKey, req.toKey);
+    const p = this.pair(ownerId, req.fromKey, req.toKey);
     if (!p.ok) return p;
     const level = req.level as PeerLevel;
     // Neither an accepted proposal nor an allowed access request lowers a right, even one that rose after it was made.
-    const applied = this.raise(req.fromKey, req.toKey, p.owner, level).right;
+    const applied = this.raise(req.fromKey, req.toKey, p, level).right;
     const request = this.close(req, 'allowed');
     this.trail({ kind: 'accepted', request, actor });
     return { ok: true, request, applied };

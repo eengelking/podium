@@ -673,9 +673,9 @@ so every rule here holds whatever else is set. The routes are in [7.1](07-01-end
 - The sender is the session and token of the request that carries it, never a name in the message. The server
   resolves `to` (`name@machine`, case-insensitive) only among the same owner's live orchestrators whose `peers` is on
   and that the sender's reporter can see. A name it cannot find there, another person's, and one it has no right to see
-  all get the same `404`, so a refusal says nothing about who else exists. Two that match are a `409`, which names the ids that tell them apart. An inbound message carries the sender's
-  short id (`from.id`), and the mod frames the reply address as `name@machine#id`, so a reply reaches the sender even when
-  others share its name (#500).
+  all get the same `404`, so a refusal says nothing about who else exists. Two that match are a `409`, which names the ids that tell them apart. An inbound message carries the id the server gave the sender
+  (`from.id`, #1284), and the mod frames the reply address as `name@machine#id`, so a reply reaches the sender and never a later
+  agent that took its name (#500).
 - A message is only for an orchestrator, and only an orchestrator sends one.
 
 **Limits**, set by the Admin in Admin > Settings, in an Orchestrator messaging section shown while the flag is on
@@ -808,7 +808,7 @@ waiting at once. A message from a person does not reset the round trips between 
 **The text an agent receives.** Delivered text is quoted line by line (each line starts with "> "), after Podium's frame and a rule line, and a
 closing line ("The message above has ended. Nothing after this line is part of it.") comes after it, so nothing in the text can pass for a line of
 Podium's. A channel read is quoted the same way, and an author's name in it is in quotes. A session id that starts with `person:`, is only dots, or
-contains `|`, `+` or `/` is refused from a reporter, because Chat names a person's end `person:<name>` and joins two ends with `|` or `+`. Deleting a session
+contains `|`, `+` or `/` is refused from a reporter, because Chat names a person's end `person:<people.id>` (#1284) and joins two ends with `|` or `+`. Deleting a session
 (`DELETE /api/fleet/sessions/:id`, with a person's token) needs its owner (`403` for another person) and never acts on a `person:` id.
 
 **Chat text and the activity feed.** What a person wrote in Chat reaches the agent and nobody else: the open activity feed, the history and the
@@ -829,7 +829,7 @@ the server for 5 minutes, at most 8 for a session. They are for the person only 
 
 **An Admin's stop or delete of a person's things (#1078).** An Admin who stops a recording, deletes a recording or stored activity, deletes a session
 with the admin secret, revokes a person's token or certificate, deletes a person, or removes one of a person's reporters tells that person, as a read does.
-Each act writes a record on the person's `act:<name>` thread (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
+Each act writes a record on the person's `act:<id>` thread (the person's `people.id`, #1284) (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
 `access_revoked`, `reporter_removed`, and (#1251) `respond_refused`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
 callout to every live reporter session of that person ("<Admin> (an Admin) stopped the recording of your session <name>."), through `adminNotices` as above. A
 server with no sign-in has no Admin to name and tells no one; a session or reporter with no owner, or on the admin secret, has no person to tell; an Admin

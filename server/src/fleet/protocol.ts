@@ -160,6 +160,8 @@ export interface SessionView {
   hideAt: number | null;
   /** Who the server decided this session belongs to, from the token: a person's name, `Admin` for the admin secret, null when auth is off or the session predates tokens. */
   owner: string | null;
+  /** The owner's `people.id` (#1284): who owns the session, which the console compares, never the name. null for Admin, no owner, and a session whose person was deleted (detached). */
+  ownerId: number | null;
   /** The group the owner is in, from Admin; null for Admin, no owner, or a person with no group. */
   ownerGroup: string | null;
   /** The machine the session runs on, as the reporter sent it; null when it sent none (no userName, or older than 0.9.0). */
@@ -242,6 +244,8 @@ export interface RespondMe {
   signedIn: boolean;
   /** The signed-in person's name, or `Admin`. */
   name: string | null;
+  /** The signed-in person's `people.id` (#1284); null for the admin secret and when nobody is signed in. Ownership is compared by this, not by `name`. */
+  id: number | null;
   /** The admin secret, or a person in Administrators. */
   admin: boolean;
   /** The Admin's My usage setting is on (#726), so the top bar offers the page. Absent from an older server, which means off. */

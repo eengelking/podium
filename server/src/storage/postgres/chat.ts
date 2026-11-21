@@ -2,16 +2,15 @@
 // (`public_messages`) and each person's read state per thread (`chat_read_state`). Nothing here reads or writes a direct message (the
 // conversation table): a channel's text and a conversation's text are in different tables, read by different methods, on purpose.
 // Every call that reads then writes is one transaction, and the gate in `PgDb.tx` takes them one at a time, as the SQLite lock does.
-import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, channelKey, channelOwner, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, keyList, mentionLike, keyText, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedKeys, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgConversations } from './conversations.js';
 
-const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
+const GROUP_COLS = 'id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 
 /** Which messages of a table: one person's group, or one public channel (#1035). */
@@ -35,8 +34,8 @@ class PgChannel {
   }
 
   /** The `WHERE` for the channel and the values that fill it. */
-  private where(scope: Scope): { sql: string; args: string[] } {
-    return 'channel' in scope ? { sql: 'channel = ?', args: [scope.channel] } : { sql: 'owner = ? AND group_id = ?', args: [channelOwner(scope.owner), scope.groupId] };
+  private where(scope: Scope): { sql: string; args: (string | number)[] } {
+    return 'channel' in scope ? { sql: 'channel = ?', args: [scope.channel] } : { sql: 'owner_id = ?', args: [scope.ownerId] };
   }
 
   private byId(id: string, scope: Scope): Promise<DbChannelRow | undefined> {
@@ -54,9 +53,10 @@ class PgChannel {
       // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
       if (!('channel' in scope)) {
         await this.db.run(
-          `INSERT INTO group_messages (id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
-          [common[0], channelOwner(scope.owner), scope.groupId, ...common.slice(1)],
+          `INSERT INTO group_messages (id, owner, group_id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
+          // `owner` and `group_id` are the older name key and are not read (#1284); they hold the id's key so a name never lands in them.
+          [common[0], personKey(scope.ownerId), personKey(scope.ownerId), scope.ownerId, ...common.slice(1)],
         );
       } else {
         // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
@@ -176,8 +176,9 @@ class PgPublicChannels {
       const have = ((await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM public_channels')) as { n: number }).n;
       if (Number(have) >= MAX_PUBLIC_CHANNELS) return channelRefusal('limit-reached', `There are already ${MAX_PUBLIC_CHANNELS} channels besides General.`);
       await this.db.run(
-        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdBy, c.createdByName, at, at],
+        // `created_by` is the older name key and is not read (#1284); the opener is `created_by_id`.
+        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_id, created_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+        [c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdById, c.createdByName, at, at],
       );
       return { ok: true as const, channel: toPublicChannel((await this.row(c.name)) as DbPublicChannel) };
     });
@@ -218,8 +219,9 @@ class PgPublicChannels {
   }
 }
 
+/** A read state row. `person` is the older name key, which holds `#<id>` now and is not read (#1284); the person is `person_id`. */
 interface DbReadState {
-  person: string;
+  person_id: number;
   thread: string;
   last_read: string | null;
   unread: number;
@@ -227,7 +229,7 @@ interface DbReadState {
   updated_at: number;
 }
 
-const toState = (r: DbReadState): ThreadReadState => ({ person: r.person, thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
+const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(r.person_id), thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
 
 class PgReadState {
   constructor(
@@ -235,31 +237,31 @@ class PgReadState {
     private readonly now: () => number,
   ) {}
 
-  async get(person: string, thread: string): Promise<ThreadReadState> {
-    const r = await this.db.get<DbReadState>('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person = ? AND thread = ?', [nameKey(person), thread]);
-    return r ? toState(r) : emptyReadState(person, thread);
+  async get(personId: number, thread: string): Promise<ThreadReadState> {
+    const r = await this.db.get<DbReadState>('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? AND thread = ?', [personId, thread]);
+    return r ? toState(r) : emptyReadState(personId, thread);
   }
 
-  async list(person: string): Promise<ThreadReadState[]> {
-    return (await this.db.all<DbReadState>('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person = ? ORDER BY thread', [nameKey(person)])).map(toState);
+  async list(personId: number): Promise<ThreadReadState[]> {
+    return (await this.db.all<DbReadState>('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? ORDER BY thread', [personId])).map(toState);
   }
 
-  async bump(person: string, thread: string, mention: boolean): Promise<ThreadReadState> {
+  async bump(personId: number, thread: string, mention: boolean): Promise<ThreadReadState> {
     await this.db.run(
-      `INSERT INTO chat_read_state (person, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, NULL, 1, ?, ?)
+      `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, NULL, 1, ?, ?)
        ON CONFLICT(person, thread) DO UPDATE SET unread = chat_read_state.unread + 1, mentions = chat_read_state.mentions + excluded.mentions, updated_at = excluded.updated_at`,
-      [nameKey(person), thread, mention ? 1 : 0, this.now()],
+      [personKey(personId), personId, thread, mention ? 1 : 0, this.now()],
     );
-    return this.get(person, thread);
+    return this.get(personId, thread);
   }
 
-  async markRead(person: string, thread: string, upTo: string | null): Promise<ThreadReadState> {
+  async markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState> {
     await this.db.run(
-      `INSERT INTO chat_read_state (person, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, 0, 0, ?)
+      `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?)
        ON CONFLICT(person, thread) DO UPDATE SET last_read = excluded.last_read, unread = 0, mentions = 0, updated_at = excluded.updated_at`,
-      [nameKey(person), thread, upTo, this.now()],
+      [personKey(personId), personId, thread, upTo, this.now()],
     );
-    return this.get(person, thread);
+    return this.get(personId, thread);
   }
 
   forget(thread: string): Promise<number> {
@@ -290,15 +292,15 @@ interface DbOwed {
 const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
 
 /** One person owed one Admin record (#1061). */
-const owe = async (db: PgDb, thread: string, adminKey: string, startedAt: number, people: string[]): Promise<void> => {
-  for (const p of people) await db.run('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', [p, thread, adminKey, startedAt]);
+const owe = async (db: PgDb, thread: string, adminKey: string, startedAt: number, people: number[]): Promise<void> => {
+  for (const p of people) await db.run('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING', [personKey(p), p, thread, adminKey, startedAt]);
 };
 
 /** Once per database, fills `chat_admin_owed` from the lists of the records made before it (#1061); the key is set last, so an interrupted fill runs again and adds nothing twice. */
 export async function fillOwed(db: PgDb): Promise<void> {
   if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [OWED_FILLED_KEY])) return;
   const rows = await db.all<DbOwed>("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key");
-  for (const r of rows) await owe(db, r.thread, r.admin_key, r.started_at, owedKeys(r));
+  for (const r of rows) await owe(db, r.thread, r.admin_key, r.started_at, owedIds(r));
   await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', [OWED_FILLED_KEY, '1']);
 }
 
@@ -318,9 +320,9 @@ class PgAdminReads {
     }));
   }
 
-  async touch(thread: string, admin: string, gapMs: number, people: string[] = []): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }> {
+  async touch(thread: string, admin: string, adminId: number | null, gapMs: number, people: number[] = []): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }> {
     const now = this.now();
-    const key = nameKey(admin);
+    const key = adminKeyOf(admin, adminId);
     const last = await this.db.get<DbAdminRead>("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND kind = 'read' ORDER BY last_seen_at DESC, started_at DESC LIMIT 1", [thread, key]);
     if (last && now - last.last_seen_at <= gapMs) {
       const seen = Math.max(now, last.last_seen_at);
@@ -331,17 +333,17 @@ class PgAdminReads {
     return { record: row, started: true, previousSeenAt: null };
   }
 
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people: string[] = []): Promise<AdminReadRow> {
-    return this.insert(thread, nameKey(admin), admin, this.now(), kind, people);
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people: number[] = []): Promise<AdminReadRow> {
+    return this.insert(thread, adminKeyOf(admin, adminId), admin, this.now(), kind, people);
   }
 
   /** One record at `at`, or the first free millisecond after it, since (thread, admin, time) is the key. */
-  private async insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: string[]): Promise<AdminReadRow> {
+  private async insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: number[]): Promise<AdminReadRow> {
     await this.ready();
     let t = at;
     while (await this.db.get('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?', [thread, key, t])) t++;
-    await this.db.run('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [thread, key, admin, t, t, kind, keyText(people), '[]']);
-    await owe(this.db, thread, key, t, keyList(keyText(people)));
+    await this.db.run('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [thread, key, admin, t, t, kind, idText(people), '[]']);
+    await owe(this.db, thread, key, t, idList(idText(people)));
     return { admin, startedAt: t, lastSeenAt: t, kind };
   }
 
@@ -368,18 +370,18 @@ class PgAdminReads {
     return (await this.db.all<{ thread: string }>('SELECT DISTINCT thread FROM chat_admin_reads WHERE substr(thread, 1, ?) = ? ORDER BY thread', [prefix.length, prefix])).map((r) => r.thread);
   }
 
-  async seen(thread: string, person: string): Promise<number> {
+  async seen(thread: string, personId: number): Promise<number> {
     await this.ready();
-    return this.db.run('DELETE FROM chat_admin_owed WHERE person_key = ? AND thread = ?', [nameKey(person), thread]);
+    return this.db.run('DELETE FROM chat_admin_owed WHERE person_id = ? AND thread = ?', [personId, thread]);
   }
 
-  async unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]> {
+  async unseenFor(personId: number): Promise<(AdminReadRow & { thread: string })[]> {
     await this.ready();
     const rows = await this.db.all<DbAdminRead>(
       `SELECT r.thread, r.admin, r.started_at, r.last_seen_at, r.kind FROM chat_admin_owed o
        JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at
-       WHERE o.person_key = ? ORDER BY r.started_at DESC, r.thread, r.admin_key, r.kind`,
-      [nameKey(person)],
+       WHERE o.person_id = ? ORDER BY r.started_at DESC, r.thread, r.admin_key, r.kind`,
+      [personId],
     );
     return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
@@ -435,8 +437,8 @@ export function pgChat(db: PgDb, opts: ChatStoreOptions): ChatStoreApi {
     threads: (prefix) => state.threads(prefix),
   };
   const adminReads: ChatAdminReadsApi = {
-    touch: (thread, admin, gapMs, people) => db.tx(() => reads.touch(thread, admin, gapMs, people)),
-    mark: (thread, admin, kind, people) => db.tx(() => reads.mark(thread, admin, kind, people)),
+    touch: (thread, admin, adminId, gapMs, people) => db.tx(() => reads.touch(thread, admin, adminId, gapMs, people)),
+    mark: (thread, admin, adminId, kind, people) => db.tx(() => reads.mark(thread, admin, adminId, kind, people)),
     list: (thread) => reads.list(thread),
     live: (threads, since) => reads.live(threads, since),
     recent: (since) => reads.recent(since),

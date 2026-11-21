@@ -35,10 +35,10 @@ const D5 = addDays(TODAY, -5);
 async function filled(): Promise<World> {
   const w = world();
   const g = await w.people.createGroup('Platform', NOW);
-  await w.people.createPerson('Maya', g.id, NOW - 60 * DAY_MS);
-  await w.people.createPerson('Jonas', null, NOW - 60 * DAY_MS);
+  const maya = (await w.people.createPerson('Maya', g.id, NOW - 60 * DAY_MS)).person;
+  const jonas = (await w.people.createPerson('Jonas', null, NOW - 60 * DAY_MS)).person;
   const add = (id: string, owner: string, daysAgo: number, harness: string, minutes: number) =>
-    w.fdb.upsertSession(session({ id, owner, harness, started_at: at(daysAgo, 9), last_seen_at: at(daysAgo, 9) + minutes * 60_000, ended_at: at(daysAgo, 9) + minutes * 60_000 }));
+    w.fdb.upsertSession(session({ id, owner, owner_id: owner === 'Maya' ? maya.id : jonas.id, harness, started_at: at(daysAgo, 9), last_seen_at: at(daysAgo, 9) + minutes * 60_000, ended_at: at(daysAgo, 9) + minutes * 60_000 }));
   await add('c1', 'Maya', 3, 'claude-code', 60);
   await add('c2', 'Maya', 3, 'claude-code', 60);
   await add('o1', 'Jonas', 3, 'opencode', 30);

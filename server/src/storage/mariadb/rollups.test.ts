@@ -122,7 +122,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb rollups', () => {
       await populate(w);
       await w.fdb.upsertSession(session({ id: 'old', owner: 'Dana', started_at: at(40, 9), last_seen_at: at(40, 10), ended_at: at(40, 10), cost_usd: 9 }));
       const cost = costFn(w.deps.pricing());
-      await w.db.run("INSERT INTO usage_daily VALUES (?, 'Dana', '', 'm', 'p', 5, 0, 7, 0, 1, 1, 1, 1)", [addDays(TODAY, -40)]);
+      await w.db.run("INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, 'Dana', '', 'm', 'p', 5, 0, 7, 0, 1, 1, 1, 1)", [addDays(TODAY, -40)]);
       await writeRollups(w.storage, NOW, cost, policy);
       expect(await w.db.all('SELECT sessions FROM usage_daily WHERE day = ?', [addDays(TODAY, -40)])).toEqual([{ sessions: 5 }]);
       await w.db.run('DELETE FROM sessions WHERE id = ?', ['old']);
@@ -159,7 +159,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb rollups', () => {
       const put = (day: string) => w.db.run("INSERT INTO fleet_daily VALUES (?, 1, 1, 1, 1, '{}', '{}')", [day]);
       await put(addDays(TODAY, -396));
       await put(addDays(TODAY, -394));
-      await w.db.run("INSERT INTO failures_daily VALUES (?, 'x', 'c', 't', 1)", [addDays(TODAY, -400)]);
+      await w.db.run("INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, 'x', 'c', 't', 1)", [addDays(TODAY, -400)]);
       expect((await writeRollups(w.storage, NOW, costFn(undefined), policy)).deleted).toBe(2);
       expect(await w.db.all('SELECT day FROM fleet_daily')).toEqual([{ day: addDays(TODAY, -394) }]);
       await put(addDays(TODAY, -20));

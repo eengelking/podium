@@ -13,7 +13,7 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
     started_at: 1000, last_seen_at: 2000, ended_at: null, dropped_at: null, cwd: '/tmp/demo', project_root: null,
     repo_name: null, git_json: null, model: 'opus', effort: 'high', context_tokens: null, context_window: null,
     context_percent: null, cost_usd: 1.5, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, rate_limits_json: null,
-    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
+    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, owner_id: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -274,15 +274,15 @@ describe.skipIf(!TEST_PG)('postgres fleet store', () => {
 
   it('splits today\'s cost by owner with each owner\'s group, and finds an owner\'s group', async () => {
     const backend = await people.createGroup('Backend');
-    await people.createPerson('Priya N.', backend.id);
-    await people.createPerson('Dana K.');
-    await f.upsertSession(session({ id: 'a', owner: 'Priya N.', cost_usd: 2, started_at: 5000 }));
-    await f.upsertSession(session({ id: 'b', owner: 'Priya N.', cost_usd: 3, started_at: 6000 }));
-    await f.upsertSession(session({ id: 'c', owner: 'Dana K.', cost_usd: 1, started_at: 6000 }));
+    const { person: priya } = await people.createPerson('Priya N.', backend.id);
+    const { person: dana } = await people.createPerson('Dana K.');
+    await f.upsertSession(session({ id: 'a', owner: 'Priya N.', owner_id: priya.id, cost_usd: 2, started_at: 5000 }));
+    await f.upsertSession(session({ id: 'b', owner: 'Priya N.', owner_id: priya.id, cost_usd: 3, started_at: 6000 }));
+    await f.upsertSession(session({ id: 'c', owner: 'Dana K.', owner_id: dana.id, cost_usd: 1, started_at: 6000 }));
     await f.upsertSession(session({ id: 'd', owner: 'Admin', cost_usd: 0.5, started_at: 6000 }));
     await f.upsertSession(session({ id: 'e', owner: null, cost_usd: 0.25, started_at: 6000 }));
-    await f.upsertSession(session({ id: 'old', owner: 'Dana K.', cost_usd: 9, started_at: 10, ended_at: 20 }));
-    await f.upsertSession(session({ id: 'unpriced', owner: 'Dana K.', cost_usd: null, started_at: 6000 }));
+    await f.upsertSession(session({ id: 'old', owner: 'Dana K.', owner_id: dana.id, cost_usd: 9, started_at: 10, ended_at: 20 }));
+    await f.upsertSession(session({ id: 'unpriced', owner: 'Dana K.', owner_id: dana.id, cost_usd: null, started_at: 6000 }));
     expect(await f.costByOwnerSince(1000)).toEqual([
       { owner: 'Priya N.', group: 'Backend', costUsd: 5 },
       { owner: 'Dana K.', group: null, costUsd: 1 },
@@ -290,9 +290,9 @@ describe.skipIf(!TEST_PG)('postgres fleet store', () => {
       { owner: null, group: null, costUsd: 0.25 },
     ]);
     expect((await f.costByOwnerSince(1000)).reduce((n, r) => n + r.costUsd, 0)).toBe(await f.costSince(1000));
-    expect(await f.groupOfOwner('Priya N.')).toBe('Backend');
-    expect(await f.groupOfOwner('Dana K.')).toBeNull();
-    expect(await f.groupOfOwner('Admin')).toBeNull();
+    expect(await f.groupOfOwner(priya.id)).toBe('Backend');
+    expect(await f.groupOfOwner(dana.id)).toBeNull();
+    expect(await f.groupOfOwner(priya.id + 1000)).toBeNull();
     expect(await f.groupOfOwner(null)).toBeNull();
   });
 
