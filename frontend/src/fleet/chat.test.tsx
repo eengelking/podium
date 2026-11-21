@@ -599,7 +599,8 @@ describe("the thread", () => {
     expect(t).toHaveTextContent("Everyone signed in to this server can read and post here.");
     const items = within(t).getAllByTestId("chat-message");
     expect(items.map((li) => li.querySelector(".who")!.textContent)).toEqual(["Maya", "You"]);
-    expect(within(items[1]!).getByText("Posted. No agent was addressed, so none will act on it.")).toBeInTheDocument();
+    expect(within(items[1]!).getByText("Posted")).toBeInTheDocument();
+    expect(within(items[1]!).queryByText(/No agent was addressed/)).toBeNull();
     expect(within(items[0]!).getByText("Posted")).toBeInTheDocument();
   });
 

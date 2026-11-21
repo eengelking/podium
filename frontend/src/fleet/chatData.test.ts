@@ -141,9 +141,9 @@ describe("the state tags", () => {
 });
 
 describe("the delivery line of a channel message", () => {
-  it("is Posted, and says nobody was addressed when nobody was", () => {
+  it("is plain Posted for a message between people, with no line about agents (#1270)", () => {
     expect(channelDelivery(cm({ mine: false }))).toEqual({ icon: "ok", text: "Posted", wait: false });
-    expect(channelDelivery(cm()).text).toBe("Posted. No agent was addressed, so none will act on it.");
+    expect(channelDelivery(cm())).toEqual({ icon: "ok", text: "Posted", wait: false });
   });
   it("names who gets it when their turn ends, who is notified, what is held and what was not delivered with the reason", () => {
     const m = (state: ChannelMessage["mentions"][number]["state"], typed: string, why: string | null = null) => ({ typed, sessionId: "s", state, why, stateAt: 1 });
