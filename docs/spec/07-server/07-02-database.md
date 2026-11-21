@@ -464,6 +464,22 @@ ALTER TABLE group_messages ADD COLUMN author_id INTEGER;    -- the writer's peop
 
 `author_id` has no foreign key, so a message kept after its person is deleted names nobody and no one can match it. Who may change a message is decided by this id and never by the name. The migration gives each message already stored the id of the person whose current name matches its author, and a message whose author has no current person keeps NULL and cannot be changed. A deleted message stays as a tombstone: its row keeps its id, place, author and links, its `text` is `''`, its mentions are `[]` and `deleted_at` is set, so a page and its cursor do not move. A message is locked, and neither edited nor deleted, once Podium has sent it to an agent: in a channel, when any mention of an agent is `waiting`, `working` or `done`; in a Direct Message, when its state is `queued`, `handed` or `delivered`, or when its owner has approved it and it is `ready` for the agent to fetch. A mention of a person never locks. A mention that waits for another person's approval records `copyId`, the id of its Direct Message copy, inside `mentions_json`, so a change reaches the copy too. A message to two agents in a conversation is two rows, and a change is made to both in one step.
 
+Migration 47 (#1278; PostgreSQL and MariaDB main step 23) adds the conversations of people, a fourth audience beside General, My group and `peer_messages` ([DECISIONS 74](../../decisions/74-a-direct-message-is-a-conversation-of-two-or-more-people-and-an-admin-cannot-read-one-without-an-agent-in-it.md)). It is never copied into, merged with or returned together with any of them:
+
+```sql
+CREATE TABLE conversations (id TEXT PRIMARY KEY, created_by INTEGER, created_at INTEGER NOT NULL, members_key TEXT NOT NULL UNIQUE);
+  -- members_key: the member refs, sorted and joined by |, so exactly one conversation exists for a set of members
+CREATE TABLE conversation_members (conversation_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, added_by INTEGER,
+  joined_at INTEGER NOT NULL, left_at INTEGER, PRIMARY KEY (conversation_id, member_kind, member_ref));
+  -- member_kind person | agent; member_ref the person's people.id or the agent's session id. This release writes people only
+CREATE TABLE conversation_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to TEXT, seq INTEGER NOT NULL, edited_at INTEGER, deleted_at INTEGER, author_id INTEGER);
+CREATE INDEX conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
+CREATE INDEX conversation_members_ref ON conversation_members(member_kind, member_ref);
+```
+
+A person's counts for a conversation are kept like a channel's, under the thread `convo:<id>`. A page orders by `created_at, seq` like every other. A conversation has no Admin read, so it has no `chat_admin_reads` row while no agent is a member. The retention days apply to its messages as they do to a channel's. Deleting a person removes their membership and a conversation left with no person is deleted with its messages.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql
