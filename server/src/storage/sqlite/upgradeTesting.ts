@@ -118,6 +118,12 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     for (const c of chat.channels ?? []) late.prepare("INSERT INTO public_channels (name, description, created_by, created_by_name, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)").run(c.name, c.createdBy, c.createdByName, c.createdAt, c.createdAt);
     for (const o of chat.owed ?? []) late.prepare('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?)').run(o.person, o.thread, o.adminKey, o.startedAt);
     for (const f of chat.flags ?? []) late.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(`chat.flag.${f.scope}`, f.value);
+    // Conversations made before who a message was for was kept (#1282): their tables come from migration 47, and migration 53 added the deliveries.
+    for (const cv of chat.conversations ?? []) {
+      late.prepare('INSERT INTO conversations (id, created_by, created_at, members_key) VALUES (?, NULL, ?, ?)').run(cv.id, cv.messages[0]?.at ?? 0, `key-${cv.id}`);
+      for (const m of cv.members) late.prepare('INSERT INTO conversation_members (conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at) VALUES (?, ?, ?, ?, NULL, 0, NULL)').run(cv.id, m.kind, m.ref, m.name);
+      cv.messages.forEach((m, i) => late.prepare('INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)').run(m.id, cv.id, m.authorKind, m.authorRef, m.authorName, m.authorId, m.text, m.at, m.at, i + 1));
+    }
     late.close();
   }
   if (daily.length > 0) {

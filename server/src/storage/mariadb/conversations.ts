@@ -3,10 +3,10 @@
 // A call that reads then writes is one transaction, and the gate in `MariaDbConn.tx` takes them one at a time, as the SQLite lock does.
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, membersKey, newConversationId, newConversationMessageId, refuseConversationChange, toConversation, toConversationMessage,
-  type DbConversation, type DbConversationMessage, type DbMember,
+  DELIVERY_COLS, MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, checkTargets, firstDeliveryState, membersKey, newConversationId, newConversationMessageId, nextDeliveryState, refuseConversationChange, toConversation, toConversationMessage,
+  type DbConversation, type DbConversationMessage, type DbDelivery, type DbMember,
 } from '../conversationRows.js';
-import type { Conversation, ConversationChange, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationPage, ConversationPostInput, ConversationsApi } from '../types.js';
+import type { Conversation, ConversationChange, ConversationDeliveryState, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationPage, ConversationPostInput, ConversationsApi } from '../types.js';
 import type { MariaDbConn } from './conn.js';
 
 type MemberRef = { kind: ConversationMemberKind; ref: string };
@@ -111,6 +111,7 @@ class MariaConversations {
       const kind = checkAuthor(input.authorKind);
       if (!(await this.row(id))) return null;
       if (!(await this.current(id)).some((m) => m.kind === kind && m.ref === input.authorRef)) return null;
+      const targets = checkTargets(input.targets, await this.current(id), { kind, ref: input.authorRef });
       const mid = newConversationMessageId(await this.scope());
       // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
       await this.db.run(
@@ -118,6 +119,10 @@ class MariaConversations {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
         [mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, at, input.replyTo ?? null],
       );
+      for (const t of targets) {
+        const state = firstDeliveryState(t.kind);
+        await this.db.run('INSERT INTO conversation_deliveries (conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, mid, t.kind, t.ref, t.name, t.named ? 1 : 0, state, state === null ? null : at]);
+      }
       return this.message(id, mid);
     });
   }
@@ -126,9 +131,15 @@ class MariaConversations {
     return this.db.get<DbConversationMessage>(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE id = ? AND conversation_id = ?`, [messageId, id]);
   }
 
+  private deliveriesOf(id: string, messageIds: string[]): Promise<DbDelivery[]> {
+    if (!messageIds.length) return Promise.resolve([]);
+    const marks = messageIds.map(() => '?').join(', ');
+    return this.db.all<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id IN (${marks}) ORDER BY message_id, member_kind, member_ref`, [id, ...messageIds]);
+  }
+
   private async message(id: string, messageId: string): Promise<ConversationMessage | null> {
     const r = await this.raw(id, messageId);
-    return r ? toConversationMessage(r) : null;
+    return r ? toConversationMessage(r, await this.deliveriesOf(id, [messageId])) : null;
   }
 
   async page(id: string, opts: { before?: string | null; limit: number }): Promise<ConversationPage> {
@@ -139,7 +150,8 @@ class MariaConversations {
       : await this.db.all<DbConversationMessage>(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, seq DESC LIMIT ?`, [id, limit + 1]);
     const kept = rows.slice(0, limit).reverse();
     const oldest = kept[0];
-    return { messages: kept.map(toConversationMessage), older: rows.length > limit && oldest ? encodeCursor(Number(oldest.created_at), Number(oldest.seq)) : null };
+    const deliveries = await this.deliveriesOf(id, kept.map((r) => r.id));
+    return { messages: kept.map((r) => toConversationMessage(r, deliveries)), older: rows.length > limit && oldest ? encodeCursor(Number(oldest.created_at), Number(oldest.seq)) : null };
   }
 
   getMessage(id: string, messageId: string): Promise<ConversationMessage | null> {
@@ -172,8 +184,19 @@ class MariaConversations {
     });
   }
 
-  /** Deletes the conversation, its members and its messages. Returns how many messages. */
+  setDelivery(id: string, messageId: string, member: MemberRef, state: ConversationDeliveryState, at: number): Promise<ConversationMessage | null> {
+    return this.db.tx(async () => {
+      const d = await this.db.get<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?`, [id, messageId, member.kind, member.ref]);
+      if (!d) return null;
+      const next = nextDeliveryState(d.state, state);
+      if (next) await this.db.run('UPDATE conversation_deliveries SET state = ?, state_at = ? WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?', [next, at, id, messageId, member.kind, member.ref]);
+      return this.message(id, messageId);
+    });
+  }
+
+  /** Deletes the conversation, its members, its messages and their deliveries. Returns how many messages. */
   private async erase(id: string): Promise<number> {
+    await this.db.run('DELETE FROM conversation_deliveries WHERE conversation_id = ?', [id]);
     const n = await this.db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversations WHERE id = ?', [id]);
@@ -193,7 +216,10 @@ class MariaConversations {
   }
 
   purge(olderThan: number): Promise<number> {
-    return this.db.run('DELETE FROM conversation_messages WHERE created_at < ?', [olderThan]);
+    return this.db.tx(async () => {
+      await this.db.run('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE created_at < ?)', [olderThan]);
+      return this.db.run('DELETE FROM conversation_messages WHERE created_at < ?', [olderThan]);
+    });
   }
 }
 
@@ -212,6 +238,7 @@ export async function removePersonOf(db: MariaDbConn, personId: number): Promise
     const now = left.filter((m) => m.left_at == null);
     if (now.some((m) => m.member_kind === 'person')) await db.run('UPDATE conversations SET members_key = ? WHERE id = ?', [membersKey(now.map((m) => ({ kind: m.member_kind, ref: m.member_ref }))), id]);
     else {
+      await db.run('DELETE FROM conversation_deliveries WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversations WHERE id = ?', [id]);
@@ -238,6 +265,7 @@ export function mariaConversations(db: MariaDbConn, scope: () => Promise<string>
     editMessage: (id, messageId, x) => c.editMessage(id, messageId, x),
     deleteMessage: (id, messageId, x) => c.deleteMessage(id, messageId, x),
     markHanded: (id, messageId, at) => c.markHanded(id, messageId, at),
+    setDelivery: (id, messageId, member, state, at) => c.setDelivery(id, messageId, member, state, at),
     remove: (id) => c.remove(id),
     removePerson: (personId) => c.removePerson(personId),
     purge: (olderThan) => c.purge(olderThan),

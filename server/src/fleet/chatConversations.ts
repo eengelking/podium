@@ -6,9 +6,10 @@
 // answers any stranger, so nothing says whether it exists, who is in it or how many messages it has.
 import { nameKey } from '../storage/rows.js';
 import { ENDED_NOTICE_MARK } from './protocol.js';
-import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage } from '../storage/types.js';
+import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage, ConversationTargetInput } from '../storage/types.js';
 import type { AdminReads, ReadSubject } from './chatAdminReads.js';
-import { type ChatCore } from './chatCore.js';
+import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
+import { type ChatCore, type DeliveryOutcome } from './chatCore.js';
 import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** The thread a conversation's counts and Admin records are kept under. */
@@ -27,6 +28,10 @@ export interface MemberView {
   addedBy: string | null;
   /** An agent that ended for good (#1283): it can no longer send or be sent to. Absent for a person and for an agent that has not. */
   ended?: boolean;
+  /** What an @ in this conversation types to address them (#1282): `name@console` for a person, `name@machine` for an agent that is running, null for one that has ended. */
+  address: string | null;
+  /** An agent's session id, for its state in the @ list; null for a person. */
+  sessionId: string | null;
 }
 
 const NONE: ReadonlySet<string> = new Set();
@@ -56,6 +61,11 @@ export interface ConversationMessageView {
   replyTo: string | null;
   canChange: boolean;
   changeWhy: string | null;
+  /**
+   * Who it went to or named (#1282). Empty for a message with no agent in the conversation and for one written before this was kept. When any `named` is true the writer addressed those members
+   * with an @ and the message was for them alone; otherwise it was for everyone and these are the agents that took it. A person has no `state`: they are told by the unread count.
+   */
+  deliveries: { kind: 'person' | 'agent'; name: string; named: boolean; state: 'queued' | 'delivered' | 'dropped' | null }[];
 }
 
 /** What a viewer may ask for as a member of a conversation. */
@@ -131,13 +141,18 @@ export class ConversationChat {
     const byRef = new Map(c.members.map((m) => [`${m.kind}:${m.ref}`, m.name]));
     return c.members
       .filter((m) => m.leftAt === null)
-      .map((m) => ({
-        kind: m.kind,
-        name: m.name,
-        you: m.kind === 'person' && viewer.personId !== null && m.ref === String(viewer.personId),
-        addedBy: m.addedBy === null ? null : (byRef.get(`person:${m.addedBy}`) ?? null),
-        ...(m.kind === 'agent' && ended.has(m.ref) ? { ended: true } : {}),
-      }));
+      .map((m) => {
+        const t = this.asTarget(m);
+        return {
+          kind: m.kind,
+          name: m.name,
+          you: m.kind === 'person' && viewer.personId !== null && m.ref === String(viewer.personId),
+          addedBy: m.addedBy === null ? null : (byRef.get(`person:${m.addedBy}`) ?? null),
+          address: m.kind === 'person' ? `${m.name}@console` : t.machine === null ? null : `${m.name}@${t.machine}`,
+          sessionId: m.kind === 'agent' ? m.ref : null,
+          ...(m.kind === 'agent' && ended.has(m.ref) ? { ended: true } : {}),
+        };
+      });
   }
 
   /** The agents of these conversations that ended for good (#1283): finished, or gone from the server. Read from the session, so it holds after a restart. A lost heartbeat is not that. */
@@ -256,6 +271,7 @@ export class ConversationChat {
       replyTo: m.replyTo,
       canChange: mine && !handed && !gone,
       changeWhy: !mine || gone ? null : handed ? 'Podium has already sent this to an agent, so it can no longer be changed.' : null,
+      deliveries: gone ? [] : m.deliveries.map((d) => ({ kind: d.kind, name: d.name, named: d.named, state: d.state })),
     };
   }
 
@@ -330,6 +346,22 @@ export class ConversationChat {
     return { ok: true };
   }
 
+  /** A member as an @ reads it: an agent that is running has a machine and an agent id, one that has ended or a person has neither. */
+  private asTarget(m: ConversationMember): TargetMember {
+    const live = m.kind === 'agent' && this.core.host.isLive(m.ref) ? this.core.host.peers.messages.live(m.ref) : null;
+    return { kind: m.kind, ref: m.ref, name: m.name, machine: live?.machine ?? null, agentId: live?.agentId ?? null };
+  }
+
+  /** What an agent did with the text: taken is Delivered, refused or dropped is not taken. Queued on the way changes nothing. */
+  private followed(id: string, messageId: string, m: { kind: 'person' | 'agent'; ref: string }, o: DeliveryOutcome): void {
+    const state = o.kind === 'took' ? 'delivered' : o.kind === 'queued' ? null : 'dropped';
+    if (!state) return;
+    void this.store
+      .setDelivery(id, messageId, m, state, this.core.host.now())
+      .then(() => this.core.signal({ scope: 'dm', owner: null }))
+      .catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
+  }
+
   /** A member writes. The text is redacted and limited first. It is stored, every other person in it is counted one unread, and each agent in it is handed the text. */
   async send(viewer: ChatViewer, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ConversationMessageView; skipped: string[] } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can write in it.');
@@ -337,28 +369,38 @@ export class ConversationChat {
     if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
     const t = await this.text(body.text);
     if (!t.ok) return t;
+    // Who it is for (#1282): an @ names members of this conversation and no one else; with none, it is for every agent in it. A refusal stores and hands over nothing, and costs no rate.
+    const present = c.members.filter((m) => m.leftAt === null);
+    const named = resolveTargets(t.text, present.map((m) => this.asTarget(m)), { kind: 'person', ref: String(viewer.personId) });
+    if (!named.ok) return fail(422, named.error);
+    const targets: ConversationTargetInput[] = named.targets ?? present.filter((m) => m.kind === 'agent').map((m) => ({ kind: 'agent' as const, ref: m.ref, name: m.name, named: false }));
     const limits = await this.core.limits();
     const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, limits.perMinute);
     if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
     const replyTo = typeof body.replyTo === 'string' && body.replyTo.length <= 80 ? body.replyTo : null;
-    const stored = await this.store.post(id, { authorKind: 'person', authorRef: String(viewer.personId), authorName: viewer.name, authorId: viewer.personId, text: t.text, replyTo }, this.core.host.now());
+    const stored = await this.store.post(id, { authorKind: 'person', authorRef: String(viewer.personId), authorName: viewer.name, authorId: viewer.personId, text: t.text, replyTo, targets }, this.core.host.now());
     if (!stored) return fail(404, 'There is no such conversation.');
-    // Everyone else in it is told there is something new: a count, never text.
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
+    // Every other person in it is told there is something new: a count, never text. A person it names also has a mention.
+    const namedPeople = new Set(targets.filter((x) => x.kind === 'person' && x.named).map((x) => x.ref));
+    for (const m of present) if (m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', namedPeople.has(m.ref));
     const skipped: string[] = [];
     const ended = await this.endedIn([c]);
-    for (const m of c.members) {
-      if (m.leftAt !== null || m.kind !== 'agent') continue;
+    for (const m of targets) {
+      if (m.kind !== 'agent') continue;
       // An agent that ended for good is not sent anything (#1283); the person is told, as for any agent that did not take it.
       if (ended.has(m.ref)) {
         skipped.push(`${m.name}: it ended, so it did not get this message.`);
+        await this.store.setDelivery(id, stored.id, m, 'dropped', this.core.host.now()).catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
         continue;
       }
       const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId);
       if (!out.ok) {
         skipped.push(`${m.name}: ${out.error}`);
+        // The message is already stored and other agents may still be handed it, so a failure to record this one must not stop the loop or fail the send.
+        await this.store.setDelivery(id, stored.id, m, 'dropped', this.core.host.now()).catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
         continue;
       }
+      this.core.watch(out.delivery.id, (o) => this.followed(id, stored.id, m, o));
       // From this moment the agent has the text, so the message can no longer be edited or deleted.
       await this.store.markHanded(id, stored.id, this.core.host.now());
     }
@@ -387,6 +429,15 @@ export class ConversationChat {
     if (op === 'edit') {
       const t = await this.text(body.text);
       if (!t.ok) return t;
+      // Who a message is for is fixed when it is sent (#1282): an edit that names someone else, or no one, would leave the line under it describing the old text.
+      const was = await this.store.getMessage(id, messageId);
+      if (was) {
+        const now = resolveTargets(t.text, c.members.filter((m) => m.leftAt === null).map((m) => this.asTarget(m)), { kind: 'person', ref: String(viewer.personId) });
+        const key = (x: { kind: string; ref?: string; name: string }): string => `${x.kind}:${x.name}`;
+        const before = was.deliveries.filter((d) => d.named).map(key).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const after = now.ok ? (now.targets ?? []).map(key).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : null;
+        if (before.length && JSON.stringify(before) !== JSON.stringify(after)) return fail(422, 'An edit cannot change who a message is for. Delete it and write it again to address someone else.');
+      }
       const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, (await this.core.limits()).perMinute);
       if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
       out = await this.store.editMessage(id, messageId, { author: viewer.personId, text: t.text, now });

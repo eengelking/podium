@@ -338,6 +338,10 @@
 .ch-msg.mine .ch-tx { text-align: left; }
 .ch-msg.mine.reply .ch-col { border-left: 0; padding-left: 0; border-right: 2px solid var(--axis); padding-right: 8px; }
 .ch-msg .ch-st { margin-top: 4px; }
+/* Who a message of a Direct Message was for (#1282): one muted line under the text, an icon and words, so it is never color alone. */
+.ch-msg .ch-for { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.ch-msg .ch-for svg { width: 12px; height: 12px; flex: none; }
+.ch-msg.mine .ch-for { justify-content: flex-end; }
 .ch-msg.mine .ch-st { justify-content: flex-end; }
 .ch-msgs .ch-st .s.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); font-weight: 600; }
 .ch-msgs .ch-st .s.ds { white-space: normal; max-width: 100%; }

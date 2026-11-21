@@ -482,6 +482,17 @@ CREATE INDEX conversation_members_ref ON conversation_members(member_kind, membe
 
 A person's counts for a conversation are kept like a channel's, under the thread `convo:<id>`, and so are an Admin's records of a conversation with an agent in it. A page orders by `created_at, seq` like every other. A conversation has no Admin read, so it has no `chat_admin_reads` row while no agent is a member. The retention days apply to its messages as they do to a channel's. Deleting a person removes their membership and a conversation left with no person is deleted with its messages.
 
+Migration 53 (#1282; PostgreSQL and MariaDB main step 29) keeps who a message of a conversation was for and what became of it for each agent it was handed to:
+
+```sql
+CREATE TABLE conversation_deliveries (conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL,
+  named INTEGER NOT NULL, state TEXT, state_at INTEGER, PRIMARY KEY (conversation_id, message_id, member_kind, member_ref));
+  -- named: 1 for a member the writer addressed with an @, 0 for an agent that took a message sent to everyone
+  -- state: an agent's queued, delivered or dropped (it moves once, from queued); NULL for a person, who is told by the unread count
+```
+
+A message with no row was sent to everyone before this existed, or had no agent to hand it to, and keeps no delivery line. A message's rows are written in the step that stores the message, and are removed with it by retention and with its conversation.
+
 Migration 48 (#1284; PostgreSQL and MariaDB main step 24) gives every agent an id the server assigns and never reuses:
 
 ```sql

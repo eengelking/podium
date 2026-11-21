@@ -4,15 +4,17 @@
 import { useEffect, useRef, useState } from "react";
 import { RespondError } from "../respondApi";
 import { failReason } from "../useMyPeers";
-import { conversationName, dayLabel, liveReaders, plain, sameDay, stamp, type ChatApi, type ChatOverview, type ConversationInfo, type ConversationMessage } from "../chatData";
+import { conversationAddresses, conversationDelivery, conversationFor, conversationName, conversationSummary, dayLabel, liveReaders, plain, sameDay, stamp, type Address, type ChatApi, type ChatOverview, type ConversationInfo, type ConversationMessage } from "../chatData";
 import { useConversation } from "../useChat";
 import type { SessionView } from "../types";
 import { AdminTags } from "./ChatAdmin";
 import { ChatAvatar } from "./ChatAvatar";
 import { ChatComposer } from "./ChatComposer";
 import { ChatMembersPanel, ChatMembersStack, type Member } from "./ChatMembers";
+import { agentState } from "./ChatSidebar";
+import { StateIcon } from "./Chips";
 import { Editor, Text, DeleteMessageDialog } from "./ChatThread";
-import { ChEye, ChInfo, ChLock, ChNo, ChTrash } from "./ChatIcons";
+import { ChAt, ChClock, ChGroup, ChInfo, ChLock, ChNo, ChTrash } from "./ChatIcons";
 import { hm } from "../trafficData";
 
 const KEEP_ALIVE_MS = 15_000;
@@ -201,6 +203,30 @@ export function ChatConversation(p: ConversationProps) {
               {m.editedAt ? <span className="ed-edited" title={new Date(m.editedAt).toLocaleString()}>edited {hm(m.editedAt)}</span> : null}
             </div>
           )}
+          {!gone && !isEditing && (() => {
+            // Who it was for, and what became of it for each agent it was handed to (#1282). A message with no agent to hand it to keeps no such line.
+            const who = conversationFor(m);
+            const dl = conversationDelivery(m);
+            if (!who && !dl) return null;
+            return (
+              <>
+                {who && (
+                  <div className="ch-for" data-testid="chat-for">
+                    {who.everyone ? <ChGroup /> : <ChAt />}
+                    <span>{who.text}</span>
+                  </div>
+                )}
+                {dl && (
+                  <div className="ch-st" data-testid="chat-delivery">
+                    <span className={`s ${dl.state}`}>
+                      {dl.state === "done" ? <StateIcon kind="done" /> : dl.state === "wait" ? <ChClock /> : <ChNo />}
+                      <span>{dl.text}</span>
+                    </span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
           {mine && !gone && !isEditing && !ro && (
             <div className="ch-own">
               {m.canChange ? (
@@ -223,6 +249,7 @@ export function ChatConversation(p: ConversationProps) {
   // An agent that ended for good stays listed, marked, with a line in the thread (#1283); the people in it can keep writing.
   const ended = info.members.filter((m) => m.kind === "agent" && m.ended);
   const stayers = info.members.filter((m) => m.kind === "person").map((m) => (m.you ? "You" : m.name)).join(" and ");
+  const addresses = conversationAddresses(info);
   return (
     <>
       <section className="ch-thread" aria-labelledby="th-h" data-testid="chat-conversation">
@@ -236,8 +263,8 @@ export function ChatConversation(p: ConversationProps) {
           </div>
           <div className="sub">
             <span data-testid="chat-conversation-privacy">
-              {withAgent ? <ChEye /> : <ChLock />}{" "}
-              {withAgent ? `${info.members.filter((m) => m.kind === "agent").map((m) => m.name).join(" and ")} ${info.members.filter((m) => m.kind === "agent").length > 1 ? "are agents" : "is an agent"} in this conversation, so an Admin can read it. Everyone in it is told when one does.` : `Only ${info.members.length === 2 ? "you and " + title : "you and these " + (info.members.length - 1) + " people"} can read this. An Admin cannot.`}
+              {withAgent ? null : <ChLock />}{" "}
+              {withAgent ? conversationSummary(info) : `Only ${info.members.length === 2 ? "you and " + title : "you and these " + (info.members.length - 1) + " people"} can read this. An Admin cannot.`}
             </span>
             <span>{t.total} {t.total === 1 ? "message" : "messages"}</span>
             {ended.map((m) => (
@@ -314,10 +341,11 @@ export function ChatConversation(p: ConversationProps) {
           error={err}
           sending={sending}
           onSend={() => void send()}
-          channel={null}
-          addresses={[]}
+          channel={withAgent && !ro ? p.id : null}
+          addresses={addresses}
           loadAddresses={async () => {}}
-          stateOf={() => null}
+          stateOf={(a: Address) => (a.sessionId && !a.disabled ? agentState(p.sessions, a.sessionId, null, true) : null)}
+          familyOf={(a: Address) => (a.sessionId ? p.sessions[a.sessionId]?.modelFamily : undefined)}
         />
         {deleting && (() => {
           const m = t.messages.find((x) => x.id === deleting.id);
