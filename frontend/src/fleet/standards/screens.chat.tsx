@@ -18,8 +18,8 @@ import type { RespondMe } from "../types";
 import type { Screen } from "./screens";
 
 const T0 = Date.UTC(2026, 9, 12, 14, 30);
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", admin: true };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", id: null, admin: true };
 const flush = () => act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
 let clock: MockInstance<() => number> | undefined;
 const stopClock = () => clock?.mockRestore();
@@ -111,8 +111,8 @@ function chat(w: World, me: RespondMe, after?: (b: HTMLElement) => Promise<void>
       window.location.hash = "#/chat";
       vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0 }) })));
       const sessions = [
-        makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-        makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
+        makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+        makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
       ];
       return <FleetView chat respondApi={respondApi(me)} peersApi={peersApi()} chatApi={chatApi(w)} state={stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": true } })} />;
     },
@@ -138,7 +138,7 @@ const typeAt = async () => {
 // ---- the notices an Admin's read of a session leaves for its owner -------------------------------------------------
 const rd = (admin: string, startedAt: number): AdminRead => ({ admin, startedAt, lastSeenAt: startedAt + 60_000, kind: "read" });
 function notesFor(readers: AdminReading[], records: AdminRead[], render: (s: ReturnType<typeof makeSession>) => React.ReactElement): Screen {
-  const s = makeSession({ id: "s1", name: "history-paging", owner: "Ed", agents: [makeAgent({ id: "p", description: "Port the endpoints" })] });
+  const s = makeSession({ id: "s1", name: "history-paging", owner: "Ed", ownerId: 1, agents: [makeAgent({ id: "p", description: "Port the endpoints" })] });
   return {
     make: () => {
       clock = vi.spyOn(Date, "now").mockReturnValue(T0);
@@ -197,13 +197,13 @@ export const CHAT_SCREENS: Record<string, Screen> = {
     make: () => {
       window.location.hash = "#/?open=s-dash";
       vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0 }) })));
-      const state = stateFrom({ sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": true } });
+      const state = stateFrom({ sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1 })], features: { "activity-feed": true, "peer-messaging": true } });
       return <FleetView respondApi={respondApi(ED)} peersApi={peersApi()} chatApi={chatApi(world())} state={state} />;
     },
     act: flush,
   },
   "read-notes": notesFor([live("Root")], [rd("Alex", T0 - 3_600_000)], (s) => focus({ ...s, status: "waiting", waitReason: "input" } as never)),
-  "read-notes-above": notesFor([], [rd("Alex", T0 - 3_600_000)], (s) => <div className="podium"><SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="above" /></div>),
+  "read-notes-above": notesFor([], [rd("Alex", T0 - 3_600_000)], (s) => <div className="podium"><SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner, ownerId: s.ownerId }} placement="above" /></div>),
   "rec-notes": notesFor([live("Root")], [rd("Alex", T0 - 3_600_000)], (s) => <RespondProviderFocus s={{ ...s, recording: makeRecording() } as never} />),
   "my-usage": {
     make: () => {

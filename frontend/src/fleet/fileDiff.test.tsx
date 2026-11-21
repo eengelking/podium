@@ -14,7 +14,7 @@ const diffRow = (path: string) => new RegExp(`^Open diff of\\s*${path.split("/")
 
 afterEach(cleanup);
 
-const OWNER: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const OWNER: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const REPORT: FilesReport = {
   files: [
     { path: "src/a.ts", status: "modified", from: null, added: 2, removed: 1 },
@@ -48,7 +48,7 @@ const flush = () =>
   });
 
 async function show(opts: { api?: RespondApi; me?: RespondMe; diffOn?: boolean; s?: Partial<SessionView>; report?: FilesReport | null } = {}) {
-  const session = makeSession({ id: "sess-ed", owner: "Ed", status: "running", fileDiff: true, ...opts.s });
+  const session = makeSession({ id: "sess-ed", owner: "Ed", ownerId: 1, status: "running", fileDiff: true, ...opts.s });
   const api = opts.api ?? fakeApi(vi.fn(async () => ok()), opts.me ?? OWNER);
   const view = render(
     <RespondProvider api={api} flagsOn={false} diffOn={opts.diffOn ?? true}>
@@ -73,17 +73,17 @@ describe("who gets a button", () => {
     expect(screen.queryByRole("note")).toBeNull();
   });
   it("says to sign in when signed out", async () => {
-    await show({ me: { enabled: true, signedIn: false, name: null, admin: false } });
+    await show({ me: { enabled: true, signedIn: false, name: null, id: null, admin: false } });
     expect(screen.queryByRole("button", { name: /Open diff of/ })).toBeNull();
     expect(screen.getByRole("note").textContent).toBe("Sign in to open diffs.");
   });
   it("says who can, for someone else's session, an Administrator included", async () => {
-    await show({ me: { enabled: true, signedIn: true, name: "Boss", admin: true } });
+    await show({ me: { enabled: true, signedIn: true, name: "Boss", id: 8, admin: true } });
     expect(screen.queryByRole("button", { name: /Open diff of/ })).toBeNull();
     expect(screen.getByRole("note").textContent).toBe("Only Ed can open diffs.");
   });
   it("compares names the way the server does: without regard to case", async () => {
-    await show({ me: { enabled: true, signedIn: true, name: "ED", admin: false } });
+    await show({ me: { enabled: true, signedIn: true, name: "ED", id: 1, admin: false } });
     expect(screen.getAllByRole("button", { name: /Open diff of/ })).toHaveLength(3);
   });
   it("says so for a session with no owner, and for a reporter without the option", async () => {
@@ -567,7 +567,7 @@ describe("loading ahead (#631)", () => {
   it("reloads a file whose content marker moved, keeping the old text on screen, and asks for a new file", async () => {
     let text = "first";
     const fileDiff = vi.fn(async (_id: string, path: string) => ok({ path, text: `@@ -1 +1 @@\n-x\n+${text}` }));
-    const session = makeSession({ id: "sess-ed", owner: "Ed", status: "running", fileDiff: true, fileDiffPreload: true });
+    const session = makeSession({ id: "sess-ed", owner: "Ed", ownerId: 1, status: "running", fileDiff: true, fileDiffPreload: true });
     const tree = (report: FilesReport) => (
       <RespondProvider api={withOpened(fileDiff)} flagsOn={false} diffOn>
         <FilesList report={report} hint={null} session={session} />

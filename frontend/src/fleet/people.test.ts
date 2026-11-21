@@ -7,7 +7,7 @@ import {
   filterByPeople,
   initials,
   machineLabels,
-  meKey,
+  meFilter,
   NO_FILTER,
   orderUnits,
   peopleActive,
@@ -19,7 +19,10 @@ import { parsePrefs, DEFAULT_PREFS } from "./usePeoplePrefs";
 import type { OwnerSpend, SessionView } from "./types";
 
 const m = (name: string, id: string) => ({ name, id });
-const S = (id: string, owner: string | null, over: Partial<SessionView> = {}) => makeSession({ id, name: id, owner, ...over });
+// A person is their id (#1284); the name is only text.
+const IDS: Record<string, number> = { "Ed E.": 1, "Priya N.": 2, "Dana K.": 3, "Marcus T.": 4 };
+const ME = (name: string) => ({ id: IDS[name]!, name });
+const S = (id: string, owner: string | null, over: Partial<SessionView> = {}) => makeSession({ id, name: id, owner, ownerId: owner ? IDS[owner] ?? null : null, ...over });
 
 const sessions: SessionView[] = [
   S("ed1", "Ed E.", { ownerGroup: "Frontend", machine: m("eds-mbp", "aaaa0001"), status: "running" }),
@@ -68,7 +71,7 @@ describe("people view logic", () => {
   });
 
   it("groups by group, with No group for people without one and for Admin and Unassigned; an empty group has no band", () => {
-    const units = buildUnits(sessions, "group", spend, "Dana K.");
+    const units = buildUnits(sessions, "group", spend, ME("Dana K."));
     expect(keys(orderUnits(units, "name"))).toEqual(["g:Backend", "g:Frontend", "nogroup"]);
     const be = units.find((u) => u.key === "g:Backend")!;
     expect(be).toMatchObject({ kind: "group", members: ["Dana K.", "Priya N."], spend: 11, mine: true });
@@ -77,13 +80,13 @@ describe("people view logic", () => {
   });
 
   it("marks No group as the viewer's when the viewer has no group", () => {
-    const units = buildUnits(sessions, "group", spend, "Marcus T.");
+    const units = buildUnits(sessions, "group", spend, ME("Marcus T."));
     expect(units.find((u) => u.key === "nogroup")!.mine).toBe(true);
   });
 
   it("has no bands for None", () => {
     expect(buildUnits(sessions, "none", spend, null)).toEqual([]);
-    expect(buildUnits(sessions, "me", spend, "Ed E.")).toEqual([]);
+    expect(buildUnits(sessions, "me", spend, ME("Ed E."))).toEqual([]);
     expect(GROUP_BYS.none).toBe("All");
     expect([isFlat("none"), isFlat("me"), isFlat("people"), isFlat("group")]).toEqual([true, true, false, false]);
   });
@@ -91,7 +94,7 @@ describe("people view logic", () => {
   it("orders by attention with the viewer first, by spend, or by name, and keeps Admin and Unassigned last", () => {
     const units = buildUnits(sessions, "people", spend, null);
     expect(keys(orderUnits(units, "attention"))).toEqual(["p:Priya N.", "p:Ed E.", "p:Marcus T.", "p:Dana K.", "admin", "unassigned"]);
-    const mine = buildUnits(sessions, "people", spend, "dana k.");
+    const mine = buildUnits(sessions, "people", spend, ME("Dana K."));
     expect(keys(orderUnits(mine, "attention"))[0]).toBe("p:Dana K.");
     expect(keys(orderUnits(units, "spend"))).toEqual(["p:Marcus T.", "p:Priya N.", "p:Ed E.", "p:Dana K.", "admin", "unassigned"]);
     expect(keys(orderUnits(units, "name"))).toEqual(["p:Dana K.", "p:Ed E.", "p:Marcus T.", "p:Priya N.", "admin", "unassigned"]);
@@ -106,10 +109,20 @@ describe("people view logic", () => {
     expect(ids(filterByPeople(sessions, { person: null, group: "nogroup" }))).toEqual(["ma1", "ad1", "un1"]);
   });
 
-  it("knows the viewer's band key", () => {
-    expect(meKey(sessions, "ed e.")).toBe("p:Ed E.");
-    expect(meKey(sessions, "Someone")).toBe("p:Someone");
-    expect(meKey(sessions, null)).toBeNull();
+  it("narrows the Me wall to the viewer's own sessions by id", () => {
+    expect(filterByPeople(sessions, meFilter(ME("Ed E."))).map((s) => s.id)).toEqual(["ed1", "ed2"]);
+    expect(filterByPeople(sessions, meFilter({ id: 99, name: "Nobody" }))).toEqual([]);
+  });
+
+  it("does not hand a detached person's sessions to a same-named newcomer (#1284)", () => {
+    // Ed E. was deleted: his sessions keep the name and have no owner id. A new person takes the name and gets id 50.
+    const detached = [S("old1", "Ed E.", { ownerId: null, ownerGroup: "Frontend" }), S("new1", "Ed E.", { ownerId: 50 })];
+    const newcomer = { id: 50, name: "Ed E." };
+    expect(filterByPeople(detached, meFilter(newcomer)).map((s) => s.id)).toEqual(["new1"]);
+    const units = buildUnits(detached, "people", [], { id: 51, name: "Ed E." });
+    expect(units.find((u) => u.key === "p:Ed E.")!.mine).toBe(false);
+    expect(buildUnits(detached, "people", [], newcomer).find((u) => u.key === "p:Ed E.")!.mine).toBe(true);
+    expect(buildUnits([detached[0]!], "people", [], newcomer).find((u) => u.key === "p:Ed E.")!.mine).toBe(false);
   });
 
   it("labels machines by host name, adding the id where one person has two machines of one name", () => {

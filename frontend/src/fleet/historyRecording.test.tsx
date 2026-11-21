@@ -32,12 +32,12 @@ function server(rows: (typeof row)[], recording: ReturnType<typeof makeRecording
       const q = new URL(url, "http://x").searchParams;
       return new Response(JSON.stringify({ day: q.get("day"), sessions: rows, total: rows.length, page: 1, pageSize: 50 }), { status: 200 });
     }
-    if (url.endsWith("/sessions/s1")) return new Response(JSON.stringify(makeSession({ owner: "Ed", status: "done", recording, agents: [makeAgent({ id: "a1", description: "Map call sites", status: "done" })] })), { status: 200 });
+    if (url.endsWith("/sessions/s1")) return new Response(JSON.stringify(makeSession({ owner: "Ed", ownerId: 1, status: "done", recording, agents: [makeAgent({ id: "a1", description: "Map call sites", status: "done" })] })), { status: 200 });
     return new Response("{}", { status: 404 });
   }));
 }
 
-const me = (name = "Ed", admin = false) => ({ me: vi.fn(async () => ({ enabled: true, signedIn: true, name, admin })), recordingDelete: vi.fn(async () => ({ ok: true, entries: 1, bytes: 1 })) }) as unknown as RespondApi & { recordingDelete: ReturnType<typeof vi.fn> };
+const me = (name = "Ed", admin = false) => ({ me: vi.fn(async () => ({ enabled: true, signedIn: true, name, id: name === "Ed" ? 1 : 7, admin })), recordingDelete: vi.fn(async () => ({ ok: true, entries: 1, bytes: 1 })) }) as unknown as RespondApi & { recordingDelete: ReturnType<typeof vi.fn> };
 
 describe("History and a kept recording", () => {
   it("says under the session's name until when its recording is kept, and opens the session from it", async () => {
@@ -63,7 +63,7 @@ describe("History and a kept recording", () => {
     }));
     const quiet = { onerror: null, readyState: 1, addEventListener() {}, close() {} };
     const api = {
-      me: vi.fn(async () => ({ enabled: true, signedIn: signed, name: signed ? "Ed" : null, admin: false })),
+      me: vi.fn(async () => ({ enabled: true, signedIn: signed, name: signed ? "Ed" : null, id: signed ? 1 : null, admin: false })),
       signIn: vi.fn(async () => { signed = true; return { ok: true, name: "Ed", admin: false }; }),
     } as unknown as RespondApi;
     render(<HistoryView initialDay="2026-10-10" respondApi={api} fleetOptions={{ open: () => quiet, fetchState: async () => makeState({ features: { "session-recording": true } }) }} />);

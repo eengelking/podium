@@ -35,6 +35,7 @@ interface SessionView {
   background: { tasks: { type: string; description: string; status: string }[]; wakeAt: number | null } | null;  // what the session is idle on (#119); not a wait on the person, so it is left out of the waiting count
   hideAt: number | null;                // epoch ms when a session nobody is attached to is set aside from the wall; null while attached or unknown (7.5)
   owner: string | null;                 // who the server decided the session belongs to from the token (7.7): a person's name, 'Admin', or null
+  ownerId: number | null;               // the owner's people.id (#1284): what the console compares to decide whose a session is, never the name; null for Admin, no owner, or a person since deleted
   ownerGroup: string | null;            // that person's group from Admin; null for Admin, no owner, or no group
   machine: { name: string; id: string } | null;  // Report.machine as last sent; null when none was
   reporter: 'mod' | 'hooks';            // 'mod': the reporter (full detail); 'hooks': classic settings hooks only (no usage, cost, plan)

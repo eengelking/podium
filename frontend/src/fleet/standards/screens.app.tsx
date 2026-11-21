@@ -81,8 +81,8 @@ export const APP_SCREENS: Record<string, Screen> = {
     },
   ),
   "app-people": app([
-    makeSession({ id: "s1", name: "api-refactor", owner: "Dana", ownerGroup: "Platform", machine: { id: "m1", name: "studio-m2" } as never }),
-    makeSession({ id: "s2", name: "docs-rewrite", owner: "Priya", ownerGroup: "Data", status: "waiting", waitReason: "input" }),
+    makeSession({ id: "s1", name: "api-refactor", owner: "Dana", ownerId: 3, ownerGroup: "Platform", machine: { id: "m1", name: "studio-m2" } as never }),
+    makeSession({ id: "s2", name: "docs-rewrite", owner: "Priya", ownerId: 4, ownerGroup: "Data", status: "waiting", waitReason: "input" }),
     makeSession({ id: "s3", name: "scratch", owner: null }),
   ]),
   "app-card-machine-title": app(

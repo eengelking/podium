@@ -313,6 +313,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     attached: row.attached === null ? null : row.attached === 1,
     hideAt: input.hideAt ?? null,
     owner: row.owner,
+    ownerId: row.owner_id,
     ownerGroup: input.ownerGroup ?? null,
     machine: parse<MachineInfo | null>(row.machine_json, null),
     activityFeed: input.activityFeed ?? null,

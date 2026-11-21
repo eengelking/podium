@@ -390,7 +390,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
 
   browser.get('/me', asyncHandler(async (req, res) => {
     const v = signInEnabled() ? await viewerOf(req) : null;
-    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false, myUsage: myUsageEnabled() };
+    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, id: v?.personId ?? null, admin: v?.admin ?? false, myUsage: myUsageEnabled() };
     res.json(me);
   }));
 

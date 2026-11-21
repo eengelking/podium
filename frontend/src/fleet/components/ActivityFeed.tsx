@@ -10,7 +10,7 @@ import { EVERY_CHOICES, readEvery, useActivityFeed, writeEvery, type FeedEntry, 
 import { ActivityOutputFlag, BashRow, LINE_CUT, missingOutput, Redacted, useRowAnchor, type RowAnchor } from "./BashRow";
 import { Modal } from "./Modal";
 import { useRespond } from "../useRespond";
-import { nameKey } from "../respond";
+import { nameKey, ownsSession } from "../respond";
 import { useReadingPing } from "../sessionReads";
 import { DESKTOP_OPTIONS, OPENCODE_RESTART, OPENCODE_SETTINGS_FILE, OPTION_CMD, optionVariable } from "../pluginOptions";
 
@@ -318,10 +318,10 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
   const respond = useRespond();
   // An Admin whose stored view of another person's Activity stays open keeps that person's notice alive (#1074); the read itself was recorded by the route.
   const me = respond?.me;
-  const readingOthers = !!me?.signedIn && me.admin === true && !!feed.stored?.canRead && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  const readingOthers = !!me?.signedIn && me.admin === true && !!feed.stored?.canRead && !!s.owner && s.owner !== "Admin" && !ownsSession(s, me);
   useReadingPing("activity", s.id, props.loop, readingOthers);
   // The same for the live feed (#1082): each poll is itself a read the server recorded; the ping keeps the notice alive between slow polls.
-  const watchingOthers = !!me?.signedIn && me.admin === true && feed.fetchedAt !== null && !feed.refused && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  const watchingOthers = !!me?.signedIn && me.admin === true && feed.fetchedAt !== null && !feed.refused && !!s.owner && s.owner !== "Admin" && !ownsSession(s, me);
   useReadingPing("live", s.id, props.loop, watchingOthers);
 
   const pick = useCallback((n: number) => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { familyName, ORCHESTRATOR_ROW as MAIN_LOOP, reporterBelow } from "../logic";
 import { RespondError } from "../respondApi";
 import { HarnessContext } from "../harnessContext";
-import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, canRespond, isMine, minSec, nameKey, planBackOnly, respondGate, shownAsk } from "../respond";
+import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, canRespond, isMine, minSec, ownsSession, planBackOnly, respondGate, shownAsk } from "../respond";
 import { useReadingPing } from "../sessionReads";
 import type { AskDetail, SessionView } from "../types";
 import { readEvery, useActivityFeed, writeEvery } from "../useActivityFeed";
@@ -136,8 +136,8 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
     void load();
   }, [load]);
   // An Admin who has this ask open and is not its owner keeps the owner's notice alive (#1073); the open itself was recorded when the ask was loaded.
-  const ownsSession = !!me?.name && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) === nameKey(me.name);
-  useReadingPing("ask", s.id, undefined, !!me?.admin && !ownsSession && !!ask && detail?.ask.id === ask.id);
+  const owns = ownsSession(s, me);
+  useReadingPing("ask", s.id, undefined, !!me?.admin && !owns && !!ask && detail?.ask.id === ask.id);
 
   // What the person has chosen so far, kept per ask.
   const [forAsk, setForAsk] = useState("");
@@ -422,7 +422,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
             )}
           </>
         )}
-        <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="above" />
+        <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner, ownerId: s.ownerId }} placement="above" />
         {panel}
         {compose ?? <div className="mpad" />}
       </div>

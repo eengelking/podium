@@ -11,9 +11,9 @@ import type { PeerReporter, PeersRead } from "./peers";
 import type { PeerMessage, TrafficApi, TrafficEnd, TrafficLink, TrafficRead } from "./trafficData";
 import type { RespondMe } from "./types";
 
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
-const ANN_ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Ann", admin: true };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
+const ANN_ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Ann", id: 6, admin: true };
 const T0 = 2_000_000_000_000;
 
 const end = (sessionId: string, name: string, machine: string, reporterKey: string): TrafficEnd => ({ sessionId, name, machine, reporterKey });
@@ -147,8 +147,8 @@ const flush = () =>
 function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[]; rights?: PeersRead["rights"] } = {}) {
   const traffic = opts.traffic ?? fakeTraffic();
   const sessions = [
-    makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-    makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
+    makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+    makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
     ...(opts.more ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
@@ -537,8 +537,8 @@ describe("for anyone but the owner", () => {
     const GONE = end("s-gone", "gone-run", "ann-box", "m8#Ed");
     const traffic = fakeTraffic([link(OLD, GONE)]);
     const more = [
-      makeSession({ id: "s-other", name: "other", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "lab-box", id: "m9", os: "Fedora 41" } }),
-      makeSession({ id: "s-ann", name: "ann", status: "running", lastSeenAt: T0, owner: "Ann", machine: { name: "ann-box", id: "m8", os: "FreeBSD 14" } }),
+      makeSession({ id: "s-other", name: "other", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "lab-box", id: "m9", os: "Fedora 41" } }),
+      makeSession({ id: "s-ann", name: "ann", status: "running", lastSeenAt: T0, owner: "Ann", ownerId: 6, machine: { name: "ann-box", id: "m8", os: "FreeBSD 14" } }),
     ];
     page({ me: OUT, traffic, more });
     await flush();

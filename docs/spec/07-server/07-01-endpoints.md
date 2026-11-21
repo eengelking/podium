@@ -179,11 +179,11 @@ Issue #206 ([5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#responding-fr
 Every route except `GET /respond/me` needs the browser's respond session ([7.7](07-07-hardening.md)).
 
 **`GET /api/fleet/respond/me`**
-- Body: `{ enabled, signedIn, name, admin, myUsage }`.
+- Body: `{ enabled, signedIn, name, id, admin, myUsage }`.
 - `enabled`: whether a browser can sign in on this server (authentication on, and the `respond` flag, the file-diff, recording or Activity history setting, or the `my-usage` flag on,
   [7.7](07-07-hardening.md)).
 - `myUsage`: whether the `my-usage` flag is on (authentication on and the flag on), so the top bar offers My usage (#726).
-- `name` is a person's name or `Admin`. `admin` is true for the admin secret or a person in Administrators.
+- `name` is a person's name or `Admin`. `id` is the person's `people.id`, or null for the admin secret and when nobody is signed in (#1284): the console decides which sessions are the viewer's by comparing it with a session's `ownerId`, never by name. `admin` is true for the admin secret or a person in Administrators.
 - No credential needed.
 
 **`POST /api/fleet/respond/sign-in`**

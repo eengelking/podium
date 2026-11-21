@@ -97,7 +97,7 @@ describe("axe on the console's pages (#636)", () => {
       rows: [{ period: "2026-10-05", key: "podium", sessions: 3, costUsd: 4.5, count: 2, calls: 9 }], total: { sessions: 3, costUsd: 4.5, count: 2, calls: 9 }, harnesses: ["claude-code"],
     });
     const client = { get: async (path: string) => reply(path.split("?")[0]!.replace("/reports/", ""), "Name"), text: async () => "" } as never;
-    const api = { me: async () => ({ enabled: true, signedIn: true, name: "Ed", admin: false, myUsage: true }) } as never;
+    const api = { me: async () => ({ enabled: true, signedIn: true, name: "Ed", id: 1, admin: false, myUsage: true }) } as never;
     const { container } = render(<FleetView myUsage state={stateFrom({ sessions, features: { "my-usage": true } })} respondApi={api} usageClient={client} />);
     await screen.findByRole("table", { name: "Tool calls" });
     expect(await violations(container, [SEPARATORS])).toEqual([]);

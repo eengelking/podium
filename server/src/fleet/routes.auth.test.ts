@@ -185,6 +185,32 @@ describe('reporting with authentication off', () => {
   });
 });
 
+describe('the owner id on the wall (#1284)', () => {
+  const ownerIds = async (app: express.Express) =>
+    Object.fromEntries(((await request(app).get('/api/fleet/state')).body.sessions as { id: string; ownerId: number | null }[]).map((s) => [s.id, s.ownerId]));
+
+  it('carries the person id for a person, and null for the admin secret, so the console never compares names', async () => {
+    const { app, people } = await setup();
+    const dana = await people.createPerson('Dana K.');
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Dana K.', 'd1'));
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report(null, 'x1'));
+    expect(await ownerIds(app)).toEqual({ d1: dana.person.id, x1: null });
+  });
+
+  it('shows null once the person is deleted, and a same-named newcomer gets a different id', async () => {
+    const { app, people } = await setup();
+    const first = await people.createPerson('Dana K.');
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', first.token).send(report('Dana K.', 'd1'));
+    await people.deleteMany([first.person.id]);
+    const newcomer = await people.createPerson('Dana K.');
+    expect(newcomer.person.id).not.toBe(first.person.id);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', newcomer.token).send(report('Dana K.', 'd2'));
+    const ids = await ownerIds(app);
+    expect(ids.d1).toBeNull();
+    expect(ids.d2).toBe(newcomer.person.id);
+  });
+});
+
 describe('the people view fields (issue #34)', () => {
   it('shows each session’s owner, its group and its machine, and splits today’s spend by owner', async () => {
     const { app, people } = await setup();

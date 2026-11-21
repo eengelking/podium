@@ -14,7 +14,7 @@ import type { Address, ChannelMessage, ChatApi, ChatOverview, DirectInfo, Direct
 import { useThread, type Selection } from "./useChat";
 import type { RespondMe } from "./types";
 
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const T0 = new Date(2026, 9, 12, 14, 30).getTime();
 const MIN = 60_000;
 const LOCKED = "Podium has already sent this message to Tester, so it can no longer be changed.";
@@ -151,7 +151,7 @@ const flush = () =>
   });
 
 function page(chat = fakeChat()) {
-  const sessions = [makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } })];
+  const sessions = [makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } })];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": true } });
   const props = { chat: true, respondApi: respondApi(ED), peersApi: peersApi(), chatApi: chat.api };
   const view = render(<FleetView {...props} state={state} />);

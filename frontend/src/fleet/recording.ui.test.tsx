@@ -15,8 +15,8 @@ import type { RecordingGrant, RespondMe, SessionView } from "./types";
 const at = (h: number, m: number) => new Date(2026, 9, 20, h, m).getTime();
 const NOW = at(12, 0);
 const CFG = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
 
 const grantOf = (loops: string[], over: Partial<RecordingGrant> = {}): RecordingGrant => ({
   state: "recording",
@@ -57,7 +57,7 @@ const AGENTS = [makeAgent({ id: "p", description: "Port the endpoints" }), makeA
 
 async function page(over: Partial<SessionView> = {}, opts: { api?: ReturnType<typeof fakeApi>; on?: boolean; provider?: boolean } = {}) {
   const api = opts.api ?? fakeApi();
-  const s = makeSession({ owner: "Ed", agents: AGENTS, ...over });
+  const s = makeSession({ owner: "Ed", ownerId: 1, agents: AGENTS, ...over });
   const view = <FocusView s={s} now={NOW} config={CFG} sort={{ key: null, dir: 1 }} onSort={() => {}} selectedAgent={null} flashAgent={null} onAgent={() => {}} />;
   const out = render(opts.provider === false ? view : <RespondProvider api={api} flagsOn={false} recordingOn={opts.on ?? true}>{view}</RespondProvider>);
   await flush();
@@ -262,14 +262,14 @@ describe("the picker", () => {
   });
 
   it("tells a viewer who is not the owner what they can and cannot do", async () => {
-    const { dialog } = await open({ owner: "Maya" });
+    const { dialog } = await open({ owner: "Maya", ownerId: 2 });
     expect(dialog.textContent).toMatch(/Only the session's owner or an Admin can choose what to record/);
     expect(within(dialog).queryByRole("checkbox")).toBeNull();
   });
 
   it("lets an Admin choose what to record in someone else's session", async () => {
-    const api = fakeApi({}, { enabled: true, signedIn: true, name: "Priya", admin: true });
-    const { dialog } = await open({ owner: "Maya" }, { api });
+    const api = fakeApi({}, { enabled: true, signedIn: true, name: "Priya", id: 3, admin: true });
+    const { dialog } = await open({ owner: "Maya", ownerId: 2 }, { api });
     expect(within(dialog).getAllByRole("checkbox")).toHaveLength(3);
   });
 
@@ -314,7 +314,7 @@ describe("the layer above the band", () => {
   });
 
   it("is plain text, with no buttons, for a viewer who is not the owner or an Admin, and when there is no sign-in state", async () => {
-    const other = await page({ owner: "Maya", recording: makeRecording() });
+    const other = await page({ owner: "Maya", ownerId: 2, recording: makeRecording() });
     expect(within(layer(other.container)).queryByRole("button")).toBeNull();
     cleanup();
     const bare = await page({ recording: makeRecording() }, { provider: false });
@@ -365,7 +365,7 @@ describe("the layer above the band", () => {
     const api = fakeApi();
     const tree = (startedAt: number) => (
       <RespondProvider api={api} flagsOn={false} recordingOn>
-        <RecordingLayer s={makeSession({ id: "s1", owner: "Ed", recording: makeRecording({ startedAt }) })} now={NOW} />
+        <RecordingLayer s={makeSession({ id: "s1", owner: "Ed", ownerId: 1, recording: makeRecording({ startedAt }) })} now={NOW} />
       </RespondProvider>
     );
     const out = render(tree(at(11, 42)));
@@ -467,8 +467,8 @@ describe("the layer above the band", () => {
   });
 
   it("lets an Admin stop a recording in someone else's session", async () => {
-    const api = fakeApi({}, { enabled: true, signedIn: true, name: "Priya", admin: true });
-    const { container } = await page({ owner: "Maya", recording: makeRecording() }, { api });
+    const api = fakeApi({}, { enabled: true, signedIn: true, name: "Priya", id: 3, admin: true });
+    const { container } = await page({ owner: "Maya", ownerId: 2, recording: makeRecording() }, { api });
     expect(within(layer(container)).getByRole("button", { name: "Stop recording" })).toBeInTheDocument();
   });
 });
@@ -486,7 +486,7 @@ describe("the picker's other states", () => {
   };
 
   it("says the feature is off, with where an Admin turns it on, and has nothing to press but Close", async () => {
-    const { dialog, onClose } = await show(makeSession({ owner: "Ed" }), false);
+    const { dialog, onClose } = await show(makeSession({ owner: "Ed", ownerId: 1 }), false);
     expect(dialog.textContent).toMatch(/Session recording is off on this server\. An Admin turns it on in Admin > Settings > Feature flags\. Until then nothing is captured, stored or sent\./);
     fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalled();
@@ -494,7 +494,7 @@ describe("the picker's other states", () => {
   });
 
   it("says a session that ended cannot be started", async () => {
-    const { dialog } = await show(makeSession({ owner: "Ed", status: "done" }), true);
+    const { dialog } = await show(makeSession({ owner: "Ed", ownerId: 1, status: "done" }), true);
     expect(dialog.textContent).toMatch(/This session has ended\. A recording can be started only on a session that is running\./);
   });
 });

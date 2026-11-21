@@ -36,7 +36,7 @@ import { useHeartbeat } from "./useHeartbeat";
 import { usePanes } from "./usePanes";
 import { usePeoplePrefs } from "./usePeoplePrefs";
 import { usePins } from "./usePins";
-import { ADMIN, buildUnits, filterByPeople, machineLabels, meKey, NO_FILTER, orderUnits, peopleActive, type GroupBy, type PeopleFilter, type Unit } from "./people";
+import { ADMIN, buildUnits, filterByPeople, machineLabels, meFilter, NO_FILTER, orderUnits, peopleActive, type GroupBy, type MeRef, type PeopleFilter, type Unit } from "./people";
 import type { WallPeople } from "./components/Wall";
 import type { RailPeople } from "./components/Rail";
 import { APP_NAME, type ActivityView } from "./types";
@@ -224,15 +224,15 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const active = peopleActive(live);
   // Who "me" is comes from the browser's sign-in (#245): a signed-in person, never Admin. Signed out there is no "me".
   const signedIn = useRespond()?.me;
-  const me = signedIn?.signedIn && signedIn.name && signedIn.name.toLowerCase() !== ADMIN.toLowerCase() ? signedIn.name : null;
+  // The id decides which sessions are mine (#1284); the admin secret has none.
+  const me: MeRef | null = signedIn?.signedIn && signedIn.name && typeof signedIn.id === "number" && signedIn.name.toLowerCase() !== ADMIN.toLowerCase() ? { id: signedIn.id, name: signedIn.name } : null;
   // My reporters (#415): read while orchestrator messaging is on and a person is signed in, so the top bar can say how many
   // requests wait; often while the page is open. The admin secret has no reporters of its own.
   const peersOn = state.features["peer-messaging"] === true;
   const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters, state.chatRev);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
-  const myKey = active ? meKey(sorted, me) : null;
-  const peopleFilter: PeopleFilter = groupBy === "me" && myKey ? { person: myKey, group: null } : pf;
+  const peopleFilter: PeopleFilter = groupBy === "me" && me && active ? meFilter(me) : pf;
   const peopleShown = active ? filterByPeople(sets.shown, peopleFilter) : sets.shown;
   const shown = filterSessions(peopleShown, filter);
   const split: Split = {
