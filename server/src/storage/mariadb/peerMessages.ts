@@ -9,6 +9,7 @@ import { pausedByOf } from '../peerText.js';
 import {
   HELD_STATES,
   CROSS_PENDING_MAX,
+  personKeyOf,
   type AcrossInput,
   canSend,
   takesMessages,
@@ -54,6 +55,7 @@ const RATE_WINDOW_MS = 60_000;
 interface DbMessage {
   id: string;
   owner: string;
+  owner_id?: number | null;
   link: string;
   from_key: string;
   to_key: string;
@@ -93,6 +95,7 @@ const ordered = (x: string, y: string): [string, string] => (x <= y ? [x, y] : [
 const toRow = (r: DbMessage): MessageRow => ({
   id: r.id,
   owner: r.owner,
+  ownerId: r.owner_id == null ? null : Number(r.owner_id),
   link: r.link,
   fromKey: r.from_key,
   toKey: r.to_key,
@@ -146,8 +149,8 @@ const PAIR_WHERE = '(from_session = ? AND to_session = ?) OR (from_session = ? A
 export interface MariaPeerRightsView {
   effective(from: string, to: string): Promise<EffectiveRight>;
   personLink(personKey: string, toKey: string): Promise<RightRow | null>;
-  limits(owner: string): Promise<PeerLimits>;
-  openMessageRequest(input: { owner: string; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): Promise<PeerRequestRow>;
+  limits(ownerId: number | null): Promise<PeerLimits>;
+  openMessageRequest(input: { owner: string; ownerId: number; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): Promise<PeerRequestRow>;
   closeMessageRequest(messageId: string, outcome: 'delivered' | 'dropped' | 'declined'): Promise<void>;
 }
 
@@ -210,7 +213,7 @@ export class MariaPeerMessages {
 
   /** The agent's name with no other live agent of its owner holding it (#1284): its reported name, or that name and the first free number from 2 ("Lower Left 2"); one it already has stays while it is free. */
   private settledName(o: LiveInput, prev: LiveOrchestrator | undefined): string {
-    const taken = new Set([...this.liveDir.values()].filter((x) => x.sessionId !== o.sessionId && nameKey(x.owner) === nameKey(o.owner)).map((x) => nameKey(x.name)));
+    const taken = new Set([...this.liveDir.values()].filter((x) => x.sessionId !== o.sessionId && x.ownerId === o.ownerId).map((x) => nameKey(x.name)));
     return settleName(o.name, prev?.name, taken, nameKey);
   }
 
@@ -218,27 +221,27 @@ export class MariaPeerMessages {
     return this.liveDir.get(sessionId) ?? null;
   }
 
-  /** Whether the orchestrator's reporter is a person's: known, and not on the admin secret. */
+  /** Whether the orchestrator's reporter is its person's: known, not on the admin secret, and filed under the same `people.id` the orchestrator reported with (#1284), so a reporter that changed hands is not the one it ran on. */
   private async onPersonReporter(o: LiveOrchestrator): Promise<boolean> {
     const r = await this.reporters.get(o.reporterKey);
-    return r !== null && !r.adminSecret;
+    return r !== null && !r.adminSecret && o.ownerId !== null && r.ownerId === o.ownerId;
   }
 
   /** The orchestrators `sender` could reach: the same owner's, messaging on, on a person's reporter, and seen by the sender's reporter. The sender itself is kept. */
   private async reachable(sender: LiveOrchestrator): Promise<LiveOrchestrator[]> {
-    const owner = nameKey(sender.owner);
+    const owner = sender.ownerId;
     const out: LiveOrchestrator[] = [];
     for (const o of this.liveDir.values()) {
-      if (nameKey(o.owner) !== owner || o.peers !== true || !(await this.onPersonReporter(o))) continue;
+      if (owner === null || o.ownerId !== owner || o.peers !== true || !(await this.onPersonReporter(o))) continue;
       if (o.sessionId === sender.sessionId || (await this.rights.effective(sender.reporterKey, o.reporterKey)).level !== 'none') out.push(o);
     }
     return out;
   }
 
   /** The sender, when it can take part: live, messaging on, on a person's reporter. */
-  private async sender(sessionId: string): Promise<LiveOrchestrator | null> {
+  private async sender(sessionId: string): Promise<(LiveOrchestrator & { ownerId: number }) | null> {
     const s = this.liveDir.get(sessionId);
-    return s && s.peers === true && (await this.onPersonReporter(s)) ? s : null;
+    return s && s.ownerId !== null && s.peers === true && (await this.onPersonReporter(s)) ? (s as LiveOrchestrator & { ownerId: number }) : null;
   }
 
   /** The people who wrote to this agent through Chat and whose link is still there (#1034); one who has no link, or whose was removed, is not listed. */
@@ -249,7 +252,7 @@ export class MariaPeerMessages {
     for (const [address, name] of names) {
       const link = await this.rights.personLink(address, sender.reporterKey);
       if (link && link.level !== 'none') out.push({ address, name, paused: link.paused });
-      else if (!link && address === `person:${nameKey(sender.owner)}`) out.push({ address, name, paused: false });
+      else if (!link && sender.ownerId !== null && address === personKeyOf(sender.ownerId)) out.push({ address, name, paused: false });
     }
     return out.sort((a, b) => a.address.localeCompare(b.address));
   }
@@ -346,13 +349,14 @@ export class MariaPeerMessages {
 
   /** The refusal for an agent of the sender's owner that has ended: it says who, by name and id, and that it is no longer available. Null for an id that is live (so only unseen), unknown, or another owner's. */
   private async gone(sender: LiveOrchestrator, agentId: number): Promise<Refusal | null> {
-    const a = await this.db.get<{ session_id: string; name: string | null; owner: string | null }>('SELECT a.session_id AS session_id, s.name AS name, s.owner AS owner FROM agent_ids a LEFT JOIN sessions s ON s.id = a.session_id WHERE a.id = ?', [agentId]);
-    if (!a || this.liveDir.has(a.session_id)) return null;
+    const a = await this.db.get<{ session_id: string; sid: string | null; name: string | null; owner_id: number | null }>('SELECT a.session_id AS session_id, s.id AS sid, s.name AS name, s.owner_id AS owner_id FROM agent_ids a LEFT JOIN sessions s ON s.id = a.session_id WHERE a.id = ?', [agentId]);
+    if (!a || this.liveDir.has(a.session_id) || sender.ownerId === null) return null;
     let name = a.name;
-    if (a.owner !== null && nameKey(a.owner) !== nameKey(sender.owner)) return null;
-    if (a.owner === null) {
+    // A session whose person was deleted has no id and is nobody's (#1284), so it is no one's to be told about.
+    if (a.sid !== null && (a.owner_id === null || Number(a.owner_id) !== sender.ownerId)) return null;
+    if (a.sid === null) {
       // The session row is gone (they are deleted 30 days after the session ends): the name it had in the owner's last message to or from it is what is left.
-      const m = await this.db.get<{ name: string }>('SELECT CASE WHEN to_agent = ? THEN to_name ELSE from_name END AS name FROM peer_messages WHERE owner = ? AND (to_agent = ? OR from_agent = ?) ORDER BY sent_at DESC, seq DESC LIMIT 1', [agentId, sender.owner, agentId, agentId]);
+      const m = await this.db.get<{ name: string }>('SELECT CASE WHEN to_agent = ? THEN to_name ELSE from_name END AS name FROM peer_messages WHERE owner_id = ? AND (to_agent = ? OR from_agent = ?) ORDER BY sent_at DESC, seq DESC LIMIT 1', [agentId, sender.ownerId, agentId, agentId]);
       if (!m) return null;
       name = m.name;
     }
@@ -368,14 +372,22 @@ export class MariaPeerMessages {
   }
 
   /** An agent answers a person who wrote to it through Chat (#1034); see the SQLite adapter, which this follows step by step. Runs inside `send`'s transaction. */
-  private async replyToPerson(sender: LiveOrchestrator, address: string, clean: string, limits: { perMinute: number; roundTrips: number }): Promise<SendOutcome | Refusal> {
+  private async replyToPerson(sender: LiveOrchestrator & { ownerId: number }, address: string, clean: string, limits: { perMinute: number; roundTrips: number }): Promise<SendOutcome | Refusal> {
     const unseen = refuse(404, REPLY_WORDS.unseen(address));
-    const personKey = `person:${nameKey(address.slice('person:'.length))}`;
+    // The reporter addresses a person by the name it was shown (`person:Ed`), and podium_peers lists them by key (`person:5`). Either finds the key of a person who wrote to this very session: the name only picks among
+    // the people who did (#1284), so a newcomer who takes a deleted person's name, who never wrote to it, is not found.
+    const asked = address.slice('person:'.length).trim();
+    let personKey: string | null = /^\d+$/.test(asked) ? `person:${asked}` : null;
+    if (personKey === null) {
+      const wrote = (await this.db.all<{ from_session: string; from_name: string }>(`SELECT DISTINCT from_session, from_name FROM peer_messages WHERE to_session = ? AND author = 'person' AND substr(from_session, 1, 7) = 'person:' ORDER BY from_session`, [sender.sessionId])).filter((r) => /^person:\d+$/.test(r.from_session) && nameKey(r.from_name) === nameKey(asked));
+      personKey = wrote.length === 1 ? wrote[0]!.from_session : null;
+    }
+    if (personKey === null) return unseen;
     // The newest message the person wrote to this very session names them as they are shown.
     const wrote = await this.db.get<{ from_name: string }>(`SELECT from_name FROM peer_messages WHERE from_session = ? AND to_session = ? AND author = 'person' ORDER BY sent_at DESC, seq DESC LIMIT 1`, [personKey, sender.sessionId]);
     const link = await this.rights.personLink(personKey, sender.reporterKey);
     // The agent's own owner (#1034) wrote from Chat with no link between them: a person's own agents need none. A conversation the owner deleted has no message left to answer.
-    const own = personKey === `person:${nameKey(sender.owner)}`;
+    const own = personKey === personKeyOf(sender.ownerId);
     if (!wrote || (!link && !own)) return unseen;
     if (link && link.level === 'none') return refuse(403, REPLY_WORDS.removed(sender.owner, wrote.from_name));
     if (link && link.paused) return refuse(409, REPLY_WORDS.paused(wrote.from_name));
@@ -385,9 +397,9 @@ export class MariaPeerMessages {
     const id = newId();
     // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
-      [id, sender.owner, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.agentId, sender.name, sender.machine, wrote.from_name, clean, now, now],
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
+      [id, sender.owner, sender.ownerId, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.agentId, sender.name, sender.machine, wrote.from_name, clean, now, now],
     );
     await this.trail({ kind: 'delivered', message: (await this.row(id)) as MessageRow });
     return { ok: true as const, id, state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: wrote.from_name, machine: '' }, roundTrips: { used: 0, cap: limits.roundTrips }, person: true };
@@ -401,7 +413,7 @@ export class MariaPeerMessages {
       }
       const clean = cleanPeerText(text);
       if (!clean.trim()) return refuse(400, 'The message is empty. Write the text to send.');
-      const limits = await this.rights.limits(sender.owner);
+      const limits = await this.rights.limits(sender.ownerId);
       if (clean.length > limits.maxChars) {
         const n = (v: number): string => v.toLocaleString('en-US');
         return refuse(422, `The message is ${n(clean.length)} characters, over the limit of ${n(limits.maxChars)} on this link. Send a shorter one, or a file path instead of the file.`);
@@ -427,13 +439,13 @@ export class MariaPeerMessages {
       const state: MessageState = approvalWhy ? 'approval' : 'ready';
       // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
       await this.db.run(
-        `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
-        [id, sender.owner, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.agentId, target.agentId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now],
+        `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
+        [id, sender.owner, sender.ownerId, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.agentId, target.agentId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now],
       );
       let requestId: string | null = null;
       if (approvalWhy) {
-        requestId = (await this.rights.openMessageRequest({ owner: sender.owner, fromKey: sender.reporterKey, toKey: target.reporterKey, by: sender.name, fromSession: sender.sessionId, messageId: id })).id;
+        requestId = (await this.rights.openMessageRequest({ owner: sender.owner, ownerId: sender.ownerId, fromKey: sender.reporterKey, toKey: target.reporterKey, by: sender.name, fromSession: sender.sessionId, messageId: id })).id;
       }
       let outState: SendOutcome['state'] = takesMessages(target) ? 'sent' : 'turn';
       if (approvalWhy) outState = 'approval';
@@ -574,16 +586,16 @@ export class MariaPeerMessages {
 
   // ---- Reading -----------------------------------------------------------------------------------------------------
 
-  async conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]> {
+  async conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]> {
     // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
     const all = await this.rows(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
+      `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
        FROM peer_messages ORDER BY sent_at, seq`,
     );
-    const owner = filter.owner === undefined ? null : nameKey(filter.owner);
+    const owner = filter.ownerId ?? null;
     const groups = new Map<string, MessageRow[]>();
     for (const m of all) {
-      if (owner !== null && nameKey(m.owner) !== owner) continue;
+      if (owner !== null && m.ownerId !== owner) continue;
       const pair = ordered(m.fromSession, m.toSession).join('|');
       const g = groups.get(pair) ?? [];
       g.push(m);
@@ -618,6 +630,7 @@ export class MariaPeerMessages {
       a,
       b,
       owner: named.owner,
+      ownerId: named.ownerId,
       messages: shownCount(g),
       lastAt: last.sentAt,
       state,
@@ -625,7 +638,7 @@ export class MariaPeerMessages {
       ...(paused ? pausedByOf(ab, ba) : {}),
       aToB: canSend(ab.level),
       bToA: canSend(ba.level),
-      roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(named.owner)).roundTrips },
+      roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(named.ownerId)).roundTrips },
     };
   }
 
@@ -641,33 +654,32 @@ export class MariaPeerMessages {
   // ---- The Chat page (#1034) ---------------------------------------------------------------------------------------
 
   /** Whether the pair has messages and every one of them is the owner's. A conversation belongs to one owner; this is the guard that keeps another owner's read, delete or hide from reaching it. */
-  private async ownsPair(owner: string, a: string, b: string): Promise<boolean> {
-    // order-insensitive: a set of owners, compared as a whole.
-    const owners = await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM peer_messages WHERE ${PAIR_WHERE}`, [a, b, b, a]);
-    return owners.length > 0 && owners.every((r) => nameKey(r.owner) === nameKey(owner));
+  private async ownsPair(ownerId: number, a: string, b: string): Promise<boolean> {
+    // order-insensitive: a set of owners, compared as a whole. A row with no owner (a person since deleted) is nobody's.
+    const owners = await this.db.all<{ owner_id: number | null }>(`SELECT DISTINCT owner_id FROM peer_messages WHERE ${PAIR_WHERE}`, [a, b, b, a]);
+    return owners.length > 0 && owners.every((r) => r.owner_id !== null && Number(r.owner_id) === ownerId);
   }
 
   async sendFromPerson(input: PersonMessageInput): Promise<MessageRow | Refusal> {
     const clean = cleanPeerText(input.text);
     if (!clean.trim()) return refuse(400, 'The message is empty. Write the text to send.');
-    const owner = nameKey(input.owner);
     const target = this.liveDir.get(input.toSession);
     if (!target) {
       // order-insensitive: only whether there is any row counts.
       const known = await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages WHERE to_session = ? OR from_session = ?', [input.toSession, input.toSession]);
       return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not queue the message. It would never be taken.') : refuse(404, 'There is no such agent.');
     }
-    if (nameKey(target.owner) !== owner) return refuse(404, 'There is no such agent.');
+    if (target.ownerId !== input.ownerId) return refuse(404, 'There is no such agent.');
     if (target.peers !== true) return refuse(403, `${target.name} is not taking part in orchestrator messaging. It needs the peers option on in podium-reporter on its machine.`);
-    const limits = await this.rights.limits(target.owner);
+    const limits = await this.rights.limits(input.ownerId);
     if (clean.length > limits.maxChars) {
       return refuse(422, overLimitWords(clean.length, limits.maxChars));
     }
-    let fromSession = `person:${owner}`;
+    let fromSession = personKeyOf(input.ownerId);
     let fromKey = '';
     let link = linkKey(fromSession, target.reporterKey);
     if (input.withSession) {
-      if (!(await this.ownsPair(input.owner, input.toSession, input.withSession))) return refuse(404, 'There is no such conversation.');
+      if (!(await this.ownsPair(input.ownerId, input.toSession, input.withSession))) return refuse(404, 'There is no such conversation.');
       const newest = await this.db.get<{ link: string; from_session: string; from_key: string; to_key: string }>(
         `SELECT link, from_session, from_key, to_key FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at DESC, seq DESC LIMIT 1`,
         [input.toSession, input.withSession, input.withSession, input.toSession],
@@ -681,9 +693,9 @@ export class MariaPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
-      [id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, input.withSession ? (this.liveDir.get(input.withSession)?.agentId ?? (await this.agentOf(input.withSession))) : null, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null],
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      [id, target.owner, input.ownerId, link, fromKey, target.reporterKey, fromSession, input.toSession, input.withSession ? (this.liveDir.get(input.withSession)?.agentId ?? (await this.agentOf(input.withSession))) : null, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null],
     );
     return (await this.row(id)) as MessageRow;
   }
@@ -691,17 +703,16 @@ export class MariaPeerMessages {
   async sendAcross(input: AcrossInput): Promise<MessageRow | Refusal> {
     const clean = cleanPeerText(input.text);
     if (!clean.trim()) return refuse(400, 'The message is empty. Write the text to send.');
-    const person = nameKey(input.person);
-    const personKey = `person:${person}`;
+    const personKey = personKeyOf(input.personId);
     const target = this.liveDir.get(input.toSession);
     if (!target) {
       // order-insensitive: only whether there is any row counts.
       const known = await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages WHERE to_session = ? OR from_session = ?', [input.toSession, input.toSession]);
       return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not send the message. It would never be taken.') : refuse(404, 'There is no such agent.');
     }
-    if (nameKey(target.owner) === person) return refuse(422, 'That agent is yours. Write to it from your own conversation with it.');
-    if (target.peers !== true || !(await this.onPersonReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
-    const limits = await this.rights.limits(target.owner);
+    if (target.ownerId === input.personId) return refuse(422, 'That agent is yours. Write to it from your own conversation with it.');
+    if (target.peers !== true || target.ownerId === null || !(await this.onPersonReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
+    const limits = await this.rights.limits(target.ownerId);
     if (clean.length > limits.maxChars) {
       return refuse(422, overLimitWords(clean.length, limits.maxChars));
     }
@@ -712,7 +723,7 @@ export class MariaPeerMessages {
       // order-insensitive: only the counts of this person's waiting messages matter.
       const waiting = await this.rows(`SELECT * FROM peer_messages WHERE from_session = ? AND state = 'approval'`, [personKey]);
       if (waiting.some((m) => m.toSession === input.toSession)) return refuse(409, `Your earlier message to ${target.name} still waits for ${target.owner} to approve it. Wait for the answer before you write again.`);
-      if (waiting.filter((m) => nameKey(m.owner) === nameKey(target.owner)).length >= CROSS_PENDING_MAX) {
+      if (waiting.filter((m) => m.ownerId === target.ownerId).length >= CROSS_PENDING_MAX) {
         return refuse(429, `You already have ${CROSS_PENDING_MAX} messages waiting for ${target.owner} to approve. Wait for answers before you write more.`);
       }
     }
@@ -721,21 +732,21 @@ export class MariaPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
-      [id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null],
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      [id, target.owner, target.ownerId, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null],
     );
     if (state === 'approval') {
-      await this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
+      await this.rights.openMessageRequest({ owner: target.owner, ownerId: target.ownerId, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
     }
     await this.trail({ kind: 'sent', message: (await this.row(id)) as MessageRow, state: state === 'approval' ? 'approval' : takesMessages(target) ? 'sent' : 'turn', approvalWhy: state === 'approval' ? 'link' : null });
     return (await this.row(id)) as MessageRow;
   }
 
-  async page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage> {
+  async page(ownerId: number, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage> {
     const before = opts.before === undefined || opts.before === null ? null : decodeCursor(opts.before);
     const limit = pageSize(opts.limit);
-    if (!(await this.ownsPair(owner, a, b))) return { messages: [], older: null };
+    if (!(await this.ownsPair(ownerId, a, b))) return { messages: [], older: null };
     const newestFirst = before
       ? await this.db.all<DbMessage>(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND (sent_at < ? OR (sent_at = ? AND seq < ?)) ORDER BY sent_at DESC, seq DESC LIMIT ?`, [a, b, b, a, before.at, before.at, before.seq, limit + 1])
       : await this.db.all<DbMessage>(`SELECT * FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at DESC, seq DESC LIMIT ?`, [a, b, b, a, limit + 1]);
@@ -757,7 +768,7 @@ export class MariaPeerMessages {
       if (!change.ok) return change;
       // The owner's limit, as a send checks it, on the text as it is stored (#1269).
       const clean = cleanPeerText(x.text);
-      const max = (await this.rights.limits(change.group[0]!.owner)).maxChars;
+      const max = (await this.rights.limits(change.group[0]!.ownerId)).maxChars;
       if (clean.length > max) return { ok: false as const, reason: 'too-long' as const, status: 422 as const, error: overLimitWords(clean.length, max) };
       for (const m of change.group) await this.db.run('UPDATE peer_messages SET text = ?, edited_at = ? WHERE id = ?', [x.text, x.now, m.id]);
       return { ok: true as const, message: (await this.row(id)) as MessageRow };
@@ -777,37 +788,36 @@ export class MariaPeerMessages {
     });
   }
 
-  async deleteConversation(owner: string, a: string, b: string): Promise<number> {
-    if (!(await this.ownsPair(owner, a, b))) return 0;
+  async deleteConversation(ownerId: number, a: string, b: string): Promise<number> {
+    if (!(await this.ownsPair(ownerId, a, b))) return 0;
     for (const m of await this.rows(`SELECT * FROM peer_messages WHERE (${PAIR_WHERE}) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, [a, b, b, a])) await this.rights.closeMessageRequest(m.id, 'dropped');
     return this.db.run(`DELETE FROM peer_messages WHERE ${PAIR_WHERE}`, [a, b, b, a]);
   }
 
   async conversationOf(a: string, b: string): Promise<ConversationSummary | null> {
     // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
-    const rows = await this.rows(`SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
+    const rows = await this.rows(`SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
     return rows.length > 0 ? this.summary(rows) : null;
   }
 
-  async conversationCounts(owners: string[]): Promise<Record<string, number>> {
+  async conversationCounts(ownerIds: number[]): Promise<Record<number, number>> {
     return countConversations(await this.db.all<ConversationGroupRow>(
-        'SELECT owner, from_session, to_session, MIN(CASE WHEN hidden_at IS NULL THEN 0 ELSE 1 END) AS all_hidden FROM peer_messages GROUP BY owner, from_session, to_session ORDER BY owner, from_session, to_session',
-      ), owners);
+        'SELECT owner_id, from_session, to_session, MIN(CASE WHEN hidden_at IS NULL THEN 0 ELSE 1 END) AS all_hidden FROM peer_messages GROUP BY owner_id, from_session, to_session ORDER BY COALESCE(owner_id, 0), from_session, to_session',
+      ), ownerIds);
   }
 
-  async ownerConversations(owner: string, opts: { includeHidden?: boolean; pairs?: string[] } = {}): Promise<OwnerConversation[]> {
+  async ownerConversations(ownerId: number, opts: { includeHidden?: boolean; pairs?: string[] } = {}): Promise<OwnerConversation[]> {
     if (opts.pairs && opts.pairs.length === 0) return [];
     const all = await this.db.all<DbMessage>(
-      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
+      `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
        FROM peer_messages ORDER BY sent_at, seq`,
     );
     const only = opts.pairs ? new Set(opts.pairs) : null;
-    const key = nameKey(owner);
-    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<key>` is one of its two ends.
-    const me = `person:${key}`;
+    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends.
+    const me = personKeyOf(ownerId);
     const groups = new Map<string, DbMessage[]>();
     for (const r of all) {
-      if (nameKey(r.owner) !== key && r.from_session !== me && r.to_session !== me) continue;
+      if ((r.owner_id == null || Number(r.owner_id) !== ownerId) && r.from_session !== me && r.to_session !== me) continue;
       const pair = ordered(r.from_session, r.to_session).join('|');
       if (only && !only.has(pair)) continue;
       const g = groups.get(pair) ?? [];
@@ -823,13 +833,13 @@ export class MariaPeerMessages {
     return out.sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
   }
 
-  async hideConversation(owner: string, a: string, b: string): Promise<number> {
-    if (!(await this.ownsPair(owner, a, b))) return 0;
+  async hideConversation(ownerId: number, a: string, b: string): Promise<number> {
+    if (!(await this.ownsPair(ownerId, a, b))) return 0;
     return this.db.run(`UPDATE peer_messages SET hidden_at = ? WHERE hidden_at IS NULL AND (${PAIR_WHERE})`, [this.now(), a, b, b, a]);
   }
 
-  async showConversation(owner: string, a: string, b: string): Promise<number> {
-    if (!(await this.ownsPair(owner, a, b))) return 0;
+  async showConversation(ownerId: number, a: string, b: string): Promise<number> {
+    if (!(await this.ownsPair(ownerId, a, b))) return 0;
     return this.db.run(`UPDATE peer_messages SET hidden_at = NULL WHERE hidden_at IS NOT NULL AND (${PAIR_WHERE})`, [a, b, b, a]);
   }
 

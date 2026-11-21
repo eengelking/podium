@@ -910,17 +910,17 @@ describe('direct messages', () => {
     await say(s.edB, 'general', `@review@alex-box ${ASK}-ACROSS`);
     const admin = await signedIn(s, 'Admin', SECRET);
     const unlocked = await adminAgent(s);
-    for (const [a, b] of [['person:ed', 'sess-tester'], ['person:ed', 'sess-alex']]) {
+    for (const [a, b] of [['person:1', 'sess-tester'], ['person:1', 'sess-alex']]) {
       for (const res of [await admin.get(`/api/fleet/respond/peers/conversations/${a}/${b}`), await unlocked.get(`/api/admin/peers/conversations/${a}/${b}`)]) {
         expect(JSON.stringify(res.body)).not.toContain(ASK);
         expect(res.status).toBe(403);
       }
     }
     // The owner reads their own through Traffic, and Chat is where an Admin reads it, recorded.
-    const own = await s.edB.get('/api/fleet/respond/peers/conversations/person:ed/sess-tester');
+    const own = await s.edB.get('/api/fleet/respond/peers/conversations/person:1/sess-tester');
     expect(own.status).toBe(200);
     expect(JSON.stringify(own.body)).toContain(ASK);
-    expect((await admin.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(200);
+    expect((await admin.get(`${CH}/dm/person:1/sess-tester/messages`)).status).toBe(200);
     expect(await s.fleet.chat.core.store.adminReads.threads('dm:')).toHaveLength(1);
   });
 
@@ -1336,7 +1336,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await mention(w)).toMatchObject({ state: 'approval', why: 'Waiting for Alex to approve' });
     const reqs = await requestsOf(w.alexB);
     expect(reqs).toHaveLength(1);
-    expect(reqs[0]).toMatchObject({ kind: 'message', fromPerson: true, fromKey: 'person:ed', from: { name: 'Ed', machine: 'Podium Chat' } });
+    expect(reqs[0]).toMatchObject({ kind: 'message', fromPerson: true, fromKey: 'person:1', from: { name: 'Ed', machine: 'Podium Chat' } });
     expect(reqs[0]!.text).toBe(FULL);
     expect(await requestsOf(w.edB)).toEqual([]);
     expect((await w.alexB.get(CH)).body.approvals).toBe(1);
@@ -1373,27 +1373,27 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(asEd.status).toBe(200);
     expect(asEd.body.messages.map((m: { text: string; state: string }) => [m.text, m.state])).toEqual([[FULL, 'approval']]);
     expect(asEd.body.cross).toMatchObject({ person: 'Ed', owner: 'Alex', link: 'waiting', viewerIs: 'sender' });
-    const asAlex = await thread(w.alexB, `${CH}/dm/person:ed/sess-alex/messages`);
+    const asAlex = await thread(w.alexB, `${CH}/dm/person:1/sess-alex/messages`);
     expect(asAlex.status).toBe(200);
     expect(asAlex.body.cross).toMatchObject({ viewerIs: 'owner' });
     expect(asAlex.body.messages[0].text).toBe(FULL);
     const admin = await signedIn(w, 'Admin', SECRET);
-    const asAdmin = await thread(admin, `${CH}/dm/person:ed/sess-alex/messages`);
+    const asAdmin = await thread(admin, `${CH}/dm/person:1/sess-alex/messages`);
     expect(asAdmin.status).toBe(200);
     expect(asAdmin.body.cross).toMatchObject({ viewerIs: 'admin' });
-    expect((await link(admin, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
-    expect((await admin.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
+    expect((await link(admin, 'pause', `${CH}/dm/person:1/sess-alex/link`)).status).toBe(404);
+    expect((await admin.post(`${CH}/dm/person:1/sess-alex/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
     // A third person: 404 on the thread, as for a conversation that is not there, nothing in the list, and no way to touch it.
-    expect((await thread(zedB, `${CH}/dm/person:ed/sess-alex/messages`)).status).toBe(404);
+    expect((await thread(zedB, `${CH}/dm/person:1/sess-alex/messages`)).status).toBe(404);
     expect(JSON.stringify((await zedB.get(CH)).body.directs)).toBe('[]');
-    expect((await link(zedB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
-    expect((await zedB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).status).toBe(404);
-    expect((await zedB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
+    expect((await link(zedB, 'pause', `${CH}/dm/person:1/sess-alex/link`)).status).toBe(404);
+    expect((await zedB.delete(`${CH}/dm/person:1/sess-alex`).set(H)).status).toBe(404);
+    expect((await zedB.post(`${CH}/dm/person:1/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
     // Both list it.
     expect((await w.edB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['sender']);
     expect((await w.alexB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['owner']);
     // The owner cannot send into someone else's conversation as if it were their own.
-    expect((await w.alexB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'reply' })).status).toBe(409);
+    expect((await w.alexB.post(`${CH}/dm/person:1/sess-alex/messages`).set(H).send({ text: 'reply' })).status).toBe(409);
   });
 
   it('drops the message and tells the sender why when the owner denies it, and opens no link', async () => {
@@ -1427,7 +1427,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     const w = await world();
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
-    const out = await link(w.alexB, 'remove', `${CH}/dm/person:ed/sess-alex/link`);
+    const out = await link(w.alexB, 'remove', `${CH}/dm/person:1/sess-alex/link`);
     expect(out.body).toMatchObject({ ok: true, link: 'removed' });
     const again = await say(w.edB, 'general', '@review@alex-box are you there');
     expect(again.body.message.mentions[0]).toMatchObject({ state: 'not-delivered' });
@@ -1439,7 +1439,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await requestsOf(w.alexB)).toEqual([]);
     // Only the owner can open it again.
     expect((await link(w.edB, 'allow')).status).toBe(403);
-    expect((await link(w.alexB, 'allow', `${CH}/dm/person:ed/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
+    expect((await link(w.alexB, 'allow', `${CH}/dm/person:1/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
     expect((await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'back' })).status).toBe(202);
   });
 
@@ -1449,17 +1449,17 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
     // The sender pauses: the owner sees it paused, and the sender is refused with the reason.
     expect((await link(w.edB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
-    expect((await thread(w.alexB, `${CH}/dm/person:ed/sess-alex/messages`)).body.cross.link).toBe('paused');
+    expect((await thread(w.alexB, `${CH}/dm/person:1/sess-alex/messages`)).body.cross.link).toBe('paused');
     const refused = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'while paused' });
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatch(/paused/);
     expect(await handed(w)).toEqual([]);
     // Only the one who paused it can resume it.
-    expect((await link(w.alexB, 'resume', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(403);
+    expect((await link(w.alexB, 'resume', `${CH}/dm/person:1/sess-alex/link`)).status).toBe(403);
     expect((await link(w.edB, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
     expect((await handed(w)).map((d) => d.text)).toEqual([FULL]);
     // The owner pauses: the sender hears it.
-    expect((await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).body.link).toBe('paused');
+    expect((await link(w.alexB, 'pause', `${CH}/dm/person:1/sess-alex/link`)).body.link).toBe('paused');
     expect((await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'again' })).status).toBe(409);
     expect((await link(w.edB, 'bogus')).status).toBe(400);
   });
@@ -1484,7 +1484,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     const w = await world();
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
-    expect((await w.alexB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).body).toMatchObject({ ok: true, removed: 1 });
+    expect((await w.alexB.delete(`${CH}/dm/person:1/sess-alex`).set(H)).body).toMatchObject({ ok: true, removed: 1 });
     // Gone from both lists; the thread now reads as a fresh one, since the person may write to that agent again.
     expect((await thread(w.edB)).body).toMatchObject({ messages: [], total: 0, cross: { link: 'none' } });
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
@@ -1500,7 +1500,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await post(w, w.alex.token, report('Alex', 'sess-secret', 'hidden-plan', BOX));
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     const again = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'x' });
-    await link(w.alexB, 'remove', `${CH}/dm/person:ed/sess-alex/link`).catch(() => undefined);
+    await link(w.alexB, 'remove', `${CH}/dm/person:1/sess-alex/link`).catch(() => undefined);
     const refused = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'y' });
     const gone = await w.edB.post(`${CH}/dm/me/sess-secret-nope/messages`).set(H).send({ text: 'z' });
     for (const body of [again.body, refused.body, gone.body]) expect(JSON.stringify(body)).not.toMatch(/hidden-plan|sess-secret/);
@@ -1534,7 +1534,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     w.fleet.hub.add({ write: (c: string) => sse.push(c) });
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
-    await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`);
+    await link(w.alexB, 'pause', `${CH}/dm/person:1/sess-alex/link`);
     await link(w.edB, 'remove');
     await w.fleet.flush();
     await settle();
@@ -1597,8 +1597,8 @@ describe('a person writing to another person\'s agent (#1034)', () => {
 
   // ---- Only the pauser can resume (#1034) ----------------------------------------------------------------------------
 
-  const L = `${CH}/dm/person:ed/sess-alex/link`;
-  const T = `${CH}/dm/person:ed/sess-alex/messages`;
+  const L = `${CH}/dm/person:1/sess-alex/link`;
+  const T = `${CH}/dm/person:1/sess-alex/messages`;
   const crossOf = async (b: ReturnType<typeof request.agent>) => (await thread(b, T)).body.cross as { link: string; pausedBy: string | null; canResume: boolean; viewerIs: string };
   /** Ed has asked, and Alex allowed it: the link is open. */
   async function openLink(w: W) {
@@ -1691,7 +1691,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     const body = (await thread(w.alexB, T)).body as { a: { kind: string; reporterKey: string }; b: { kind: string; reporterKey: string } };
     const key = [body.a, body.b].find((p) => p.kind === 'agent')!.reporterKey;
     // The store call with no pauser is what a row paused before this change looks like.
-    const paused = await w.fleet.peers.setPersonLink('person:ed', key, 'pause', { name: 'ed', admin: false });
+    const paused = await w.fleet.peers.setPersonLink('person:1', key, 'pause', { name: 'ed', admin: false });
     expect(paused, JSON.stringify(paused)).toMatchObject({ ok: true });
     expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused', pausedBy: null, canResume: true });
     expect(await crossOf(w.edB)).toMatchObject({ pausedBy: null, canResume: true });
@@ -1717,7 +1717,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
       const t = await thread(b, T);
       expect(t.status).toBe(200);
       expect(t.body.messages.map((m: { text: string; author: string; state: string }) => [m.author, m.state, m.text])).toEqual([['person', 'ready', FULL], ['agent', 'delivered', REPLY]]);
-      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-alex', name: 'review' }, to: [{ sessionId: 'person:ed', name: 'Ed', state: 'delivered' }] });
+      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-alex', name: 'review' }, to: [{ sessionId: 'person:1', name: 'Ed', state: 'delivered' }] });
       expect(t.body.cross).toMatchObject({ link: 'open' });
     }
     // The owner has nothing to approve for it, and the agent is handed only the person's own text, never its own answer back.
@@ -1819,7 +1819,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await reply(w, REPLY);
     await w.fleet.peers.retain();
     expect(((await thread(w.edB, T)).body.messages as { text: string }[]).map((m) => m.text)).toContain(REPLY);
-    expect((await w.edB.delete(`${CH}${'/dm/person:ed/sess-alex'}`).set(H)).body).toMatchObject({ ok: true });
+    expect((await w.edB.delete(`${CH}${'/dm/person:1/sess-alex'}`).set(H)).body).toMatchObject({ ok: true });
     expect((await w.alexB.get(CH)).body.directs).toEqual([]);
   });
 
@@ -1908,7 +1908,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     await say(w.edB, 'general', `@review@alex-box ${MSG}`);
     return w;
   }
-  const CROSS = `${CH}/dm/person:ed/sess-alex`;
+  const CROSS = `${CH}/dm/person:1/sess-alex`;
 
   it('records a reading of a person\'s group, tells that person, and shows no one else anything', async () => {
     const w = await world();
@@ -2169,7 +2169,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect(await store(w).threads('')).toHaveLength(3);
     w.tick(2 * 86_400_000);
     await w.fleet.retain();
-    expect(await store(w).threads('')).toEqual(['dm:person:ed|sess-alex', 'dm:sess-dev|sess-tester']);
+    expect(await store(w).threads('')).toEqual(['dm:person:1|sess-alex', 'dm:sess-dev|sess-tester']);
   });
 
   it('shows a person, on their overview, the unseen record of a conversation an Admin read and that has since been deleted, once, and no one else (#1051)', async () => {
@@ -2380,7 +2380,7 @@ describe('an Admin reading a conversation (#1034)', () => {
 
 describe('the callout an Admin\'s reading or stopping shows the person in podium-reporter (#1034)', () => {
   const AB = `${CH}/dm/sess-dev/sess-tester`;
-  const CROSS = `${CH}/dm/person:ed/sess-alex`;
+  const CROSS = `${CH}/dm/person:1/sess-alex`;
   const SECRET_TEXT = 'a private line about the build';
   const noticesOf = async (w: W, who: 'dev' | 'tester' | 'alex') => {
     const r = who === 'dev' ? await dev(w, { status: 'running', waitReason: null }) : who === 'tester' ? await tester(w) : await alexOne(w);
@@ -2845,7 +2845,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     expect((await a.get(`${BROWSE}Alex`)).body.directs.length).toBe(1);
     const ed = await a.get(`${BROWSE}Ed`);
     expect(ed.body.directs.some((d: { owner: string }) => d.owner === 'Alex')).toBe(false);
-    expect(ed.body.directs.every((d: { owner: string; a: { sessionId: string }; b: { sessionId: string } }) => d.owner === 'Ed' || d.a.sessionId === 'person:ed' || d.b.sessionId === 'person:ed')).toBe(true);
+    expect(ed.body.directs.every((d: { owner: string; a: { sessionId: string }; b: { sessionId: string } }) => d.owner === 'Ed' || d.a.sessionId === 'person:1' || d.b.sessionId === 'person:1')).toBe(true);
     expect(allText(ed.body)).not.toContain(ALEX_PRIVATE);
   });
 });
@@ -2873,10 +2873,10 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     await w.fleet.flush();
     await settle();
     for (const b of [w.edB, await signedIn(w, 'Admin', SECRET)]) {
-      const t = await b.get(TT.replace('/dm/me/', '/dm/person:ed/'));
+      const t = await b.get(TT.replace('/dm/me/', '/dm/person:1/'));
       expect(t.status).toBe(200);
       expect(t.body.messages.map((m: { author: string; text: string }) => [m.author, m.text])).toEqual([['person', ASK], ['agent', ANSWER]]);
-      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-tester' }, to: [{ sessionId: 'person:ed', state: 'delivered' }] });
+      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-tester' }, to: [{ sessionId: 'person:1', state: 'delivered' }] });
     }
     const after = await dmCounts(w.edB);
     expect(after[0]!.unread).toBe(before[0]!.unread + 1);
@@ -2906,7 +2906,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
       for (const path of ['/channels/general/messages', '/channels/group/messages']) expect(JSON.stringify((await b.get(`${CH}${path}`)).body)).not.toContain(ANSWER);
       expect(JSON.stringify((await b.get('/api/fleet/respond/peers/conversations')).body ?? '')).not.toContain(ANSWER);
     }
-    expect((await w.alexB.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(404);
+    expect((await w.alexB.get(`${CH}/dm/person:1/sess-tester/messages`)).status).toBe(404);
   });
 
   it('refuses an answer from an agent the owner never wrote to, to another person, and after the conversation is removed, in the generic words', async () => {
@@ -2921,7 +2921,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     expect((await reply(w, ANSWER, 'person:alex')).status).toBe(404);
     expect((await reply(w, ' ')).status).toBe(400);
     expect((await reply(w, ANSWER)).status).toBe(202);
-    expect((await w.edB.delete(`${CH}/dm/person:ed/sess-tester`).set(H)).body).toMatchObject({ ok: true });
+    expect((await w.edB.delete(`${CH}/dm/person:1/sess-tester`).set(H)).body).toMatchObject({ ok: true });
     expect((await reply(w, 'late')).status).toBe(404);
   });
 
@@ -2930,7 +2930,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     const peers = () => request(w.app).get('/api/fleet/sessions/sess-tester/peers').set('X-Podium-Token', w.ed.token);
     expect((await peers()).body.people).toEqual([]);
     await asked(w);
-    expect((await peers()).body.people).toEqual([{ address: 'person:ed', name: 'Ed', paused: false }]);
+    expect((await peers()).body.people).toEqual([{ address: 'person:1', name: 'Ed', paused: false }]);
     let limited = 0;
     for (let i = 0; i < 40; i++) if ((await reply(w, `flood ${i}`)).status === 429) limited++;
     expect(limited).toBeGreaterThan(0);

@@ -51,8 +51,8 @@ export function mariadbContractAdapter(): ContractAdapter {
       const td = await createTestDatabase();
       return track(td, await openMariaDbStorage(target(td), 0));
     },
-    openUpgraded: async (rows, reporters, sessions, messages, rights, adminReads, publicMessages) => {
-      const { storage, td } = await openUpgradedMariaDb(rows, reporters, sessions, messages, rights, adminReads, publicMessages);
+    openUpgraded: async (rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras) => {
+      const { storage, td } = await openUpgradedMariaDb(rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras);
       return track(td, storage);
     },
     schema: async () => {

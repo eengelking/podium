@@ -308,7 +308,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       const { s, opened, stateOf } = await setup();
       const r = ok(await s.send('s-mbp', 'arm64-check@build-pi', 'Also run npm run test:mod there'));
       expect(r).toMatchObject({ state: 'approval', approvalWhy: 'link', requestId: 'req_1' });
-      expect(opened).toEqual([{ owner: 'Ed', fromKey: 'r-mbp', toKey: 'r-pi', by: 'claude-dashboard', fromSession: 's-mbp', messageId: r.id }]);
+      expect(opened).toEqual([{ owner: 'Ed', ownerId: 1, fromKey: 'r-mbp', toKey: 'r-pi', by: 'claude-dashboard', fromSession: 's-mbp', messageId: r.id }]);
       expect((await stateOf(r.id)).state).toBe('approval');
     });
 
@@ -588,6 +588,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
         a: { sessionId: 's-mbp', name: 'claude-dashboard', machine: 'ed-mbp', reporterKey: 'r-mbp' },
         b: { sessionId: 's-pi', name: 'arm64-check', machine: 'build-pi', reporterKey: 'r-pi' },
         owner: 'Ed',
+        ownerId: 1,
         messages: 1,
         lastAt: T0 + 20,
         state: 'waiting',
@@ -603,8 +604,8 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       // A paused link with a message waiting for approval reads `waiting`, and still says it is paused (#417).
       pause('r-mbp', 'r-pi');
       expect((await s.conversations({})).find((c) => c.b.sessionId === 's-pi')).toMatchObject({ state: 'waiting', paused: true });
-      expect(await s.conversations({ owner: 'ed' })).toHaveLength(2);
-      expect(await s.conversations({ owner: 'Ann' })).toEqual([]);
+      expect(await s.conversations({ ownerId: 1 })).toHaveLength(2);
+      expect(await s.conversations({ ownerId: 2 })).toEqual([]);
       expect((await s.conversations({ since: T0 + 15 })).map((c) => c.b.sessionId)).toEqual(['s-pi']);
       await s.note({ ...CI, status: 'done' });
       await s.note({ ...MBP, status: 'done' });

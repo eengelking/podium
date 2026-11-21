@@ -275,7 +275,7 @@ export class ChatService {
       people: browsing
         ? await this.peopleWithCounts()
         : (await this.core.persons()).map((p) => ({ name: p.name, you: p.key === nameKey(viewer.name) })),
-      approvals: person && !browsing ? await this.direct.approvalsFor(viewer.name) : 0,
+      approvals: person && !browsing ? await this.direct.approvalsFor(viewer.personId) : 0,
       listReading,
       listReads,
       goneReads,
@@ -321,7 +321,7 @@ export class ChatService {
     const persons = await this.core.persons();
     const ends = await Promise.all(
       thread.slice('dm:'.length).split('|').map(async (id) => {
-        if (isPersonId(id)) return { mine: id === personId(name), name: persons.find((p) => p.key === id.slice('person:'.length))?.name ?? id.slice('person:'.length) };
+        if (isPersonId(id)) return { mine: persons.some((p) => p.key === key && id === personId(p.id)), name: persons.find((p) => id === personId(p.id))?.name ?? id.slice('person:'.length) };
         const s = await this.core.host.sessionOf(id);
         return { mine: !!s?.owner && nameKey(s.owner) === key, name: s?.name ?? 'an agent' };
       }),

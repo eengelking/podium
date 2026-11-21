@@ -139,6 +139,7 @@ export class ReporterStore {
     const key = known ?? this.accountKey(s);
     // A row made for this address before a known session turned up here is the same reporter: fold it in.
     if (known && known !== own) this.merge(own, known);
+    this.takeover(key, s);
     const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
     this.stmt(
       `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, owner_id, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
@@ -225,6 +226,19 @@ export class ReporterStore {
     this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id, peers) SELECT ?, session_id, peers FROM reporter_sessions WHERE reporter_key = ?').run(into, from);
     this.stmt('UPDATE reporters SET first_seen_at = MIN(first_seen_at, COALESCE((SELECT first_seen_at FROM reporters WHERE key = ?), first_seen_at)) WHERE key = ?').run(from, into);
     this.stmt('DELETE FROM reporters WHERE key = ?').run(from);
+  }
+
+  /**
+   * A reporter row that changes hands starts clean (#1284). When a report comes for a key whose row belongs to another account (a different person's id, or a row with no id that a person now
+   * claims, as when a newcomer takes a deleted person's name and reports from the same machine), the row's links, rights, requests and session links are cleared before the new owner is written, so
+   * the newcomer inherits none of what the earlier holder had. The messages stay with the earlier owner's id, which no one now holds.
+   */
+  private takeover(key: string, s: ReporterSeen): void {
+    const had = this.stmt('SELECT owner, owner_id FROM reporters WHERE key = ?').get(key) as { owner: string | null; owner_id: number | null } | undefined;
+    if (!had || sameAccount(had, s)) return;
+    this.stmt('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?').run(key, key);
+    this.stmt('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?').run(key, key);
+    this.stmt('DELETE FROM reporter_sessions WHERE reporter_key = ?').run(key);
   }
 
   /** Keeps a short, memory-only list of refused reports by source address, for the detail view. The reason is one of the server's own fixed phrases. */

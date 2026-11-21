@@ -141,13 +141,13 @@ export class ChatCore {
     this.signal({ scope, owner: who, unread: row.unread, mentions: row.mentions });
   }
 
-  /** Every person who can sign in, with the name as typed and folded. */
-  async persons(): Promise<{ name: string; key: string }[]> {
-    const out: { name: string; key: string }[] = [];
+  /** Every person who can sign in, with their `people.id` and the name as typed and folded. */
+  async persons(): Promise<{ id: number; name: string; key: string }[]> {
+    const out: { id: number; name: string; key: string }[] = [];
     if (!this.people) return out;
     for (let page = 1; page <= 20; page++) {
       const got = await this.people.list({ page, pageSize: 100 });
-      for (const p of got.rows) if (p.revokedAt === null) out.push({ name: p.name, key: nameKey(p.name) });
+      for (const p of got.rows) if (p.revokedAt === null) out.push({ id: p.id, name: p.name, key: nameKey(p.name) });
       if (got.rows.length < 100) break;
     }
     return out;

@@ -5,6 +5,7 @@ import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
 import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState } from './types.js';
 import { setUp } from './contractPeers.js';
+import { personKeyOf } from '../fleet/peerTypes.js';
 
 const T0 = 1_800_000_000_000;
 const DAY = 86_400_000;
@@ -618,28 +619,29 @@ export function chatCases(o: Openers): void {
   it('forgets a deleted person\'s Chat data, so a new person of the same name inherits none of it, and leaves everyone else\'s (#1051)', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
-      const { peers, a, b, eve } = await setUp(s, clock);
-      const chat = s.chat({ now: () => clock.now });
       const ed = (await s.people.createPerson('Ed', null, T0)).person;
-      await s.people.createPerson('Eve', null, T0);
-      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const eveP = (await s.people.createPerson('Eve', null, T0)).person;
+      const { peers, a, b, eve } = await setUp(s, clock, { ed: ed.id, eve: eveP.id });
+      const chat = s.chat({ now: () => clock.now });
+      const edKey = personKeyOf(ed.id);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ed.id, from, to, 'send', ED);
       await peers.messages.send('sa', 'beta@box-b', 'agent to agent');
-      await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', text: 'from the person' });
-      await peers.setPersonLink('person:ed', eve, 'allow', ED);
+      await peers.messages.sendFromPerson({ ownerId: ed.id, person: 'Ed', toSession: 'sb', text: 'from the person' });
+      await peers.setPersonLink(edKey, eve, 'allow', ED);
       await chat.group.post(G, input('ED GROUP'));
       await chat.group.post({ owner: 'eve', groupId: 'g1' }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
       await chat.readState.bump('ed', 'group:ed', true);
       await chat.readState.bump('eve', 'group:eve', false);
-      await rec('before: person link', peers.rights.personLink('person:ed', eve));
+      await rec('before: person link', peers.rights.personLink(edKey, eve));
       await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
       await rec('group (Ed)', chat.group.page(G, { limit: 10 }).then(texts));
       await rec('group (Eve)', chat.group.page({ owner: 'eve', groupId: 'g1' }, { limit: 10 }).then(texts));
       await rec('read state (Ed)', chat.readState.list('ed'));
       await rec('read state (Eve)', chat.readState.list('eve').then((l) => l.length));
-      await rec('person link', peers.rights.personLink('person:ed', eve));
+      await rec('person link', peers.rights.personLink(edKey, eve));
       await rec('agent conversation', peers.messages.conversation('sa', 'sb'));
-      await rec('person conversation', peers.messages.conversation('person:ed', 'sb'));
-      await rec('Ed conversations', peers.messages.ownerConversations('ed'));
+      await rec('person conversation', peers.messages.conversation(edKey, 'sb'));
+      await rec('Ed conversations', peers.messages.ownerConversations(ed.id));
     });
     expect(t.get('before: person link')).not.toBeNull();
     expect(t.get('group (Ed)')).toEqual([]);
@@ -656,10 +658,10 @@ export function chatCases(o: Openers): void {
   onEachAdapter(o, 'never returns a direct message from a channel read, nor a channel message from a direct message read', async (s) => {
     const clock = { now: T0 };
     const { peers, a, b } = await setUp(s, clock);
-    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
     const dm = 'DIRECT-ONLY-TEXT';
     await peers.messages.send('sa', 'beta@box-b', dm);
-    await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
+    await peers.messages.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
     const chat = s.chat({ now: () => clock.now });
     await chat.group.post(G, input('GROUP-ONLY-TEXT'));
     await chat.public.post('general', input('PUBLIC-ONLY-TEXT'));
@@ -672,7 +674,7 @@ export function chatCases(o: Openers): void {
     expect(channelReads).toContain('GROUP-ONLY-TEXT');
     expect(channelReads).toContain('PUBLIC-ONLY-TEXT');
     const dmReads = JSON.stringify([
-      await peers.messages.page('ed', 'sa', 'sb', { limit: 100 }), await peers.messages.conversation('sa', 'sb'), await peers.messages.ownerConversations('ed'),
+      await peers.messages.page(ED_ID, 'sa', 'sb', { limit: 100 }), await peers.messages.conversation('sa', 'sb'), await peers.messages.ownerConversations(ED_ID),
       await peers.messages.conversations({}),
     ]);
     expect(dmReads).toContain(dm);
@@ -683,7 +685,7 @@ export function chatCases(o: Openers): void {
     await chat.public.clear('general');
     expect((await peers.messages.conversation('sa', 'sb')).map((m) => m.text)).toEqual([dm, `${dm} from the person`]);
     await chat.group.post(G, input('kept'));
-    await peers.messages.deleteConversation('ed', 'sa', 'sb');
+    await peers.messages.deleteConversation(ED_ID, 'sa', 'sb');
     expect(texts(await chat.group.page(G, { limit: 10 }))).toEqual(['kept']);
   });
 
@@ -999,10 +1001,10 @@ export function chatCases(o: Openers): void {
   onEachAdapter(o, 'never shows a group message or a direct message in any public channel, and never puts a public channel\'s message in a group or a conversation', async (s) => {
     const clock = { now: T0 };
     const { peers, a, b } = await setUp(s, clock);
-    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
     const dm = 'DM-NEVER-PUBLIC';
     await peers.messages.send('sa', 'beta@box-b', dm);
-    await peers.messages.sendFromPerson({ owner: 'ed', person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
+    await peers.messages.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', withSession: 'sa', text: `${dm} from the person` });
     const chat = s.chat({ now: () => clock.now });
     await chat.channels.create({ name: 'open', createdBy: 'ed' }, T0);
     await chat.group.post(G, input('GROUP-NEVER-PUBLIC'));

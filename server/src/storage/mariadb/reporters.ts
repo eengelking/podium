@@ -148,6 +148,7 @@ export class MariaReporterStore implements ReporterStoreApi {
       const key = known ?? (await this.accountKey(s));
       // A row made for this address before a known session turned up here is the same reporter: fold it in.
       if (known && known !== own) await this.merge(own, known);
+      await this.takeover(key, s);
       const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
       await this.db.run(
         `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, owner_id, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
@@ -207,6 +208,18 @@ export class MariaReporterStore implements ReporterStoreApi {
     const was = await this.db.get<{ t: number }>('SELECT first_seen_at AS t FROM reporters WHERE key = ?', [from]);
     if (was) await this.db.run('UPDATE reporters SET first_seen_at = LEAST(first_seen_at, ?) WHERE key = ?', [was.t, into]);
     await this.db.run('DELETE FROM reporters WHERE key = ?', [from]);
+  }
+
+  /**
+   * A reporter row that changes hands starts clean (#1284), as in the SQLite store: when a report comes for a key whose row belongs to another account (a different person's id, or a row with no id
+   * that a person now claims), its links, rights, requests and session links are cleared before the new owner is written, so a newcomer who takes a deleted person's name inherits none of them.
+   */
+  private async takeover(key: string, s: ReporterSeen): Promise<void> {
+    const had = await this.db.get<{ owner: string | null; owner_id: number | null }>('SELECT owner, owner_id FROM reporters WHERE key = ?', [key]);
+    if (!had || sameAccount(had, s)) return;
+    await this.db.run('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?', [key, key]);
+    await this.db.run('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?', [key, key]);
+    await this.db.run('DELETE FROM reporter_sessions WHERE reporter_key = ?', [key]);
   }
 
   /** Memory only, as in the SQLite store. The reason is one of the server's own fixed phrases. */

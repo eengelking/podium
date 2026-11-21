@@ -491,6 +491,17 @@ ALTER TABLE reporters ADD COLUMN owner_id INTEGER;   -- the same for a reporter
 
 `owner_id` has no foreign key, and a `people.id` is never reused, so a session or reporter kept after its person is deleted names nobody and a new person who takes the name owns none of it. `owner` stays as the display text. Who owns a session or a reporter (who may answer it, delete it, read its asks, activity and recording as its owner, or sees it in My reporters) is decided by `owner_id` and never by `owner`; a row with no `owner_id` is nobody's, and only an Admin reaches it. A report from a person's token writes that person's id, and a session already owned by another id, or by nobody, is refused (`OwnerConflict`). The migration gives each row already stored the id of the person whose folded name matches its `owner` (`fillOwnerIds`, in code because SQL cannot fold a name as `nameKey` does) and leaves the others without one; deleting a person sets `owner_id` to NULL on their sessions and reporters in the same step.
 
+Migration 50 (#1284; PostgreSQL and MariaDB main step 26) binds the peer-messaging tables to a person the same way:
+
+```sql
+ALTER TABLE peer_rights ADD COLUMN owner_id INTEGER;          -- the owner's people.id; NULL for a row whose owner matched no person
+ALTER TABLE peer_requests ADD COLUMN owner_id INTEGER;        -- the same
+ALTER TABLE peer_messages ADD COLUMN owner_id INTEGER;        -- the same
+ALTER TABLE peer_owner_settings ADD COLUMN owner_id INTEGER;  -- the owner's defaults are found by it
+```
+
+The rights, requests, messages and owner defaults of a person are found by `owner_id`, never by `owner`, which stays as display text. A person's end of a link is `person:<people.id>`; the migration rewrites each stored `person:<name>` (in `from_key`, `to_key`, `from_session`, `to_session` and the link names) to `person:<id>`, or to `person:gone:<name>` when no person has the name, a key no live person's can equal (`fillPeerOwnerIds`, with the pure part in `storage/peerOwnerIds.ts`). `peer_owner_settings` kept the folded name as its primary key `owner_lower`; it now holds the id as text, and a row whose name matches no person is dropped, since defaults nobody can read are not worth a key a newcomer could meet. Deleting a person removes their peer rows, their end of every link and their defaults by id. A reporter row that changes hands (a report for its key from another person's id, or from a person claiming a row with no id) first loses its links, rights, requests and session links, so a newcomer who takes a deleted person's name inherits none of them. The agent-facing address `person:<name>` still works: `replyToPerson` finds the person among those who wrote to that very session.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql
@@ -507,7 +518,7 @@ so their own overview lists it (`goneReads`: the newest 20, with the Admin, the 
 when it loads, after which it goes by retention. Until then neither the hourly retention (which removes rows last seen before the channels' retention days, and those of a conversation that no
 longer exists), the purge of a hidden conversation, nor Delete conversation removes it; once it is seen, they do. Remove all messages never removes
 any. An Admin's stop is recorded before it happens, so a stop that cannot be recorded does not happen. Deleting a person removes their group, read counts,
-Direct Messages (the ones they own and the ones with their `person:<name>` end), links, requests and owner defaults, and the Admin records owed only to them (they
+Direct Messages (the ones they own and the ones with their `person:<id>` end), links, requests and owner defaults, and the Admin records owed only to them (they
 can never be seen); a record owed to others as well stays for them, without the deleted person. A record that names nobody is not theirs. Sessions, spend, the
 Admin log and General keep their name as text.
 
@@ -517,9 +528,9 @@ Admin log and General keep their name as text.
 - **Author.** `author_kind` is `person`, `orchestrator`, `subagent` or `reporter`; `author_ref` is the person's name, the session id
   or the reporter key. `author_id` is a person's `people.id` (migration 46), the only thing that says a person may change a message. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
   column: the table is the audience. `peer_messages.author` is how a person is a peer in a direct message: a person's message
-  has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<name, folded>` in
-  `from_session` or `to_session`, and in `from_key` or `to_key` for the link. An agent's answer to such a person is an `agent` message with `to_session`
-  and `to_key` `person:<key>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
+  has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<people.id>` in
+  `from_session` or `to_session`, and in `from_key` or `to_key` for the link (#1284: never the name). An agent's answer to such a person is an `agent` message with `to_session`
+  and `to_key` `person:<id>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
   `person:` end as a missing session, so neither a person's message nor an answer to one is dropped as an orphan.
 - **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt, copyId? }` (`copyId` since migration 46) ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
 - **Order.** A page orders by `created_at, seq` in every adapter (`seq` is the insertion number, so a tie is decided the same
