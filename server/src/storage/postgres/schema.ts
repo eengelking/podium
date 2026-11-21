@@ -452,7 +452,27 @@ ALTER TABLE peer_messages ADD COLUMN author_id INT;
   },
   {
     version: 23,
-    // Every agent has an id the server gives it, never reused (#1284), as SQLite migration 47 keeps it: an identity key that is never handed out twice, one row per session id, and the
+    // The conversations of people and agents (#1278, DECISIONS 74), as SQLite migration 47 keeps them: `conversations` with `members_key` (a hash of who is in it now, an index and not a
+    // unique key), `conversation_members` and `conversation_messages`, a fourth audience beside the channels and `peer_messages` and never merged with them.
+    sql: typed(`
+CREATE TABLE conversations (id TXT PRIMARY KEY, created_by INT, created_at INT NOT NULL, members_key TXT NOT NULL);
+CREATE INDEX conversations_members ON conversations(members_key);
+CREATE TABLE conversation_members (
+  conversation_id TXT NOT NULL, member_kind TXT NOT NULL, member_ref TXT NOT NULL, member_name TXT NOT NULL, added_by INT, joined_at INT NOT NULL, left_at INT,
+  PRIMARY KEY (conversation_id, member_kind, member_ref)
+);
+CREATE INDEX conversation_members_ref ON conversation_members(member_kind, member_ref);
+CREATE TABLE conversation_messages (
+  id TXT PRIMARY KEY, conversation_id TXT NOT NULL, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL, author_id INT, text TXT NOT NULL,
+  created_at INT NOT NULL, updated_at INT NOT NULL, reply_to TXT, seq INT NOT NULL, edited_at INT, deleted_at INT, handed_at INT
+);
+CREATE INDEX conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
+CREATE INDEX conversation_messages_created ON conversation_messages(created_at);
+`),
+  },
+  {
+    version: 24,
+    // Every agent has an id the server gives it, never reused (#1284), as SQLite migration 48 keeps it: an identity key that is never handed out twice, one row per session id, and the
     // agent each direct message was written by and aimed at (NULL for a person's end). `fillAgentIds` gives the sessions that exist ids, oldest first, and the messages those of their sessions.
     sql: typed(`
 CREATE TABLE agent_ids (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, session_id TXT NOT NULL UNIQUE);

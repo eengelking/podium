@@ -8,6 +8,7 @@ import { AdminReads, LIST_PHRASE, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
+import { ConversationChat, conversationOfThread, type ConversationInfo } from './chatConversations.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
 import type { MessageTrail } from './peerTypes.js';
 import { PublicChannels } from './chatPublic.js';
@@ -62,6 +63,8 @@ export interface Overview {
   settings: { maxChars: number; perMinute: number; retainDays: number; graceHours: number; everyone: boolean };
   channels: ChannelInfo[];
   directs: DirectInfo[];
+  /** The viewer's conversations of people and agents (#1278), newest first. An Admin who browses gets only those with an agent in them. Names, counts and times. */
+  conversations: ConversationInfo[];
   agents: AgentInfo[];
   /** `directs` is set only when an Admin browses another person (#1034): how many Direct Messages that person takes part in, for the picker. */
   people: { name: string; you: boolean; directs?: number }[];
@@ -103,6 +106,8 @@ export class ChatService {
   /** Opening, describing and removing a public channel (#1035). */
   readonly publicChannels: PublicChannels;
   readonly direct: DirectChat;
+  /** The conversations of people and agents (#1278, DECISIONS 74). */
+  readonly conversations: ConversationChat;
   readonly adminReads: AdminReads;
 
   constructor(host: ChatHost, store: ChatStoreApi) {
@@ -111,7 +116,8 @@ export class ChatService {
     this.channels = new ChannelChat(this.core, this.adminReads);
     this.publicChannels = new PublicChannels(this.core, this.adminReads);
     this.direct = new DirectChat(this.core, this.adminReads);
-    this.adminReads.resolve = (thread) => this.direct.subjectOf(thread);
+    this.conversations = new ConversationChat(this.core, this.adminReads);
+    this.adminReads.resolve = (thread) => (conversationOfThread(thread) ? this.conversations.subjectOf(thread) : this.direct.subjectOf(thread));
     // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
     this.core.across = (v, sessionId, text, opts) => this.direct.across(v, sessionId, text, opts);
     this.core.hearAcross((u) => void this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err)));
@@ -239,12 +245,14 @@ export class ChatService {
     for (const c of await this.core.store.channels.list()) channels.push(await entry(c.name, c));
     if (person || browsing) channels.push(await entry(GROUP, null));
     const directs = browsing ? await this.direct.listAbout(viewer, who) : await this.direct.list(viewer);
+    const conversations = browsing ? await this.conversations.listAbout(viewer, who) : await this.conversations.list(viewer);
     // The Admins reading right now, named, for the people in the thread. A reading whose time has passed is never reported.
     const list = person || browsing ? listThread(who) : null;
     const hidden = person || browsing ? await this.direct.hiddenOf(viewer, who, browsing !== undefined) : [];
-    const live = await this.adminReads.liveFor([...(person || browsing ? [groupThread(who)] : []), ...(list ? [list] : []), ...directs.map((d) => d.thread), ...hidden.map((d) => d.thread)]);
+    const live = await this.adminReads.liveFor([...(person || browsing ? [groupThread(who)] : []), ...(list ? [list] : []), ...directs.map((d) => d.thread), ...conversations.map((c) => c.thread), ...hidden.map((d) => d.thread)]);
     for (const c of channels) if (c.id === GROUP) c.adminReading = live.get(c.thread) ?? [];
     for (const d of directs) d.adminReading = live.get(d.thread) ?? [];
+    for (const c of conversations) c.adminReading = live.get(c.thread) ?? [];
     // A conversation that left the list (every agent in it has ended) is still read by an Admin who opened it, so it comes back while that is live (#1051).
     for (const d of hidden) {
       d.adminReading = live.get(d.thread) ?? [];
@@ -262,6 +270,7 @@ export class ChatService {
       settings: { maxChars: limits.maxChars, perMinute: limits.perMinute, retainDays: limits.retainDays, graceHours: limits.graceHours, everyone: limits.everyone },
       channels,
       directs,
+      conversations,
       agents: agents.sort((a, b) => a.address.localeCompare(b.address)),
       people: browsing
         ? await this.peopleWithCounts()
@@ -329,10 +338,10 @@ export class ChatService {
     if (typeof upTo === 'string' && !CURSOR_SHAPE.test(upTo)) return fail(400, 'upTo must be the cursor or id of a message, at most 64 characters.');
     // A public channel's thread is `public:<name>`, and only one that exists (a name in the exact form the channel is kept under) is a thread of anyone's (#1035).
     const named = channelOfThread(thread);
-    const mine = thread === publicThread || thread === groupThread(viewer.name) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread)));
+    const mine = thread === publicThread || thread === groupThread(viewer.name) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread))) || (thread.startsWith('convo:') && (await this.conversations.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
     const row = await this.core.store.readState.markRead(viewer.name, thread, upTo ?? null);
-    this.core.signal({ scope: thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
+    this.core.signal({ scope: thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }
 
@@ -373,12 +382,15 @@ export class ChatService {
     const directMessages = await this.direct.purge(limits.graceHours * HOUR_MS);
     // A reading's record goes with its conversation, and by the channels' retention days.
     const threads = await this.direct.threads();
-    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, threads);
+    const convoThreads = await this.conversations.existing();
+    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, new Set([...threads, ...convoThreads]));
+    const conversationMessages = await this.conversations.purge(now - limits.retainDays * DAY_MS);
     // The counts of a conversation that is gone (its hidden grace period ended, or its session was deleted) go with it (#1051).
     for (const thread of await this.core.store.readState.threads('dm:')) if (!threads.has(thread)) await this.core.store.readState.forget(thread);
+    for (const thread of await this.core.store.readState.threads('convo:')) if (!convoThreads.has(thread)) await this.core.store.readState.forget(thread);
     this.core.forgetIdle();
-    if (channelMessages || directMessages) {
-      this.core.onEvent({ kind: 'purged', channelMessages, directMessages });
+    if (channelMessages || directMessages || conversationMessages) {
+      this.core.onEvent({ kind: 'purged', channelMessages: channelMessages + conversationMessages, directMessages });
       this.core.signal({ scope: 'public', owner: null });
     }
   }

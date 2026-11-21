@@ -17,6 +17,7 @@ import { txCases } from './contractTx.js';
 import { activityCases } from './contractActivity.js';
 import { peerCases } from './contractPeers.js';
 import { chatCases } from './contractChat.js';
+import { conversationCases } from './contractConversations.js';
 import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
 import type { StoredSessionRow } from '../fleet/activityHistoryTypes.js';
 import type { AgentRow, BlowoutRow, EventRow, GroupListRow, PersonListRow, PersonRow, ReporterRow, ReporterSeen, SampleRow, SessionRow } from './rows.js';
@@ -116,6 +117,7 @@ export function runStorageContract(adapters: ContractAdapter[]): void {
     reporterCases(against);
     peerCases(against);
     chatCases(against);
+    conversationCases(against);
     activityCases(against);
     reportCases(against);
     txCases(against);

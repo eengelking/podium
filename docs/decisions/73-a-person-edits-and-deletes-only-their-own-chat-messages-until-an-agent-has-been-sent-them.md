@@ -54,5 +54,5 @@ A message sent in Chat could not be taken back. A typo stayed, and so did a mess
 <!-- nav:start -->
 ---
 
-Previous: [72. An Admin responds only when the owner allows it, and every message names its sender (#1251)](72-an-admin-responds-only-when-the-owner-allows-it-and-every-message-names-its-sender.md) · Up: [Decisions](README.md)
+Previous: [72. An Admin responds only when the owner allows it, and every message names its sender (#1251)](72-an-admin-responds-only-when-the-owner-allows-it-and-every-message-names-its-sender.md) · Up: [Decisions](README.md) · Next: [74. A Direct Message is a conversation of two or more people, and an Admin cannot read one that has no agent in it (#1278)](74-a-direct-message-is-a-conversation-of-two-or-more-people-and-an-admin-cannot-read-one-without-an-agent-in-it.md)
 <!-- nav:end -->

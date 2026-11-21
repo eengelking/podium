@@ -3,6 +3,7 @@
 // different tables, read by different methods, on purpose (the maintainer's hard rule; `separation.test.ts` holds the code to it).
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { AsyncLock } from '../lock.js';
+import { conversationsOver } from './conversations.js';
 import { nameKey } from '../rows.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
@@ -493,5 +494,5 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     del: (key) => step(() => void db.prepare('DELETE FROM settings WHERE key = ?').run(key)),
     prefixed: (prefix) => step(() => db.prepare("SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key").all(prefix.length, prefix) as unknown as { key: string; value: string }[]),
   });
-  return { serverScope: () => step(scope), group: groupApi, public: publicApi, channels: channelsApi, readState, adminReads, settings };
+  return { serverScope: () => step(scope), group: groupApi, public: publicApi, channels: channelsApi, conversations: conversationsOver(db, lock, scope), readState, adminReads, settings };
 }

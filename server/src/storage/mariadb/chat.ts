@@ -9,6 +9,7 @@ import {
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
 import type { MariaDbConn } from './conn.js';
+import { mariaConversations } from './conversations.js';
 
 const GROUP_COLS = 'id, owner, group_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
@@ -487,5 +488,5 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
     del: async (key) => void (await db.run('DELETE FROM settings WHERE key = ?', [key])),
     prefixed: (prefix) => db.all<{ key: string; value: string }>('SELECT key, value FROM settings WHERE substr(key, 1, ?) = ? ORDER BY key', [prefix.length, prefix]),
   });
-  return { serverScope: () => scope(), group: groupApi, public: publicApi, channels: channelsApi, readState, adminReads, settings };
+  return { serverScope: () => scope(), group: groupApi, public: publicApi, channels: channelsApi, conversations: mariaConversations(db, scope), readState, adminReads, settings };
 }
