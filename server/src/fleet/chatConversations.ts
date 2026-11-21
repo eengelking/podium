@@ -25,6 +25,10 @@ export interface MemberView {
   you: boolean;
   /** The person who added them, by name when they are known; null for the person who opened it. */
   addedBy: string | null;
+  /** What an @ in this conversation types to address them (#1282): `name@console` for a person, `name@machine` for an agent that is running, null for one that has ended. */
+  address: string | null;
+  /** An agent's session id, for its state in the @ list; null for a person. */
+  sessionId: string | null;
 }
 
 /** One conversation in the overview. Names, counts and times only, never any text. */
@@ -132,12 +136,17 @@ export class ConversationChat {
     const byRef = new Map(c.members.map((m) => [`${m.kind}:${m.ref}`, m.name]));
     return c.members
       .filter((m) => m.leftAt === null)
-      .map((m) => ({
-        kind: m.kind,
-        name: m.name,
-        you: m.kind === 'person' && viewer.personId !== null && m.ref === String(viewer.personId),
-        addedBy: m.addedBy === null ? null : (byRef.get(`person:${m.addedBy}`) ?? null),
-      }));
+      .map((m) => {
+        const t = this.asTarget(m);
+        return {
+          kind: m.kind,
+          name: m.name,
+          you: m.kind === 'person' && viewer.personId !== null && m.ref === String(viewer.personId),
+          addedBy: m.addedBy === null ? null : (byRef.get(`person:${m.addedBy}`) ?? null),
+          address: m.kind === 'person' ? `${m.name}@console` : t.machine === null ? null : `${m.name}@${t.machine}`,
+          sessionId: m.kind === 'agent' ? m.ref : null,
+        };
+      });
   }
 
   /** The viewer's conversations, newest activity first, for the overview: names, counts and times. */

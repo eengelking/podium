@@ -228,6 +228,20 @@ interface ConversationMemberInfo {
   name: string;
   you: boolean;
   addedBy: string | null;
+  /** What an @ types to address them in this conversation (#1282): `name@console`, `name@machine`, or null for an agent that has ended. */
+  address: string | null;
+  /** An agent's session id, for its state in the @ list; null for a person. */
+  sessionId: string | null;
+}
+
+/** Who a message of a conversation went to or named, and what became of it for an agent (#1282). */
+export interface ConversationDelivery {
+  kind: "person" | "agent";
+  name: string;
+  /** True for a member the writer addressed with an @; false for one that took a message sent to everyone. */
+  named: boolean;
+  /** An agent's state; null for a person. */
+  state: "queued" | "delivered" | "dropped" | null;
 }
 
 /** A conversation of two or more people and agents (#1278, DECISIONS 74): names, counts and times, never any text. */
@@ -255,6 +269,8 @@ export interface ConversationMessage {
   replyTo: string | null;
   canChange: boolean;
   changeWhy: string | null;
+  /** Who it went to or named (#1282); empty for a message with no agent to hand it to and for one written before this was kept. */
+  deliveries: ConversationDelivery[];
 }
 
 export interface ConversationPageRead {
@@ -987,6 +1003,52 @@ export function mentionQuery(
   const m = /(^|\s)@([^\n]*)$/.exec(before);
   if (!m) return null;
   return { from: before.length - m[2]!.length - 1, to: caret, q: m[2]! };
+}
+
+const spoken = (names: string[]): string => (names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
+/** The members of a conversation an @ can address (#1282): its people and agents other than the viewer, and nobody else. An agent that has ended is listed and cannot be picked. */
+export function conversationAddresses(c: Pick<ConversationInfo, "members">): Address[] {
+  return c.members
+    .filter((m) => !m.you)
+    .map((m): Address =>
+      m.kind === "person"
+        ? { typed: m.address ?? `${m.name}@console`, label: "Person in this conversation", role: "person", sessionId: null }
+        : m.address
+          ? { typed: m.address, label: "Orchestrator in this conversation", role: "orchestrator", sessionId: m.sessionId }
+          : { typed: m.name, label: "Orchestrator in this conversation", role: "orchestrator", sessionId: m.sessionId, disabled: true, why: "Has ended, so it cannot take a message." },
+    );
+}
+
+/** Who is in a conversation, in words, for its header: the people (the viewer as "You" first) and the number of agents. */
+export function conversationSummary(c: Pick<ConversationInfo, "members">): string {
+  const people = c.members.filter((m) => m.kind === "person").sort((a, b) => Number(b.you) - Number(a.you));
+  const agents = c.members.filter((m) => m.kind === "agent").length;
+  return `${spoken([...people.map((m) => (m.you ? "You" : m.name)), ...(agents ? [`${agents} ${agents === 1 ? "agent" : "agents"}`] : [])])}.`;
+}
+
+/** The line under a message that says who it was for (#1282): an icon and words, never color alone. Null when the message keeps no record of it. */
+export function conversationFor(m: Pick<ConversationMessage, "deliveries">): { everyone: boolean; text: string } | null {
+  if (!m.deliveries.length) return null;
+  const named = m.deliveries.filter((d) => d.named);
+  if (!named.length) return { everyone: true, text: "For everyone in this conversation" };
+  return { everyone: false, text: `For ${spoken(named.map((d) => d.name))}${named.every((d) => d.kind === "person") ? ". No agent received it." : ""}` };
+}
+
+/** The delivery line under a message (#1282): only the agents it was handed to, in the words the Direct Message uses. Null when no agent was handed it. */
+export function conversationDelivery(m: Pick<ConversationMessage, "deliveries">): { state: "done" | "wait" | "bad"; text: string } | null {
+  const agents = m.deliveries.filter((d) => d.kind === "agent" && d.state !== null);
+  if (!agents.length) return null;
+  const of = (s: string) => agents.filter((d) => d.state === s).map((d) => d.name);
+  const delivered = of("delivered");
+  const queued = of("queued");
+  const dropped = of("dropped");
+  const parts = [
+    ...(delivered.length ? [`Delivered to ${spoken(delivered)}`] : []),
+    ...(queued.length ? [`Waiting for ${spoken(queued)} to take it`] : []),
+    ...(dropped.length ? [`${spoken(dropped)} did not take it`] : []),
+  ];
+  return { state: dropped.length ? "bad" : queued.length ? "wait" : "done", text: parts.join(". ") };
 }
 
 /** The addresses that start with what is typed, in any case; the order the server gave stays. */
