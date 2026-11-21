@@ -3,7 +3,7 @@
 // the run ends. Copies of the scripts run in a temp repository with a fake container engine and a fake npx, so nothing starts a container here; the real
 // runs (every adapter's server suite on PostgreSQL and MariaDB) are in the PR for #1294.
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -379,6 +379,18 @@ describe("test-db.mjs in process", () => {
     const out = tmp();
     const exec = async () => { writeFileSync(join(out, "report-1.json"), "{not json"); return 1; };
     expect((await capture(() => main(["--out", out], {}, exec))).code).toBe(2);
+  });
+
+  it("makes its default output folder with mkdtemp under $TMPDIR: unique, and readable by its owner only", async () => {
+    const base = tmp();
+    const r = await capture(() => main([], { TMPDIR: base }, fake(JSON.parse(REPORT), 0)));
+    const folder = r.out.match(/output in (\S+)/)![1];
+    expect(dirname(folder)).toBe(base);
+    expect(folder).toMatch(/podium-test-db-[A-Za-z0-9]{6}$/);
+    expect(statSync(folder).mode & 0o077).toBe(0);
+    expect(existsSync(join(folder, "vitest.log"))).toBe(true);
+    const again = await capture(() => main([], { TMPDIR: base }, fake(JSON.parse(REPORT), 0)));
+    expect(again.out.match(/output in (\S+)/)![1]).not.toBe(folder);
   });
 
   it("runLogged forwards a command's output, writes it to the log and returns its exit code", async () => {

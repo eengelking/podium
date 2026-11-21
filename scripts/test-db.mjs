@@ -5,7 +5,7 @@
 // Usage: node scripts/test-db.mjs [--db "KIND [KIND...]"] [--scope adapters|all] [--shards N] [--out DIR] [--image KIND=REF ...] [-- <vitest arguments>]
 // Exit code: vitest's (0 pass, 1 a test failed), 2 for bad arguments or a setup error (a container that did not start or answer).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +31,7 @@ Options:
                          (each chosen server kind's folder under server/src/storage/, adapters.test.ts and the chatGoneReads files).
   --shards N             Runs vitest's --shard i/N for i = 1..N, one after another on the same containers (default 1). A full run takes
                          about four minutes on a developer laptop, so sharding does not help locally; it is for reproducing a CI split.
-  --out DIR              Where each run's log (vitest.log) and report (report-<shard>.json) go. Default: a new folder under $TMPDIR.
+  --out DIR              Where each run's log (vitest.log) and report (report-<shard>.json) go. Default: a new folder under $TMPDIR (made with mkdtemp).
   --image KIND=REF       Run one kind from another image (for example mariadb=docker.io/library/mariadb:11.8). Untested.
   -- <vitest arguments>  Passed to vitest: test files (paths from server/) and -t still work.
   -h, --help             Show this help.
@@ -168,7 +168,8 @@ export async function main(argv, env = process.env, exec = runLogged) {
   if (args.error) { process.stderr.write(`test-db: ${args.error}\n`); return 2; }
   const all = kinds();
   const servers = kinds("server");
-  const out = args.out ?? join(env.TMPDIR || tmpdir(), `podium-test-db-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+  // The default folder is made by mkdtemp: a unique name, owner-only, never a predictable path another process could have made first.
+  const out = args.out ?? mkdtempSync(join(env.TMPDIR || tmpdir(), "podium-test-db-"));
   mkdirSync(out, { recursive: true });
   const log = join(out, "vitest.log");
   writeFileSync(log, "");
