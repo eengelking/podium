@@ -65,6 +65,28 @@ function fillOwnerIds(db: DatabaseSync): void {
   }
 }
 
+/** The daily tables that carry a person (#1284): their rows are bound to `people.id` by `owner_id`, with 0 for no person. `group_name` is on every one of them but skills and failures. */
+const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const;
+
+/**
+ * Gives the daily rows that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, as `fillOwnerIds` does for sessions. A row whose owner matches no
+ * current person (the admin secret's, or a person since deleted) keeps 0 and loses its group: it is counted in the fleet's figures and in no person's or group's. Only rows with no id are
+ * written, so a run that is repeated adds nothing.
+ */
+function fillDailyOwnerIds(db: DatabaseSync): void {
+  // order-insensitive: the rows are folded into a map by name.
+  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
+  for (const table of OWNED_DAILY) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0`);
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`).all() as unknown as { owner: string }[]) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) set.run(id, r.owner);
+    }
+    if (table !== 'failures_daily' && table !== 'skills_daily') db.exec(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
+  }
+}
+
 const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
   {
     version: 1,
@@ -706,6 +728,53 @@ ALTER TABLE sessions ADD COLUMN owner_id INTEGER;
 ALTER TABLE reporters ADD COLUMN owner_id INTEGER;`,
     after: fillOwnerIds,
   },
+  {
+    version: 52,
+    // The daily rows that name a person are bound to the person by id (#1284), as sessions are in migration 49: `owner_id` is `people.id` (never reused, no foreign key), and 0 is no person (the
+    // admin secret, or a person who was deleted). A row's key gains it, so a person deleted and a newcomer who takes the name keep apart their rows of one day; SQLite cannot change a key, so each
+    // table is made again and its rows copied. `owner` stays as the display text. `fillDailyOwnerIds` gives the rows of people that exist their id and takes the group off the others. The same
+    // step is PostgreSQL step 28 and MariaDB step 28.
+    sql: `
+CREATE TABLE usage_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, model TEXT NOT NULL, project TEXT NOT NULL,
+  sessions INTEGER NOT NULL, agents INTEGER NOT NULL, cost_usd REAL NOT NULL,
+  unpriced_sessions INTEGER NOT NULL, tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, model, project)
+);
+INSERT INTO usage_daily_new (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw)
+  SELECT day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw FROM usage_daily;
+DROP TABLE usage_daily;
+ALTER TABLE usage_daily_new RENAME TO usage_daily;
+CREATE TABLE failures_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, tool TEXT NOT NULL, count INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, class, tool)
+);
+INSERT INTO failures_daily_new (day, owner, class, tool, count) SELECT day, owner, class, tool, count FROM failures_daily;
+DROP TABLE failures_daily;
+ALTER TABLE failures_daily_new RENAME TO failures_daily;
+CREATE TABLE person_sessions_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, sessions INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, harness)
+);
+INSERT INTO person_sessions_daily_new (day, owner, group_name, harness, sessions) SELECT day, owner, group_name, harness, sessions FROM person_sessions_daily;
+DROP TABLE person_sessions_daily;
+ALTER TABLE person_sessions_daily_new RENAME TO person_sessions_daily;
+CREATE TABLE skills_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, harness TEXT NOT NULL, skill TEXT NOT NULL, sessions INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, harness, skill)
+);
+INSERT INTO skills_daily_new (day, owner, harness, skill, sessions) SELECT day, owner, harness, skill, sessions FROM skills_daily;
+DROP TABLE skills_daily;
+ALTER TABLE skills_daily_new RENAME TO skills_daily;
+CREATE TABLE person_places_daily_new (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, harness TEXT NOT NULL, project TEXT NOT NULL, branch TEXT NOT NULL, sessions INTEGER NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, owner_id, owner, harness, project, branch)
+);
+INSERT INTO person_places_daily_new (day, owner, group_name, harness, project, branch, sessions) SELECT day, owner, group_name, harness, project, branch, sessions FROM person_places_daily;
+DROP TABLE person_places_daily;
+ALTER TABLE person_places_daily_new RENAME TO person_places_daily;`,
+    after: fillDailyOwnerIds,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -882,7 +951,7 @@ export class FleetDb {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.t < :sec AND m.cost_usd IS NOT NULL ORDER BY m.t DESC LIMIT 1),
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
-       FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
+       FROM sessions s LEFT JOIN people p ON p.id = s.owner_id LEFT JOIN groups g ON g.id = p.group_id
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
        ORDER BY s.id`,
     ).all({ since, sec: Math.floor(since / 1000) }) as unknown as (CostRow & {
@@ -987,20 +1056,20 @@ export class FleetDb {
     return [...by.values()].sort((a, b) => b.costUsd - a.costUsd || (a.owner ?? '').localeCompare(b.owner ?? ''));
   }
 
-  /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
-  groupOfOwner(owner: string | null): string | null {
-    if (owner === null) return null;
-    const r = this.stmt('SELECT g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name = ?').get(owner) as { grp: string } | undefined;
+  /** The group a session's owner is in, by the owner's `people.id` (#1284); null for the admin secret, a person who was deleted (no id) or a person with no group. */
+  groupOfOwner(ownerId: number | null): string | null {
+    if (ownerId === null) return null;
+    const r = this.stmt('SELECT g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.id = ?').get(ownerId) as { grp: string } | undefined;
     return r?.grp ?? null;
   }
 
   /** `groupOfOwner` for many owners (#906). */
-  groupsOfOwners(owners: (string | null)[]): Map<string | null, string | null> {
-    const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
-    for (const part of pieces([...new Set(owners.filter((o): o is string => o !== null))])) {
-      // order-insensitive: the rows are put in a map by the owner's name.
-      const rows = this.many(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part) as unknown as { name: string; grp: string }[];
-      for (const r of rows) out.set(r.name, r.grp);
+  groupsOfOwners(ownerIds: (number | null)[]): Map<number | null, string | null> {
+    const out = new Map<number | null, string | null>(ownerIds.map((o) => [o, null]));
+    for (const part of pieces([...new Set(ownerIds.filter((o): o is number => o !== null))])) {
+      // order-insensitive: the rows are put in a map by the owner's id.
+      const rows = this.many(`SELECT p.id AS id, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.id IN (${marks(part.length)})`, part) as unknown as { id: number; grp: string }[];
+      for (const r of rows) out.set(r.id, r.grp);
     }
     return out;
   }

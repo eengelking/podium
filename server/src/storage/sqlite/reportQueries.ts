@@ -9,21 +9,21 @@ const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily
 
 /** The columns after `day` that make a rollup row unique, so rows of one day come back in one order everywhere. */
 const ROW_KEY: Record<RollupTable, string> = {
-  usage_daily: ', owner, model, project',
+  usage_daily: ', owner_id, owner, model, project',
   sessions_daily: ', outcome, model, effort, plan',
-  failures_daily: ', owner, class, tool',
+  failures_daily: ', owner_id, owner, class, tool',
   fleet_daily: '',
   tools_daily: ', harness, tool',
   tool_sessions_daily: ', harness, bucket',
   harness_versions_daily: ', harness, version',
   tool_stats_daily: ', harness, tool',
   feature_versions_daily: ', harness, version, feature',
-  skills_daily: ', owner, harness, skill',
-  person_places_daily: ', owner, harness, project, branch',
+  skills_daily: ', owner_id, owner, harness, skill',
+  person_places_daily: ', owner_id, owner, harness, project, branch',
   answers_daily: ', harness, kind, bucket',
   session_time_daily: ', harness',
   agents_daily: ', harness, type, depth',
-  person_sessions_daily: ', owner, harness',
+  person_sessions_daily: ', owner_id, owner, harness',
   hour_peaks_daily: ', harness, hour',
   cost_daily: ', harness, model, effort',
   tool_cost_daily: ', harness, tool',
@@ -74,7 +74,7 @@ export class SqliteReportQueries implements ReportQueries {
   sessionsSince(fromMs: number): StoredSession[] {
     return this.db
       .prepare(
-        `SELECT s.*, g.name AS grp FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
+        `SELECT s.*, g.name AS grp FROM sessions s LEFT JOIN people p ON p.id = s.owner_id LEFT JOIN groups g ON g.id = p.group_id
        WHERE s.last_seen_at >= ? ORDER BY s.last_seen_at, s.id`,
       )
       .all(fromMs) as unknown as StoredSession[];
@@ -137,8 +137,8 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   insertUsage(rows: UsageDay[]): void {
-    const putUsage = this.db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const u of rows) putUsage.run(u.day, u.owner, u.group, u.model, u.project, u.sessions, u.agents, u.costUsd, u.unpricedSessions, u.tokIn, u.tokOut, u.tokCr, u.tokCw);
+    const putUsage = this.db.prepare('INSERT INTO usage_daily (day, owner_id, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const u of rows) putUsage.run(u.day, u.ownerId, u.owner, u.group, u.model, u.project, u.sessions, u.agents, u.costUsd, u.unpricedSessions, u.tokIn, u.tokOut, u.tokCr, u.tokCw);
   }
 
   insertSessionsDaily(rows: SessionsDay[]): void {
@@ -147,8 +147,8 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   insertFailures(rows: FailureDay[]): void {
-    const putFailure = this.db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
-    for (const f of rows) putFailure.run(f.day, f.owner, f.cls, f.tool, f.count);
+    const putFailure = this.db.prepare('INSERT INTO failures_daily (day, owner_id, owner, class, tool, count) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const f of rows) putFailure.run(f.day, f.ownerId, f.owner, f.cls, f.tool, f.count);
   }
 
   insertToolsDaily(rows: ToolDay[]): void {
@@ -167,13 +167,13 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   insertSkillsDaily(rows: SkillDay[]): void {
-    const put = this.db.prepare('INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?)');
-    for (const r of rows) put.run(r.day, r.owner, r.harness, r.skill, r.sessions);
+    const put = this.db.prepare('INSERT INTO skills_daily (day, owner_id, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.ownerId, r.owner, r.harness, r.skill, r.sessions);
   }
 
   insertPlacesDaily(rows: PlaceDay[]): void {
-    const put = this.db.prepare('INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    for (const r of rows) put.run(r.day, r.owner, r.group, r.harness, r.project, r.branch, r.sessions);
+    const put = this.db.prepare('INSERT INTO person_places_daily (day, owner_id, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.ownerId, r.owner, r.group, r.harness, r.project, r.branch, r.sessions);
   }
 
   insertFeatureVersionsDaily(rows: FeatureVersionDay[]): void {
@@ -199,8 +199,8 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   insertPersonSessionsDaily(rows: PersonDay[]): void {
-    const put = this.db.prepare('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)');
-    for (const r of rows) put.run(r.day, r.owner, r.group, r.harness, r.sessions);
+    const put = this.db.prepare('INSERT INTO person_sessions_daily (day, owner_id, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const r of rows) put.run(r.day, r.ownerId, r.owner, r.group, r.harness, r.sessions);
   }
 
   insertCostDaily(rows: CostDay[]): void {

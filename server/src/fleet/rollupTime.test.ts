@@ -71,10 +71,10 @@ describe('buildRollups agents and people', () => {
   it('counts sessions for each person, harness and day, with the group the person is in', async () => {
     const w = world();
     const platform = await w.people.createGroup('Platform', NOW);
-    await w.people.createPerson('Maya', platform.id, NOW - 60 * DAY_MS);
-    await w.fdb.upsertSession(session({ id: 's1', owner: 'Maya', harness: 'claude-code', last_seen_at: at(2, 11), started_at: at(2, 9) }));
-    await w.fdb.upsertSession(session({ id: 's2', owner: 'Maya', harness: 'claude-code', last_seen_at: at(2, 12), started_at: at(2, 9) }));
-    await w.fdb.upsertSession(session({ id: 's3', owner: 'Maya', harness: 'opencode', last_seen_at: at(2, 12), started_at: at(2, 9) }));
+    const maya = (await w.people.createPerson('Maya', platform.id, NOW - 60 * DAY_MS)).person;
+    await w.fdb.upsertSession(session({ id: 's1', owner: 'Maya', owner_id: maya.id, harness: 'claude-code', last_seen_at: at(2, 11), started_at: at(2, 9) }));
+    await w.fdb.upsertSession(session({ id: 's2', owner: 'Maya', owner_id: maya.id, harness: 'claude-code', last_seen_at: at(2, 12), started_at: at(2, 9) }));
+    await w.fdb.upsertSession(session({ id: 's3', owner: 'Maya', owner_id: maya.id, harness: 'opencode', last_seen_at: at(2, 12), started_at: at(2, 9) }));
     await w.fdb.upsertSession(session({ id: 's4', owner: null, harness: 'claude-code', last_seen_at: at(1, 12), started_at: at(1, 9) }));
     const b = await buildRollups(w.fdb, costFn(w.deps.pricing()), dayStart(addDays(TODAY, -5)));
     const got = b.personDays.map((r) => `${r.day}|${r.owner}|${r.group}|${r.harness}=${r.sessions}`).sort();
@@ -156,7 +156,7 @@ describe('writeRollups session time', () => {
     const columns = (t: string): string[] => (w.storage.sqliteHandle.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
     expect(columns('session_waits')).toEqual(['session_id', 'permission_ms', 'permission_n', 'question_ms', 'question_n', 'plan_ms', 'plan_n', 'tracked_since', 'open_kind', 'open_since']);
     expect(columns('agents_daily')).toEqual(['day', 'harness', 'type', 'depth', 'agents']);
-    expect(columns('person_sessions_daily')).toEqual(['day', 'owner', 'group_name', 'harness', 'sessions']);
+    expect(columns('person_sessions_daily')).toEqual(['day', 'owner', 'group_name', 'harness', 'sessions', 'owner_id']);
     expect(columns('hour_peaks_daily')).toEqual(['day', 'harness', 'hour', 'peak']);
     expect(columns('session_time_daily')).toEqual(['day', 'harness', 'sessions', 'duration_s', 'max_duration_s', 'tracked_sessions', 'tracked_s', 'permission_s', 'permission_n', 'question_s', 'question_n', 'plan_s', 'plan_n']);
   });

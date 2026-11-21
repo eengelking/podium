@@ -12,21 +12,21 @@ const REBUILT: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily
 
 /** Each rollup table's primary key, which is the order SQLite read a day range in. */
 const ORDER: Record<RollupTable, string> = {
-  usage_daily: 'day, owner, model, project',
+  usage_daily: 'day, owner_id, owner, model, project',
   sessions_daily: 'day, outcome, model, effort, plan',
-  failures_daily: 'day, owner, class, tool',
+  failures_daily: 'day, owner_id, owner, class, tool',
   fleet_daily: 'day',
   tools_daily: 'day, harness, tool',
   tool_sessions_daily: 'day, harness, bucket',
   harness_versions_daily: 'day, harness, version',
   tool_stats_daily: 'day, harness, tool',
   feature_versions_daily: 'day, harness, version, feature',
-  skills_daily: 'day, owner, harness, skill',
-  person_places_daily: 'day, owner, harness, project, branch',
+  skills_daily: 'day, owner_id, owner, harness, skill',
+  person_places_daily: 'day, owner_id, owner, harness, project, branch',
   answers_daily: 'day, harness, kind, bucket',
   session_time_daily: 'day, harness',
   agents_daily: 'day, harness, type, depth',
-  person_sessions_daily: 'day, owner, harness',
+  person_sessions_daily: 'day, owner_id, owner, harness',
   hour_peaks_daily: 'day, harness, hour',
   cost_daily: 'day, harness, model, effort',
   tool_cost_daily: 'day, harness, tool',
@@ -77,7 +77,7 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   sessionsSince(fromMs: number): Promise<StoredSession[]> {
     return this.db.all<StoredSession>(
-      `SELECT s.*, g.name AS grp FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
+      `SELECT s.*, g.name AS grp FROM sessions s LEFT JOIN people p ON p.id = s.owner_id LEFT JOIN groups g ON g.id = p.group_id
        WHERE s.last_seen_at >= ? ORDER BY s.last_seen_at, s.id`,
       [fromMs],
     );
@@ -143,8 +143,8 @@ export class PgReportQueries implements Async<ReportQueries> {
     return this.db.tx(async () => {
       for (const u of rows) {
         await this.db.run(
-          'INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [u.day, u.owner, u.group, u.model, u.project, u.sessions, u.agents, u.costUsd, u.unpricedSessions, u.tokIn, u.tokOut, u.tokCr, u.tokCw],
+          'INSERT INTO usage_daily (day, owner_id, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [u.day, u.ownerId, u.owner, u.group, u.model, u.project, u.sessions, u.agents, u.costUsd, u.unpricedSessions, u.tokIn, u.tokOut, u.tokCr, u.tokCw],
         );
       }
     });
@@ -163,7 +163,7 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   insertFailures(rows: FailureDay[]): Promise<void> {
     return this.db.tx(async () => {
-      for (const f of rows) await this.db.run('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)', [f.day, f.owner, f.cls, f.tool, f.count]);
+      for (const f of rows) await this.db.run('INSERT INTO failures_daily (day, owner_id, owner, class, tool, count) VALUES (?, ?, ?, ?, ?, ?)', [f.day, f.ownerId, f.owner, f.cls, f.tool, f.count]);
     });
   }
 
@@ -187,13 +187,13 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   insertSkillsDaily(rows: SkillDay[]): Promise<void> {
     return this.db.tx(async () => {
-      for (const r of rows) await this.db.run('INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?)', [r.day, r.owner, r.harness, r.skill, r.sessions]);
+      for (const r of rows) await this.db.run('INSERT INTO skills_daily (day, owner_id, owner, harness, skill, sessions) VALUES (?, ?, ?, ?, ?, ?)', [r.day, r.ownerId, r.owner, r.harness, r.skill, r.sessions]);
     });
   }
 
   insertPlacesDaily(rows: PlaceDay[]): Promise<void> {
     return this.db.tx(async () => {
-      for (const r of rows) await this.db.run('INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?)', [r.day, r.owner, r.group, r.harness, r.project, r.branch, r.sessions]);
+      for (const r of rows) await this.db.run('INSERT INTO person_places_daily (day, owner_id, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.day, r.ownerId, r.owner, r.group, r.harness, r.project, r.branch, r.sessions]);
     });
   }
 
@@ -228,7 +228,7 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   insertPersonSessionsDaily(rows: PersonDay[]): Promise<void> {
     return this.db.tx(async () => {
-      for (const r of rows) await this.db.run('INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?)', [r.day, r.owner, r.group, r.harness, r.sessions]);
+      for (const r of rows) await this.db.run('INSERT INTO person_sessions_daily (day, owner_id, owner, group_name, harness, sessions) VALUES (?, ?, ?, ?, ?, ?)', [r.day, r.ownerId, r.owner, r.group, r.harness, r.sessions]);
     });
   }
 

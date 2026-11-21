@@ -5,20 +5,20 @@ import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { openPostgresStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import { legacyDailyInsert, type LegacyAdminRead, type LegacyDaily, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], daily: LegacyDaily[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages), td };
+    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages, daily), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[]): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[], daily: LegacyDaily[]): Promise<Storage> {
   const old = new PgDb({ connectionString: td.url, schema: MAIN_SCHEMA, max: 2, name: 'test' });
   try {
     await migrate(old, MAIN_SCHEMA, MAIN_STEPS.slice(0, 1));
@@ -123,6 +123,17 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
       for (const r of reporters) {
         if (!r.bound) continue;
         await old.run('INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [r.key, r.kind, r.machineId, r.machineName, r.owner, r.version, r.firstSeenAt, r.lastSeenAt]);
+      }
+    }
+    if (daily.length > 0) {
+      // Daily rows that name only their owner come from the first steps; step 28 bound them to the owner's id, so they go in at the schema before it, with the people they will be matched to.
+      await migrate(old, MAIN_SCHEMA, MAIN_STEPS.filter((s) => s.version <= 27));
+      for (const name of new Set(daily.flatMap((x) => (x.person ? [x.person] : [])))) {
+        if (!(await old.get('SELECT 1 FROM people WHERE name_lower = ?', [nameKey(name)]))) await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64)]);
+      }
+      for (const x of daily) {
+        const { sql, args } = legacyDailyInsert(x);
+        await old.run(sql, args);
       }
     }
   } finally {

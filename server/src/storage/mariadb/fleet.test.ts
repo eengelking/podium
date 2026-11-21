@@ -274,15 +274,15 @@ describe.skipIf(!TEST_MARIADB)('mariadb fleet store', () => {
 
   it('splits today\'s cost by owner with each owner\'s group, and finds an owner\'s group', async () => {
     const backend = await people.createGroup('Backend');
-    await people.createPerson('Priya N.', backend.id);
-    await people.createPerson('Dana K.');
-    await f.upsertSession(session({ id: 'a', owner: 'Priya N.', cost_usd: 2, started_at: 5000 }));
-    await f.upsertSession(session({ id: 'b', owner: 'Priya N.', cost_usd: 3, started_at: 6000 }));
-    await f.upsertSession(session({ id: 'c', owner: 'Dana K.', cost_usd: 1, started_at: 6000 }));
+    const { person: priya } = await people.createPerson('Priya N.', backend.id);
+    const { person: dana } = await people.createPerson('Dana K.');
+    await f.upsertSession(session({ id: 'a', owner: 'Priya N.', owner_id: priya.id, cost_usd: 2, started_at: 5000 }));
+    await f.upsertSession(session({ id: 'b', owner: 'Priya N.', owner_id: priya.id, cost_usd: 3, started_at: 6000 }));
+    await f.upsertSession(session({ id: 'c', owner: 'Dana K.', owner_id: dana.id, cost_usd: 1, started_at: 6000 }));
     await f.upsertSession(session({ id: 'd', owner: 'Admin', cost_usd: 0.5, started_at: 6000 }));
     await f.upsertSession(session({ id: 'e', owner: null, cost_usd: 0.25, started_at: 6000 }));
-    await f.upsertSession(session({ id: 'old', owner: 'Dana K.', cost_usd: 9, started_at: 10, ended_at: 20 }));
-    await f.upsertSession(session({ id: 'unpriced', owner: 'Dana K.', cost_usd: null, started_at: 6000 }));
+    await f.upsertSession(session({ id: 'old', owner: 'Dana K.', owner_id: dana.id, cost_usd: 9, started_at: 10, ended_at: 20 }));
+    await f.upsertSession(session({ id: 'unpriced', owner: 'Dana K.', owner_id: dana.id, cost_usd: null, started_at: 6000 }));
     expect(await f.costByOwnerSince(1000)).toEqual([
       { owner: 'Priya N.', group: 'Backend', costUsd: 5 },
       { owner: 'Dana K.', group: null, costUsd: 1 },
@@ -290,9 +290,9 @@ describe.skipIf(!TEST_MARIADB)('mariadb fleet store', () => {
       { owner: null, group: null, costUsd: 0.25 },
     ]);
     expect((await f.costByOwnerSince(1000)).reduce((n, r) => n + r.costUsd, 0)).toBe(await f.costSince(1000));
-    expect(await f.groupOfOwner('Priya N.')).toBe('Backend');
-    expect(await f.groupOfOwner('Dana K.')).toBeNull();
-    expect(await f.groupOfOwner('Admin')).toBeNull();
+    expect(await f.groupOfOwner(priya.id)).toBe('Backend');
+    expect(await f.groupOfOwner(dana.id)).toBeNull();
+    expect(await f.groupOfOwner(priya.id + 1000)).toBeNull();
     expect(await f.groupOfOwner(null)).toBeNull();
   });
 

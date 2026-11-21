@@ -57,6 +57,21 @@ async function fillOwnerIds(db: DB): Promise<void> {
   }
 }
 
+/** The daily tables that carry a person (#1284): their rows are bound to `people.id` by `owner_id`, with 0 for no person. */
+const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const;
+
+/** Gives the daily rows that exist the id of their owner (#1284), and takes the group off the rows whose owner matches no person. See SQLite's `fillDailyOwnerIds`. Only rows with no id are written, so a step run again adds nothing. */
+async function fillDailyOwnerIds(db: DB): Promise<void> {
+  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  for (const table of OWNED_DAILY) {
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`)) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0`, [id, r.owner]);
+    }
+    if (table !== 'failures_daily' && table !== 'skills_daily') await db.run(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
+  }
+}
+
 /** `TXT` is long text; `K(n)` is text of at most n characters that can be a key; `INT` is a 64-bit integer (times are milliseconds); `REAL` a double. */
 const typed = (sql: string): string =>
   sql
@@ -525,6 +540,25 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_id INT;
 ALTER TABLE reporters ADD COLUMN IF NOT EXISTS owner_id INT;
 `),
     after: fillOwnerIds,
+  },
+  {
+    version: 28,
+    // The daily rows that name a person are bound to the person by id (#1284), as SQLite migration 52 keeps it: `owner_id` is `people.id` (no foreign key), 0 is no person, and a row's key gains it so a
+    // person deleted and a newcomer who takes the name keep apart their rows of one day. `fillDailyOwnerIds` gives the rows of people that exist their id and takes the group off the others. Each
+    // statement can run twice (a column that is there is skipped, and the key is dropped and added whole), so a step that stopped half way runs again and adds nothing twice.
+    statements: steps(`
+ALTER TABLE usage_daily ADD COLUMN IF NOT EXISTS owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE usage_daily DROP PRIMARY KEY, ADD PRIMARY KEY (day, owner_id, owner, model, project);
+ALTER TABLE failures_daily ADD COLUMN IF NOT EXISTS owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE failures_daily DROP PRIMARY KEY, ADD PRIMARY KEY (day, owner_id, owner, class, tool);
+ALTER TABLE person_sessions_daily ADD COLUMN IF NOT EXISTS owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE person_sessions_daily DROP PRIMARY KEY, ADD PRIMARY KEY (day, owner_id, owner, harness);
+ALTER TABLE skills_daily ADD COLUMN IF NOT EXISTS owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE skills_daily DROP PRIMARY KEY, ADD PRIMARY KEY (day, owner_id, owner, harness, skill);
+ALTER TABLE person_places_daily ADD COLUMN IF NOT EXISTS owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE person_places_daily DROP PRIMARY KEY, ADD PRIMARY KEY (day, owner_id, owner, harness, project, branch);
+`),
+    after: fillDailyOwnerIds,
   },
 ];
 

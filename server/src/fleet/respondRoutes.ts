@@ -409,7 +409,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     const format = req.query.format;
     if (format !== undefined && format !== 'csv' && format !== 'json') return void res.status(400).json({ ok: false, error: 'format must be json or csv' });
     try {
-      const reply = await runMyReport(reportDepsOf(fleet), v.name, name, req.query);
+      const reply = await runMyReport(reportDepsOf(fleet), { name: v.name, id: v.personId }, name, req.query);
       if (format === 'csv') sendReport(res, reply);
       else res.json(reply);
     } catch (err) {

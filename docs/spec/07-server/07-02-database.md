@@ -491,6 +491,16 @@ ALTER TABLE reporters ADD COLUMN owner_id INTEGER;   -- the same for a reporter
 
 `owner_id` has no foreign key, and a `people.id` is never reused, so a session or reporter kept after its person is deleted names nobody and a new person who takes the name owns none of it. `owner` stays as the display text. Who owns a session or a reporter (who may answer it, delete it, read its asks, activity and recording as its owner, or sees it in My reporters) is decided by `owner_id` and never by `owner`; a row with no `owner_id` is nobody's, and only an Admin reaches it. A report from a person's token writes that person's id, and a session already owned by another id, or by nobody, is refused (`OwnerConflict`). The migration gives each row already stored the id of the person whose folded name matches its `owner` (`fillOwnerIds`, in code because SQL cannot fold a name as `nameKey` does) and leaves the others without one; deleting a person sets `owner_id` to NULL on their sessions and reporters in the same step.
 
+Migration 52 (#1284; PostgreSQL and MariaDB main step 28) binds the daily rows that name a person (`usage_daily`, `failures_daily`, `person_sessions_daily`, `skills_daily` and `person_places_daily`) to the person by id too:
+
+```sql
+-- on each of the five tables, shown for usage_daily
+owner_id INTEGER NOT NULL DEFAULT 0,                 -- the owner's people.id; 0 is no person (the admin secret, or a person who was deleted)
+PRIMARY KEY (day, owner_id, owner, model, project)   -- the key gains owner_id; the other four tables gain it the same way, before owner
+```
+
+`owner_id` has no foreign key, like the one on `sessions`. It is part of the key so that a person who was deleted and a new person of the same name keep their rows of one day apart, and it is `0` and not NULL because a key column cannot be NULL. `owner` stays as the display text. A row is a person's by its `owner_id`: My usage and the group a session is counted in go by the id, so a deleted person's spend is in the fleet's totals and in no person's or group's figures, and a new person of the same name has none of it. SQLite cannot change a key, so migration 52 makes each table again and copies its rows; PostgreSQL and MariaDB add the column and replace the key. Rows already stored are given the id of the person their owner name matches, and a row that matches nobody keeps `0` and loses its `group_name`; deleting a person takes `group_name` off their rows the same way. The hourly rebuild writes each day's rows from the stored sessions with the session's `owner_id`, and `group_name` from the person that id names.
+
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
 ```sql
