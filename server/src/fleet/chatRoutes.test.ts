@@ -131,7 +131,7 @@ describe('the gate and the overview', () => {
     expect(res.body).toMatchObject({ enabled: true, me: { name: 'Ed', admin: false }, settings: { maxChars: 4000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false } });
     expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general', 'group']);
     expect(res.body.channels[0]).toMatchObject({ name: 'General', thread: 'public', unread: 0, mentions: 0, paused: false, disconnected: false, can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false } });
-    expect(res.body.channels[1]).toMatchObject({ name: 'My group', thread: 'group:ed', can: { pause: true, disconnect: true, removeAll: true } });
+    expect(res.body.channels[1]).toMatchObject({ name: 'My group', thread: `group:${s.ed.person.id}`, can: { pause: true, disconnect: true, removeAll: true } });
     expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01', 'dev@ed-mbp']);
     expect(res.body.agents.some((a: { name: string }) => a.name === 'review')).toBe(false);
     expect(res.body.people.map((p: { name: string }) => p.name).sort()).toEqual(['Alex', 'Ed']);
@@ -1926,7 +1926,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect(JSON.stringify((await w.alexB.get(CH)).body)).not.toContain('Admin secret');
     expect((await read(w.alexB, 'group', '?owner=Ed')).status).toBe(403);
     // The record carries no text.
-    expect(JSON.stringify(await store(w).list('group:ed'))).not.toContain('for the admin');
+    expect(JSON.stringify(await store(w).list(`group:${w.ed.person.id}`))).not.toContain('for the admin');
   });
 
   it('puts reads within 30 minutes in one record and starts a second one after a longer gap', async () => {
@@ -1991,7 +1991,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages?before=garbage`)).status).toBe(400);
     expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages?limit=0`)).status).toBe(400);
     await settle();
-    expect(await store(w).list('group:ed')).toEqual([]);
+    expect(await store(w).list(`group:${w.ed.person.id}`)).toEqual([]);
     expect(await store(w).threads('dm:')).toEqual([]);
     expect(await groupLive(w.edB)).toEqual([]);
     expect(await dmLive(w.edB)).toEqual([[]]);
@@ -2001,7 +2001,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await read(admin, 'group', '?owner=Ed')).status).toBe(200);
     expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages`)).status).toBe(200);
     await settle();
-    expect(await store(w).list('group:ed')).toHaveLength(1);
+    expect(await store(w).list(`group:${w.ed.person.id}`)).toHaveLength(1);
     expect(await store(w).threads('dm:')).toHaveLength(1);
     expect(await notices()).toBeGreaterThan(0);
     expect((await logKinds(w)).filter((k) => k === 'chat_admin_read')).toHaveLength(2);
@@ -2699,7 +2699,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
       expect(res.status).toBe(200);
       expect(res.body.me).toMatchObject({ admin: true });
       expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general', 'group']);
-      expect(res.body.channels[1]).toMatchObject({ thread: 'group:ed', unread: 0, mentions: 0, messages: 1, can: { pause: true, disconnect: true, removeAll: true } });
+      expect(res.body.channels[1]).toMatchObject({ thread: `group:${w.ed.person.id}`, unread: 0, mentions: 0, messages: 1, can: { pause: true, disconnect: true, removeAll: true } });
       expect(res.body.directs.length).toBeGreaterThan(0);
       for (const d of res.body.directs) expect(d).toMatchObject({ unread: 0, mentions: 0 });
       expect(res.body.people.map((p: { name: string; you: boolean; directs: number }) => [p.name, p.you]).sort()).toEqual([['Alex', false], ['Ed', false], ['Root', false]]);
@@ -2739,7 +2739,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     await a.get(`${BROWSE}Ed`);
     await a.get(`${BROWSE}Ed`);
     await settle();
-    expect(await w.fleet.chat.core.store.adminReads.list('group:ed')).toEqual([]);
+    expect(await w.fleet.chat.core.store.adminReads.list(`group:${w.ed.person.id}`)).toEqual([]);
     expect((await w.edB.get(CH)).body.channels.find((c: { id: string }) => c.id === 'group').adminReading).toEqual([]);
     const rows = (await logRows(w)).filter((r) => r.kind === 'chat_admin_browse');
     expect(rows).toHaveLength(1);
@@ -2787,7 +2787,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     for (let i = 0; i < 25; i++) await store.mark(`list:${w.ed.person.id}`, 'Admin', null, 'paused', [w.ed.person.id]);
     const ed = await signedIn(w, 'Ed', w.ed.token);
     const first = (await ed.get(CH)).body.listReads as { startedAt: number }[];
-    expect(new Set(first.map((r) => r.startedAt))).toEqual(new Set((await store.list('list:ed')).map((r) => r.startedAt)));
+    expect(new Set(first.map((r) => r.startedAt))).toEqual(new Set((await store.list(`list:${w.ed.person.id}`)).map((r) => r.startedAt)));
     expect((await ed.get(CH)).body.listReads).toHaveLength(20);
   });
 
@@ -2798,7 +2798,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     const store = w.fleet.chat.core.store.adminReads;
     w.tick(40 * 86_400_000);
     await w.fleet.retain();
-    expect(await store.threads('list:')).toEqual(['list:ed']);
+    expect(await store.threads('list:')).toEqual([`list:${w.ed.person.id}`]);
     // A sign-in ends after 12 idle hours, so Ed signs in again to load the overview.
     expect(((await (await signedIn(w, 'Ed', w.ed.token)).get(CH)).status)).toBe(200);
     await w.fleet.retain();

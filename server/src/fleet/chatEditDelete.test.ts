@@ -284,13 +284,13 @@ describe('who may change a channel message, and when (#1269)', () => {
 
   it('does not let a person who was deleted and made again under the same name change the old one\'s message', async () => {
     const w = await world();
-    // A message written by an earlier person who had this name: the same name, another id.
+    // A message written by an earlier person who had this name: the same name, another id. It is not the new person's (`mine` is by id, #1284).
     const old = await w.fleet.chat.core.store.public.post('general', { authorKind: 'person', authorRef: 'Ed', authorName: 'Ed', text: 'from the earlier Ed', authorId: w.ed.person.id + 1000 });
     const res = await edit(w.edB, 'general', old.id, 'mine now');
     expect(res.status).toBe(403);
     expect((await del(w.edB, 'general', old.id)).status).toBe(403);
     const view = (await read(w.edB, 'general')).body.messages[0];
-    expect(view).toMatchObject({ text: 'from the earlier Ed', mine: true, canChange: false, changeWhy: null });
+    expect(view).toMatchObject({ text: 'from the earlier Ed', mine: false, canChange: false, changeWhy: null });
   });
 
   it.each(['waiting', 'working', 'done'] as const)('refuses a message an agent has (%s) with 409 locked, in words that name the agent, and leaves it as it was', async (state) => {

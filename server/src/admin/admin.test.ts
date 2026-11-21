@@ -503,16 +503,18 @@ describe('reporters (#142)', () => {
 
   it('tells a person once when an Admin removes their reporters, naming one or counting several, and tells no one for the admin secret (#1078)', async () => {
     const acts = { onSession: vi.fn(async () => {}), onPerson: vi.fn(async () => {}) } as unknown as AdminActs & { onPerson: ReturnType<typeof vi.fn> };
-    const { agent, reporters } = await unlocked({ acts });
-    await reporters.record(seen(), Date.now());
-    await reporters.record(seen({ machineId: '1111aaaa2222', machineName: 'laptop', sessionId: 's2' }), Date.now());
+    const { agent, reporters, people } = await unlocked({ acts });
+    // A reporter belongs to a person by id (#1284): the person is told by the id the reporter kept, and a reporter that kept none (the person is gone) tells no one.
+    const dana = (await people.createPerson('Dana')).person.id;
+    await reporters.record(seen({ ownerId: dana }), Date.now());
+    await reporters.record(seen({ machineId: '1111aaaa2222', machineName: 'laptop', sessionId: 's2', ownerId: dana }), Date.now());
     await reporters.record(seen({ machineId: '3333bbbb4444', machineName: 'ci', owner: 'Admin', credential: 'admin secret', sessionId: 's3' }), Date.now());
     expect((await agent.delete('/api/admin/reporters/9f3a1c7d2e40').set(H)).status).toBe(200);
-    expect(acts.onPerson.mock.calls).toEqual([['Admin', 'reporter_removed', 'Dana', 'your reporter studio-m2']]);
+    expect(acts.onPerson.mock.calls).toEqual([[{ id: null, name: 'Admin' }, 'reporter_removed', { id: dana, name: 'Dana' }, 'your reporter studio-m2']]);
     acts.onPerson.mockClear();
     const rest = await reporters.list({}, Date.now());
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ keys: rest.rows.map((r: { key: string }) => r.key) })).status).toBe(200);
-    expect(acts.onPerson.mock.calls).toEqual([['Admin', 'reporter_removed', 'Dana', 'your reporter laptop']]);
+    expect(acts.onPerson.mock.calls).toEqual([[{ id: null, name: 'Admin' }, 'reporter_removed', { id: dana, name: 'Dana' }, 'your reporter laptop']]);
   });
 
   it('removes a reporter, writes it to the admin log, and refuses a write without the Admin header', async () => {

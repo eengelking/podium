@@ -174,6 +174,7 @@ class PgPeopleStore implements PeopleStoreApi {
     await this.db.run('UPDATE public_channels SET created_by_id = NULL WHERE created_by_id = ?', [personId]);
     await this.db.run('DELETE FROM chat_read_state WHERE person_id = ?', [personId]);
     // Their own flags (a paused or disconnected group or channel) go too, so a new person of the same name does not start paused.
+    // order-insensitive: each flag is deleted on its own key.
     for (const s of await this.db.all<{ key: string }>("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key")) {
       if (isFlagOfPerson(s.key.slice(FLAG_PREFIX.length), personId)) await this.db.run('DELETE FROM settings WHERE key = ?', [s.key]);
     }

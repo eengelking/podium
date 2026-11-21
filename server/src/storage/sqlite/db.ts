@@ -147,6 +147,7 @@ function fillChatPersonIds(db: DatabaseSync): void {
     const to = threadWithId(r.thread, people);
     if (to) db.prepare('UPDATE chat_admin_reads SET thread = ? WHERE thread = ?').run(to, r.thread);
   }
+  // order-insensitive: each read count is rewritten under its own new key; two old rows never share one.
   const state = db.prepare('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id IS NULL ORDER BY person, thread').all() as unknown as { person: string; thread: string; last_read: string | null; unread: number; mentions: number; updated_at: number }[];
   db.exec('DELETE FROM chat_read_state WHERE person_id IS NULL');
   for (const r of state) {
@@ -155,6 +156,7 @@ function fillChatPersonIds(db: DatabaseSync): void {
     if (!p || thread === '') continue;
     db.prepare('INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p.id), p.id, thread ?? r.thread, r.last_read, r.unread, r.mentions, r.updated_at);
   }
+  // order-insensitive: each owed row is rewritten under its own new key; two old rows never share one.
   const owed = db.prepare('SELECT person_key, thread, admin_key, started_at FROM chat_admin_owed WHERE person_id IS NULL ORDER BY person_key, thread, admin_key, started_at').all() as unknown as { person_key: string; thread: string; admin_key: string; started_at: number }[];
   db.exec('DELETE FROM chat_admin_owed WHERE person_id IS NULL');
   for (const r of owed) {
@@ -163,11 +165,13 @@ function fillChatPersonIds(db: DatabaseSync): void {
     const thread = threadWithId(r.thread, people);
     db.prepare('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p.id), p.id, thread || r.thread, r.admin_key, r.started_at);
   }
+  // order-insensitive: each record is rewritten on its own key.
   for (const r of db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' OR seen <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[]) {
     const ps = listWithIds(r.people, people);
     const ss = listWithIds(r.seen, people);
     if (ps !== null || ss !== null) db.prepare('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(ps ?? r.people, ss ?? r.seen, r.thread, r.admin_key, r.started_at);
   }
+  // order-insensitive: each flag is renamed or dropped on its own key.
   for (const r of db.prepare("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key").all() as unknown as { key: string }[]) {
     const to = flagScopeWithId(r.key.slice('chat.flag.'.length), people);
     if (to === null) continue;
