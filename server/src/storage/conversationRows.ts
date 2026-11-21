@@ -1,7 +1,7 @@
 // Shared, database-free helpers for the conversations of people and agents (#1278, DECISIONS 74): ids, member checks, the key that finds the conversation of a set of members,
 // and the mapping of stored rows to the interface's values. No SQL here: each adapter has its own statements, in its own folder.
 import { createHash, randomBytes } from 'node:crypto';
-import type { Conversation, ConversationChange, ConversationMember, ConversationMemberInput, ConversationMemberKind, ConversationMessage } from './types.js';
+import type { Conversation, ConversationChange, ConversationDelivery, ConversationDeliveryState, ConversationMember, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationTargetInput } from './types.js';
 
 export const MAX_CONVERSATION_MEMBERS = 50;
 const KINDS: readonly ConversationMemberKind[] = ['person', 'agent'];
@@ -44,6 +44,19 @@ export interface DbConversationMessage {
   deleted_at: number | null;
   handed_at: number | null;
 }
+
+export interface DbDelivery {
+  conversation_id: string;
+  message_id: string;
+  member_kind: string;
+  member_ref: string;
+  member_name: string;
+  named: number;
+  state: string | null;
+  state_at: number | null;
+}
+
+export const DELIVERY_COLS = 'conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at';
 
 export const MEMBER_COLS = 'conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at';
 export const MESSAGE_COLS = 'id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq, edited_at, deleted_at, handed_at';
@@ -99,7 +112,37 @@ export function toConversation(r: DbConversation, members: DbMember[], lastAt: n
   return { id: r.id, createdBy: r.created_by == null ? null : Number(r.created_by), createdAt: Number(r.created_at), members: list, lastAt: lastAt == null ? Number(r.created_at) : Number(lastAt), messages: Number(messages) };
 }
 
-export function toConversationMessage(r: DbConversationMessage): ConversationMessage {
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+function toDelivery(r: DbDelivery): ConversationDelivery {
+  return { kind: r.member_kind as ConversationMemberKind, ref: r.member_ref, name: r.member_name, named: Number(r.named) === 1, state: r.state as ConversationDeliveryState | null, stateAt: r.state_at == null ? null : Number(r.state_at) };
+}
+
+/** The targets of a new message as stored (#1282): each member once, in the order given, and each a member now other than the author. Throws for one that is not, for a bad kind or an empty ref. */
+export function checkTargets(targets: readonly ConversationTargetInput[] | undefined, current: readonly { kind: string; ref: string }[], author: { kind: string; ref: string }): ConversationTargetInput[] {
+  const out: ConversationTargetInput[] = [];
+  const seen = new Set<string>();
+  for (const t of targets ?? []) {
+    if (!KINDS.includes(t.kind)) throw new Error('A target is a person or an agent.');
+    const ref = String(t.ref ?? '').trim();
+    if (!ref) throw new Error('A target needs a reference.');
+    if (!current.some((m) => m.kind === t.kind && m.ref === ref)) throw new Error('A target must be a member of the conversation.');
+    if (t.kind === author.kind && ref === author.ref) throw new Error('A message cannot be for its own author.');
+    const key = `${t.kind}:${ref}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ kind: t.kind, ref, name: String(t.name ?? '').trim().slice(0, 255) || ref, named: t.named === true });
+  }
+  return out;
+}
+
+/** The state a delivery moves to, or null when it may not: only a `queued` agent's delivery moves, once, to `delivered` or `dropped`. */
+export const nextDeliveryState = (from: string | null, to: ConversationDeliveryState): ConversationDeliveryState | null => (from === 'queued' && (to === 'delivered' || to === 'dropped') ? to : null);
+
+/** The initial state of a delivery: an agent's is `queued`, a person's has none. */
+export const firstDeliveryState = (kind: ConversationMemberKind): ConversationDeliveryState | null => (kind === 'agent' ? 'queued' : null);
+
+export function toConversationMessage(r: DbConversationMessage, deliveries: readonly DbDelivery[] = []): ConversationMessage {
   return {
     id: r.id,
     conversationId: r.conversation_id,
@@ -114,6 +157,7 @@ export function toConversationMessage(r: DbConversationMessage): ConversationMes
     editedAt: r.edited_at == null ? null : Number(r.edited_at),
     deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
     handedAt: r.handed_at == null ? null : Number(r.handed_at),
+    deliveries: deliveries.filter((d) => d.message_id === r.id).map(toDelivery).sort((a, b) => byText(a.kind, b.kind) || byText(a.name, b.name) || byText(a.ref, b.ref)),
   };
 }
 

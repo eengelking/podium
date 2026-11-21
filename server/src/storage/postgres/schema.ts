@@ -673,6 +673,17 @@ ALTER TABLE person_places_daily DROP CONSTRAINT person_places_daily_pkey, ADD PR
 `),
     after: fillDailyOwnerIds,
   },
+  {
+    version: 29,
+    // Who a message of a conversation was for, and what became of it (#1282), as SQLite migration 53 keeps it: one row per member a message went to or named; `named` is 1 for a member the writer
+    // addressed with an @; `state` is an agent's `queued`, `delivered` or `dropped` and NULL for a person. A message with no row was sent to everyone and keeps no delivery line.
+    sql: typed(`
+CREATE TABLE conversation_deliveries (
+  conversation_id TXT NOT NULL, message_id TXT NOT NULL, member_kind TXT NOT NULL, member_ref TXT NOT NULL, member_name TXT NOT NULL, named INT NOT NULL, state TXT, state_at INT,
+  PRIMARY KEY (conversation_id, message_id, member_kind, member_ref)
+);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

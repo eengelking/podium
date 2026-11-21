@@ -141,6 +141,13 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
       for (const c of chat.channels ?? []) await old.run("INSERT INTO public_channels (name, description, created_by, created_by_name, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)", [c.name, c.createdBy, c.createdByName, c.createdAt, c.createdAt]);
       for (const o of chat.owed ?? []) await old.run('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?)', [o.person, o.thread, o.adminKey, o.startedAt]);
       for (const f of chat.flags ?? []) await old.run('INSERT INTO settings (key, value) VALUES (?, ?)', [`chat.flag.${f.scope}`, f.value]);
+      // Conversations made before who a message was for was kept (#1282): their tables come from step 23, and step 29 added the deliveries.
+      for (const cv of chat.conversations ?? []) {
+        await old.run('INSERT INTO conversations (id, created_by, created_at, members_key) VALUES (?, NULL, ?, ?)', [cv.id, cv.messages[0]?.at ?? 0, `key-${cv.id}`]);
+        for (const m of cv.members) await old.run('INSERT INTO conversation_members (conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at) VALUES (?, ?, ?, ?, NULL, 0, NULL)', [cv.id, m.kind, m.ref, m.name]);
+        let seq = 0;
+        for (const m of cv.messages) await old.run('INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)', [m.id, cv.id, m.authorKind, m.authorRef, m.authorName, m.authorId, m.text, m.at, m.at, ++seq]);
+      }
     }
     if (daily.length > 0) {
       // Daily rows that name only their owner come from the first steps; step 28 bound them to the owner's id, so they go in at the schema before it, with the people they will be matched to.

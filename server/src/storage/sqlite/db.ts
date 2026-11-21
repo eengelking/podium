@@ -935,6 +935,17 @@ DROP TABLE person_places_daily;
 ALTER TABLE person_places_daily_new RENAME TO person_places_daily;`,
     after: fillDailyOwnerIds,
   },
+  {
+    version: 53,
+    // Who a message of a conversation was for, and what became of it (#1282): one row per member a message went to or named. `named` is 1 for a member the writer addressed with an @ and 0 for one
+    // that took a message sent to everyone; a message with no row, such as every message written before this step, was sent to everyone and keeps no delivery line. `state` is an agent's
+    // `queued`, `delivered` or `dropped`, and NULL for a person, who is told by the unread count and not by a delivery. The same step is PostgreSQL step 29 and MariaDB step 29.
+    sql: `
+CREATE TABLE IF NOT EXISTS conversation_deliveries (
+  conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL, named INTEGER NOT NULL, state TEXT, state_at INTEGER,
+  PRIMARY KEY (conversation_id, message_id, member_kind, member_ref)
+);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

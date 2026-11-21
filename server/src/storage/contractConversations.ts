@@ -195,6 +195,57 @@ export function conversationCases(o: Openers): void {
     expect(t.get('get after purge (stays, empty of old messages)')).not.toBeNull();
   });
 
+  it('agrees on every adapter for who a message was for (#1282): the members it named, what became of it for each agent, and what removing takes with it', async () => {
+    const HAIKU: ConversationMemberInput = { kind: 'agent', ref: 'sess-notes', name: 'infra-notes' };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: dm } = await c.open({ members: [ED, MAYA, TESTER, HAIKU], createdBy: 1 }, T0);
+      const target = (m: ConversationMemberInput, named: boolean) => ({ kind: m.kind, ref: m.ref, name: m.name, named });
+      await rec('post to everyone', c.post(dm.id, say(ED, 'all', { targets: [target(HAIKU, false), target(TESTER, false)] }), T0 + 10));
+      const one = await rec('post to one agent', c.post(dm.id, say(ED, 'one', { targets: [target(TESTER, true)] }), T0 + 20)) as ConversationMessage;
+      const per = await rec('post to a person', c.post(dm.id, say(ED, 'person', { targets: [target(MAYA, true)] }), T0 + 30)) as ConversationMessage;
+      await rec('post with no targets', c.post(dm.id, say(ED, 'plain'), T0 + 40));
+      await rec('post to someone who is not a member', c.post(dm.id, say(ED, 'out', { targets: [target(JO, true)] }), T0 + 50));
+      await rec('post to oneself', c.post(dm.id, say(ED, 'self', { targets: [target(ED, true)] }), T0 + 50));
+      await rec('post to a bad kind', c.post(dm.id, say(ED, 'bad', { targets: [{ kind: 'robot' as never, ref: 'x', name: 'x', named: true }] }), T0 + 50));
+      await rec('post to the same one twice', c.post(dm.id, say(ED, 'twice', { targets: [target(TESTER, true), target(TESTER, true)] }), T0 + 60));
+      await rec('page shows who it was for', c.page(dm.id, { limit: 50 }));
+      await rec('delivered', c.setDelivery(dm.id, one.id, { kind: 'agent', ref: 'sess-tester' }, 'delivered', T0 + 70));
+      await rec('dropped after delivered stays delivered', c.setDelivery(dm.id, one.id, { kind: 'agent', ref: 'sess-tester' }, 'dropped', T0 + 80));
+      await rec('queued cannot be set', c.setDelivery(dm.id, one.id, { kind: 'agent', ref: 'sess-tester' }, 'queued', T0 + 90));
+      await rec('a person has no state to move', c.setDelivery(dm.id, per.id, { kind: 'person', ref: '2' }, 'delivered', T0 + 90));
+      await rec('no such delivery', c.setDelivery(dm.id, one.id, { kind: 'agent', ref: 'sess-notes' }, 'delivered', T0 + 90));
+      await rec('no such message', c.setDelivery(dm.id, 'cmg_00000000_000000000000000000000000', { kind: 'agent', ref: 'sess-tester' }, 'delivered', T0 + 90));
+      await rec('dropped', c.setDelivery(dm.id, (await c.page(dm.id, { limit: 50 })).messages[0]!.id, { kind: 'agent', ref: 'sess-notes' }, 'dropped', T0 + 100));
+      await rec('purge the oldest', c.purge(T0 + 15));
+      await rec('page after purge', c.page(dm.id, { limit: 50 }));
+      await rec('remove', c.remove(dm.id));
+      await rec('post after remove', c.post(dm.id, say(ED, 'gone', { targets: [] }), T0 + 200));
+    });
+    const page = t.get('page shows who it was for') as ConversationPage;
+    const by = Object.fromEntries(page.messages.map((m) => [m.text, m.deliveries]));
+    expect(by['all']).toEqual([
+      { kind: 'agent', ref: 'sess-tester', name: 'Tester', named: false, state: 'queued', stateAt: T0 + 10 },
+      { kind: 'agent', ref: 'sess-notes', name: 'infra-notes', named: false, state: 'queued', stateAt: T0 + 10 },
+    ]);
+    expect(by['one']).toEqual([{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true, state: 'queued', stateAt: T0 + 20 }]);
+    expect(by['person']).toEqual([{ kind: 'person', ref: '2', name: 'Maya Kim', named: true, state: null, stateAt: null }]);
+    expect(by['plain']).toEqual([]);
+    expect(by['twice']).toHaveLength(1);
+    expect(t.get('post to someone who is not a member')).toEqual({ threw: 'A target must be a member of the conversation.' });
+    expect(t.get('post to oneself')).toEqual({ threw: 'A message cannot be for its own author.' });
+    expect(t.get('post to a bad kind')).toEqual({ threw: 'A target is a person or an agent.' });
+    expect((t.get('delivered') as ConversationMessage).deliveries[0]).toMatchObject({ state: 'delivered', stateAt: T0 + 70 });
+    expect((t.get('dropped after delivered stays delivered') as ConversationMessage).deliveries[0]).toMatchObject({ state: 'delivered', stateAt: T0 + 70 });
+    expect((t.get('queued cannot be set') as ConversationMessage).deliveries[0]).toMatchObject({ state: 'delivered' });
+    expect((t.get('a person has no state to move') as ConversationMessage).deliveries[0]).toMatchObject({ kind: 'person', state: null });
+    expect(t.get('no such delivery')).toBeNull();
+    expect(t.get('no such message')).toBeNull();
+    // The purge took the first message's deliveries with it; the rest stay.
+    expect(texts(t.get('page after purge') as ConversationPage)).toEqual(['one', 'person', 'plain', 'twice']);
+    expect(t.get('post after remove')).toBeNull();
+  });
+
   it('agrees on every adapter for removing: a conversation, and a person who is deleted', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const c = s.chat({ now: () => T0 }).conversations;
