@@ -220,8 +220,8 @@ describe('chat: public channels', () => {
   it('opens a Direct Message from New direct message to one of the person\'s own agents, and filters the list as they type', () => {
     openChat('Ed');
     // Its accessible name is its visible text: an aria-label that does not contain it fails axe's label-content-name-mismatch.
-    cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').should('have.attr', 'aria-haspopup', 'dialog');
-    cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').click();
+    cy.get('nav[aria-label=Chat] h2#sec-dm button[aria-label="New direct message"]').should('have.attr', 'aria-haspopup', 'dialog');
+    cy.get('nav[aria-label=Chat] h2#sec-dm button[aria-label="New direct message"]').click();
     cy.get('[role=dialog]').should('contain.text', 'New direct message').and('contain.text', 'Between people only, a direct message is read by them alone and an Admin cannot read it.');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Your orchestrator');
@@ -248,7 +248,7 @@ describe('chat: public channels', () => {
 
   it('lists another person\'s agent disabled in New direct message, and a message to it by the route waits for that person\'s approval', () => {
     openChat('Alex');
-    cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').click();
+    cy.get('nav[aria-label=Chat] h2#sec-dm button[aria-label="New direct message"]').click();
     cy.tid('dm-form').contains('h3', 'Other people\'s agents');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Ed').and('contain.text', 'Adding another person\'s agent is not available yet.').find('input[type=checkbox]').should('be.disabled');

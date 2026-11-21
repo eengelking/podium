@@ -9,6 +9,9 @@ import {
   adminWho,
   liveReaders,
   onDay,
+  orderPeople,
+  peopleSort,
+  PEOPLE_PER_PAGE,
   readersLine,
   readersStops,
   readersTip,
@@ -123,6 +126,35 @@ describe("a Direct Message's key and name", () => {
   });
 });
 
+describe("the order of People and agents (#1272)", () => {
+  const meP = { ...person };
+  it("is ten to a page", () => {
+    expect(PEOPLE_PER_PAGE).toBe(10);
+  });
+  it("finds the last message and the unread count in the Direct Messages with that agent, and needs a running agent without any", () => {
+    const ds = [
+      dm(meP, agent("s2", "infra"), { lastAt: 50, unread: 0, mentions: 0 }),
+      dm(agent("s1", "dash"), agent("s2", "infra"), { lastAt: 90, unread: 2, mentions: 1 }),
+      dm(meP, agent("s3", "other"), { lastAt: 70 }),
+    ];
+    expect(peopleSort(ds, (p) => p.sessionId === "s2", false)).toEqual({ needs: true, last: 90 });
+    expect(peopleSort(ds, (p) => p.sessionId === "s3", false)).toEqual({ needs: false, last: 70 });
+    expect(peopleSort(ds, (p) => p.sessionId === "s3", true)).toEqual({ needs: true, last: 70 });
+    expect(peopleSort(ds, (p) => p.sessionId === "nobody", false)).toEqual({ needs: false, last: 0 });
+  });
+  it("puts rows that need the person first, then the newest last message, then the name, and leaves its input alone", () => {
+    const rows = [
+      { key: "a", name: "Zed", needs: false, last: 5 },
+      { key: "b", name: "Ann", needs: false, last: 5 },
+      { key: "c", name: "Old", needs: true, last: 1 },
+      { key: "d", name: "New", needs: false, last: 9 },
+    ];
+    const before = rows.map((r) => r.key).join("");
+    expect(orderPeople(rows).map((r) => r.key).join("")).toBe("cdba");
+    expect(rows.map((r) => r.key).join("")).toBe(before);
+  });
+});
+
 describe("the state tags", () => {
   it("says Paused for a channel, and for everyone when an Admin paused General", () => {
     expect(channelTag(chan())).toBeNull();
@@ -141,9 +173,9 @@ describe("the state tags", () => {
 });
 
 describe("the delivery line of a channel message", () => {
-  it("is Posted, and says nobody was addressed when nobody was", () => {
+  it("is plain Posted for a message between people, with no line about agents (#1270)", () => {
     expect(channelDelivery(cm({ mine: false }))).toEqual({ icon: "ok", text: "Posted", wait: false });
-    expect(channelDelivery(cm()).text).toBe("Posted. No agent was addressed, so none will act on it.");
+    expect(channelDelivery(cm())).toEqual({ icon: "ok", text: "Posted", wait: false });
   });
   it("names who gets it when their turn ends, who is notified, what is held and what was not delivered with the reason", () => {
     const m = (state: ChannelMessage["mentions"][number]["state"], typed: string, why: string | null = null) => ({ typed, sessionId: "s", state, why, stateAt: 1 });

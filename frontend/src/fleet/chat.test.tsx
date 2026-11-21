@@ -641,7 +641,8 @@ describe("the thread", () => {
     expect(t).toHaveTextContent("Everyone signed in to this server can read and post here.");
     const items = within(t).getAllByTestId("chat-message");
     expect(items.map((li) => li.querySelector(".who")!.textContent)).toEqual(["Maya", "You"]);
-    expect(within(items[1]!).getByText("Posted. No agent was addressed, so none will act on it.")).toBeInTheDocument();
+    expect(within(items[1]!).getByText("Posted")).toBeInTheDocument();
+    expect(within(items[1]!).queryByText(/No agent was addressed/)).toBeNull();
     expect(within(items[0]!).getByText("Posted")).toBeInTheDocument();
   });
 
@@ -2750,9 +2751,9 @@ describe("public channels in the sidebar", () => {
   it("puts each section's title and its + in one row: the fold button first, with its count, then the + with its tip", async () => {
     page({ chat: fakeChat(chanWorld()) });
     await flush();
-    for (const [h, b, tip] of [["Channels", "New channel", "Create a channel"], ["Direct Messages", "New direct message", "Start a direct message"]] as const) {
+    for (const [h, b, tip] of [["Channels", "New channel", "Create a channel"], ["Direct Messages", "New direct message", "Start a direct message"], ["People and agents", "New direct message", "Start a direct message"]] as const) {
       const heading = screen.getByRole("heading", { level: 2, name: new RegExp(`^${h}`) });
-      const btn = screen.getByRole("button", { name: b });
+      const btn = within(heading).getByRole("button", { name: b });
       expect(heading).toContainElement(btn);
       expect(btn).toHaveAttribute("aria-haspopup", "dialog");
       expect(btn).toHaveAccessibleDescription(tip);
@@ -3257,7 +3258,7 @@ describe("the New direct message form", () => {
   const openForm = async (chat = withTargets()) => {
     const p = page({ chat });
     await flush();
-    const btn = screen.getByRole("button", { name: "New direct message" });
+    const btn = within(screen.getByRole("heading", { level: 2, name: /^Direct Messages/ })).getByRole("button", { name: "New direct message" });
     btn.focus();
     fireEvent.click(btn);
     await flush();
@@ -3270,7 +3271,7 @@ describe("the New direct message form", () => {
   it("puts a + named New direct message, with the tip Start a direct message and no visible words, in the Direct Messages title", async () => {
     page({ chat: withTargets() });
     await flush();
-    const b = screen.getByRole("button", { name: "New direct message" });
+    const b = within(screen.getByRole("heading", { level: 2, name: /^Direct Messages/ })).getByRole("button", { name: "New direct message" });
     expect(b).toHaveAttribute("aria-label", "New direct message");
     expect(b).toHaveTextContent("");
     expect(b).toHaveAccessibleDescription("Start a direct message");
@@ -3866,6 +3867,77 @@ describe("the redesigned sidebar", () => {
     expect(screen.queryByTestId("chat-menu")).toBeNull();
     fireEvent.contextMenu(r);
     expect(screen.getByTestId("chat-menu")).toBeInTheDocument();
+  });
+
+  describe("People and agents is paged ten at a time (#1272)", () => {
+    const many = () => {
+      const w = world();
+      w.overview.people = [{ name: "Ed", you: true }, ...Array.from({ length: 14 }, (_, i) => ({ name: `Pat ${String(i + 1).padStart(2, "0")}`, you: false }))];
+      return w;
+    };
+    const rows = () => Array.from(document.querySelectorAll("#list-pe > li")).map((li) => li.getAttribute("data-testid"));
+    const pager = () => within(screen.getByRole("navigation", { name: "People and agents pages" }));
+
+    it("shows ten rows and the standard footer, with Previous off on the first page and Next off on the last", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      const sec = screen.getByRole("heading", { level: 2, name: /^People and agents/ }).closest("section")!;
+      expect(rows()).toHaveLength(10);
+      expect(within(sec).getByText("Showing 1–10 of 17")).toBeInTheDocument();
+      expect(sec.querySelector(".ch-count")).toHaveTextContent("17");
+      expect(pager().getByText("1 of 2")).toBeInTheDocument();
+      expect(pager().getByRole("button", { name: "Previous page" })).toBeDisabled();
+      fireEvent.click(pager().getByRole("button", { name: "Next page" }));
+      expect(rows()).toHaveLength(7);
+      expect(within(sec).getByText("Showing 11–17 of 17")).toBeInTheDocument();
+      expect(within(sec).getByRole("status")).toHaveTextContent("Page 2 of 2");
+      expect(pager().getByRole("button", { name: "Next page" })).toBeDisabled();
+      fireEvent.click(pager().getByRole("button", { name: "Previous page" }));
+      expect(rows()).toHaveLength(10);
+    });
+
+    it("puts the rows that need this person on the first page: a running agent and an agent with unread messages", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      expect(rows()).toContain("chat-row-a:s-dash");
+      expect(rows()).toContain("chat-row-a:s-tester");
+      expect(rows()).not.toContain("chat-row-p:Pat 14");
+      fireEvent.click(pager().getByRole("button", { name: "Next page" }));
+      expect(rows()).toContain("chat-row-p:Pat 14");
+      expect(rows()).not.toContain("chat-row-a:s-dash");
+    });
+
+    it("folds with the list: the footer and its page buttons go when the section is folded, and come back when it opens", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      const fold = within(screen.getByRole("heading", { level: 2, name: /^People and agents/ })).getByRole("button", { name: /^People and agents/ });
+      expect(screen.getByRole("navigation", { name: "People and agents pages" })).toBeInTheDocument();
+      fireEvent.click(fold);
+      expect(screen.queryByRole("navigation", { name: "People and agents pages" })).toBeNull();
+      expect(screen.queryByText(/^Showing 1–10 of 17$/)).toBeNull();
+      fireEvent.click(fold);
+      expect(screen.getByRole("navigation", { name: "People and agents pages" })).toBeInTheDocument();
+    });
+
+    it("says ten a page when everyone fits on one page", async () => {
+      page();
+      await flush();
+      const sec = screen.getByRole("heading", { level: 2, name: /^People and agents/ }).closest("section")!;
+      expect(within(sec).getByText("Showing 1–4 of 4")).toBeInTheDocument();
+      expect(within(sec).getByText("10 per page")).toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "People and agents pages" })).toBeNull();
+    });
+
+    it("opens New direct message from the + in People and agents, the same form as the one in Direct Messages", async () => {
+      page();
+      await flush();
+      const heading = screen.getByRole("heading", { level: 2, name: /^People and agents/ });
+      const btn = within(heading).getByRole("button", { name: "New direct message" });
+      expect(btn).toHaveAccessibleDescription("Start a direct message");
+      fireEvent.click(btn);
+      await flush();
+      expect(screen.getByRole("dialog", { name: "New direct message" })).toBeInTheDocument();
+    });
   });
 
   it("opens New direct message with the person ticked, from the row and from its menu", async () => {

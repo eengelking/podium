@@ -11,6 +11,17 @@ const openMenu = (row) => {
   cy.chatRow(row).find('button.ch-more').click();
   return cy.tid('chat-menu').should('be.visible');
 };
+// People and agents is paged ten at a time (#1272): a row that is not on the first page is found by paging forward.
+const showRow = (key, pagesLeft = 6) => {
+  cy.get('#list-pe > li').should('have.length.greaterThan', 0);
+  return cy.get('body').then(($b) => {
+    if ($b.find(`[data-testid="chat-row-${key}"]`).length) return;
+    const next = $b.find('nav[aria-label="People and agents pages"] button[aria-label="Next page"]:not(:disabled)');
+    if (!next.length || pagesLeft === 0) throw new Error(`chat-row-${key} is on no page of People and agents`);
+    cy.wrap(next).click();
+    showRow(key, pagesLeft - 1);
+  });
+};
 const openDm = () => {
   cy.signIn('Ed');
   cy.openConsole('#/chat');
@@ -285,6 +296,7 @@ describe('chat: an agent launched and not yet used (#1112)', () => {
     cy.signIn('Ed');
     cy.task('fleet:launch', { id: ID, name: 'quiet-folder' }, { log: false });
     cy.openConsole('#/chat');
+    showRow(`a:${ID}`);
     cy.chatRow(`a:${ID}`).should('exist').and('contain.text', 'quiet-folder');
     cy.openConsole('#/');
     cy.card('invoice').should('exist');
@@ -340,5 +352,35 @@ describe('chat: the menu on a sender\'s avatar (#1235)', () => {
     cy.tid('chat-message').last().should('contain.text', 'A line of my own').find('.ch-gut').rightclick();
     cy.tid('chat-menu').should('have.attr', 'aria-label', 'Your message').and('not.contain.text', 'Mention').and('not.contain.text', 'Message the');
     cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.dataset.act)).to.deep.eq(['edit-message', 'delete-message']));
+  });
+});
+
+describe('chat: People and agents is paged (#1272)', () => {
+  // Ten agents are launched on top of the seeded ones, so the list is longer than one page. The spec reads the total from the footer and does not depend on their order.
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  it('shows ten rows with the standard footer, pages with Previous and Next, and opens New direct message from its +', () => {
+    for (let i = 0; i < 10; i += 1) cy.task('fleet:launch', { id: `page-e2e-${String(i).padStart(2, '0')}`, name: `paged-${String(i).padStart(2, '0')}` }, { log: false });
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.get('#list-pe > li').should('have.length', 10);
+    cy.contains('#sec-pe', 'People and agents').closest('section').as('pe');
+    cy.get('@pe').contains(/^Showing 1–10 of \d+$/);
+    cy.get('@pe').find('nav[aria-label="People and agents pages"] button[aria-label="Previous page"]').should('be.disabled');
+    cy.get('@pe').contains(/^Showing 1–10 of \d+$/).invoke('text').then((t) => {
+      const total = Number(t.match(/of (\d+)$/)[1]);
+      const pages = Math.ceil(total / 10);
+      expect(total).to.be.greaterThan(10);
+      cy.get('@pe').find('nav[aria-label="People and agents pages"]').contains(`1 of ${pages}`);
+      for (let i = 1; i < pages; i += 1) cy.get('@pe').find('button[aria-label="Next page"]').click();
+      cy.get('@pe').contains(`Showing ${(pages - 1) * 10 + 1}–${total} of ${total}`);
+      cy.get('#list-pe > li').should('have.length', total - (pages - 1) * 10);
+      cy.get('@pe').find('button[aria-label="Next page"]').should('be.disabled');
+      for (let i = 1; i < pages; i += 1) cy.get('@pe').find('button[aria-label="Previous page"]').click();
+      cy.get('#list-pe > li').should('have.length', 10);
+    });
+    cy.get('@pe').find('h2 button[aria-label="New direct message"]').click();
+    cy.get('[role=dialog][aria-labelledby="dm-h"]').should('contain.text', 'New direct message');
+    cy.focused().type('{esc}');
   });
 });
