@@ -223,7 +223,7 @@ export interface ChatOverview {
 }
 
 /** One member of a conversation of people and agents (#1278), as the overview lists it. `you` is the viewer's own place. */
-export interface ConversationMemberInfo {
+interface ConversationMemberInfo {
   kind: "person" | "agent";
   name: string;
   you: boolean;

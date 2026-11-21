@@ -18,7 +18,7 @@ import { hm } from "../trafficData";
 const KEEP_ALIVE_MS = 15_000;
 
 /** The members of a conversation as the shared members panel lists them. */
-export function conversationMembers(c: ConversationInfo, sessions: Record<string, SessionView>): Member[] {
+function conversationMembers(c: ConversationInfo, sessions: Record<string, SessionView>): Member[] {
   return c.members.map((m, i) => ({
     key: `${m.kind}:${m.name}:${i}`,
     kind: m.you ? "you" : m.kind,

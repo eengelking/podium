@@ -11,7 +11,7 @@ import { type ChatCore } from './chatCore.js';
 import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** The thread a conversation's counts and Admin records are kept under. */
-export const conversationThread = (id: string): string => `convo:${id}`;
+const conversationThread = (id: string): string => `convo:${id}`;
 /** The conversation a thread names, or null when it is not a conversation's. */
 export const conversationOfThread = (thread: string): string | null => (thread.startsWith('convo:') ? thread.slice('convo:'.length) : null);
 

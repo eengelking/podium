@@ -82,7 +82,7 @@ export function membersKey(current: readonly { kind: string; ref: string }[]): s
   return createHash('sha256').update(parts.join('\n')).digest('hex');
 }
 
-export function toMember(r: DbMember): ConversationMember {
+function toMember(r: DbMember): ConversationMember {
   return {
     kind: r.member_kind as ConversationMemberKind,
     ref: r.member_ref,
