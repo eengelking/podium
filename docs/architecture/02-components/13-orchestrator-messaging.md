@@ -178,7 +178,7 @@ transcript line. Neither reaches the model or depends on the `peers` option. In 
 banners, the red tags and the record lines, and the Admin's page hides People and agents while it reads.
 
 **An Admin's stop or delete (#1078).** `AdminActs` (`adminActs.ts`, on `Fleet` as `adminActs`) is what the Admin router and the session delete call after an
-Admin stops or deletes a person's recording, stored activity, session, access or reporter. It writes a `chat_admin_reads` row on the `act:<name>` thread
+Admin stops or deletes a person's recording, stored activity, session, access or reporter. It writes a `chat_admin_reads` row on the `act:<id>` thread (the person's `people.id`, #1284)
 (`AdminReads.record`) and pushes the sentence to each live session of the person (`AdminReads.tell`), so the reporter side is unchanged. Chat's
 `goneReadsOf` puts those rows on the overview with the conversations that are gone, and `isActRecord` in `chatData.ts` words them without a conversation.
 No table or column changed: the kinds are text in every adapter.

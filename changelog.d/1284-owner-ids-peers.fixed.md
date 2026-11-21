@@ -1,13 +1,1 @@
-Messaging between a person'"s
-agents
-and
-between
-people
-now
-belongs
-to
-a
-person
-by
-that
-person"'s id, never by name: their reporters' links and rights, their requests, their messages, their owner defaults, and their end of a conversation (stored as person:<id>) are found by the id, so a new person who takes the name of one who was deleted sees and inherits none of it, and a reporter that changes hands starts with none of the earlier links. Rows already stored are given their person's id when the server starts, and one whose person no longer exists is left to nobody.
+Messaging between a person's agents, and between people, now belongs to a person by that person's id, never by name: their reporters' links and rights, their requests, their messages, their owner defaults and their end of a conversation (stored as `person:<id>`) are found by the id, so a new person who takes the name of one who was deleted sees and inherits none of it, and a reporter that changes hands starts with none of the earlier links. Rows already stored are given their person's id when the server starts, and one whose person no longer exists is left to nobody.

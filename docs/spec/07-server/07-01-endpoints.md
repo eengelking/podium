@@ -332,7 +332,7 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   says the link is paused either way). `retainDays` is the Admin's setting for how long a conversation is kept, so
   Traffic can name it, and `serverTime` the clock Traffic counts "ago" by (#417). `live` (the
   default) keeps conversations with a live orchestrator; `24h` and `30d` those with a message in that time. While
-  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range. A conversation with a person at either end (a session id `person:<name>`) is that person's Chat, not for everyone who can read the console, so it is left out of the list.
+  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range. A conversation with a person at either end (a session id `person:<id>`, #1284) is that person's Chat, not for everyone who can read the console, so it is left out of the list.
 
 ## Browser routes for orchestrator messaging
 
@@ -347,7 +347,7 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
   orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
   `requests` are the open ones, each a `PeerRequest` with `fromKey` and `toKey` (the two reporter keys, so the page
   can tell apart two machines that share a name) and `messageId`, and `fromPerson`, true for a person's message to
-  this owner's agent from Chat (`fromKey` is then `person:<name>`, not a reporter; see Chat below). The mod's
+  this owner's agent from Chat (`fromKey` is then `person:<id>`, not a reporter; see Chat below). The mod's
   `peerRequests` carry the `PeerRequest` alone.
 - `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `level` is `none`, `see`, `ask` or `send`; `none` takes the right away. `400` for any other level (`level must be none, see, ask or send`) and for a `from` or `to` that is not a reporter key. `200 { ok: true, right }`. `403` when
   either reporter is another person's, on the admin secret, or the two belong to different people.
@@ -451,7 +451,7 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   - `POST /api/fleet/respond/chat/conversations/:id/members`: `{ members }`, a member adds people or their own agents (`200 { ok, conversation }`). `DELETE /api/fleet/respond/chat/conversations/:id/members/me`: the viewer leaves (`{ ok, deleted }`; the last person to leave deletes it). `POST .../reading`: an Admin's open conversation with an agent in it says it is still read, every 15 seconds.
   - `GET /api/fleet/respond/chat` lists the viewer's conversations in `conversations` (not `directs`, which keeps the conversations of agents) with the members, the unread count and the last time, names and counts only. An Admin's `?owner=` browse leaves out every conversation that has no agent in it.
 - `GET /api/fleet/respond/chat/dm/:a/:b/messages?limit=&before=`: one page of a conversation between two ids (a session
-  id, or `person:<name>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
+  id, or `person:<id>` for the person's own conversation with one agent), as the channel route pages. Only the conversation's
   owner, the person who wrote in one across owners, and an Admin may read it (`403` otherwise, `404` when there is none). The answer also holds
   `pausedBy`, `pausedByAdmin` and `adminReads` (the conversation's record, as for a channel). An Admin's read is recorded and the people in it told before it answers.
 - `POST /api/fleet/respond/chat/dm/:a/:b/reading`: an Admin's open conversation says it is still being read, every 15 seconds. `200 { ok: true }`;

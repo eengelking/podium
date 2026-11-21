@@ -34,8 +34,9 @@ Under **Create user**, type a name and choose Create user.
   first, in a row under the person that says what will happen.
 - **Download certificate** gives the public certificate and the CA, never a key, so it cannot replace the file.
 - **Delete** removes a person, and a dialog asks first. Their reporter is refused at once, they leave their group, and
-  an Administrator's open Admin session locks. Their past sessions, spend and Admin log entries keep their name, and the
-  name can be used again later. To delete several people, tick their rows (the box in the header ticks the page), then
+  an Administrator's open Admin session locks. Their past sessions, spend and Admin log entries keep their name as text, and the
+  name can be used again later. A person who takes the name is a new person: they own none of those sessions, spend
+  or messages. To delete several people, tick their rows (the box in the header ticks the page), then
   choose **Delete N…** in the bar above the list. Ticks are for the page you are on. Podium refuses, and deletes no
   one, if the choice includes you or would leave Administrators with no active member.
 - The search finds a person by name, group or machine.
