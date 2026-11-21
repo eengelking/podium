@@ -273,16 +273,13 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
 
 **`GET /api/fleet/sessions/:id/peers`**: what `podium_peers` answers.
 - `200 { ok: true, peers, leftOut, people }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", id, duplicate, name,
-  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the first eight characters of the
-  session id; `duplicate` is true when more than one orchestrator the asker can reach has that name and machine. `leftOut` lists the owner's reporters with no
+  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `id` is the id the server gave the agent when it first heard of its session (#1284), as text of digits: it is never reused, a new session (a `/clear` makes one) has a new id, and it is always present. No two live agents of one owner hold the same name (the later one holds \"Name 2\"), so `duplicate` is false; it is kept for a reporter that reads it. `leftOut` lists the owner's reporters with no
   orchestrator listed, and why: `messaging off on the machine`, `reporter too old to message`, `no right to see it`, `no
   orchestrator running`. `people` (#1034) are the people who wrote to this orchestrator through Chat and whom it may answer, because
   the owner's link to them is open or paused: `{ address: "person:eve", name, paused }`. A person with no link, or whose link was removed, is not listed. A paused one is listed with `paused: true`, and an answer to them is refused until the link is resumed.
 
 **`POST /api/fleet/sessions/:id/peers/messages`**: `podium_send`.
-- Body `{ to: "name@machine" | "name@machine#id" | "person:name", text }`, at most 128 KB. `id` is a prefix of the target's session id,
-  as `podium_peers` lists it; it picks one of several orchestrators that share the name. A plain `name@machine` that
-  matches more than one is a `409` that lists the `name@machine#id` forms to use (#500).
+- Body `{ to: "#id" | "name@machine" | "name@machine#id" | "person:name", text }`, at most 128 KB. `id` is the target's agent id as `podium_peers` lists it (#1284). `#id` alone names one agent; after `name@machine` it must be the id of the agent that holds that name, or the answer is a `404`. An id whose session has ended is a `409`, "The agent Name (id N) is no longer available", and an id of the sender itself a `422`. A plain `name@machine` that matches more than one is a `409` that lists the `name@machine#id` forms to use (#500); an older short session id after the `#` still picks one.
 - `202 { ok: true, id, state, paused, approvalWhy, requestId, to: { name, machine }, roundTrips: { used, cap } }`.
   `state` is `sent` (the receiver gets it in its next reply, running or idle), `turn` (a permission prompt is open there, so it is held until that is answered) or
   `approval` (it waits for the owner; `approvalWhy` is `link` or `round-trips`, and `requestId` names the request).

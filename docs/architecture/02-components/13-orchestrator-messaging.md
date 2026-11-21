@@ -25,7 +25,7 @@ reporter lookup from its own `ReporterStore` on the same database.
 **Flow.** The report route records the reporter (`ReporterStore.record` now returns its key), then calls
 `fleet.peers.note` with the session, the key and the token's person. The reply spreads `peerReplyFor`, which checks the
 switches the server knows of and asks `PeerService.reply` for the deliveries (messages only while the session reports
-idle) and the open requests about that reporter. A send resolves `to` (`name@machine`, or `name@machine#id` to pick among same-named ones) among the live directory, checks the right, the
+idle) and the open requests about that reporter. A send resolves `to` (`#id`, `name@machine`, or `name@machine#id`) among the live directory, where every agent has a server-given id from `agent_ids` (never reused, one row per session id, #1284) and a name no other live agent of its owner holds (`settleName`), checks the right, the
 length, the rate and the round trips, and stores the message as `ready` or `approval`. The next idle report hands it
 over (`handed`), and the mod's result moves it to `delivered`, `queued` or `dropped`.
 

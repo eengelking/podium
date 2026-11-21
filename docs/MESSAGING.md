@@ -277,10 +277,15 @@ written for the model and for the person reading the transcript.
 | `podium_request_access(to, right, reason)` | Asked, allowed or declined, by the owner's default. An asked request's answer arrives later as a notice that starts a turn |
 | `podium_chat_read(channel?, before?)` | With no channel, lists the channels: General and every public channel, with each one's description, link, opener and message count. With `general`, `group` or a public channel's name, the last hour of the channel it was called into with an `@`, for context, a page at a time (about 30,000 characters, oldest first, ending with the `before` value for the older ones inside the hour); a channel it was not called into in that hour is refused An edited message shows `edited <time>` in its header with its current text, and a message its person deleted is one line, "This message was deleted at <time>.", with no text. Read only (see [The reporter mod](REPORTER.md#messaging-your-other-orchestrators)) |
 
-- `to` is `name@machine`, as `podium_peers` lists it, not case-sensitive. The name is the session's display name, so
-  `/rename` or `/podium name` changes it. When several orchestrators on one machine share a name, `podium_peers`
-  shows each one's short id and `to` is `name@machine#id`; a plain `name@machine` is refused with the ids to use.
-  A message you receive names the sender the same way, so the reply reaches that session (#500).
+- `to` is the agent's id (`#7`), or `name@machine`, or `name@machine#7`, as `podium_peers` lists them; a name is not
+  case-sensitive. Every agent has an id that Podium gives it when it first hears of its session and never gives
+  again (#1284): a new session, a `/clear` included, is a new agent with a new id, whatever name it takes, so an id never
+  reaches a later agent that took an earlier one's name. `podium_peers` always shows the id, and a message you receive
+  names its sender by it, so the reply reaches that agent. The name is the session's display name, so `/rename` or
+  `/podium name` changes it. No two live agents of one person hold the same name: the one that arrives second holds
+  "Name 2" (then "Name 3") while the first is live, and takes its own name back once it is free. A send to an id whose session
+  has ended is refused with "The agent Name (id 7) is no longer available", and a message still held for an agent that ends
+  tells its sender the same. A `name@machine#7` whose name is not the one agent 7 holds is not delivered.
 - Only the orchestrator can call them. Claude Code offers a mod's tools to subagents too, so each tool refuses a
   subagent's call: "Not sent. Only an orchestrator can send. Put the message in your result and ask your orchestrator
   to send it."
@@ -375,7 +380,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | The answer says "The link is paused" | The owner paused the link in Chat, or an Admin used Pause all links | **Resume link** in Chat, or **Resume all links** on Admin > Reporters > that reporter |
 | "There have been N messages between … in the last minute" | The messages-per-minute limit | Wait a minute and send again. Nothing was stored |
 | "The message is N characters, over the limit" | The longest-message limit | Send a shorter message, or a file path instead of the file |
-| "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Send to `name@machine#id`, with the id `podium_peers` shows (renaming one with `/podium name <text>` or `/rename` also works) |
+| "The agent X (id N) is no longer available" | That agent's session has ended | Run `podium_peers` and send to the one that is there now. A new session that took the name has a new id, and nothing sent to the old id reaches it |
 | "can see … but has no right to send there" | The right is **Can see** | Give **Can send** on My reporters, or have the orchestrator ask with `podium_request_access` |
 | **My reporters** is not in the top bar, or the page shows nothing | Not signed in; signed in with the admin secret, which has no reporters; or the flag is off | Sign in with your own name and token. Ask the Admin to turn on the flag |
 | My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | In Claude Code there, run `/plugin configure podium-reporter@eengelking-marketplace` and set `peers` on; in the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on `peers` |
