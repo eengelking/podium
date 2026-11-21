@@ -384,13 +384,13 @@ export class ChatService {
     const threads = await this.direct.threads();
     const convoThreads = await this.conversations.existing();
     await this.adminReads.maintain(now - limits.retainDays * DAY_MS, new Set([...threads, ...convoThreads]));
-    await this.conversations.purge(now - limits.retainDays * DAY_MS);
+    const conversationMessages = await this.conversations.purge(now - limits.retainDays * DAY_MS);
     // The counts of a conversation that is gone (its hidden grace period ended, or its session was deleted) go with it (#1051).
     for (const thread of await this.core.store.readState.threads('dm:')) if (!threads.has(thread)) await this.core.store.readState.forget(thread);
     for (const thread of await this.core.store.readState.threads('convo:')) if (!convoThreads.has(thread)) await this.core.store.readState.forget(thread);
     this.core.forgetIdle();
-    if (channelMessages || directMessages) {
-      this.core.onEvent({ kind: 'purged', channelMessages, directMessages });
+    if (channelMessages || directMessages || conversationMessages) {
+      this.core.onEvent({ kind: 'purged', channelMessages: channelMessages + conversationMessages, directMessages });
       this.core.signal({ scope: 'public', owner: null });
     }
   }

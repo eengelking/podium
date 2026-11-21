@@ -61,6 +61,10 @@ class PgConversations {
     return this.load(id);
   }
 
+  async ids(): Promise<string[]> {
+    return (await this.db.all<{ id: string }>('SELECT id FROM conversations ORDER BY id')).map((r) => r.id);
+  }
+
   async listFor(member: MemberRef): Promise<Conversation[]> {
     const ids = await this.db.all<{ id: string }>('SELECT conversation_id AS id FROM conversation_members WHERE member_kind = ? AND member_ref = ? AND left_at IS NULL ORDER BY conversation_id', [member.kind, member.ref]);
     const list: Conversation[] = [];
@@ -91,6 +95,8 @@ class PgConversations {
       const mine = (await this.membersOf(id)).find((m) => m.member_kind === member.kind && m.member_ref === member.ref && m.left_at == null);
       if (!mine) return null;
       await this.db.run('UPDATE conversation_members SET left_at = ? WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?', [at, id, member.kind, member.ref]);
+      // The agents this person added leave with them: an agent never stays where its owner can no longer see or stop it.
+      if (member.kind === 'person') await this.db.run("UPDATE conversation_members SET left_at = ? WHERE conversation_id = ? AND member_kind = 'agent' AND added_by = ? AND left_at IS NULL", [at, id, Number(member.ref)]);
       if (!(await this.current(id)).some((m) => m.kind === 'person')) {
         await this.erase(id);
         return { conversation: null, deleted: true };
@@ -201,6 +207,7 @@ export async function removePersonOf(db: PgDb, personId: number): Promise<number
   let deleted = 0;
   for (const { id } of ids) {
     await db.run("DELETE FROM conversation_members WHERE conversation_id = ? AND member_kind = 'person' AND member_ref = ?", [id, ref]);
+    await db.run("DELETE FROM conversation_members WHERE conversation_id = ? AND member_kind = 'agent' AND added_by = ?", [id, personId]);
     const left = await db.all<{ member_kind: string; member_ref: string; left_at: number | null }>('SELECT member_kind, member_ref, left_at FROM conversation_members WHERE conversation_id = ? ORDER BY member_kind, member_ref', [id]);
     const now = left.filter((m) => m.left_at == null);
     if (now.some((m) => m.member_kind === 'person')) await db.run('UPDATE conversations SET members_key = ? WHERE id = ?', [membersKey(now.map((m) => ({ kind: m.member_kind, ref: m.member_ref }))), id]);
@@ -221,6 +228,7 @@ export function pgConversations(db: PgDb, scope: () => Promise<string>): Convers
   return {
     open: (input, at) => c.open(input, at),
     get: (id) => c.get(id),
+    ids: () => c.ids(),
     listFor: (member) => c.listFor(member),
     addMembers: (id, members, addedBy, at) => c.addMembers(id, members, addedBy, at),
     leave: (id, member, at) => c.leave(id, member, at),

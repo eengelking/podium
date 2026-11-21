@@ -668,6 +668,8 @@ export interface ConversationsApi {
    */
   open(input: { members: ConversationMemberInput[]; createdBy: number | null }, at: number): Promise<{ conversation: Conversation; created: boolean }>;
   get(id: string): Promise<Conversation | null>;
+  /** The id of every conversation, by id. Used by the retention sweep to tell a conversation that is gone from one that exists. */
+  ids(): Promise<string[]>;
   /** The conversations the member is in now, newest activity first (then id). Never any text. */
   listFor(member: { kind: ConversationMemberKind; ref: string }): Promise<Conversation[]>;
   /** Adds members who are not in it (one who left comes back). Null when there is no such conversation. Throws as `open` does for a bad member or more than 50 in all. */

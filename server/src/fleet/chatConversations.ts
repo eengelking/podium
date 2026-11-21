@@ -162,11 +162,9 @@ export class ConversationChat {
     };
   }
 
-  /** The thread of every conversation a person is in, so the Admin records and counts of one that is gone can be removed. */
+  /** The thread of every conversation that exists, so the Admin records and counts of one that is gone can be removed. */
   async existing(): Promise<Set<string>> {
-    const out = new Set<string>();
-    for (const p of await this.directory()) for (const c of await this.store.listFor({ kind: 'person', ref: String(p.id) })) out.add(conversationThread(c.id));
-    return out;
+    return new Set((await this.store.ids()).map(conversationThread));
   }
 
   /** Whether the viewer's counts may be kept for this thread: they are a member of it. */
@@ -266,9 +264,12 @@ export class ConversationChat {
     let skipped: string[] = [];
     if (first?.ok) {
       const sent = await this.send(viewer, opened.conversation.id, { text: first.text });
-      if (!sent.ok) return sent;
-      message = sent.message;
-      skipped = sent.skipped;
+      // The conversation exists now, so a refused first message is told with it and not as a failure of the whole: the person sends it again from the thread.
+      if (!sent.ok) skipped = [`The first message was not sent: ${sent.error}`];
+      else {
+        message = sent.message;
+        skipped = sent.skipped;
+      }
     }
     if (opened.created) this.core.onEvent({ kind: 'conversation_opened', by: viewer.actor, conversation: opened.conversation.id, members: opened.conversation.members.length });
     const c = (await this.store.get(opened.conversation.id)) as Conversation;
@@ -326,12 +327,12 @@ export class ConversationChat {
         skipped.push(`${m.name}: ${out.error}`);
         continue;
       }
-      this.core.watch(out.delivery.id, (o) => {
-        if (o.kind === 'took') void this.store.markHanded(id, stored.id, this.core.host.now()).catch((err: unknown) => this.core.host.warn('a conversation message could not be marked handed', err));
-      });
+      // From this moment the agent has the text, so the message can no longer be edited or deleted.
+      await this.store.markHanded(id, stored.id, this.core.host.now());
     }
     this.core.onEvent({ kind: 'conversation_sent', by: viewer.actor, conversation: id, messageId: stored.id });
-    return { ok: true, message: this.view(viewer, stored), skipped };
+    const now = (await this.store.getMessage(id, stored.id)) ?? stored;
+    return { ok: true, message: this.view(viewer, now), skipped };
   }
 
   /** The author edits their own message, until Podium has handed it to an agent. */

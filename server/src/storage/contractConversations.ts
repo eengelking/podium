@@ -232,6 +232,33 @@ export function conversationCases(o: Openers): void {
     expect(t.get('trio after ed')).toBeNull();
   });
 
+  it('agrees on every adapter for an agent that leaves with the person who added it, and for the list of every conversation id', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: x } = await c.open({ members: [ED, MAYA], createdBy: 1 }, T0);
+      const { conversation: y } = await c.open({ members: [ED, JO], createdBy: 1 }, T0 + 1);
+      await rec('ids', c.ids());
+      await rec('ed adds the agent', c.addMembers(x.id, [TESTER], 1, T0 + 10));
+      await rec('maya adds her own agent', c.addMembers(x.id, [{ kind: 'agent', ref: 'sess-maya', name: 'maya-main' }], 2, T0 + 11));
+      await rec('ed leaves: the agent he added leaves with him', c.leave(x.id, { kind: 'person', ref: '1' }, T0 + 20));
+      await rec('the agent has no conversation', c.listFor({ kind: 'agent', ref: 'sess-tester' }));
+      await rec('the agent maya added is still in', c.listFor({ kind: 'agent', ref: 'sess-maya' }));
+      await rec('the agent cannot post', c.post(x.id, say(TESTER, 'still here'), T0 + 30));
+      await rec('maya is deleted: her agent goes with her and the conversation with it', c.removePerson(2));
+      await rec('get after', c.get(x.id));
+      await rec('ids after', c.ids());
+      await rec('the other conversation is untouched', c.get(y.id));
+    });
+    expect((t.get('ids') as string[]).length).toBe(2);
+    expect((t.get('ed leaves: the agent he added leaves with him') as { conversation: Conversation }).conversation.members.filter((m) => m.leftAt === null).map((m) => m.name)).toEqual(['Maya Kim', 'maya-main']);
+    expect(t.get('the agent has no conversation')).toEqual([]);
+    expect((t.get('the agent maya added is still in') as Conversation[]).length).toBe(1);
+    expect(t.get('the agent cannot post')).toBeNull();
+    expect(t.get('maya is deleted: her agent goes with her and the conversation with it')).toBe(1);
+    expect(t.get('get after')).toBeNull();
+    expect((t.get('ids after') as string[]).length).toBe(1);
+  });
+
   onEachAdapter(o, 'keeps a conversation out of every other audience: a channel and a direct message never hold its text, and it never holds theirs', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const { conversation } = await chat.conversations.open({ members: [ED, MAYA], createdBy: 1 }, T0);

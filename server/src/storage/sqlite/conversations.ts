@@ -76,6 +76,10 @@ class Conversations {
     return this.load(id);
   }
 
+  ids(): string[] {
+    return (this.db.prepare('SELECT id FROM conversations ORDER BY id').all() as unknown as { id: string }[]).map((r) => r.id);
+  }
+
   listFor(member: MemberRef): Conversation[] {
     const ids = this.db
       .prepare('SELECT conversation_id AS id FROM conversation_members WHERE member_kind = ? AND member_ref = ? AND left_at IS NULL ORDER BY conversation_id')
@@ -106,6 +110,8 @@ class Conversations {
     if (!mine) return null;
     return this.tx(() => {
       this.db.prepare('UPDATE conversation_members SET left_at = ? WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?').run(at, id, member.kind, member.ref);
+      // The agents this person added leave with them: an agent never stays where its owner can no longer see or stop it.
+      if (member.kind === 'person') this.db.prepare("UPDATE conversation_members SET left_at = ? WHERE conversation_id = ? AND member_kind = 'agent' AND added_by = ? AND left_at IS NULL").run(at, id, Number(member.ref));
       if (!this.current(id).some((m) => m.kind === 'person')) {
         this.erase(id);
         return { conversation: null, deleted: true };
@@ -210,6 +216,7 @@ export function removePersonOf(db: DatabaseSync, personId: number): number {
   let deleted = 0;
   for (const { id } of ids) {
     db.prepare("DELETE FROM conversation_members WHERE conversation_id = ? AND member_kind = 'person' AND member_ref = ?").run(id, ref);
+    db.prepare("DELETE FROM conversation_members WHERE conversation_id = ? AND member_kind = 'agent' AND added_by = ?").run(id, personId);
     const left = db.prepare('SELECT member_kind, member_ref, left_at FROM conversation_members WHERE conversation_id = ? ORDER BY member_kind, member_ref').all(id) as unknown as { member_kind: string; member_ref: string; left_at: number | null }[];
     const now = left.filter((m) => m.left_at == null);
     if (now.some((m) => m.member_kind === 'person')) db.prepare('UPDATE conversations SET members_key = ? WHERE id = ?').run(membersKey(now.map((m) => ({ kind: m.member_kind, ref: m.member_ref }))), id);
@@ -231,6 +238,7 @@ export function conversationsOver(db: DatabaseSync, lock: AsyncLock, scope: () =
   return {
     open: (input, at) => step(() => c.open(input, at)),
     get: (id) => step(() => c.get(id)),
+    ids: () => step(() => c.ids()),
     listFor: (member) => step(() => c.listFor(member)),
     addMembers: (id, members, addedBy, at) => step(() => c.addMembers(id, members, addedBy, at)),
     leave: (id, member, at) => step(() => c.leave(id, member, at)),
