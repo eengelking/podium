@@ -2,7 +2,7 @@
 // section with a "+" in its title. One row is a button that opens it and a "..." button that opens its menu; a right-click opens the same
 // menu. A People and agents row takes the color of the agent's state when pointed at or focused, the same colors as its avatar's mark.
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { adminPauseOf, channelTag, MAX_PUBLIC_CHANNELS, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type DirectInfo, type Tag } from "../chatData";
+import { adminPauseOf, channelTag, conversationName, conversationSub, MAX_PUBLIC_CHANNELS, dmKey, dmName, dmSub, dmTag, liveReaders, type AgentStatus, type ChatAgent, type ChatChannel, type ChatOverview, type ConversationInfo, type DirectInfo, type Tag } from "../chatData";
 import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChatAvatar, ChatAvatarPair, type AvatarProps } from "./ChatAvatar";
@@ -100,6 +100,8 @@ export interface SidebarProps {
   onNewChannel: () => void;
   onNewDm: () => void;
   onDm: (d: DirectInfo) => void;
+  /** Opens a conversation of people and agents (#1278). */
+  onConvo: (id: string) => void;
   onAgent: (a: ChatAgent) => void;
   /** A person's row: opens New direct message with their name searched. */
   onPerson: (name: string) => void;
@@ -184,6 +186,31 @@ export function ChatSidebar(p: SidebarProps) {
     ), { open: () => p.onDm(d), aria: `Actions for ${name}`, unread: !ro && d.unread + d.mentions > 0 });
   };
 
+  /** A conversation of people and agents: the other person's avatar, or two of them overlapped (the people first, then the agents). */
+  const convoAvatar = (c: ConversationInfo): ReactNode => {
+    const others = c.members.filter((m) => !m.you).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "person" ? -1 : 1));
+    const av = (m: ConversationInfo["members"][number]): AvatarProps => (m.kind === "agent" ? { kind: "agent", name: m.name } : { kind: "person", name: m.name });
+    if (others.length >= 2) return <ChatAvatarPair a={av(others[0]!)} b={av(others[1]!)} />;
+    return <ChatAvatar {...av(others[0] ?? c.members[0]!)} size={28} />;
+  };
+
+  const convoRow = (c: ConversationInfo) => {
+    const name = conversationName(c);
+    const ro = p.readAs !== null;
+    const readers = ro ? [] : liveReaders(c.adminReading, p.serverNow);
+    return row(`v:${c.id}`, null, (
+      <>
+        {convoAvatar(c)}
+        <span className="stack">
+          <span className="nm" title={name}><bdi>{name}</bdi></span>
+          <span className="sub">{conversationSub(c)}</span>
+          <Tags tag={null} admin={<AdminTags readers={readers} pause={null} />} />
+        </span>
+        {!ro && c.unread > 0 && <span className="unread" aria-label={`${c.unread} new`}>{c.unread}</span>}
+      </>
+    ), { open: () => p.onConvo(c.id), aria: `Actions for ${name}`, unread: !ro && c.unread + c.mentions > 0 });
+  };
+
   const agentRow = ({ item: a, leaving }: { item: ChatAgent; leaving: boolean }) => {
     const kind = agentState(p.sessions, a.sessionId, a.status);
     return row(`a:${a.sessionId}`, agentMenu(a.name, a.sessionId, kind, true, { mention: p.mention }), (
@@ -212,6 +239,7 @@ export function ChatSidebar(p: SidebarProps) {
   const others = o.people.filter((x) => !x.you);
 
   const reading = p.readAs !== null;
+  const convos = o.conversations ?? [];
   // The server keeps 50 public channels besides General; at the limit New channel is off and says why (#1035).
   const capped = o.channels.filter((c) => c.kind === "public" && c.id !== "general").length >= MAX_PUBLIC_CHANNELS;
   return (
@@ -226,12 +254,16 @@ export function ChatSidebar(p: SidebarProps) {
         <ul className="ch-list" id="list-ch">{o.channels.map(channelRow)}</ul>
       </Sec>
       {reading ? (
-        <Sec id="dm" title="Direct Messages" count={o.directs.length} shut={!!shut.dm} onToggle={fold("dm")}>
-          <ul className="ch-list" id="list-dm">{o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">{p.readAs} has no Direct Messages.</li>}</ul>
+        <Sec id="dm" title="Direct Messages" count={o.directs.length + convos.length} shut={!!shut.dm} onToggle={fold("dm")}>
+          <ul className="ch-list" id="list-dm">
+            {convos.map(convoRow)}
+            {o.directs.length + convos.length ? o.directs.map(dmRow) : <li className="hint ch-pad">{p.readAs} has no Direct Messages.</li>}
+            <li className="hint ch-pad">Conversations between people are not shown to an Admin.</li>
+          </ul>
         </Sec>
       ) : person ? (
         <>
-          <Sec id="dm" title="Direct Messages" count={o.directs.length} shut={!!shut.dm} onToggle={fold("dm")} add={{ label: "New direct message", tip: "Start a direct message", onClick: p.onNewDm }}>
+          <Sec id="dm" title="Direct Messages" count={o.directs.length + convos.length} shut={!!shut.dm} onToggle={fold("dm")} add={{ label: "New direct message", tip: "Start a direct message", onClick: p.onNewDm }}>
             <ul className="ch-list" id="list-dm">
               {(o.approvals ?? 0) > 0 && (
                 <li className="ch-pad">
@@ -240,7 +272,8 @@ export function ChatSidebar(p: SidebarProps) {
                   </a>
                 </li>
               )}
-              {o.directs.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Start one from People and agents.</li>}
+              {convos.map(convoRow)}
+              {o.directs.length + convos.length ? o.directs.map(dmRow) : <li className="hint ch-pad">No conversations. Use + to start one.</li>}
             </ul>
           </Sec>
           <Sec id="pe" title="People and agents" count={agentRows.length + others.length} shut={!!shut.pe} onToggle={fold("pe")}>

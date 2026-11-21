@@ -10,7 +10,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer, LEAVE_MS } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, AdminRead, ChannelLink, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
+import type { Address, AdminRead, ChannelLink, ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -112,6 +112,8 @@ interface Fake {
   reads?: Record<string, AdminRead[]>;
   /** Who the New direct message picker offers. */
   targets?: DirectTarget[];
+  /** The messages of each conversation of people and agents (#1278). */
+  convoMessages: Record<string, ConversationMessage[]>;
 }
 
 function world(over: Partial<Fake> = {}): Fake {
@@ -119,6 +121,7 @@ function world(over: Partial<Fake> = {}): Fake {
   const d2 = direct(ME, NOTES, { messages: 2, thread: "dm:person:ed|s-notes" });
   const d3 = direct(DASH, NOTES, { state: "paused", paused: true, messages: 1 });
   return {
+    convoMessages: {},
     overview: {
       enabled: true,
       serverTime: T0,
@@ -262,6 +265,45 @@ function fakeChat(w: Fake = world()) {
     deleteChannelMessage: vi.fn(async (_channel: string, id: string) => ({ ok: true as const, message: cmsg(id, "", { deletedAt: T0 }) })),
     editDmMessage: vi.fn(async (_a: string, _b: string, id: string, text: string) => ({ ok: true as const, message: dmsg(id, ME, TESTER, text) })),
     deleteDmMessage: vi.fn(async (_a: string, _b: string, id: string) => ({ ok: true as const, message: dmsg(id, ME, TESTER, "", { deletedAt: T0 }) })),
+    // Conversations of people and agents (#1278) are tested in chatConversations.test.tsx.
+    chatPeople: vi.fn(async (q = "") => ({ ok: true as const, people: w.overview.people.filter((x) => !x.you && x.name.toLowerCase().includes(q.toLowerCase())).map((x) => ({ name: x.name, conversation: null as string | null })) })),
+    openConversation: vi.fn(async (members: ConversationMemberInput[], text?: string) => {
+      const info: ConversationInfo = {
+        id: `cnv_${(w.overview.conversations ?? []).length + 1}`,
+        thread: "",
+        members: [{ kind: "person", name: "Ed", you: true, addedBy: null }, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : m.sessionId, you: false, addedBy: "Ed" }))],
+        hasAgent: members.some((m) => m.kind === "agent"),
+        unread: 0,
+        mentions: 0,
+        messages: text ? 1 : 0,
+        lastAt: T0,
+        adminReading: [],
+      };
+      info.thread = `convo:${info.id}`;
+      w.overview.conversations = [info, ...(w.overview.conversations ?? [])];
+      w.convoMessages[info.id] = text ? [{ id: "k1", author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null }] : [];
+      return { ok: true as const, created: true, conversation: info, skipped: [] as string[] };
+    }),
+    conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: w.convoMessages[id] ?? [], older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
+    sendConversation: vi.fn(async (id: string, text: string) => {
+      const m: ConversationMessage = { id: `k${(w.convoMessages[id] ?? []).length + 1}`, author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null };
+      w.convoMessages[id] = [...(w.convoMessages[id] ?? []), m];
+      return { ok: true as const, message: m, skipped: [] as string[] };
+    }),
+    editConversationMessage: vi.fn(async () => {
+      throw new Error("not used by this suite");
+    }),
+    deleteConversationMessage: vi.fn(async () => {
+      throw new Error("not used by this suite");
+    }),
+    addConversationMembers: vi.fn(async (id: string, members: ConversationMemberInput[]) => {
+      const c = (w.overview.conversations ?? []).find((x) => x.id === id)!;
+      c.members = [...c.members, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : (w.targets ?? []).find((t) => t.sessionId === m.sessionId)?.name ?? m.sessionId, you: false, addedBy: "Ed" }))];
+      c.hasAgent = c.members.some((m) => m.kind === "agent");
+      return { ok: true as const, conversation: c };
+    }),
+    leaveConversation: vi.fn(async () => ({ ok: true as const, deleted: false })),
+    readingConversation: vi.fn(async () => ({ ok: true as const })),
   } satisfies ChatApi;
   return { api, w };
 }
@@ -3235,43 +3277,55 @@ describe("the New direct message form", () => {
     expect(b.closest("section")).toContainElement(screen.getByRole("heading", { name: /^Direct Messages/ }));
   });
 
-  it("lists your agents, then other people's, hides an ended agent of another person and focuses the search", async () => {
+  it("lists people, then your agents, then other people's, hides an ended agent of another person and focuses the search", async () => {
     await openForm();
     const d = screen.getByRole("dialog");
+    expect(within(d).getByRole("heading", { level: 3, name: "People" })).toBeInTheDocument();
     expect(within(d).getByRole("heading", { level: 3, name: "Your agents" })).toBeInTheDocument();
     expect(within(d).getByRole("heading", { level: 3, name: "Other people's agents" })).toBeInTheDocument();
-    expect(within(d).getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-dash", "s-docs", "s-blocked"]);
+    expect(within(d).getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["p:Maya", "a:s-dash", "a:s-docs", "a:s-blocked"]);
     expect(within(d).queryByText(/old-agent/)).toBeNull();
     expect(within(d).getByLabelText(/claude-dashboard/)).toBeEnabled();
     expect(d).toHaveTextContent("Your orchestrator, running");
-    expect(d).toHaveTextContent("Maya approves before it is delivered.");
-    expect(dlg().getByLabelText("Find an agent or person")).toHaveFocus();
-    expect(d).toHaveTextContent("A Direct Message is read only by you, the agent's owner and an Admin.");
-    expect(d).toHaveTextContent("Another person's agent gets it only after its owner approves, in their My reporters.");
+    expect(dlg().getByLabelText("Find a person or an agent")).toHaveFocus();
+    expect(d).toHaveTextContent("Between people only, a direct message is read by them alone and an Admin cannot read it.");
+    expect(d).toHaveTextContent("whether or not an orchestrator of theirs is running");
   });
 
-  it("shows a target that cannot take a message disabled, with the server's reason", async () => {
+  it("shows another person's agent disabled, and says it cannot be added yet", async () => {
     await openForm();
-    const blocked = dlg().getByLabelText(/release-bot/);
-    expect(blocked).toBeDisabled();
-    expect(screen.getByRole("dialog")).toHaveTextContent("Maya removed the link to release-bot, so it takes no messages from you.");
+    expect(dlg().getByLabelText(/release-bot/)).toBeDisabled();
+    expect(dlg().getByLabelText(/docs-writer/)).toBeDisabled();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Adding another person's agent is not available yet.");
   });
 
   it("searches as it is typed, asking the server, and says when nothing matches", async () => {
     const { chat } = await openForm();
-    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "docs" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "docs" } });
     await flush();
     expect(chat.api.directTargets).toHaveBeenLastCalledWith("docs");
-    expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
+    expect(chat.api.chatPeople).toHaveBeenLastCalledWith("docs");
+    expect(dlg().getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["a:s-docs"]);
     expect(screen.queryByRole("heading", { level: 3, name: "Your agents" })).toBeNull();
-    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "zzz" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "zzz" } });
     await flush();
-    expect(screen.getByRole("dialog")).toHaveTextContent("No agent matches that.");
+    expect(screen.getByRole("dialog")).toHaveTextContent("No person or agent matches that.");
   });
 
-  it("says so when no orchestrator is reporting", async () => {
-    await openForm(withTargets([]));
-    expect(screen.getByRole("dialog")).toHaveTextContent("No orchestrator is reporting yet.");
+  it("says so when there is no one to message", async () => {
+    const w = chanWorld();
+    w.overview.people = [{ name: "Ed", you: true }];
+    w.targets = [];
+    await openForm(fakeChat(w));
+    expect(screen.getByRole("dialog")).toHaveTextContent("There is no one to message yet.");
+  });
+
+  it("lists a person who has no orchestrator running, so they can be messaged", async () => {
+    const w = chanWorld();
+    w.targets = [];
+    await openForm(fakeChat(w));
+    expect(dlg().getByRole("checkbox", { name: "Maya" })).toBeEnabled();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Choose who to message.");
   });
 
   it("says what went wrong when the list cannot be read", async () => {
@@ -3285,14 +3339,40 @@ describe("the New direct message form", () => {
     const { chat } = await openForm();
     fireEvent.click(sendBtn());
     await flush();
-    expect(dlg().getByRole("alert")).toHaveTextContent("Choose who to message.");
-    expect(dlg().getByLabelText("Find an agent or person")).toHaveFocus();
+    expect(dlg().getByRole("alert")).toHaveTextContent("Choose at least one person or agent.");
+    expect(dlg().getByLabelText("Find a person or an agent")).toHaveFocus();
     fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
     fireEvent.click(sendBtn());
     await flush();
     expect(dlg().getByRole("alert")).toHaveTextContent("Write the first message.");
     expect(dlg().getByLabelText("Message")).toHaveFocus();
     expect(chat.api.sendDm).not.toHaveBeenCalled();
+  });
+
+  it("opens a conversation with a person who has no orchestrator running, sends the first message and shows it", async () => {
+    const w = chanWorld();
+    w.targets = [];
+    const chat = fakeChat(w);
+    await openForm(chat);
+    fireEvent.click(dlg().getByRole("checkbox", { name: "Maya" }));
+    expect(screen.getByTestId("dm-summary")).toHaveTextContent("To Maya.");
+    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: " are you around? " } });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(chat.api.openConversation).toHaveBeenCalledWith([{ kind: "person", name: "Maya" }], "are you around?");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("chat-conversation")).toHaveTextContent("are you around?");
+    expect(screen.getByTestId("chat-conversation-privacy")).toHaveTextContent("Only you and Maya can read this. An Admin cannot.");
+    expect(screen.getByText("Sent to Maya.")).toBeInTheDocument();
+  });
+
+  it("says an Admin can read it when an agent is ticked, and that it makes a conversation of everyone chosen", async () => {
+    await openForm();
+    fireEvent.click(dlg().getByRole("checkbox", { name: "Maya" }));
+    expect(screen.queryByTestId("dm-agent-warn")).toBeNull();
+    fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
+    expect(screen.getByTestId("dm-agent-warn")).toHaveTextContent("An agent is in this conversation, so an Admin can read it.");
+    expect(screen.getByTestId("dm-summary")).toHaveTextContent("To Maya and claude-dashboard. This makes a conversation of 3 with you.");
   });
 
   it("sends to your own agent, opens the conversation and says so", async () => {
@@ -3307,27 +3387,6 @@ describe("the New direct message form", () => {
     expect(screen.getByText("Sent to claude-dashboard.")).toBeInTheDocument();
   });
 
-  it("sends to another person's agent, selects the conversation and says it waits for the owner", async () => {
-    const chat = withTargets();
-    const cross: Cross = { person: "Ed", owner: "Maya", link: "waiting", viewerIs: "sender" };
-    const docs = agent("s-docs", "docs-writer", "maya-laptop");
-    chat.api.sendDm.mockImplementationOnce(async (_a: string, _b: string, text: string) => {
-      chat.w.overview.directs.push(direct(ME, docs, { thread: "dm:person:ed|s-docs", owner: "Maya", messages: 1, state: "waiting", cross }));
-      chat.w.dms["person:ed|s-docs"] = { messages: [dmsg("x1", ME, docs, text, { state: "approval", waitingFor: "Maya", to: [{ sessionId: "s-docs", name: "docs-writer", machine: "maya-laptop", state: "approval", why: null }] })] };
-      return { ok: true as const, message: dmsg("x1", ME, docs, text, { state: "approval", waitingFor: "Maya" }), skipped: [], errors: [] };
-    });
-    await openForm(chat);
-    fireEvent.click(dlg().getByLabelText(/docs-writer/));
-    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: "Run the notes through link-check?" } });
-    fireEvent.click(sendBtn());
-    await flush();
-    expect(chat.api.sendDm).toHaveBeenCalledWith("me", "s-docs", "Run the notes through link-check?");
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(rowBtn("d:dm:person:ed|s-docs")).toHaveAttribute("aria-current", "true");
-    expect(row("d:dm:person:ed|s-docs")).toHaveTextContent("Waiting for approval");
-    expect(screen.getByText("Sent. It waits for Maya to approve it.")).toBeInTheDocument();
-    expect(thread()).toHaveTextContent("Waiting for Maya to approve it.");
-  });
 
   it("says what could not be delivered when the server sent the message but skipped or failed an agent", async () => {
     const chat = withTargets();
@@ -3380,30 +3439,19 @@ describe("the New direct message form", () => {
       return { ok: true as const, targets: TARGETS.filter((t) => t.name.includes(q)) };
     });
     await openForm(chat);
-    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "a" } });
-    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "b" } });
-    fireEvent.change(dlg().getByLabelText("Find an agent or person"), { target: { value: "docs" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "a" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "b" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "docs" } });
     await flush();
-    expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
+    expect(dlg().getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["a:s-docs"]);
     await act(async () => {
       late({ ok: true, targets: [] });
       lateFail(new Error("offline"));
     });
-    expect(dlg().getAllByRole("radio").map((r) => (r as HTMLInputElement).value)).toEqual(["s-docs"]);
+    expect(dlg().getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["a:s-docs"]);
     expect(dlg().queryByText(/Could not read who you can message/)).toBeNull();
   });
 
-  it("falls back to the owner's name when the server names nobody to approve, and to plain words when it gives no reason", async () => {
-    const chat = withTargets([TARGETS[1]!, { ...TARGETS[3]!, why: null }]);
-    chat.api.sendDm.mockResolvedValueOnce({ ok: true as const, message: dmsg("z1", ME, agent("s-docs", "docs-writer", "maya-laptop"), "hi", { state: "approval" }), skipped: [], errors: [] });
-    await openForm(chat);
-    expect(screen.getByRole("dialog")).toHaveTextContent("It takes no messages now.");
-    fireEvent.click(dlg().getByLabelText(/docs-writer/));
-    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: "hi" } });
-    fireEvent.click(sendBtn());
-    await flush();
-    expect(screen.getByText("Sent. It waits for Maya to approve it.")).toBeInTheDocument();
-  });
 
   it("is not offered to an Admin who is reading a person", async () => {
     const w = chanWorld();
@@ -3820,7 +3868,7 @@ describe("the redesigned sidebar", () => {
     expect(screen.getByTestId("chat-menu")).toBeInTheDocument();
   });
 
-  it("opens New direct message with the person's name searched, from the row and from its menu", async () => {
+  it("opens New direct message with the person ticked, from the row and from its menu", async () => {
     const w = world();
     w.targets = TARGETS;
     const chat = fakeChat(w);
@@ -3829,13 +3877,9 @@ describe("the redesigned sidebar", () => {
     fireEvent.click(rowBtn("p:Maya"));
     await flush();
     const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
-    expect(dlg.getByLabelText("Find an agent or person")).toHaveValue("Maya");
-    expect(chat.api.directTargets).toHaveBeenLastCalledWith("Maya");
-    expect(dlg.getAllByRole("radio").map((x) => (x as HTMLInputElement).value)).toEqual(["s-docs", "s-blocked"]);
-    // Her one orchestrator that takes a message is chosen, the one that cannot is not, and the message box has the focus.
-    expect(dlg.getByRole("radio", { name: /docs-writer/ })).toBeChecked();
-    expect(dlg.getByRole("radio", { name: /release-bot/ })).not.toBeChecked();
-    await waitFor(() => expect(dlg.getByLabelText("Message")).toHaveFocus());
+    // The person is chosen, whether or not an orchestrator of theirs is running, and the message box is the next thing to write in.
+    expect(dlg.getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    expect(dlg.getByLabelText("Find a person or an agent")).toHaveValue("");
     fireEvent.change(dlg.getByLabelText("Message"), { target: { value: "half a draft" } });
     fireEvent.click(dlg.getByRole("button", { name: "Cancel" }));
     await flush();
@@ -3843,45 +3887,22 @@ describe("the redesigned sidebar", () => {
     fireEvent.click(within(row("p:Maya")).getByRole("button", { name: "Actions for Maya" }));
     fireEvent.click(within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name: "Message Maya" }));
     await flush();
-    expect(within(screen.getByRole("dialog")).getByLabelText("Find an agent or person")).toHaveValue("Maya");
+    expect(within(screen.getByRole("dialog")).getByRole("checkbox", { name: "Maya" })).toBeChecked();
     // Closing reset the draft: this dialog starts with an empty message box.
     expect(within(screen.getByRole("dialog")).getByLabelText("Message")).toHaveValue("");
   });
 
-  it("chooses nothing and keeps the focus on the search when a person has two orchestrators that take a message", async () => {
-    const w = world();
-    w.targets = [TARGETS[1], { ...TARGETS[1], sessionId: "s-two", name: "docs-two", thread: "dm:person:ed|s-two" }];
-    page({ chat: fakeChat(w) });
-    await flush();
-    fireEvent.click(rowBtn("p:Maya"));
-    await flush();
-    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
-    expect(dlg.getAllByRole("radio")).toHaveLength(2);
-    for (const r of dlg.getAllByRole("radio")) expect(r).not.toBeChecked();
-    await waitFor(() => expect(dlg.getByLabelText("Find an agent or person")).toHaveFocus());
-  });
 
-  it("does not choose over a pick the person made after the dialog opened", async () => {
-    const w = world();
-    w.targets = TARGETS;
-    page({ chat: fakeChat(w) });
-    await flush();
-    fireEvent.click(rowBtn("p:Maya"));
-    await flush();
-    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
-    fireEvent.change(dlg.getByLabelText("Find an agent or person"), { target: { value: "docs" } });
-    await flush();
-    expect(dlg.getByRole("radio", { name: /docs-writer/ })).toBeChecked();
-  });
 
-  it("still offers Message on a person with no orchestrator that takes one, and the dialog says why", async () => {
+  it("offers Message on a person with no orchestrator running, and the dialog lets you send to them", async () => {
     const w = world();
     w.targets = [];
     page({ chat: fakeChat(w) });
     await flush();
     fireEvent.click(rowBtn("p:Maya"));
     await flush();
-    expect(screen.getByRole("dialog")).toHaveTextContent("Maya has no orchestrator that takes a message now.");
+    expect(within(screen.getByRole("dialog")).getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("has no orchestrator that takes a message");
   });
 
   describe("a row's menu placement", () => {
@@ -3930,7 +3951,7 @@ describe("the menu on a sender's avatar (#1235)", () => {
   const item = (name: string) => within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name });
   const items = () => within(screen.getByTestId("chat-menu")).getAllByRole("menuitem").map((i) => i.textContent);
 
-  it("offers Message and Mention on a person's avatar, and Message opens New direct message with her orchestrator chosen", async () => {
+  it("offers Message and Mention on a person's avatar, and Message opens New direct message with her chosen", async () => {
     page({ chat: generalWith([maya("a", "hello")], TARGETS.slice(0, 2)) });
     await flush();
     fireEvent.contextMenu(gutOf(msgs()[0]!), { clientX: 120, clientY: 200 });
@@ -3943,19 +3964,18 @@ describe("the menu on a sender's avatar (#1235)", () => {
     fireEvent.click(item("Message Maya"));
     await flush();
     const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
-    expect(dlg.getByLabelText("Find an agent or person")).toHaveValue("Maya");
-    expect(dlg.getByRole("radio", { name: /docs-writer/ })).toBeChecked();
+    expect(dlg.getByRole("checkbox", { name: "Maya" })).toBeChecked();
   });
 
-  it("opens the dialog and says why when the person has no orchestrator that takes a message", async () => {
+  it("opens the dialog with the person chosen when they have no orchestrator that takes a message", async () => {
     page({ chat: generalWith([maya("a", "hello")], []) });
     await flush();
     fireEvent.contextMenu(gutOf(msgs()[0]!));
     fireEvent.click(item("Message Maya"));
     await flush();
     const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
-    expect(dlg.getByText("Maya has no orchestrator that takes a message now.")).toBeInTheDocument();
-    expect(dlg.queryAllByRole("radio")).toHaveLength(0);
+    expect(dlg.getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    expect(dlg.queryByText(/has no orchestrator that takes a message/)).toBeNull();
   });
 
   it("writes the person's address at the caret in the message box and focuses it", async () => {
@@ -4000,7 +4020,7 @@ describe("the menu on a sender's avatar (#1235)", () => {
     fireEvent.contextMenu(gutOf(msgs()[1]!));
     fireEvent.click(item("Message docs-writer"));
     await flush();
-    expect(within(screen.getByRole("dialog", { name: "New direct message" })).getByLabelText("Find an agent or person")).toHaveValue("docs-writer");
+    expect(within(screen.getByRole("dialog", { name: "New direct message" })).getByLabelText("Find a person or an agent")).toHaveValue("docs-writer");
   });
 
   it("gives your own avatar no menu", async () => {
@@ -4144,5 +4164,119 @@ describe("the notices a person gets, in the redesigned layout (#1238)", () => {
     await open("d:dm:s-dash|s-tester");
     expect(within(thread().querySelector(".ch-head") as HTMLElement).getByTestId("chat-tag-paused")).toBeInTheDocument();
     expect(within(thread()).getByTestId("chat-admin-pause-banner")).toHaveClass("ch-nav", "ro", "crit");
+  });
+});
+
+describe("conversations of people and agents (#1278)", () => {
+  const convo = (over: Partial<ConversationInfo> = {}): ConversationInfo => ({
+    id: "cnv_1",
+    thread: "convo:cnv_1",
+    members: [
+      { kind: "person", name: "Ed", you: true, addedBy: null },
+      { kind: "person", name: "Maya", you: false, addedBy: "Ed" },
+    ],
+    hasAgent: false,
+    unread: 2,
+    mentions: 0,
+    messages: 2,
+    lastAt: T0,
+    adminReading: [],
+    ...over,
+  });
+  const cmessage = (id: string, text: string, you: boolean, over: Partial<ConversationMessage> = {}): ConversationMessage => ({
+    id,
+    author: { kind: "person", name: you ? "Ed" : "Maya", you },
+    text,
+    createdAt: T0 - 60_000,
+    editedAt: null,
+    deletedAt: null,
+    replyTo: null,
+    canChange: you,
+    changeWhy: null,
+    ...over,
+  });
+  const withConvo = (info: ConversationInfo = convo(), messages: ConversationMessage[] = [cmessage("k1", "can you look at my PR?", false), cmessage("k2", "yes, after standup", true)]) => {
+    const w = world();
+    w.overview.conversations = [info];
+    w.convoMessages[info.id] = messages;
+    return fakeChat(w);
+  };
+
+  it("lists a conversation with the other person's name, its unread count and no text", async () => {
+    page({ chat: withConvo() });
+    await flush();
+    const r = row("v:cnv_1");
+    expect(r.querySelector(".nm")).toHaveTextContent("Maya");
+    expect(r.querySelector(".sub")).toHaveTextContent("Direct message");
+    expect(r.querySelector(".unread")).toHaveAttribute("aria-label", "2 new");
+    expect(r).not.toHaveTextContent("PR");
+  });
+
+  it("opens it, shows the messages, says an Admin cannot read it, and reads up to the newest", async () => {
+    const chat = withConvo();
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const c = screen.getByTestId("chat-conversation");
+    expect(within(c).getByRole("heading", { level: 2 })).toHaveTextContent("Maya");
+    expect(within(c).getAllByTestId("chat-message")).toHaveLength(2);
+    expect(within(c).getByText("can you look at my PR?")).toBeInTheDocument();
+    expect(within(c).getByTestId("chat-conversation-privacy")).toHaveTextContent("Only you and Maya can read this. An Admin cannot.");
+    expect(chat.api.markRead).toHaveBeenCalledWith("convo:cnv_1", "k2");
+  });
+
+  it("sends a message into it", async () => {
+    const chat = withConvo();
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    fireEvent.change(screen.getByLabelText("Message Maya"), { target: { value: "thanks" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await flush();
+    expect(chat.api.sendConversation).toHaveBeenCalledWith("cnv_1", "thanks");
+    expect(within(screen.getByTestId("chat-conversation")).getByText("thanks")).toBeInTheDocument();
+  });
+
+  it("says an Admin can read it, and names the agent, when an agent is in it", async () => {
+    const info = convo({ hasAgent: true, members: [...convo().members, { kind: "agent", name: "Tester", you: false, addedBy: "Ed" }] });
+    page({ chat: withConvo(info) });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    expect(screen.getByTestId("chat-conversation-privacy")).toHaveTextContent("Tester is an agent in this conversation, so an Admin can read it. Everyone in it is told when one does.");
+  });
+
+  it("adds people or agents from the members panel, in the same dialog, with no first message", async () => {
+    const chat = withConvo();
+    chat.w.targets = TARGETS.slice(0, 1);
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    fireEvent.click(screen.getByTestId("chat-members-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "Add people or agents" }));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "Add to this conversation" }));
+    expect(dlg.queryByLabelText("Message")).toBeNull();
+    expect(dlg.queryByRole("checkbox", { name: "Maya" })).toBeNull();
+    fireEvent.click(dlg.getByLabelText(/claude-dashboard/));
+    expect(screen.getByTestId("dm-agent-warn")).toBeInTheDocument();
+    fireEvent.click(dlg.getByRole("button", { name: "Add" }));
+    await flush();
+    expect(chat.api.addConversationMembers).toHaveBeenCalledWith("cnv_1", [{ kind: "agent", sessionId: "s-dash" }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("Added claude-dashboard.")).toBeInTheDocument();
+  });
+
+  it("goes back to the list when the conversation is gone", async () => {
+    const chat = withConvo();
+    chat.api.conversationMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    expect(screen.queryByTestId("chat-conversation")).toBeNull();
   });
 });
