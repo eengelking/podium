@@ -222,19 +222,19 @@ describe('chat: public channels', () => {
     // Its accessible name is its visible text: an aria-label that does not contain it fails axe's label-content-name-mismatch.
     cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').should('have.attr', 'aria-haspopup', 'dialog');
     cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').click();
-    cy.get('[role=dialog]').should('contain.text', 'New direct message').and('contain.text', 'A Direct Message is read only by you, the agent\'s owner and an Admin.');
+    cy.get('[role=dialog]').should('contain.text', 'New direct message').and('contain.text', 'Between people only, a direct message is read by them alone and an Admin cannot read it.');
     cy.tid('dm-form').contains('h3', 'Your agents');
     cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Your orchestrator');
     // Alex's agents are not offered to Ed (its reporter does not take part in messaging), so there is no second group.
     cy.tid('dm-form').contains('h3', 'Other people\'s agents').should('not.exist');
     // Nothing chosen and nothing written are refused where they are.
     cy.contains('[role=dialog] button', 'Send message').click();
-    cy.tid('dm-form-error').should('have.text', 'Choose who to message.');
-    cy.contains('label', /^\s*Find an agent or person/).find('input').type('zzzz');
-    cy.tid('dm-form').contains('No agent matches that.');
-    cy.contains('label', /^\s*Find an agent or person/).find('input').clear().type('invoice');
-    cy.tid('dm-form').find('input[type=radio]').should('have.length', 1);
-    cy.tid('dm-form').contains('label', 'invoice-v2').find('input[type=radio]').check();
+    cy.tid('dm-form-error').should('have.text', 'Choose at least one person or agent.');
+    cy.contains('label', /^\s*Find a person or an agent/).find('input').type('zzzz');
+    cy.tid('dm-form').contains('No person or agent matches that.');
+    cy.contains('label', /^\s*Find a person or an agent/).find('input').clear().type('invoice');
+    cy.tid('dm-form').find('input[type=checkbox]').should('have.length', 1);
+    cy.tid('dm-form').contains('label', 'invoice-v2').find('input[type=checkbox]').check();
     cy.contains('[role=dialog] button', 'Send message').click();
     cy.tid('dm-form-error').should('have.text', 'Write the first message.');
     cy.tid('dm-form').find('textarea').type(`Hello from the form ${DM_MARK}`);
@@ -246,17 +246,17 @@ describe('chat: public channels', () => {
     cy.contains('[role=status]', 'Sent to invoice-v2.');
   });
 
-  it('opens a Direct Message to another person\'s agent, and it waits for that person\'s approval', () => {
+  it('lists another person\'s agent disabled in New direct message, and a message to it by the route waits for that person\'s approval', () => {
     openChat('Alex');
     cy.get('nav[aria-label=Chat] button[aria-label="New direct message"]').click();
     cy.tid('dm-form').contains('h3', 'Other people\'s agents');
     cy.tid('dm-form').contains('h3', 'Your agents');
-    cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Ed').and('contain.text', 'Ed approves before it is delivered.').find('input[type=radio]').check();
-    cy.tid('dm-form').find('textarea').type('Please run the unit tests on invoice-v2.');
-    cy.contains('[role=dialog] button', 'Send message').click();
+    cy.tid('dm-form').contains('label', 'invoice-v2').should('contain.text', 'Ed').and('contain.text', 'Adding another person\'s agent is not available yet.').find('input[type=checkbox]').should('be.disabled');
+    cy.get('[role=dialog] button[aria-label="Close (Esc)"]').click();
     cy.get('[role=dialog]').should('not.exist');
-    cy.contains('[role=status]', 'Sent. It waits for Ed to approve it.');
-    cy.chatRow(`d:dm:${INVOICE}|person:alex`).should('contain.text', 'Waiting for approval');
+    // The dialog does not add it yet (#1278); the route that waits for the owner is unchanged, and the row and Ed's notice show it.
+    call('POST', `/dm/me/${INVOICE}/messages`, { text: 'Please run the unit tests on invoice-v2.' }).its('status').should('eq', 201);
+    cy.chatRow(`d:dm:${INVOICE}|person:alex`).should('contain.text', 'Waiting for approval').find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'Waiting for Ed to approve it.');
     cy.signIn('Ed');
     cy.openConsole('#/chat');

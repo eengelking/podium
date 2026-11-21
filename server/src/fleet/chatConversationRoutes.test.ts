@@ -49,7 +49,6 @@ const ACCEPTS = ['message', 'command', 'question', 'plan-approve', 'plan-feedbac
 const MAC = { name: 'ed-mbp', id: 'macmacmac001' };
 const LINUX = { name: 'ci-runner-01', id: 'lnxlnxlnx001' };
 const BOX = { name: 'alex-box', id: 'alxalxalx001' };
-const BOX2 = { name: 'alex-box2', id: 'alxalxalx002' };
 
 function report(userName: string, sid: string, name: string, machine: { name: string; id: string }): Report {
   const r = fixtureReport();
@@ -63,7 +62,6 @@ const post = (s: S, token: string, r: Report) => request(s.app).post('/api/fleet
 const dev = (s: S) => post(s, s.ed.token, report('Ed', 'sess-dev', 'dev', MAC));
 const tester = (s: S) => post(s, s.ed.token, report('Ed', 'sess-tester', 'Tester', LINUX));
 const alexOne = (s: S) => post(s, s.alex.token, report('Alex', 'sess-alex', 'review', BOX));
-const alexTwo = (s: S) => post(s, s.alex.token, report('Alex', 'sess-alex2', 'second', BOX2));
 
 async function signedIn(s: S, name: string, token: string) {
   const agent = request.agent(s.app);
@@ -79,7 +77,6 @@ async function world() {
   expect((await alexOne(s)).status).toBe(200);
   return { ...s, edB: await signedIn(s, 'Ed', s.ed.token), alexB: await signedIn(s, 'Alex', s.alex.token) };
 }
-type W = Awaited<ReturnType<typeof world>>;
 
 
 const logRows = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 200 })).rows;
