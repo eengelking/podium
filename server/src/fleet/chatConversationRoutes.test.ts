@@ -204,3 +204,79 @@ describe('a conversation with an agent in it', () => {
     expect(log).toContain('chat_admin_read');
   });
 });
+
+// An @ in a Direct Message with more than one agent (#1282): a message with no @ goes to every agent in it; one that names members goes only to them.
+describe('an @ in a conversation with two agents and a person', () => {
+  const SEND = (b: B, id: string, text: string) => b.post(`${CH}/conversations/${id}/messages`).set(H).send({ text });
+  async function room() {
+    const w = await world();
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-dev' }, { kind: 'agent', sessionId: 'sess-tester' }]);
+    expect(res.status).toBe(201);
+    return { ...w, id: res.body.conversation.id as string };
+  }
+  const SESSION = { dev: 'sess-dev', tester: 'sess-tester' } as const;
+  /** What the agent is handed on its next report, and, when `take`, the agent's answer that it took each one (what moves a delivery to Delivered). */
+  const got = async (s: S, which: 'dev' | 'tester', take = false) => {
+    const handed = ((await (which === 'dev' ? dev(s) : tester(s))).body.deliveries ?? []) as { id: string; text: string }[];
+    if (take) for (const d of handed) expect((await request(s.app).post(`/api/fleet/sessions/${SESSION[which]}/deliveries/${d.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took' })).status).toBe(200);
+    if (take) await new Promise((r) => setTimeout(r, 50));
+    return handed.map((d) => d.text);
+  };
+
+  it('hands a message with no @ to every agent in it, and says so for each', async () => {
+    const w = await room();
+    const sent = await SEND(w.edB, w.id, 'both of you: status?');
+    expect(sent.status).toBe(201);
+    expect(sent.body.message.deliveries.map((d: { name: string; named: boolean; state: string }) => [d.name, d.named, d.state])).toEqual([['Tester', false, 'queued'], ['dev', false, 'queued']]);
+    expect(await got(w, 'dev', true)).toHaveLength(1);
+    expect(await got(w, 'tester', true)).toHaveLength(1);
+    const read = await page(w.edB, w.id);
+    expect(read.body.messages[0].deliveries.map((d: { state: string }) => d.state)).toEqual(['delivered', 'delivered']);
+  });
+
+  it('hands a message that names one agent to that agent only, and the other receives nothing', async () => {
+    const w = await room();
+    const sent = await SEND(w.edB, w.id, '@Tester@ci-runner-01 rerun the specs');
+    expect(sent.status).toBe(201);
+    expect(sent.body.message.deliveries).toMatchObject([{ kind: 'agent', name: 'Tester', named: true, state: 'queued' }]);
+    expect(await got(w, 'dev')).toEqual([]);
+    expect(await got(w, 'tester', true)).toHaveLength(1);
+    expect((await page(w.edB, w.id)).body.messages[0].deliveries).toMatchObject([{ name: 'Tester', named: true, state: 'delivered' }]);
+    // Locked once an agent has it, as any message handed to an agent is.
+    expect(sent.body.message.canChange).toBe(false);
+  });
+
+  it('hands a message that names a person to no agent, and leaves it editable', async () => {
+    const w = await room();
+    const sent = await SEND(w.edB, w.id, '@Alex@console can you look?');
+    expect(sent.status).toBe(201);
+    expect(sent.body.message.deliveries).toMatchObject([{ kind: 'person', name: 'Alex', named: true, state: null }]);
+    expect(sent.body.message.canChange).toBe(true);
+    expect(await got(w, 'dev')).toEqual([]);
+    expect(await got(w, 'tester')).toEqual([]);
+    // The person it names is told, as for any message they can read.
+    const alexSees = (await w.alexB.get(CH)).body.conversations.find((c: { id: string }) => c.id === w.id);
+    expect(alexSees).toMatchObject({ unread: 1 });
+  });
+
+  it('refuses a name that is not in it, in words, and stores and hands over nothing', async () => {
+    const w = await room();
+    const out = await SEND(w.edB, w.id, '@review@alex-box please look');
+    expect(out.status).toBe(422);
+    expect(out.body.error).toBe('review@alex-box is not in this conversation, so nothing was sent. Add it from Members, or remove the @.');
+    expect((await page(w.edB, w.id)).body.messages).toEqual([]);
+    expect(await got(w, 'dev')).toEqual([]);
+    expect(await got(w, 'tester')).toEqual([]);
+    const all = await SEND(w.edB, w.id, '@everyone hello');
+    expect(all.status).toBe(422);
+    expect(all.body.error).toContain('@group and @everyone are not available in a Direct Message');
+  });
+
+  it('reads the @ of someone who may not write there as a refusal of the send, not of the address', async () => {
+    const w = await room();
+    const stranger = await w.people.createPerson('Sam');
+    const samB = await signedIn(w, 'Sam', stranger.token);
+    expect((await SEND(samB, w.id, '@Tester@ci-runner-01 hi')).status).toBe(404);
+    expect(await got(w, 'tester')).toEqual([]);
+  });
+});
