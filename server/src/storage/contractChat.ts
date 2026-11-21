@@ -13,7 +13,13 @@ const ED = { name: 'ed', admin: false };
 
 /** The `people.id` these cases give each person label (#1284): the store binds Chat to the id, so a label is only a way to write the same id each time. */
 const IDS: Record<string, number> = { ed: 11, eve: 12, zed: 13, alex: 14, zoe: 15, fay: 16, nobody: 99 };
-const pid = (label: string): number => IDS[label.trim().toLowerCase().split(' ')[0] ?? ''] ?? 200 + Number(/\d+$/.exec(label)?.[0] ?? 0);
+/** The digits a label ends with, scanned from the end (empty when it ends in no digit). */
+const trailingDigits = (label: string): string => {
+  let i = label.length;
+  while (i > 0 && label.charCodeAt(i - 1) >= 48 && label.charCodeAt(i - 1) <= 57) i--;
+  return label.slice(i);
+};
+const pid = (label: string): number => IDS[label.trim().toLowerCase().split(' ')[0] ?? ''] ?? 200 + Number(trailingDigits(label) || 0);
 
 const G = { ownerId: 11 };
 const input = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostInput => ({ authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, ...over });

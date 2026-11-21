@@ -434,7 +434,7 @@ export class DirectChat {
     const ids = new Set<number>();
     if (c.ownerId !== null) ids.add(c.ownerId);
     for (const p of [c.a, c.b]) {
-      const id = isPersonId(p.sessionId) ? Number(p.sessionId.slice('person:'.length)) : NaN;
+      const id = isPersonId(p.sessionId) ? Number(p.sessionId.slice('person:'.length)) : Number.NaN;
       if (Number.isInteger(id)) ids.add(id);
     }
     return [...ids];
@@ -790,7 +790,7 @@ export class DirectChat {
     // Counts are kept under the person's id (#1284). A conversation whose owner is no person counts for no one.
     if (m.ownerId !== null && (toPerson === null || toPerson !== ownerKey)) await this.core.count({ id: m.ownerId, name: m.owner }, thread, 'dm', m.author === 'person');
     // The person's name as the agent's answer shows it (`toName`) is display only; `person:gone:<name>` is no person and counts for no one.
-    const toId = toPerson === null ? NaN : Number(toPerson.slice('person:'.length));
+    const toId = toPerson === null ? Number.NaN : Number(toPerson.slice('person:'.length));
     if (Number.isInteger(toId)) await this.core.count({ id: toId, name: m.toName }, thread, 'dm', true);
   }
 

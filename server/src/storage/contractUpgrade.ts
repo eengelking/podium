@@ -163,6 +163,12 @@ export interface UpgradeOpeners {
 const T0 = 1_800_000_000_000;
 const ED: Actor = { name: 'ed', admin: false };
 
+/** Orders [name, count] pairs by name (plain code-unit order, as the default sort's string form did) and then by count. */
+const byPair = (a: [string, number], b: [string, number]): number => {
+  if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
+  return a[1] - b[1];
+};
+
 const req = (id: string, createdAt: number, over: Partial<LegacyRequest> = {}): LegacyRequest => ({
   id, owner: 'ed', kind: 'access', fromKey: 'k1', toKey: 'k2', level: 'see', reason: `why-${id}`, by: 'alpha', fromSession: 's1', createdAt, closedAt: null, outcome: null, ...over,
 });
@@ -431,7 +437,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       // The person who held the name when the rows were made has theirs, found by id.
       expect((await chat.group.page({ ownerId: ed }, { limit: 10 })).messages.map((m) => m.text)).toEqual(['grp_00000000_ed']);
       // A direct message's person end is the person's id too, as the peer tables' own upgrade writes it.
-      expect((await chat.readState.list(ed)).map((r) => [r.thread, r.unread]).sort()).toEqual([[`dm:person:${ed}|sa`, 2], ['public', 4]]);
+      expect((await chat.readState.list(ed)).map((r): [string, number] => [r.thread, r.unread]).sort(byPair)).toEqual([[`dm:person:${ed}|sa`, 2], ['public', 4]]);
       expect(await chat.channels.get('eds')).toMatchObject({ createdById: ed });
       expect(await chat.settings.flags(`group:${ed}`)).toMatchObject({ paused: true });
       // The rows of a name that is no person's go to nobody: a person who takes it later finds none of them.
@@ -714,7 +720,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       // Daily spend: a row of a day before the person was made stays with nobody and loses its group.
       for (const t of ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const) {
         const rows = await s.fleet.rollupRows(t, D1, D1);
-        expect(rows.map((r) => [r.owner, Number(r.owner_id)]).sort(), t).toEqual([['Ed', ed], ['Zed', 0]]);
+        expect(rows.map((r): [string, number] => [String(r.owner), Number(r.owner_id)]).sort(byPair), t).toEqual([['Ed', ed], ['Zed', 0]]);
         if (t !== 'failures_daily' && t !== 'skills_daily') expect(rows.filter((r) => r.owner === 'Zed').map((r) => r.group_name), t).toEqual(['']);
       }
     } finally {
@@ -741,7 +747,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await peers.rights.personLink('person:gone:7', 'rk-a')).toMatchObject({ paused: true });
       // Chat: the same name is the same person, in a direct message thread, a thread and a flag scope.
       const chat = s.chat({ now: () => T0 + MIN });
-      expect((await chat.readState.list(num)).map((r) => [r.thread, r.unread]).sort()).toEqual([[`dm:person:${num}|sa`, 5], [`group:${num}`, 1]]);
+      expect((await chat.readState.list(num)).map((r): [string, number] => [r.thread, r.unread]).sort(byPair)).toEqual([[`dm:person:${num}|sa`, 5], [`group:${num}`, 1]]);
       expect(await chat.readState.list(42)).toEqual([]);
       expect(await chat.settings.flags(`group:${num}`)).toMatchObject({ paused: true });
       expect(await chat.settings.flags('group:42')).toMatchObject({ paused: false });
