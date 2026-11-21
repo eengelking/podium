@@ -313,13 +313,13 @@ export function DirectModal(props: { api: ChatApi; sessions: Record<string, Sess
             {picked.length > 0 && (add ? `Add ${list(names)} to this conversation.` : `To ${list(names)}.${picked.length > 1 ? ` This makes a conversation of ${picked.length + 1} with you.` : ""}`)}
           </p>
           {hasAgent && (
-            <p className="ch-warn" data-testid="dm-agent-warn">
+            <p className="ch-nav ro" data-testid="dm-agent-warn">
               <ChEye />
               <span>An agent is in this conversation, so an Admin can read it. Everyone in it is told in the console and in their reporter when one does.</span>
             </p>
           )}
           {sole?.conversation && !add && (
-            <p className="ch-warn" data-testid="dm-exists">
+            <p className="ch-nav ro" data-testid="dm-exists">
               <span>
                 You already have a conversation with <bdi>{sole.name}</bdi>. Your message goes into it.
               </span>

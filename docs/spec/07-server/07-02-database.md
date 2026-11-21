@@ -467,18 +467,20 @@ ALTER TABLE group_messages ADD COLUMN author_id INTEGER;    -- the writer's peop
 Migration 47 (#1278; PostgreSQL and MariaDB main step 23) adds the conversations of people, a fourth audience beside General, My group and `peer_messages` ([DECISIONS 74](../../decisions/74-a-direct-message-is-a-conversation-of-two-or-more-people-and-an-admin-cannot-read-one-without-an-agent-in-it.md)). It is never copied into, merged with or returned together with any of them:
 
 ```sql
-CREATE TABLE conversations (id TEXT PRIMARY KEY, created_by INTEGER, created_at INTEGER NOT NULL, members_key TEXT NOT NULL UNIQUE);
-  -- members_key: the member refs, sorted and joined by |, so exactly one conversation exists for a set of members
-CREATE TABLE conversation_members (conversation_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, added_by INTEGER,
+CREATE TABLE conversations (id TEXT PRIMARY KEY, created_by INTEGER, created_at INTEGER NOT NULL, members_key TEXT NOT NULL);
+  -- members_key: a hash of the sorted kind:ref of the members who are in it now, so the conversation of a set of members is found (an index, not a unique key)
+CREATE TABLE conversation_members (conversation_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL, added_by INTEGER,
   joined_at INTEGER NOT NULL, left_at INTEGER, PRIMARY KEY (conversation_id, member_kind, member_ref));
   -- member_kind person | agent; member_ref the person's people.id or the agent's session id
 CREATE TABLE conversation_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
-  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to TEXT, seq INTEGER NOT NULL, edited_at INTEGER, deleted_at INTEGER, author_id INTEGER);
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to TEXT, seq INTEGER NOT NULL, edited_at INTEGER, deleted_at INTEGER, author_id INTEGER, handed_at INTEGER);
+  -- handed_at: when Podium handed it to an agent of the conversation; a handed message can no longer be edited or deleted
+CREATE INDEX conversations_members ON conversations(members_key);
 CREATE INDEX conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
 CREATE INDEX conversation_members_ref ON conversation_members(member_kind, member_ref);
 ```
 
-A person's counts for a conversation are kept like a channel's, under the thread `convo:<id>`. A page orders by `created_at, seq` like every other. A conversation has no Admin read, so it has no `chat_admin_reads` row while no agent is a member. The retention days apply to its messages as they do to a channel's. Deleting a person removes their membership and a conversation left with no person is deleted with its messages.
+A person's counts for a conversation are kept like a channel's, under the thread `convo:<id>`, and so are an Admin's records of a conversation with an agent in it. A page orders by `created_at, seq` like every other. A conversation has no Admin read, so it has no `chat_admin_reads` row while no agent is a member. The retention days apply to its messages as they do to a channel's. Deleting a person removes their membership and a conversation left with no person is deleted with its messages.
 
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
