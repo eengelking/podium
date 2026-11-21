@@ -155,6 +155,16 @@ Podium reporter from before this change keeps the old frame and has no such addr
 messages treats a `person:` end as present. The reporter that took part is
 the owner's, and an Admin's `@` of another person's agent is asked of the owner as anyone's is.
 
+**An agent answers in a conversation (#1299).** A message written in a Direct Message of people and agents is kept in `conversation_messages` and handed
+to the agent with `core.deliver`, so it has no `peer_messages` row for `replyToPerson` to find, and `person:<name>` cannot say which conversation when a person and
+the agent share several. The `Delivery` therefore carries `convo`, the conversation's id (`chatConversations.ts` `send`, through `ChatCore.deliver` and `MessageFrom`),
+and `withChatHint` ends the message with `convo:<id>` in place of `person:<name>`. `podium_send` to `convo:<id>` (`convoSendTarget` in `plugin/core/peers.ts`,
+shared by Claude Code and OpenCode) calls `POST /api/fleet/sessions/:id/chat/conversations/:conversation/messages`, a route on the reporter allowlist
+(`plugin/core/tls/routes.mjs`) and in `chatAgentRoutes.ts`, the only conversation route a reporter has: it reads nothing. `ConversationChat.agentSend` refuses
+with `404` an agent that is not a current member, with `429` over the per-minute limit, and with `403` when no person's message was handed to that agent in the
+last hour (`AGENT_ANSWER_WINDOW_MS`). Otherwise it stores the answer as the agent's with `ConversationsApi.post`, counts it unread for every person in it, and returns only
+the id and time. No table or column changed, so no adapter changed.
+
 **The page.** `Chat.tsx` keeps what the page chose; `useChat` reads the overview and the open thread when the page opens and
 again whenever the `chat` signal moves `rev` (no interval for data, since a page that also polled would hide a signal that never came; the one timer is an Admin's keep-alive ping, below).
 `chatData.ts` holds the API, the words and the pure helpers; the sidebar, thread, composer and menu are in `components/Chat*.tsx`.
