@@ -356,7 +356,7 @@ export class PgPeerMessages {
       if (!m) return null;
       name = m.name;
     }
-    return refuse(409, `${name} (id ${agentId}) is no longer available: its session has ended, so Podium did not queue the message. podium_peers lists who you can reach now.`);
+    return refuse(409, `The agent ${name} (id ${agentId}) is no longer available: its session has ended, so Podium did not queue the message. podium_peers lists who you can reach now.`);
   }
 
   private async tripRows(a: string, b: string): Promise<TripRow[]> {

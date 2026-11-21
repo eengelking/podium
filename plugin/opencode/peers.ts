@@ -12,7 +12,7 @@ import { redactText } from '../core/diffRedact.ts';
 import { isLaunchId } from '../core/launch.ts';
 import {
   accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, chatReadTarget, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
-  refusalAnswer, requestAnsweredLine, requestLine, requestToast, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
+  refusalAnswer, requestAnsweredLine, requestLine, requestToast, SEND_NO_TO, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { PromptDelivery } from './answering.ts';
 import type { Root } from './state.ts';
@@ -201,7 +201,7 @@ export class Peers {
     if (!root || !t || !this.on(root, t)) return this.off('Not sent.', root, t);
     const to = typeof input.to === 'string' ? input.to.trim() : '';
     const raw = typeof input.text === 'string' ? input.text : '';
-    if (!to) return 'Not sent. Say who it is for: to is "name@machine", as podium_peers lists it.';
+    if (!to) return SEND_NO_TO;
     if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
     const red = redactText(raw);
     // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
