@@ -248,6 +248,7 @@ export function ChatConversation(p: ConversationProps) {
         <div
           className="ch-scroll"
           ref={body}
+          role="region"
           tabIndex={0}
           aria-label="Messages, oldest first"
           onScroll={(e) => {

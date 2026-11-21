@@ -78,7 +78,7 @@ export function checkNewMembers(members: readonly ConversationMemberInput[]): Co
 
 /** What finds the conversation of a set of members: a hash of the sorted `kind:ref` of the members who are in it now. */
 export function membersKey(current: readonly { kind: string; ref: string }[]): string {
-  const parts = current.map((m) => `${m.kind}:${m.ref}`).sort();
+  const parts = current.map((m) => `${m.kind}:${m.ref}`).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return createHash('sha256').update(parts.join('\n')).digest('hex');
 }
 
