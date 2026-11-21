@@ -71,6 +71,10 @@ export const ADMIN_READS: AdminReadEntry[] = [
     'fleet/chatRoutes.test.ts',
     "records an Admin reading a conversation between a person's two agents, for that person",
   ], 'fleet/chatDirect.ts'),
+  told({ call: 'conv.thread', files: ['fleet/chatConversationRoutes.ts'], what: 'a page of a conversation of people and agents in Chat, read by an Admin only while an agent is in it; a conversation of people alone is a 404 (#1278, DECISIONS 74)' }, 'reads.note', [
+    'fleet/chatConversationRoutes.test.ts',
+    "hands a person's message to their own agent, tells the people in it of an Admin who reads, and refuses another person's agent",
+  ], 'fleet/chatConversations.ts'),
   ownerOnly({ call: 'diffs.ask', files: ['fleet/respondRoutes.ts'], what: "a file's diff, which is source code (DECISIONS 36)" }, [
     'fleet/fileDiffRoutes.test.ts',
     'lets only the owner: not another person, not an Administrator, not the admin secret',
@@ -96,6 +100,9 @@ export const NOT_A_READ: Record<string, string> = {
   getMessage: 'the server reads one channel message by id to check it before its author changes it, and to name the agent it went to; no route returns the row to anyone but the author through the view it already reads, so no person reads another\'s text through it (#1269)',
   editMessage: 'a write: answers the author the message they just edited (#1269)',
   deleteMessage: 'a write: answers the author the tombstone of the message they just deleted, which holds no text (#1269)',
+  open: 'a write: opens the conversation and answers the person the first message they just sent (#1278)',
+  send: 'a write: answers the person the message they just sent in a conversation (#1278)',
+  markHanded: 'the server marks a conversation message as handed to an agent so it can no longer be changed; no route returns the row to anyone (#1278)',
   heldMentions: 'the server reads the held mentions of a channel to deliver or drop them; no route returns the rows, so no person reads another\'s text through it (#1046)',
   mentionsAcross: 'the server reads the mentions of one agent in every channel at once to move them when its owner answers; no route returns the rows, so no person reads another\'s text through it (#1213)',
   agentPost: 'a write: an agent posts into a channel and is answered the message it posted',
