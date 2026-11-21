@@ -17,7 +17,7 @@
               with them, newest first, then by name. It comes from the conversations Podium already stores: nothing new is stored per person.
      +        Beside the title: "Find a person or an agent to message". Search over everyone, not only the page shown, then a first message.
      A message from someone moves them to the top of page 1.
-   New classes: none. pe-why and pe-empty are mockup-only helper lines (the picker's hint and the empty state). */
+   New classes: none. The empty state and the picker hint use the sidebar's own .hint (and .ch-pad). */
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; height: 100dvh; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui); }
 .demo { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
@@ -433,10 +433,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
 .modal.ed-confirm { width: min(440px, 100%); }
 .ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; }
 .modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
-.pe-why { margin: 0; font-size: 12px; color: var(--ink2); }
-.pe-why b { color: var(--ink); }
 [data-shut] { display: none; }
-.pe-empty { margin: 0; padding: 8px 20px 12px; color: var(--ink2); font-size: 13px; }
 </style>
 
 <svg class="sprite" width="0" height="0" aria-hidden="true">
@@ -510,7 +507,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
       </ul></section>
     <section class="ch-sec sec-pe" id="sec-pe"><h2><button type="button" class="cr-fold" aria-expanded="true"><svg><use href="#i-chev"/></svg>People and agents <span class="n" id="pe-n">23</span></button><button type="button" class="add" id="pe-add" aria-label="Find a person or an agent to message" data-tip="Find a person or an agent to message" aria-haspopup="dialog"><svg><use href="#i-plus"/></svg></button></h2>
       <ul class="ch-list" id="pe-list"></ul>
-      <p class="pe-empty" id="pe-empty" hidden>No people or agents yet. They appear here when they sign in or an agent connects.</p>
+      <p class="hint ch-pad" id="pe-empty" hidden>No people or agents yet. They appear here when they sign in or an agent connects.</p>
       <div class="pager" id="pe-pager"></div>
     </section>
   </nav>
@@ -528,7 +525,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
         <ul class="dm-pick" id="pe-pick"></ul>
       </fieldset>
       <label>Message<textarea class="field" id="pe-msg" rows="3" placeholder="Write the first message."></textarea></label>
-      <p class="pe-why" id="pe-why">Choose someone to message. Anyone on this server is here, not only the page you are on.</p>
+      <p class="hint" id="pe-why">Choose someone to message. Anyone on this server is here, not only the page you are on.</p>
       <div class="acts"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn pri" id="pe-go" disabled>Send message</button></div>
     </form></div>
   </div>
@@ -616,7 +613,7 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   var sel = null, openedBy = null, open = false;
   function pickList(q) {
     var out = { 'Agents': [], 'People': [] };
-    ALL.slice().sort(function (a, b) { return P[b].last - P[a].last; }).forEach(function (k) {
+    live.slice().sort(function (a, b) { return P[b].last - P[a].last; }).forEach(function (k) {
       var e = P[k]; if (q && (e.n + ' ' + e.sub).toLowerCase().indexOf(q) < 0) return;
       out[e.k === 'agent' ? 'Agents' : 'People'].push(k);
     });
