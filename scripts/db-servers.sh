@@ -31,13 +31,13 @@ USAGE
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TABLE="$ROOT/scripts/db-adapters.mjs"
 IMAGES=()
-kinds_arg=""
+kinds_arg="" ; kinds_given=0
 cwd="server"
 while (($#)); do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --image) [[ "${2:-}" == *=* ]] || { echo "test-db: --image needs KIND=REF" >&2; exit 2; }; IMAGES+=("$2"); shift 2 ;;
-    --kinds) [[ $# -ge 2 ]] || { echo "test-db: --kinds needs a list" >&2; exit 2; }; kinds_arg="$2"; shift 2 ;;
+    --kinds) [[ $# -ge 2 ]] || { echo "test-db: --kinds needs a list" >&2; exit 2; }; kinds_arg="$2"; kinds_given=1; shift 2 ;;
     --cwd) [[ $# -ge 2 ]] || { echo "test-db: --cwd needs a folder" >&2; exit 2; }; cwd="$2"; shift 2 ;;
     --) shift; break ;;
     *) echo "test-db: unknown option $1 (see --help)" >&2; exit 2 ;;
@@ -46,11 +46,13 @@ done
 (($#)) || { echo "test-db: no command to run after -- (see --help)" >&2; exit 2; }
 
 engine="${CONTAINER_ENGINE:-podman}"
-"$engine" info >/dev/null 2>&1 || { echo "test-db: $engine is not usable ($engine info fails). Is it running? On a Mac: podman machine start" >&2; exit 2; }
-
 servers="$(node "$TABLE" kinds --server)" || exit 2
 want=" $(printf '%s' "$kinds_arg" | tr ',' ' ') "
-all_wanted=0 ; [[ -z "${kinds_arg//[ ,]/}" ]] && all_wanted=1
+all_wanted=0 ; ((!kinds_given)) && all_wanted=1 # --kinds "" (only sqlite chosen) starts no server
+start=0
+for k in $servers; do if ((all_wanted)) || [[ "$want" == *" $k "* ]]; then start=1; fi; done
+# A run that starts no container (sqlite alone) needs no engine.
+((start)) && { "$engine" info >/dev/null 2>&1 || { echo "test-db: $engine is not usable ($engine info fails). Is it running? On a Mac: podman machine start" >&2; exit 2; }; }
 
 # One heavy database job at a time on this machine (#1284): wait here for the lock, before any container starts.
 # shellcheck source=scripts/db-lock.sh

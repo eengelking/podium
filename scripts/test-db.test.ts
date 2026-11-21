@@ -155,6 +155,7 @@ describe("test-db.mjs reading a run", () => {
     const limited = resultLines(sums, known, ["sqlite", "postgres"], true, 0);
     expect(limited[0]).toBe("DB TEST RESULT: sqlite=PASS postgres=FAIL(1) mariadb=NOT RUN");
     expect(limited).toContain("  postgres: 1 files, 5 tests, 1 failed");
+    expect(resultLines({ sqlite: { files: 1, tests: 3, failed: 0 }, postgres: { files: 0, tests: 0, failed: 0 } }, known.slice(0, 2), known.slice(0, 2), true, 0)[0]).toBe("DB TEST RESULT: sqlite=PASS postgres=NO TESTS");
     expect(limited.at(-1)).toBe("LIMITED to sqlite postgres. NOT RUN: mariadb. A limited run is not a pass for a pull request.");
   });
 
@@ -289,6 +290,14 @@ describe("npm run test:db", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/is not usable/);
     expect(r.runs).toEqual([]);
+  });
+
+  it("starts no container for a run of sqlite alone, and needs no container engine for it", () => {
+    const r = run(["--db", "sqlite"], { FAKE_INFO: "1" });
+    expect(r.runs).toEqual([]);
+    expect(r.vitest.PG).toBe("");
+    expect(r.vitest.ONLY).toBe("sqlite");
+    expect(r.stdout).toMatch(/NOT RUN: postgres mariadb\./);
   });
 
   it("never reports a run with no vitest report as a pass", () => {

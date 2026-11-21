@@ -139,7 +139,9 @@ export function resultLines(sums, all, ran, limited, code) {
   const word = (k) => {
     if (!ran.includes(k)) return "NOT RUN";
     const s = sums[k];
-    return s.failed > 0 ? `FAIL(${s.failed})` : code === 0 ? "PASS" : "FAIL(0)";
+    if (s.failed > 0) return `FAIL(${s.failed})`;
+    if (code !== 0) return "FAIL(0)";
+    return s.tests === 0 ? "NO TESTS" : "PASS"; // a database no test was counted for did not prove anything
   };
   const lines = [`DB TEST RESULT: ${all.map((k) => `${k}=${word(k)}`).join(" ")}`];
   for (const k of ran) lines.push(`  ${k}: ${sums[k].files} files, ${sums[k].tests} tests${sums[k].failed ? `, ${sums[k].failed} failed` : ""}`);
