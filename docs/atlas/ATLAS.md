@@ -331,7 +331,8 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `goneReadsOf` | The unseen records of deleted conversations, marked seen. In `server/src/fleet/chat.ts`. |
 | Server | `withoutPerson` | What deleting a person does to an Admin record. In `server/src/storage/chatRows.ts`. |
 | Server | `personKeyOf` | A person's end of a link, person:<people.id>, never the name. In `server/src/fleet/peerTypes.ts`. |
-| Server | `personEndKey` | Turns a stored person:<name> end into person:<id>, or person:gone:<name> when no person has the name. In `server/src/storage/peerOwnerIds.ts`. |
+| Server | `personEndRewrite` | Turns a stored person:<name> end into person:<id> for a row since the person was made, or person:gone:<name> for an older row or when no person has the name. In `server/src/storage/peerOwnerIds.ts`. |
+| Server | `keepOwnerSettings` | Keeps an owner's defaults only for a person who provably owns them, so a newcomer with a deleted person's name gets none. In `server/src/storage/peerOwnerIds.ts`. |
 | Server | `ensureTls` | Makes or reads the CA. In `server/src/tlsCa.ts`. |
 | Server | `issueServing` | The serving certificate. In `server/src/tlsCa.ts`. |
 | Server | `issuePersonCert` | A person's client certificate. In `server/src/tlsPeople.ts`. |
