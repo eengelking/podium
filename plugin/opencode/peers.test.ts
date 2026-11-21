@@ -3,7 +3,7 @@ import type { AdminNotice, PeerDelivery, PeerRequest, Report } from '../core/pro
 import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
-import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../core/peers.ts';
+import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../core/peers.ts';
 import { podiumTools } from './tools.ts';
 import type { BusEvent } from './state.ts';
 
@@ -470,6 +470,18 @@ describe('the messaging tools (#969)', () => {
     expect(await tool(x, 'podium_send', { to: 'channel:Not a name', text: 'hi' })).toBe(CHANNEL_ADDRESS_REFUSAL);
     expect(await tool(x, 'podium_send', { to: 'channel:group', text: 'hi' }, KID)).toContain('Only an orchestrator can send');
     expect(x.server.calls.map((c) => c.path)).toEqual(['/api/fleet/sessions/ses_root/chat/channels/general/messages']);
+  });
+
+  it('answers in the conversation a message was written in, on its own route, and not as a person or a peer (#1299)', async () => {
+    const x = rig();
+    await reported(x);
+    x.server.answer = () => ({ status: 201, text: JSON.stringify({ ok: true, id: 'cmg_1', createdAt: 1 }) });
+    expect(await tool(x, 'podium_send', { to: 'convo:cnv_ab12', text: 'password=hunter2 works' })).toContain('Posted in the conversation.');
+    expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/chat/conversations/cnv_ab12/messages', token: 'tok', body: { text: 'password=[redacted] works' } });
+    x.server.answer = () => ({ status: 403, text: JSON.stringify({ ok: false, error: 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.' }) });
+    expect(await tool(x, 'podium_send', { to: 'convo:cnv_cd34', text: 'hi' })).toBe('Not sent. Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
+    expect(await tool(x, 'podium_send', { to: 'convo:', text: 'hi' })).toBe(CONVO_ADDRESS_REFUSAL);
+    expect(x.server.calls.some((c) => c.path === '/api/fleet/sessions/ses_root/peers/messages')).toBe(false);
   });
 
   it('answers Podium\'s refusal in its words, and refuses a channel it cannot name without asking Podium', async () => {

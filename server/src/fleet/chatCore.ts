@@ -169,9 +169,9 @@ export class ChatCore {
    * Hands `text` to an agent as a message of the console (the existing delivery and consent rules: the Admin's respond flags, and what the
    * session's reporter says it accepts). Fails with words for the person, never a status code of the store.
    */
-  deliver(sessionId: string, by: string, name: string, text: string, via: 'chat' | 'channel', chat = false, channel: string | null = null, byId: number | null = null): { ok: true; delivery: Delivery } | Fail {
+  deliver(sessionId: string, by: string, name: string, text: string, via: 'chat' | 'channel', chat = false, channel: string | null = null, byId: number | null = null, convo: string | null = null): { ok: true; delivery: Delivery } | Fail {
     if (!this.host.respondFlagsOn()) return fail(403, 'Responding is off, so Podium cannot hand a message to an agent. An Admin turns it on in Admin > Settings.');
-    const out = this.host.respond.message(sessionId, by, { text }, chat, channel, { via }, byId);
+    const out = this.host.respond.message(sessionId, by, { text }, chat, channel, { via, ...(convo ? { convo } : {}) }, byId);
     if (!out.ok) return fail(out.err.status === 429 ? 429 : out.err.status, answerWords(out.err, name, text));
     return { ok: true, delivery: out.delivery };
   }

@@ -86,6 +86,8 @@ import {
   chatReadTarget,
   channelSendAnswer,
   channelSendTarget,
+  convoSendAnswer,
+  convoSendTarget,
   appliedLevel,
   deliveredLine,
   errorOf,
@@ -1804,6 +1806,13 @@ async function sendTool($: Engine, e: { agentId?: unknown; to?: unknown; text?: 
     const channel = target.channel;
     const posted = await peerCall($, 'POST', `${sessionPath(r.state.id)}/chat/channels/${channel}/messages`, { text: red.text });
     return peerOutcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: ownerName(), redactions: red.redactions }));
+  }
+  // An answer in a Direct Message of people and agents goes to that conversation (#1299); Podium decides whether this agent is in it and was written to.
+  const convoTarget = convoSendTarget(to);
+  if (convoTarget && 'refusal' in convoTarget) return convoTarget.refusal;
+  if (convoTarget) {
+    const posted = await peerCall($, 'POST', `${sessionPath(r.state.id)}/chat/conversations/${convoTarget.convo}/messages`, { text: red.text });
+    return peerOutcome('Not sent.', posted, () => convoSendAnswer({ owner: ownerName(), redactions: red.redactions }));
   }
   const out = await peerCall($, 'POST', peerPath(r.state.id, '/messages'), { to, text: red.text });
   return peerOutcome('Not sent.', out, (body) => sendAnswer(body, { owner: ownerName(), here: r.machine?.name ?? null, to, redactions: red.redactions }));

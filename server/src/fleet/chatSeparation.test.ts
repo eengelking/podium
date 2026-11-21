@@ -39,6 +39,8 @@ const ROUTES: { file: string; method: string; path: string; audience: 'dm' | 'ch
   { file: 'chatAgentRoutes.ts', method: 'get', path: '/sessions/:id/chat/channels', audience: 'agent' },
   { file: 'chatAgentRoutes.ts', method: 'post', path: '/sessions/:id/chat/channels/:channel/messages', audience: 'agent' },
   { file: 'chatAgentRoutes.ts', method: 'get', path: '/sessions/:id/chat/channels/:channel/messages', audience: 'agent' },
+  // An agent's answer in a conversation it is in (#1299): it writes one message as the agent and returns an id, never any text.
+  { file: 'chatAgentRoutes.ts', method: 'post', path: '/sessions/:id/chat/conversations/:conversation/messages', audience: 'agent' },
 ];
 
 const REGISTER = /\b(?:browser|router)\.(get|post|put|delete|patch)\(\s*'([^']+)'/g;

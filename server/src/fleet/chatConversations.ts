@@ -9,6 +9,7 @@ import type { Conversation, ConversationMember, ConversationMemberInput, Convers
 import type { AdminReads, ReadSubject } from './chatAdminReads.js';
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
 import { type ChatCore, type DeliveryOutcome } from './chatCore.js';
+import type { LiveOrchestrator } from './peerTypes.js';
 import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** The thread a conversation's counts and Admin records are kept under. */
@@ -17,6 +18,8 @@ const conversationThread = (id: string): string => `convo:${id}`;
 export const conversationOfThread = (thread: string): string | null => (thread.startsWith('convo:') ? thread.slice('convo:'.length) : null);
 
 const TEXT_MAX_GUARD = 100_000;
+/** How long after a person's message an agent may answer it in the conversation (#1299): the window a channel gives an agent called into it. */
+const AGENT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
 
 /** One member as a person sees it. `you` is the viewer's own place. */
 export interface MemberView {
@@ -365,7 +368,7 @@ export class ConversationChat {
     const skipped: string[] = [];
     for (const m of targets) {
       if (m.kind !== 'agent') continue;
-      const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId);
+      const out = this.core.deliver(m.ref, viewer.actor, m.name, t.text, 'chat', true, null, viewer.personId, id);
       if (!out.ok) {
         skipped.push(`${m.name}: ${out.error}`);
         // The message is already stored and other agents may still be handed it, so a failure to record this one must not stop the loop or fail the send.
@@ -379,6 +382,30 @@ export class ConversationChat {
     this.core.onEvent({ kind: 'conversation_sent', by: viewer.actor, conversation: id, messageId: stored.id });
     const now = (await this.store.getMessage(id, stored.id)) ?? stored;
     return { ok: true, message: this.view(viewer, now), skipped };
+  }
+
+  /**
+   * An agent answers in a conversation it is in (#1299), the way a person's message to it named: `podium_send` to `convo:<id>`. Only a member answers, and only
+   * where a person's message was handed to it in the last hour, so an agent does not start a conversation nobody asked it to join. The answer is cleaned and limited as a
+   * person's is, stored as the agent's, and counted unread for every person in it.
+   */
+  async agentSend(o: LiveOrchestrator, id: string, body: Record<string, unknown>): Promise<{ ok: true; id: string; createdAt: number } | Fail> {
+    const c = await this.store.get(id);
+    if (!c || !c.members.some((m) => m.leftAt === null && m.kind === 'agent' && m.ref === o.sessionId)) return fail(404, 'There is no such conversation.');
+    const t = await this.text(body.text);
+    if (!t.ok) return t;
+    const limits = await this.core.limits();
+    const wait = this.core.rate(`convo-agent:${o.sessionId}`, limits.perMinute);
+    if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+    const since = this.core.host.now() - AGENT_ANSWER_WINDOW_MS;
+    const recent = (await this.store.page(id, { limit: 50 })).messages;
+    const asked = recent.some((m) => m.authorKind === 'person' && m.deletedAt === null && m.createdAt >= since && m.deliveries.some((d) => d.kind === 'agent' && d.ref === o.sessionId));
+    if (!asked) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
+    const stored = await this.store.post(id, { authorKind: 'agent', authorRef: o.sessionId, authorName: o.name, text: t.text }, this.core.host.now());
+    if (!stored) return fail(404, 'There is no such conversation.');
+    for (const m of c.members) if (m.leftAt === null && m.kind === 'person') await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
+    this.core.onEvent({ kind: 'conversation_sent', by: o.name, conversation: id, messageId: stored.id });
+    return { ok: true, id: stored.id, createdAt: stored.createdAt };
   }
 
   /** The author edits their own message, until Podium has handed it to an agent. */

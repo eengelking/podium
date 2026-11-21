@@ -295,3 +295,49 @@ describe('an @ in a conversation with two agents and a person', () => {
     expect(await got(w, 'tester')).toEqual([]);
   });
 });
+
+// An agent answers in the conversation a person wrote to it in (#1299): the message it was handed names the conversation (`convo`), and podium_send to `convo:<id>`
+// posts the answer there. The `person:<name>` address cannot, because that names a person and a person can share several conversations with one agent.
+describe('an agent answering in a conversation', () => {
+  const SEND = (b: B, id: string, text: string) => b.post(`${CH}/conversations/${id}/messages`).set(H).send({ text });
+  const ANSWER = (s: S, session: string, id: string, text: string) => request(s.app).post(`/api/fleet/sessions/${session}/chat/conversations/${id}/messages`).set('X-Podium-Token', s.ed.token).send({ text });
+  async function room() {
+    const w = await world();
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-dev' }, { kind: 'agent', sessionId: 'sess-tester' }]);
+    expect(res.status).toBe(201);
+    return { ...w, id: res.body.conversation.id as string };
+  }
+
+  it('hands the agent the conversation it was written to in, so it can answer there', async () => {
+    const w = await room();
+    expect((await SEND(w.edB, w.id, '@dev status?')).status).toBe(201);
+    const handed = ((await dev(w)).body.deliveries ?? []) as { convo?: string; chat?: boolean }[];
+    expect(handed).toHaveLength(1);
+    expect(handed[0]!.convo).toBe(w.id);
+  });
+
+  it('posts the agent\'s answer in the conversation as the agent, and counts it unread for the other person', async () => {
+    const w = await room();
+    expect((await SEND(w.edB, w.id, '@dev status?')).status).toBe(201);
+    const out = await ANSWER(w, 'sess-dev', w.id, 'All green.');
+    expect(out.status).toBe(201);
+    const read = await page(w.edB, w.id);
+    const last = read.body.messages.at(-1);
+    expect(last.text).toBe('All green.');
+    expect(last.author).toMatchObject({ kind: 'agent', name: 'dev' });
+    const alexSees = (await w.alexB.get(CH)).body.conversations.find((c: { id: string }) => c.id === w.id);
+    expect(alexSees.unread).toBeGreaterThan(0);
+  });
+
+  it('refuses an agent that is not in it, one nobody wrote to there, and a conversation that does not exist', async () => {
+    const w = await room();
+    const other = await OPEN(w.edB, [{ kind: 'agent', sessionId: 'sess-dev' }, person('Ed')]);
+    expect((await ANSWER(w, 'sess-dev', 'cnv_nope', 'hi')).status).toBe(404);
+    // Written to in the room, not in this one.
+    expect((await SEND(w.edB, w.id, '@dev status?')).status).toBe(201);
+    expect((await ANSWER(w, 'sess-dev', other.body.conversation.id, 'hi')).status).toBe(403);
+    // Not a member of the room at all.
+    const solo = await OPEN(w.edB, [{ kind: 'agent', sessionId: 'sess-dev' }, person('Alex')]);
+    expect((await ANSWER(w, 'sess-tester', solo.body.conversation.id, 'hi')).status).toBe(404);
+  });
+});

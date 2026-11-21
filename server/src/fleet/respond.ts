@@ -223,6 +223,8 @@ export function shortDeliveryId(d: Delivery): string {
 export interface MessageFrom {
   via: 'chat' | 'channel' | 'console';
   adminOf?: string | null;
+  /** The conversation of people and agents a chat message was written in (#1299), so the agent is told where to answer. */
+  convo?: string | null;
 }
 
 /** A message from the session page's message box, the default of `RespondStore.message`. */
@@ -525,7 +527,7 @@ export class RespondStore {
     if (s.messages.filter((m) => m.result === null).length >= RESPOND_LIMITS.deliveries) {
       return { ok: false, err: { status: 429, error: `at most ${RESPOND_LIMITS.deliveries} messages can wait for one session` } };
     }
-    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}), ...(parsed.fields.kind === 'message' ? { via: from.via, ...(from.adminOf ? { admin: true as const, owner: from.adminOf } : {}) } : {}) };
+    const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}), ...(from.convo && chat && parsed.fields.kind === 'message' ? { convo: from.convo } : {}), ...(parsed.fields.kind === 'message' ? { via: from.via, ...(from.adminOf ? { admin: true as const, owner: from.adminOf } : {}) } : {}) };
     s.messages.push({ d: delivery, byKey: nameKey(by), byId, result: null, handedOver: false });
     // What a person wrote in Chat reaches the agent and nobody else: the anonymous activity feed, the history and the recordings get a line without the text (#1051).
     const text = delivery.chat || delivery.channel ? `a Chat message from ${by}` : feedText(delivery, null);

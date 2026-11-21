@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing';
-import { CHAT_ANSWER_HINT, CHANNEL_ADDRESS_REFUSAL, channelAddress, channelOfAddress, channelSendTarget, channelSendAnswer, SEND_TO_DESCRIPTION, CHAT_READ_HINT, PEER_MESSAGE_END, RULE, peerPrompt, SUBAGENT_CHAT_READ, TOOL_DESCRIPTIONS, chatReadAnswer, chatReadFrame, channelArgument, withChatHint, channelListAnswer, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_BEFORE_DESCRIPTION, chatReadTarget, CHAT_READ_REFUSAL } from './peers.ts';
+import { CHAT_ANSWER_HINT, CONVO_ADDRESS_REFUSAL, convoSendAnswer, convoSendTarget, CHANNEL_ADDRESS_REFUSAL, channelAddress, channelOfAddress, channelSendTarget, channelSendAnswer, SEND_TO_DESCRIPTION, CHAT_READ_HINT, PEER_MESSAGE_END, RULE, peerPrompt, SUBAGENT_CHAT_READ, TOOL_DESCRIPTIONS, chatReadAnswer, chatReadFrame, channelArgument, withChatHint, channelListAnswer, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_BEFORE_DESCRIPTION, chatReadTarget, CHAT_READ_REFUSAL } from './peers.ts';
 
 const at = Date.UTC(2026, 10, 6, 14, 5, 59);
 const body = (over: Record<string, unknown> = {}) => ({
@@ -144,6 +144,23 @@ describe('the sentence that points an addressed agent at the tool (#1034)', () =
 
   test('the owner\'s own Direct Message still gets only the answer hint', () => {
     expect(withChatHint('x', { by: 'Ed', chat: true })).toBe('x\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
+  });
+
+  test('a message written in a conversation of people and agents gives convo:<id>, not person:<name> (#1299)', () => {
+    expect(withChatHint('x', { by: 'Ed', chat: true, convo: 'cnv_ab12' })).toBe('x\n\nTo answer in this conversation, so that everyone in it sees the answer, use podium_send to "convo:cnv_ab12".');
+    // An id that is not an id is ignored, and a message that is not a chat message never gets it.
+    expect(withChatHint('x', { by: 'Ed', chat: true, convo: 'a b"c' })).toBe('x\n\nTo answer in the Chat thread, use podium_send to "person:Ed".');
+    expect(withChatHint('x', { by: 'Ed', convo: 'cnv_ab12' })).toBe('x');
+  });
+
+  test('convoSendTarget reads convo:<id> in any case, refuses one with no usable id, and leaves every other address alone', () => {
+    expect(convoSendTarget(' Convo:cnv_ab12 ')).toEqual({ convo: 'cnv_ab12' });
+    expect(convoSendTarget('convo:')).toEqual({ refusal: CONVO_ADDRESS_REFUSAL });
+    expect(convoSendTarget('convo:a/b')).toEqual({ refusal: CONVO_ADDRESS_REFUSAL });
+    expect(convoSendTarget('person:Ed')).toBeNull();
+    expect(convoSendTarget('dev@mac')).toBeNull();
+    expect(convoSendAnswer({ owner: 'Ed', redactions: 2 })).toContain('2 values that looked like secrets');
+    expect(SEND_TO_DESCRIPTION).toContain('convo:<id>');
   });
 });
 

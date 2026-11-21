@@ -649,6 +649,8 @@ export interface Delivery {
   chat?: true;
   /** Set on a message from an `@` in a Chat channel (#1034), to a session whose reporter has peer tools: the channel's name (`General` or `My group`). The reporter adds where to read what was said around it. Older reporters ignore it. */
   channel?: string;
+  /** Set on a message written in a Direct Message of people and agents (#1299): that conversation's id. The agent answers it with `podium_send` to `convo:<id>`, because `person:<name>` names a person and may be in several conversations with the agent. Older reporters ignore it. */
+  convo?: string;
   /** Where a message was written (#1251): `chat` is the owner's own Chat message to this agent, `channel` an `@` in a Chat channel, `console` the session page's message box. Set on every message from a server that frames them; a reporter that finds it absent keeps the text as it was. */
   via?: 'chat' | 'channel' | 'console';
   /** Set on a message an Administrator sent to a person's session after the person allowed it (#1251). `owner` is that person. */

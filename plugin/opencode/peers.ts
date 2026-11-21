@@ -11,7 +11,7 @@ import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
 import { isLaunchId } from '../core/launch.ts';
 import {
-  accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, chatReadTarget, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
+  accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, convoSendAnswer, convoSendTarget, chatReadTarget, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
   refusalAnswer, requestAnsweredLine, requestLine, requestToast, SEND_NO_TO, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { PromptDelivery } from './answering.ts';
@@ -211,6 +211,13 @@ export class Peers {
       const channel = target.channel;
       const posted = await this.call(t, 'POST', `${sessionPath(root.id)}/chat/channels/${channel}/messages`, { text: red.text });
       return this.outcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: this.owner(), redactions: red.redactions }));
+    }
+    // An answer in a Direct Message of people and agents goes to that conversation (#1299); Podium decides whether this agent is in it and was written to.
+    const convoTarget = convoSendTarget(to);
+    if (convoTarget && 'refusal' in convoTarget) return convoTarget.refusal;
+    if (convoTarget) {
+      const posted = await this.call(t, 'POST', `${sessionPath(root.id)}/chat/conversations/${convoTarget.convo}/messages`, { text: red.text });
+      return this.outcome('Not sent.', posted, () => convoSendAnswer({ owner: this.owner(), redactions: red.redactions }));
     }
     const out = await this.call(t, 'POST', this.path(root, '/messages'), { to, text: red.text });
     return this.outcome('Not sent.', out, (body) => sendAnswer(body, { owner: this.owner(), here: this.d.machine(), to, redactions: red.redactions }));
