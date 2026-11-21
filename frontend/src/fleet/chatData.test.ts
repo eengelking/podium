@@ -9,6 +9,9 @@ import {
   adminWho,
   liveReaders,
   onDay,
+  orderPeople,
+  peopleSort,
+  PEOPLE_PER_PAGE,
   readersLine,
   readersStops,
   readersTip,
@@ -120,6 +123,35 @@ describe("a Direct Message's key and name", () => {
   it("names an agent's conversation with you by the agent and two agents by both", () => {
     expect(dmName(dm(person, agent("s2", "infra-notes")))).toBe("infra-notes");
     expect(dmName(dm(agent("s1", "claude-dashboard"), agent("s2", "Tester")))).toBe("claude-dashboard, Tester");
+  });
+});
+
+describe("the order of People and agents (#1272)", () => {
+  const meP = { ...person };
+  it("is ten to a page", () => {
+    expect(PEOPLE_PER_PAGE).toBe(10);
+  });
+  it("finds the last message and the unread count in the Direct Messages with that agent, and needs a running agent without any", () => {
+    const ds = [
+      dm(meP, agent("s2", "infra"), { lastAt: 50, unread: 0, mentions: 0 }),
+      dm(agent("s1", "dash"), agent("s2", "infra"), { lastAt: 90, unread: 2, mentions: 1 }),
+      dm(meP, agent("s3", "other"), { lastAt: 70 }),
+    ];
+    expect(peopleSort(ds, (p) => p.sessionId === "s2", false)).toEqual({ needs: true, last: 90 });
+    expect(peopleSort(ds, (p) => p.sessionId === "s3", false)).toEqual({ needs: false, last: 70 });
+    expect(peopleSort(ds, (p) => p.sessionId === "s3", true)).toEqual({ needs: true, last: 70 });
+    expect(peopleSort(ds, (p) => p.sessionId === "nobody", false)).toEqual({ needs: false, last: 0 });
+  });
+  it("puts rows that need the person first, then the newest last message, then the name, and leaves its input alone", () => {
+    const rows = [
+      { key: "a", name: "Zed", needs: false, last: 5 },
+      { key: "b", name: "Ann", needs: false, last: 5 },
+      { key: "c", name: "Old", needs: true, last: 1 },
+      { key: "d", name: "New", needs: false, last: 9 },
+    ];
+    const before = rows.map((r) => r.key).join("");
+    expect(orderPeople(rows).map((r) => r.key).join("")).toBe("cdba");
+    expect(rows.map((r) => r.key).join("")).toBe(before);
   });
 });
 
