@@ -5,7 +5,7 @@
 // own agent, another person's agent waiting for its owner), a description shown as the text it is, and the sidebar's wider column.
 // The callout a channel's opener is shown in the terminal when an Admin edits or removes their channel is the reporter's and is not in the console (docs/e2e/COVERAGE.md).
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
-import { seeded } from '../../../support/commands';
+import { personDmRow, seeded } from '../../../support/commands';
 
 const H = { 'X-Podium-Respond': '1' };
 const API = '/api/fleet/respond/chat';
@@ -242,7 +242,7 @@ describe('chat: public channels', () => {
     cy.get('[role=dialog]').should('not.exist');
     cy.get('#th-h').should('have.text', 'invoice-v2');
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', `Hello from the form ${DM_MARK}`);
-    cy.chatRow(`d:dm:${INVOICE}|person:ed`).should('exist');
+    cy.chatRow(personDmRow(INVOICE, 'Ed')).should('exist');
     cy.contains('[role=status]', 'Sent to invoice-v2.');
   });
 
@@ -256,7 +256,7 @@ describe('chat: public channels', () => {
     cy.get('[role=dialog]').should('not.exist');
     // The dialog does not add it yet (#1278); the route that waits for the owner is unchanged, and the row and Ed's notice show it.
     call('POST', `/dm/me/${INVOICE}/messages`, { text: 'Please run the unit tests on invoice-v2.' }).its('status').should('eq', 202);
-    cy.chatRow(`d:dm:${INVOICE}|person:alex`).should('contain.text', 'Waiting for approval').find('button.ch-row').click();
+    cy.chatRow(personDmRow(INVOICE, 'Alex')).should('contain.text', 'Waiting for approval').find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'Waiting for Ed to approve it.');
     cy.signIn('Ed');
     cy.openConsole('#/chat');
