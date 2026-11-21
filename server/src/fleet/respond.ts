@@ -42,8 +42,10 @@ export interface PodiumFeed {
 
 interface DeliveryEntry {
   d: Delivery;
-  /** The sender's name, compared case-insensitively. */
+  /** The sender's name, compared case-insensitively. Display and the admin secret only: a person is told apart by `byId` (#1284). */
   byKey: string;
+  /** The sender's `people.id`; null for the admin secret (matched on the admin account's name, as `sameAccount` does). */
+  byId: number | null;
   result: DeliveryResult | null;
   handedOver: boolean;
 }
@@ -481,14 +483,14 @@ export class RespondStore {
   }
 
   /** The whole ask, for its owner or an Admin. `viewer` is the signed-in name, to mark their own answer. */
-  detail(sessionId: string, askId: string, viewer: string, lastSeenAt: number): AskDetail | null {
+  detail(sessionId: string, askId: string, viewer: string, lastSeenAt: number, viewerId: number | null = null): AskDetail | null {
     const e = this.sessions.get(sessionId)?.asks.get(askId);
     if (!e) return null;
     const d = e.delivery;
     return {
       ask: e.ask,
       state: stateOf(e),
-      delivery: d ? { ...d.d, result: d.result, mine: d.byKey === nameKey(viewer), handedOver: d.handedOver } : null,
+      delivery: d ? { ...d.d, result: d.result, mine: sameSender(d, viewer, viewerId), handedOver: d.handedOver } : null,
       closed: e.closed ? { outcome: e.closed.outcome, at: e.closed.at, by: e.closed.by, answer: e.closed.answer, planApproved: e.closed.planApproved } : null,
       lastSeenAt,
     };
@@ -498,7 +500,7 @@ export class RespondStore {
    * An answer from the browser. `accepts` is what the session's last report said it takes. Only the first answer to an
    * ask is taken; a later one is refused with who answered and when.
    */
-  answer(sessionId: string, askId: string, by: string, body: unknown): { ok: true; delivery: Delivery; asked: { kind: Ask['kind']; waitedMs: number } } | { ok: false; err: AnswerError } {
+  answer(sessionId: string, askId: string, by: string, body: unknown, byId: number | null = null): { ok: true; delivery: Delivery; asked: { kind: Ask['kind']; waitedMs: number } } | { ok: false; err: AnswerError } {
     const e = this.sessions.get(sessionId)?.asks.get(askId);
     if (!e) return { ok: false, err: { status: 404, error: 'unknown ask' } };
     if (e.closed) return { ok: false, err: { status: 410, error: 'closed', outcome: e.closed.outcome, at: e.closed.at } };
@@ -507,7 +509,7 @@ export class RespondStore {
     const parsed = parseAnswer(body, e.ask, info?.accepts ?? [], info?.limits ?? []);
     if (!parsed.ok) return { ok: false, err: parsed.err };
     const delivery: Delivery = { id: newId(), askId, by, at: this.now(), ...parsed.fields };
-    e.delivery = { d: delivery, byKey: nameKey(by), result: null, handedOver: false };
+    e.delivery = { d: delivery, byKey: nameKey(by), byId, result: null, handedOver: false };
     this.feed?.add(sessionId, e.ask.agentId, delivery.id, { at: delivery.at, text: feedText(delivery, e.ask), by, note: noteFor(delivery, e.ask, null) }, delivery);
     this.wake(sessionId, askId, () => ({ kind: 'delivery', delivery: this.handOver(sessionId, e) ?? delivery }));
     this.onChange(sessionId);
@@ -515,7 +517,7 @@ export class RespondStore {
   }
 
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */
-  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null, from: Readonly<MessageFrom> = FROM_CONSOLE): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
+  message(sessionId: string, by: string, body: unknown, chat = false, channel: string | null = null, from: Readonly<MessageFrom> = FROM_CONSOLE, byId: number | null = null): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
     const accepts = this.info(sessionId)?.accepts ?? [];
     const parsed = parseMessage(body, accepts, this.sessions.get(sessionId)?.commands ?? null);
     if (!parsed.ok) return { ok: false, err: parsed.err };
@@ -524,7 +526,7 @@ export class RespondStore {
       return { ok: false, err: { status: 429, error: `at most ${RESPOND_LIMITS.deliveries} messages can wait for one session` } };
     }
     const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields, ...(chat && parsed.fields.kind === 'message' ? { chat: true as const } : {}), ...(channel && parsed.fields.kind === 'message' ? { channel } : {}), ...(parsed.fields.kind === 'message' ? { via: from.via, ...(from.adminOf ? { admin: true as const, owner: from.adminOf } : {}) } : {}) };
-    s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
+    s.messages.push({ d: delivery, byKey: nameKey(by), byId, result: null, handedOver: false });
     // What a person wrote in Chat reaches the agent and nobody else: the anonymous activity feed, the history and the recordings get a line without the text (#1051).
     const text = delivery.chat || delivery.channel ? `a Chat message from ${by}` : feedText(delivery, null);
     this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text, by, note: null }, delivery);
@@ -581,13 +583,13 @@ export class RespondStore {
   }
 
   /** "Discard my answer": drops an answer or message the mod has not been handed yet. */
-  discard(deliveryId: string, viewer: string, admin: boolean): 'ok' | 'handed-over' | 'unknown' | 'forbidden' {
+  discard(deliveryId: string, viewer: string, admin: boolean, viewerId: number | null = null): 'ok' | 'handed-over' | 'unknown' | 'forbidden' {
     for (const [sid, s] of this.sessions) {
       const mi = s.messages.findIndex((m) => m.d.id === deliveryId);
       const ask = [...s.asks.values()].find((a) => a.delivery?.d.id === deliveryId);
       const d = mi >= 0 ? s.messages[mi]! : ask?.delivery;
       if (!d) continue;
-      if (!admin && d.byKey !== nameKey(viewer)) return 'forbidden';
+      if (!admin && !sameSender(d, viewer, viewerId)) return 'forbidden';
       if (d.handedOver || d.result !== null) return 'handed-over';
       if (mi >= 0) s.messages.splice(mi, 1);
       else if (ask) ask.delivery = null;
@@ -598,6 +600,12 @@ export class RespondStore {
     }
     return 'unknown';
   }
+}
+
+/** Whether the viewer made this delivery (#1284): by the person's id; the admin secret has no id, so it is matched on its own name with no id on the delivery. */
+function sameSender(d: DeliveryEntry, viewer: string, viewerId: number | null): boolean {
+  if (viewerId !== null) return d.byId === viewerId;
+  return d.byId === null && d.byKey === nameKey(viewer);
 }
 
 function stateOf(e: AskEntry): AskState {
