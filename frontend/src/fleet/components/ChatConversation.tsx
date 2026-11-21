@@ -248,8 +248,7 @@ export function ChatConversation(p: ConversationProps) {
         <div
           className="ch-scroll"
           ref={body}
-          role="region"
-          tabIndex={0}
+          tabIndex={0} /* NOSONAR S6845: a focusable scroll region, by design (the same as the thread of a channel) */
           aria-label="Messages, oldest first"
           onScroll={(e) => {
             const el = e.currentTarget;
