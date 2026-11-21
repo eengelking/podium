@@ -632,7 +632,8 @@ body { margin: 0; display: flex; flex-direction: column; height: 100dvh; backgro
   $('#pe-msg').addEventListener('input', ready);
   $('#pe-pick').addEventListener('change', function (e) { sel = e.target.value; ready(); });
   $('#f-pe').addEventListener('submit', function (e) { e.preventDefault(); if ($('#pe-go').disabled) return;
-    var k = sel; if (live.indexOf(k) < 0) live.push(k); P[k].last = ++tick; at = 0; note = 'Message sent to ' + P[k].n + '. They are at the top of the list.'; dlgClose(); render(); });
+    // The key is taken from the fixed list, not from the radio's value, so nothing read from the page reaches the HTML that render() builds.
+    var k = ALL.filter(function (x) { return x === sel; })[0]; if (!k) return; if (live.indexOf(k) < 0) live.push(k); P[k].last = ++tick; at = 0; note = 'Message sent to ' + P[k].n + '. They are at the top of the list.'; dlgClose(); render(); });
   document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', dlgClose); });
   $('#m-pe').addEventListener('mousedown', function (e) { if (e.target === this) dlgClose(); });
   document.addEventListener('keydown', function (e) {
