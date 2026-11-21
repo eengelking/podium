@@ -5,23 +5,26 @@ import { MariaDbConn, parseTarget } from './conn.js';
 import { MAIN_MIGRATIONS, MAIN_STEPS, migrate } from './schema.js';
 import { openMariaDbStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyAdminRead, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import type { LegacyAdminRead, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedMariaDb(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedMariaDb(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages), td };
+    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[]): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[], extras: LegacyExtras): Promise<Storage> {
   const old = new MariaDbConn({ target: parseTarget(td.url), max: 2 });
   try {
     await migrate(old, MAIN_MIGRATIONS, MAIN_STEPS.slice(0, 1));
+    // The people this older database holds (#1284), in order, so an owner's name can be matched to one when the upgrade binds rows to ids, and the owner defaults it kept under a name.
+    for (const name of extras.people ?? []) await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64)]);
+    for (const x of extras.ownerSettings ?? []) await old.run("INSERT INTO peer_owner_settings (owner_lower, trust, on_request, new_send, limits_json) VALUES (?, ?, 'ask', 'ask', NULL)", [nameKey(x.owner), Number(x.trust)]);
     for (const r of rows) {
       await old.run(
         `INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at, closed_at, outcome)

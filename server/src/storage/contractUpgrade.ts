@@ -2,7 +2,7 @@
 // migration ever runs on rows that exist. Here an adapter builds a database at the schema before a row-rewriting migration, loads the same rows,
 // and opens it as a Storage (which migrates it); what comes back through the interface is written out below and must be the same in every adapter.
 import { it, expect } from 'vitest';
-import type { Actor } from '../fleet/peerTypes.js';
+import { personKeyOf, type Actor } from '../fleet/peerTypes.js';
 import type { Storage } from './types.js';
 
 /** A peer request as an older database stores it, before it had an insertion number. */
@@ -104,9 +104,15 @@ export interface LegacyPublicMessage {
   person?: string;
 }
 
+/** What else an older database holds for the peer tables (#1284): the people it has, so the upgrade can match an owner's name to one, and owner defaults kept under a name. */
+export interface LegacyExtras {
+  people?: string[];
+  ownerSettings?: { owner: string; trust: boolean }[];
+}
+
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[], extras?: LegacyExtras): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -196,31 +202,34 @@ export function upgradeCases(o: UpgradeOpeners): void {
   });
 
   it('keeps every peer request, its values and its order when a database made before their insertion number is upgraded', async () => {
-    const s = await o.openUpgraded(FIXTURE);
+    const s = await o.openUpgraded(FIXTURE, [], [], [], [], [], [], { people: ['ed', 'eve'] });
     try {
-      const open = await s.peers({ now: () => T0 + 10_000, flagOn: () => true, startedAt: T0 }).rights.openRequests('ed');
+      const ed = (await s.people.findByName('ed'))!.id;
+      const eve = (await s.people.findByName('eve'))!.id;
+      const open = await s.peers({ now: () => T0 + 10_000, flagOn: () => true, startedAt: T0 }).rights.openRequests(ed);
       expect(open.map((r) => r.id)).toEqual(['prq_b', 'prq_a', 'prq_c', 'prq_prop']);
       expect(open.find((r) => r.id === 'prq_b')).toEqual({
-        id: 'prq_b', owner: 'ed', kind: 'access', fromKey: 'k1', toKey: 'k2', level: 'see', reason: 'why-prq_b', by: 'alpha', fromSession: null,
+        id: 'prq_b', owner: 'ed', ownerId: ed, kind: 'access', fromKey: 'k1', toKey: 'k2', level: 'see', reason: 'why-prq_b', by: 'alpha', fromSession: null,
         messageId: null, createdAt: T0 + 4000, closedAt: null, outcome: null,
       });
       expect(open.find((r) => r.id === 'prq_prop')).toMatchObject({ kind: 'proposal', level: 'send', reason: null, by: 'Admin', createdAt: T0 + 6000 });
-      expect((await s.peers({ now: () => T0, flagOn: () => true, startedAt: T0 }).rights.openRequests('eve')).map((r) => r.id)).toEqual(['prq_z']);
+      expect((await s.peers({ now: () => T0, flagOn: () => true, startedAt: T0 }).rights.openRequests(eve)).map((r) => r.id)).toEqual(['prq_z']);
     } finally {
       await s.close();
     }
   });
 
   it('numbers a request made after the upgrade after every request already there', async () => {
-    const s = await o.openUpgraded(FIXTURE);
+    const s = await o.openUpgraded(FIXTURE, [], [], [], [], [], [], { people: ['ed', 'eve'] });
     try {
+      const ed = (await s.people.findByName('ed'))!.id;
       const peers = s.peers({ now: () => T0 + 5000, flagOn: () => true, startedAt: T0 });
-      const a = await s.reporters.record({ kind: 'mod', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '1.2.0', engineVersion: null, sessionId: 'sa', os: 'macOS', peers: true }, T0);
-      const b = await s.reporters.record({ kind: 'mod', machineId: 'mb', machineName: 'box-b', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '1.2.0', engineVersion: null, sessionId: 'sb', os: 'macOS', peers: true }, T0);
+      const a = await s.reporters.record({ kind: 'mod', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', ownerId: ed, credential: 'person', version: '1.2.0', engineVersion: null, sessionId: 'sa', os: 'macOS', peers: true }, T0);
+      const b = await s.reporters.record({ kind: 'mod', machineId: 'mb', machineName: 'box-b', source: '127.0.0.1', owner: 'ed', ownerId: ed, credential: 'person', version: '1.2.0', engineVersion: null, sessionId: 'sb', os: 'macOS', peers: true }, T0);
       const made = await peers.rights.propose(a, b, 'see', ED);
       expect(made).toMatchObject({ ok: true });
       // The same time as prq_a and prq_c: only the number the migration left decides that the new one comes last.
-      const ids = (await peers.rights.openRequests('ed')).map((r) => r.id);
+      const ids = (await peers.rights.openRequests(ed)).map((r) => r.id);
       expect(ids.slice(0, 3)).toEqual(['prq_b', 'prq_a', 'prq_c']);
       expect(ids).toHaveLength(5);
       expect(ids[3]).toBe((made as { request: { id: string } }).request.id);
@@ -237,19 +246,20 @@ export function upgradeCases(o: UpgradeOpeners): void {
       msg('dlv_1', 's1', 's2', 'one', T0 + 1, 1),
       msg('dlv_2', 's2', 's1', 'two', T0 + 1, 2),
       msg('dlv_x', 's3', 's4', 'someone else', T0, 4, 'eve'),
-    ]);
+    ], [], [], [], { people: ['ed', 'eve'] });
     try {
+      const ed = (await s.people.findByName('ed'))!.id;
       const peers = s.peers({ now: () => T0 + 20, flagOn: () => true, startedAt: T0 });
       const thread = await peers.messages.conversation('s1', 's2');
       expect(thread.map((m) => [m.text, m.author])).toEqual([['one', 'agent'], ['two', 'agent'], ['three', 'agent']]);
-      const page = await peers.messages.page('ed', 's1', 's2', { limit: 2 });
+      const page = await peers.messages.page(ed, 's1', 's2', { limit: 2 });
       expect(page.messages.map((m) => m.text)).toEqual(['two', 'three']);
-      expect((await peers.messages.page('ed', 's1', 's2', { before: page.older, limit: 2 })).messages.map((m) => m.text)).toEqual(['one']);
-      expect(await peers.messages.page('ed', 's3', 's4', { limit: 5 })).toEqual({ messages: [], older: null });
-      const mine = await peers.messages.ownerConversations('ed');
+      expect((await peers.messages.page(ed, 's1', 's2', { before: page.older, limit: 2 })).messages.map((m) => m.text)).toEqual(['one']);
+      expect(await peers.messages.page(ed, 's3', 's4', { limit: 5 })).toEqual({ messages: [], older: null });
+      const mine = await peers.messages.ownerConversations(ed);
       expect(mine.map((c) => [c.messages, c.hiddenAt])).toEqual([[3, null]]);
       expect(await peers.messages.purgeHidden(T0 + 1e9, 0)).toBe(0);
-      expect(await peers.messages.deleteConversation('ed', 's1', 's2')).toBe(3);
+      expect(await peers.messages.deleteConversation(ed, 's1', 's2')).toBe(3);
       expect(await peers.messages.conversation('s3', 's4')).toHaveLength(1);
     } finally {
       await s.close();
@@ -259,17 +269,20 @@ export function upgradeCases(o: UpgradeOpeners): void {
   it('keeps a paused link between a person and another person\'s agent paused, with no pauser known, so either owner may resume it, when a database made before a link kept its pauser is upgraded (#1034)', async () => {
     const reporter: LegacyReporter = { key: 'rk-a', kind: 'mod', machineId: 'ma', machineName: 'box-a', owner: 'ed', version: '1.0.0', firstSeenAt: T0, lastSeenAt: T0, sessionIds: ['sa'] };
     const right = (paused: boolean): LegacyRight => ({ fromKey: 'person:eve', toKey: 'rk-a', owner: 'ed', level: 'send', paused });
-    const s = await o.openUpgraded([], [reporter], [], [], [right(true), { ...right(false), fromKey: 'person:zoe' }]);
+    const s = await o.openUpgraded([], [reporter], [], [], [right(true), { ...right(false), fromKey: 'person:zoe' }], [], [], { people: ['ed', 'eve', 'zoe'] });
     try {
       const peers = s.peers({ now: () => T0 + 20, flagOn: () => true, startedAt: T0 });
-      const paused = await peers.rights.personLink('person:eve', 'rk-a');
+      // A person's end is `person:<id>` now (#1284).
+      const eveKey = personKeyOf((await s.people.findByName('eve'))!.id);
+      const zoeKey = personKeyOf((await s.people.findByName('zoe'))!.id);
+      const paused = await peers.rights.personLink(eveKey, 'rk-a');
       expect(paused).toMatchObject({ level: 'send', paused: true });
       expect(paused).not.toHaveProperty('pausedBy');
-      expect(await peers.rights.personLink('person:zoe', 'rk-a')).toMatchObject({ level: 'send', paused: false });
+      expect(await peers.rights.personLink(zoeKey, 'rk-a')).toMatchObject({ level: 'send', paused: false });
       // A pause made now keeps its pauser; a resume clears it.
-      expect(await peers.setPersonLink('person:zoe', 'rk-a', 'pause', ED, 'owner')).toMatchObject({ ok: true, right: { paused: true, pausedBy: 'owner' } });
-      expect(await peers.setPersonLink('person:eve', 'rk-a', 'resume', ED)).toMatchObject({ ok: true, right: { paused: false } });
-      expect(await peers.rights.personLink('person:zoe', 'rk-a')).toMatchObject({ paused: true, pausedBy: 'owner' });
+      expect(await peers.setPersonLink(zoeKey, 'rk-a', 'pause', ED, 'owner')).toMatchObject({ ok: true, right: { paused: true, pausedBy: 'owner' } });
+      expect(await peers.setPersonLink(eveKey, 'rk-a', 'resume', ED)).toMatchObject({ ok: true, right: { paused: false } });
+      expect(await peers.rights.personLink(zoeKey, 'rk-a')).toMatchObject({ paused: true, pausedBy: 'owner' });
     } finally {
       await s.close();
     }
@@ -436,7 +449,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const edId = (await s.people.findByName('ed'))!.id;
       const eve = (await s.people.findByName('eve smith'))!.id;
       expect(edId).not.toBe(eve);
-      const all = [...(await m.conversation('sa', 'sb')), ...(await m.conversation('person:ed', 'sb')), ...(await m.conversation('person:eve smith', 'sb')), ...(await m.conversation('person:ghost', 'sc')), ...(await m.conversation('sc', 'sd'))];
+      // A person's end is `person:<id>` after the upgrade (#1284), and one no person is called is kept under a key no person's can equal.
+      const all = [...(await m.conversation('sa', 'sb')), ...(await m.conversation(personKeyOf(edId), 'sb')), ...(await m.conversation(personKeyOf(eve), 'sb')), ...(await m.conversation('person:gone:ghost', 'sc')), ...(await m.conversation('sc', 'sd'))];
       expect(all.map((x) => [x.id, x.author, x.authorId, x.editedAt, x.deletedAt, x.text === '' ? null : x.state])).toEqual([
         ['dlv_old', 'agent', null, null, null, 'delivered'],
         ['dlv_agent', 'agent', null, null, null, 'delivered'],
@@ -480,7 +494,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
     ]);
     try {
       const m = s.peers({ now: () => T0 + 100, flagOn: () => true, startedAt: T0 }).messages;
-      const rows = [...(await m.conversation('sa', 'sb')), ...(await m.conversation('sa', 'sgone')), ...(await m.conversation('person:ed', 'sb'))];
+      // No person is called ed in this older database, so the person's end is kept under a key no person's can equal (#1284).
+      const rows = [...(await m.conversation('sa', 'sb')), ...(await m.conversation('sa', 'sgone')), ...(await m.conversation('person:gone:ed', 'sb'))];
       expect(rows.map((x) => [x.id, x.fromAgent, x.toAgent])).toEqual([['dlv_ab', 1, 2], ['dlv_gone', 1, null], ['dlv_person', null, 2]]);
     } finally {
       await s.close();

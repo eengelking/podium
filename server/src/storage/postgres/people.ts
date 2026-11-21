@@ -2,6 +2,7 @@
 // then writes is one transaction, which is what the SQLite lock gave it.
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 import { stripFormat } from '../peerText.js';
+import { personKeyOf } from '../../fleet/peerTypes.js';
 import { withoutPerson } from '../chatRows.js';
 import { fillOwed } from './chat.js';
 import { removePersonOf } from './conversations.js';
@@ -156,20 +157,16 @@ class PgPeopleStore implements PeopleStoreApi {
     });
   }
 
-  /** Everything Chat and the peer stores keep under a deleted person's name (#1051); the same set as the SQLite adapter's `forgetChat`. */
+  /** Everything Chat and the peer stores keep for a deleted person (#1051); the same set as the SQLite adapter's `forgetChat`. The peer rows go by the person's id, never the name (#1284). */
   private async forgetChat(name: string, personId: number): Promise<void> {
     const key = nameKey(name);
     // The conversations of people and agents (#1278): they leave each one, and one left with no person goes with its messages.
     await removePersonOf(this.db, personId);
-    const pk = `person:${key}`;
-    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
-      const owners = (await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`)).map((r) => r.owner).filter((o) => nameKey(o) === key);
-      for (const o of owners) await this.db.run(`DELETE FROM ${table} WHERE owner = ?`, [o]);
-    }
+    const pk = personKeyOf(personId);
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests', 'peer_owner_settings']) await this.db.run(`DELETE FROM ${table} WHERE owner_id = ?`, [personId]);
     await this.db.run('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?', [pk, pk]);
     await this.db.run('DELETE FROM peer_rights WHERE from_key = ?', [pk]);
     await this.db.run('DELETE FROM peer_requests WHERE from_key = ?', [pk]);
-    await this.db.run('DELETE FROM peer_owner_settings WHERE owner_lower = ?', [key]);
     await this.db.run('DELETE FROM group_messages WHERE owner = ?', [key]);
     // The channels they opened stay, public like General, but no longer name them as the opener, so a new person of the same name cannot edit them (#1035).
     await this.db.run("UPDATE public_channels SET created_by = '' WHERE created_by = ?", [key]);

@@ -761,8 +761,8 @@ describe('starting a Direct Message from the picker (#1035)', () => {
     expect(r.status).toBe(200);
     const list = r.body.targets as T[];
     expect(list.map((t) => t.address)).toEqual(['dev@ed-mbp', 'Tester@ci-runner-01', 'review@alex-box']);
-    expect(list[0]).toEqual({ sessionId: 'sess-dev', name: 'dev', machine: 'ed-mbp', address: 'dev@ed-mbp', owner: 'Ed', own: true, status: 'running', waitReason: null, canMessage: true, why: null, needsApproval: false, link: null, thread: 'dm:person:ed|sess-dev' });
-    expect(list[2]).toMatchObject({ sessionId: 'sess-alex', owner: 'Alex', own: false, canMessage: true, needsApproval: true, link: 'none', thread: 'dm:person:ed|sess-alex' });
+    expect(list[0]).toEqual({ sessionId: 'sess-dev', name: 'dev', machine: 'ed-mbp', address: 'dev@ed-mbp', owner: 'Ed', own: true, status: 'running', waitReason: null, canMessage: true, why: null, needsApproval: false, link: null, thread: 'dm:person:1|sess-dev' });
+    expect(list[2]).toMatchObject({ sessionId: 'sess-alex', owner: 'Alex', own: false, canMessage: true, needsApproval: true, link: 'none', thread: 'dm:person:1|sess-alex' });
     const alex = (await targets(w.alexB)).body.targets as T[];
     expect(alex.map((t) => `${t.address}:${t.own}`)).toEqual(['review@alex-box:true', 'dev@ed-mbp:false', 'Tester@ci-runner-01:false']);
   });
@@ -801,7 +801,7 @@ describe('starting a Direct Message from the picker (#1035)', () => {
     expect(first.body).toMatchObject({ ok: true, message: { author: 'person', text: 'hello Tester' }, skipped: [], errors: [] });
     const listed = (await w.edB.get(CH)).body.directs as { thread: string; messages: number }[];
     expect(listed).toHaveLength(1);
-    expect(listed[0]).toMatchObject({ thread: 'dm:person:ed|sess-tester', messages: 1 });
+    expect(listed[0]).toMatchObject({ thread: 'dm:person:1|sess-tester', messages: 1 });
     expect(((await tester(w)).body.deliveries ?? []).map((d: { text?: string }) => d.text)).toEqual(['hello Tester']);
     expect((await w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'and again' })).status).toBe(202);
     expect(((await w.edB.get(CH)).body.directs as unknown[]).length).toBe(1);

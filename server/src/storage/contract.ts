@@ -93,7 +93,7 @@ const REPORTER_SHAPE: Shape<ReporterRow> = {
   firstSeenAt: 'int', lastSeenAt: 'int', sessions: 'int', live: 'int', os: 'text?', peers: 'bool?',
 };
 const MESSAGE_SHAPE: Shape<MessageRow> = {
-  id: 'text', owner: 'text', link: 'text', fromKey: 'text', toKey: 'text', fromSession: 'text', toSession: 'text', fromName: 'text', fromMachine: 'text',
+  id: 'text', owner: 'text', ownerId: 'int?', link: 'text', fromKey: 'text', toKey: 'text', fromSession: 'text', toSession: 'text', fromName: 'text', fromMachine: 'text',
   toName: 'text', toMachine: 'text', text: 'text', sentAt: 'int', state: 'text', stateAt: 'int', why: 'text?', approved: 'bool', author: 'text',
   authorId: 'int?', fromAgent: 'int?', toAgent: 'int?', editedAt: 'int?', deletedAt: 'int?',
 };
@@ -412,8 +412,8 @@ function ownCases(adapter: ContractAdapter): void {
       await peers.note('sa', a, 'ed', ED_PERSON, waiting('alpha', 'box-a'));
       await peers.note('sb', b, 'ed', ED_PERSON, waiting('beta', 'box-b'));
       const ed = { name: 'ed', admin: false };
-      await peers.rights.setRight('ed', a, b, 'send', ed);
-      await peers.rights.setRight('ed', b, a, 'send', ed);
+      await peers.rights.setRight(ED_PERSON, a, b, 'send', ed);
+      await peers.rights.setRight(ED_PERSON, b, a, 'send', ed);
       // the first two are sent in the same millisecond, one each way; the last a moment later
       for (const [from, to, text] of [['sa', 'beta@box-b', 'one'], ['sb', 'alpha@box-a', 'two']] as const) {
         const out = await peers.messages.send(from, to, text);

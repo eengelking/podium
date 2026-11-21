@@ -47,8 +47,8 @@ async function world(ab: 'ask' | 'send' = 'ask', ba: 'ask' | 'send' | 'none' = '
   await storage.fleet.upsertSession(session({ id: 'sb', owner: 'ed' }));
   await peers.note('sa', a, 'ed', 1, report('alpha', 'box-a'));
   await peers.note('sb', b, 'ed', 1, report('beta', 'box-b'));
-  await peers.rights.setRight('ed', a, b, ab, ED);
-  if (ba !== 'none') await peers.rights.setRight('ed', b, a, ba, ED);
+  await peers.rights.setRight(1, a, b, ab, ED);
+  if (ba !== 'none') await peers.rights.setRight(1, b, a, ba, ED);
   return { storage, peers, trails, keys: { a, b }, tick: (ms = 1) => (now += ms) };
 }
 
@@ -67,8 +67,8 @@ describe('peer store: approve is one step', () => {
     const out = sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
     expect(out.state).toBe('approval');
     const [x, y] = await Promise.all([
-      w.peers.answer(out.requestId!, 'ed', 'deliver', ED),
-      w.peers.answer(out.requestId!, 'ed', 'deliver', ED),
+      w.peers.answer(out.requestId!, 1, 'deliver', ED),
+      w.peers.answer(out.requestId!, 1, 'deliver', ED),
     ]);
     expect([x.ok, y.ok].sort()).toEqual([false, true]);
     const refused = (x.ok ? y : x) as Refusal;
@@ -88,8 +88,8 @@ describe('peer store: approve is one step', () => {
   ])('never delivers after the link is removed (%s)', async (_name, answerFirst) => {
     const w = await world('ask');
     const out = sent(await w.peers.messages.send('sa', 'beta@box-b', 'secret plan'));
-    const answer = () => w.peers.answer(out.requestId!, 'ed', 'deliver', ED);
-    const remove = () => w.peers.removeLink('ed', w.keys.a, w.keys.b, ED);
+    const answer = () => w.peers.answer(out.requestId!, 1, 'deliver', ED);
+    const remove = () => w.peers.removeLink(1, w.keys.a, w.keys.b, ED);
     await Promise.all(answerFirst ? [answer(), remove()] : [remove(), answer()]);
     const reply = await w.peers.replyFor('sb', true);
     expect(reply.peerDeliveries.filter((d) => d.kind === 'message')).toHaveLength(0);
@@ -101,20 +101,20 @@ describe('peer store: approve is one step', () => {
   it('holds a delivered message back when the link is paused at the same time', async () => {
     const w = await world('ask');
     const out = sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-    await Promise.all([w.peers.answer(out.requestId!, 'ed', 'deliver', ED), w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, true, ED)]);
+    await Promise.all([w.peers.answer(out.requestId!, 1, 'deliver', ED), w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, true, ED)]);
     expect((await w.peers.replyFor('sb', true)).peerDeliveries.filter((d) => d.kind === 'message')).toHaveLength(0);
-    await w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, false, ED);
+    await w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, false, ED);
     expect((await w.peers.replyFor('sb', true)).peerDeliveries.filter((d) => d.kind === 'message')).toHaveLength(1);
   });
 
   it('says in the same step whether the link was paused when the message was delivered', async () => {
     const w = await world('ask');
     const out = sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-    await w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, true, ED);
-    const done = await w.peers.answerPaused(out.requestId!, 'ed', 'deliver', ED);
+    await w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, true, ED);
+    const done = await w.peers.answerPaused(out.requestId!, 1, 'deliver', ED);
     expect(done.out.ok).toBe(true);
     expect(done.paused).toBe(true);
-    expect((await w.peers.answerPaused(out.requestId!, 'ed', 'deliver', ED)).paused).toBe(false);
+    expect((await w.peers.answerPaused(out.requestId!, 1, 'deliver', ED)).paused).toBe(false);
   });
 });
 
@@ -183,7 +183,7 @@ describe('peer store: ended and deleted sessions', () => {
     await Promise.all([w.peers.deleted(['sb']), w.peers.messages.send('sa', 'beta@box-b', 'later')]);
     expect(rows(w, 'SELECT id FROM peer_messages')).toEqual([]);
     expect(rows(w, 'SELECT id FROM peer_requests WHERE closed_at IS NULL')).toEqual([]);
-    expect((await w.peers.answer(out.requestId!, 'ed', 'deliver', ED)).ok).toBe(false);
+    expect((await w.peers.answer(out.requestId!, 1, 'deliver', ED)).ok).toBe(false);
   });
 
   it('forgets a session that reports done, and drops what waited for it', async () => {
@@ -244,7 +244,7 @@ describe('peer store: the Admin settings', () => {
   it('checks an owner default against the limits as they are when it is written', async () => {
     const w = await world();
     await w.peers.settings.set({ perMinute: 2 });
-    const [over, fine] = await Promise.all([w.peers.setDefaults('ed', { limits: { perMinute: 5 } }, ED), w.peers.setDefaults('ed', { limits: { perMinute: 1 } }, ED)]);
+    const [over, fine] = await Promise.all([w.peers.setDefaults(1, { limits: { perMinute: 5 } }, ED), w.peers.setDefaults(1, { limits: { perMinute: 1 } }, ED)]);
     expect(over.ok).toBe(false);
     expect(fine.ok).toBe(true);
   });
@@ -259,7 +259,7 @@ describe('peer store: the rights step inside a transaction', () => {
     breakSecondDirection(w);
     const inner = await w.storage.tx(async () => {
       await w.storage.people.log('kind', 'before', 'src', T0, 'ed');
-      const failed = await w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, true, ED).catch((e: Error) => e.message);
+      const failed = await w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, true, ED).catch((e: Error) => e.message);
       await w.storage.people.log('kind', 'after', 'src', T0, 'ed');
       return failed;
     });
@@ -273,7 +273,7 @@ describe('peer store: the rights step inside a transaction', () => {
     const w = await world('send', 'send');
     await expect(
       w.storage.tx(async () => {
-        await w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, true, ED);
+        await w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, true, ED);
         throw new Error('abandoned');
       }),
     ).rejects.toThrow('abandoned');
@@ -283,7 +283,7 @@ describe('peer store: the rights step inside a transaction', () => {
   it('runs a step started inside a transaction on the transaction, in the order it was asked', async () => {
     const w = await world('send', 'send');
     await w.storage.tx(async () => {
-      await w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, true, ED);
+      await w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, true, ED);
       expect((await w.peers.rights.effective(w.keys.a, w.keys.b)).paused).toBe(true);
     });
     expect((await w.peers.rights.effective(w.keys.a, w.keys.b)).paused).toBe(true);
@@ -294,7 +294,7 @@ describe('peer store: views', () => {
   it('gives the owner view and the admin view from one step each', async () => {
     const w = await world('ask');
     sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
-    const view = await w.peers.ownerView('ed', 1, T0 + 1);
+    const view = await w.peers.ownerView(1, T0 + 1);
     expect(view.reporters.map((r) => r.key).sort()).toEqual([w.keys.a, w.keys.b].sort());
     expect(view.limits.server.perMinute).toBe(6);
     expect(view.requests).toHaveLength(1);
@@ -314,7 +314,7 @@ describe('peer store: views', () => {
     const w = await world('send', 'none');
     const seenNames: string[] = [];
     w.peers.onRights = (t, machine) => void (t.kind === 'paused' && seenNames.push(machine(t.a), machine('nope')));
-    await w.peers.rights.pauseLink('ed', w.keys.a, w.keys.b, true, ED);
+    await w.peers.rights.pauseLink(1, w.keys.a, w.keys.b, true, ED);
     expect(seenNames).toEqual(['box-a', 'nope']);
     expect(w.peers.onRights).toBeTypeOf('function');
     w.peers.withSource = (_s, fn) => fn();

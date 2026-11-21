@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
 import { peerPersonKey } from '../chatRows.js';
+import { OWNED_PEER_TABLES, PERSON_END_COLUMNS, personEndKey, renameLinkEnd } from '../peerOwnerIds.js';
 import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
@@ -62,6 +63,55 @@ function fillOwnerIds(db: DatabaseSync): void {
       const id = ids.get(nameKey(r.owner));
       if (id !== undefined) set.run(id, r.owner);
     }
+  }
+}
+
+/**
+ * Binds the peer-messaging tables to a person by id (#1284). The rights, requests and messages that exist get the id of their owner, by the owner's folded name against `people.name_lower`
+ * (JS, because SQL cannot fold a name the way `nameKey` does); a row whose owner matches no person keeps none, so it belongs to nobody and a newcomer with the name cannot reach it. A person's
+ * end of a link (`person:<name>`) becomes `person:<id>`, or `person:gone:<name>` when no person has the name, in every column and link name that holds one. An owner's defaults are kept under
+ * the id (the table's key now holds it as text, never a name); a row whose name matches no person is dropped, because defaults nobody can read or write are not worth a key that a newcomer
+ * could meet. Only rows without an id are written, and the key rewrite goes through a marker so no new key is ever rewritten again.
+ */
+function fillPeerOwnerIds(db: DatabaseSync): void {
+  // order-insensitive: the rows are folded into a map by name.
+  const ids = new Map((db.prepare('SELECT id, name_lower FROM people ORDER BY id').all() as unknown as { id: number; name_lower: string }[]).map((r) => [r.name_lower, r.id]));
+  for (const table of OWNED_PEER_TABLES) {
+    const set = db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`);
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of db.prepare(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`).all() as unknown as { owner: string }[]) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) set.run(id, r.owner);
+    }
+  }
+  // The link names first, while the session columns still say which end is the person.
+  // order-insensitive: each link name is rewritten on its own rows, whatever the order.
+  const links = db.prepare("SELECT DISTINCT link, from_session, to_session FROM peer_messages WHERE substr(from_session, 1, 7) = 'person:' OR substr(to_session, 1, 7) = 'person:' ORDER BY link, from_session, to_session").all() as unknown as { link: string; from_session: string; to_session: string }[];
+  for (const l of links) {
+    const end = l.from_session.startsWith('person:') ? l.from_session : l.to_session;
+    const next = renameLinkEnd(l.link, end, personEndKey(end, ids));
+    if (next !== null && next !== l.link) db.prepare('UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?)').run(next, l.link, l.from_session, l.to_session);
+  }
+  for (const { table, columns } of PERSON_END_COLUMNS) {
+    for (const col of columns) {
+      // order-insensitive: each old key is moved to its new one, through a marker, so a new key is never taken for an old one.
+      const olds = db.prepare(`SELECT DISTINCT ${col} AS k FROM ${table} WHERE substr(${col}, 1, 7) = 'person:' ORDER BY ${col}`).all() as unknown as { k: string }[];
+      let moved = false;
+      for (const { k } of olds) {
+        const to = personEndKey(k, ids);
+        if (to === k) continue;
+        db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(`~${to}`, k);
+        moved = true;
+      }
+      if (moved) db.prepare(`UPDATE ${table} SET ${col} = substr(${col}, 2) WHERE substr(${col}, 1, 8) = '~person:'`).run();
+    }
+  }
+  // order-insensitive: the rows are all dropped and written again, whatever the order.
+  const settings = db.prepare('SELECT owner_lower, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IS NULL ORDER BY owner_lower').all() as unknown as { owner_lower: string; trust: number; on_request: string; new_send: string; limits_json: string | null }[];
+  db.prepare('DELETE FROM peer_owner_settings WHERE owner_id IS NULL').run();
+  for (const s of settings) {
+    const id = ids.get(s.owner_lower);
+    if (id !== undefined) db.prepare('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)').run(String(id), id, s.trust, s.on_request, s.new_send, s.limits_json);
   }
 }
 
@@ -705,6 +755,19 @@ ALTER TABLE peer_messages ADD COLUMN to_agent INTEGER;`,
 ALTER TABLE sessions ADD COLUMN owner_id INTEGER;
 ALTER TABLE reporters ADD COLUMN owner_id INTEGER;`,
     after: fillOwnerIds,
+  },
+  {
+    version: 50,
+    // The peer-messaging tables belong to a person by id, never by name (#1284): `owner_id` is `people.id` on the rights, requests and messages, and the owner defaults are found by it. `owner` stays as
+    // display text. NULL for a row whose owner matches no person. `fillPeerOwnerIds` gives the others their person's id, rewrites a person's end of a link (`person:<name>`) to `person:<id>`, and rekeys the
+    // defaults. The same step is PostgreSQL step 26 and MariaDB step 26.
+    sql: `
+ALTER TABLE peer_rights ADD COLUMN owner_id INTEGER;
+ALTER TABLE peer_requests ADD COLUMN owner_id INTEGER;
+ALTER TABLE peer_messages ADD COLUMN owner_id INTEGER;
+ALTER TABLE peer_owner_settings ADD COLUMN owner_id INTEGER;
+CREATE INDEX IF NOT EXISTS peer_owner_settings_owner_id ON peer_owner_settings(owner_id);`,
+    after: fillPeerOwnerIds,
   },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;

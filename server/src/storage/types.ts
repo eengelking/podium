@@ -229,17 +229,18 @@ export interface PeerSettingsStoreApi {
 /** The rights between reporters, the owners' defaults and the requests for access. */
 export interface PeerRightsStoreApi {
   effective(from: string, to: string): Promise<EffectiveRight>;
-  rightsOf(owner: string): Promise<RightRow[]>;
-  defaults(owner: string): Promise<OwnerDefaults>;
-  limits(owner: string, server: PeerLimits): Promise<PeerLimits>;
-  setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
-  pauseLink(owner: string | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
+  /** An owner is a person's `people.id` (#1284), never the name: null owns nothing. */
+  rightsOf(ownerId: number | null): Promise<RightRow[]>;
+  defaults(ownerId: number | null): Promise<OwnerDefaults>;
+  limits(ownerId: number | null, server: PeerLimits): Promise<PeerLimits>;
+  setRight(ownerId: number, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
+  pauseLink(ownerId: number | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
   pauseReporter(key: string, paused: boolean, actor: Actor): Promise<{ ok: true; links: number } | Refusal>;
-  /** The link from a person (`person:<name>`) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
+  /** The link from a person (`person:<id>`, #1284) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
   personLink(personKey: string, toKey: string): Promise<RightRow | null>;
   propose(from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; request: PeerRequestRow } | Refusal>;
-  requestAccess(input: { owner: string; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
-  openRequests(owner: string, about?: string): Promise<PeerRequestRow[]>;
+  requestAccess(input: { ownerId: number; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
+  openRequests(ownerId: number | null, about?: string): Promise<PeerRequestRow[]>;
 }
 
 /**
@@ -269,45 +270,45 @@ export interface PeerStoreApi {
     message(id: string): Promise<MessageRow | null>;
     send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal>;
     result(sessionId: string, id: string, result: PeerResult): Promise<'new' | 'repeat' | 'unknown'>;
-    conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
+    conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
     conversation(a: string, b: string): Promise<MessageRow[]>;
     /** The person writes to one of their live agents, alone or into a conversation between two agents (#1034). Refused when the agent is not live (404 when unknown, 409 when it has ended). */
     sendFromPerson(input: PersonMessageInput): Promise<MessageRow | Refusal>;
     /** A person writes to another person's agent (#1034): held for the owner's approval, or sent over an open link; refused over a removed or paused one. */
     sendAcross(input: AcrossInput): Promise<MessageRow | Refusal>;
     /** One page of the owner's conversation, the newest page first. `before` is the `older` of the page after it; a page back starts strictly before it, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
-    page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
+    page(ownerId: number, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
     /** The author changes the text of one of their own direct messages and of the rows it is merged with (#1269). See `PeerMessagesApi.editMessage`; one step, so a delivery cannot split it. */
     editMessage(id: string, x: PeerMessageEdit): Promise<PeerChange>;
     /** The author deletes one of their own direct messages and the rows it is merged with (#1269): each stays as a tombstone, and one that was not yet handed over ends `dropped` (why `deleted`). See `PeerMessagesApi.deleteMessage`. */
     deleteMessage(id: string, x: { author: number; now: number }): Promise<PeerChange>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
-    deleteConversation(owner: string, a: string, b: string): Promise<number>;
+    deleteConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
     conversationOf(a: string, b: string): Promise<ConversationSummary | null>;
-    /** How many conversations each of `owners` takes part in, hidden ones left out, keyed by the name as given (#1046). One grouped read for all of them; the same number as `ownerConversations(owner).length`. */
-    conversationCounts(owners: string[]): Promise<Record<string, number>>;
+    /** How many conversations each of the people with these ids takes part in, hidden ones left out, keyed by the id (#1046). One grouped read for all of them; the same number as `ownerConversations(id).length`. */
+    conversationCounts(ownerIds: number[]): Promise<Record<number, number>>;
     /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. `pairs` limits it to those pairs, each `<session id>|<session id>` in id order, as in a Direct Message thread's name (#1063); an empty list gives none. */
-    ownerConversations(owner: string, opts?: { includeHidden?: boolean; pairs?: string[] }): Promise<OwnerConversation[]>;
+    ownerConversations(ownerId: number, opts?: { includeHidden?: boolean; pairs?: string[] }): Promise<OwnerConversation[]>;
     /** Hides the owner's conversation and keeps its messages for the grace period. Returns how many rows it marked; 0 when already hidden. */
-    hideConversation(owner: string, a: string, b: string): Promise<number>;
+    hideConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Shows a hidden conversation again: the same peers are back, and the history with them. Returns how many rows it cleared. */
-    showConversation(owner: string, a: string, b: string): Promise<number>;
+    showConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Deletes the messages of every conversation hidden longer than the longest resume window of its two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
     purgeHidden(now: number, graceMs: number): Promise<number>;
   };
   /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
   note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void>;
   replyFor(sessionId: string, allowed: boolean): Promise<PeerReply>;
-  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
-  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
-  removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
+  answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
+  answerPaused(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
+  removeLink(ownerId: number | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
   /** Opens, pauses, resumes or removes the link between a person and another person's agent's reporter (#1034). A removal also drops what still waits on it. The caller checks who may ask. */
   setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
-  setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
-  /** `owner` is the person's name, which the rights, defaults and requests are still kept under; `ownerId` is their `people.id`, which finds their reporters (#1284). */
-  ownerView(owner: string, ownerId: number | null, now: number): Promise<OwnerPeersView>;
+  setDefaults(ownerId: number, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
+  /** What My reporters shows of the person with this `people.id`: their reporters, rights, defaults and requests all found by it (#1284). */
+  ownerView(ownerId: number, now: number): Promise<OwnerPeersView>;
   adminView(key: string): Promise<AdminPeersView | null>;
   /** The orchestrator is forgotten, and what still waits for it is dropped. */
   ended(sessionId: string): Promise<void>;

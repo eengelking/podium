@@ -2,6 +2,7 @@
 import type { PeerStoreApi } from '../storage/types.js';
 import type { RespondStore } from './respond.js';
 import { nameKey } from '../storage/rows.js';
+import { personKeyOf } from './peerTypes.js';
 
 /**
  * The channels: General (everyone signed in), My group (a person and their own agents), and a public channel someone opened (#1035), which is named by its own
@@ -49,8 +50,8 @@ export interface AdminReading {
 }
 /** A direct message's thread: `dm:` and its two session ids, the smaller first. */
 export const dmThread = (a: string, b: string): string => `dm:${a <= b ? `${a}|${b}` : `${b}|${a}`}`;
-/** The id a person has in a direct message of their own with one agent. */
-export const personId = (owner: string): string => `person:${nameKey(owner)}`;
+/** The id a person has in a direct message of their own with one agent: `person:<people.id>` (#1284), never the name, so a newcomer who takes a deleted person's name is not that person. */
+export const personId = (id: number): string => personKeyOf(id);
 export const isPersonId = (id: string): boolean => id.startsWith('person:');
 
 /** The scope keys of a channel's flags in `settings`: General for everyone, General for one person's agents, and a group. */

@@ -3,6 +3,7 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 import { stripFormat } from '../peerText.js';
+import { personKeyOf } from '../../fleet/peerTypes.js';
 import { withoutPerson } from '../chatRows.js';
 import { fillOwed } from './chat.js';
 import { removePersonOf } from './conversations.js';
@@ -178,23 +179,20 @@ export class PeopleStore {
   }
 
   /**
-   * Everything Chat and the peer stores keep under a deleted person's name (#1051): their group channel, read counts, direct messages (the ones they own
-   * and the ones with their `person:<name>` end), links and requests, and their owner defaults. A new person of the same name starts with none of it.
+   * Everything Chat and the peer stores keep for a deleted person (#1051): their group channel, read counts, direct messages (the ones they own
+   * and the ones with their `person:<id>` end), links and requests, and their owner defaults. The peer rows go by the person's id, never the name (#1284), and
+   * a new person of the same name starts with none of it.
    * Sessions, spend and the Admin log keep the name as text, and so does General, a channel for everyone.
    */
   private forgetChat(name: string, personId: number): void {
     const key = nameKey(name);
     // The conversations of people and agents (#1278): they leave each one, and one left with no person goes with its messages.
     removePersonOf(this.db, personId);
-    const pk = `person:${key}`;
-    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
-      const owners = (this.db.prepare(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`).all() as unknown as { owner: string }[]).map((r) => r.owner).filter((o) => nameKey(o) === key);
-      for (const o of owners) this.db.prepare(`DELETE FROM ${table} WHERE owner = ?`).run(o);
-    }
+    const pk = personKeyOf(personId);
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests', 'peer_owner_settings']) this.db.prepare(`DELETE FROM ${table} WHERE owner_id = ?`).run(personId);
     this.db.prepare('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?').run(pk, pk);
     this.db.prepare('DELETE FROM peer_rights WHERE from_key = ?').run(pk);
     this.db.prepare('DELETE FROM peer_requests WHERE from_key = ?').run(pk);
-    this.db.prepare('DELETE FROM peer_owner_settings WHERE owner_lower = ?').run(key);
     this.db.prepare('DELETE FROM group_messages WHERE owner = ?').run(key);
     // The channels they opened stay, public like General, but no longer name them as the opener, so a new person of the same name cannot edit them (#1035).
     this.db.prepare("UPDATE public_channels SET created_by = '' WHERE created_by = ?").run(key);

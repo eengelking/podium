@@ -6,6 +6,7 @@
 // `podium_lower`, which folds ASCII letters only, as SQLite's `lower()` does.
 import { PgDb } from './conn.js';
 import { peerPersonKey } from '../chatRows.js';
+import { OWNED_PEER_TABLES, PERSON_END_COLUMNS, personEndKey, renameLinkEnd } from '../peerOwnerIds.js';
 import { nameKey } from '../rows.js';
 
 type DB = PgDb;
@@ -48,6 +49,48 @@ async function fillOwnerIds(db: DB): Promise<void> {
       const id = ids.get(nameKey(r.owner));
       if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`, [id, r.owner]);
     }
+  }
+}
+
+/**
+ * Binds the peer-messaging tables to a person by id (#1284), as SQLite's `fillPeerOwnerIds` does: the rights, requests and messages that exist get the id of their owner by the owner's folded
+ * name against `people.name_lower`, a row whose owner matches no person keeps none, a person's end of a link (`person:<name>`) becomes `person:<id>` (or `person:gone:<name>`), and the
+ * owner defaults are rekeyed by the id, a row of nobody dropped.
+ */
+async function fillPeerOwnerIds(db: DB): Promise<void> {
+  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  for (const table of OWNED_PEER_TABLES) {
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`)) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL`, [id, r.owner]);
+    }
+  }
+  // The link names first, while the session columns still say which end is the person.
+  const links = await db.all<{ link: string; from_session: string; to_session: string }>("SELECT DISTINCT link, from_session, to_session FROM peer_messages WHERE substr(from_session, 1, 7) = 'person:' OR substr(to_session, 1, 7) = 'person:' ORDER BY link, from_session, to_session");
+  for (const l of links) {
+    const end = l.from_session.startsWith('person:') ? l.from_session : l.to_session;
+    const next = renameLinkEnd(l.link, end, personEndKey(end, ids));
+    if (next !== null && next !== l.link) await db.run('UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?)', [next, l.link, l.from_session, l.to_session]);
+  }
+  for (const { table, columns } of PERSON_END_COLUMNS) {
+    for (const col of columns) {
+      // order-insensitive: each old key is moved to its new one, through a marker, so a new key is never taken for an old one.
+      let moved = false;
+      for (const { k } of await db.all<{ k: string }>(`SELECT DISTINCT ${col} AS k FROM ${table} WHERE substr(${col}, 1, 7) = 'person:' ORDER BY ${col}`)) {
+        const to = personEndKey(k, ids);
+        if (to === k) continue;
+        await db.run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [`~${to}`, k]);
+        moved = true;
+      }
+      if (moved) await db.run(`UPDATE ${table} SET ${col} = substr(${col}, 2) WHERE substr(${col}, 1, 8) = '~person:'`);
+    }
+  }
+  const settings = await db.all<{ owner_lower: string; trust: number; on_request: string; new_send: string; limits_json: string | null }>('SELECT owner_lower, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IS NULL ORDER BY owner_lower');
+  await db.run('DELETE FROM peer_owner_settings WHERE owner_id IS NULL');
+  for (const s of settings) {
+    const id = ids.get(s.owner_lower);
+    if (id !== undefined) await db.run('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)', [String(id), id, s.trust, s.on_request, s.new_send, s.limits_json]);
   }
 }
 
@@ -502,6 +545,19 @@ ALTER TABLE sessions ADD COLUMN owner_id INT;
 ALTER TABLE reporters ADD COLUMN owner_id INT;
 `),
     after: fillOwnerIds,
+  },
+  {
+    version: 26,
+    // The peer-messaging tables belong to a person by id, never by name (#1284), as SQLite migration 50 keeps it: `owner_id` is `people.id` on the rights, requests and messages (NULL for a row whose owner
+    // matches no person), and the owner defaults are found by it. `fillPeerOwnerIds` gives the others their person's id, rewrites a person's end of a link to `person:<id>`, and rekeys the defaults.
+    sql: typed(`
+ALTER TABLE peer_rights ADD COLUMN owner_id INT;
+ALTER TABLE peer_requests ADD COLUMN owner_id INT;
+ALTER TABLE peer_messages ADD COLUMN owner_id INT;
+ALTER TABLE peer_owner_settings ADD COLUMN owner_id INT;
+CREATE INDEX peer_owner_settings_owner_id ON peer_owner_settings(owner_id);
+`),
+    after: fillPeerOwnerIds,
   },
 ];
 
