@@ -38,6 +38,13 @@ async function fillAuthorIds(db: DB): Promise<void> {
   }
 }
 
+/** Gives every session that exists an agent id, oldest first, then binds each stored message to the agents of its two sessions (#1284). See SQLite's `fillAgentIds`. */
+async function fillAgentIds(db: DB): Promise<void> {
+  await db.run('INSERT INTO agent_ids (session_id) SELECT id FROM sessions ORDER BY started_at, id ON DUPLICATE KEY UPDATE session_id = agent_ids.session_id');
+  await db.run('UPDATE peer_messages SET from_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.from_session) WHERE from_agent IS NULL');
+  await db.run('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
+}
+
 /** `TXT` is long text; `K(n)` is text of at most n characters that can be a key; `INT` is a 64-bit integer (times are milliseconds); `REAL` a double. */
 const typed = (sql: string): string =>
   sql
@@ -464,6 +471,18 @@ ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS deleted_at INT;
 ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS author_id INT;
 `),
     after: fillAuthorIds,
+  },
+  {
+    version: 23,
+    // Every agent has an id the server gives it, never reused (#1284), as SQLite migration 47 keeps it: an auto-increment key, one row per session id, and the agent each direct message was
+    // written by and aimed at (NULL for a person's end). `fillAgentIds` gives the sessions that exist ids, oldest first, and the messages those of their sessions; each of its statements skips
+    // a row that is done, so a step that stopped half way runs again and adds nothing twice.
+    statements: steps(`
+CREATE TABLE IF NOT EXISTS agent_ids (id AUTO_ID, session_id ${ID} NOT NULL, CONSTRAINT uq_agent_ids_session UNIQUE (session_id)) TABLE_OPTIONS;
+ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS from_agent INT;
+ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS to_agent INT;
+`),
+    after: fillAgentIds,
   },
 ];
 

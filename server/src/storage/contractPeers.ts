@@ -1217,4 +1217,47 @@ export function peerCases(o: Openers): void {
     expect(t.get('edit at the limit')).toMatchObject({ ok: true });
   });
 
+  it('gives every agent an id that is never reused, keeps live names unique per owner, sends to an id, and says an ended agent is no longer available, the same on every adapter (#1284)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b } = await setUp(s, clock);
+      for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight('ed', from, to, 'send', ED);
+      const m = peers.messages;
+      const ids = (sessions: string[]): unknown => sessions.map((id) => [id, m.live(id)?.agentId ?? null, m.live(id)?.name ?? null]);
+      await rec('ids and names, one each', ids(['sa', 'sb', 'sc', 'se']));
+      // A second session of the same name on the same machine: it holds "beta 2" and has its own id.
+      await s.fleet.upsertSession(session({ id: 'sb2', owner: 'ed' }));
+      await peers.note('sb2', b, 'ed', waiting('beta', 'box-b'));
+      await peers.note('sb2', b, 'ed', waiting('beta', 'box-b'));
+      await rec('ids and names, a twin', ids(['sb', 'sb2']));
+      await rec('list shows the ids', m.list('sa'));
+      await rec('send by the id alone', m.send('sa', '#2', 'to the first'));
+      await rec('send by name, machine and id', m.send('sa', 'beta 2@box-b#5', 'to the second'));
+      await rec('send under another name than the id has', m.send('sa', 'beta@box-b#5', 'wrong'));
+      await rec('send to an id nobody has', m.send('sa', '#99', 'nobody'));
+      await rec('send to oneself by id', m.send('sa', '#1', 'myself'));
+      // The first beta ends; what was aimed at it is not delivered, and a newcomer of its name is a new agent.
+      await peers.note('sb', b, 'ed', done('beta', 'box-b'));
+      await rec('send to the ended agent', m.send('sa', '#2', 'again'));
+      await rec('send to the ended agent by name', m.send('sa', 'beta@box-b#2', 'again'));
+      await s.fleet.upsertSession(session({ id: 'sb3', owner: 'ed' }));
+      await peers.note('sb3', b, 'ed', waiting('beta', 'box-b'));
+      await rec('ids and names, a newcomer', ids(['sb2', 'sb3']));
+      await rec('the newcomer has none of the first one\'s mail', peers.replyFor('sb3', true));
+      await rec('the ended agent is still no longer available', m.send('sa', '#2', 'still'));
+      await rec('stored messages are bound to agents', (await m.conversation('sa', 'sb')).map((x) => [x.text, x.fromAgent, x.toAgent]));
+    });
+    expect(t.get('ids and names, one each')).toEqual([['sa', 1, 'alpha'], ['sb', 2, 'beta'], ['sc', 3, 'gamma'], ['se', 4, 'delta']]);
+    expect(t.get('ids and names, a twin')).toEqual([['sb', 2, 'beta'], ['sb2', 5, 'beta 2']]);
+    expect(t.get('send by the id alone')).toMatchObject({ ok: true, to: { name: 'beta' } });
+    expect(t.get('send by name, machine and id')).toMatchObject({ ok: true, to: { name: 'beta 2' } });
+    expect(t.get('send under another name than the id has')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('send to an id nobody has')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('send to oneself by id')).toMatchObject({ ok: false, status: 422 });
+    expect(t.get('send to the ended agent')).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('(id 2) is no longer available') });
+    expect(t.get('ids and names, a newcomer')).toEqual([['sb2', 5, 'beta 2'], ['sb3', 6, 'beta']]);
+    expect((t.get('the newcomer has none of the first one\'s mail') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
+    expect(t.get('stored messages are bound to agents')).toEqual([['to the first', 1, 2]]);
+  });
+
 }

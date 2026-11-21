@@ -10,7 +10,6 @@
 //   conversation, since the last message its owner approved.
 // - An orchestrator is a session's main loop. Only an orchestrator sends or receives; a session is one.
 
-import { shortId } from './protocol.js';
 import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery, ReporterCompat } from './protocol.js';
 import type { PeerLimits, ReporterState } from '../storage/rows.js';
 
@@ -38,8 +37,6 @@ export interface Refusal {
   status: 400 | 403 | 404 | 409 | 410 | 422 | 429;
   error: string;
 }
-/** The short id of a session (`shortId`): enough to tell same-named orchestrators apart in `name@machine#id`. */
-export const peerShortId = (sessionId: string): string => shortId(sessionId);
 
 export const refuse = (status: Refusal['status'], error: string): Refusal => ({ ok: false, status, error });
 
@@ -235,6 +232,8 @@ export interface PeerRightsApi {
 /** One live orchestrator, as its last report described it. Kept in memory and refilled by the next report after a restart. */
 export interface LiveOrchestrator {
   sessionId: string;
+  /** The id the server gave this agent when it first heard of its session (#1284): never reused, so a new session, a `/clear` included, is a new agent whatever name it takes. `name@machine#id` and a bare `#id` address it. */
+  agentId: number;
   reporterKey: string;
   /** The session's owner as the server decided it from the token. */
   owner: string;
@@ -247,6 +246,9 @@ export interface LiveOrchestrator {
   /** The `peers` option in this report; undefined from a reporter too old to send it, whose sessions are never listed. */
   peers: boolean | undefined;
 }
+
+/** What a report says of an orchestrator: a `LiveOrchestrator` before the store gives it its id and settles its name (#1284). */
+export type LiveInput = Omit<LiveOrchestrator, 'agentId'>;
 
 /**
  * A session that can be handed a message now: any live session with no permission dialog open (#1252). A running turn and a
@@ -281,6 +283,9 @@ export interface MessageRow {
   toKey: string;
   fromSession: string;
   toSession: string;
+  /** The agents the message was written by and aimed at (#1284), bound at the time it was sent, so a later agent that takes a name never reads it; null for a person's end and for a message whose session was gone before the ids existed. */
+  fromAgent: number | null;
+  toAgent: number | null;
   fromName: string;
   fromMachine: string;
   toName: string;
@@ -387,7 +392,7 @@ export interface PeerListResult {
 /** One orchestrator in podium_peers' answer. */
 export interface PeerListing {
   address: string;
-  /** The session's short id (`peerShortId`), which `address#id` accepts when other orchestrators share the name (#500). */
+  /** The agent's id (#1284, `LiveOrchestrator.agentId`), as text. `address#id` and a bare `#id` accept it; it is always listed. */
   id: string;
   /** More than one orchestrator the asker can reach has this name on this machine, so a plain `address` is refused. */
   duplicate: boolean;
@@ -463,7 +468,7 @@ export type RightsTrail =
  */
 export interface PeerMessagesApi {
   /** Notes a live orchestrator from its report (the server calls it after every accepted report). */
-  note(o: LiveOrchestrator): void;
+  note(o: LiveInput): void;
   live(sessionId: string): LiveOrchestrator | null;
   /** One stored message by id, with its text, or null. */
   message(id: string): MessageRow | null;

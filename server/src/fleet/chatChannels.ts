@@ -2,7 +2,7 @@
 // Disconnect, Remove all). This file never reads a direct message: a channel's text and a conversation's text are kept in different tables and
 // read by different code, and `chatSeparation.test.ts` holds this file to it.
 import { nameKey } from '../storage/rows.js';
-import { peerShortId, type LiveOrchestrator } from './peerTypes.js';
+import type { LiveOrchestrator } from './peerTypes.js';
 import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
 import { ChatCore, type AcrossUpdate, type ChatLimits } from './chatCore.js';
@@ -414,7 +414,7 @@ export class ChannelChat {
       const total = matches.length + (personHit ? 1 : 0);
       if (m.kind === 'plain' && total === 0) continue; // an @ with a word after it that names nobody is only text
       if (total > 1) {
-        const list = [...matches.map((o) => `${o.name}@${o.machine}${here.length > 1 ? `#${peerShortId(o.sessionId)}` : ''}`), ...(personHit ? [`${m.name}@console`] : [])];
+        const list = [...matches.map((o) => `${o.name}@${o.machine}${here.length > 1 ? `#${o.agentId}` : ''}`), ...(personHit ? [`${m.name}@console`] : [])];
         return fail(409, `More than one agent or person is called ${m.kind === 'address' ? `${m.name}@${m.location}` : m.name}, so Podium cannot tell which you mean. Address one as ${list.join(', ')}.`);
       }
       const o = matches[0];

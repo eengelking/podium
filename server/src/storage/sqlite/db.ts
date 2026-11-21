@@ -36,6 +36,16 @@ function fillAuthorIds(db: DatabaseSync): void {
   }
 }
 
+/**
+ * Gives every session that exists an agent id, oldest first so the numbers follow the order the sessions started (#1284), then binds each stored message to the agents of its two
+ * sessions. A person's end (`person:<name>`) has no agent and keeps NULL. A message whose session is gone is left NULL, so it is never matched to a newcomer.
+ */
+function fillAgentIds(db: DatabaseSync): void {
+  db.exec('INSERT OR IGNORE INTO agent_ids (session_id) SELECT id FROM sessions ORDER BY started_at, id');
+  db.exec('UPDATE peer_messages SET from_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.from_session) WHERE from_agent IS NULL');
+  db.exec('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
+}
+
 const MIGRATIONS: { version: number; sql: string; after?: (db: DatabaseSync) => void }[] = [
   {
     version: 1,
@@ -632,6 +642,18 @@ ALTER TABLE peer_messages ADD COLUMN edited_at INTEGER;
 ALTER TABLE peer_messages ADD COLUMN deleted_at INTEGER;
 ALTER TABLE peer_messages ADD COLUMN author_id INTEGER;`,
     after: fillAuthorIds,
+  },
+  {
+    version: 47,
+    // Every agent has an id the server gives it, never reused (#1284). `id` is an auto-increment key, so a number is never handed out twice even after its row's session is deleted
+    // (no foreign key, and rows are never removed); `session_id` is unique, so one session has one id and a new session (a `/clear` makes one) gets a new id, whatever name it takes.
+    // `peer_messages.from_agent` and `to_agent` bind a message to the agent it was written by and aimed at (NULL for a person's end). The sessions that exist are given ids in the order
+    // they started, and the messages the ids of their sessions, by `fillAgentIds`. The same step is PostgreSQL step 23 and MariaDB step 23.
+    sql: `
+CREATE TABLE IF NOT EXISTS agent_ids (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE);
+ALTER TABLE peer_messages ADD COLUMN from_agent INTEGER;
+ALTER TABLE peer_messages ADD COLUMN to_agent INTEGER;`,
+    after: fillAgentIds,
   },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;

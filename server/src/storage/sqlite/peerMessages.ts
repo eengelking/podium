@@ -14,7 +14,6 @@ import {
   canSend,
   takesMessages,
   linkKey,
-  peerShortId,
   refuse,
   type Actor,
   type ConversationSummary,
@@ -22,6 +21,7 @@ import {
   type LeftOut,
   type PeerListResult,
   type PersonListing,
+  type LiveInput,
   type LiveOrchestrator,
   type MessageAuthor,
   type MessagePage,
@@ -42,7 +42,7 @@ import {
 import { nameKey } from '../rows.js';
 import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, shownCount, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, shownCount, type TripRow } from '../peerText.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
 const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;
@@ -69,6 +69,8 @@ interface DbMessage {
   approved: number;
   author: string;
   author_id?: number | null;
+  from_agent?: number | null;
+  to_agent?: number | null;
   edited_at?: number | null;
   deleted_at?: number | null;
   hidden_at?: number | null;
@@ -107,6 +109,8 @@ const toRow = (r: DbMessage): MessageRow => ({
   approved: r.approved === 1,
   author: r.author as MessageAuthor,
   authorId: r.author_id == null ? null : Number(r.author_id),
+  fromAgent: r.from_agent == null ? null : Number(r.from_agent),
+  toAgent: r.to_agent == null ? null : Number(r.to_agent),
   editedAt: r.edited_at == null ? null : Number(r.edited_at),
   deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
 });
@@ -178,12 +182,31 @@ export class PeerMessages implements PeerMessagesApi {
 
   // ---- The live directory ------------------------------------------------------------------------------------------
 
-  note(o: LiveOrchestrator): void {
+  note(o: LiveInput): void {
     if (o.status === 'done') {
       this.ended(o.sessionId);
       return;
     }
-    this.liveDir.set(o.sessionId, { ...o });
+    const prev = this.liveDir.get(o.sessionId);
+    this.liveDir.set(o.sessionId, { ...o, agentId: prev?.agentId ?? this.agentIdOf(o.sessionId), name: this.settledName(o, prev) });
+  }
+
+  /** The agent id of a session that has one, or null (a conversation's other end that the server never heard report). */
+  private agentOf(sessionId: string): number | null {
+    const r = this.stmt('SELECT id FROM agent_ids WHERE session_id = ?').get(sessionId) as { id: number } | undefined;
+    return r ? Number(r.id) : null;
+  }
+
+  /** The id the server gave this session (#1284), made on the first report and never changed: one row per session id, and a number is never handed out twice. */
+  private agentIdOf(sessionId: string): number {
+    this.stmt('INSERT OR IGNORE INTO agent_ids (session_id) VALUES (?)').run(sessionId);
+    return Number((this.stmt('SELECT id FROM agent_ids WHERE session_id = ?').get(sessionId) as { id: number }).id);
+  }
+
+  /** The agent's name with no other live agent of its owner holding it (#1284): its reported name, or that name and the first free number from 2 ("Lower Left 2"); one it already has stays while it is free. */
+  private settledName(o: LiveInput, prev: LiveOrchestrator | undefined): string {
+    const taken = new Set([...this.liveDir.values()].filter((x) => x.sessionId !== o.sessionId && nameKey(x.owner) === nameKey(o.owner)).map((x) => nameKey(x.name)));
+    return settleName(o.name, prev?.name, taken, nameKey);
   }
 
   live(sessionId: string): LiveOrchestrator | null {
@@ -238,7 +261,7 @@ export class PeerMessages implements PeerMessagesApi {
         const right = this.rights.effective(sender.reporterKey, o.reporterKey);
         return {
           address: `${o.name}@${o.machine}`,
-          id: peerShortId(o.sessionId),
+          id: String(o.agentId),
           duplicate: (copies.get(addressKey(o)) ?? 0) > 1,
           name: o.name,
           machine: o.machine,
@@ -270,6 +293,9 @@ export class PeerMessages implements PeerMessagesApi {
   private resolve(sender: LiveOrchestrator, to: string): LiveOrchestrator | Refusal {
     const address = to.trim();
     const unseen = refuse(404, `You cannot see an orchestrator called ${address}. Run podium_peers for the list.`);
+    // A bare `#id` is the agent's id alone (#1284): it names one agent whatever it is called.
+    const bare = /^#(\d+)$/.exec(address);
+    if (bare) return this.byAgentId(sender, Number(bare[1]), address) ?? unseen;
     const at = address.lastIndexOf('@');
     if (at < 0) return unseen;
     const name = nameKey(address.slice(0, at));
@@ -282,11 +308,19 @@ export class PeerMessages implements PeerMessagesApi {
     const wholeName = hash >= 0 && matches.length === 0 ? onMachine(rest) : [];
     if (wholeName.length) matches = wholeName;
     const wantId = hash < 0 || wholeName.length ? '' : rest.slice(hash + 1).trim().toLowerCase();
+    // A `#` with no id after it names nothing.
+    if (hash >= 0 && !wholeName.length && !wantId) return unseen;
     const others = matches.filter((o) => o.sessionId !== sender.sessionId);
     const plain = `${address.slice(0, at)}@${hash < 0 || wholeName.length ? rest : rest.slice(0, hash)}`;
-    const ids = (list: LiveOrchestrator[]): string => list.map((o) => `${plain}#${peerShortId(o.sessionId)}`).join(', ');
+    const ids = (list: LiveOrchestrator[]): string => list.map((o) => `${plain}#${o.agentId}`).join(', ');
     const tooMany = (list: LiveOrchestrator[]): Refusal =>
       refuse(409, `There are ${list.length} orchestrators called ${plain}, so Podium cannot tell which one you mean. Send to one by its id: ${ids(list)}. podium_peers lists the ids.`);
+    if (/^\d+$/.test(wantId)) {
+      const hit = this.byAgentId(sender, Number(wantId), address);
+      // The id names the agent; the name and machine in front of it must be the ones it has, so `Lower Left@Mac#7` is never delivered to agent 7 under another name.
+      const named = matches.some((o) => o.agentId === Number(wantId));
+      return hit && (named || ('ok' in hit && hit.status === 409)) ? hit : unseen;
+    }
     if (wantId) {
       const byId = others.filter((o) => o.sessionId.toLowerCase().startsWith(wantId));
       if (byId.length > 1) return tooMany(byId);
@@ -297,6 +331,28 @@ export class PeerMessages implements PeerMessagesApi {
     if (others.length === 1) return others[0];
     if (matches.length) return refuse(422, `${address} is this orchestrator. Send to another one; podium_peers lists them.`);
     return unseen;
+  }
+
+  /** The reachable agent with this id, a refusal when it is the sender or when it has ended (#1284), or null when the sender has never been able to see one. */
+  private byAgentId(sender: LiveOrchestrator, agentId: number, address: string): LiveOrchestrator | Refusal | null {
+    const hit = this.reachable(sender).find((o) => o.agentId === agentId);
+    if (hit) return hit.sessionId === sender.sessionId ? refuse(422, `${address} is this orchestrator. Send to another one; podium_peers lists them.`) : hit;
+    return this.gone(sender, agentId);
+  }
+
+  /** The refusal for an agent of the sender's owner that has ended: it says who, by name and id, and that it is no longer available. Null for an id that is live (so only unseen), unknown, or another owner's. */
+  private gone(sender: LiveOrchestrator, agentId: number): Refusal | null {
+    const a = this.stmt('SELECT a.session_id AS session_id, s.name AS name, s.owner AS owner FROM agent_ids a LEFT JOIN sessions s ON s.id = a.session_id WHERE a.id = ?').get(agentId) as { session_id: string; name: string | null; owner: string | null } | undefined;
+    if (!a || this.liveDir.has(a.session_id)) return null;
+    let name = a.name;
+    if (a.owner !== null && nameKey(a.owner) !== nameKey(sender.owner)) return null;
+    if (a.owner === null) {
+      // The session row is gone (they are deleted 30 days after the session ends): the name it had in the owner's last message to or from it is what is left.
+      const m = this.stmt('SELECT CASE WHEN to_agent = ? THEN to_name ELSE from_name END AS name FROM peer_messages WHERE owner = ? AND (to_agent = ? OR from_agent = ?) ORDER BY sent_at DESC, seq DESC LIMIT 1').get(agentId, sender.owner, agentId, agentId) as { name: string } | undefined;
+      if (!m) return null;
+      name = m.name;
+    }
+    return refuse(409, `${name} (id ${agentId}) is no longer available: its session has ended, so Podium did not queue the message. podium_peers lists who you can reach now.`);
   }
 
   private tripRows(a: string, b: string): TripRow[] {
@@ -329,9 +385,9 @@ export class PeerMessages implements PeerMessagesApi {
     if (recent >= limits.perMinute) return refuse(429, REPLY_WORDS.rate(recent, wrote.from_name));
     const id = newId();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
-    ).run(id, sender.owner, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.name, sender.machine, wrote.from_name, clean, now, now);
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
+    ).run(id, sender.owner, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.agentId, sender.name, sender.machine, wrote.from_name, clean, now, now);
     this.trail({ kind: 'delivered', message: this.row(id) as MessageRow });
     return { ok: true, id, state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: wrote.from_name, machine: '' }, roundTrips: { used: 0, cap: limits.roundTrips }, person: true };
   }
@@ -368,9 +424,9 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const state: MessageState = approvalWhy ? 'approval' : 'ready';
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
-    ).run(id, sender.owner, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now);
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
+    ).run(id, sender.owner, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.agentId, target.agentId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now);
     let requestId: string | null = null;
     if (approvalWhy) {
       requestId = this.rights.openMessageRequest({ owner: sender.owner, fromKey: sender.reporterKey, toKey: target.reporterKey, by: sender.name, fromSession: sender.sessionId, messageId: id }).id;
@@ -401,7 +457,7 @@ export class PeerMessages implements PeerMessagesApi {
       : [];
     for (const m of messages) {
       // A person's text (#1034) is handed over as a person's, with this session's owner named, so the reporter frames it as not the owner's.
-      const from = m.author === 'person' ? { name: m.fromName, machine: m.fromMachine, owner: m.owner, person: true } : { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromSession ? { id: peerShortId(m.fromSession) } : {}) };
+      const from = m.author === 'person' ? { name: m.fromName, machine: m.fromMachine, owner: m.owner, person: true } : { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromAgent !== null ? { id: String(m.fromAgent) } : {}) };
       out.push({ id: m.id, kind: 'message', at: m.sentAt, from, text: m.text });
     }
     const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
@@ -601,9 +657,9 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const now = this.now();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
-    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null);
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+    ).run(id, target.owner, link, fromKey, target.reporterKey, fromSession, input.toSession, input.withSession ? (this.liveDir.get(input.withSession)?.agentId ?? this.agentOf(input.withSession)) : null, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null);
     return this.row(id) as MessageRow;
   }
 
@@ -639,9 +695,9 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const now = this.now();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
-    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null);
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+    ).run(id, target.owner, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null);
     if (state === 'approval') {
       this.rights.openMessageRequest({ owner: target.owner, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });
     }

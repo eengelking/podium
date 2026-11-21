@@ -60,7 +60,7 @@ describe('the upsert and insert-ignore sites', () => {
       'people.ts:person_machines:update', 'people.ts:settings:update', 'recordingSettings.ts:settings:update', 'recordings.ts:rec_sessions:update',
       'reportQueries.ts:answers_daily:update', 'reportQueries.ts:answers_daily:update', 'reportQueries.ts:fleet_daily:update', 'reportQueries.ts:hour_peaks_daily:update',
       'reporters.ts:reporter_ignores:update', 'reporters.ts:reporter_sessions:update', 'reporters.ts:reporter_sessions:update', 'reporters.ts:reporters:update', 'reporters.ts:settings:update',
-      'schema.ts:groups:skip', 'tlsSettings.ts:settings:update', 'tlsSettings.ts:settings:update', 'wallSettings.ts:settings:update',
+      'peerMessages.ts:agent_ids:update', 'schema.ts:agent_ids:update', 'schema.ts:groups:skip', 'tlsSettings.ts:settings:update', 'tlsSettings.ts:settings:update', 'wallSettings.ts:settings:update',
     ].sort());
   });
 

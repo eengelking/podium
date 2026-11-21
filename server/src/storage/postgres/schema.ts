@@ -32,6 +32,13 @@ async function fillAuthorIds(db: DB): Promise<void> {
   }
 }
 
+/** Gives every session that exists an agent id, oldest first, then binds each stored message to the agents of its two sessions (#1284). See SQLite's `fillAgentIds`. */
+async function fillAgentIds(db: DB): Promise<void> {
+  await db.run('INSERT INTO agent_ids (session_id) SELECT id FROM sessions ORDER BY started_at, id ON CONFLICT (session_id) DO NOTHING');
+  await db.run('UPDATE peer_messages SET from_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.from_session) WHERE from_agent IS NULL');
+  await db.run('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
+}
+
 /** `TXT` is text under the byte-order collation; `INT` is a 64-bit integer (times are milliseconds); `REAL` is a double. */
 const typed = (sql: string): string => sql.replace(/\bTXT\b/g, 'TEXT COLLATE "C"').replace(/\bINT\b/g, 'BIGINT').replace(/\bREAL\b/g, 'DOUBLE PRECISION');
 
@@ -442,6 +449,17 @@ ALTER TABLE peer_messages ADD COLUMN deleted_at INT;
 ALTER TABLE peer_messages ADD COLUMN author_id INT;
 `),
     after: fillAuthorIds,
+  },
+  {
+    version: 23,
+    // Every agent has an id the server gives it, never reused (#1284), as SQLite migration 47 keeps it: an identity key that is never handed out twice, one row per session id, and the
+    // agent each direct message was written by and aimed at (NULL for a person's end). `fillAgentIds` gives the sessions that exist ids, oldest first, and the messages those of their sessions.
+    sql: typed(`
+CREATE TABLE agent_ids (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, session_id TXT NOT NULL UNIQUE);
+ALTER TABLE peer_messages ADD COLUMN from_agent INT;
+ALTER TABLE peer_messages ADD COLUMN to_agent INT;
+`),
+    after: fillAgentIds,
   },
 ];
 

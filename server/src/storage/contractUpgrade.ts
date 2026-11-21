@@ -463,4 +463,23 @@ export function upgradeCases(o: UpgradeOpeners): void {
       await s.close();
     }
   });
+  it('gives the sessions an older database holds agent ids in the order they started, binds its messages to them, and leaves a message whose session is gone with none (#1284)', async () => {
+    const s = await o.openUpgraded([], [], [
+      // Started in the other order from how they are listed, so the ids follow the start and not the row order.
+      { id: 'sb', name: 'beta', startedAt: T0 + 20, model: 'm', costUsd: 0 },
+      { id: 'sa', name: 'alpha', startedAt: T0 + 10, model: 'm', costUsd: 0 },
+    ], [
+      { id: 'dlv_ab', owner: 'ed', fromSession: 'sa', toSession: 'sb', text: 'a to b', sentAt: T0, seq: 1 },
+      { id: 'dlv_gone', owner: 'ed', fromSession: 'sa', toSession: 'sgone', text: 'to a deleted session', sentAt: T0 + 1, seq: 2 },
+      { id: 'dlv_person', owner: 'ed', fromSession: 'person:ed', toSession: 'sb', text: 'from a person', sentAt: T0 + 2, seq: 3 },
+    ]);
+    try {
+      const m = s.peers({ now: () => T0 + 100, flagOn: () => true, startedAt: T0 }).messages;
+      const rows = [...(await m.conversation('sa', 'sb')), ...(await m.conversation('sa', 'sgone')), ...(await m.conversation('person:ed', 'sb'))];
+      expect(rows.map((x) => [x.id, x.fromAgent, x.toAgent])).toEqual([['dlv_ab', 1, 2], ['dlv_gone', 1, null], ['dlv_person', null, 2]]);
+    } finally {
+      await s.close();
+    }
+  });
+
 }
