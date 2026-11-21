@@ -421,7 +421,8 @@ export class ChannelChat {
       }
       const wantName = nameKey(m.name);
       const here = m.kind === 'address' ? agents.filter((o) => nameKey(o.name) === wantName && nameKey(o.machine) === nameKey(m.location)) : agents.filter((o) => nameKey(o.name) === wantName);
-      const matches = m.kind === 'address' && m.id ? here.filter((o) => String(o.agentId) === m.id || o.sessionId.toLowerCase().startsWith((m.id as string).toLowerCase())) : here;
+      // A numeric `#id` is an agent id and nothing else (#1284), as `podium_send` reads it: it must not also match a session id that happens to start with those digits.
+      const matches = m.kind === 'address' && m.id ? here.filter((o) => (/^\d+$/.test(m.id as string) ? String(o.agentId) === m.id : o.sessionId.toLowerCase().startsWith((m.id as string).toLowerCase()))) : here;
       if (m.kind === 'address' && nameKey(m.location) === 'console') {
         const there = personOf(m.name);
         if (there && (isPublicChannel(channel) || there.id === owner?.id)) add({ input: { sessionId: null, peerKey: null, typed: m.typed, state: 'done', why: 'notified' }, bump: there.id, deliver: null });
