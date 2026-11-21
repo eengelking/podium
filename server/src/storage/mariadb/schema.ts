@@ -465,6 +465,26 @@ ALTER TABLE peer_messages ADD COLUMN IF NOT EXISTS author_id INT;
 `),
     after: fillAuthorIds,
   },
+  {
+    version: 23,
+    // The conversations of people and agents (#1278, DECISIONS 74), as SQLite migration 47 keeps them. A conversation or message id is at most 37 characters and a hash 64, so they can be keys.
+    // `members_key` is an index and not a unique key. Every statement can run twice, so a step that stopped half way (MariaDB cannot roll back a table made) runs again and adds nothing twice.
+    statements: steps(`
+CREATE TABLE IF NOT EXISTS conversations (id K(64) PRIMARY KEY, created_by INT, created_at INT NOT NULL, members_key K(64) NOT NULL) TABLE_OPTIONS;
+CREATE INDEX IF NOT EXISTS conversations_members ON conversations(members_key);
+CREATE TABLE IF NOT EXISTS conversation_members (
+  conversation_id K(64) NOT NULL, member_kind K(16) NOT NULL, member_ref K(255) NOT NULL, member_name TXT NOT NULL, added_by INT, joined_at INT NOT NULL, left_at INT,
+  PRIMARY KEY (conversation_id, member_kind, member_ref)
+) TABLE_OPTIONS;
+CREATE INDEX IF NOT EXISTS conversation_members_ref ON conversation_members(member_kind, member_ref);
+CREATE TABLE IF NOT EXISTS conversation_messages (
+  id K(64) PRIMARY KEY, conversation_id K(64) NOT NULL, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL, author_id INT, text TXT NOT NULL,
+  created_at INT NOT NULL, updated_at INT NOT NULL, reply_to TXT, seq INT NOT NULL, edited_at INT, deleted_at INT, handed_at INT
+) TABLE_OPTIONS;
+CREATE INDEX IF NOT EXISTS conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
+CREATE INDEX IF NOT EXISTS conversation_messages_created ON conversation_messages(created_at);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

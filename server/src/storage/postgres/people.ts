@@ -4,6 +4,7 @@ import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/toke
 import { stripFormat } from '../peerText.js';
 import { withoutPerson } from '../chatRows.js';
 import { fillOwed } from './chat.js';
+import { removePersonOf } from './conversations.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 import type { PeopleStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -146,15 +147,17 @@ class PgPeopleStore implements PeopleStoreApi {
       }
       for (const p of found) {
         await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
-        await this.forgetChat(p.name);
+        await this.forgetChat(p.name, p.id);
       }
       return found;
     });
   }
 
   /** Everything Chat and the peer stores keep under a deleted person's name (#1051); the same set as the SQLite adapter's `forgetChat`. */
-  private async forgetChat(name: string): Promise<void> {
+  private async forgetChat(name: string, personId: number): Promise<void> {
     const key = nameKey(name);
+    // The conversations of people and agents (#1278): they leave each one, and one left with no person goes with its messages.
+    await removePersonOf(this.db, personId);
     const pk = `person:${key}`;
     for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
       const owners = (await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`)).map((r) => r.owner).filter((o) => nameKey(o) === key);

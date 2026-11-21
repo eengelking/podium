@@ -633,6 +633,28 @@ ALTER TABLE peer_messages ADD COLUMN deleted_at INTEGER;
 ALTER TABLE peer_messages ADD COLUMN author_id INTEGER;`,
     after: fillAuthorIds,
   },
+  {
+    version: 47,
+    // The conversations of people and agents (#1278, DECISIONS 74): a fourth audience in its own tables, never merged with a channel's or `peer_messages`. A conversation has two or more
+    // members, each a person (`member_ref` is `people.id` as text) or an agent (a session id), with who added them and when they joined or left. `members_key` is a hash of the sorted
+    // `kind:ref` of the members who are in it now, so the conversation of a set of members is found without reading every conversation (it is an index, not a unique key: leaving or adding can
+    // make two conversations hold the same members, and the oldest is the one found). A message keeps its writer's `people.id` (no foreign key, like `author_id` elsewhere), `handed_at`
+    // when Podium handed it to an agent, and `seq` for the order within a millisecond. The same step is PostgreSQL step 23 and MariaDB step 23.
+    sql: `
+CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, created_by INTEGER, created_at INTEGER NOT NULL, members_key TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS conversations_members ON conversations(members_key);
+CREATE TABLE IF NOT EXISTS conversation_members (
+  conversation_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL, added_by INTEGER, joined_at INTEGER NOT NULL, left_at INTEGER,
+  PRIMARY KEY (conversation_id, member_kind, member_ref)
+);
+CREATE INDEX IF NOT EXISTS conversation_members_ref ON conversation_members(member_kind, member_ref);
+CREATE TABLE IF NOT EXISTS conversation_messages (
+  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL, author_id INTEGER, text TEXT NOT NULL,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to TEXT, seq INTEGER NOT NULL, edited_at INTEGER, deleted_at INTEGER, handed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
+CREATE INDEX IF NOT EXISTS conversation_messages_created ON conversation_messages(created_at);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

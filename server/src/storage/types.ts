@@ -585,6 +585,114 @@ export interface ChatAdminReadsApi {
   purge(olderThan: number): Promise<number>;
 }
 
+/** Who can be in a conversation (#1278, DECISIONS 74): a person, by `people.id`, or an agent, by session id. */
+export type ConversationMemberKind = 'person' | 'agent';
+
+/** A member as given when a conversation is opened or added to. `ref` is the person's `people.id` as text or the agent's session id; `name` is shown. */
+export interface ConversationMemberInput {
+  kind: ConversationMemberKind;
+  ref: string;
+  name: string;
+}
+
+export interface ConversationMember extends ConversationMemberInput {
+  /** The `people.id` of the person who added this member, or null for the opener's own place and for a person deleted since. */
+  addedBy: number | null;
+  joinedAt: number;
+  /** When the member left, or null while they are in. A member who left reads nothing new. */
+  leftAt: number | null;
+}
+
+/** A conversation of two or more members. An agent is in one only when a person added it. */
+export interface Conversation {
+  /** `cnv_`, the server's 8 hex digits of scope, then 24 hex digits. */
+  id: string;
+  createdBy: number | null;
+  createdAt: number;
+  /** Every member, the ones who left included, in the order they joined (then kind, then ref). */
+  members: ConversationMember[];
+  /** When the newest message was written, or `createdAt` when it has none. */
+  lastAt: number;
+  /** The messages it holds, tombstones included. */
+  messages: number;
+}
+
+/** A message of a conversation. */
+export interface ConversationMessage {
+  /** `cmg_`, the server's 8 hex digits of scope, then 24 hex digits. */
+  id: string;
+  conversationId: string;
+  authorKind: ConversationMemberKind;
+  /** The person's `people.id` as text, or the agent's session id. */
+  authorRef: string;
+  authorName: string;
+  /** `people.id` of a person's message, or null for an agent's. */
+  authorId: number | null;
+  text: string;
+  createdAt: number;
+  updatedAt: number;
+  replyTo: string | null;
+  editedAt: number | null;
+  deletedAt: number | null;
+  /** When Podium handed it to an agent of the conversation, or null. A handed message can no longer be changed. */
+  handedAt: number | null;
+}
+
+export interface ConversationPostInput {
+  authorKind: ConversationMemberKind;
+  authorRef: string;
+  authorName: string;
+  /** The writer's `people.id` for a person's message; ignored for an agent's. */
+  authorId?: number | null;
+  text: string;
+  replyTo?: string | null;
+}
+
+export interface ConversationPage {
+  messages: ConversationMessage[];
+  /** The cursor of the page before this one, or null when this page starts the conversation. */
+  older: string | null;
+}
+
+/** The result of the author changing one of their own messages. `locked`: it has been handed to an agent. `deleted`: it is already a tombstone. */
+export type ConversationChange = { ok: true; message: ConversationMessage } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
+
+/**
+ * The conversations of people and agents (#1278, DECISIONS 74), in their own tables (`conversations`, `conversation_members`, `conversation_messages`): a fourth audience,
+ * never copied into, merged with or returned with a channel's or a `peer_messages` row. A member is a person or an agent. Every method that reads and then writes is one step.
+ */
+export interface ConversationsApi {
+  /**
+   * The conversation of exactly these members (the opener included), opened once: when one exists with the same current members it is returned (`created` false), otherwise one is made.
+   * Throws for fewer than two distinct members, more than 50, a member kind that is not `person` or `agent`, an empty ref or name, or no person among them.
+   */
+  open(input: { members: ConversationMemberInput[]; createdBy: number | null }, at: number): Promise<{ conversation: Conversation; created: boolean }>;
+  get(id: string): Promise<Conversation | null>;
+  /** The conversations the member is in now, newest activity first (then id). Never any text. */
+  listFor(member: { kind: ConversationMemberKind; ref: string }): Promise<Conversation[]>;
+  /** Adds members who are not in it (one who left comes back). Null when there is no such conversation. Throws as `open` does for a bad member or more than 50 in all. */
+  addMembers(id: string, members: ConversationMemberInput[], addedBy: number | null, at: number): Promise<Conversation | null>;
+  /** The member leaves. A conversation with no person left in it is deleted with its messages (`deleted` true). Null when there is no such conversation or the member is not in it. */
+  leave(id: string, member: { kind: ConversationMemberKind; ref: string }, at: number): Promise<{ conversation: Conversation | null; deleted: boolean } | null>;
+  /** Stores a message of a member (a person or an agent who is in it now). Null when there is no such conversation or the author is not a member. The text is stored as given; the server has cleaned, redacted and limited it. */
+  post(id: string, input: ConversationPostInput, at: number): Promise<ConversationMessage | null>;
+  /** The newest page first; `before` is the `older` of the page after it. Ordered by time then insertion number. Throws for a cursor the server did not give out. */
+  page(id: string, opts: { before?: string | null; limit: number }): Promise<ConversationPage>;
+  getMessage(id: string, messageId: string): Promise<ConversationMessage | null>;
+  /** The author changes the text of their own message; decided in one step. Not-found, not-yours (the author is `people.id`, never a name), deleted, or locked (handed to an agent). */
+  editMessage(id: string, messageId: string, x: { author: number; text: string; now: number }): Promise<ConversationChange>;
+  /** The author deletes their own message under the same checks; the row stays as a tombstone with no text. */
+  deleteMessage(id: string, messageId: string, x: { author: number; now: number }): Promise<ConversationChange>;
+  /** Podium handed the message to an agent: it can no longer be changed. Null when there is no such message. */
+  markHanded(id: string, messageId: string, at: number): Promise<ConversationMessage | null>;
+  /** Deletes the conversation, its members and its messages. */
+  remove(id: string): Promise<{ removed: boolean; messages: number }>;
+  /** A person was deleted: they leave every conversation, and each one left with no person is deleted. Returns how many conversations were deleted. */
+  removePerson(personId: number): Promise<number>;
+  /** Retention: deletes the messages created before `olderThan`. Returns how many. A conversation stays, empty. */
+  purge(olderThan: number): Promise<number>;
+}
+
 export interface ChatStoreOptions {
   now: () => number;
 }
@@ -607,6 +715,8 @@ export interface ChatStoreApi {
   readonly public: PublicStoreApi;
   /** The public channels beside General (`public_channels`, #1035). */
   readonly channels: PublicChannelsApi;
+  /** The conversations of people and agents (#1278, DECISIONS 74). */
+  readonly conversations: ConversationsApi;
   readonly readState: ChatReadStateApi;
   /** The records of an Admin reading a thread that is not theirs. */
   readonly adminReads: ChatAdminReadsApi;
