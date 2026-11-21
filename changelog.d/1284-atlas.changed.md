@@ -1,1 +1,1 @@
-The atlas shows the agent ids (#1284): the `agent_ids` table (SQLite migration 47, PostgreSQL and MariaDB step 23), the unique live names, the `#id` address forms and the refusal of a send to an ended agent.
+The atlas shows the agent ids (#1284): the `agent_ids` table (SQLite migration 48, PostgreSQL and MariaDB step 24), the unique live names, the `#id` address forms and the refusal of a send to an ended agent.
