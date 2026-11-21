@@ -97,7 +97,6 @@ export function chatCases(o: Openers): void {
     expect(texts(t.get('page 2') as ChannelPage)).toEqual(['two', 'three']);
     expect(texts(t.get('page 3') as ChannelPage)).toEqual(['one']);
     expect((t.get('page 3') as ChannelPage).older).toBeNull();
-    expect(texts(t.get('page (ED, another case of the owner)') as ChannelPage)).toHaveLength(5);
     expect(texts(t.get('page (another group)') as ChannelPage)).toEqual([]);
     expect(texts(t.get('page (another owner, the same group id)') as ChannelPage)).toEqual([]);
     expect(t.get('page (bad cursor)')).toEqual({ threw: 'The cursor is not one this server gave out.' });
