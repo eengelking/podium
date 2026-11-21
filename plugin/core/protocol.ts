@@ -926,6 +926,8 @@ export interface RecordingPage {
   loops: RecordingLoopInfo[];
   /** The session's owner, for the refusal a viewer who may not read it is shown. */
   owner: string | null;
+  /** The owner's `people.id` (#1291), which decides who the owner is: `owner` is only the name shown. Null for a session owned by the admin secret or by a person since deleted; absent from an older server, which a reader treats as null. */
+  ownerId?: number | null;
 }
 
 /** A row of the Admin's Recordings table. */

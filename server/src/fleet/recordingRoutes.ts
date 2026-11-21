@@ -150,7 +150,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     // An Admin's replay of someone else's session is recorded and the owner is told (#1075): in their reporter session through the record, and on their console. Paging back keeps the reading live.
     if (got.v.admin && (await fleet.chat.adminReads.noteReplay(got.v, got.row))) fleet.replayChanged();
     if (before === null) await audit(req, got.v, got.row, 'recording_read', `${got.v.name} opened the replay${loop ? ` of ${loop === MAIN_LOOP ? 'the orchestrator' : 'one agent'}` : ''}`, { entries: page.entries.length });
-    const body: RecordingPage = { ...page, grant: await fleet.recordings.grant(got.row.id), loops, owner: got.row.owner };
+    const body: RecordingPage = { ...page, grant: await fleet.recordings.grant(got.row.id), loops, owner: got.row.owner, ownerId: got.row.owner_id };
     res.json(body);
   }));
 
