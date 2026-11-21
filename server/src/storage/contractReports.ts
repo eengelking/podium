@@ -6,11 +6,12 @@ import { sameOnAll, type Openers } from './contractSame.js';
 import { session } from './contract.js';
 import type { AgentRow, SessionWaitRow } from './rows.js';
 import type { RollupTable } from './reportQueries.js';
+import { buildRollups, costFn } from '../fleet/rollups.js';
 
 const T0 = 1_800_000_000_000;
 const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily', 'tools_daily', 'tool_sessions_daily', 'harness_versions_daily', 'tool_stats_daily', 'session_time_daily', 'agents_daily', 'person_sessions_daily', 'hour_peaks_daily', 'cost_daily', 'tool_cost_daily', 'feature_versions_daily', 'skills_daily', 'person_places_daily', 'answers_daily'];
 const usage = (day: string, owner: string, model: string, over: object = {}) => ({
-  day, owner, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
+  day, owner, ownerId: ({ zed: 3, Ann: 1, ann: 1, bob: 2 } as Record<string, number>)[owner] ?? 0, group: 'Crew', model, project: 'acme', sessions: 1, agents: 2, costUsd: 1.25, unpricedSessions: 0, tokIn: 1, tokOut: 2, tokCr: 3, tokCw: 4, ...over,
 });
 
 export function reportCases(o: Openers): void {
@@ -30,8 +31,8 @@ export function reportCases(o: Openers): void {
         { day: '2026-10-02', outcome: 'done', model: 'haiku', effort: 'low', plan: 'pro', sessions: 1, durationS: 5, maxDurationS: 5, agents: 0, blowouts: 0, maxContextPct: 3 },
       ]);
       await f.insertFailures([
-        { day: '2026-10-02', owner: 'ann', cls: 'timeout', tool: 'Bash', count: 2 }, { day: '2026-10-02', owner: 'Ann', cls: 'denied', tool: 'Read', count: 1 },
-        { day: '2026-10-02', owner: 'ann', cls: 'timeout', tool: '', count: 4 },
+        { day: '2026-10-02', ownerId: 1, owner: 'ann', cls: 'timeout', tool: 'Bash', count: 2 }, { day: '2026-10-02', ownerId: 1, owner: 'Ann', cls: 'denied', tool: 'Read', count: 1 },
+        { day: '2026-10-02', ownerId: 1, owner: 'ann', cls: 'timeout', tool: '', count: 4 },
       ]);
       // the tool counts (#720): names and counts only, one row per harness and tool, per harness and size of session, per harness and version
       await f.insertToolsDaily([
@@ -61,8 +62,8 @@ export function reportCases(o: Openers): void {
         { day: '2026-10-02', harness: 'claude-code', type: 'Explore', depth: 1, agents: 3 }, { day: '2026-10-02', harness: 'claude-code', type: 'explore', depth: 1, agents: 1 }, { day: '2026-10-01', harness: 'claude-code', type: '', depth: 10, agents: 1 },
       ]);
       await f.insertPersonSessionsDaily([
-        { day: '2026-10-02', owner: 'zed', group: '', harness: 'opencode', sessions: 1 }, { day: '2026-10-02', owner: 'Ann', group: 'Crew', harness: 'claude-code', sessions: 2 }, { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'claude-code', sessions: 1 },
-        { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'opencode', sessions: 4 }, { day: '2026-10-01', owner: '', group: '', harness: 'claude-code', sessions: 1 },
+        { day: '2026-10-02', ownerId: 3, owner: 'zed', group: '', harness: 'opencode', sessions: 1 }, { day: '2026-10-02', ownerId: 1, owner: 'Ann', group: 'Crew', harness: 'claude-code', sessions: 2 }, { day: '2026-10-02', ownerId: 1, owner: 'ann', group: 'Crew', harness: 'claude-code', sessions: 1 },
+        { day: '2026-10-02', ownerId: 1, owner: 'ann', group: 'Crew', harness: 'opencode', sessions: 4 }, { day: '2026-10-01', ownerId: 0, owner: '', group: '', harness: 'claude-code', sessions: 1 },
       ]);
       // what sessions cost and how they ended, by harness, model and effort, and by tool (#723): ties on every key but one, and a model with no price (cost 0, none priced)
       const cost = (day: string, harness: string, model: string, effort: string, over: object = {}) => ({ day, harness, model, effort, sessions: 2, pricedSessions: 2, calls: 10, pricedCalls: 10, costUsd: 0.1 + 0.2, callCostUsd: 0.25, tokIn: 5, tokOut: 6, tokCr: 7, tokCw: 8, endedLow: 1, endedMid: 0, endedHigh: 1, endedUnknown: 0, compacted: 1, cleared: 0, ...over });
@@ -82,12 +83,12 @@ export function reportCases(o: Openers): void {
       ]);
       // the skills each person used and where each person worked (#724): names and counts only
       await f.insertSkillsDaily([
-        { day: '2026-10-02', owner: 'ann', harness: 'claude-code', skill: 'code-review', sessions: 2 }, { day: '2026-10-02', owner: 'bob', harness: 'claude-code', skill: 'code-review', sessions: 1 },
-        { day: '2026-10-01', owner: 'ann', harness: 'claude-code', skill: 'simplify', sessions: 1 },
+        { day: '2026-10-02', ownerId: 1, owner: 'ann', harness: 'claude-code', skill: 'code-review', sessions: 2 }, { day: '2026-10-02', ownerId: 2, owner: 'bob', harness: 'claude-code', skill: 'code-review', sessions: 1 },
+        { day: '2026-10-01', ownerId: 1, owner: 'ann', harness: 'claude-code', skill: 'simplify', sessions: 1 },
       ]);
       await f.insertPlacesDaily([
-        { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'claude-code', project: 'acme', branch: 'main', sessions: 2 }, { day: '2026-10-02', owner: 'ann', group: 'Crew', harness: 'opencode', project: 'acme', branch: 'fix-1', sessions: 1 },
-        { day: '2026-10-01', owner: 'bob', group: 'Crew', harness: 'claude-code', project: '', branch: '', sessions: 1 },
+        { day: '2026-10-02', ownerId: 1, owner: 'ann', group: 'Crew', harness: 'claude-code', project: 'acme', branch: 'main', sessions: 2 }, { day: '2026-10-02', ownerId: 1, owner: 'ann', group: 'Crew', harness: 'opencode', project: 'acme', branch: 'fix-1', sessions: 1 },
+        { day: '2026-10-01', ownerId: 2, owner: 'bob', group: 'Crew', harness: 'claude-code', project: '', branch: '', sessions: 1 },
       ]);
       await f.upsertHourPeaks([{ day: '2026-10-02', harness: '', hour: 14, peak: 3 }, { day: '2026-10-02', harness: 'opencode', hour: 14, peak: 1 }, { day: '2026-10-02', harness: 'claude-code', hour: 9, peak: 2 }, { day: '2026-10-01', harness: '', hour: 0, peak: 1 }]);
       await rec('hour peaks stored', f.rollupRows('hour_peaks_daily', '2026-10-01', '2026-10-31'));
@@ -160,13 +161,13 @@ export function reportCases(o: Openers): void {
       await rec('no reporters', f.countReporters());
       const crew = await s.people.createGroup('Crew', T0);
       const { person } = await s.people.createPerson('ann', crew.id, T0);
-      await s.people.createPerson('bob', null, T0);
+      const { person: bob } = await s.people.createPerson('bob', null, T0);
       await s.people.touch(person.id, '203.0.113.1', T0 + 50);
       await s.people.createPerson('Ann-two', null, T0);
       await s.people.createGroup('Empty', T0);
       // sessions seen at the same moment, so the order of ties is part of the answer
       for (const [id, owner, seenAt] of [['s3', 'ann', T0 + 30], ['s1', 'ann', T0 + 30], ['s2', 'bob', T0 + 30], ['old', null, T0 - 10], ['s4', 'ghost', T0 + 31]] as const) {
-        await f.upsertSession(session({ id, owner, last_seen_at: seenAt, started_at: seenAt - 5 }));
+        await f.upsertSession(session({ id, owner, owner_id: owner === 'ann' ? person.id : owner === 'bob' ? bob.id : null, last_seen_at: seenAt, started_at: seenAt - 5 }));
       }
       const counted = (a: AgentRow, counts: object, stats?: object): AgentRow => ({ ...a, tool_counts_json: JSON.stringify(counts), tool_stats_json: stats ? JSON.stringify(stats) : null });
       // agents that were launched by another agent, and one whose parent is not stored (#722)
@@ -226,5 +227,72 @@ export function reportCases(o: Openers): void {
     expect(t.get('wait record (its session deleted)')).toBeUndefined();
     expect((t.get('waits since') as { session_id: string }[]).map((r) => r.session_id)).toEqual(['s1', 's3']);
     expect((t.get('agent links') as { agent: string; parent: string | null }[]).filter((r) => r.parent !== null).map((r) => `${r.agent}<${r.parent}`)).toEqual(['x4<x1', 'x5<gone']);
+  });
+
+  it('binds the daily rows and the group of a session to the owner\'s id, so a deleted person\'s spend counts in the totals and in no person\'s or group\'s figures, and a newcomer of the same name has none of it, on every adapter (#1284)', async () => {
+    const day = '2026-10-02';
+    const t = await sameOnAll(o, async (s, rec) => {
+      const f = s.fleet;
+      const crew = await s.people.createGroup('Crew', T0);
+      const { person: ann } = await s.people.createPerson('Ann', crew.id, T0);
+      const { person: bob } = await s.people.createPerson('Bob', crew.id, T0);
+      await f.upsertSession(session({ id: 'a1', owner: 'Ann', owner_id: ann.id, cost_usd: 3, started_at: T0, last_seen_at: T0 + 10, ended_at: T0 + 10, repo_name: 'acme' }));
+      await f.upsertSession(session({ id: 'b1', owner: 'Bob', owner_id: bob.id, cost_usd: 2, started_at: T0, last_seen_at: T0 + 10, ended_at: T0 + 10, repo_name: 'acme' }));
+      const cost = costFn(undefined);
+      const shape = (r: { day: string; owner: string; ownerId: number; group: string; costUsd: number }) => [r.owner, r.ownerId === 0 ? 0 : r.ownerId === ann.id ? 'ann' : r.ownerId === bob.id ? 'bob' : 'other', r.group, r.costUsd];
+      await rec('rows before', buildRollups(f, cost, 0).then((b) => b.usage.map(shape)));
+      await rec('ann\'s own before', buildRollups(f, cost, 0, { owner: 'Ann', ownerId: ann.id }).then((b) => b.usage.map(shape)));
+      await rec('total before', f.spendTotals(0, cost).then((r) => r.total));
+      await rec('group of ann before', f.groupOfOwner(ann.id));
+      // the stored rows of an earlier day, written with the id
+      await f.insertUsage([
+        { day, ownerId: ann.id, owner: 'Ann', group: 'Crew', model: 'm', project: 'acme', sessions: 1, agents: 0, costUsd: 3, unpricedSessions: 0, tokIn: 1, tokOut: 1, tokCr: 1, tokCw: 1 },
+        { day, ownerId: bob.id, owner: 'Bob', group: 'Crew', model: 'm', project: 'acme', sessions: 1, agents: 0, costUsd: 2, unpricedSessions: 0, tokIn: 1, tokOut: 1, tokCr: 1, tokCw: 1 },
+      ]);
+      await f.insertPersonSessionsDaily([{ day, ownerId: ann.id, owner: 'Ann', group: 'Crew', harness: 'claude-code', sessions: 1 }]);
+      await f.insertFailures([{ day, ownerId: ann.id, owner: 'Ann', cls: 'timeout', tool: 'Bash', count: 1 }]);
+      await f.insertSkillsDaily([{ day, ownerId: ann.id, owner: 'Ann', harness: 'claude-code', skill: 'simplify', sessions: 1 }]);
+      await f.insertPlacesDaily([{ day, ownerId: ann.id, owner: 'Ann', group: 'Crew', harness: 'claude-code', project: 'acme', branch: 'main', sessions: 1 }]);
+      await s.people.deleteMany([ann.id]);
+      const { person: again } = await s.people.createPerson('Ann', crew.id, T0 + 1);
+      await rec('the id is new', again.id !== ann.id);
+      await rec('rows after', buildRollups(f, cost, 0).then((b) => b.usage.map(shape)));
+      await rec('the newcomer\'s own', buildRollups(f, cost, 0, { owner: 'Ann', ownerId: again.id }).then((b) => b.usage.map(shape)));
+      await rec('the old id\'s own', buildRollups(f, cost, 0, { owner: 'Ann', ownerId: ann.id }).then((b) => b.usage.map(shape)));
+      await rec('total after', f.spendTotals(0, cost).then((r) => r.total));
+      await rec('by owner after', f.costByOwnerSince(0, cost));
+      await rec('group of the old id', f.groupOfOwner(ann.id));
+      await rec('group of the newcomer', f.groupOfOwner(again.id));
+      await rec('groups of both', f.groupsOfOwners([ann.id, again.id, bob.id]).then((m) => [...m]));
+      await rec('spend rows after', f.sessionSpendSince(0, cost).then((r) => r.map((x) => [x.id, x.owner, x.grp, x.usd])));
+      for (const tb of ['usage_daily', 'person_sessions_daily', 'failures_daily', 'skills_daily', 'person_places_daily'] as const) {
+        await rec(`stored ${tb}`, f.rollupRows(tb, day, day).then((rows) => rows.map((r) => [r.owner, Number(r.owner_id) === ann.id ? 'ann' : Number(r.owner_id) === bob.id ? 'bob' : Number(r.owner_id), r.group_name ?? null])));
+      }
+      await rec('stored cost', f.rollupRows('usage_daily', day, day).then((rows) => rows.reduce((n, r) => n + Number(r.cost_usd), 0)));
+      // a day written again keeps the two Anns apart: the same name, day, model and project under two ids is two rows
+      await f.insertUsage([{ day: '2026-10-03', ownerId: again.id, owner: 'Ann', group: 'Crew', model: 'm', project: 'acme', sessions: 1, agents: 0, costUsd: 1, unpricedSessions: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0 }, { day: '2026-10-03', ownerId: 0, owner: 'Ann', group: '', model: 'm', project: 'acme', sessions: 1, agents: 0, costUsd: 4, unpricedSessions: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0 }]);
+      await rec('two of a name', f.rollupRows('usage_daily', '2026-10-03', '2026-10-03').then((rows) => rows.map((r) => [r.owner, r.owner_id === 0 || Number(r.owner_id) === 0 ? 0 : 'id', r.cost_usd])));
+    });
+    expect(t.get('rows before')).toEqual([['Ann', 'ann', 'Crew', 3], ['Bob', 'bob', 'Crew', 2]]);
+    expect(t.get('ann\'s own before')).toEqual([['Ann', 'ann', 'Crew', 3]]);
+    expect(t.get('total before')).toBe(5);
+    expect(t.get('group of ann before')).toBe('Crew');
+    // the deleted person's spend is in the fleet's figures and in no group's
+    expect(t.get('rows after')).toEqual([['Ann', 0, '', 3], ['Bob', 'bob', 'Crew', 2]]);
+    expect(t.get('total after')).toBe(5);
+    expect(t.get('the newcomer\'s own')).toEqual([]);
+    expect(t.get('the old id\'s own')).toEqual([]);
+    expect(t.get('group of the old id')).toBeNull();
+    expect(t.get('group of the newcomer')).toBe('Crew');
+    expect(t.get('spend rows after')).toEqual([['a1', 'Ann', null, 3], ['b1', 'Bob', 'Crew', 2]]);
+    expect(t.get('by owner after')).toEqual([{ owner: 'Ann', group: null, costUsd: 3 }, { owner: 'Bob', group: 'Crew', costUsd: 2 }]);
+    // the stored rows keep the id (never reused, so no one holds it) and lose the group, and the total of the day is what it was
+    expect(t.get('stored usage_daily')).toEqual([['Ann', 'ann', ''], ['Bob', 'bob', 'Crew']]);
+    expect(t.get('stored person_sessions_daily')).toEqual([['Ann', 'ann', '']]);
+    expect(t.get('stored person_places_daily')).toEqual([['Ann', 'ann', '']]);
+    expect(t.get('stored failures_daily')).toEqual([['Ann', 'ann', null]]);
+    expect(t.get('stored skills_daily')).toEqual([['Ann', 'ann', null]]);
+    expect(t.get('stored cost')).toBe(5);
+    expect(t.get('two of a name')).toHaveLength(2);
   });
 }

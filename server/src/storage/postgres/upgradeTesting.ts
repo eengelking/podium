@@ -5,20 +5,20 @@ import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { openPostgresStorage } from './index.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
-import type { LegacyAdminRead, LegacyChat, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import { legacyDailyInsert, type LegacyAdminRead, type LegacyChat, type LegacyDaily, type LegacyExtras, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
-export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat): Promise<{ storage: Storage; td: TestDatabase }> {
+export async function openUpgradedPostgres(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat, daily: LegacyDaily[] = []): Promise<{ storage: Storage; td: TestDatabase }> {
   const td = await createTestDatabase();
   try {
-    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras, chat), td };
+    return { storage: await build(td, rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras, chat, daily), td };
   } catch (e) {
     await td.drop();
     throw e;
   }
 }
 
-async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[], extras: LegacyExtras, chat?: LegacyChat): Promise<Storage> {
+async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyReporter[], sessions: LegacySession[], messages: LegacyMessage[], rights: LegacyRight[], adminReads: LegacyAdminRead[], publicMessages: LegacyPublicMessage[], extras: LegacyExtras, chat: LegacyChat | undefined, daily: LegacyDaily[]): Promise<Storage> {
   const old = new PgDb({ connectionString: td.url, schema: MAIN_SCHEMA, max: 2, name: 'test' });
   try {
     await migrate(old, MAIN_SCHEMA, MAIN_STEPS.slice(0, 1));
@@ -140,6 +140,17 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
       for (const c of chat.channels ?? []) await old.run("INSERT INTO public_channels (name, description, created_by, created_by_name, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)", [c.name, c.createdBy, c.createdByName, c.createdAt, c.createdAt]);
       for (const o of chat.owed ?? []) await old.run('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?)', [o.person, o.thread, o.adminKey, o.startedAt]);
       for (const f of chat.flags ?? []) await old.run('INSERT INTO settings (key, value) VALUES (?, ?)', [`chat.flag.${f.scope}`, f.value]);
+    }
+    if (daily.length > 0) {
+      // Daily rows that name only their owner come from the first steps; step 28 bound them to the owner's id, so they go in at the schema before it, with the people they will be matched to.
+      await migrate(old, MAIN_SCHEMA, MAIN_STEPS.filter((s) => s.version <= 27));
+      for (const name of new Set(daily.flatMap((x) => (x.person ? [x.person] : [])))) {
+        if (!(await old.get('SELECT 1 FROM people WHERE name_lower = ?', [nameKey(name)]))) await old.run('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)', [name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64)]);
+      }
+      for (const x of daily) {
+        const { sql, args } = legacyDailyInsert(x);
+        await old.run(sql, args);
+      }
     }
   } finally {
     await old.close();

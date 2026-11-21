@@ -123,9 +123,34 @@ export interface LegacyChat {
   flags?: { scope: string; value: string }[];
 }
 
+/** A daily row as an older database stores it, before the row was bound to its owner's id (#1284): named by the owner's name only. `person` is a person of that name the older database holds too (made once, however many rows name it), so the upgrade can match it. */
+export interface LegacyDaily {
+  table: 'usage_daily' | 'failures_daily' | 'person_sessions_daily' | 'skills_daily' | 'person_places_daily';
+  day: string;
+  owner: string;
+  group: string;
+  person?: string;
+}
+
+/** The statement and values that write a `LegacyDaily` at the schema before it had an owner id: every other column is filled with one fixed value. */
+export function legacyDailyInsert(r: LegacyDaily): { sql: string; args: (string | number)[] } {
+  switch (r.table) {
+    case 'usage_daily':
+      return { sql: 'INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, \'m\', \'p\', 1, 0, 2, 0, 0, 0, 0, 0)', args: [r.day, r.owner, r.group] };
+    case 'failures_daily':
+      return { sql: 'INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, \'c\', \'t\', 1)', args: [r.day, r.owner] };
+    case 'person_sessions_daily':
+      return { sql: 'INSERT INTO person_sessions_daily (day, owner, group_name, harness, sessions) VALUES (?, ?, ?, \'h\', 1)', args: [r.day, r.owner, r.group] };
+    case 'skills_daily':
+      return { sql: 'INSERT INTO skills_daily (day, owner, harness, skill, sessions) VALUES (?, ?, \'h\', \'s\', 1)', args: [r.day, r.owner] };
+    case 'person_places_daily':
+      return { sql: 'INSERT INTO person_places_daily (day, owner, group_name, harness, project, branch, sessions) VALUES (?, ?, ?, \'h\', \'p\', \'b\', 1)', args: [r.day, r.owner, r.group] };
+  }
+}
+
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[], extras?: LegacyExtras, chat?: LegacyChat): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[], extras?: LegacyExtras, chat?: LegacyChat, daily?: LegacyDaily[]): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -596,6 +621,49 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await lookup.ofOwner(again)).toEqual([]);
       expect((await lookup.ofOwner(ann)).map((r) => r.key)).toEqual(['r-ann']);
       expect(await lookup.get('r-ed')).toMatchObject({ owner: 'ED   Smith', ownerId: null });
+    } finally {
+      await s.close();
+    }
+  });
+  it('gives the daily rows an older database holds the id of the person their owner name matches, leaves the others with none and no group, and keeps a newcomer of the same name apart from them, when the database is upgraded (#1284)', async () => {
+    const D1 = '2026-10-01';
+    const D2 = '2026-10-02';
+    const row = (table: LegacyDaily['table'], day: string, owner: string, group: string, person?: string): LegacyDaily => ({ table, day, owner, group, ...(person ? { person } : {}) });
+    const s = await o.openUpgraded([], [], [], [], [], [], [], undefined, undefined, [
+      // The owner differs from the person's name in case and folds to it.
+      row('usage_daily', D1, 'ANN', 'Crew', 'Ann'),
+      row('usage_daily', D2, 'Ann', 'Crew', 'Ann'),
+      row('usage_daily', D1, 'ghost', 'Crew'),
+      row('usage_daily', D1, 'Admin', ''),
+      row('failures_daily', D1, 'ann', '', 'Ann'),
+      row('failures_daily', D1, 'ghost', ''),
+      row('person_sessions_daily', D1, 'Ann', 'Crew', 'Ann'),
+      row('person_sessions_daily', D1, 'ghost', 'Crew'),
+      row('skills_daily', D1, 'Ann', '', 'Ann'),
+      row('skills_daily', D1, 'ghost', ''),
+      row('person_places_daily', D1, 'Ann', 'Crew', 'Ann'),
+      row('person_places_daily', D1, 'ghost', 'Crew'),
+    ]);
+    try {
+      const ann = (await s.people.findByName('ann'))!.id;
+      const read = async (table: LegacyDaily['table']) => (await s.fleet.rollupRows(table, D1, D2)).map((r) => [r.day, r.owner, Number(r.owner_id), r.group_name ?? null]);
+      // The rows of a person that exists have the person's id and keep their group; the others have 0 and no group; the owner stays as the text it was, and no total changes.
+      expect(await read('usage_daily')).toEqual([[D1, 'Admin', 0, ''], [D1, 'ghost', 0, ''], [D1, 'ANN', ann, 'Crew'], [D2, 'Ann', ann, 'Crew']]);
+      expect(await read('failures_daily')).toEqual([[D1, 'ghost', 0, null], [D1, 'ann', ann, null]]);
+      expect(await read('person_sessions_daily')).toEqual([[D1, 'ghost', 0, ''], [D1, 'Ann', ann, 'Crew']]);
+      expect(await read('skills_daily')).toEqual([[D1, 'ghost', 0, null], [D1, 'Ann', ann, null]]);
+      expect(await read('person_places_daily')).toEqual([[D1, 'ghost', 0, ''], [D1, 'Ann', ann, 'Crew']]);
+      expect((await s.fleet.rollupRows('usage_daily', D1, D2)).reduce((n, r) => n + Number(r.cost_usd), 0)).toBe(8);
+      // Deleting the person keeps the rows under the id, which no newcomer gets, and takes the group off them.
+      expect((await s.people.deleteMany([ann])).map((p) => p.name)).toEqual(['Ann']);
+      const again = (await s.people.createPerson('Ann', null, T0)).person.id;
+      expect(again).not.toBe(ann);
+      expect(await read('usage_daily')).toEqual([[D1, 'Admin', 0, ''], [D1, 'ghost', 0, ''], [D1, 'ANN', ann, ''], [D2, 'Ann', ann, '']]);
+      expect((await s.fleet.rollupRows('usage_daily', D1, D2)).filter((r) => Number(r.owner_id) === again)).toEqual([]);
+      // The same name, day, model and project under two ids is two rows, not a clash of keys.
+      const usage = (ownerId: number, costUsd: number) => ({ day: D1, ownerId, owner: 'Ann', group: '', model: 'm', project: 'p', sessions: 1, agents: 0, costUsd, unpricedSessions: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0 });
+      await s.fleet.insertUsage([usage(ann, 1), usage(again, 2), usage(0, 4)]);
+      expect((await s.fleet.rollupRows('usage_daily', D1, D1)).filter((r) => r.owner === 'Ann').map((r) => Number(r.cost_usd))).toEqual([4, 1, 2]);
     } finally {
       await s.close();
     }

@@ -6,11 +6,11 @@ import path from 'node:path';
 import { openDb } from './db.js';
 import { nameKey } from '../rows.js';
 import { openSqliteStorage } from './index.js';
-import type { LegacyAdminRead, LegacyChat, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from '../contractUpgrade.js';
+import { legacyDailyInsert, type LegacyAdminRead, type LegacyChat, type LegacyDaily, type LegacyExtras, type LegacyMessage, type LegacyPublicMessage, type LegacyReporter, type LegacyRequest, type LegacyRight, type LegacySession } from '../contractUpgrade.js';
 import type { Storage } from '../types.js';
 
 /** The caller removes `dir` once the storage is closed. */
-export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat): { storage: Storage; dir: string } {
+export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyReporter[] = [], sessions: LegacySession[] = [], messages: LegacyMessage[] = [], rights: LegacyRight[] = [], adminReads: LegacyAdminRead[] = [], publicMessages: LegacyPublicMessage[] = [], extras: LegacyExtras = {}, chat?: LegacyChat, daily: LegacyDaily[] = []): { storage: Storage; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'podium-upgrade-'));
   const file = path.join(dir, 'podium.sqlite');
   const old = openDb(file, 25);
@@ -116,6 +116,19 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
     for (const c of chat.channels ?? []) late.prepare("INSERT INTO public_channels (name, description, created_by, created_by_name, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)").run(c.name, c.createdBy, c.createdByName, c.createdAt, c.createdAt);
     for (const o of chat.owed ?? []) late.prepare('INSERT INTO chat_admin_owed (person_key, thread, admin_key, started_at) VALUES (?, ?, ?, ?)').run(o.person, o.thread, o.adminKey, o.startedAt);
     for (const f of chat.flags ?? []) late.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(`chat.flag.${f.scope}`, f.value);
+    late.close();
+  }
+  if (daily.length > 0) {
+    // Daily rows that name only their owner come from migrations 22 and 41; migration 52 bound them to the owner's id, so they go in at the schema before it, with the people they will be matched to.
+    const late = openDb(file, 51);
+    const insertPerson = late.prepare('INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1000)');
+    for (const name of new Set(daily.flatMap((x) => (x.person ? [x.person] : [])))) {
+      if (!late.prepare('SELECT 1 FROM people WHERE name_lower = ?').get(nameKey(name))) insertPerson.run(name, nameKey(name), `key${nameKey(name).replace(/\W/g, '')}`, '0'.repeat(64));
+    }
+    for (const x of daily) {
+      const { sql, args } = legacyDailyInsert(x);
+      late.prepare(sql).run(...args);
+    }
     late.close();
   }
   return { storage: openSqliteStorage(file, 0), dir };

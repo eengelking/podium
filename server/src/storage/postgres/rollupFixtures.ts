@@ -80,11 +80,13 @@ export async function world(db: PgDb): Promise<World> {
 export async function populate(w: World): Promise<void> {
   const backend = await w.people.createGroup('Backend', NOW);
   const priya = (await w.people.createPerson('Priya', backend.id, NOW - 60 * DAY_MS)).person;
-  await w.people.createPerson('Dana', null, NOW - 60 * DAY_MS);
+  const dana = (await w.people.createPerson('Dana', null, NOW - 60 * DAY_MS)).person;
   await w.people.createPerson('Quiet', null, NOW - 60 * DAY_MS);
   await w.db.run('UPDATE people SET last_report_at = ? WHERE id = ?', [at(0, 10), priya.id]);
   await w.db.run("UPDATE people SET last_report_at = ? WHERE name = 'Dana'", [at(2, 10)]);
-  const add = (s: Parameters<typeof session>[0]) => w.fdb.upsertSession(session(s));
+  // A session is bound to its person by id (#1284); the Admin's and the one with no owner have none.
+  const ids: Record<string, number> = { Priya: priya.id, Dana: dana.id };
+  const add = (s: Parameters<typeof session>[0]) => w.fdb.upsertSession(session({ ...s, owner_id: (s.owner && ids[s.owner]) || null }));
   // Priya: three days of work, one on a model nobody priced, one with agents and a failure.
   await add({ id: 'p1', owner: 'Priya', started_at: at(3, 9), last_seen_at: at(3, 11), ended_at: at(3, 11), cost_usd: 2, usage_json: JSON.stringify([{ model: 'claude-opus-5-5', tier: 'std', tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } }]), plan_json: JSON.stringify({ title: null, source: 'TodoWrite', steps: [] }), machine_json: JSON.stringify({ name: 'mbp', id: 'm1' }), blowouts: 1, context_percent: 91 });
   await add({ id: 'p2', owner: 'Priya', started_at: at(2, 9), last_seen_at: at(2, 12), ended_at: at(2, 12), cost_usd: null, model: 'llama-local', end_reason: 'error' });

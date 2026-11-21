@@ -194,9 +194,9 @@ interface Facts {
 
 type Raw = RollupRaw;
 
-const usageOf = (r: Raw): UsageDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), model: String(r.model), project: String(r.project), sessions: Number(r.sessions), agents: Number(r.agents), costUsd: Number(r.cost_usd), unpricedSessions: Number(r.unpriced_sessions), tokIn: Number(r.tok_in), tokOut: Number(r.tok_out), tokCr: Number(r.tok_cr), tokCw: Number(r.tok_cw) });
+const usageOf = (r: Raw): UsageDay => ({ day: String(r.day), ownerId: Number(r.owner_id), owner: String(r.owner), group: String(r.group_name), model: String(r.model), project: String(r.project), sessions: Number(r.sessions), agents: Number(r.agents), costUsd: Number(r.cost_usd), unpricedSessions: Number(r.unpriced_sessions), tokIn: Number(r.tok_in), tokOut: Number(r.tok_out), tokCr: Number(r.tok_cr), tokCw: Number(r.tok_cw) });
 const sessionsOf = (r: Raw): SessionsDay => ({ day: String(r.day), outcome: String(r.outcome), model: String(r.model), effort: String(r.effort), plan: String(r.plan), sessions: Number(r.sessions), durationS: Number(r.duration_s), maxDurationS: Number(r.max_duration_s), agents: Number(r.agents), blowouts: Number(r.blowouts), maxContextPct: Number(r.max_context_pct) });
-const failureOf = (r: Raw): FailureDay => ({ day: String(r.day), owner: String(r.owner), cls: String(r.class), tool: String(r.tool), count: Number(r.count) });
+const failureOf = (r: Raw): FailureDay => ({ day: String(r.day), ownerId: Number(r.owner_id), owner: String(r.owner), cls: String(r.class), tool: String(r.tool), count: Number(r.count) });
 const fleetOf = (r: Raw): FleetDay => ({ day: String(r.day), activePeople: Number(r.active_people), activeReporters: Number(r.active_reporters), sessionsStarted: Number(r.sessions_started), peakLive: Number(r.peak_live_sessions), reporterVersions: JSON.parse(String(r.reporter_versions_json)) as Record<string, number>, engineVersions: JSON.parse(String(r.engine_versions_json)) as Record<string, number> });
 
 const toolOf = (r: Raw): ToolDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), calls: Number(r.calls) });
@@ -204,12 +204,12 @@ const toolSessionOf = (r: Raw): ToolSessionDay => ({ day: String(r.day), harness
 const toolStatOf = (r: Raw): ToolStatDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), failed: Number(r.failed), asked: Number(r.asked), allowed: Number(r.allowed), denied: Number(r.denied), podium: Number(r.podium), timesJson: String(r.times_json) });
 const sessionTimeOf = (r: Raw): SessionTimeDay => ({ day: String(r.day), harness: String(r.harness), sessions: Number(r.sessions), durationS: Number(r.duration_s), maxDurationS: Number(r.max_duration_s), trackedSessions: Number(r.tracked_sessions), trackedS: Number(r.tracked_s), permissionS: Number(r.permission_s), permissionN: Number(r.permission_n), questionS: Number(r.question_s), questionN: Number(r.question_n), planS: Number(r.plan_s), planN: Number(r.plan_n) });
 const agentOf = (r: Raw): AgentDay => ({ day: String(r.day), harness: String(r.harness), type: String(r.type), depth: Number(r.depth), agents: Number(r.agents) });
-const personDayOf = (r: Raw): PersonDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), sessions: Number(r.sessions) });
+const personDayOf = (r: Raw): PersonDay => ({ day: String(r.day), ownerId: Number(r.owner_id), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), sessions: Number(r.sessions) });
 const costDayOf = (r: Raw): CostDay => ({ day: String(r.day), harness: String(r.harness), model: String(r.model), effort: String(r.effort), sessions: Number(r.sessions), pricedSessions: Number(r.priced_sessions), calls: Number(r.calls), pricedCalls: Number(r.priced_calls), costUsd: Number(r.cost_usd), callCostUsd: Number(r.call_cost_usd), tokIn: Number(r.tok_in), tokOut: Number(r.tok_out), tokCr: Number(r.tok_cr), tokCw: Number(r.tok_cw), endedLow: Number(r.ended_low), endedMid: Number(r.ended_mid), endedHigh: Number(r.ended_high), endedUnknown: Number(r.ended_unknown), compacted: Number(r.compacted), cleared: Number(r.cleared) });
 const toolCostOf = (r: Raw): ToolCostDay => ({ day: String(r.day), harness: String(r.harness), tool: String(r.tool), sessions: Number(r.sessions), pricedSessions: Number(r.priced_sessions), costUsd: Number(r.cost_usd), calls: Number(r.calls) });
 const hourPeakOf = (r: Raw): HourPeakDay => ({ day: String(r.day), harness: String(r.harness), hour: Number(r.hour), peak: Number(r.peak) });
-const skillOf = (r: Raw): SkillDay => ({ day: String(r.day), owner: String(r.owner), harness: String(r.harness), skill: String(r.skill), sessions: Number(r.sessions) });
-const placeOf = (r: Raw): PlaceDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), project: String(r.project), branch: String(r.branch), sessions: Number(r.sessions) });
+const skillOf = (r: Raw): SkillDay => ({ day: String(r.day), ownerId: Number(r.owner_id), owner: String(r.owner), harness: String(r.harness), skill: String(r.skill), sessions: Number(r.sessions) });
+const placeOf = (r: Raw): PlaceDay => ({ day: String(r.day), ownerId: Number(r.owner_id), owner: String(r.owner), group: String(r.group_name), harness: String(r.harness), project: String(r.project), branch: String(r.branch), sessions: Number(r.sessions) });
 const featureVersionOf = (r: Raw): FeatureVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), feature: String(r.feature), sessions: Number(r.sessions) });
 const harnessVersionOf = (r: Raw): HarnessVersionDay => ({ day: String(r.day), harness: String(r.harness), version: String(r.version), reporters: Number(r.reporters) });
 
@@ -230,12 +230,15 @@ async function oldestRollupDay(db: FleetStore, today: string): Promise<string> {
  * the Admin's reports pass `FLEET`, My usage (#726) passes the signed-in person through `personScope`.
  */
 export interface Scope {
+  /** The person's name: the text of their rows, and the match for the admin secret, which has no id. */
   readonly owner: string | null;
+  /** The person's `people.id` (#1284), which is what a stored row is matched by; null for the admin secret, with no person. */
+  readonly ownerId: number | null;
 }
-const FLEET: Scope = { owner: null };
-export function personScope(owner: string): Scope {
-  if (owner.trim() === '') throw new Error('a person scope needs the person');
-  return { owner };
+const FLEET: Scope = { owner: null, ownerId: null };
+export function personScope(person: { name: string; id: number | null }): Scope {
+  if (person.name.trim() === '') throw new Error('a person scope needs the person');
+  return { owner: person.name, ownerId: person.id };
 }
 
 /** The first day a person's stored sessions can still reach back to: the Admin's session retention, and one day over for the day it ends in (#726). */
@@ -248,7 +251,9 @@ async function loadFacts(deps: ReportDeps, scope: Scope, from: string, to: strin
   const stored = to < today ? to : addDays(today, -1);
   // For a person only the rollups that carry an owner are read from storage. The others (sessions, tools, time, cost) are built from that person's stored sessions, the last 30 days.
   const mine = scope.owner === null ? null : nameKey(scope.owner);
-  const ownedBy = <T extends { owner: string }>(rows: T[]): T[] => (mine === null ? rows : rows.filter((r) => nameKey(r.owner) === mine));
+  // A row is a person's by their id (#1284). The admin secret has none: its rows are the ones that belong to no person under its own name.
+  const ownedBy = <T extends { owner: string; ownerId: number }>(rows: T[]): T[] =>
+    mine === null ? rows : rows.filter((r) => (scope.ownerId !== null ? r.ownerId === scope.ownerId : r.ownerId === 0 && nameKey(r.owner) === mine));
   const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], skills: [], places: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], hourPeaks: [], costDays: [], toolCosts: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], tools: [], toolSessions: [], harnessVersions: [], featureVersions: [], skills: [], places: [], toolStats: [], sessionTime: [], agentTypes: [], personDays: [], costDays: [], toolCosts: [], failureSessions: [] } };
   if (from <= stored) {
     f.usage = ownedBy((await select(db, 'usage_daily', from, stored)).map(usageOf));
@@ -296,7 +301,7 @@ async function loadFacts(deps: ReportDeps, scope: Scope, from: string, to: strin
   // A period that ends before today needs nothing live unless the History links want the stored sessions.
   if (mine !== null) {
     const reach = storedSessionsFloor(deps, today);
-    f.live = await buildRollups(db, cost, dayStart(from > reach ? from : reach), { owner: scope.owner! });
+    f.live = await buildRollups(db, cost, dayStart(from > reach ? from : reach), { owner: scope.owner, ownerId: scope.ownerId });
   }
   else if (to === today || withSessions) f.live = await buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
   if (to === today) {
@@ -1567,7 +1572,7 @@ export const MY_REPORT_NAMES = Object.keys(MY_BREAKDOWNS) as MyReportName[];
 /** The only query keys a person's report reads. Anything else (a person, a group, an owner, a session) is dropped here, before any report sees it. */
 const MY_QUERY_KEYS = ['from', 'to', 'by', 'breakdown', 'harness'] as const;
 
-export const runMyReport = (deps: ReportDeps, person: string, name: MyReportName, q: Query): Promise<ReportReply> => deps.tx(() => myReportOf(deps, personScope(person), name, q));
+export const runMyReport = (deps: ReportDeps, person: { name: string; id: number | null }, name: MyReportName, q: Query): Promise<ReportReply> => deps.tx(() => myReportOf(deps, personScope(person), name, q));
 
 async function myReportOf(deps: ReportDeps, scope: Scope, name: MyReportName, q: Query): Promise<ReportReply> {
   const own: Query = {};

@@ -133,7 +133,7 @@ class MariaFleetStore implements FleetStoreApi {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.t < :sec AND m.cost_usd IS NOT NULL ORDER BY m.t DESC LIMIT 1),
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
-       FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
+       FROM sessions s LEFT JOIN people p ON p.id = s.owner_id LEFT JOIN groups g ON g.id = p.group_id
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
        ORDER BY s.id`,
       { since, sec: Math.floor(since / 1000) },
@@ -234,21 +234,21 @@ class MariaFleetStore implements FleetStoreApi {
     return [...by.values()].sort((a, b) => b.costUsd - a.costUsd || (a.owner ?? '').localeCompare(b.owner ?? ''));
   }
 
-  /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
-  async groupOfOwner(owner: string | null): Promise<string | null> {
-    if (owner === null) return null;
-    const r = await this.db.get<{ grp: string }>('SELECT g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name = ?', [owner]);
+  /** The group a session's owner is in, by the owner's `people.id` (#1284); null for the admin secret, a person who was deleted (no id) or a person with no group. */
+  async groupOfOwner(ownerId: number | null): Promise<string | null> {
+    if (ownerId === null) return null;
+    const r = await this.db.get<{ grp: string }>('SELECT g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.id = ?', [ownerId]);
     return r?.grp ?? null;
   }
 
   /** `groupOfOwner` for many owners in one statement (#906). */
-  async groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>> {
-    const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
-    const names = [...new Set(owners.filter((o): o is string => o !== null))];
-    for (const part of pieces(names, IDS_PER_STATEMENT)) {
-      // order-insensitive: the rows are put in a map by the owner's name.
-      const rows = await this.db.all<{ name: string; grp: string }>(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part);
-      for (const r of rows) out.set(r.name, r.grp);
+  async groupsOfOwners(ownerIds: (number | null)[]): Promise<Map<number | null, string | null>> {
+    const out = new Map<number | null, string | null>(ownerIds.map((o) => [o, null]));
+    const ids = [...new Set(ownerIds.filter((o): o is number => o !== null))];
+    for (const part of pieces(ids, IDS_PER_STATEMENT)) {
+      // order-insensitive: the rows are put in a map by the owner's id.
+      const rows = await this.db.all<{ id: number | string; grp: string }>(`SELECT p.id AS id, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.id IN (${marks(part.length)})`, part);
+      for (const r of rows) out.set(Number(r.id), r.grp);
     }
     return out;
   }

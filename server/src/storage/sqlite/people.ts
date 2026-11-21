@@ -168,6 +168,8 @@ export class PeopleStore {
         // Their sessions and reporters keep the name as text but are no one's now (#1284): a new person who takes the name owns none of them.
         this.stmt('UPDATE sessions SET owner_id = NULL WHERE owner_id = ?').run(p.id);
         this.stmt('UPDATE reporters SET owner_id = NULL WHERE owner_id = ?').run(p.id);
+        // Their daily rows keep the id, which no one holds now, and lose the group they were counted in, so their spend is in the fleet's figures and in no group's.
+        for (const table of ['usage_daily', 'person_sessions_daily', 'person_places_daily']) this.stmt(`UPDATE ${table} SET group_name = '' WHERE owner_id = ?`).run(p.id);
         this.forgetChat(p.name, p.id);
       }
       this.db.exec('COMMIT');

@@ -70,7 +70,7 @@ const TARGETS: readonly Target[] = [
   { name: 'fleet.deleteSession', args: (r) => [id(r)], run: (s, a) => s.fleet.deleteSession(a[0] as string) },
   { name: 'fleet.costSince', args: (r) => [num(r)], run: (s, a) => s.fleet.costSince(a[0] as number) },
   { name: 'fleet.spendTotals', args: (r) => [num(r)], run: (s, a) => s.fleet.spendTotals(a[0] as number) },
-  { name: 'fleet.groupOfOwner', args: (r) => [r() < 0.2 ? null : str(r)], run: (s, a) => s.fleet.groupOfOwner(a[0] as string | null) },
+  { name: 'fleet.groupOfOwner', args: (r) => [r() < 0.2 ? null : Math.floor(r() * 5)], run: (s, a) => s.fleet.groupOfOwner(a[0] as number | null) },
   {
     name: 'reporters.record',
     args: (r) => [{ kind: pick(r, ['mod', 'hooks'] as const), machineId: r() < 0.3 ? null : key(r), machineName: r() < 0.3 ? null : str(r), source: str(r), owner: r() < 0.3 ? null : str(r), credential: 'person', version: str(r), engineVersion: null, sessionId: id(r) }, num(r)],

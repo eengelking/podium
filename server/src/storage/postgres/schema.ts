@@ -145,6 +145,21 @@ async function fillChatPersonIds(db: DB): Promise<void> {
   }
 }
 
+/** The daily tables that carry a person (#1284): their rows are bound to `people.id` by `owner_id`, with 0 for no person. */
+const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const;
+
+/** Gives the daily rows that exist the id of their owner (#1284), and takes the group off the rows whose owner matches no person. See SQLite's `fillDailyOwnerIds`. Only rows with no id are written, so a step run again adds nothing. */
+async function fillDailyOwnerIds(db: DB): Promise<void> {
+  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  for (const table of OWNED_DAILY) {
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`)) {
+      const id = ids.get(nameKey(r.owner));
+      if (id !== undefined) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0`, [id, r.owner]);
+    }
+    if (table !== 'failures_daily' && table !== 'skills_daily') await db.run(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
+  }
+}
+
 /** `TXT` is text under the byte-order collation; `INT` is a 64-bit integer (times are milliseconds); `REAL` is a double. */
 const typed = (sql: string): string => sql.replace(/\bTXT\b/g, 'TEXT COLLATE "C"').replace(/\bINT\b/g, 'BIGINT').replace(/\bREAL\b/g, 'DOUBLE PRECISION');
 
@@ -624,6 +639,24 @@ CREATE INDEX chat_admin_owed_person ON chat_admin_owed(person_id, thread);
 ALTER TABLE public_channels ADD COLUMN created_by_id INT;
 `),
     after: fillChatPersonIds,
+  },
+  {
+    version: 28,
+    // The daily rows that name a person are bound to the person by id (#1284), as SQLite migration 52 keeps it: `owner_id` is `people.id` (no foreign key), 0 is no person, and a row's key gains it so a
+    // person deleted and a newcomer who takes the name keep apart their rows of one day. `fillDailyOwnerIds` gives the rows of people that exist their id and takes the group off the others.
+    sql: typed(`
+ALTER TABLE usage_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE usage_daily DROP CONSTRAINT usage_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, model, project);
+ALTER TABLE failures_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE failures_daily DROP CONSTRAINT failures_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, class, tool);
+ALTER TABLE person_sessions_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE person_sessions_daily DROP CONSTRAINT person_sessions_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, harness);
+ALTER TABLE skills_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE skills_daily DROP CONSTRAINT skills_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, harness, skill);
+ALTER TABLE person_places_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE person_places_daily DROP CONSTRAINT person_places_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, harness, project, branch);
+`),
+    after: fillDailyOwnerIds,
   },
 ];
 

@@ -647,7 +647,7 @@ export class Fleet {
     const blowouts = pre?.blowouts ?? (await this.db.getBlowouts(row.id));
     const compactions = pre?.compactions ?? (await this.db.countAutoCompactions(row.id));
     const samples = pre?.samples ?? (await this.db.samplesSince(row.id, Math.floor(now / 1000) - 61));
-    const ownerGroup = pre ? pre.ownerGroup : await this.db.groupOfOwner(row.owner);
+    const ownerGroup = pre ? pre.ownerGroup : await this.db.groupOfOwner(row.owner_id);
     const entry = this.live.get(row.id);
     return sessionView(
       {
@@ -700,7 +700,7 @@ export class Fleet {
       const blowouts = await this.db.getBlowoutsOf(ids);
       const compactions = await this.db.countAutoCompactionsOf(ids);
       const samples = await this.db.samplesSinceOf(ids, Math.floor(now / 1000) - 61);
-      const groups = await this.db.groupsOfOwners(shown.map((r) => r.owner));
+      const groups = await this.db.groupsOfOwners(shown.map((r) => r.owner_id));
       const recordings = await this.recordings.viewMany(ids.map((sessionId) => ({ sessionId, loops: loopsOfAgents(agentsOf.get(sessionId) ?? []) })));
       const out: SessionView[] = [];
       for (const row of shown) {
@@ -711,7 +711,7 @@ export class Fleet {
             blowouts: blowouts.get(row.id) ?? [],
             compactions: compactions.get(row.id) ?? 0,
             samples: samples.get(row.id) ?? [],
-            ownerGroup: groups.get(row.owner) ?? null,
+            ownerGroup: groups.get(row.owner_id) ?? null,
             recording: recordings.get(row.id) ?? null,
           }),
         );

@@ -5,7 +5,7 @@
 // was last seen, so one that runs past midnight is not split. The hourly retention writes the rollups before it deletes
 // anything (`writeRollups`); the reports read today straight from the live tables with the same builder (`buildRollups`).
 import { repriced } from './derive.js';
-import { ROLLUP_KEEP_MS, nameKey, type CostOf, type SessionRow, type SessionWaitRow } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, sameAccount, type CostOf, type SessionRow, type SessionWaitRow } from '../storage/rows.js';
 import { waitOfOpen, type WaitKind } from './waits.js';
 import type { FleetStore, Storage } from '../storage/types.js';
 import type { Pricing } from './pricing.js';
@@ -55,6 +55,8 @@ export const serverZone = (): string => Intl.DateTimeFormat().resolvedOptions().
 
 export interface UsageDay {
   day: string;
+  /** The owner's `people.id` (#1284); 0 when the row belongs to no person (the admin secret, or a person since deleted). */
+  ownerId: number;
   owner: string;
   group: string;
   model: string;
@@ -85,6 +87,7 @@ export interface SessionsDay {
 
 export interface FailureDay {
   day: string;
+  ownerId: number;
   owner: string;
   cls: string;
   tool: string;
@@ -149,6 +152,7 @@ export interface FeatureVersionDay {
 /** How many sessions of one person used one skill on a harness on a day (#724). A name and a count: never what the skill was given. */
 export interface SkillDay {
   day: string;
+  ownerId: number;
   owner: string;
   harness: string;
   skill: string;
@@ -158,6 +162,7 @@ export interface SkillDay {
 /** How many sessions of one person ran in one project on one git branch on a harness on a day (#724). A project is the repository's name, a branch is the git branch's name: no path. */
 export interface PlaceDay {
   day: string;
+  ownerId: number;
   owner: string;
   group: string;
   harness: string;
@@ -221,6 +226,7 @@ export interface AgentDay {
 /** How many sessions one person ran on a harness on a day (#722). A session counts on the day it was last seen. */
 export interface PersonDay {
   day: string;
+  ownerId: number;
   owner: string;
   group: string;
   harness: string;
@@ -414,9 +420,10 @@ const timesJson = (times: Map<number, number>): string => JSON.stringify(Object.
  * day, wherever they were last seen. The peak of live sessions is left at 0: `peakLiveByDay` reads it from the samples.
  * With `only`, just that person's sessions (My usage, #726): everything below is built from the sessions, so nothing of anyone else's is in the result.
  */
-export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number, only?: { owner: string }): Promise<DayRollups> {
+export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number, only?: { owner: string | null; ownerId: number | null }): Promise<DayRollups> {
   const everyone = await db.sessionsSince(fromMs);
-  const sessions = only ? everyone.filter((s) => s.owner !== null && nameKey(s.owner) === nameKey(only.owner)) : everyone;
+  // By the person's id, never by the name (#1284): a session whose person was deleted is no one's, and a newcomer who takes the name has none of it.
+  const sessions = only ? everyone.filter((s) => sameAccount(s, only)) : everyone;
   const agentCount = new Map<string, number>();
   for (const r of await db.agentCountsSince(fromMs)) agentCount.set(r.id, r.n);
   const reporterOf = new Map<string, string>();
@@ -513,14 +520,15 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number,
   for (const s of sessions) {
     const day = localDay(s.last_seen_at);
     const owner = s.owner ?? '';
+    const ownerId = s.owner_id ?? 0;
     const model = s.model ?? '';
     const c = cost({ cost_usd: s.cost_usd, usage_json: s.usage_json });
     const agents = agentCount.get(s.id) ?? 0;
 
-    const uk = `${day}\u0000${owner}\u0000${model}\u0000${s.repo_name ?? ''}`;
+    const uk = `${day}\u0000${ownerId}\u0000${owner}\u0000${model}\u0000${s.repo_name ?? ''}`;
     const u =
       usage.get(uk) ??
-      ({ day, owner, group: s.grp ?? '', model, project: s.repo_name ?? '', sessions: 0, agents: 0, costUsd: 0, unpricedSessions: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0 } satisfies UsageDay);
+      ({ day, ownerId, owner, group: s.grp ?? '', model, project: s.repo_name ?? '', sessions: 0, agents: 0, costUsd: 0, unpricedSessions: 0, tokIn: 0, tokOut: 0, tokCr: 0, tokCw: 0 } satisfies UsageDay);
     u.sessions += 1;
     u.agents += agents;
     if (c === null) u.unpricedSessions += 1;
@@ -547,8 +555,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number,
     sess.set(sk, x);
 
     for (const f of failuresOf.get(s.id) ?? []) {
-      const fk = `${day}\u0000${owner}\u0000${f.cls}\u0000${f.tool}`;
-      const row = fail.get(fk) ?? ({ day, owner, cls: f.cls, tool: f.tool, count: 0 } satisfies FailureDay);
+      const fk = `${day}\u0000${ownerId}\u0000${owner}\u0000${f.cls}\u0000${f.tool}`;
+      const row = fail.get(fk) ?? ({ day, ownerId, owner, cls: f.cls, tool: f.tool, count: 0 } satisfies FailureDay);
       row.count += 1;
       fail.set(fk, row);
       failSessions.push({ day, owner, cls: f.cls, tool: f.tool, sessionId: s.id, harness: s.harness });
@@ -622,8 +630,8 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number,
     }
 
     // Sessions per person per day (#722).
-    const pk = `${day}\u0000${owner}\u0000${harness}`;
-    const pd = personDays.get(pk) ?? ({ day, owner, group: s.grp ?? '', harness, sessions: 0 } satisfies PersonDay);
+    const pk = `${day}\u0000${ownerId}\u0000${owner}\u0000${harness}`;
+    const pd = personDays.get(pk) ?? ({ day, ownerId, owner, group: s.grp ?? '', harness, sessions: 0 } satisfies PersonDay);
     pd.sessions += 1;
     personDays.set(pk, pd);
 
@@ -672,16 +680,16 @@ export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number,
     const mainSkills = safeParse<{ skills?: unknown } | null>(s.loop_json, null)?.skills;
     if (Array.isArray(mainSkills)) for (const k of mainSkills) if (typeof k === 'string' && k !== '') used.add(k);
     for (const skill of used) {
-      const kk = `${day}\u0000${owner}\u0000${harness}\u0000${skill}`;
-      const row = skillDays.get(kk) ?? ({ day, owner, harness, skill, sessions: 0 } satisfies SkillDay);
+      const kk = `${day}\u0000${ownerId}\u0000${owner}\u0000${harness}\u0000${skill}`;
+      const row = skillDays.get(kk) ?? ({ day, ownerId, owner, harness, skill, sessions: 0 } satisfies SkillDay);
       row.sessions += 1;
       skillDays.set(kk, row);
     }
     if (owner) {
       const project = s.repo_name ?? '';
       const branch = safeParse<{ branch?: string | null } | null>(s.git_json, null)?.branch ?? '';
-      const pk = `${day}\u0000${owner}\u0000${harness}\u0000${project}\u0000${branch}`;
-      const place = placeDays.get(pk) ?? ({ day, owner, group: s.grp ?? '', harness, project, branch, sessions: 0 } satisfies PlaceDay);
+      const pk = `${day}\u0000${ownerId}\u0000${owner}\u0000${harness}\u0000${project}\u0000${branch}`;
+      const place = placeDays.get(pk) ?? ({ day, ownerId, owner, group: s.grp ?? '', harness, project, branch, sessions: 0 } satisfies PlaceDay);
       place.sessions += 1;
       placeDays.set(pk, place);
     }

@@ -56,10 +56,10 @@ export interface FleetStoreApi {
   costByOwnerSince(since: number, cost?: CostOf): Promise<{ owner: string | null; group: string | null; costUsd: number }[]>;
   /** `costSince` and `costByOwnerSince` from one pass over the sessions, so the total is the sum of the split. */
   spendTotals(since: number, cost?: CostOf): Promise<{ total: number; byOwner: { owner: string | null; group: string | null; costUsd: number }[] }>;
-  /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
-  groupOfOwner(owner: string | null): Promise<string | null>;
-  /** `groupOfOwner` for many owners at once (#906): a key for every owner asked. */
-  groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>>;
+  /** The group a session's owner is in, by the owner's `people.id` (#1284); null for the admin secret, a person who was deleted (no id) or a person with no group. */
+  groupOfOwner(ownerId: number | null): Promise<string | null>;
+  /** `groupOfOwner` for many owners at once (#906): a key for every id asked. */
+  groupsOfOwners(ownerIds: (number | null)[]): Promise<Map<number | null, string | null>>;
   distinctReporterVersions(): Promise<string[]>;
   /** What the database says about itself: its engine and version, the schema version Podium reached and its size (null when it cannot be told) (#862). */
   engineInfo(): Promise<StorageInfo>;
