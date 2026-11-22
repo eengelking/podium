@@ -194,6 +194,17 @@ export function peerCases(o: Openers): void {
     });
     expect((t.get('send') as { ok: boolean }).ok).toBe(true);
     expect((t.get('send too long') as { ok: boolean }).ok).toBe(false);
+    // The reply to a send is what a reporter's `podium_send` is answered from (SPEC 6.8): the same keys, and the same types, whichever database built it (#1296).
+    const SEND_KEYS = ['approvalWhy', 'id', 'ok', 'paused', 'requestId', 'roundTrips', 'state', 'to'];
+    for (const label of ['send', 'send (needs approval)']) {
+      const reply = t.get(label) as Record<string, unknown>;
+      expect(Object.keys(reply).sort(), `${label}: the keys of the reply`).toEqual(SEND_KEYS);
+      expect(Object.keys(reply.roundTrips as object).sort(), `${label}: roundTrips`).toEqual(['cap', 'used']);
+      expect(Object.keys(reply.to as object).sort(), `${label}: to`).toEqual(['machine', 'name']);
+      expect(reply).toMatchObject({ ok: true, id: expect.any(String), state: expect.any(String), paused: expect.any(Boolean), to: { name: expect.any(String), machine: expect.any(String) }, roundTrips: { used: expect.any(Number), cap: expect.any(Number) } });
+    }
+    expect(t.get('send')).toMatchObject({ approvalWhy: null, requestId: null });
+    expect(t.get('send (needs approval)')).toMatchObject({ state: 'approval', approvalWhy: expect.any(String), requestId: expect.any(String) });
   });
 
   it('agrees on every adapter that a message is handed over to an agent in the middle of a turn, and held only while a permission prompt is open (#1252)', async () => {

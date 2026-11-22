@@ -146,14 +146,20 @@ describe('the report reply an installed reporter parses (#1296)', () => {
     const w = await world();
     const fresh = async () => (await tester(w)).body.deliveries as Record<string, unknown>[];
     expect((await w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'own agent' })).status).toBe(202);
-    expect((await fresh()).map(shape)).toEqual([{ id: S, askId: NIL, by: S, at: N, kind: S, text: S, chat: B, via: S }]);
+    const own = await fresh();
+    expect(own.map(shape)).toEqual([{ id: S, askId: NIL, by: S, at: N, kind: S, text: S, chat: B, via: S }]);
+    // The reporter branches on these values (plugin/core/peers.ts): where a message was written decides its frame and where the agent answers.
+    expect(own[0]).toMatchObject({ kind: 'message', via: 'chat', chat: true, text: 'own agent' });
     expect((await w.edB.post(`${CH}/channels/general/messages`).set(H).send({ text: '@Tester@ci-runner-01 look' })).status).toBe(201);
-    expect((await fresh()).map(shape)).toContainEqual({ id: S, askId: NIL, by: S, at: N, kind: S, text: S, channel: S, via: S });
+    const mention = (await fresh()).find((d) => 'channel' in d)!;
+    expect(shape(mention)).toEqual({ id: S, askId: NIL, by: S, at: N, kind: S, text: S, channel: S, via: S });
+    expect(mention).toMatchObject({ kind: 'message', via: 'channel', channel: 'General' });
+    expect(mention).not.toHaveProperty('chat');
     const open = await w.edB.post(`${CH}/conversations`).set(H).send({ members: [{ kind: 'person', name: 'Alex' }, { kind: 'agent', sessionId: 'sess-tester' }], text: 'first' });
     expect(open.status).toBe(201);
     const convo = (await fresh()).find((d) => 'convo' in d)!;
     expect(shape(convo)).toEqual({ id: S, askId: NIL, by: S, at: N, kind: S, text: S, chat: B, convo: S, via: S });
-    expect(convo.convo).toBe(open.body.conversation.id);
+    expect(convo).toMatchObject({ kind: 'message', via: 'chat', chat: true, convo: open.body.conversation.id });
   });
 
   it('tells a person\'s sessions an Admin read their group, as adminNotices of id, at and text', async () => {
