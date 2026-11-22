@@ -16,11 +16,18 @@ export interface ChatBrowserDeps {
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 100;
 
-/** The page a request asks for: `limit` is 1 to 100 (50 when absent) and `before` a cursor. A bad limit is answered 400 here and null returned. */
+/** A page size from a query: 1 to 100, 50 when absent. Null for anything else. */
+export function limitOf(raw: unknown): number | null {
+  if (raw === undefined || raw === '') return PAGE_DEFAULT;
+  if (typeof raw !== 'string' || !/^\d{1,4}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= 1 && n <= PAGE_MAX ? n : null;
+}
+
+/** The page a request asks for: `limit` (`limitOf`) and the `before` cursor. A bad limit is answered 400 here and null returned. */
 export function pageOf(req: Request, res: Response): { before: string | null; limit: number } | null {
-  const raw = req.query.limit;
-  const n = raw === undefined || raw === '' ? PAGE_DEFAULT : typeof raw === 'string' && /^\d{1,4}$/.test(raw) ? Number(raw) : 0;
-  if (n >= 1 && n <= PAGE_MAX) return { before: typeof req.query.before === 'string' ? req.query.before : null, limit: n };
+  const limit = limitOf(req.query.limit);
+  if (limit !== null) return { before: typeof req.query.before === 'string' ? req.query.before : null, limit };
   res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
   return null;
 }
