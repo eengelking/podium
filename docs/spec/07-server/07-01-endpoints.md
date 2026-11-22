@@ -284,6 +284,10 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   `state` is `sent` (the receiver gets it in its next reply, running or idle), `turn` (a permission prompt is open there, so it is held until that is answered) or
   `approval` (it waits for the owner; `approvalWhy` is `link` or `round-trips`, and `requestId` names the request).
   `paused` says the link is paused, so it waits for a resume too.
+- **The server scrubs the text (#1329).** The text is cleaned and scrubbed as a Chat message is: the admin secret, a person's token and the common secret
+  shapes become `[redacted]`, before the length is judged and before the text is stored, whichever reporter sent it. A clean text is stored as it was.
+  When the server replaced something the `202` also carries `redactions`, the number of `[redacted]` marks the server added to what the sender sent. The
+  field is absent when there were none.
 - **An answer to a person (#1034).** `to: "person:<name>"` answers a person who wrote to this orchestrator through Chat. The reply is
   `202` with `person: true` and `to: { name, machine: "" }`, `state` `sent`, `paused` false and no `requestId`: the answer is stored at
   once as delivered, because the person has no reporter to hand it to, and no answer comes back unless they write again. It is

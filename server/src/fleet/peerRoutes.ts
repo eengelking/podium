@@ -20,6 +20,11 @@ import type { Logger } from '../logging/logger.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
 import { agentGate, refuser, sourceOf } from './routeGate.js';
 import { isPersonId } from './chatTypes.js';
+import { cleanPeerText } from '../storage/peerText.js';
+import { REDACTED, scrubStored } from '../logging/redact.js';
+
+/** How many `[redacted]` marks a text holds: the server's replacements are the marks it has after the scrub less the ones the sender already put in. */
+const marksIn = (t: string): number => t.split(REDACTED).length - 1;
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -157,12 +162,16 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     const text = str(body.text);
     if (to === null || !to.trim() || to.length > PEER_LIMITS.address) return void res.status(400).json({ ok: false, error: 'to must be name@machine', path: '$.to' });
     if (text === null) return void res.status(400).json({ ok: false, error: 'text must be a string', path: '$.text' });
-    const out = await withSource(sourceOf(req), () => fleet.peers.messages.send(m.row.id, to, text));
+    // The reporter redacts before it sends, but it cannot know Podium's own credentials, and an older or other client may not redact at all: the server
+    // scrubs as Chat does (`ChatCore.redact`), once, before the length is judged and before any adapter stores the text (#1329).
+    const clean = scrubStored(cleanPeerText(text), d.token ? [d.token] : [], true);
+    const redactions = marksIn(clean) - marksIn(text);
+    const out = await withSource(sourceOf(req), () => fleet.peers.messages.send(m.row.id, to, clean));
     if (!out.ok) {
       refuse(req, res, out.status, out.error);
       return;
     }
-    res.status(202).json(out);
+    res.status(202).json(redactions > 0 ? { ...out, redactions } : out);
   }));
 
   router.post('/sessions/:id/peers/access', d.requireToken, json, asyncHandler(async (req, res) => {
