@@ -83,8 +83,8 @@ function ChatBody(props: ChatPageProps) {
   const stale = !!o && overview.owner !== readAs;
   const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
   // A reading is hidden when its time has passed and a read has landed since, never on the clock alone (#1051).
-  // The server's clock at the last read that landed, as a reading's end is judged by it; before the first read, the page's own.
-  const serverNow = overview.readAt || props.now;
+  // The server's clock at the last read that landed, as a reading's end is judged by it; before the first read, or from a server that sends no time, the browser's.
+  const serverNow = overview.readAt || Date.now();
   // The records of a conversation that has since been deleted come once, and the server marks them seen; they stay while this page is open (#1051).
   const gone = overview.gone;
   const [picked, setPicked] = useState<((Selection & { fresh?: boolean }) | ConvoSel) | null>(null);

@@ -133,4 +133,40 @@ describe("the overview and the open thread after one signal", () => {
     });
     expect(host.result.current.data).not.toBeNull();
   });
+
+  it("keeps the earlier pages the state shows when a read that found the thread cleared is replaced before it lands", async () => {
+    const m = (id: string): ChannelMessage => ({ id, authorKind: "person", authorName: "Ed", authorRef: "Ed", text: id, createdAt: 1, updatedAt: 1, replyTo: null, issue: null, project: null, milestone: null, mine: true, mentions: [] });
+    let newest: ChannelMessage[] = [m("m3"), m("m4")];
+    let total = 4;
+    const api = {
+      channelMessages: vi.fn(async (_id: string, o: { before: string | null }) =>
+        o.before ? { ok: true as const, channel: "general" as const, messages: [m("m1"), m("m2")], older: null, total } : { ok: true as const, channel: "general" as const, messages: newest, older: "c", total },
+      ),
+    } as unknown as ChatApi;
+    const landing = new Landing();
+    const host = renderHook(({ rev }) => useThread(api, GENERAL, rev, null, landing), { initialProps: { rev: 0 } });
+    await act(async () => {
+      await sleep(20);
+    });
+    await act(async () => void (await host.result.current.loadEarlier()));
+    expect(host.result.current.messages.map((x) => x.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    // Another read is out, so the thread's reads wait in the landing; the first of them found the thread cleared, a second signal replaces it.
+    landing.start();
+    newest = [m("m5")];
+    total = 1;
+    host.rerender({ rev: 1 });
+    await act(async () => {
+      await sleep(20);
+    });
+    newest = [m("m5"), m("m6")];
+    total = 2;
+    host.rerender({ rev: 2 });
+    await act(async () => {
+      await sleep(20);
+    });
+    await act(async () => {
+      await landing.end(() => undefined);
+    });
+    expect(host.result.current.messages.map((x) => x.id)).toEqual(["m5", "m6"]);
+  });
 });

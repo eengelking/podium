@@ -99,3 +99,35 @@ describe('chat: a conversation of people and agents that stays when an agent fin
     cy.get('.notices .fold').should('have.length', 1).and('contain.text', 'Its direct message with invoice-v2 was concluded').and('not.contain.text', 'Maya');
   });
 });
+
+// #1311: what was concluded is read once for the wall and the Chat page, again whenever the console's chat signal moves, so it is read at most once for each read of Chat's overview,
+// where the wall's and the page's own made two.
+describe('chat: what was concluded is read once for each read of the overview', () => {
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  it('reads it on opening Chat and again for the signal a new message makes, never more often than the overview is read, and the message shows', () => {
+    const reads = { overview: 0, concluded: 0 };
+    cy.signIn('Ed');
+    cy.intercept('GET', /\/api\/fleet\/respond\/chat\/concluded$/, () => void (reads.concluded += 1));
+    cy.intercept('GET', /\/api\/fleet\/respond\/chat(\?.*)?$/, () => void (reads.overview += 1));
+    cy.openConsole('#/chat');
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-message').should('have.length.greaterThan', 0);
+    // Never more reads of what was concluded than of the overview (the wall's and the page's own made two for one). A signal that lands between the two starting can leave the
+    // overview one ahead for a moment, which is why this bounds the count and does not ask for equality.
+    cy.wrap(reads).should((r) => {
+      expect(r.overview, 'the overview was read').to.be.greaterThan(0);
+      expect(r.concluded, 'what was concluded was read').to.be.greaterThan(0);
+      expect(r.concluded, 'what was concluded was read at most once for each read of the overview').to.be.at.most(r.overview);
+    });
+    // Read once, after the assertion above waited for the first reads to land.
+    let first = 0;
+    cy.then(() => void (first = reads.concluded));
+    cy.request({ method: 'POST', url: `${API}/channels/general/messages`, headers: H, log: false, body: { text: 'one read for the signal 7c1e' } }).its('status').should('be.oneOf', [200, 201]);
+    cy.contains('[data-testid=chat-message]', 'one read for the signal 7c1e');
+    cy.wrap(reads).should((r) => {
+      expect(r.concluded, 'the signal read what was concluded again').to.be.greaterThan(first);
+      expect(r.concluded, 'what was concluded was read at most once for each read of the overview').to.be.at.most(r.overview);
+    });
+  });
+});

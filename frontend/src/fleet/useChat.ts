@@ -218,20 +218,20 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
       const msgs = reuse(r.messages, held);
       // Fewer messages than are shown means it was cleared or deleted: the earlier pages go.
       const cleared = r.total < kept.current + latestLen.current;
-      if (cleared) {
-        earlierNow.current = [];
-        kept.current = 0;
-        pagesKept.current = 0;
-      }
+      // What the earlier pages are, for this read. The refs are only reset when the read lands (below): a read that a newer one replaces while it waits
+      // in a Landing must leave them, and the earlier pages the state still shows, as they were.
+      const keptHere = cleared ? 0 : kept.current;
+      const pagesHere = cleared ? 0 : pagesKept.current;
+      const firstEarlier = cleared ? undefined : earlierNow.current[0]?.id;
       // The earlier pages are read again from the new page's cursor back to the oldest message that was shown, so an edit or a delete in
       // them lands, and a message that arrived does not push the oldest one off the end. A page that cannot be read leaves them as they were.
       let again: { msgs: ThreadMessage[]; pages: number; cursor: string | null } | null = null;
-      if (kept.current > 0) {
-        const target = earlierNow.current[0]?.id;
+      if (keptHere > 0) {
+        const target = firstEarlier;
         let before = r.older;
         const got: ThreadMessage[][] = [];
         try {
-          for (let n = 0; n < pagesKept.current + 2 && before; n++) {
+          for (let n = 0; n < pagesHere + 2 && before; n++) {
             const pr = await readPage(before);
             if (!gate.land(at)) return null;
             const page = reuse(pr.messages, held);
@@ -246,7 +246,12 @@ export function useThread(api: ChatApi, sel: Selection | null, rev: number, owne
       }
       return () => {
         if (!gate.land(at)) return;
-        if (cleared) setEarlier([]);
+        if (cleared) {
+          setEarlier([]);
+          earlierNow.current = [];
+          kept.current = 0;
+          pagesKept.current = 0;
+        }
         if (again) {
           setEarlier(again.msgs);
           earlierNow.current = again.msgs;
