@@ -77,7 +77,7 @@ describe('peerPersonKey', () => {
 
 describe('bumpAnswers (#1309)', () => {
   it('answers each person in the order given, from rows read in any order', () => {
-    const row = (person_id: number, unread: number) => ({ person_id, thread: 't', last_read: null, unread, mentions: 0, updated_at: 5 });
+    const row = (person_id: number, unread: number) => ({ person_id, thread: 't', unread, mentions: 0 });
     const answers = bumpAnswers([{ personId: 2 }, { personId: 1 }], [row(1, 7), row(2, 9)]);
     expect(answers.map((a) => [a.personId, a.unread])).toEqual([[2, 9], [1, 7]]);
     expect(bumpAnswers([], [])).toEqual([]);
