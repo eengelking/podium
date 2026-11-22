@@ -23,7 +23,7 @@ import {
 } from '../../fleet/peerTypes.js';
 import { ADMIN_OWNER } from '../rows.js';
 import { chunksOf } from '../batches.js';
-import { ON_REQUEST, NEW_SEND, eligible, effectiveOf, isObj, limitsOf, toDefaults, trustOwners, type DbDefaults, type EffectiveRows } from '../peerRightsRows.js';
+import { ON_REQUEST, NEW_SEND, distinctOwners, eligible, effectivesOf, isObj, limitsOf, limitsOfMany, rightKey, toDefaults, trustOwners, type DbDefaults } from '../peerRightsRows.js';
 import { PEER_LIMIT_KEYS, peerSettingError, type PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup, PeerRightsStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -193,8 +193,7 @@ export class PgPeerRights implements PeerRightsStoreApi {
 
   /** `limits` for many owners in one read (#1309), one answer for each, in order. */
   async limitsMany(ownerIds: readonly (number | null)[], server: PeerLimits): Promise<PeerLimits[]> {
-    const own = await this.defaultsMany([...new Set(ownerIds.filter((id): id is number => id !== null))]);
-    return ownerIds.map((id) => limitsOf(id === null ? {} : (own.get(id)?.limits ?? {}), server));
+    return limitsOfMany(ownerIds, await this.defaultsMany(distinctOwners(ownerIds)), server);
   }
 
   // ---- rights ------------------------------------------------------------------------------------------------
@@ -250,11 +249,10 @@ export class PgPeerRights implements PeerRightsStoreApi {
   async effectiveMany(links: readonly (readonly [string, string])[]): Promise<EffectiveRight[]> {
     const rights = new Map<string, RightRow>();
     // order-insensitive: the rows are put into a map by the two keys of each right.
-    for (const part of chunksOf([...new Map(links.map((l) => [`${l[0]}\0${l[1]}`, l])).values()])) for (const r of await this.db.all<DbRight>(`SELECT * FROM peer_rights WHERE ${part.map(() => '(from_key = ? AND to_key = ?)').join(' OR ')}`, part.flat())) rights.set(`${r.from_key}\0${r.to_key}`, toRight(r));
+    for (const part of chunksOf([...new Map(links.map((l) => [`${l[0]}\0${l[1]}`, l])).values()])) for (const r of await this.db.all<DbRight>(`SELECT * FROM peer_rights WHERE ${part.map(() => '(from_key = ? AND to_key = ?)').join(' OR ')}`, part.flat())) rights.set(rightKey(r.from_key, r.to_key), toRight(r));
     const reps = new Map((await this.reporters.getMany(links.flatMap(([from, to]) => (isPersonKey(from) ? [] : [from, to])))).map((r) => [r.key, r]));
     const trust = await this.defaultsMany(trustOwners(links, (key) => reps.get(key)));
-    const rows: EffectiveRows = { right: (from, to) => rights.get(`${from}\0${to}`), reporter: (key) => reps.get(key), trusts: (id) => trust.get(id)?.trust ?? false };
-    return links.map(([from, to]) => effectiveOf(from, to, rows));
+    return effectivesOf(links, rights, reps, trust);
   }
 
   /** The rows of the person with this `people.id` (#1284); a name never finds one. */

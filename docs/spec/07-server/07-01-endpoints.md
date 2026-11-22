@@ -400,8 +400,9 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   counts only and no text, and the counts are 0 because they are not the Admin's to see or clear. `403` for anyone who is not an Admin, `404`
   for a name that is no one's, `400` for an empty one. It shows who the person talks to, so it is recorded and the person is told, in the console and in
   their reporter ([7.7](07-07-hardening.md#chat-1034)); the Admin log gets `chat_admin_browse`, once for each Admin and person in 30 minutes.
-- `POST /api/fleet/respond/chat/read`: `{ thread, upTo }`. Marks a thread of the viewer's read up to a cursor and answers
-  `{ ok: true, unread, mentions }`. `403` for a thread that is not the viewer's.
+- `POST /api/fleet/respond/chat/read`: `{ thread, upTo }`. Marks a thread of the viewer's read (both counts go to 0) and answers
+  `{ ok: true, unread, mentions }`. `upTo`, a cursor or message id of letters, digits and `.:_-` up to 64 characters, or null, is accepted and ignored: `400` for one that is not that shape, and the server keeps no
+  read-up-to cursor (#1296). `403` for a thread that is not the viewer's.
 - `POST /api/fleet/respond/chat/channels`: `{ name, description?, link? }`. A signed-in person or an Admin opens a public channel (#1035). The name is folded to lowercase and must match `^[a-z0-9][a-z0-9-]{0,39}$`;
   `general` and `group` are reserved. The description is at most 280 characters, cleaned and redacted like a message. `link` is null or `{ kind, ref }` with `kind` one of `issue`, `milestone` or `project` and `ref` at most 100 characters;
   there is at most one channel for a link, and an issue's `#12` and `12` are one link. At most 50 channels are kept beside General. `201 { ok: true, channel }` with the channel as the overview lists it.

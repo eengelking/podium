@@ -700,6 +700,32 @@ CREATE TABLE conversation_deliveries (
 );
 `),
   },
+  {
+    version: 30,
+    // Every fact in one place (#1296): the columns and indexes nothing reads go, and `updated_at` is worked out where a message is read. See SQLite migration 54.
+    sql: typed(`
+DROP INDEX IF EXISTS group_messages_channel;
+ALTER TABLE group_messages DROP COLUMN IF EXISTS owner, DROP COLUMN IF EXISTS group_id, DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE conversation_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_channels DROP COLUMN IF EXISTS created_by;
+ALTER TABLE peer_messages DROP COLUMN IF EXISTS handed;
+DROP INDEX IF EXISTS peer_requests_owner;
+ALTER TABLE conversations DROP COLUMN IF EXISTS created_by;
+`),
+  },
+  {
+    version: 31,
+    // A person's counts in a thread, keyed by `(person_id, thread)` (#1296). Rows at zero or with no person go first. See SQLite migration 55.
+    sql: typed(`
+DELETE FROM chat_read_state WHERE person_id IS NULL OR (unread = 0 AND mentions = 0);
+ALTER TABLE chat_read_state DROP CONSTRAINT chat_read_state_pkey;
+ALTER TABLE chat_read_state ALTER COLUMN person_id SET NOT NULL;
+ALTER TABLE chat_read_state ADD PRIMARY KEY (person_id, thread);
+DROP INDEX IF EXISTS chat_read_state_person;
+ALTER TABLE chat_read_state DROP COLUMN IF EXISTS person, DROP COLUMN IF EXISTS last_read, DROP COLUMN IF EXISTS updated_at;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

@@ -336,7 +336,7 @@ export class ChatService {
     return (others.length ? others : ends).map((e) => e.name).join(' and ');
   }
 
-  /** The person read up to `upTo` in a thread of theirs. */
+  /** The person read a thread of theirs: both counts go to 0. `upTo` is checked for its shape and then ignored, because no cursor is kept (#1296). */
   async markRead(viewer: ChatViewer, thread: unknown, upTo: unknown): Promise<{ ok: true; unread: number; mentions: number } | Fail> {
     if (viewer.personId === null) return fail(403, 'The admin secret has no unread counts of its own.');
     if (typeof thread !== 'string' || (upTo !== null && upTo !== undefined && typeof upTo !== 'string')) return fail(400, 'thread must be a string and upTo a string or null.');
@@ -346,7 +346,8 @@ export class ChatService {
     const named = channelOfThread(thread);
     const mine = thread === publicThread || thread === groupThread(viewer.personId) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread))) || (thread.startsWith('convo:') && (await this.conversations.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
-    const row = await this.core.store.readState.markRead(viewer.personId, thread, upTo ?? null);
+    // `upTo` is checked above and then not kept: nothing reads a cursor back, so the counts are what is stored (#1296).
+    const row = await this.core.store.readState.markRead(viewer.personId, thread);
     this.core.signal(thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group');
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }

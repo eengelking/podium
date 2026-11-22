@@ -341,7 +341,7 @@ export interface ChannelMention {
   copyId?: string | null;
 }
 
-/** A channel message. The same shape in the group channel and in a public channel (General included); `owner` and `groupId` are set only in the group channel (a table is the audience, so there is no visibility field). */
+/** A channel message. The same shape in the group channel and in a public channel (General included); `ownerId` is set only in the group channel (a table is the audience, so there is no visibility field). `updatedAt` is the time of its newest change, worked out from its other times and its mentions (#1296). */
 export interface ChannelMessage {
   /** `grp_` or `pub_`, the server's 8 hex digits of scope, then 24 hex digits: `grp_3fa9c1d2_9e1b0c47d5a86f3e2b4a7c10`. */
   id: string;
@@ -485,11 +485,8 @@ export interface ThreadReadState {
   /** The person, by `people.id` (#1284). */
   personId: number;
   thread: string;
-  /** The cursor of the newest message the person had read, as the last `markRead` gave it; null before any. */
-  lastRead: string | null;
   unread: number;
   mentions: number;
-  updatedAt: number;
 }
 
 /** One person a post counts for in a thread, and whether it is also a mention for them. */
@@ -499,17 +496,17 @@ export interface ReadBump {
 }
 
 export interface ChatReadStateApi {
-  /** Zeros (and `updatedAt` 0) for a thread never counted. */
+  /** Zeros for a thread with no row: a thread read to the end has none, so no row and a row at zero are the same answer (#1296). */
   get(personId: number, thread: string): Promise<ThreadReadState>;
-  /** Every thread the person has a row for, by thread. */
+  /** Every thread the person has something unread in, by thread. */
   list(personId: number): Promise<ThreadReadState[]>;
   /**
    * One more unread message for each person in one thread, and one more mention for each with `mention`, in a number of statements that does not grow with the people (#1309): a post to General or a public channel counts for everyone but its author.
    * Returns the new state of each person, in the order first listed. A person listed twice is counted twice; an empty list does nothing and returns [].
    */
   bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]>;
-  /** The person read up to `upTo` (the cursor of the newest message they saw, or null): unread and mentions go to 0. */
-  markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState>;
+  /** The person read the thread: unread and mentions go to 0, and the row goes. Returns the zeros. */
+  markRead(personId: number, thread: string): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Every thread, for any person, that starts with `prefix`, once each, by thread. Used to forget the rows of conversations that no longer exist (#1051). */
@@ -623,7 +620,6 @@ export interface ConversationMember extends ConversationMemberInput {
 export interface Conversation {
   /** `cnv_`, the server's 8 hex digits of scope, then 24 hex digits. */
   id: string;
-  createdBy: number | null;
   createdAt: number;
   /** Every member, the ones who left included, in the order they joined (then kind, then ref). */
   members: ConversationMember[];
@@ -708,7 +704,7 @@ export type ConversationChange = { ok: true; message: ConversationMessage } | { 
 export interface ConversationsApi {
   /**
    * The conversation of exactly these members (the opener included), opened once: when one exists with the same current members it is returned (`created` false), otherwise one is made.
-   * Throws for fewer than two distinct members, more than 50, a member kind that is not `person` or `agent`, an empty ref or name, or no person among them.
+   * Throws for fewer than two distinct members, more than 50, a member kind that is not `person` or `agent`, an empty ref or name, or no person among them. `createdBy` is who opened it: it is what the other members' `addedBy` records, and nothing else keeps it.
    */
   open(input: { members: ConversationMemberInput[]; createdBy: number | null }, at: number): Promise<{ conversation: Conversation; created: boolean }>;
   get(id: string): Promise<Conversation | null>;

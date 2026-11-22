@@ -1,7 +1,7 @@
 // The rules the rights stores share (#1309): an owner's defaults from the stored row, the limits an owner works under, and `effectiveOf`, what one reporter can do to another.
 import { describe, expect, it } from 'vitest';
 import type { ReporterRef, RightRow } from '../fleet/peerTypes.js';
-import { eligible, effectiveOf, limitsOf, toDefaults, trustOwners, type EffectiveRows } from './peerRightsRows.js';
+import { distinctOwners, eligible, effectiveOf, effectivesOf, limitsOf, limitsOfMany, rightKey, toDefaults, trustOwners, type EffectiveRows } from './peerRightsRows.js';
 
 const rep = (key: string, over: Partial<ReporterRef> = {}): ReporterRef => ({ key, machine: key, owner: 'ed', ownerId: 11, adminSecret: false, os: null, peers: true, version: '1.0.0', reporterName: 'podium-reporter-claudecode', ...over });
 const right = (from: string, to: string, over: Partial<RightRow> = {}): RightRow => ({ from, to, owner: 'ed', level: 'send', paused: false, setAt: 1, ...over });
@@ -32,6 +32,24 @@ describe('limitsOf', () => {
     const server = { roundTrips: 10, perMinute: 6, maxChars: 20_000 };
     expect(limitsOf({}, server)).toEqual(server);
     expect(limitsOf({ roundTrips: 3, perMinute: 60 }, server)).toEqual({ roundTrips: 3, perMinute: 6, maxChars: 20_000 });
+  });
+});
+
+describe('distinctOwners and limitsOfMany', () => {
+  it('reads each owner once, leaves out no owner, and answers every entry in order, the server\'s limits for no owner or one with no row', () => {
+    const server = { roundTrips: 10, perMinute: 6, maxChars: 20_000 };
+    expect(distinctOwners([3, null, 3, 4])).toEqual([3, 4]);
+    const own = new Map([[3, { trust: false, onRequest: 'ask' as const, newSend: 'ask' as const, limits: { roundTrips: 2 } }]]);
+    expect(limitsOfMany([4, null, 3, 3], own, server)).toEqual([server, server, { ...server, roundTrips: 2 }, { ...server, roundTrips: 2 }]);
+  });
+});
+
+describe('effectivesOf', () => {
+  it('answers each link in order from the rows read, the same as effectiveOf does one by one', () => {
+    const ab = [rep('a'), rep('b')];
+    const stored = [right('a', 'b', { level: 'ask' })];
+    const answers = effectivesOf([['a', 'b'], ['b', 'a']], new Map(stored.map((r) => [rightKey(r.from, r.to), r])), new Map(ab.map((r) => [r.key, r])), new Map([[11, { trust: false, onRequest: 'ask' as const, newSend: 'ask' as const, limits: {} }]]));
+    expect(answers).toEqual([{ level: 'ask', paused: false }, { level: 'none', paused: false }]);
   });
 });
 

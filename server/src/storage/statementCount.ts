@@ -6,10 +6,11 @@
 /** The running total. */
 export const statementCount = { n: 0 };
 
-/** Makes every call of each of `methods` on `target` add one to the total, then run as before. For a contract adapter to patch the calls that send a statement. */
+/** Makes every call of each of `methods` on `target` add one to the total, then run as before. For a contract adapter to patch the calls that send a statement. Throws for a method `target` does not have, so a renamed driver call fails at load and not as a count that stays at zero. */
 export function countCalls(target: object, methods: readonly string[]): void {
   const t = target as Record<string, (...args: unknown[]) => unknown>;
   for (const m of methods) {
+    if (typeof t[m] !== 'function') throw new Error(`countCalls: the target has no method "${m}" to count.`);
     const original = t[m] as (...args: unknown[]) => unknown;
     t[m] = function (this: unknown, ...args: unknown[]) {
       statementCount.n++;
