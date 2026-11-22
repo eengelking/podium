@@ -5,7 +5,7 @@ import { PEER_TOOLS, peerToolDefinitions, type PeerToolName } from '../core/peer
 import type { Reporter } from './reporter.ts';
 
 /** The names of the messaging tools: removed from the host when Podium stops saying the session takes part. */
-export const MESSAGING_TOOLS = Object.keys(PEER_TOOLS) as PeerToolName[];
+export const MESSAGING_TOOLS: readonly PeerToolName[] = Object.keys(PEER_TOOLS) as PeerToolName[];
 
 export interface PodiumTool {
   name: string;

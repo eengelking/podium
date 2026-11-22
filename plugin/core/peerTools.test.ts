@@ -116,6 +116,13 @@ describe('what the model is told about the messaging tools (#1312)', () => {
     expect(peerToolDefinitions()).toEqual(GOLDEN);
   });
 
+  test('a host that edits the schema it was given changes no later registration', () => {
+    const first = peerToolDefinitions();
+    (first[1]!.inputSchema as { properties: Record<string, unknown> }).properties['extra'] = true;
+    first[0]!.inputSchema['additionalProperties'] = false;
+    expect(peerToolDefinitions()).toEqual(GOLDEN);
+  });
+
   test('every tool has a refusal prefix its subagent answer starts with', () => {
     for (const name of NAMES) expect(PEER_TOOLS[name].subagent.startsWith(PEER_TOOLS[name].refused)).toBe(true);
   });
