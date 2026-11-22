@@ -118,8 +118,8 @@ describe("stepsFor", () => {
 });
 
 describe("cannotRun", () => {
-  const no = () => ({ status: 1 }) as ReturnType<typeof spawnSync>;
-  const yes = () => ({ status: 0 }) as ReturnType<typeof spawnSync>;
+  const no = (() => ({ status: 1 })) as unknown as typeof spawnSync;
+  const yes = (() => ({ status: 0 })) as unknown as typeof spawnSync;
   it("says mod:claudecode needs the Claude Code CLI", () => {
     expect(cannotRun("mod:claudecode", no)).toContain("Claude Code CLI");
     expect(cannotRun("mod:claudecode", yes)).toBeUndefined();
@@ -192,7 +192,7 @@ describe("main", () => {
     const ex = async (c: string, a: string[]) => { calls.push(`${c} ${a.join(" ")}`); return code; };
     return main([...argv, "--out", tmp()], { TEST_ALL_LOCKED: "1" }, ex as never, runner, pkg);
   };
-  const everyCommand = list.flatMap((s) => stepsFor(s, parseArgs([], list)).map((st) => `${st.cmd} ${st.args.join(" ")}`));
+  const everyCommand = list.flatMap((s) => stepsFor(s, parseArgs([], list)).map((st: { cmd: string; args: string[] }) => `${st.cmd} ${st.args.join(" ")}`));
   it("exits 2 for a bad argument and shows help with 0", async () => {
     expect(await main(["--suite", "zzz"], {}, undefined, yes, pkg)).toBe(2);
     expect(await main(["--help"], {}, undefined, yes, pkg)).toBe(0);
