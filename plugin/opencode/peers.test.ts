@@ -401,7 +401,7 @@ describe('the messaging tools (#969)', () => {
     expect(text).toBe('Sent to Eve, a person using Podium Chat. Ed can read the conversation too. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].');
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', body: { to: 'person:Eve', text: 'fixed, token=[redacted]' } });
     const send = podiumTools(x.r).find((t) => t.name === 'podium_send')!;
-    expect(send.description).toContain('"person:name"');
+    expect((send.input.properties as { to: { description: string } }).to.description).toContain('"person:name"');
     expect(JSON.stringify(send.input)).toContain('person:name');
   });
 
@@ -475,7 +475,7 @@ describe('the messaging tools (#969)', () => {
   it('answers in the channel that called it: the route, the credential, the answer, the secret replaced (#1065)', async () => {
     const x = rig();
     await reported(x);
-    expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.description).toContain('channel:group');
+    expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.input.properties).toMatchObject({ to: { description: expect.stringContaining('"channel:group"') } });
     x.server.answer = () => ({ status: 201, text: JSON.stringify({ ok: true, id: 'grp_2', createdAt: 1 }) });
     expect(await tool(x, 'podium_send', { to: 'channel:group', text: 'Done, 14 of 14 pass.' })).toBe('Posted in My group. Everyone who can read the channel sees it, and Ed can too.');
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/chat/channels/group/messages', token: 'tok', body: { text: 'Done, 14 of 14 pass.' } });

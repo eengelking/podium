@@ -78,7 +78,7 @@ describe('podium_chat_read: the frame and the answer (#1034)', () => {
     expect(PEER_TOOLS.podium_chat_read.description).toMatch(/last hour/);
     expect(PEER_TOOLS.podium_chat_read.description).toMatch(/called you into/);
     expect(PEER_TOOLS.podium_chat_read.description).toMatch(/Only the main loop can list or read, not a subagent/);
-    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/cannot post/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/read only; to post, use podium_send/);
     expect(SUBAGENT_CHAT_READ).toMatch(/^Not read\. Only an orchestrator/);
   });
 });
@@ -205,10 +205,9 @@ describe('answering in the channel that called the agent (#1065)', () => {
   test('the tool descriptions tell the agent it can post to the channel', () => {
     expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('"channel:group"');
     expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('"channel:general"');
-    expect(PEER_TOOLS.podium_send.description).toMatch(/channel:group/);
+    expect(PEER_TOOLS.podium_send.description).toMatch(/To a Chat channel/);
     expect(PEER_TOOLS.podium_send.description).toMatch(/last hour/);
-    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/cannot post/);
-    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/podium_send to "channel:group", "channel:general" or "channel:<name>"/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/read only; to post, use podium_send/);
   });
 
   test('what podium_send answers after a channel post says where it went and who can read it', () => {
@@ -330,11 +329,10 @@ describe('public channels: addressing, listing and paging for an agent (#1035)',
   });
 
   test('the descriptions say channels are public, that only the main loop posts, and that a new message does not interrupt a running turn', () => {
-    for (const d of [PEER_TOOLS.podium_send.description, PEER_TOOLS.podium_chat_read.description]) {
-      expect(d).toMatch(/everyone signed in to Podium/i);
-      expect(d).toMatch(/does not interrupt/);
-      expect(d).toMatch(/channel:<name>/);
-    }
+    for (const d of [PEER_TOOLS.podium_send.description, PEER_TOOLS.podium_chat_read.description]) expect(d).toMatch(/does not interrupt/);
+    // That everyone signed in can read a public channel is told where an agent posts and by the list of channels it reads (#1312).
+    expect(PEER_TOOLS.podium_send.description).toMatch(/everyone signed in to Podium/i);
+    expect(channelListAnswer({ channels: [] }, { owner: 'Ed' })).toContain('Everyone signed in to Podium can read General and the public channels');
     expect(PEER_TOOLS.podium_send.description).toMatch(/Only the main loop can send, not a subagent/);
     expect(PEER_TOOLS.podium_send.description).toMatch(/replaced with \[redacted\] before the text leaves this machine/);
     expect(PEER_TOOLS.podium_chat_read.description).toMatch(/With no "channel" it lists/);
@@ -345,9 +343,9 @@ describe('public channels: addressing, listing and paging for an agent (#1035)',
     expect(PEER_TOOLS.podium_chat_read.description).toMatch(/it needs no call into a channel, so you can learn the names/);
     expect(PEER_TOOLS.podium_chat_read.description).not.toMatch(/need not have been called|whole history|from its newest end/);
     expect(PEER_TOOLS.podium_send.description).not.toMatch(/takes a post from any orchestrator/);
-    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description).toContain('called into in the last hour');
+    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description).toContain('"general" (General), "group" (My group)');
     expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description).toContain('Leave it out to list the channels');
-    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.before.description).toContain('still inside the last hour');
+    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.before.description).toContain('to read the messages before those');
     expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('"channel:<name>"');
   });
 });

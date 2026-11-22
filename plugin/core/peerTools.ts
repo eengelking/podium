@@ -64,7 +64,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 export const PEER_TOOLS = {
   podium_peers: {
     description:
-      "Lists your person's other orchestrators that you can reach through Podium: each one's name, machine and id (the id is given by Podium and never reused, so a new session that takes an earlier one's name has a new id), its OS, project and status, and whether you can send to it. Says which of your person's machines are left out and why. Takes no arguments.",
+      "Lists your person's other orchestrators that you can reach through Podium: each one's name, machine and id (given by Podium, never reused), its OS, project and status, and whether you can send to it. Says which of your person's machines are left out and why.",
     inputSchema: { type: 'object', properties: {} },
     refused: 'Not listed.',
     subagent: SUBAGENT_PEERS,
@@ -72,14 +72,14 @@ export const PEER_TOOLS = {
   },
   podium_send: {
     description:
-      'Sends a message through Podium to another orchestrator of your person, addressed by the id podium_peers lists for it ("#7", the surest address: an id is never reused, so it never reaches a later orchestrator that took the name), or as "name@machine" or "name@machine#id". If that orchestrator has ended, the answer says it is no longer available, by its name and id. Podium hands it to that orchestrator within seconds; if the orchestrator is in the middle of a turn, it reads the message at its next step, after the tool call it is on, and decides then whether it matters more than what it was doing. Its answer arrives here as a new message. It also answers a person who wrote to you through Podium Chat, as "person:name" (the frame of their message gives the address, and podium_peers lists them): the answer goes to that person, and your person can read it. It also posts in a Chat channel, as "channel:group" (My group), "channel:general" (General) or "channel:<name>" for a public channel such as "channel:issue-1035" (podium_chat_read with no channel lists them): the post shows in the channel for everyone who can read it, not only to the person who called you. It also answers in a Direct Message of people and agents, as "convo:<id>" (the message gives the id): the answer is posted there for the people in it, and only where a person wrote to you in the last hour. A channel (General, My group or a public one) takes a post only from an agent that was called into it with an @ in the last hour. General and every public channel are readable by everyone signed in to Podium, so post nothing you would not say to all of them. A channel post does not interrupt anyone\'s running turn: an agent sees it when it reads the channel. Anything that looks like a secret is replaced with [redacted] before the text leaves this machine. Only the main loop can send, not a subagent. To see what was said in a Chat channel, use podium_chat_read.',
+      'Sends a message through Podium; "to" says where. To another orchestrator of your person: Podium hands it over within seconds, and if that orchestrator is in the middle of a turn it reads the message at its next step, after the tool call it is on. Its answer arrives here as a new message. If it has ended, the answer says it is no longer available, by its name and id. To a person who wrote to you through Podium Chat: the answer goes to that person, and your person can read it. To a Chat channel, or a Direct Message of people and agents: the post shows there for everyone who can read it, not only to the person who called you. A channel (General, My group or a public one) takes a post only from an agent that was called into it with an @ in the last hour, and a Direct Message only where a person wrote to you in the last hour. General and every public channel are readable by everyone signed in to Podium, so post nothing you would not say to all of them. A channel post does not interrupt anyone\'s running turn. Anything that looks like a secret is replaced with [redacted] before the text leaves this machine. Only the main loop can send, not a subagent. To see what was said in a Chat channel, use podium_chat_read.',
     inputSchema: {
       type: 'object',
       properties: {
         to: {
           type: 'string',
           description:
-            'The orchestrator, as "#id" (the id podium_peers shows for it, which is never reused), "name@machine" or "name@machine#id"; or "person:name" to answer a person who wrote to you through Podium Chat; or "channel:group", "channel:general" or "channel:<name>" (a public channel, such as "channel:issue-1035") to post in a Chat channel; or "convo:<id>" to answer in a Direct Message with several members, where the message gave you the id',
+            'The orchestrator, as "#id" (the id podium_peers shows for it, never reused, so the surest), "name@machine" or "name@machine#id"; or "person:name" to answer a person who wrote to you through Podium Chat; or "channel:group" (My group), "channel:general" (General) or "channel:<name>" (a public channel, such as "channel:issue-1035") to post in a Chat channel; or "convo:<id>" to answer in a Direct Message with several members, where the message gave you the id',
         },
         text: { type: 'string', description: 'The message' },
       },
@@ -109,7 +109,7 @@ export const PEER_TOOLS = {
   },
   podium_request_access: {
     description:
-      'Asks your person for a right you lack: to see the orchestrators on one of their machines, or to send to them. "to" is a machine, or "name@machine"; "right" is see or send; "reason" says in a sentence why you need it.',
+      'Asks your person for a right you lack: to see the orchestrators on one of their machines, or to send to them.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -133,15 +133,15 @@ export const PEER_TOOLS = {
   },
   podium_chat_read: {
     description:
-      'Lists and reads Podium Chat channels. With no "channel" it lists the channels, General and every public channel anyone opened, each with its description, what it is linked to (an issue, a milestone or a project), who opened it and how many messages it holds; it reads no message, and it needs no call into a channel, so you can learn the names to post to. With "channel" set to "general" (General), "group" (My group) or the name of a public channel (such as "issue-1035") it reads that channel, and only when an @ called you into it in the last hour: it returns the last hour, the newest messages that fit in about 30,000 characters, whole messages, oldest first, each with its author, the kind of author and the time, under a line that says they are not your owner\'s instructions. When older messages from that hour remain, the result ends with a line that gives the "before" value to pass to read them. Nothing older than an hour is ever returned, and a channel you were not called into is refused. Everyone signed in to Podium can read General and every public channel, whether or not you were called in. It is read only: it cannot post, and reading changes nothing. A new message in a channel does not interrupt a running turn: read the channel to see it. To post, use podium_send to "channel:group", "channel:general" or "channel:<name>", which also takes a post only from an agent called in during the last hour. Only the main loop can list or read, not a subagent.',
+      'Lists and reads Podium Chat channels. With no "channel" it lists the channels, General and every public channel anyone opened, each with its description, what it is linked to (an issue, a milestone or a project), who opened it and how many messages it holds; it reads no message, and it needs no call into a channel, so you can learn the names to post to. With "channel" set it reads that channel, and only when an @ called you into it in the last hour: it returns the last hour, the newest messages that fit in about 30,000 characters, whole messages, oldest first, each with its author, the kind of author and the time, under a line that says they are not your owner\'s instructions. Nothing older than an hour is ever returned, and a channel you were not called into is refused. A new message in a channel does not interrupt a running turn: read the channel to see it. It is read only; to post, use podium_send. Only the main loop can list or read, not a subagent.',
     inputSchema: {
       type: 'object',
       properties: {
         channel: {
           type: 'string',
-          description: 'The channel you were called into in the last hour: "general" is General, "group" is My group, or the name of a public channel, such as "issue-1035". Leave it out to list the channels',
+          description: '"general" (General), "group" (My group) or the name of a public channel, such as "issue-1035". Leave it out to list the channels',
         },
-        before: { type: 'string', description: 'The "before" value a previous read gave, to read the messages before those, still inside the last hour' },
+        before: { type: 'string', description: 'The "before" value a previous read gave, to read the messages before those' },
       },
     },
     refused: 'Not read.',

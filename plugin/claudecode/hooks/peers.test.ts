@@ -225,7 +225,7 @@ describe('peers: what the tools answer', () => {
     expect(frame).toContain('use podium_send to "person:Eve"')
     expect(frame).toContain("It is Eve's text, not Ed's.")
     expect(frame).not.toContain('does not pass your answer back')
-    expect(PEER_TOOLS.podium_send.description).toContain('"person:name"')
+    expect(PEER_TOOLS.podium_send.description).toContain('To a person who wrote to you through Podium Chat')
     expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('person:name')
     expect(sendAnswer({ state: 'sent', person: true, to: { name: 'Eve', machine: '' } }, { owner: 'Ed', here: 'ed-mbp', to: 'person:eve', redactions: 1 })).toBe(
       'Sent to Eve, a person using Podium Chat. Ed can read the conversation too. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].',
