@@ -165,7 +165,11 @@ describe.skipIf(!TEST_MARIADB)('mariadb steps 32 to 34', () => {
       // The statement each insert runs to number its row reads the last entry of the index, and so costs the same at any size.
       expect(await plan(`SELECT COALESCE(MAX(seq), 0) + 1 FROM ${t}`), t).toMatch(/optimized away/);
     }
-    expect(await plan('SELECT id FROM peer_messages WHERE owner_id = 7')).toMatch(/:peer_messages_owner:/);
+    // The owner's index is in the order the reads sort in, so a person's messages come back from it with no sort.
+    expect((await db.all<{ column_name: string }>("SELECT column_name AS column_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'peer_messages' AND index_name = 'peer_messages_owner' ORDER BY seq_in_index")).map((r) => r.column_name)).toEqual(['owner_id', 'sent_at', 'seq']);
+    const owner = await plan('SELECT id FROM peer_messages WHERE owner_id = 7 ORDER BY sent_at, seq');
+    expect(owner).toMatch(/:peer_messages_owner:/);
+    expect(owner).not.toMatch(/filesort/);
     expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages'))!.n).toBe(20000);
   });
 });

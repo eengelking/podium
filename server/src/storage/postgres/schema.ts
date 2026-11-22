@@ -769,14 +769,14 @@ ALTER TABLE chat_admin_owed DROP COLUMN IF EXISTS person_key;
   },
   {
     version: 35,
-    // Two reads that scanned a table read an index now (#1296): the next `seq` of five tables, and `peer_messages` by `owner_id`. See SQLite migration 60.
+    // Two reads that scanned a table read an index now (#1296): the next `seq` of five tables, and `peer_messages` by `owner_id`, in the order its readers sort in. See SQLite migration 60.
     sql: `
 CREATE INDEX peer_messages_counter ON peer_messages(seq);
 CREATE INDEX group_messages_counter ON group_messages(seq);
 CREATE INDEX public_messages_counter ON public_messages(seq);
 CREATE INDEX conversation_messages_counter ON conversation_messages(seq);
 CREATE INDEX peer_requests_counter ON peer_requests(seq);
-CREATE INDEX peer_messages_owner ON peer_messages(owner_id);
+CREATE INDEX peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
 `,
   },
 ];

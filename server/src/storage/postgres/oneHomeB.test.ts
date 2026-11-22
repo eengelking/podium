@@ -141,7 +141,9 @@ describe.skipIf(!TEST_PG)('postgres steps 32 to 34', () => {
       // The statement each insert runs to number its row reads the last entry of the index, and so costs the same at any size.
       expect(await plan(`SELECT COALESCE(MAX(seq), 0) + 1 FROM ${t}`), t).toMatch(new RegExp(`Index Only Scan Backward using ${t}_counter`));
     }
-    expect(await plan('SELECT id FROM peer_messages WHERE owner_id = 7')).toMatch(/peer_messages_owner/);
+    // The owner's index is in the order the reads sort in, and a person's messages are read through it. (Whether the planner then skips the sort depends on how many rows a person holds, so only the index is asserted.)
+    expect((await db.all<{ indexdef: string }>("SELECT indexdef FROM pg_indexes WHERE schemaname = ? AND indexname = 'peer_messages_owner'", [MAIN_SCHEMA]))[0]!.indexdef).toMatch(/\(owner_id, sent_at, seq\)/);
+    expect(await plan('SELECT id FROM peer_messages WHERE owner_id = 7 ORDER BY sent_at, seq')).toMatch(/peer_messages_owner/);
     expect((await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages'))!.n).toBe(20000);
     await migrate(db, MAIN_SCHEMA, upTo(35));
   });

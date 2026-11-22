@@ -173,7 +173,11 @@ describe('migration 60: the next seq of a table and the owner read of peer_messa
         expect(plan(db, `SELECT COALESCE(MAX(seq), 0) + 1 FROM ${t}`), t).toMatch(new RegExp(`INDEX ${t}_counter`));
       }
       expect((db.prepare("SELECT name FROM pragma_index_info('peer_messages_counter')").all() as { name: string }[]).map((r) => r.name)).toEqual(['seq']);
-      expect(plan(db, 'SELECT id FROM peer_messages WHERE owner_id = 1 ORDER BY sent_at, seq')).toMatch(/SEARCH peer_messages USING INDEX peer_messages_owner/);
+      // The owner's index is in the order the reads sort in, so `conversations` and the ended agent's name need no sort.
+      expect((db.prepare("SELECT name FROM pragma_index_info('peer_messages_owner') ORDER BY seqno").all() as { name: string }[]).map((r) => r.name)).toEqual(['owner_id', 'sent_at', 'seq']);
+      const owner = plan(db, 'SELECT id FROM peer_messages WHERE owner_id = 1 ORDER BY sent_at, seq');
+      expect(owner).toMatch(/SEARCH peer_messages USING INDEX peer_messages_owner/);
+      expect(owner).not.toMatch(/TEMP B-TREE/);
       // The tables the migration indexes keep their rows and columns, and the older indexes stay.
       expect(indexes(db, 'peer_requests')).toEqual(['peer_requests_counter', 'peer_requests_seq']);
       db.close();
