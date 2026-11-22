@@ -3130,6 +3130,32 @@ describe('a Direct Message ends when one of its agents ends (#1283)', () => {
     expect(told[0]!.text).toBe(`${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`);
   });
 
+  // #1340: after a /clear the agent goes on under a new session id, so the notice and the record say it was cleared, not that it ended.
+  it('says the agent was cleared, and is still running, when the session ended with /clear', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await tester(s, { status: 'done', waitReason: null, endReason: 'clear' });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    const told = (await noticesOf(s, 'dev')).filter((n) => /concluded/.test(n.text ?? ''));
+    expect(told).toHaveLength(1);
+    expect(told[0]!.text).toBe(`${ENDED_NOTICE_MARK} Tester was cleared with /clear and is still running under a new session. This direct message has been concluded. Do not try to continue it. You can open a new direct message to Tester.`);
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; cleared?: boolean }[];
+    expect(mine[0]).toMatchObject({ agent: 'Tester', cleared: true });
+  });
+
+  it('does not mark a conclusion as cleared when the session finished for another reason', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await tester(s, { status: 'done', waitReason: null, endReason: 'other' });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { cleared?: boolean }[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.cleared).toBeUndefined();
+  });
+
   it('tells the remaining agent once, even when the end is seen twice', async () => {
     const s = await world();
     await linkedConversation(s);

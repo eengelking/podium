@@ -855,7 +855,7 @@ export class DirectChat {
    * time and does nothing. A conversation between people alone has no agent, so it is never found here. A session that only lost its heartbeat does not come
    * here: it may report again, and its conversation is hidden instead (`reconcileOwner`).
    */
-  async conclude(sessionId: string): Promise<void> {
+  async conclude(sessionId: string, cleared = false): Promise<void> {
     const told = new Set<string>();
     const found = (await this.peers.conversations({})).filter((c) => c.a.sessionId === sessionId || c.b.sessionId === sessionId);
     for (const c of found) {
@@ -869,22 +869,22 @@ export class DirectChat {
       await this.reads.drop(thread);
       if (!isPersonId(other.sessionId) && !told.has(other.sessionId) && this.core.host.isLive(other.sessionId)) {
         told.add(other.sessionId);
-        await this.peers.notice(other.sessionId, endedNotice(gone.name));
+        await this.peers.notice(other.sessionId, endedNotice(gone.name, false, cleared));
       }
-      await this.remember(c, gone, other, thread, undelivered);
+      await this.remember(c, gone, other, thread, undelivered, cleared);
       this.core.onEvent({ kind: 'dm_concluded', owner: nameKey(c.owner), a: c.a.sessionId, b: c.b.sessionId, count: removed });
       this.core.signal('dm');
     }
   }
 
   /** Records a conclusion for the people in it: the conversation's owner, a person in the pair, and the owner of the agent that remains. */
-  private async remember(c: OwnerConversation | ConversationSummary, gone: { name: string }, other: { sessionId: string; name: string }, thread: string, undelivered: number): Promise<void> {
+  private async remember(c: OwnerConversation | ConversationSummary, gone: { name: string }, other: { sessionId: string; name: string }, thread: string, undelivered: number, cleared = false): Promise<void> {
     const people = new Set(this.peopleIdsOf(c));
     if (!isPersonId(other.sessionId)) {
       const owner = (await this.core.host.sessionOf(other.sessionId))?.ownerId ?? null;
       if (owner !== null) people.add(owner);
     }
-    this.core.concluded.add(people, { thread, agent: gone.name, with: [other.name], ...(undelivered > 0 ? { undelivered } : {}) });
+    this.core.concluded.add(people, { thread, agent: gone.name, with: [other.name], ...(cleared ? { cleared: true as const } : {}), ...(undelivered > 0 ? { undelivered } : {}) });
     this.core.signal('dm');
   }
 

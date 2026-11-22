@@ -4560,6 +4560,17 @@ describe("a Direct Message concluded because an agent ended (#1283)", () => {
     expect(within(toast).getByRole("link", { name: /Open Admin > Settings/ })).toHaveAttribute("href", "#/admin/settings");
   });
 
+  it("says an agent that was cleared with /clear was cleared and still runs, and not that it ended (#1340)", async () => {
+    window.location.hash = "#/";
+    const chat = fakeChat();
+    chat.w.concluded = [{ ...ENDED, cleared: true }];
+    page({ chat, view: "wall" });
+    await flush();
+    expect(screen.getByText("Tester was cleared.")).toBeInTheDocument();
+    expect(screen.queryByText("Tester ended.")).toBeNull();
+    expect(screen.getByText(/It is still running under a new session\. Its direct message with claude-dashboard was concluded and deleted\./)).toBeInTheDocument();
+  });
+
   it("says a message the person wrote was not delivered, when one was waiting for approval or never taken", async () => {
     window.location.hash = "#/";
     const chat = fakeChat();
@@ -4631,6 +4642,21 @@ describe("the open Direct Message is concluded because its agent ended (#1283)",
     p.signal();
     await flush();
     expect(chat.api.dmMessages.mock.calls.length).toBe(reads);
+  });
+
+  it("says the agent was cleared, and is still running, when the Direct Message was concluded by a /clear (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0, cleared: true }];
+    p.signal();
+    await flush();
+    const banner = screen.getByTestId("chat-concluded");
+    expect(banner).toHaveTextContent("Tester was cleared. It is still running under a new session. This direct message has been concluded and deleted. Nothing in it is kept.");
+    expect(banner).not.toHaveTextContent("ended");
   });
 
   it("does not show a 404 on a Direct Message as a failed read; the box says the conversation is gone (#1340)", async () => {

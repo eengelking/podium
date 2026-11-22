@@ -1,0 +1,1 @@
+A Direct Message concluded by a `/clear` now says the agent was cleared and is still running under a new session, in the banner, the wall notice and the note to the agent that remains, which may open a new Direct Message with it. It used to say the agent ended and not to open another (#1340).

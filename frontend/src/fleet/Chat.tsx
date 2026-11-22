@@ -670,7 +670,7 @@ function ChatBody(props: ChatPageProps) {
       )}
       {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
       {!ro && <GoneRecordLines reads={gone} />}
-      {!ro && endedHere && <ConcludedBanner agent={endedHere.agent} undelivered={endedHere.undelivered} onBack={() => { setPicked(null); setPane("side"); }} />}
+      {!ro && endedHere && <ConcludedBanner agent={endedHere.agent} cleared={endedHere.cleared === true} undelivered={endedHere.undelivered} onBack={() => { setPicked(null); setPane("side"); }} />}
       <div className={`ch-split${members ? " mem-open" : ""}`} data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}

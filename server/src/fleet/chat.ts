@@ -370,15 +370,16 @@ export class ChatService {
    * A session left the live set (ended, dropped or deleted). `final` is an end that cannot be undone (the session finished or was deleted), as against a lost heartbeat
    * that a report may undo (#1283): a final end concludes the Direct Messages the agent is in, and any other only hides them.
    */
-  sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null, final = false): Promise<void> {
-    return this.core.batch(() => this.left(sessionId, owner, ownerId, final));
+  sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null, final = false, cleared = false): Promise<void> {
+    return this.core.batch(() => this.left(sessionId, owner, ownerId, final, cleared));
   }
 
-  private async left(sessionId: string, owner: string | null, ownerId: number | null, final: boolean): Promise<void> {
+  /** `cleared`: the end was a `/clear`, after which the agent goes on under a new session id (#1340), so what is told says it was cleared and did not end. */
+  private async left(sessionId: string, owner: string | null, ownerId: number | null, final: boolean, cleared: boolean): Promise<void> {
     this.seen.delete(sessionId);
     if (final) {
       // Each side on its own, so a failure of one does not skip the other.
-      for (const [what, run] of [['direct messages', () => this.direct.conclude(sessionId)], ['conversations', () => this.conversations.conclude(sessionId)]] as const) {
+      for (const [what, run] of [['direct messages', () => this.direct.conclude(sessionId, cleared)], ['conversations', () => this.conversations.conclude(sessionId, cleared)]] as const) {
         try {
           await run();
         } catch (err) {

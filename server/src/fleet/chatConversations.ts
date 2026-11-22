@@ -512,7 +512,7 @@ export class ConversationChat {
    * can no longer send or be sent to, and the agents that remain are told once. A conversation with fewer than two people left is concluded: it is deleted with its
    * messages, the people in it are told in the console (`ConcludedList`), and the agents that remain are told once. Concluding twice finds nothing the second time.
    */
-  async conclude(sessionId: string): Promise<void> {
+  async conclude(sessionId: string, cleared = false): Promise<void> {
     for (const c of await this.store.listFor({ kind: 'agent', ref: sessionId })) {
       const gone = c.members.find((m) => m.kind === 'agent' && m.ref === sessionId)!;
       const people = this.personIdsOf(c);
@@ -523,10 +523,10 @@ export class ConversationChat {
         if (!out.removed) continue;
         await this.reads.drop(conversationThread(c.id));
         const withNames = c.members.filter((m) => m.leftAt === null && m.ref !== sessionId).map((m) => m.name);
-        this.core.concluded.add(people, { thread: conversationThread(c.id), agent: gone.name, with: withNames });
+        this.core.concluded.add(people, { thread: conversationThread(c.id), agent: gone.name, with: withNames, ...(cleared ? { cleared: true as const } : {}) });
         this.core.onEvent({ kind: 'dm_concluded', owner: people.map(String).join(','), a: c.id, b: sessionId, count: out.messages });
       }
-      const told = endedNotice(gone.name, stays);
+      const told = endedNotice(gone.name, stays, cleared);
       // A conversation that stays is found again by a later end of the same session (finished, then deleted), so each agent is told once per conversation.
       for (const m of others) {
         const key = `${c.id}|${sessionId}|${m.ref}`;
