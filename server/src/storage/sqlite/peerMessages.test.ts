@@ -43,8 +43,10 @@ function setup() {
   const closed: [string, string][] = [];
   const rights: PeerRightsView = {
     effective: (f, t) => ({ level: levels.get(`${f}>${t}`) ?? 'none', paused: paused.has(linkKey(f, t)) }),
+    effectiveMany: (links) => links.map(([f, t]) => rights.effective(f, t)),
     personLink: () => null,
     limits: () => limits,
+    limitsMany: (ids) => ids.map(() => limits),
     openMessageRequest: (input) => {
       opened.push(input);
       return { id: `req_${opened.length}` } as PeerRequestRow;
@@ -56,6 +58,7 @@ function setup() {
   const reps = new Map(REPORTERS.map((r) => [r.key, r]));
   const lookup = {
     get: (k: string) => reps.get(k) ?? null,
+    getMany: (keys: readonly string[]) => keys.flatMap((k) => reps.get(k) ?? []),
     ofOwner: (o: number | null) => REPORTERS.filter((r) => o !== null && r.ownerId === o),
   };
   const trails: MessageTrail[] = [];
@@ -90,13 +93,15 @@ describe('PeerMessages: defaults', () => {
   it('runs on the wall clock with no trail', () => {
     const rights: PeerRightsView = {
       effective: () => ({ level: 'send', paused: false }),
+      effectiveMany: (links) => links.map(() => ({ level: 'send' as const, paused: false })),
       personLink: () => null,
       limits: () => ({ roundTrips: 10, perMinute: 6, maxChars: 100 }),
+      limitsMany: (ids) => ids.map(() => ({ roundTrips: 10, perMinute: 6, maxChars: 100 })),
       openMessageRequest: () => ({ id: 'req' }) as PeerRequestRow,
       closeMessageRequest: () => {},
     };
     const reps = new Map(REPORTERS.map((r) => [r.key, r]));
-    const s = new PeerMessages(openDb(':memory:'), rights, { get: (k) => reps.get(k) ?? null, ofOwner: () => [] });
+    const s = new PeerMessages(openDb(':memory:'), rights, { get: (k) => reps.get(k) ?? null, getMany: (keys) => keys.flatMap((k) => reps.get(k) ?? []), ofOwner: () => [] });
     s.note(MBP);
     s.note(CI);
     const before = Date.now();

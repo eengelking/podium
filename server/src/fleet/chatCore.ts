@@ -142,9 +142,17 @@ export class ChatCore {
   }
 
   /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. The count is kept under the person's id (#1284). */
-  async count(who: PersonRef, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
-    const row = await this.store.readState.bump(who.id, thread, mention);
-    this.signal({ scope, owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
+  count(who: PersonRef, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
+    return this.countMany([{ who, mention }], thread, scope);
+  }
+
+  /** `count` for several people at once, in one store call (#1309): each is told their own counts. */
+  async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: 'public' | 'group' | 'dm'): Promise<void> {
+    const rows = new Map((await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })))).map((r) => [r.personId, r]));
+    for (const { who } of people) {
+      const row = rows.get(who.id);
+      if (row) this.signal({ scope, owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
+    }
   }
 
   /**

@@ -4,11 +4,12 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { AsyncLock } from '../lock.js';
 import { conversationsOver } from './conversations.js';
+import { chunksOf } from '../batches.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
 } from '../chatRows.js';
-import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ThreadReadState } from '../types.js';
+import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ReadBump, ThreadReadState } from '../types.js';
 
 const GROUP_COLS = 'id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
@@ -125,8 +126,9 @@ class Channel {
     return { ok: true, message: toChannelMessage(this.byId(id, scope) as DbChannelRow) };
   }
 
-  heldMentions(scope: Scope, filter: { sessionId?: string }): ChannelMessage[] {
-    const w = this.where(scope);
+  /** The held mentions of one channel, or (with no `scope`) of every channel of the table in one read (#1309). */
+  heldMentions(scope: Scope | null, filter: { sessionId?: string }): ChannelMessage[] {
+    const w = scope ? this.where(scope) : { sql: '1 = 1', args: [] };
     const likes = heldLikes(filter.sessionId);
     const rows = this.stmt(`SELECT ${this.cols} FROM ${this.table} WHERE ${w.sql} AND ${likes.map(() => 'mentions_json LIKE ?').join(' AND ')} ORDER BY created_at, seq`).all(...w.args, ...likes) as unknown as DbChannelRow[];
     return rows.map(toChannelMessage).filter((m) => holdsHeld(m, filter.sessionId));
@@ -251,13 +253,26 @@ class ReadState {
   }
 
   bump(personId: number, thread: string, mention: boolean): ThreadReadState {
-    this.db
-      .prepare(
-        `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, NULL, 1, ?, ?)
-         ON CONFLICT(person, thread) DO UPDATE SET unread = unread + 1, mentions = mentions + excluded.mentions, updated_at = excluded.updated_at`,
-      )
-      .run(personKey(personId), personId, thread, mention ? 1 : 0, this.now());
-    return this.get(personId, thread);
+    return this.bumpMany(thread, [{ personId, mention }])[0] as ThreadReadState;
+  }
+
+  /** One insert (and one read) for each batch of people: the number of statements does not grow with the people (#1309). */
+  bumpMany(thread: string, bumps: readonly ReadBump[]): ThreadReadState[] {
+    const out = new Map<number, ThreadReadState>();
+    const at = this.now();
+    const folded = foldBumps(bumps);
+    for (const part of chunksOf(folded)) {
+      this.db
+        .prepare(
+          `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES ${part.map(() => '(?, ?, ?, NULL, ?, ?, ?)').join(', ')}
+           ON CONFLICT(person, thread) DO UPDATE SET unread = unread + excluded.unread, mentions = mentions + excluded.mentions, updated_at = excluded.updated_at`,
+        )
+        .run(...part.flatMap((b) => [personKey(b.personId), b.personId, thread, b.unread, b.mentions, at]));
+      // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
+      const rows = this.db.prepare(`SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`).all(thread, ...part.map((b) => b.personId)) as unknown as DbReadState[];
+      for (const r of rows) out.set(Number(r.person_id), toState(r));
+    }
+    return folded.map((b) => out.get(b.personId) as ThreadReadState);
   }
 
   markRead(personId: number, thread: string, upTo: string | null): ThreadReadState {
@@ -438,6 +453,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     get: (person, thread) => step(() => state.get(person, thread)),
     list: (person) => step(() => state.list(person)),
     bump: (person, thread, mention) => step(() => state.bump(person, thread, mention)),
+    bumpMany: (thread, bumps) => step(() => state.bumpMany(thread, bumps)),
     markRead: (person, thread, upTo) => step(() => state.markRead(person, thread, upTo)),
     forget: (thread) => step(() => state.forget(thread)),
     threads: (prefix) => step(() => state.threads(prefix)),
@@ -475,6 +491,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
     editMessage: (c, id, x) => step(() => pub.editMessage(inChannel(c), id, x)),
     deleteMessage: (c, id, x) => step(() => pub.deleteMessage(inChannel(c), id, x)),
     heldMentions: (c, filter) => step(() => pub.heldMentions(inChannel(c), filter)),
+    heldMentionsAcross: (filter) => step(() => pub.heldMentions(null, filter)),
     clear: (c) => step(() => pub.clear(inChannel(c))),
     count: (c) => step(() => pub.count(inChannel(c))),
     purge: (olderThan) => step(() => pub.purge(olderThan)),

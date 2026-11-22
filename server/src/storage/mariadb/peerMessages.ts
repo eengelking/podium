@@ -5,7 +5,6 @@
 // each event goes to `trail` as a row, and the routes decide what to write (never the text).
 import { randomBytes } from 'node:crypto';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
-import { pausedByOf } from '../peerText.js';
 import {
   HELD_STATES,
   CROSS_PENDING_MAX,
@@ -42,9 +41,10 @@ import {
 import { nameKey } from '../rows.js';
 import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
+import { headOf, linksOf, pairsOf, toSummary } from '../peerSummary.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, shownCount, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, type TripRow } from '../peerText.js';
 import type { MariaDbConn } from './conn.js';
 
 const RATE_WINDOW_MS = 60_000;
@@ -145,8 +145,10 @@ const PAIR_WHERE = '(from_session = ? AND to_session = ?) OR (from_session = ? A
 /** What the message store needs from the rights store: a narrow view, so either can be tested alone. */
 export interface MariaPeerRightsView {
   effective(from: string, to: string): Promise<EffectiveRight>;
+  effectiveMany(links: readonly (readonly [string, string])[]): Promise<EffectiveRight[]>;
   personLink(personKey: string, toKey: string): Promise<RightRow | null>;
   limits(ownerId: number | null): Promise<PeerLimits>;
+  limitsMany(ownerIds: readonly (number | null)[]): Promise<PeerLimits[]>;
   openMessageRequest(input: { owner: string; ownerId: number; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): Promise<PeerRequestRow>;
   closeMessageRequest(messageId: string, outcome: 'delivered' | 'dropped' | 'declined'): Promise<void>;
 }
@@ -581,59 +583,34 @@ export class MariaPeerMessages {
   // ---- Reading -----------------------------------------------------------------------------------------------------
 
   async conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]> {
-    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
+    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages (or one owner's, which the database narrows).
+    const owner = filter.ownerId ?? null;
     const all = await this.rows(
       `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
-       FROM peer_messages ORDER BY sent_at, seq`,
+       FROM peer_messages${owner === null ? '' : ' WHERE owner_id = ?'} ORDER BY sent_at, seq`,
+      owner === null ? [] : [owner],
     );
-    const owner = filter.ownerId ?? null;
     const groups = new Map<string, MessageRow[]>();
     for (const m of all) {
-      if (owner !== null && m.ownerId !== owner) continue;
       const pair = ordered(m.fromSession, m.toSession).join('|');
       const g = groups.get(pair) ?? [];
       g.push(m);
       groups.set(pair, g);
     }
-    const out: ConversationSummary[] = [];
-    for (const g of groups.values()) {
-      const s = await this.summary(g);
-      if (filter.since !== undefined && s.lastAt < filter.since) continue;
-      if (filter.liveOnly && !this.liveDir.has(s.a.sessionId) && !this.liveDir.has(s.b.sessionId)) continue;
-      out.push(s);
-    }
-    return out.sort((x, y) => y.lastAt - x.lastAt);
+    const kept = [...groups.values()].filter((g) => {
+      if (filter.since !== undefined && (g.at(-1) as MessageRow).sentAt < filter.since) return false;
+      const { a, b } = headOf(g);
+      return !filter.liveOnly || this.liveDir.has(a.sessionId) || this.liveDir.has(b.sessionId);
+    });
+    return (await this.summaries(kept)).sort((x, y) => y.lastAt - x.lastAt);
   }
 
-  /** One conversation's summary, from its messages in order. The names are the newest message's. */
-  private async summary(g: MessageRow[]): Promise<ConversationSummary> {
-    const last = g.at(-1) as MessageRow;
-    // The names are the newest message an agent wrote; a person's message in a conversation between two agents carries the person's name.
-    const named = [...g].reverse().find((m) => m.author === 'agent') ?? last;
-    const from = { sessionId: named.fromSession, name: named.fromName, machine: named.fromMachine, reporterKey: named.fromKey };
-    const to = { sessionId: named.toSession, name: named.toName, machine: named.toMachine, reporterKey: named.toKey };
-    const [a, b] = from.sessionId <= to.sessionId ? [from, to] : [to, from];
-    const ab = await this.rights.effective(a.reporterKey, b.reporterKey);
-    const ba = await this.rights.effective(b.reporterKey, a.reporterKey);
-    const paused = ab.paused || ba.paused;
-    let state: ConversationSummary['state'] = 'active';
-    if (g.some((m) => m.state === 'approval')) state = 'waiting';
-    else if (paused) state = 'paused';
-    return {
-      link: named.link,
-      a,
-      b,
-      owner: named.owner,
-      ownerId: named.ownerId,
-      messages: shownCount(g),
-      lastAt: last.sentAt,
-      state,
-      paused,
-      ...(paused ? pausedByOf(ab, ba) : {}),
-      aToB: canSend(ab.level),
-      bToA: canSend(ba.level),
-      roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(named.ownerId)).roundTrips },
-    };
+  /** The summaries of these conversations (each one's messages in order): the rights of every link and the limits of every owner are read once for all of them, so the statements do not grow with the conversations (#1309). */
+  private async summaries(groups: MessageRow[][]): Promise<ConversationSummary[]> {
+    const heads = groups.map(headOf);
+    const rights = await this.rights.effectiveMany(heads.flatMap(linksOf));
+    const caps = await this.rights.limitsMany(heads.map((h) => h.named.ownerId));
+    return groups.map((g, i) => toSummary(g, heads[i]!, rights[2 * i]!, rights[2 * i + 1]!, caps[i]!.roundTrips));
   }
 
   conversation(a: string, b: string): Promise<MessageRow[]> {
@@ -791,7 +768,7 @@ export class MariaPeerMessages {
   async conversationOf(a: string, b: string): Promise<ConversationSummary | null> {
     // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
     const rows = await this.rows(`SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
-    return rows.length > 0 ? this.summary(rows) : null;
+    return rows.length > 0 ? (await this.summaries([rows]))[0]! : null;
   }
 
   async conversationCounts(ownerIds: number[]): Promise<Record<number, number>> {
@@ -802,29 +779,35 @@ export class MariaPeerMessages {
 
   async ownerConversations(ownerId: number, opts: { includeHidden?: boolean; pairs?: string[] } = {}): Promise<OwnerConversation[]> {
     if (opts.pairs && opts.pairs.length === 0) return [];
+    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends. The database finds only those rows (#1309).
+    const me = personKeyOf(ownerId);
     const all = await this.db.all<DbMessage>(
       `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
-       FROM peer_messages ORDER BY sent_at, seq`,
+       FROM peer_messages WHERE owner_id = ? OR from_session = ? OR to_session = ? ORDER BY sent_at, seq`,
+      [ownerId, me, me],
     );
     const only = opts.pairs ? new Set(opts.pairs) : null;
-    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends.
-    const me = personKeyOf(ownerId);
     const groups = new Map<string, DbMessage[]>();
     for (const r of all) {
-      if ((r.owner_id == null || Number(r.owner_id) !== ownerId) && r.from_session !== me && r.to_session !== me) continue;
       const pair = ordered(r.from_session, r.to_session).join('|');
       if (only && !only.has(pair)) continue;
       const g = groups.get(pair) ?? [];
       g.push(r);
       groups.set(pair, g);
     }
-    const out: OwnerConversation[] = [];
+    const shown: { g: DbMessage[]; hiddenAt: number | null }[] = [];
     for (const g of groups.values()) {
       const hiddenAt = g.every((r) => r.hidden_at != null) ? latestOf(g.map((r) => r.hidden_at as number)) : null;
       if (hiddenAt !== null && !opts.includeHidden) continue;
-      out.push({ ...(await this.summary(g.map(toRow))), hiddenAt });
+      shown.push({ g, hiddenAt });
     }
-    return out.sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+    const summaries = await this.summaries(shown.map(({ g }) => g.map(toRow)));
+    return shown.map(({ hiddenAt }, i) => ({ ...summaries[i]!, hiddenAt })).sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+  }
+
+  async conversationPairs(): Promise<[string, string][]> {
+    // order-insensitive: each pair is kept once and `pairsOf` sorts them.
+    return pairsOf(await this.db.all<{ from_session: string; to_session: string }>('SELECT DISTINCT from_session, to_session FROM peer_messages'));
   }
 
   async hideConversation(ownerId: number, a: string, b: string): Promise<number> {
