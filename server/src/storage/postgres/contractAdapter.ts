@@ -64,7 +64,7 @@ export function postgresContractAdapter(): ContractAdapter {
         );
         return (rows.rows as { relname: string }[]).map((r) => r.relname);
       }),
-    // None: PostgreSQL keeps a key beside its row and has no layout that stores it once, so no table needs another (DECISIONS 80).
+    // None: PostgreSQL keeps a key beside its row and has no layout that stores it once, so no table needs another (DECISIONS 78).
     physical: [],
     schema: () =>
       onFresh(async (c) => {

@@ -23,7 +23,7 @@ function namesOf(db: DatabaseSync, into: SchemaNames): void {
 }
 
 /**
- * The tables this adapter lays out another way than the others (DECISIONS 80): `WITHOUT ROWID` keeps a table's row in its primary key's own order, so a table whose key is most of its row
+ * The tables this adapter lays out another way than the others (DECISIONS 78): `WITHOUT ROWID` keeps a table's row in its primary key's own order, so a table whose key is most of its row
  * is stored once and not twice (the row, and the key's index). Nothing a store call returns changes: `adapters.test.ts` reads the layouts back from the database and fails for one that is
  * here and not in the database or in the database and not here, and each entry names the contract case that holds the data the same on every adapter. The gain is the table and its indexes
  * for 100,000 messages with 2 deliveries each, and for 100,000 rows of each of the others, measured on a seeded file after `VACUUM`, the table and every index on it.

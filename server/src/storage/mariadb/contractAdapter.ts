@@ -34,7 +34,7 @@ export async function readSchema(url: string, database: string): Promise<SchemaN
   });
 }
 
-/** The tables whose layout is not an InnoDB table made with no options (DECISIONS 80): another engine, or one with a row format, a page compression or the like set. */
+/** The tables whose layout is not an InnoDB table made with no options (DECISIONS 78): another engine, or one with a row format, a page compression or the like set. */
 export async function readLayouts(url: string, database: string): Promise<string[]> {
   return withConnection(url, async (c) => {
     const rows = await c.query<{ table_name: string }[]>(
@@ -85,7 +85,7 @@ export function mariadbContractAdapter(): ContractAdapter {
     },
     schema: () => onFresh((td) => readSchema(td.url, td.name)),
     layouts: () => onFresh((td) => readLayouts(td.url, td.name)),
-    // None: InnoDB keeps a row once, in its primary key, so no table needs another layout (DECISIONS 80).
+    // None: InnoDB keeps a row once, in its primary key, so no table needs another layout (DECISIONS 78).
     physical: [],
     samplesPerf: mariadbSamplesPerf,
     known: [

@@ -110,6 +110,8 @@ describe('openDb', () => {
     old.exec('ALTER TABLE agents DROP COLUMN model_provider');
     old.exec('DROP INDEX peer_owner_settings_owner_id');
     for (const t of ['peer_owner_settings', 'peer_rights', 'peer_requests']) old.exec(`ALTER TABLE ${t} DROP COLUMN owner_id`);
+    // Migration 60 indexes `peer_messages.owner_id` and the `seq` of two tables, which the older steps only create, and SQLite will not drop a column an index is on.
+    old.exec('DROP INDEX peer_messages_owner');
     old.exec('ALTER TABLE peer_messages DROP COLUMN owner_id');
     old.exec('ALTER TABLE peer_rights DROP COLUMN paused_by_admin');
     old.exec('ALTER TABLE peer_rights DROP COLUMN paused_by');
@@ -125,6 +127,7 @@ describe('openDb', () => {
     for (const t of ['conversation_deliveries', 'conversation_messages', 'conversation_members', 'conversations', 'group_messages', 'public_messages', 'chat_read_state', 'chat_admin_reads', 'chat_admin_owed', 'public_channels']) old.exec(`DROP TABLE ${t}`);
     for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
       old.exec(`DROP INDEX ${t}_seq`);
+      old.exec(`DROP INDEX IF EXISTS ${t}_counter`);
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
     }
     for (const t of ['reporter_sessions', 'reporters', 'person_machines', 'people', 'groups', 'admin_log', 'settings', 'agent_texts']) old.exec(`DROP TABLE ${t}`);
@@ -196,7 +199,7 @@ describe('openDb', () => {
     const rotated = people.rotate(made.person.id);
     expect(rotated?.token).not.toBe(made.token);
     expect(people.findByKeyId('aabbccddeeff')?.name).toBe('Ada');
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 55 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 60 });
     db.close();
   });
 
@@ -229,6 +232,7 @@ describe('openDb', () => {
     const old = openDb(file);
     for (const t of ['peer_messages', 'person_certificates']) {
       old.exec(`DROP INDEX ${t}_seq`);
+      old.exec(`DROP INDEX IF EXISTS ${t}_counter`);
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
     }
     old.exec('DELETE FROM schema_migrations WHERE version = 25');
@@ -259,6 +263,7 @@ describe('openDb', () => {
     // A database made before migration 26: peer_requests has no seq column.
     const old = openDb(file);
     old.exec('DROP INDEX peer_requests_seq');
+    old.exec('DROP INDEX peer_requests_counter');
     old.exec('ALTER TABLE peer_requests DROP COLUMN seq');
     old.exec('DELETE FROM schema_migrations WHERE version = 26');
     // Three requests made in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in. The number follows the id, as PostgreSQL's does.
@@ -284,7 +289,7 @@ describe('openDb', () => {
     a.close();
     const db = openDb(file);
     expect(db.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 55 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 60 });
     expect(db.prepare('SELECT name FROM sessions').all()).toEqual([{ name: 'demo' }]);
     expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
     db.close();

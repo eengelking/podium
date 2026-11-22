@@ -240,6 +240,7 @@ function fillDailyOwnerIds(db: DatabaseSync): void {
 function fillOwed(db: DatabaseSync): void {
   if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
   const add = db.prepare('INSERT INTO chat_admin_owed (person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING');
+  // order-insensitive: each owed row is written under its own key, whatever the order.
   for (const r of db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[]) {
     for (const p of owedIds(r)) add.run(p, r.thread, r.admin_key, r.started_at);
   }
@@ -1024,7 +1025,7 @@ CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
     version: 56,
     // A delivery is found by its message (#1296). `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan of every
     // delivery; the key is `(message_id, member_kind, member_ref)` now, and a conversation's deliveries are those of its messages. The table is made again and its rows copied, as migration 52
-    // does, and made `WITHOUT ROWID` as DECISIONS 80 allows: a row is kept in its key's own order and not twice, once in the table and once in the key's index (PHYSICAL in `contractAdapter.ts`
+    // does, and made `WITHOUT ROWID` as DECISIONS 78 allows: a row is kept in its key's own order and not twice, once in the table and once in the key's index (PHYSICAL in `contractAdapter.ts`
     // declares it). That part is SQLite's alone, so PostgreSQL step 32 and MariaDB step 32 change the key and the column and nothing else.
     sql: `
 CREATE TABLE conversation_deliveries_new (

@@ -741,7 +741,7 @@ ALTER TABLE chat_read_state DROP COLUMN IF EXISTS person, DROP COLUMN IF EXISTS 
   {
     version: 32,
     // A delivery is found by its message (#1296): `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan. See SQLite migration 56,
-    // which also lays its table out another way (DECISIONS 80); there is nothing to do for that here.
+    // which also lays its table out another way (DECISIONS 78); there is nothing to do for that here.
     sql: typed(`
 ALTER TABLE conversation_deliveries DROP CONSTRAINT conversation_deliveries_pkey;
 ALTER TABLE conversation_deliveries DROP COLUMN conversation_id;

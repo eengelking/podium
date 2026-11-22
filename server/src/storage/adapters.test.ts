@@ -21,7 +21,7 @@ const NOT_CALLED = new Set<string>([
 ]);
 
 /**
- * What is wrong with one adapter's layouts (DECISIONS 80), as the lines to print, or none. `found` is what its database says, `declared` its list, `tablesOf` the tables of every running adapter,
+ * What is wrong with one adapter's layouts (DECISIONS 78), as the lines to print, or none. `found` is what its database says, `declared` its list, `tablesOf` the tables of every running adapter,
  * and `caseText` reads the file of a contract case in `server/src/storage/` (null when there is none).
  */
 function layoutProblems(
@@ -33,7 +33,7 @@ function layoutProblems(
 ): string[] {
   const names = declared.map((d) => d.table);
   const out = [
-    ...found.filter((t) => !names.includes(t)).map((t) => `${adapter}: the table ${t} is laid out another way and is not declared. Declare it in the adapter's list of physical differences with its reason, its measured gain and the contract case that proves the data is the same (DECISIONS 80), or make it the way every adapter's is.`),
+    ...found.filter((t) => !names.includes(t)).map((t) => `${adapter}: the table ${t} is laid out another way and is not declared. Declare it in the adapter's list of physical differences with its reason, its measured gain and the contract case that proves the data is the same (DECISIONS 78), or make it the way every adapter's is.`),
     ...declared.filter((d) => !found.includes(d.table)).map((d) => `${adapter}: ${d.id} declares ${d.table} laid out with ${d.option}, and the database does not have it that way. Remove the entry or make the layout.`),
     ...declared.filter((d, i) => names.indexOf(d.table) !== i).map((d) => `${adapter}: ${d.table} is declared twice.`),
   ];
@@ -85,7 +85,7 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
     }
   });
 
-  // How a table is laid out on disk is not in the names above, and no store call can see it (DECISIONS 80). Each adapter declares the tables it lays out another way, with the case that holds
+  // How a table is laid out on disk is not in the names above, and no store call can see it (DECISIONS 78). Each adapter declares the tables it lays out another way, with the case that holds
   // their data the same, and its database is asked: a layout that is not declared fails, and so does a declaration the database does not bear out.
   it('declares every table an adapter lays out another way, and the database bears each declaration out', async () => {
     const tablesOf = Object.fromEntries(await Promise.all(running.map(async (a) => [a.name, Object.keys((await a.schema()).tables)] as const)));

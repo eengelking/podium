@@ -771,7 +771,7 @@ ALTER TABLE chat_read_state MODIFY person_id INT NOT NULL, DROP PRIMARY KEY, ADD
   {
     version: 32,
     // A delivery is found by its message (#1296): `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan. See SQLite migration 56,
-    // which also lays its table out another way (DECISIONS 80); InnoDB already keeps a row once, in its key, so there is nothing to do for that here. The key and the column change in one statement, which can run
+    // which also lays its table out another way (DECISIONS 78); InnoDB already keeps a row once, in its key, so there is nothing to do for that here. The key and the column change in one statement, which can run
     // twice: a step that stopped half way finds the key and the column as it left them.
     statements: steps(`
 ALTER TABLE conversation_deliveries DROP PRIMARY KEY, ADD PRIMARY KEY (message_id, member_kind, member_ref), DROP COLUMN IF EXISTS conversation_id;
