@@ -296,6 +296,19 @@ describe('a conversation ends when an agent in it ends (#1283)', () => {
     expect(told.map((n) => n.text)).toEqual([`${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`]);
   });
 
+  it('forgets the counts left for a conversation that no longer exists when the maintenance runs, and keeps the counts of one that does (#1296)', async () => {
+    const w = await world();
+    const kept = (await OPEN(w.alexB, [person('Ed')], 'stays')).body.conversation.id as string;
+    // A count with no conversation behind it, as a crash between deleting a conversation and its counts leaves.
+    const readState = w.fleet.chat.core.store.readState;
+    await readState.bumpMany('convo:cnv_00000000_000000000000000000000000', [{ personId: w.ed.person.id, mention: false }]);
+    const counted = async () => (await readState.threads('convo:')).sort();
+    expect(await counted()).toEqual([`convo:${kept}`, 'convo:cnv_00000000_000000000000000000000000'].sort());
+    await w.fleet.chat.maintain();
+    expect(await counted()).toEqual([`convo:${kept}`]);
+    expect(((await w.edB.get(CH)).body.conversations as { id: string; unread: number }[]).map((c) => [c.id, c.unread])).toEqual([[kept, 1]]);
+  });
+
   it('tells the agent that remains, once, in its own words when the conversation stays because two people are still in it', async () => {
     const w = await world();
     const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-tester' }, { kind: 'agent', sessionId: 'sess-dev' }], 'all of you');
@@ -306,7 +319,8 @@ describe('a conversation ends when an agent in it ends (#1283)', () => {
   });
 });
 
-// An @ in a Direct Message with more than one agent (#1282): a message with no @ goes to every agent in it; one that names members goes only to them.
+// What a conversation refuses (a member list, a text, a rate), what it writes to the Admin log, and the Admin's ping of a conversation with an agent in it. Pinned before a
+// Direct Message moves to the conversation tables (#1296).
 describe('what a conversation refuses, and what it writes to the Admin log (#1296)', () => {
   const HA = { 'X-Podium-Admin': '1' };
   const SEND = (b: B, id: string, text?: unknown) => b.post(`${CH}/conversations/${id}/messages`).set(H).send(text === undefined ? {} : { text });
@@ -430,6 +444,7 @@ describe('what a conversation refuses, and what it writes to the Admin log (#129
   });
 });
 
+// An @ in a Direct Message with more than one agent (#1282): a message with no @ goes to every agent in it; one that names members goes only to them.
 describe('an @ in a conversation with two agents and a person', () => {
   const SEND = (b: B, id: string, text: string) => b.post(`${CH}/conversations/${id}/messages`).set(H).send({ text });
   async function room() {
