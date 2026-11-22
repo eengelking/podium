@@ -4326,6 +4326,42 @@ describe("conversations of people and agents (#1278)", () => {
     expect(within(screen.getByTestId("chat-conversation")).getByText("thanks")).toBeInTheDocument();
   });
 
+  // #1296: an open conversation reads on the console's signal like a thread does, and parses only what changed.
+  it("reads the open conversation and the overview again on a chat signal, once each, and shows what they returned", async () => {
+    const chat = withConvo();
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const read = { overview: chat.api.overview.mock.calls.length, convo: chat.api.conversationMessages.mock.calls.length };
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k3", "A message that came with the signal.", false)];
+    p.signal();
+    await flush();
+    expect({ overview: chat.api.overview.mock.calls.length - read.overview, convo: chat.api.conversationMessages.mock.calls.length - read.convo }).toEqual({ overview: 1, convo: 1 });
+    expect(within(screen.getByTestId("chat-conversation")).getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("parses only the message that arrived in an open conversation, and the one that was edited, not the ones already on screen", async () => {
+    const chat = withConvo(convo(), [cmessage("k1", "first", false), cmessage("k2", "second", true), cmessage("k3", "third", false)]);
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k4", "Only this one is new.", false)];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = chat.w.convoMessages.cnv_1!.map((m) => (m.id === "k2" ? { ...m, text: "second, edited on another console", editedAt: T0 } : m));
+    p.signal();
+    await flush();
+    expect(screen.getByText("second, edited on another console")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
   const agent = (name: string, machine = "ed-mbp") => ({ kind: "agent" as const, name, you: false, addedBy: "Ed", address: `${name}@${machine}`, sessionId: `s-${name}` });
   const withAgents = () => convo({ hasAgent: true, members: [...convo().members, agent("Tester"), agent("infra-notes")] });
   const openConvo = async (chat: ReturnType<typeof withConvo>) => {
