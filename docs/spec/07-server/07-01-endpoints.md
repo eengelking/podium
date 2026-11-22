@@ -647,7 +647,7 @@ The `/api/admin/*` routes ([7.7](07-07-hardening.md)):
       signed in to Admin, or would leave the Administrators group with no active (unrevoked) member, since only an
       active member can open Admin. An id that is not a person is skipped, and `removed` counts the people it removed;
       it answers `404` if none of the ids is a person. Sessions, spend rows and Admin log entries that name a person keep the name as text, and the name can be
-      created again. It writes one `person_deleted` Admin log entry per person, naming who deleted whom.
+      created again (a new person of that name owns none of them, [DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md)). It writes one `person_deleted` Admin log entry per person, naming who deleted whom.
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Reports (#484, [8.1](../08-ui/08-01-what-the-ui-must-do.md#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,

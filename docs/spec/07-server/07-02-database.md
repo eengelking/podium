@@ -504,7 +504,7 @@ ALTER TABLE peer_messages ADD COLUMN to_agent INTEGER;     -- the agent it was a
 
 One session has one id, and a new session (a `/clear` makes one) gets a new id whatever name it takes, so an id never reaches a later agent that took an earlier one's name. `agent_ids` has no foreign key and its rows are never removed. The sessions that exist are given ids in the order they started, and each stored message the ids of its two sessions; a message whose session is gone keeps NULL, so it is never matched to a newcomer. No two live agents of one owner hold the same name: the later one is shown as "Name 2" and takes its own name back once it is free ([7.1](07-01-endpoints.md)).
 
-Migration 49 (#1284; PostgreSQL and MariaDB main step 25) binds a session and a reporter to a person by id, never by name:
+Migration 49 (#1284; PostgreSQL and MariaDB main step 25) binds a session and a reporter to a person by id, never by name ([DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md) gives the rule and its two limits):
 
 ```sql
 ALTER TABLE sessions ADD COLUMN owner_id INTEGER;    -- the owner's people.id; NULL for the admin secret's sessions and for one whose person was deleted
@@ -563,7 +563,7 @@ longer exists), the purge of a hidden conversation, nor Delete conversation remo
 any. An Admin's stop is recorded before it happens, so a stop that cannot be recorded does not happen. Deleting a person removes their group, read counts,
 Direct Messages (the ones they own and the ones with their `person:<id>` end), links, requests and owner defaults, and the Admin records owed only to them (they
 can never be seen); a record owed to others as well stays for them, without the deleted person. A record that names nobody is not theirs. Sessions, spend, the
-Admin log and General keep their name as text, but a session and a day's spend keep no person: their `owner_id` is NULL or `0` (migrations 49 and 52), so a new person who takes the name owns none of them (#1284).
+Admin log and General keep their name as text, but a session and a day's spend keep no person: their `owner_id` is NULL or `0` (migrations 49 and 52), so a new person who takes the name owns none of them (#1284, [DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md)).
 
 - **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General and a public channel). `<scope>` is
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried

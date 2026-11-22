@@ -15,7 +15,7 @@ DECISIONS 20 and 30.
 - `routes.ts` turns the `X-Podium-Token` header into an identity before it reads a body. The identity is one of:
   a person's token (`pdm_<key id>_<secret>`, found by key id and checked against a stored SHA-256 in constant
   time), the admin secret (`PODIUM_TOKEN`), or open when auth is off.
-- The identity gives the session its `owner` (the name, for display) and its `owner_id` (the person's `people.id`, null for the admin secret), which `ingest.ts` writes into `sessions.owner` and `sessions.owner_id`; who owns a session is the id, never the name (#1284). For a person's
+- The identity gives the session its `owner` (the name, for display) and its `owner_id` (the person's `people.id`, null for the admin secret), which `ingest.ts` writes into `sessions.owner` and `sessions.owner_id`; who owns a session is the id, never the name (#1284, [DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md)). For a person's
   token the report's `userName` must also match, so the token decides who and the name is only a consistency
   check.
 - `storage/sqlite/people.ts` owns the migration-6 tables (people, groups, person_machines, admin_log, settings) and every paged
