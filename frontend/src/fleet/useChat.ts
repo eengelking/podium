@@ -205,11 +205,15 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
   }, []);
   const [gate] = useState(() => new ReadGate());
   const shown = useRef<string | null>(null);
+  // The read for the latest signal until it has landed, and the page Earlier messages is reading: each lands before the other starts from the view, so neither replaces the other's.
+  const reading = useRef<Promise<unknown>>(Promise.resolve());
+  const loading = useRef<Promise<unknown>>(Promise.resolve());
 
   /** Reads the newest page and the earlier pages kept; returns what to do when they land, or null when a newer read replaced this one. */
   const read = useCallback(
     async (at: number): Promise<(() => void) | null> => {
       const r = await readPage(null);
+      await loading.current;
       if (!gate.land(at)) return null;
       const was = now.current;
       const held = [...was.latest, ...was.earlier];
@@ -261,12 +265,14 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
   const reload = useCallback(async () => {
     if (key === null) return;
     const at = gate.fresh();
-    await landing.run(
+    const run = landing.run(
       () => read(at),
       (err) => () => {
         if (gate.land(at)) put({ error: readError(err), loaded: true });
       },
     );
+    reading.current = run.catch(() => undefined);
+    await run;
   }, [key, gate, landing, read, put]);
 
   useEffect(() => {
@@ -282,12 +288,22 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
   }, [key, rev, reload, gate, put]);
 
   const loadEarlier = useCallback(async () => {
-    const before = now.current.older;
-    if (key === null || !before || now.current.loadingEarlier) return;
+    if (key === null || !now.current.older || now.current.loadingEarlier) return;
     put({ loadingEarlier: true });
     const opened = shown.current;
+    // A read for a signal that is still out lands first, and this page is read from the cursor it leaves.
+    for (let out = reading.current; ; out = reading.current) {
+      await out;
+      if (out === reading.current) break;
+    }
+    if (shown.current !== opened) return;
+    const before = now.current.older;
+    // The read cleared the earlier pages: there is nothing before them to ask for.
+    if (!before) return put({ loadingEarlier: false });
+    const fetching = readPage(before);
+    loading.current = fetching.catch(() => undefined);
     try {
-      const r = await readPage(before);
+      const r = await fetching;
       // Another thread opened while this page was out: it is not this one's page, and the new view is already clear.
       if (shown.current !== opened) return;
       const cur = now.current;

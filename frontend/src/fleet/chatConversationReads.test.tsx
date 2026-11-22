@@ -230,6 +230,7 @@ describe("what the open conversation keeps between reads", () => {
     act(() => {
       pending = hook.result.current.loadEarlier();
     });
+    await settle();
     s.conversationMessages.mockImplementationOnce(() => new Promise(() => undefined));
     hook.rerender({ id: "cnv_2" });
     await act(async () => {
@@ -237,6 +238,34 @@ describe("what the open conversation keeps between reads", () => {
       await pending;
     });
     expect(hook.result.current.messages).toEqual([]);
+    expect(hook.result.current.older).toBeNull();
+    expect(hook.result.current.loadingEarlier).toBe(false);
+  });
+
+  it("keeps the page Earlier messages loaded while a read for a signal waits in the Landing, and the result of that read", async () => {
+    const s = paged();
+    const landing = new Landing();
+    const hook = renderHook(({ rev }) => useConversation(s.api, ID, rev, landing), { initialProps: { rev: 0 } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    await act(async () => void (await hook.result.current.loadEarlier()));
+    expect(ids(hook.result)).toEqual(["m3", "m4", "m5", "m6"]);
+    let release: () => void = () => undefined;
+    void landing.run(() => new Promise((done) => (release = () => done(null))), () => () => undefined);
+    s.all.push(row("m7", "newest"));
+    s.all[3] = row("m4", "text m4, edited", { editedAt: T0 });
+    hook.rerender({ rev: 1 });
+    await settle();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await settle();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    await waitFor(() => expect(ids(hook.result)).toEqual(["m1", "m2", "m3", "m4", "m5", "m6", "m7"]));
+    expect(hook.result.current.messages.find((m) => m.id === "m4")?.text).toBe("text m4, edited");
     expect(hook.result.current.older).toBeNull();
     expect(hook.result.current.loadingEarlier).toBe(false);
   });
