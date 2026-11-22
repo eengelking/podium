@@ -270,6 +270,57 @@ describe("what the open conversation keeps between reads", () => {
     expect(hook.result.current.loadingEarlier).toBe(false);
   });
 
+  /** A conversation with a page of earlier messages loaded, and a read for a signal that is held in the Landing until `release`, and Earlier messages asked for behind it. */
+  async function waiting() {
+    const s = paged();
+    const landing = new Landing();
+    const hook = renderHook(({ id, rev }) => useConversation(s.api, id, rev, landing), { initialProps: { id: ID, rev: 0 } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    await act(async () => void (await hook.result.current.loadEarlier()));
+    let release: () => void = () => undefined;
+    void landing.run(() => new Promise((done) => (release = () => done(null))), () => () => undefined);
+    return { s, hook, release: () => release() };
+  }
+  const askBehind = async (hook: Awaited<ReturnType<typeof waiting>>["hook"], rev: number) => {
+    hook.rerender({ id: ID, rev });
+    await settle();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await settle();
+    return () => pending;
+  };
+
+  it("asks for no earlier page when the read it waited for found the conversation cleared", async () => {
+    const { s, hook, release } = await waiting();
+    s.all.splice(0, s.all.length, row("m7", "after the clear"));
+    const done = await askBehind(hook, 1);
+    s.conversationMessages.mockClear();
+    await act(async () => {
+      release();
+      await done();
+    });
+    expect(ids(hook.result)).toEqual(["m7"]);
+    expect(hook.result.current.loadingEarlier).toBe(false);
+    expect(s.conversationMessages).not.toHaveBeenCalled();
+  });
+
+  it("asks for no earlier page of a conversation that was left for another while it waited", async () => {
+    const { s, hook, release } = await waiting();
+    const done = await askBehind(hook, 1);
+    hook.rerender({ id: "cnv_2", rev: 1 });
+    await settle();
+    s.conversationMessages.mockClear();
+    await act(async () => {
+      release();
+      await done();
+    });
+    expect(ids(hook.result)).toEqual(["m5", "m6"]);
+    expect(hook.result.current.loadingEarlier).toBe(false);
+    expect(s.conversationMessages).not.toHaveBeenCalled();
+  });
+
   it("says why a read failed, keeps what was shown, and reads again on the next signal", async () => {
     const s = paged();
     const { result, rerender } = await loaded(s, 0);

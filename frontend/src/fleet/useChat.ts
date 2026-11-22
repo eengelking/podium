@@ -271,7 +271,7 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
         if (gate.land(at)) put({ error: readError(err), loaded: true });
       },
     );
-    reading.current = run.catch(() => undefined);
+    reading.current = Promise.allSettled([run]);
     await run;
   }, [key, gate, landing, read, put]);
 
